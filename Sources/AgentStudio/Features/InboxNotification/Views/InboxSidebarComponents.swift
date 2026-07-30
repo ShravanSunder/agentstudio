@@ -306,7 +306,7 @@ struct InboxSidebarHeader: View {
                                     size: AppStyles.General.Icon.compact
                                 )
                             },
-                            label: { groupingCommandSpec(for: $0).label },
+                            label: { $0.commandLabel },
                             onSelect: { candidate in
                                 let command = groupingCommandSpec(for: candidate).command
                                 guard commandCapability.canDispatch(command) else { return }

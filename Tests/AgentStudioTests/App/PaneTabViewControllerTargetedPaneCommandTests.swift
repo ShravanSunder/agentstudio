@@ -161,6 +161,35 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == !wasExpanded)
     }
 
+    @Test("targeted Close Pane removes an owned drawer child")
+    func closePane_ownedDrawerChild_removesPane() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        #expect(
+            harness.controller.canExecute(
+                .closePane,
+                target: drawerPane.id,
+                targetType: .pane
+            )
+        )
+
+        harness.controller.execute(
+            .closePane,
+            target: drawerPane.id,
+            targetType: .pane
+        )
+
+        #expect(harness.store.pane(drawerPane.id) == nil)
+        #expect(harness.store.pane(parentPane.id) != nil)
+    }
+
     @Test("targeted pane location commands use the exact drawer child path")
     func paneLocationCommands_drawerChild_useTargetPath() throws {
         let harness = makeHarness()
@@ -312,7 +341,7 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
     }
 
     @Test("Move Pane presentation enables with a destination and rechecks before activation")
-    func movePaneToTabPresentation_destinationRemovedBeforeActivation_doesNotMove() async throws {
+    func movePaneToTabPresentation_managementModeEndsBeforeActivation_doesNotMove() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -342,13 +371,14 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
                 )
                 #expect(presentation.isEnabled)
 
-                harness.store.removeTab(destinationTab.id)
+                atom(\.managementLayer).deactivate()
                 presentation.movePane(
                     sourceTabId: sourceTab.id,
                     targetTabId: destinationTab.id
                 )
 
                 #expect(harness.store.tab(sourceTab.id)?.activePaneIds.contains(sourcePane.id) == true)
+                #expect(harness.store.tab(destinationTab.id)?.activePaneIds.contains(sourcePane.id) == false)
             }
         )
     }

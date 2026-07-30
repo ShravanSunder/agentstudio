@@ -16,6 +16,7 @@ struct DrawerToolbarCommandPresentationTests {
         _ = DrawerToolbarCommandPresentation.resolve(
             anchorPaneId: anchorPaneId,
             locationTargetPaneId: locationTargetPaneId,
+            toolbarSurface: .pane,
             actionResolver: resolver.resolve
         )
 
@@ -61,6 +62,26 @@ struct DrawerToolbarCommandPresentationTests {
         )
     }
 
+    @Test("Zoom controls request the exact terminal Zoom toolbar surface")
+    func controlsRequestExactTerminalZoomToolbarSurface() {
+        let resolver = RecordingDrawerToolbarActionResolver()
+
+        _ = DrawerToolbarCommandPresentation.resolve(
+            anchorPaneId: UUID(),
+            locationTargetPaneId: UUID(),
+            toolbarSurface: .terminalZoom,
+            actionResolver: resolver.resolve
+        )
+
+        #expect(
+            resolver.requests.map(\.surface)
+                == Array(
+                    repeating: .toolbar(.terminalZoom),
+                    count: 6
+                )
+        )
+    }
+
     @Test("unsupported controls are omitted while denied controls stay presented and disabled")
     func omissionAndDisabledStateRemainDistinct() {
         let resolver = RecordingDrawerToolbarActionResolver()
@@ -70,6 +91,7 @@ struct DrawerToolbarCommandPresentationTests {
         let presentation = DrawerToolbarCommandPresentation.resolve(
             anchorPaneId: UUID(),
             locationTargetPaneId: UUID(),
+            toolbarSurface: .pane,
             actionResolver: resolver.resolve
         )
 
@@ -96,6 +118,7 @@ struct DrawerToolbarCommandPresentationTests {
         let presentation = DrawerToolbarCommandPresentation.resolve(
             anchorPaneId: anchorPaneId,
             locationTargetPaneId: locationTargetPaneId,
+            toolbarSurface: .pane,
             actionResolver: { command, surface, target, targetType in
                 TargetedCommandControlAction.resolve(
                     command: command,

@@ -53,6 +53,51 @@ struct AppDelegateMenuPresentationTests {
         }
     }
 
+    @Test("menu activation rechecks New Window and Close Window through dispatcher")
+    func windowMenuActivationRechecksDispatcher() async throws {
+        let rejectingRouter = RejectingWindowMenuRouter()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = nil
+                AppCommandDispatcher.shared.appCommandRouter = rejectingRouter
+            },
+            body: {
+                let delegate = AppDelegate()
+
+                delegate.dispatchNewWindowMenuCommand()
+                delegate.dispatchCloseWindowMenuCommand()
+
+                #expect(rejectingRouter.capabilityCommands == [.newWindow, .closeWindow])
+                #expect(rejectingRouter.executedCommands.isEmpty)
+            }
+        )
+    }
+
+    @Test("File menu routes New Window and Close Window through dispatcher selectors")
+    func fileMenuRoutesWindowCommandsThroughDispatcherSelectors() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(
+            source.contains(
+                "menuItem(command: .newWindow, action: #selector(dispatchNewWindowMenuCommand))"
+            )
+        )
+        #expect(
+            source.contains(
+                "menuItem(command: .closeWindow, action: #selector(dispatchCloseWindowMenuCommand))"
+            )
+        )
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.newWindow)"))
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.closeWindow)"))
+    }
+
     private func makeMenuItem(command: AppCommand) -> NSMenuItem {
         let menuItem = NSMenuItem(
             title: command.definition.label,
@@ -62,4 +107,32 @@ struct AppDelegateMenuPresentationTests {
         menuItem.representedObject = command.rawValue
         return menuItem
     }
+}
+
+@MainActor
+private final class RejectingWindowMenuRouter: ShellCommandHandling {
+    private(set) var capabilityCommands: [AppCommand] = []
+    private(set) var executedCommands: [AppCommand] = []
+
+    func canExecute(_ command: AppCommand) -> Bool {
+        capabilityCommands.append(command)
+        return false
+    }
+
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        false
+    }
+
+    func execute(_ command: AppCommand) -> Bool {
+        executedCommands.append(command)
+        return true
+    }
+
+    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        false
+    }
+
+    func showRepoCommandBar() {}
+    func refreshWorktrees() {}
+    func refocusActivePane() {}
 }

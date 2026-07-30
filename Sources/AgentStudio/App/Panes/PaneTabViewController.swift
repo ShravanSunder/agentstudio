@@ -394,14 +394,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
-            onAdd: { [weak self] in
-                self?.addNewTab()
-            },
             onPaneAction: { [weak self] action in
                 self?.dispatchAction(action)
-            },
-            onOpenRepoInTab: {
-                AppCommandDispatcher.shared.dispatch(.showCommandBarRepos)
             },
             workspaceWindowId: workspaceWindowId
         )
@@ -1134,21 +1128,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return .hidden
         }
 
-        let commandContext = currentCommandContext()
         let terminalModeActions: TerminalModeToolbarActions?
         if case .terminal = pane.content {
             terminalModeActions = TerminalModeToolbarActions(
                 zoomAction: paneSurfaceToolbarAction(
                     command: .zoomPane,
                     sourcePaneId: paneId,
-                    surface: .pane,
-                    commandContext: commandContext
+                    surface: .pane
                 ),
                 viewerAction: paneSurfaceToolbarAction(
                     command: .showViewer,
                     sourcePaneId: paneId,
-                    surface: .pane,
-                    commandContext: commandContext
+                    surface: .pane
                 )
             )
         } else {
@@ -1173,20 +1164,17 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard let tabId = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) })?.id else {
             return .hidden
         }
-        let commandContext = currentCommandContext()
         return PaneSurfaceToolbarResolver.resolveZoom(
             viewerPresentation: viewerPresentation,
             viewerAction: paneSurfaceToolbarAction(
                 command: .showViewer,
                 sourcePaneId: paneId,
-                surface: .terminalZoom,
-                commandContext: commandContext
+                surface: .terminalZoom
             ),
             zoomAction: paneSurfaceToolbarAction(
                 command: .zoomPane,
                 sourcePaneId: paneId,
-                surface: .terminalZoom,
-                commandContext: commandContext
+                surface: .terminalZoom
             ),
             showArrangementsAction: paneShowArrangementsAction(
                 sourcePaneId: paneId,
@@ -1198,25 +1186,26 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func paneSurfaceToolbarAction(
         command: AppCommand,
         sourcePaneId: UUID,
-        surface: AppCommandToolbarSurface,
-        commandContext: CommandContext
+        surface: AppCommandToolbarSurface
     ) -> PaneSurfaceToolbarAction? {
         let definition = command.definition
         guard
             definition.shouldPresent(
                 AppCommandPresentationQuery(
                     surface: .toolbar(surface),
-                    subject: .contextualTarget(commandContext, .pane)
+                    subject: .targeted(.pane)
                 )
             )
         else {
             return nil
         }
 
-        let isEnabled =
-            command == .showViewer
-            ? canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId)
-            : canExecute(command, target: sourcePaneId, targetType: .pane)
+        let dispatcher = AppCommandDispatcher.shared
+        let isEnabled = dispatcher.canDispatch(
+            command,
+            target: sourcePaneId,
+            targetType: .pane
+        )
         return PaneSurfaceToolbarAction(
             state: PaneSurfaceToolbarAction.State(
                 label: definition.label,
@@ -1226,37 +1215,24 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 isEnabled: isEnabled,
                 isSelected: false
             ),
-            perform: { [weak self] in
-                guard let self else { return }
-                if command == .showViewer {
-                    _ = executePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId)
-                } else {
-                    execute(command, target: sourcePaneId, targetType: .pane)
-                }
+            perform: {
+                dispatcher.dispatch(
+                    command,
+                    target: sourcePaneId,
+                    targetType: .pane
+                )
             }
         )
     }
 
-    private func currentCommandContext() -> CommandContext {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let focusedPane = atom(\.workspaceFocusedPane).resolve(
-            workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom,
-            requestedOwner: atom(\.workspaceFocusOwner).owner
-        )
-        return atom(\.commandContext).currentContext(
-            workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom,
-            focusedPane: focusedPane,
-            workspacePanePresentation: store.panePresentationAtom
-        )
-    }
-
     private func canExecutePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
-        if canExecute(.showViewer, target: sourcePaneId, targetType: .pane) {
+        if let activeTabId = store.tabLayoutAtom.activeTabId,
+            let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: activeTabId),
+            zoomPresentation.sourcePaneId == sourcePaneId,
+            let sourcePane = store.paneAtom.pane(sourcePaneId),
+            case .terminal = sourcePane.content,
+            zoomPresentation.viewerPresentation != .unavailable
+        {
             return true
         }
         guard let capability = zoomCommandCapability(explicitPaneId: sourcePaneId) else {
@@ -3787,6 +3763,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return nil
             }
             return .expandPane(
+                tabId: target.owningTabId,
+                paneId: target.paneId
+            )
+        case .closePane:
+            return .closePane(
                 tabId: target.owningTabId,
                 paneId: target.paneId
             )

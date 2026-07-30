@@ -141,6 +141,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
         let emptyContext = CommandContext.empty
         let appToolbarPresentation = ShellTabBarCommandPresentation(
             definition: definition,
+            surface: .toolbar(.app),
             commandContext: emptyContext
         )
 
@@ -158,6 +159,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(
             ShellTabBarCommandPresentation(
                 definition: commandBarOnlyDefinition,
+                surface: .toolbar(.app),
                 commandContext: emptyContext
             ) == nil
         )
@@ -174,12 +176,14 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(
             ShellTabBarCommandPresentation(
                 definition: activeTabDefinition,
+                surface: .toolbar(.app),
                 commandContext: emptyContext
             ) == nil
         )
         #expect(
             ShellTabBarCommandPresentation(
                 definition: activeTabDefinition,
+                surface: .toolbar(.app),
                 commandContext: CommandContext(satisfiedRequirements: [.hasActiveTab])
             )?.command == command
         )
@@ -192,6 +196,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
         let presentation = try #require(
             ShellTabBarCommandPresentation(
                 definition: AppCommand.newTab.definition,
+                surface: .toolbar(.app),
                 commandContext: .empty,
                 dispatcher: dispatcher
             )

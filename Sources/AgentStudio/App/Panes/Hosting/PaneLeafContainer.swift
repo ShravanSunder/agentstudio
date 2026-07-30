@@ -263,6 +263,7 @@ struct PaneLeafContainer: View {
                         PaneSurfaceToolbarHost(
                             anchorPaneId: paneHost.id,
                             locationTargetPaneId: locationTargetPaneId,
+                            toolbarSurface: .pane,
                             drawer: drawer,
                             leadingToolbarActions: toolbarPresentation.leadingActions,
                             contextToolbarActions: toolbarPresentation.contextActions,
@@ -381,6 +382,7 @@ struct PaneLeafContainer: View {
                             if let minimizePresentation {
                                 managementCommandCircleButton(
                                     presentation: minimizePresentation,
+                                    systemName: "minus",
                                     isHovered: isMinimizeHovered,
                                     accessibilityIdentifier: "paneManagement.minimize"
                                 ) {
@@ -392,6 +394,7 @@ struct PaneLeafContainer: View {
                             if let closePresentation {
                                 managementCommandCircleButton(
                                     presentation: closePresentation,
+                                    systemName: "xmark",
                                     isHovered: isCloseHovered,
                                     accessibilityIdentifier: "paneManagement.close",
                                     additionalEnabledState: !isClosing
@@ -427,6 +430,7 @@ struct PaneLeafContainer: View {
                                 if let splitPresentation {
                                     paneEdgeCommandButton(
                                         presentation: splitPresentation,
+                                        systemName: "plus",
                                         isHovered: isSplitHovered,
                                         accessibilityIdentifier: "paneManagement.addPane"
                                     ) {
@@ -689,36 +693,34 @@ extension PaneLeafContainer {
 
     private func managementCommandCircleButton(
         presentation: PaneLeafCommandPresentation,
+        systemName: String,
         isHovered: Bool,
         accessibilityIdentifier: String,
         additionalEnabledState: Bool = true,
         action: @escaping @MainActor @Sendable () -> Void
     ) -> some View {
         let isEnabled = presentation.isEnabled && additionalEnabledState
-
         return Button(action: action) {
-            presentation.spec.icon.swiftUIImage(
-                loader: octiconLoader,
-                size: AppStyles.Shell.ManagementLayer.actionIconSize
-            )
-            .foregroundStyle(
-                .white.opacity(
-                    AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered)
-                )
-            )
-            .frame(
-                width: AppStyles.Shell.ManagementLayer.actionSize,
-                height: AppStyles.Shell.ManagementLayer.actionSize
-            )
-            .background(
-                Circle()
-                    .fill(
-                        Color.black.opacity(
-                            AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
-                        )
+            Image(systemName: systemName)
+                .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
+                .foregroundStyle(
+                    .white.opacity(
+                        AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered)
                     )
-            )
-            .contentShape(Circle())
+                )
+                .frame(
+                    width: AppStyles.Shell.ManagementLayer.actionSize,
+                    height: AppStyles.Shell.ManagementLayer.actionSize
+                )
+                .background(
+                    Circle()
+                        .fill(
+                            Color.black.opacity(
+                                AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+                            )
+                        )
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -749,13 +751,14 @@ extension PaneLeafContainer {
 
     private func paneEdgeCommandButton(
         presentation: PaneLeafCommandPresentation,
+        systemName: String,
         isHovered: Bool,
         accessibilityIdentifier: String,
         action: @escaping @MainActor @Sendable () -> Void
     ) -> some View {
         Button(action: action) {
             paneEdgeCommandButtonLabel(
-                presentation.spec,
+                systemName: systemName,
                 isHovered: isHovered
             )
         }
@@ -848,41 +851,39 @@ extension PaneLeafContainer {
     }
 
     private func paneEdgeCommandButtonLabel(
-        _ spec: AppCommandSpec,
+        systemName: String,
         isHovered: Bool
     ) -> some View {
-        spec.icon.swiftUIImage(
-            loader: octiconLoader,
-            size: AppStyles.Shell.PaneChrome.paneSplitIconSize
-        )
-        .foregroundStyle(
-            .white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered))
-        )
-        .frame(
-            width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
-            height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
-        )
-        .background(
-            UnevenRoundedRectangle(
-                topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 0
+        Image(systemName: systemName)
+            .font(.system(size: AppStyles.Shell.PaneChrome.paneSplitIconSize, weight: .bold))
+            .foregroundStyle(
+                .white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered))
             )
-            .fill(
-                Color.black.opacity(
-                    AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+            .frame(
+                width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
+                height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
+            )
+            .background(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                )
+                .fill(
+                    Color.black.opacity(
+                        AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+                    )
                 )
             )
-        )
-        .contentShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 0
+            .contentShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                )
             )
-        )
     }
 
     private func paneEdgeButtonLabel(

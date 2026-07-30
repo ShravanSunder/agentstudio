@@ -119,6 +119,22 @@ final class AppCommandTests {
         #expect(rawValues.count == uniqueValues.count)
     }
 
+    @Test
+    func launcherCommandsExposeInlineControlSurface() {
+        #expect(
+            AppCommand.showCommandBarEverything.definition.surfacePolicy
+                .exposes(.inlineControl)
+        )
+        #expect(
+            AppCommand.showCommandBarRepos.definition.surfacePolicy
+                .exposes(.inlineControl)
+        )
+        #expect(
+            AppCommand.watchFolder.definition.surfacePolicy
+                .exposes(.inlineControl)
+        )
+    }
+
     // MARK: - SearchItemType
 
     @Test
@@ -517,7 +533,10 @@ final class AppCommandTests {
         #expect(clearAllInbox.targeting == .contextual)
         #expect(paneInbox.shortcut == .showPaneInboxNotifications)
         #expect(paneInbox.surfacePolicy.exposes(.commandBar))
-        #expect(paneInbox.surfacePolicy == .exposed([.commandBar, .toolbar(.pane)]))
+        #expect(
+            paneInbox.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
+        )
         #expect(
             paneInbox.targeting
                 == .contextualAndTargeted(

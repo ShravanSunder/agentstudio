@@ -3,10 +3,37 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Pane leaf command presentation")
 struct PaneLeafCommandPresentationTests {
+    @Test("management chrome preserves the shipped glyphs while command specs own behavior")
+    func managementChromePreservesShippedGlyphs() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/Hosting/PaneLeafContainer.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(
+            source.contains(
+                "presentation: minimizePresentation,\n                                    systemName: \"minus\""))
+        #expect(
+            source.contains(
+                "presentation: closePresentation,\n                                    systemName: \"xmark\""))
+        #expect(
+            source.contains(
+                "presentation: splitPresentation,\n                                        systemName: \"plus\""))
+        #expect(source.contains(".controlHelp(presentation.spec.controlTooltipRenderValue())"))
+        #expect(source.contains("isEnabled: presentation.isEnabled"))
+        #expect(source.contains("minimizePresentation.perform()"))
+        #expect(source.contains("closePresentation.perform()"))
+        #expect(source.contains("splitPresentation.perform()"))
+    }
+
     @Test("pane management projects only the catalog-declared surface and pane target")
     func projectsExactSurfaceAndPaneTarget() {
         let dispatcher = RecordingPaneLeafCommandDispatcher()

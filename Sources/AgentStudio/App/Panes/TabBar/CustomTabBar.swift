@@ -69,9 +69,7 @@ struct CustomTabBar: View {
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onShowArrangements: ((UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
-    var onAdd: (() -> Void)?
     var onPaneAction: ((WorkspaceActionCommand) -> Void)?
-    var onOpenRepoInTab: (() -> Void)?
     var workspaceWindowId: UUID?
 
     @State private var scrollOffset: CGFloat = 0
@@ -121,7 +119,16 @@ struct CustomTabBar: View {
     }
 
     var body: some View {
-        let chromeLayout = TabBarChromeLayoutPlan(hasNewTab: onAdd != nil, isOverflowing: adapter.isOverflowing)
+        let hasNewTab =
+            ShellTabBarCommandPresentation(
+                command: .newTab,
+                surface: .toolbar(.app),
+                commandContext: ShellTabBarCommandContext.current()
+            ) != nil
+        let chromeLayout = TabBarChromeLayoutPlan(
+            hasNewTab: hasNewTab,
+            isOverflowing: adapter.isOverflowing
+        )
 
         GeometryReader { geometry in
             HStack(alignment: .center, spacing: 0) {
@@ -309,10 +316,8 @@ struct CustomTabBar: View {
                 workspaceWindowId: workspaceWindowId
             )
         case .newTab:
-            if let onAdd {
-                NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
-                    .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
-            }
+            NewTabButton()
+                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
         case .tabStrip, .overflowLeft, .overflowRight, .overflowMenu:
             EmptyView()
         }
@@ -389,10 +394,8 @@ struct CustomTabBar: View {
             .fixedSize()
             .onHover { isOverflowMenuHovered = $0 }
         case .newTab:
-            if let onAdd {
-                NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
-                    .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
-            }
+            NewTabButton()
+                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
         case .sidebarSurfaces, .watchFolder, .managementLayer, .arrangement, .tabStrip:
             EmptyView()
         }
@@ -955,7 +958,6 @@ struct TabBarEmptyState: View {
                     canDispatchCommand: { _, _ in true },
                     onCommand: { _, _ in },
                     onShowArrangements: { _ in },
-                    onAdd: {},
                     onPaneAction: { _ in },
                     workspaceWindowId: nil
                 )

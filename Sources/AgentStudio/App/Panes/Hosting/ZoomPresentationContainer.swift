@@ -221,6 +221,7 @@ struct ZoomPresentationContainer: View {
             PaneSurfaceToolbarHost(
                 anchorPaneId: sourcePaneId,
                 locationTargetPaneId: sourcePaneId,
+                toolbarSurface: .terminalZoom,
                 drawer: store.paneAtom.pane(sourcePaneId)?.drawer,
                 leadingToolbarActions: [],
                 contextToolbarActions: [zoomAction, toolbarModel.viewerAction].compactMap(\.self),

@@ -319,6 +319,7 @@ struct ZoomPresentationContainerTests {
                     rootView: PaneSurfaceToolbarHost(
                         anchorPaneId: pane.id,
                         locationTargetPaneId: pane.id,
+                        toolbarSurface: .pane,
                         drawer: nil,
                         leadingToolbarActions: [],
                         contextToolbarActions: [],

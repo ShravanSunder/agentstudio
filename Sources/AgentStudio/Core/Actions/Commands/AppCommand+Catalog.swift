@@ -528,7 +528,7 @@ extension AppCommand {
                 label: "Add Drawer Pane",
                 icon: .system(.rectangleBottomhalfInsetFilled),
                 helpText: "Add a drawer pane to the active pane",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -541,7 +541,7 @@ extension AppCommand {
                 label: "Toggle Drawer",
                 icon: .system(.rectangleExpandVertical),
                 helpText: "Expand or collapse the active pane drawer",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -639,7 +639,7 @@ extension AppCommand {
                 label: "Open Pane Location in Finder",
                 icon: .system(.finder),
                 helpText: "Open the selected pane location in Finder",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -652,7 +652,7 @@ extension AppCommand {
                 label: "Open In Menu",
                 icon: .system(.chevronUpChevronDown),
                 helpText: "Open the editor chooser for the selected pane",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -678,7 +678,7 @@ extension AppCommand {
                 label: "Copy Current Pane Path",
                 icon: LocalActionSpec.copyPath.actionSpec.icon,
                 helpText: "Copy the current pane path",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
                 targeting: .contextualAndTargeted([.pane], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -791,7 +791,7 @@ extension AppCommand {
                 label: "Toggle Pane Inbox",
                 icon: .system(.bellBadge),
                 helpText: "Show notifications for the active pane and its drawer children",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane)])
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
             )
         case .clearPaneInboxNotifications:
             return paneInboxDefinition(
@@ -894,7 +894,7 @@ extension AppCommand {
                 label: "Quick Find",
                 icon: .system(.magnifyingglass),
                 helpText: "Open quick find",
-                surfacePolicy: .exposed([.commandBar, .mainMenu])
+                surfacePolicy: .exposed([.commandBar, .mainMenu, .inlineControl])
             )
         case .showCommandBarQuickOpen:
             return commandBarNavigationDefinition(
@@ -925,7 +925,7 @@ extension AppCommand {
                 label: "Repositories",
                 icon: .system(.folder),
                 helpText: "Open the repository navigator",
-                surfacePolicy: .exposed([.commandBar, .mainMenu, .contextMenu])
+                surfacePolicy: .exposed([.commandBar, .mainMenu, .contextMenu, .inlineControl])
             )
         case .openWebview:
             return AppCommandSpec(

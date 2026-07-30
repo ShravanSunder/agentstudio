@@ -288,31 +288,56 @@ struct WorkspaceEmptyStateView: View {
     private var launcherShortcutsColumns: some View {
         let quickFindDefinition = AppCommand.showCommandBarEverything.definition
         let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition
+        let commandContext = ShellTabBarCommandContext.current()
+        let quickFindPresentation = ShellTabBarCommandPresentation(
+            definition: quickFindDefinition,
+            surface: .inlineControl,
+            commandContext: commandContext
+        )
+        let repositoriesPresentation = ShellTabBarCommandPresentation(
+            definition: newTabOrWorktreeDefinition,
+            surface: .inlineControl,
+            commandContext: commandContext
+        )
+        let watchFolderPresentation = ShellTabBarCommandPresentation(
+            command: .watchFolder,
+            surface: .inlineControl,
+            commandContext: commandContext
+        )
 
         return HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
             LauncherPreviewStack(octiconLoader: octiconLoader)
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
-                launcherShortcutRow(
-                    key: quickFindDefinition.keyBinding?.displayString,
-                    title: quickFindDefinition.label,
-                    subtitle: "Everything in the app, one keypress away.",
-                    action: { AppCommandDispatcher.shared.dispatch(quickFindDefinition.command) }
-                )
+                if let quickFindPresentation {
+                    launcherShortcutRow(
+                        key: quickFindDefinition.keyBinding?.displayString,
+                        title: quickFindDefinition.label,
+                        subtitle: "Everything in the app, one keypress away.",
+                        isEnabled: quickFindPresentation.isEnabled,
+                        action: quickFindPresentation.perform
+                    )
+                }
 
-                launcherShortcutRow(
-                    key: newTabOrWorktreeDefinition.keyBinding?.displayString,
-                    title: newTabOrWorktreeDefinition.label,
-                    subtitle: "Opens the # picker. New Empty Tab is always first.",
-                    action: { AppCommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }
-                )
+                if let repositoriesPresentation {
+                    launcherShortcutRow(
+                        key: newTabOrWorktreeDefinition.keyBinding?.displayString,
+                        title: newTabOrWorktreeDefinition.label,
+                        subtitle: "Opens the # picker. New Empty Tab is always first.",
+                        isEnabled: repositoriesPresentation.isEnabled,
+                        action: repositoriesPresentation.perform
+                    )
+                }
 
-                launcherShortcutRow(
-                    keyImage: "folder.badge.plus",
-                    title: "Watch Folder",
-                    subtitle: "Scan and keep watching a folder for repos.",
-                    action: { AppCommandDispatcher.shared.dispatch(.watchFolder) }
-                )
+                if let watchFolderPresentation {
+                    launcherShortcutRow(
+                        keyImage: "folder.badge.plus",
+                        title: "Watch Folder",
+                        subtitle: "Scan and keep watching a folder for repos.",
+                        isEnabled: watchFolderPresentation.isEnabled,
+                        action: watchFolderPresentation.perform
+                    )
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -323,6 +348,7 @@ struct WorkspaceEmptyStateView: View {
         keyImage: String? = nil,
         title: String,
         subtitle: String,
+        isEnabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
         LauncherShortcutRow(
@@ -330,6 +356,7 @@ struct WorkspaceEmptyStateView: View {
             keyImage: keyImage,
             title: title,
             subtitle: subtitle,
+            isEnabled: isEnabled,
             action: action
         )
     }

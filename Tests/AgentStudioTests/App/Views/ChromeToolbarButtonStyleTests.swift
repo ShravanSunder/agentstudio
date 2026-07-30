@@ -120,7 +120,10 @@ struct ChromeToolbarButtonStyleTests {
         for circularSection in [watchSection, managementSection, newTabSection] {
             #expect(circularSection.contains("ChromeToolbarButtonLabel("))
             #expect(circularSection.contains("Button"))
-            #expect(circularSection.contains("presentation.perform"))
+            #expect(
+                circularSection.contains("presentation.perform")
+                    || circularSection.contains("newTabToolbarPresentation.perform")
+            )
             #expect(!containsMenuInitializer(in: circularSection))
             #expect(!circularSection.contains(".menuStyle"))
             #expect(!circularSection.contains("showsBackground: false"))

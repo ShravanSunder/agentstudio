@@ -29,7 +29,9 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("keyImage: \"folder.badge.plus\""))
         #expect(source.contains("title: \"Watch Folder\""))
         #expect(source.contains("subtitle: \"Scan and keep watching a folder for repos.\""))
-        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(.watchFolder) }"))
+        #expect(source.contains("let watchFolderPresentation = ShellTabBarCommandPresentation("))
+        #expect(source.contains("surface: .inlineControl"))
+        #expect(source.contains("action: watchFolderPresentation.perform"))
         #expect(!source.contains("private func launcherIconShortcutButton("))
     }
 
@@ -47,10 +49,14 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition"))
         #expect(source.contains("key: quickFindDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: quickFindDefinition.label"))
-        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(quickFindDefinition.command) }"))
+        #expect(source.contains("let quickFindPresentation = ShellTabBarCommandPresentation("))
+        #expect(source.contains("action: quickFindPresentation.perform"))
         #expect(source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
-        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }"))
+        #expect(source.contains("let repositoriesPresentation = ShellTabBarCommandPresentation("))
+        #expect(source.contains("action: repositoriesPresentation.perform"))
+        #expect(source.contains("isEnabled: quickFindPresentation.isEnabled"))
+        #expect(source.contains("isEnabled: repositoriesPresentation.isEnabled"))
         #expect(!source.contains("title: \"Command palette\""))
     }
 

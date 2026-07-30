@@ -147,6 +147,41 @@ struct CommandContextDerivedTests {
     }
 
     @Test
+    func multipleArrangementsProduceArrangementRequirement() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let pane = store.createPane()
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            atoms.workspaceFocusOwner.focusMainPane(pane.id)
+
+            @MainActor
+            func currentContext() -> CommandContext {
+                let focusedPane = WorkspaceFocusedPaneResolver().resolve(
+                    workspaceTab: atom(\.workspaceTab),
+                    workspacePane: atom(\.workspacePane),
+                    requestedOwner: atoms.workspaceFocusOwner.owner
+                )
+                return CommandContextDerived().currentContext(
+                    workspaceTab: atom(\.workspaceTab),
+                    workspacePane: atom(\.workspacePane),
+                    focusedPane: focusedPane,
+                    workspacePanePresentation: atoms.workspacePanePresentation
+                )
+            }
+
+            #expect(!currentContext().satisfiedRequirements.contains(.hasArrangements))
+            _ = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+            #expect(currentContext().satisfiedRequirements.contains(.hasArrangements))
+        }
+    }
+
+    @Test
     func focusedContentNormalizesCallerSuppliedRequirementsToItsSingleClassification() {
         let contentRequirements: Set<CommandRequirement> = [
             .paneIsTerminal,
@@ -341,6 +376,87 @@ struct CommandContextDerivedTests {
             #expect(context.focusedContentType == .webview)
             #expect(context.satisfiedRequirements.contains(.supportsTerminalZoom))
             #expect(context.satisfiedRequirements.contains(.hasActiveTerminalZoom))
+        }
+    }
+
+    @Test
+    func terminalMainPaneSupportsZoomWhileWebviewDrawerOwnsFocus() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let terminalPane = store.createPane()
+            let tab = Tab(paneId: terminalPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            let webviewDrawerPane = try #require(
+                atoms.workspacePane.addDrawerPane(
+                    to: terminalPane.id,
+                    content: .webview(WebviewState(url: URL(string: "https://drawer.example")!)),
+                    metadata: PaneMetadata(contentType: .browser, title: "Drawer")
+                )
+            )
+            atoms.workspaceFocusOwner.focusDrawerPane(
+                parentPaneId: terminalPane.id,
+                paneId: webviewDrawerPane.id
+            )
+
+            let focusedPane = WorkspaceFocusedPaneResolver().resolve(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                requestedOwner: atoms.workspaceFocusOwner.owner
+            )
+            let context = CommandContextDerived().currentContext(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                focusedPane: focusedPane,
+                workspacePanePresentation: atoms.workspacePanePresentation
+            )
+
+            #expect(context.focusedContentType == .webview)
+            #expect(context.satisfiedRequirements.contains(.supportsTerminalZoom))
+            #expect(!context.satisfiedRequirements.contains(.hasActiveTerminalZoom))
+        }
+    }
+
+    @Test
+    func terminalDrawerDoesNotEnableZoomForWebviewMainPane() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let webviewPane = store.createPane(
+                content: .webview(WebviewState(url: URL(string: "https://main.example")!)),
+                metadata: PaneMetadata(contentType: .browser, title: "Webview")
+            )
+            let tab = Tab(paneId: webviewPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            let terminalDrawerPane = try #require(store.addDrawerPane(to: webviewPane.id))
+            atoms.workspaceFocusOwner.focusDrawerPane(
+                parentPaneId: webviewPane.id,
+                paneId: terminalDrawerPane.id
+            )
+
+            let focusedPane = WorkspaceFocusedPaneResolver().resolve(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                requestedOwner: atoms.workspaceFocusOwner.owner
+            )
+            let context = CommandContextDerived().currentContext(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                focusedPane: focusedPane,
+                workspacePanePresentation: atoms.workspacePanePresentation
+            )
+
+            #expect(context.focusedContentType == .terminal)
+            #expect(!context.satisfiedRequirements.contains(.supportsTerminalZoom))
+            #expect(!context.satisfiedRequirements.contains(.hasActiveTerminalZoom))
         }
     }
 }

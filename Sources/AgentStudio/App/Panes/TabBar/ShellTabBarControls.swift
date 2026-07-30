@@ -14,11 +14,13 @@ struct ShellTabBarCommandPresentation: Equatable {
     @MainActor
     init?(
         command: AppCommand,
+        surface: AppCommandSurface,
         commandContext: CommandContext,
         dispatcher: any AppCommandDispatching = AppCommandDispatcher.shared
     ) {
         self.init(
             definition: AppCommandDispatcher.shared.definition(for: command),
+            surface: surface,
             commandContext: commandContext,
             dispatcher: dispatcher
         )
@@ -27,13 +29,14 @@ struct ShellTabBarCommandPresentation: Equatable {
     @MainActor
     init?(
         definition: AppCommandSpec,
+        surface: AppCommandSurface,
         commandContext: CommandContext,
         dispatcher: any AppCommandDispatching = AppCommandDispatcher.shared
     ) {
         guard
             definition.shouldPresent(
                 AppCommandPresentationQuery(
-                    surface: .toolbar(.app),
+                    surface: surface,
                     subject: .contextual(commandContext)
                 )
             )
@@ -99,6 +102,7 @@ struct SidebarSurfaceTabBarControls: View {
         HStack(spacing: AppStyles.Shell.Chrome.SidebarNav.iconSpacing) {
             if let presentation = ShellTabBarCommandPresentation(
                 command: .showWorktreeSidebar,
+                surface: .toolbar(.app),
                 commandContext: commandContext
             ) {
                 SidebarSurfaceTabBarButton(
@@ -111,6 +115,7 @@ struct SidebarSurfaceTabBarControls: View {
 
             if let presentation = ShellTabBarCommandPresentation(
                 command: .showInboxNotifications,
+                surface: .toolbar(.app),
                 commandContext: commandContext
             ) {
                 SidebarSurfaceTabBarButton(
@@ -165,6 +170,7 @@ struct WatchFolderTabBarMenu: View {
     var body: some View {
         if let presentation = ShellTabBarCommandPresentation(
             command: .watchFolder,
+            surface: .toolbar(.app),
             commandContext: ShellTabBarCommandContext.current()
         ) {
             Button {
@@ -194,6 +200,7 @@ struct TabBarManagementLayerButton: View {
     var body: some View {
         if let presentation = ShellTabBarCommandPresentation(
             command: .toggleManagementLayer,
+            surface: .toolbar(.app),
             commandContext: ShellTabBarCommandContext.current()
         ) {
             Button(action: presentation.perform) {
@@ -215,35 +222,57 @@ struct TabBarManagementLayerButton: View {
 /// Circular "+" button for creating a new tab.
 /// Click = empty terminal (existing behavior). Right-click = menu with options.
 struct NewTabButton: View {
-    let onAdd: () -> Void
-    let onOpenRepoInTab: (() -> Void)?
     @State private var isHovered = false
 
     @ViewBuilder
     var body: some View {
-        if let presentation = ShellTabBarCommandPresentation(
+        let commandContext = ShellTabBarCommandContext.current()
+        let newTabToolbarPresentation = ShellTabBarCommandPresentation(
             command: .newTab,
-            commandContext: ShellTabBarCommandContext.current()
-        ) {
-            Button(action: presentation.perform) {
-                ChromeToolbarButtonLabel(
-                    symbolName: "plus",
-                    isHovered: isHovered
-                )
+            surface: .toolbar(.app),
+            commandContext: commandContext
+        )
+        let emptyTerminalPresentation = ShellTabBarCommandPresentation(
+            command: .newTab,
+            surface: .contextMenu,
+            commandContext: commandContext
+        )
+        let repositoriesPresentation = ShellTabBarCommandPresentation(
+            command: .showCommandBarRepos,
+            surface: .contextMenu,
+            commandContext: commandContext
+        )
+
+        if let newTabToolbarPresentation {
+            ZStack {
+                Button(action: newTabToolbarPresentation.perform) {
+                    ChromeToolbarButtonLabel(
+                        symbolName: "plus",
+                        isHovered: isHovered
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!newTabToolbarPresentation.isEnabled)
             }
-            .buttonStyle(.plain)
             .contextMenu {
-                Button(LocalActionSpec.emptyTerminal.actionSpec.label) { onAdd() }
-                Divider()
-                if let onOpenRepoInTab {
-                    Button(LocalActionSpec.openRepoWorktree.actionSpec.label) {
-                        onOpenRepoInTab()
+                if let emptyTerminalPresentation {
+                    Button(LocalActionSpec.emptyTerminal.actionSpec.label) {
+                        emptyTerminalPresentation.perform()
                     }
+                    .disabled(!emptyTerminalPresentation.isEnabled)
+                }
+                if emptyTerminalPresentation != nil, repositoriesPresentation != nil {
+                    Divider()
+                }
+                if let repositoriesPresentation {
+                    Button(LocalActionSpec.openRepoWorktree.actionSpec.label) {
+                        repositoriesPresentation.perform()
+                    }
+                    .disabled(!repositoriesPresentation.isEnabled)
                 }
             }
             .onHover { isHovered = $0 }
-            .disabled(!presentation.isEnabled)
-            .help(presentation.controlToolTip)
+            .help(newTabToolbarPresentation.controlToolTip)
         }
     }
 }

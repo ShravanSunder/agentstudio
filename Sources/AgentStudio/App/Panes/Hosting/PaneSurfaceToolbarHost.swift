@@ -15,43 +15,44 @@ struct DrawerToolbarCommandPresentation {
     static func resolve(
         anchorPaneId: UUID,
         locationTargetPaneId: UUID,
+        toolbarSurface: AppCommandToolbarSurface,
         actionResolver: TargetedCommandControlActionResolver
     ) -> Self {
-        let paneToolbarSurface = AppCommandSurface.toolbar(.pane)
+        let commandSurface = AppCommandSurface.toolbar(toolbarSurface)
         return Self(
             toggleDrawer: actionResolver(
                 .toggleDrawer,
-                paneToolbarSurface,
+                commandSurface,
                 anchorPaneId,
                 .pane
             ),
             addDrawerPane: actionResolver(
                 .addDrawerPane,
-                paneToolbarSurface,
+                commandSurface,
                 anchorPaneId,
                 .pane
             ),
             openEditorMenu: actionResolver(
                 .openPaneLocationInEditorMenu,
-                paneToolbarSurface,
+                commandSurface,
                 locationTargetPaneId,
                 .pane
             ),
             openFinder: actionResolver(
                 .openPaneLocationInFinder,
-                paneToolbarSurface,
+                commandSurface,
                 locationTargetPaneId,
                 .pane
             ),
             copyPath: actionResolver(
                 .copyCurrentPanePath,
-                paneToolbarSurface,
+                commandSurface,
                 locationTargetPaneId,
                 .pane
             ),
             showPaneInbox: actionResolver(
                 .showPaneInboxNotifications,
-                paneToolbarSurface,
+                commandSurface,
                 anchorPaneId,
                 .pane
             )
@@ -63,6 +64,7 @@ struct DrawerToolbarCommandPresentation {
 struct PaneSurfaceToolbarHost: View {
     let anchorPaneId: UUID
     let locationTargetPaneId: UUID
+    let toolbarSurface: AppCommandToolbarSurface
     let drawer: Drawer?
     let leadingToolbarActions: [PaneSurfaceToolbarAction]
     let contextToolbarActions: [PaneSurfaceToolbarAction]
@@ -80,6 +82,7 @@ struct PaneSurfaceToolbarHost: View {
         let commandPresentation = DrawerToolbarCommandPresentation.resolve(
             anchorPaneId: anchorPaneId,
             locationTargetPaneId: locationTargetPaneId,
+            toolbarSurface: toolbarSurface,
             actionResolver: { command, surface, target, targetType in
                 TargetedCommandControlAction.resolve(
                     command: command,
