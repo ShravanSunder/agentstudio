@@ -130,14 +130,16 @@ In `PaneTabViewController`:
 
 1. Resolve toolbar content and parent/main-pane status from
    `paneAtom.graphAtom.paneState(paneId)`.
-2. Resolve the owning tab with `tabLayoutAtom.tabContaining(paneId:)`.
+2. Resolve the owning tab ID through the existing indexed
+   `WorkspaceTabGraphAtom.tabID(containingPane:)` lookup exposed by the
+   read-only tab-layout facade.
 3. Use the same direct graph-state content check for targeted Viewer
    availability and active Zoom Viewer availability.
 4. Reimplement `resolvedViewerWorktreeId(forPane:)` from graph-state facets:
    validate an existing worktree id, otherwise resolve the stored CWD, then
    preserve the existing sole-worktree fallback.
-5. Use `tabContaining(paneId:)` for normal and Zoom toolbar presentation
-   instead of scanning `tabs`.
+5. Use the indexed pane-owner lookup for normal and Zoom toolbar presentation
+   instead of reconstructing tabs or scanning `tabs`.
 6. Delete `mainPaneTabIdByPaneId`.
 
 Do not cache toolbar presentations. Do not add a new observable projection.

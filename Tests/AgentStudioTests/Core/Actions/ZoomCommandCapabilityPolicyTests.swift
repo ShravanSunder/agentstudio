@@ -18,7 +18,7 @@ struct ZoomCommandCapabilityPolicyTests {
             activePaneId: activePaneId,
             explicitPaneId: targetPaneId,
             candidate: candidate(paneId: targetPaneId, tabId: activeTabId),
-            zoomSourcePaneIdByTabId: [:]
+            zoomSourcePaneId: nil
         )
 
         #expect(
@@ -42,7 +42,7 @@ struct ZoomCommandCapabilityPolicyTests {
                 tabId: activeTabId,
                 isEligible: false
             ),
-            zoomSourcePaneIdByTabId: [activeTabId: targetPaneId]
+            zoomSourcePaneId: targetPaneId
         )
 
         #expect(
@@ -62,7 +62,7 @@ struct ZoomCommandCapabilityPolicyTests {
             activePaneId: activePaneId,
             explicitPaneId: targetPaneId,
             candidate: candidate(paneId: targetPaneId, tabId: inactiveTabId),
-            zoomSourcePaneIdByTabId: [inactiveTabId: targetPaneId]
+            zoomSourcePaneId: targetPaneId
         )
 
         #expect(
@@ -82,7 +82,7 @@ struct ZoomCommandCapabilityPolicyTests {
             activePaneId: activePaneId,
             explicitPaneId: targetPaneId,
             candidate: candidate(paneId: targetPaneId, tabId: inactiveTabId),
-            zoomSourcePaneIdByTabId: [inactiveTabId: otherPaneId]
+            zoomSourcePaneId: otherPaneId
         )
 
         #expect(
@@ -102,7 +102,7 @@ struct ZoomCommandCapabilityPolicyTests {
             activePaneId: nil,
             explicitPaneId: nil,
             candidate: nil,
-            zoomSourcePaneIdByTabId: [activeTabId: targetPaneId]
+            zoomSourcePaneId: targetPaneId
         )
 
         #expect(
@@ -122,7 +122,7 @@ struct ZoomCommandCapabilityPolicyTests {
             activePaneId: activePaneId,
             explicitPaneId: nil,
             candidate: candidate(paneId: activePaneId, tabId: activeTabId),
-            zoomSourcePaneIdByTabId: [:]
+            zoomSourcePaneId: nil
         )
 
         #expect(
@@ -146,14 +146,14 @@ struct ZoomCommandCapabilityPolicyTests {
                 tabId: activeTabId,
                 isEligible: false
             ),
-            zoomSourcePaneIdByTabId: [:]
+            zoomSourcePaneId: nil
         )
         let mismatchedResult = ZoomCommandCapabilityPolicy.resolve(
             activeTabId: activeTabId,
             activePaneId: activePaneId,
             explicitPaneId: activePaneId,
             candidate: candidate(paneId: otherPaneId, tabId: activeTabId),
-            zoomSourcePaneIdByTabId: [:]
+            zoomSourcePaneId: nil
         )
 
         #expect(ineligibleResult == nil)

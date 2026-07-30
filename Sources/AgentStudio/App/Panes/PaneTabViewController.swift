@@ -1134,7 +1134,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard
             let paneState = store.paneAtom.graphAtom.paneState(paneId),
             !paneState.isDrawerChild,
-            let tabId = store.tabLayoutAtom.tabContaining(paneId: paneId)?.id
+            let tabId = store.tabLayoutAtom.tabID(containingPane: paneId)
         else {
             return .hidden
         }
@@ -1157,7 +1157,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for paneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> PaneSurfaceToolbarPresentation {
-        guard let tabId = store.tabLayoutAtom.tabContaining(paneId: paneId)?.id else {
+        guard let tabId = store.tabLayoutAtom.tabID(containingPane: paneId) else {
             return .hidden
         }
         let zoomAction = paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId)
@@ -1201,7 +1201,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func canExecutePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
+    package func canExecutePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
         if canExecute(.showViewer, target: sourcePaneId, targetType: .pane) {
             return true
         }
@@ -2968,13 +2968,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func zoomCommandCapability(explicitPaneId: UUID?) -> ZoomCommandCapability? {
         let activeTabId = store.tabLayoutAtom.activeTabId
-        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+        let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.activePaneID(forTab: $0) }
         let candidatePaneId = explicitPaneId ?? activePaneId
         let candidate = candidatePaneId.flatMap { paneId -> ZoomCommandCandidate? in
             guard
                 let paneState = store.paneAtom.graphAtom.paneState(paneId),
                 !paneState.isDrawerChild,
-                let tabId = store.tabLayoutAtom.tabContaining(paneId: paneId)?.id
+                let tabId = store.tabLayoutAtom.tabID(containingPane: paneId)
             else {
                 return nil
             }
@@ -2986,15 +2986,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 )
             )
         }
-        let zoomSourcePaneIdByTabId = store.panePresentationAtom.zoomPresentationsByTabId.mapValues(
-            \.sourcePaneId
-        )
+        let capabilityTabId = candidate?.tabId ?? activeTabId
+        let zoomSourcePaneId = capabilityTabId.flatMap {
+            store.panePresentationAtom.zoomPresentation(forTab: $0)?.sourcePaneId
+        }
         return ZoomCommandCapabilityPolicy.resolve(
             activeTabId: activeTabId,
             activePaneId: activePaneId,
             explicitPaneId: explicitPaneId,
             candidate: candidate,
-            zoomSourcePaneIdByTabId: zoomSourcePaneIdByTabId
+            zoomSourcePaneId: zoomSourcePaneId
         )
     }
 
@@ -3082,14 +3083,17 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
         let facets = paneState.durableContextFacets
-        if let worktreeId = facets.worktreeId {
-            guard store.repositoryTopologyAtom.worktree(worktreeId) != nil else {
-                return nil
-            }
+        let hasExplicitWorktreeId = facets.worktreeId != nil
+        if let worktreeId = facets.worktreeId,
+            store.repositoryTopologyAtom.worktree(worktreeId) != nil
+        {
             return worktreeId
         }
         if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
             return resolved.worktree.id
+        }
+        if hasExplicitWorktreeId {
+            return nil
         }
         let worktreeIds = store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)
         return worktreeIds.count == 1 ? worktreeIds[0] : nil

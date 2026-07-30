@@ -45,7 +45,7 @@ package enum ZoomCommandCapabilityPolicy {
         activePaneId: UUID?,
         explicitPaneId: UUID?,
         candidate: ZoomCommandCandidate?,
-        zoomSourcePaneIdByTabId: [UUID: UUID]
+        zoomSourcePaneId: UUID?
     ) -> ZoomCommandCapability? {
         if let explicitPaneId {
             guard
@@ -56,7 +56,6 @@ package enum ZoomCommandCapabilityPolicy {
             }
             let targetTabId = candidate.tabId
             let requiresTabActivation = activeTabId != targetTabId
-            let zoomSourcePaneId = zoomSourcePaneIdByTabId[targetTabId]
 
             if !requiresTabActivation, zoomSourcePaneId == explicitPaneId {
                 return ZoomCommandCapability(
@@ -105,7 +104,7 @@ package enum ZoomCommandCapabilityPolicy {
         guard let activeTabId else {
             return nil
         }
-        if let zoomSourcePaneId = zoomSourcePaneIdByTabId[activeTabId] {
+        if let zoomSourcePaneId {
             return ZoomCommandCapability(
                 tabId: activeTabId,
                 sourcePaneId: zoomSourcePaneId,
