@@ -83,7 +83,7 @@ package final class WorkspaceTabShellAtom {
             return
         }
         let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
-        let clampedIndex = max(0, min(adjustedIndex, tabShells.count))
+        let clampedIndex = max(0, min(adjustedIndex, tabShells.count - 1))
         guard clampedIndex != fromIndex else { return }
         let shell = tabShells.remove(at: fromIndex)
         tabShells.insert(shell, at: clampedIndex)

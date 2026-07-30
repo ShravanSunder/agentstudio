@@ -46,6 +46,27 @@ struct WorkspaceTabShellAtomTests {
     }
 
     @Test
+    func moveTabShell_clampsExtremeIndexesAgainstPostRemovalBounds() {
+        let atom = WorkspaceTabShellAtom()
+        let first = TabShell(id: UUID(), name: "One")
+        let second = TabShell(id: UUID(), name: "Two")
+        atom.appendTabShell(first)
+        atom.appendTabShell(second)
+        let revisionBeforeMoves = atom.tabShellRevision
+
+        atom.moveTab(fromId: first.id, toIndex: Int.max)
+
+        #expect(atom.tabShells.map(\.id) == [second.id, first.id])
+        #expect(atom.tabShellRevision == revisionBeforeMoves + 1)
+
+        atom.moveTab(fromId: first.id, toIndex: Int.max)
+        atom.moveTab(fromId: second.id, toIndex: Int.min)
+
+        #expect(atom.tabShells.map(\.id) == [second.id, first.id])
+        #expect(atom.tabShellRevision == revisionBeforeMoves + 1)
+    }
+
+    @Test
     func renameTabShell_updatesName() {
         let atom = WorkspaceTabShellAtom()
         let shell = TabShell(id: UUID(), name: "One")

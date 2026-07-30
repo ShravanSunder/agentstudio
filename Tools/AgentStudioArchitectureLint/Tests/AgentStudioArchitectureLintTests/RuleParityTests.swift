@@ -32,8 +32,16 @@ struct RuleParityTests {
                 "Good/Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift"
             )
             .path
+        let badApprovedOwnerFixture = fixtureRoot()
+            .appendingPathComponent(
+                "Bad/Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift"
+            )
+            .path
 
         let badDiagnostics = try lint(files: [badFixture]).filter {
+            $0.ruleID == "agentstudio_derived_value_declared_inputs"
+        }
+        let badApprovedOwnerDiagnostics = try lint(files: [badApprovedOwnerFixture]).filter {
             $0.ruleID == "agentstudio_derived_value_declared_inputs"
         }
         let goodDiagnostics = try lint(files: [goodFixture]).filter {
@@ -43,6 +51,10 @@ struct RuleParityTests {
         #expect(
             badDiagnostics.contains {
                 $0.message.contains("WorkspaceTabLayoutAtom")
+            })
+        #expect(
+            badApprovedOwnerDiagnostics.contains {
+                $0.message.contains("private lazy richTabSnapshotValue")
             })
         #expect(goodDiagnostics.isEmpty)
     }

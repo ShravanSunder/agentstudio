@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite(.serialized)
@@ -178,5 +179,187 @@ struct WorkspaceRichTabSnapshotTests {
         ).tabs
         #expect(secondSnapshot.orderedTabs == directSecondAssembly)
         #expect(secondSnapshot.orderedTabs.map(\.name) == ["First Renamed"])
+    }
+
+    @Test("production snapshot recomputes for every declared revision family")
+    func productionSnapshotMutationMatrix() async throws {
+        let (traceRuntime, traceDirectory) = makeTraceRuntime()
+        defer { try? FileManager.default.removeItem(at: traceDirectory) }
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+
+        let fixture = makeProductionSnapshotFixture()
+        let atom = fixture.atom
+        let tab = fixture.initialTab
+
+        func expectedCanonicalTabs() -> [Tab] {
+            WorkspaceTabLayoutDerived(
+                shellAtom: atom.shellAtom,
+                arrangementAtom: atom.arrangementAtom
+            ).tabs
+        }
+
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        atom.renameTab(tab.id, name: "Renamed")
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.renameTab(tab.id, name: "Renamed")
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        atom.renameArrangement(fixture.defaultArrangement.id, name: "Default Renamed", inTab: tab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.renameArrangement(fixture.defaultArrangement.id, name: "Default Renamed", inTab: tab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        atom.switchArrangement(to: fixture.focusedArrangement.id, inTab: tab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.switchArrangement(to: fixture.focusedArrangement.id, inTab: tab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        atom.setActivePane(fixture.firstPaneId, inTab: tab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.setActivePane(fixture.firstPaneId, inTab: tab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        atom.arrangementAtom.setActiveDrawerPane(
+            fixture.secondDrawerPaneId,
+            drawerId: fixture.drawerId,
+            inTab: tab.id
+        )
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.arrangementAtom.setActiveDrawerPane(
+            fixture.secondDrawerPaneId,
+            drawerId: fixture.drawerId,
+            inTab: tab.id
+        )
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        let restoredTab = fixture.restoredTab
+        atom.replaceTabs(
+            [restoredTab],
+            activeTabId: restoredTab.id,
+            validPaneIds: Set(restoredTab.allPaneIds)
+        )
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.replaceTabs(
+            [restoredTab],
+            activeTabId: restoredTab.id,
+            validPaneIds: Set(restoredTab.allPaneIds)
+        )
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        atom.setActivePane(UUID(), inTab: restoredTab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+        atom.arrangementAtom.setActiveDrawerPane(UUID(), drawerId: fixture.drawerId, inTab: restoredTab.id)
+        #expect(atom.richTabSnapshot.orderedTabs == expectedCanonicalTabs())
+
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+        let operationCounts = try derivedOperationCounts(traceRuntime: traceRuntime)
+        #expect(operationCounts.compute == 7)
+        #expect(operationCounts.cacheHit == 9)
+    }
+
+    private func makeTraceRuntime() -> (AgentStudioTraceRuntime, URL) {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rich-tab-snapshot-telemetry-\(UUID().uuidString)", isDirectory: true)
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "rich-tab-snapshot-telemetry",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 919,
+            timeUnixNano: { 779 }
+        )
+        return (traceRuntime, traceDirectory)
+    }
+
+    private func makeProductionSnapshotFixture() -> ProductionSnapshotFixture {
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let firstDrawerPaneId = UUID()
+        let secondDrawerPaneId = UUID()
+        let drawerId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout.autoTiled([firstPaneId, secondPaneId]),
+            activePaneId: firstPaneId,
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(
+                        topRow: Layout.autoTiled([firstDrawerPaneId, secondDrawerPaneId])
+                    ),
+                    activeChildId: firstDrawerPaneId
+                )
+            ]
+        )
+        let focusedArrangement = PaneArrangement(
+            name: "Focused",
+            isDefault: false,
+            layout: Layout.autoTiled([firstPaneId, secondPaneId]),
+            activePaneId: secondPaneId,
+            drawerViews: defaultArrangement.drawerViews
+        )
+        let initialTab = Tab(
+            name: "Initial",
+            allPaneIds: [firstPaneId, secondPaneId, firstDrawerPaneId, secondDrawerPaneId],
+            arrangements: [defaultArrangement, focusedArrangement],
+            activeArrangementId: defaultArrangement.id
+        )
+        let restoredTab = Tab(
+            id: initialTab.id,
+            name: "Restored",
+            allPaneIds: initialTab.allPaneIds,
+            arrangements: [defaultArrangement],
+            activeArrangementId: defaultArrangement.id
+        )
+        let atom = WorkspaceTabLayoutAtom()
+        atom.replaceTabs(
+            [initialTab],
+            activeTabId: initialTab.id,
+            validPaneIds: Set(initialTab.allPaneIds)
+        )
+        return ProductionSnapshotFixture(
+            atom: atom,
+            initialTab: initialTab,
+            restoredTab: restoredTab,
+            defaultArrangement: defaultArrangement,
+            focusedArrangement: focusedArrangement,
+            firstPaneId: firstPaneId,
+            secondDrawerPaneId: secondDrawerPaneId,
+            drawerId: drawerId
+        )
+    }
+
+    private func derivedOperationCounts(
+        traceRuntime: AgentStudioTraceRuntime
+    ) throws -> (compute: Int, cacheHit: Int) {
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let derivedLines = contents.split(separator: "\n").filter {
+            $0.contains("\"body\":\"performance.atom.derived\"")
+        }
+        return (
+            compute: derivedLines.count {
+                $0.contains("\"agentstudio.performance.atom.operation\":\"compute\"")
+            },
+            cacheHit: derivedLines.count {
+                $0.contains("\"agentstudio.performance.atom.operation\":\"cache_hit\"")
+            }
+        )
+    }
+
+    private struct ProductionSnapshotFixture {
+        let atom: WorkspaceTabLayoutAtom
+        let initialTab: Tab
+        let restoredTab: Tab
+        let defaultArrangement: PaneArrangement
+        let focusedArrangement: PaneArrangement
+        let firstPaneId: UUID
+        let secondDrawerPaneId: UUID
+        let drawerId: UUID
     }
 }

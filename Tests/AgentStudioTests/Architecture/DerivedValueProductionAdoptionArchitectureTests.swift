@@ -11,7 +11,11 @@ struct DerivedValueProductionAdoptionArchitectureTests {
         let constructorOwners = sources.filter { source in
             source.contents.contains("DerivedValue<WorkspaceRichTabSnapshot>(")
         }
+        let constructorCount = sources.reduce(into: 0) { count, source in
+            count += source.contents.components(separatedBy: "DerivedValue<WorkspaceRichTabSnapshot>(").count - 1
+        }
 
+        #expect(constructorCount == 1)
         #expect(
             constructorOwners.map(\.relativePath) == [
                 "Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift"

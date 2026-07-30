@@ -509,6 +509,23 @@ final class TabBarAdapterTests {
     }
 
     @Test
+    func test_semanticRevisionWakesAdapterAfterCacheHitObservationRegistration() async throws {
+        resetFixture()
+        let pane = store.createPane(title: "Terminal")
+        let tab = Tab(paneId: pane.id, name: "Initial")
+        store.appendTab(tab)
+        await waitForAdapterRefresh()
+
+        store.renameTab(tab.id, name: "First Rename")
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.title == "First Rename")
+
+        store.renameTab(tab.id, name: "Second Rename")
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.title == "Second Rename")
+    }
+
+    @Test
     func test_worktreeBackedPane_usesEnrichedDisplayLabel() async throws {
         resetFixture()
 
