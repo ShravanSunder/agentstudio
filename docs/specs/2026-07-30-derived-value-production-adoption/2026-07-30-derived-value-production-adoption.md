@@ -206,6 +206,17 @@ owner-local index is insufficient.
 The snapshot is a read model. It is not canonical state, a mutation API, an
 IPC authority model, or a persistence DTO.
 
+`WorkspaceTabLayoutAtom` exposes it through one named read-only package
+accessor:
+
+```text
+richTabSnapshot -> WorkspaceRichTabSnapshot
+```
+
+PR1 does not change the implementation or semantics of the existing `tabs`
+compatibility property. Transparent replacement would adopt every current
+caller and exceed the one-consumer boundary.
+
 ### 4. Declared input revisions
 
 Every canonical owner whose state contributes to the snapshot exposes an
@@ -273,8 +284,11 @@ At least one existing measured full-fleet consumer adopts the snapshot in the
 first implementation. `TabBarAdapter` is the leading candidate from current
 source evidence.
 
-Narrow consumers continue to use owner-local indexed facts. No caller may use
-the fleet snapshot solely because it is convenient.
+The accepted first consumer reads the named `richTabSnapshot` accessor.
+Existing `tabs` callers remain unchanged unless the spec is explicitly revised
+with consumer-specific evidence. Narrow consumers continue to use owner-local
+indexed facts. No caller may use the fleet snapshot solely because it is
+convenient.
 
 ### 9. Pane adoption gate
 
@@ -300,7 +314,7 @@ redesign.
 | DV-04 | Every contributing accepted mutation advances a declared owner revision; equal/rejected mutations do not. |
 | DV-05 | Compute uses only declared canonical owners and performs no ambient, persistence, I/O, async, or compatibility-fleet read. |
 | DV-06 | Cheap keyed/canonical queries do not route through the fleet snapshot. |
-| DV-07 | At least one real fleet consumer adopts the snapshot. |
+| DV-07 | One selected real fleet consumer adopts the named `richTabSnapshot` accessor; existing `tabs` callers remain unchanged. |
 | DV-08 | Existing tab behavior remains unchanged across mutation and restore. |
 | DV-09 | Controlled workload evidence reports evaluations, computes, cache hits, and rich assembly duration before and after. |
 | DV-10 | No performance improvement is claimed unless equivalent-workload evidence shows it. |
