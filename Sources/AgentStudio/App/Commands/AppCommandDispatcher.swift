@@ -65,22 +65,46 @@ final class AppCommandDispatcher: AppCommandDispatching {
     }
 
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        guard canDispatch(command, target: target, targetType: targetType) else {
+        guard
+            dispatch(
+                command,
+                target: target,
+                targetType: targetType,
+                executionContext: .interactive
+            )
+        else {
             Self.logger.warning(
                 "Targeted command dispatch rejected: \(command.rawValue, privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
             )
             return
         }
+    }
+
+    @discardableResult
+    func dispatch(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType,
+        executionContext: AppCommandExecutionContext
+    ) -> Bool {
+        guard
+            canDispatch(
+                command,
+                target: target,
+                targetType: targetType,
+                executionContext: executionContext
+            )
+        else {
+            return false
+        }
         if appCommandRouter?.execute(command, target: target, targetType: targetType) == true {
-            return
+            return true
         }
         guard let handler else {
-            Self.logger.warning(
-                "Targeted command dispatch had no workspace handler: \(command.rawValue, privacy: .public)"
-            )
-            return
+            return false
         }
         handler.execute(command, target: target, targetType: targetType)
+        return true
     }
 
     func dispatchExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
@@ -124,11 +148,62 @@ final class AppCommandDispatcher: AppCommandDispatching {
     }
 
     func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        canDispatch(
+            command,
+            target: target,
+            targetType: targetType,
+            executionContext: .interactive
+        )
+    }
+
+    func canDispatch(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType,
+        executionContext: AppCommandExecutionContext
+    ) -> Bool {
         guard let definition = definitions[command],
-            definition.targeting.supports(targetType: targetType)
+            Self.supportsTargetedDispatch(
+                definition: definition,
+                executionContext: executionContext,
+                targetType: targetType
+            )
         else {
             return false
         }
+        return canExecutionOwnersExecute(
+            command,
+            definition: definition,
+            target: target,
+            targetType: targetType
+        )
+    }
+
+    static func supportsTargetedDispatch(
+        definition: AppCommandSpec,
+        executionContext: AppCommandExecutionContext,
+        targetType: SearchItemType
+    ) -> Bool {
+        switch executionContext {
+        case .interactive:
+            definition.targeting.supports(targetType: targetType)
+        case .headlessIPC:
+            switch definition.command.ipcSpec.exposure {
+            case .headless(let durableTarget, _),
+                .headlessAndInteractive(let durableTarget, _):
+                durableTarget.supports(targetType: targetType)
+            case .notExposed, .interactive, .uiPresentation:
+                false
+            }
+        }
+    }
+
+    private func canExecutionOwnersExecute(
+        _ command: AppCommand,
+        definition: AppCommandSpec,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
         if definition.requiresManagementLayer,
             !atom(\.managementLayer).isActive
         {

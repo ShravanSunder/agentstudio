@@ -8,6 +8,39 @@ import Testing
 @MainActor
 @Suite("App command dispatcher mode preflight")
 struct AppCommandDispatcherModePreflightTests {
+    // Mutation caught: headless IPC targeted dispatch is narrowed by interactive AppCommandTargeting.
+    @Test("targeted preflight keeps interactive targeting separate from headless IPC authority")
+    func targetedPreflightKeepsInteractiveTargetingSeparateFromHeadlessIPCAuthority() {
+        let canonicalZoomDefinition = AppCommand.zoomPane.definition
+        let contextualOnlyZoomDefinition = AppCommandSpec(
+            command: .zoomPane,
+            label: canonicalZoomDefinition.label,
+            icon: canonicalZoomDefinition.icon,
+            helpText: canonicalZoomDefinition.helpText,
+            surfacePolicy: canonicalZoomDefinition.surfacePolicy,
+            targeting: .contextual
+        )
+
+        #expect(
+            !AppCommandDispatcher.supportsTargetedDispatch(
+                definition: contextualOnlyZoomDefinition,
+                executionContext: .interactive,
+                targetType: .pane
+            ))
+        #expect(
+            AppCommandDispatcher.supportsTargetedDispatch(
+                definition: contextualOnlyZoomDefinition,
+                executionContext: .headlessIPC,
+                targetType: .pane
+            ))
+        #expect(
+            !AppCommandDispatcher.supportsTargetedDispatch(
+                definition: contextualOnlyZoomDefinition,
+                executionContext: .headlessIPC,
+                targetType: .repo
+            ))
+    }
+
     // Mutation caught: contextual dispatch consults owners for a command that only declares targeted invocation.
     @Test("contextual dispatch rejects a targeted-only command before execution owners")
     func contextualDispatchRejectsTargetedOnlyCommandBeforeExecutionOwners() async throws {

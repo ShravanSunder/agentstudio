@@ -75,6 +75,16 @@ enum AppCommandIPCDurableTargetContract: Equatable, Sendable {
         primary: IPCHandleKind,
         additional: [IPCHandleKind]
     )
+
+    func supports(targetType: SearchItemType) -> Bool {
+        guard
+            case .required(let primary, let additional) = self,
+            let targetKind = targetType.ipcHandleKind
+        else {
+            return false
+        }
+        return targetKind == primary || additional.contains(targetKind)
+    }
 }
 
 enum AppCommandIPCArgumentContract: Equatable, Sendable {
@@ -120,6 +130,21 @@ enum AppCommandIPCArgumentContract: Equatable, Sendable {
                     isRequired: true
                 )
             ]
+        }
+    }
+}
+
+extension SearchItemType {
+    fileprivate var ipcHandleKind: IPCHandleKind? {
+        switch self {
+        case .repo:
+            .repo
+        case .tab:
+            .tab
+        case .pane:
+            .pane
+        case .worktree, .floatingTerminal:
+            nil
         }
     }
 }

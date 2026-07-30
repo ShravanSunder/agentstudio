@@ -108,19 +108,15 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
                 additionalKinds: additional
             )
             guard
-                AppCommandDispatcher.shared.canDispatch(
+                AppCommandDispatcher.shared.dispatch(
                     command,
                     target: target.id,
-                    targetType: target.type
+                    targetType: target.type,
+                    executionContext: .headlessIPC
                 )
             else {
                 throw AppIPCCommandError(reason: .targetNotFound)
             }
-            AppCommandDispatcher.shared.dispatch(
-                command,
-                target: target.id,
-                targetType: target.type
-            )
             return IPCCommandExecuteResult(
                 commandId: params.commandId,
                 applied: true,
