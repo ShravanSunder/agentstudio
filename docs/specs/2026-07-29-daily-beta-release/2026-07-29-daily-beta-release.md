@@ -58,6 +58,8 @@ It:
 - authenticates checkout and tag push with the existing
   `HOMEBREW_TAP_TOKEN` release PAT so GitHub emits the downstream tag-push
   event;
+- serializes overlapping scheduled and manual runs without cancelling the
+  in-progress run, so a queued run observes its tag and becomes a no-op;
 - pushes one lightweight tag only when the script says publication is needed.
 
 It does not build, sign, notarize, publish a release, or edit the Homebrew tap.
@@ -106,6 +108,8 @@ whose version follows `v0.0.68` while its source omits the emergency hotfix.
 - No stable tag: fail without creating a tag.
 - Invalid candidate or run number: fail without creating a tag.
 - Candidate already beta-tagged: succeed as a no-op.
+- Overlapping runs: serialize; the later run re-fetches tags and becomes a
+  no-op when both selected the same `main` commit.
 - Proposed tag collision on another commit: fail without moving the tag.
 - Tag push failure: fail; the next scheduled or manual run may retry.
 - Existing Release workflow failure after tag creation: keep the immutable tag

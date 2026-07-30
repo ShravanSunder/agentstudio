@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: daily-beta-tag
+  cancel-in-progress: false
+
 jobs:
   tag:
     name: Tag newest main for beta release

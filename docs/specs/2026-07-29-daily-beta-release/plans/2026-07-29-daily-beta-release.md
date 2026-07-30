@@ -21,6 +21,7 @@ the only build, signing, notarization, publication, and Homebrew owner.
 - Support `workflow_dispatch` for urgent beta publication.
 - Always resolve the current `origin/main`; never tag the dispatching branch.
 - Use `vMAJOR.MINOR.(PATCH+1)-beta.<GITHUB_RUN_NUMBER>`.
+- Serialize overlapping runs with `cancel-in-progress: false`.
 - Never move, delete, or force-push a tag.
 - Do not change `.github/workflows/release.yml`.
 - Authenticate checkout and tag push with
@@ -143,6 +144,8 @@ workflow_dispatch:
 fetch-depth: 0
 ref: main
 contents: write
+group: daily-beta-tag
+cancel-in-progress: false
 token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 scripts/resolve-daily-beta-tag.sh
 git push origin
@@ -167,6 +170,7 @@ Create a workflow with:
 
 - `schedule` and `workflow_dispatch` triggers;
 - `permissions: contents: write`;
+- workflow-level `daily-beta-tag` concurrency with cancellation disabled;
 - one Ubuntu job with a short timeout;
 - `actions/checkout@v4`, `ref: main`, and `fetch-depth: 0`;
 - `token: ${{ secrets.HOMEBREW_TAP_TOKEN }}` on checkout so the tag push emits
