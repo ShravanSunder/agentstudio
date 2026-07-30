@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -74,6 +75,7 @@ struct TabGraphState: Equatable, Hashable, Sendable {
 @MainActor
 @Observable
 package final class WorkspaceTabGraphAtom {
+    @ObservationIgnored private let tabGraphRevisionCounter = AtomRevision()
     private(set) var tabStates: [TabGraphState] = []
     private var tabIndexByID: [UUID: Int] = [:]
     private var tabIDByPaneID: [UUID: UUID] = [:]
@@ -81,6 +83,10 @@ package final class WorkspaceTabGraphAtom {
 
     var tabCount: Int {
         tabStates.count
+    }
+
+    package var tabGraphRevision: Int {
+        tabGraphRevisionCounter.value
     }
 
     func containsTab(_ id: UUID) -> Bool {
@@ -98,6 +104,7 @@ package final class WorkspaceTabGraphAtom {
         tabIndexByID = indexes.tabIndexByID
         tabIDByPaneID = indexes.tabIDByPaneID
         tabIDByArrangementID = indexes.tabIDByArrangementID
+        tabGraphRevisionCounter.bump()
     }
 
     func tabState(_ tabId: UUID) -> TabGraphState? {

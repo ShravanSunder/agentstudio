@@ -124,7 +124,7 @@ final class TabBarAdapter {
         guard !isObservingStore else { return }
         isObservingStore = true
         withObservationTracking {
-            _ = self.store.tabLayoutAtom.tabs
+            _ = self.store.tabLayoutAtom.richTabSnapshot
             _ = self.store.tabLayoutAtom.activeTabId
             _ = self.store.paneAtom.panes
             _ = self.store.panePresentationAtom.zoomPresentationsByTabId
@@ -164,7 +164,7 @@ final class TabBarAdapter {
         let clock = ContinuousClock()
         let start = clock.now
         let tabLayout = store.tabLayoutAtom
-        let storeTabs = tabLayout.tabs
+        let storeTabs = tabLayout.richTabSnapshot.orderedTabs
 
         tabs = storeTabs.map { tab in
             let displayTitle = atom(\.tabDisplay).displayTitle(

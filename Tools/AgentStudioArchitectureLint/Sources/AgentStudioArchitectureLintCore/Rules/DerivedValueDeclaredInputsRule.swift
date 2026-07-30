@@ -9,26 +9,61 @@ struct DerivedValueDeclaredInputsRule: ArchitectureRule {
         let helperCollector = DerivedValueHiddenInputHelperCollector()
         helperCollector.walk(context.sourceFile)
 
-        let visitor = DerivedValueInputVisitor(hiddenInputHelperNames: helperCollector.hiddenInputHelperNames)
+        let visitor = DerivedValueInputVisitor(
+            hiddenInputHelperNames: helperCollector.hiddenInputHelperNames,
+            requiresApprovedConstructionOwner: Self.isProductSource(context.path)
+        )
         visitor.walk(context.sourceFile)
         return visitor.violations.map {
             diagnostic(context: context, position: $0.position, message: $0.message)
         }
+    }
+
+    private static func isProductSource(_ path: String) -> Bool {
+        path.hasPrefix("Sources/AgentStudio/")
+            || path.contains("/Sources/AgentStudio/")
     }
 }
 
 private final class DerivedValueInputVisitor: SyntaxVisitor {
     private(set) var violations: [ArchitectureViolation] = []
     private let hiddenInputHelperNames: Set<String>
+    private let requiresApprovedConstructionOwner: Bool
+    private var classNames: [String] = []
 
-    init(hiddenInputHelperNames: Set<String>, viewMode: SyntaxTreeViewMode = .sourceAccurate) {
+    init(
+        hiddenInputHelperNames: Set<String>,
+        requiresApprovedConstructionOwner: Bool,
+        viewMode: SyntaxTreeViewMode = .sourceAccurate
+    ) {
         self.hiddenInputHelperNames = hiddenInputHelperNames
+        self.requiresApprovedConstructionOwner = requiresApprovedConstructionOwner
         super.init(viewMode: viewMode)
+    }
+
+    override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
+        classNames.append(node.name.text)
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ClassDeclSyntax) {
+        classNames.removeLast()
     }
 
     override func visitPost(_ node: FunctionCallExprSyntax) {
         guard node.calledExpression.trimmedDescription.contains("DerivedValue") else {
             return
+        }
+
+        if requiresApprovedConstructionOwner,
+            classNames.last != "WorkspaceTabLayoutAtom"
+        {
+            violations.append(
+                ArchitectureViolation(
+                    position: node.positionAfterSkippingLeadingTrivia,
+                    message: "Production DerivedValue construction is owned only by WorkspaceTabLayoutAtom"
+                )
+            )
         }
 
         let closures =

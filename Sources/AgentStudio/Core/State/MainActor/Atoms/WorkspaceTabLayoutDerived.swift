@@ -1,6 +1,10 @@
 import Foundation
 import os.log
 
+package struct WorkspaceRichTabSnapshot: Equatable {
+    package let orderedTabs: [Tab]
+}
+
 @MainActor
 package struct WorkspaceTabLayoutDerived {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceTabLayoutDerived")

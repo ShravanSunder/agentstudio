@@ -1,4 +1,6 @@
+import AgentStudioInfrastructure
 import Foundation
+import Observation
 
 @MainActor
 package final class WorkspaceTabLayoutAtom {
@@ -8,6 +10,39 @@ package final class WorkspaceTabLayoutAtom {
     private var derived: WorkspaceTabLayoutDerived {
         WorkspaceTabLayoutDerived(shellAtom: shellAtom, arrangementAtom: arrangementAtom)
     }
+
+    @ObservationIgnored
+    private lazy var richTabSnapshotValue: DerivedValue<WorkspaceRichTabSnapshot> = {
+        let shellAtom = self.shellAtom
+        let arrangementAtom = self.arrangementAtom
+        return DerivedValue<WorkspaceRichTabSnapshot>(
+            inputRevisions: {
+                [
+                    shellAtom.tabShellRevision,
+                    arrangementAtom.graphAtom.tabGraphRevision,
+                    arrangementAtom.cursorAtom.activeArrangementRevision,
+                    arrangementAtom.cursorAtom.activePaneRevision,
+                    arrangementAtom.cursorAtom.drawerChildRevision,
+                ]
+            },
+            isContentEqual: ==,
+            compute: {
+                let arrangementStates = arrangementAtom.composedArrangementStates()
+                let arrangementStateByTabId = Dictionary(
+                    uniqueKeysWithValues: arrangementStates.map { ($0.tabId, $0) }
+                )
+                let orderedTabs = shellAtom.tabShells.compactMap { shell in
+                    arrangementStateByTabId[shell.id].map {
+                        WorkspaceTabLayoutDerived.assembleTab(
+                            shell: shell,
+                            arrangementState: $0
+                        )
+                    }
+                }
+                return WorkspaceRichTabSnapshot(orderedTabs: orderedTabs)
+            }
+        )
+    }()
 
     package init(
         shellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
@@ -39,6 +74,10 @@ package final class WorkspaceTabLayoutAtom {
 
     package var tabs: [Tab] {
         derived.tabs
+    }
+
+    package var richTabSnapshot: WorkspaceRichTabSnapshot {
+        richTabSnapshotValue.value
     }
 
     package var activeTabId: UUID? {

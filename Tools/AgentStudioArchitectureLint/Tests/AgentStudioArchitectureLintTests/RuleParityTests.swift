@@ -22,6 +22,31 @@ struct RuleParityTests {
         #expect(diagnostics.isEmpty)
     }
 
+    @Test("DerivedValue construction is restricted to the approved production owner")
+    func derivedValueConstructionIsRestrictedToApprovedProductionOwner() throws {
+        let badFixture = fixtureRoot()
+            .appendingPathComponent("Bad/Sources/AgentStudio/App/BadDerivedValue.swift")
+            .path
+        let goodFixture = fixtureRoot()
+            .appendingPathComponent(
+                "Good/Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift"
+            )
+            .path
+
+        let badDiagnostics = try lint(files: [badFixture]).filter {
+            $0.ruleID == "agentstudio_derived_value_declared_inputs"
+        }
+        let goodDiagnostics = try lint(files: [goodFixture]).filter {
+            $0.ruleID == "agentstudio_derived_value_declared_inputs"
+        }
+
+        #expect(
+            badDiagnostics.contains {
+                $0.message.contains("WorkspaceTabLayoutAtom")
+            })
+        #expect(goodDiagnostics.isEmpty)
+    }
+
     @Test("product atom boundary covers every forbidden ownership edge")
     func productAtomBoundaryCoversEveryForbiddenOwnershipEdge() throws {
         let diagnostics = try lintFixtureCorpus("Bad")

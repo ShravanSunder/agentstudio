@@ -68,14 +68,16 @@ package final class AtomPerformanceTelemetry {
     func recordDerived(
         operation: String,
         inputRevisionCount: Int,
-        cacheHit: Bool
+        cacheHit: Bool,
+        computeDuration: Duration? = nil
     ) {
         record(
             .atomDerived,
             kind: "derived_value",
             operation: operation,
             inputRevisionCount: inputRevisionCount,
-            cacheHit: cacheHit
+            cacheHit: cacheHit,
+            duration: computeDuration
         )
     }
 
@@ -87,7 +89,8 @@ package final class AtomPerformanceTelemetry {
         slotCount: Int? = nil,
         cachedKeyCount: Int? = nil,
         inputRevisionCount: Int? = nil,
-        cacheHit: Bool? = nil
+        cacheHit: Bool? = nil,
+        duration: Duration? = nil
     ) {
         guard let traceRuntime, traceRuntime.isEnabled(.atoms), let eventQueue else { return }
         var attributes: [String: AgentStudioTraceValue] = [
@@ -108,6 +111,11 @@ package final class AtomPerformanceTelemetry {
         }
         if let cacheHit {
             attributes["agentstudio.performance.atom.cache_hit"] = .bool(cacheHit)
+        }
+        if let duration {
+            attributes["agentstudio.performance.elapsed_ms"] = .double(
+                AgentStudioPerformanceTraceRecorder.milliseconds(from: duration)
+            )
         }
         eventQueue.record(
             tag: .atoms,

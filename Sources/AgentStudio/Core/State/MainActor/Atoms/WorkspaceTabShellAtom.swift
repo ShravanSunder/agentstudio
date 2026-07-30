@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -13,6 +14,7 @@ enum WorkspaceTabShellAtomError: Error, Equatable {
 @Observable
 package final class WorkspaceTabShellAtom {
     let cursorAtom: WorkspaceTabCursorAtom
+    @ObservationIgnored private let tabShellRevisionCounter = AtomRevision()
     private(set) var tabShells: [TabShell] = []
     private var tabIndexByID: [UUID: Int] = [:]
     package init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
@@ -21,6 +23,10 @@ package final class WorkspaceTabShellAtom {
 
     package var activeTabId: UUID? {
         cursorAtom.activeTabId
+    }
+
+    package var tabShellRevision: Int {
+        tabShellRevisionCounter.value
     }
 
     var tabCount: Int {
@@ -36,6 +42,7 @@ package final class WorkspaceTabShellAtom {
         guard tabShells != shells else { return }
         tabShells = shells
         tabIndexByID = replacementIndex
+        tabShellRevisionCounter.bump()
     }
 
     func tabShell(_ id: UUID) -> TabShell? {
@@ -50,6 +57,7 @@ package final class WorkspaceTabShellAtom {
         guard tabIndexByID[shell.id] == nil else { return }
         tabShells.append(shell)
         tabIndexByID[shell.id] = tabShells.count - 1
+        tabShellRevisionCounter.bump()
         cursorAtom.selectTab(shell.id, availableTabIds: tabShells.map(\.id))
     }
 
@@ -57,6 +65,7 @@ package final class WorkspaceTabShellAtom {
         guard let removedIndex = tabIndexByID.removeValue(forKey: tabId) else { return }
         tabShells.remove(at: removedIndex)
         reindexTabs(in: removedIndex..<tabShells.count)
+        tabShellRevisionCounter.bump()
         cursorAtom.removeTab(tabId, remainingTabIds: tabShells.map(\.id))
     }
 
@@ -65,6 +74,7 @@ package final class WorkspaceTabShellAtom {
         let clampedIndex = min(index, tabShells.count)
         tabShells.insert(shell, at: clampedIndex)
         reindexTabs(in: clampedIndex..<tabShells.count)
+        tabShellRevisionCounter.bump()
     }
 
     func moveTab(fromId: UUID, toIndex: Int) {
@@ -72,11 +82,13 @@ package final class WorkspaceTabShellAtom {
             workspaceTabShellLogger.warning("moveTab: tab \(fromId) not found")
             return
         }
-        let shell = tabShells.remove(at: fromIndex)
         let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
         let clampedIndex = max(0, min(adjustedIndex, tabShells.count))
+        guard clampedIndex != fromIndex else { return }
+        let shell = tabShells.remove(at: fromIndex)
         tabShells.insert(shell, at: clampedIndex)
         reindexTabs(in: min(fromIndex, clampedIndex)..<tabShells.count)
+        tabShellRevisionCounter.bump()
     }
 
     func moveTabByDelta(tabId: UUID, delta: Int) {
@@ -100,6 +112,7 @@ package final class WorkspaceTabShellAtom {
         let shell = tabShells.remove(at: fromIndex)
         tabShells.insert(shell, at: finalIndex)
         reindexTabs(in: min(fromIndex, finalIndex)..<tabShells.count)
+        tabShellRevisionCounter.bump()
     }
 
     func setActiveTab(_ tabId: UUID?) {
@@ -117,6 +130,7 @@ package final class WorkspaceTabShellAtom {
         }
         guard tabShells[tabIndex].name != Tab.normalizedName(name) else { return }
         tabShells[tabIndex].rename(to: name)
+        tabShellRevisionCounter.bump()
     }
 
     func setTabColorHex(_ colorHex: String?, tabId: UUID) throws {
@@ -126,6 +140,7 @@ package final class WorkspaceTabShellAtom {
         let canonicalColorHex = try colorHex.map(Self.validatedTabColorHex(_:))
         guard tabShells[tabIndex].colorHex != canonicalColorHex else { return }
         tabShells[tabIndex].setColorHex(canonicalColorHex)
+        tabShellRevisionCounter.bump()
     }
 
     private func reindexTabs(in range: Range<Int>) {
