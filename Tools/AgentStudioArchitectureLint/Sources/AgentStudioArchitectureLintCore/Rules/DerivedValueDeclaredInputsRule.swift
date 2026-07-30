@@ -66,7 +66,9 @@ private final class DerivedValueInputVisitor: SyntaxVisitor {
         variableContexts.append(
             VariableContext(
                 bindingName: bindingName,
-                isPrivate: node.modifiers.contains { $0.name.text == "private" },
+                isPrivate: node.modifiers.contains {
+                    $0.name.text == "private" && $0.detail == nil
+                },
                 isLazy: node.modifiers.contains { $0.name.text == "lazy" }
             )
         )

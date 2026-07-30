@@ -56,6 +56,7 @@ struct RuleParityTests {
             badApprovedOwnerDiagnostics.contains {
                 $0.message.contains("private lazy richTabSnapshotValue")
             })
+        #expect(badApprovedOwnerDiagnostics.count == 2)
         #expect(goodDiagnostics.isEmpty)
     }
 
