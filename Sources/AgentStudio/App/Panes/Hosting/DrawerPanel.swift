@@ -267,20 +267,29 @@ struct DrawerPanel: View {
 
     @ViewBuilder
     private var addDrawerButton: some View {
-        Button {
-            action(.addDrawerPane(parentPaneId: parentPaneId))
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 48, height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
-                )
+        let addDrawerPaneAction = commandActionResolver(
+            .addDrawerPane,
+            .inlineControl,
+            parentPaneId,
+            .pane
+        )
+
+        if let addDrawerPaneAction {
+            Button(action: addDrawerPaneAction.perform) {
+                Image(systemName: "plus")
+                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.white.opacity(AppStyles.General.Fill.hover))
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!addDrawerPaneAction.isEnabled)
+            .help(addDrawerPaneAction.commandSpec.helpText)
+            .accessibilityLabel(addDrawerPaneAction.commandSpec.label)
         }
-        .buttonStyle(.plain)
-        .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
     var body: some View {

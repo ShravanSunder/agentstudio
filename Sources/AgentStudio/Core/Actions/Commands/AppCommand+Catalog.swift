@@ -528,7 +528,7 @@ extension AppCommand {
                 label: "Add Drawer Pane",
                 icon: .system(.rectangleBottomhalfInsetFilled),
                 helpText: "Add a drawer pane to the active pane",
-                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)]),
+                surfacePolicy: .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl]),
                 targeting: .contextualAndTargeted([.pane, .floatingTerminal], preferredInvocation: .contextual),
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",

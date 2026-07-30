@@ -327,8 +327,11 @@ AgentStudioCore, AgentStudioCommandBar, AgentStudio app composition.
   asks the dispatcher for enablement.
 - Context menus request `.contextMenu` with their typed target kind.
 - App/titlebar controls request `.toolbar(.app)` or `.inlineControl`.
-- Normal pane toolbars request `.toolbar(.pane)`.
-- Terminal Zoom requests `.toolbar(.terminalZoom)`.
+- Normal pane toolbars request `.toolbar(.pane)` with `.targeted(.pane)`.
+- Terminal Zoom requests `.toolbar(.terminalZoom)` with `.targeted(.pane)`.
+- Physical pane controls do not apply the globally focused
+  `CommandContext`; `contextualTarget` is reserved for targets that describe
+  the same presentation subject as that context.
 - Tooltip presentation remains
   `AppCommandSpec -> CommandDisplayDescriptor -> ControlTooltipSource ->
   ControlTooltipRenderValue`.
@@ -347,8 +350,9 @@ AgentStudioCore, AgentStudioCommandBar, AgentStudio app composition.
 - [ ] **Step 3: Cut over pane and Zoom toolbar construction**
 
   Filter action construction through the exact toolbar surface and
-  contextual-target query. Preserve Viewer capability resolution and selected
-  state.
+  targeted-pane query. Preserve Viewer capability resolution and selected
+  state. Do not apply globally focused context to a control attached to a
+  different physical pane.
 
 - [ ] **Step 4: Cut over context menus and command-backed inline controls**
 

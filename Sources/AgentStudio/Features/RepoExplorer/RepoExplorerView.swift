@@ -898,7 +898,12 @@ extension RepoExplorerView {
                                 size: AppStyles.General.Icon.compact
                             )
                         },
-                        label: { $0.title },
+                        label: { groupingMode in
+                            presentedGroupingCommand(
+                                for: groupingMode,
+                                in: commandPresentation
+                            ).commandSpec.label
+                        },
                         onSelect: { candidate in
                             let command = groupingCommand(for: candidate)
                             guard commandPresentation.command(command)?.isEnabled == true else {

@@ -971,14 +971,19 @@ that R22 requires preserving.
 Toolbars:
 
 - request their exact toolbar surface;
-- use `contextualTarget` when both current command context and a source pane
-  matter;
+- use `.targeted(.pane)` for controls attached to a physical pane, including
+  normal-pane and terminal-Zoom controls, because the global
+  `CommandContext` may describe another focused split;
+- use `contextualTarget` only when both the current command context and the
+  explicit target describe the same presentation subject;
 - use contextual or targeted `canDispatch` for enabled state;
 - use `AppCommandSpec` display/tooltip projections;
 - retain explicit host-owned ordering, spacing, selected state, and callbacks.
 
-The terminal-Zoom toolbar and normal pane toolbar therefore cannot accidentally
-share the Viewer exposure rule.
+The exact toolbar surface keeps the terminal-Zoom toolbar and normal pane
+toolbar from accidentally sharing the Viewer exposure rule. Targeted
+presentation keeps a physical pane's valid controls from disappearing merely
+because another split owns global focus.
 
 ### Inline controls
 

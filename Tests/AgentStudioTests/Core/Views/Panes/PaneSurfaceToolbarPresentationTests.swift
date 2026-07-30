@@ -256,6 +256,40 @@ struct PaneSurfaceToolbarPresentationTests {
         #expect(presentation.contextActions.map(\.state.label) == ["Pane Zoom", "Viewer"])
     }
 
+    @Test("Zoom parent preserves dispatcher-disabled Viewer and Zoom actions")
+    func zoomParentPreservesDispatcherDisabledActions() {
+        let recorder = ToolbarActionRecorder()
+        let viewerAction = makeAction(
+            label: "Viewer",
+            sourcePaneId: recorder.sourcePaneId,
+            isEnabled: false
+        ) {
+            recorder.recordViewer(sourcePaneId: $0)
+        }
+        let zoomAction = makeAction(
+            label: "Pane Zoom",
+            sourcePaneId: recorder.sourcePaneId,
+            isEnabled: false
+        ) {
+            recorder.recordZoom(sourcePaneId: $0)
+        }
+
+        let presentation = PaneSurfaceToolbarResolver.resolveZoom(
+            viewerPresentation: .retainedVisible(
+                companionPaneId: UUID(uuidString: "00000000-0000-0000-0000-000000000013")!
+            ),
+            viewerAction: viewerAction,
+            zoomAction: zoomAction
+        )
+
+        #expect(presentation.actionStatesForTesting.viewer?.isEnabled == false)
+        #expect(presentation.actionStatesForTesting.viewer?.isSelected == true)
+        #expect(presentation.actionStatesForTesting.zoom?.isEnabled == false)
+        #expect(presentation.actionStatesForTesting.zoom?.isSelected == true)
+        #expect(presentation.actionStatesForTesting.zoom?.selectionEmphasis == .accent)
+        #expect(presentation.actionStatesForTesting.zoom?.visibleLabel == "Zoomed")
+    }
+
     @Test("toolbar resolution preserves callbacks anchored to the original source pane")
     func resolutionPreservesSourceAnchoredCallbacks() {
         let recorder = ToolbarActionRecorder()
@@ -331,6 +365,7 @@ struct PaneSurfaceToolbarPresentationTests {
     private func makeAction(
         label: String,
         sourcePaneId: UUID,
+        isEnabled: Bool = true,
         perform: @MainActor @Sendable @escaping (UUID) -> Void
     ) -> PaneSurfaceToolbarAction {
         PaneSurfaceToolbarAction(
@@ -342,7 +377,7 @@ struct PaneSurfaceToolbarPresentationTests {
                     text: label,
                     shortcutDisplayText: nil
                 ),
-                isEnabled: true,
+                isEnabled: isEnabled,
                 isSelected: false
             ),
             perform: {

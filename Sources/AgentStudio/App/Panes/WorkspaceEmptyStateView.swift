@@ -288,6 +288,7 @@ struct WorkspaceEmptyStateView: View {
     private var launcherShortcutsColumns: some View {
         let quickFindDefinition = AppCommand.showCommandBarEverything.definition
         let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition
+        let watchFolderDefinition = AppCommand.watchFolder.definition
         let commandContext = ShellTabBarCommandContext.current()
         let quickFindPresentation = ShellTabBarCommandPresentation(
             definition: quickFindDefinition,
@@ -300,7 +301,7 @@ struct WorkspaceEmptyStateView: View {
             commandContext: commandContext
         )
         let watchFolderPresentation = ShellTabBarCommandPresentation(
-            command: .watchFolder,
+            definition: watchFolderDefinition,
             surface: .inlineControl,
             commandContext: commandContext
         )
@@ -332,7 +333,7 @@ struct WorkspaceEmptyStateView: View {
                 if let watchFolderPresentation {
                     launcherShortcutRow(
                         keyImage: "folder.badge.plus",
-                        title: "Watch Folder",
+                        title: watchFolderDefinition.label,
                         subtitle: "Scan and keep watching a folder for repos.",
                         isEnabled: watchFolderPresentation.isEnabled,
                         action: watchFolderPresentation.perform

@@ -368,20 +368,20 @@ package enum PaneSurfaceToolbarResolver {
             ZoomToolbarModel(
                 viewerAction: viewerAction.map { viewerAction in
                     viewerAction.resolving(
-                        isEnabled: viewerState.isEnabled,
+                        isEnabled: viewerAction.state.isEnabled && viewerState.isEnabled,
                         isSelected: viewerState.isSelected
                     )
                 },
                 zoomAction: zoomAction.map { zoomAction in
                     zoomAction.resolving(
-                        isEnabled: true,
+                        isEnabled: zoomAction.state.isEnabled,
                         isSelected: true
                     )
                     .projectingPresentation(
                         label: zoomAction.state.label,
                         icon: zoomAction.state.icon,
                         tooltip: zoomAction.state.tooltip,
-                        isEnabled: true,
+                        isEnabled: zoomAction.state.isEnabled,
                         isSelected: true,
                         visibleLabel: "Zoomed",
                         selectionEmphasis: .accent

@@ -27,7 +27,9 @@ struct WelcomeLauncherArchitectureTests {
         )
 
         #expect(source.contains("keyImage: \"folder.badge.plus\""))
-        #expect(source.contains("title: \"Watch Folder\""))
+        #expect(source.contains("let watchFolderDefinition = AppCommand.watchFolder.definition"))
+        #expect(source.contains("title: watchFolderDefinition.label"))
+        #expect(!source.contains("title: \"Watch Folder\""))
         #expect(source.contains("subtitle: \"Scan and keep watching a folder for repos.\""))
         #expect(source.contains("let watchFolderPresentation = ShellTabBarCommandPresentation("))
         #expect(source.contains("surface: .inlineControl"))
@@ -53,6 +55,7 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("action: quickFindPresentation.perform"))
         #expect(source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
+        #expect(source.contains("title: watchFolderDefinition.label"))
         #expect(source.contains("let repositoriesPresentation = ShellTabBarCommandPresentation("))
         #expect(source.contains("action: repositoriesPresentation.perform"))
         #expect(source.contains("isEnabled: quickFindPresentation.isEnabled"))
