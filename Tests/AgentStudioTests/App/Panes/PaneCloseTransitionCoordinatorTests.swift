@@ -119,20 +119,20 @@ struct PaneCloseTransitionCoordinatorTests {
         var closeActionContinuation: CheckedContinuation<Void, Never>?
         let actionDispatcher = PaneTabActionDispatcher(
             dispatch: { action in
-                switch action {
-                case .closePane(_, let paneId):
-                    harness.coordinator.execute(.closePane(tabId: tab.id, paneId: paneId))
-                    closeActionFinished = true
-                    closeActionContinuation?.resume()
-                    closeActionContinuation = nil
-                default:
-                    Issue.record("Unexpected action dispatched during drawer close transition: \(action)")
-                }
+                Issue.record("Unexpected legacy action dispatch during drawer close transition: \(action)")
             },
             shouldHandleSplitDragPayload: { _ in true },
             shouldAcceptDrop: { _, _, _, _ in false },
             handleDrop: { _, _, _, _ in }
         )
+        let commandDispatcher = DrawerCloseTransitionCommandDispatcher(
+            paneId: drawerPane.id
+        ) {
+            harness.coordinator.execute(.closePane(tabId: tab.id, paneId: drawerPane.id))
+            closeActionFinished = true
+            closeActionContinuation?.resume()
+            closeActionContinuation = nil
+        }
 
         let leaf = PaneLeafContainer(
             paneHost: drawerHost,
@@ -146,6 +146,7 @@ struct PaneCloseTransitionCoordinatorTests {
             editorChooser: EditorChooserState(),
             closeTransitionCoordinator: closeCoordinator,
             actionDispatcher: actionDispatcher,
+            commandDispatcher: commandDispatcher,
             onPaneFocusTrigger: { _ in },
             onOpenPaneGitHub: { _ in },
             workspaceWindowId: nil,
@@ -172,4 +173,55 @@ struct PaneCloseTransitionCoordinatorTests {
         #expect(window.firstResponder !== drawerMountedContent)
         #expect(PaneTabViewController.isNeutralResponderForRawCharacter(window.firstResponder))
     }
+}
+
+@MainActor
+private final class DrawerCloseTransitionCommandDispatcher: AppCommandDispatching {
+    private let paneId: UUID
+    private let performClose: @MainActor () -> Void
+
+    init(
+        paneId: UUID,
+        performClose: @escaping @MainActor () -> Void
+    ) {
+        self.paneId = paneId
+        self.performClose = performClose
+    }
+
+    func dispatch(_: AppCommand) {}
+
+    func dispatch(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) {
+        guard canDispatch(command, target: target, targetType: targetType) else {
+            return
+        }
+        performClose()
+    }
+
+    func canDispatch(_: AppCommand) -> Bool {
+        false
+    }
+
+    func canDispatch(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
+        command == .closePane
+            && target == paneId
+            && targetType == .pane
+    }
+
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? {
+        nil
+    }
+
+    func dispatchMovePaneToTab(
+        sourcePaneId _: UUID,
+        sourceTabId _: UUID?,
+        targetTabId _: UUID
+    ) {}
 }
