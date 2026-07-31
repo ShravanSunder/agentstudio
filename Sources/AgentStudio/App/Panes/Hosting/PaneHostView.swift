@@ -8,6 +8,23 @@ import AppKit
 /// becomes invisible to AppKit.
 @MainActor
 final class ManagementLayerContainerView: NSView {
+    private weak var paneHostView: PaneHostView?
+
+    func installPaneHostView(_ paneHostView: PaneHostView) {
+        self.paneHostView = paneHostView
+        // The SwiftUI allocation owns this frame. A fixed autoresizing mask prevents
+        // descendant fitting constraints from negotiating a smaller AppKit host.
+        paneHostView.translatesAutoresizingMaskIntoConstraints = true
+        paneHostView.autoresizingMask = []
+        paneHostView.frame = bounds
+        addSubview(paneHostView)
+    }
+
+    override func layout() {
+        super.layout()
+        paneHostView?.frame = bounds
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !atom(\.managementLayer).isActive else { return nil }
         return super.hitTest(point)
@@ -63,17 +80,21 @@ class PaneHostView: NSView, Identifiable {
         }
     }
 
+    override func layout() {
+        super.layout()
+        // Mounted content lays out inside the pane allocation; it must never size the pane.
+        contentContainerView.frame = bounds
+        mountedContentView?.frame = contentContainerView.bounds
+        interactionShield?.frame = bounds
+    }
+
     func mountContentView(_ mountedView: NSView & PaneMountedContent) {
         unmountContentView()
 
-        mountedView.translatesAutoresizingMaskIntoConstraints = false
+        mountedView.translatesAutoresizingMaskIntoConstraints = true
+        mountedView.autoresizingMask = []
+        mountedView.frame = contentContainerView.bounds
         contentContainerView.addSubview(mountedView)
-        NSLayoutConstraint.activate([
-            mountedView.topAnchor.constraint(equalTo: contentContainerView.topAnchor),
-            mountedView.leadingAnchor.constraint(equalTo: contentContainerView.leadingAnchor),
-            mountedView.trailingAnchor.constraint(equalTo: contentContainerView.trailingAnchor),
-            mountedView.bottomAnchor.constraint(equalTo: contentContainerView.bottomAnchor),
-        ])
     }
 
     func unmountContentView() {
@@ -120,27 +141,19 @@ class PaneHostView: NSView, Identifiable {
     }
 
     private func setupContentContainerView() {
-        contentContainerView.translatesAutoresizingMaskIntoConstraints = false
+        contentContainerView.translatesAutoresizingMaskIntoConstraints = true
+        contentContainerView.autoresizingMask = []
+        contentContainerView.frame = bounds
         addSubview(contentContainerView)
-        NSLayoutConstraint.activate([
-            contentContainerView.topAnchor.constraint(equalTo: topAnchor),
-            contentContainerView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentContainerView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentContainerView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
     }
 
     private func installInteractionShield() {
         guard interactionShield == nil else { return }
         let shield = ManagementLayerDragShield()
-        shield.translatesAutoresizingMaskIntoConstraints = false
+        shield.translatesAutoresizingMaskIntoConstraints = true
+        shield.autoresizingMask = []
+        shield.frame = bounds
         addSubview(shield)
-        NSLayoutConstraint.activate([
-            shield.topAnchor.constraint(equalTo: topAnchor),
-            shield.leadingAnchor.constraint(equalTo: leadingAnchor),
-            shield.trailingAnchor.constraint(equalTo: trailingAnchor),
-            shield.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
         interactionShield = shield
     }
 
@@ -148,14 +161,7 @@ class PaneHostView: NSView, Identifiable {
         let container = ManagementLayerContainerView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
-        self.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(self)
-        NSLayoutConstraint.activate([
-            self.topAnchor.constraint(equalTo: container.topAnchor),
-            self.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            self.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            self.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        container.installPaneHostView(self)
         return container
     }()
 }

@@ -1,6 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import { bridgeViewerFileClassOptions } from '../../app/bridge-viewer-file-class-options.js';
+import type { BridgeViewerFacetMenuOption } from '../../app/bridge-viewer-filter-menu.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
@@ -22,11 +24,7 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
-import {
-	BridgeReviewFacetMenu,
-	bridgeReviewFileClassIcon,
-	type BridgeReviewFacetMenuOption,
-} from '../chrome/bridge-review-facet-menu.js';
+import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import type { SelectedContentPaintTelemetryStart } from '../code-view/bridge-code-view-panel-types.js';
@@ -77,9 +75,11 @@ export interface ReviewViewerShellProps {
 	readonly treeSelectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly treeSearchMode?: BridgeReviewSearchMode;
 	readonly treeSearchOpen?: boolean;
-	readonly onTreeSearchOpen?: () => void;
+	readonly onTreeSearchToggle?: () => void;
 	readonly onTreeSearchModeChange?: (mode: BridgeReviewSearchMode) => void;
 	readonly onTreeSearchTextChange?: (searchText: string) => void;
+	readonly facetMenuOpen: boolean;
+	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
 	readonly gitStatusFilter?: BridgeFileChangeKind | 'all';
 	readonly isActive?: boolean;
 	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
@@ -432,18 +432,20 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							<div className="shrink-0" data-testid="bridge-review-facet-menu" key="facet-menu">
 								<BridgeReviewFacetMenu
 									fileClassFilter={fileClassFilter}
-									fileClassOptions={fileClassOptions}
+									fileClassOptions={bridgeViewerFileClassOptions}
 									gitStatusFilter={gitStatusFilter}
 									gitStatusOptions={gitStatusOptions}
 									onFileClassFilterChange={(value): void => props.onFileClassFilterChange?.(value)}
 									onGitStatusFilterChange={(value): void => props.onGitStatusFilterChange?.(value)}
+									onOpenChange={props.onFacetMenuOpenChange}
+									open={props.facetMenuOpen}
 								/>
 							</div>,
 							<div data-testid="bridge-review-search-control-slot" key="search-control">
 								<span className="sr-only">Search files</span>
 								<BridgeViewerSearchControl
 									isActive={treeSearchOpen}
-									onOpenSearch={(): void => props.onTreeSearchOpen?.()}
+									onToggleSearch={(): void => props.onTreeSearchToggle?.()}
 									searchToggleTestId="bridge-review-search-toggle"
 									testId="bridge-review-search-control"
 								/>
@@ -604,7 +606,7 @@ function reviewCanvasBranchForShell(props: {
 	return 'code';
 }
 
-const gitStatusOptions: readonly BridgeReviewFacetMenuOption<BridgeFileChangeKind | 'all'>[] = [
+const gitStatusOptions: readonly BridgeViewerFacetMenuOption<BridgeFileChangeKind | 'all'>[] = [
 	{ value: 'all', label: 'All statuses', description: 'Show every Git change kind', icon: '*' },
 	{ value: 'added', label: 'Added', description: 'New files and created paths', icon: 'A' },
 	{ value: 'modified', label: 'Modified', description: 'Files changed in place', icon: 'M' },
@@ -618,65 +620,8 @@ const gitStatusOptions: readonly BridgeReviewFacetMenuOption<BridgeFileChangeKin
 	},
 ];
 
-const bridgeFileClassOptions: readonly BridgeFileClass[] = [
-	'source',
-	'test',
-	'docs',
-	'config',
-	'generated',
-	'vendor',
-	'binary',
-	'large',
-	'fixture',
-	'unknown',
-];
-
-const fileClassOptions: readonly BridgeReviewFacetMenuOption<BridgeFileClass | 'all'>[] = [
-	{ value: 'all', label: 'All file types', description: 'Show every classified file', icon: '*' },
-	...bridgeFileClassOptions.map(
-		(fileClass: BridgeFileClass): BridgeReviewFacetMenuOption<BridgeFileClass | 'all'> => ({
-			value: fileClass,
-			label: sentenceCase(fileClass),
-			description: descriptionForFileClass(fileClass),
-			icon: bridgeReviewFileClassIcon(fileClass),
-		}),
-	),
-];
-
-function sentenceCase(value: string): string {
-	return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
-}
-
 function serializeReviewDemandLaneBytes(
 	value: ReviewContentDemandTelemetry['admittedBytesByLane'] | undefined,
 ): string | undefined {
 	return value === undefined ? undefined : JSON.stringify(value);
-}
-
-function descriptionForFileClass(fileClass: BridgeFileClass): string {
-	switch (fileClass) {
-		case 'source':
-			return 'Application and library implementation files';
-		case 'test':
-			return 'Tests, specs, fixtures, and verification code';
-		case 'docs':
-			return 'Plans, specs, markdown, and documentation';
-		case 'config':
-			return 'Build, package, and tool configuration';
-		case 'generated':
-			return 'Generated files that may be lower review priority';
-		case 'vendor':
-			return 'Vendored or third-party source trees';
-		case 'binary':
-			return 'Binary files and non-text assets';
-		case 'large':
-			return 'Large text files that need careful hydration';
-		case 'fixture':
-			return 'Fixture data and test inputs';
-		case 'unknown':
-			return 'Files without a confident class';
-	}
-	const exhaustiveFileClass: never = fileClass;
-	void exhaustiveFileClass;
-	return 'Files in this class';
 }

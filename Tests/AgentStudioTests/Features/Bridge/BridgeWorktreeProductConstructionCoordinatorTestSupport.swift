@@ -382,6 +382,7 @@ func makeBridgeFileConstructionArtifact(
                             depth: 1,
                             isDirectory: false,
                             fileId: "file-0",
+                            fileClass: .source,
                             sizeBytes: 64,
                             lineCount: nil,
                             changeStatus: "modified"
@@ -434,6 +435,7 @@ func makeBridgeSharedFileSnapshotWindow(
             depth: 1,
             isDirectory: false,
             fileId: "file-\(ordinal)",
+            fileClass: .source,
             sizeBytes: retainedByteCount,
             lineCount: nil,
             changeStatus: nil

@@ -52,6 +52,7 @@ struct BridgeFileCompleteContentTests {
                     depth: 0,
                     isDirectory: false,
                     fileId: "complete-file-1",
+                    fileClass: .unknown,
                     sizeBytes: sourceData.count,
                     lineCount: Self.sourceLineCount,
                     changeStatus: nil
@@ -146,6 +147,7 @@ struct BridgeFileCompleteContentTests {
                     depth: 1,
                     isDirectory: false,
                     fileId: "open-race-file-1",
+                    fileClass: .unknown,
                     sizeBytes: trustedData.count,
                     lineCount: 1,
                     changeStatus: nil

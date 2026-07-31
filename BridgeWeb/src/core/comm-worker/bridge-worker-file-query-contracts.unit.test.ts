@@ -8,15 +8,20 @@ import {
 describe('Bridge worker File query contracts', () => {
 	test('accepts the closed query vocabulary and rejects unknown members', () => {
 		const query = {
-			filterMode: 'fetchable',
+			filterMode: 'source',
 			searchMode: 'regex',
 			searchText: 'src/.+\\.ts$',
 		} satisfies BridgeWorkerFileQuery;
 
 		expect(bridgeWorkerFileQuerySchema.parse(query)).toEqual(query);
-		expect(
-			bridgeWorkerFileQuerySchema.safeParse({ ...query, filterMode: 'modified' }).success,
-		).toBe(false);
+		for (const removedOrUnreachableFilter of ['fetchable', 'unavailable', 'binary', 'modified']) {
+			expect(
+				bridgeWorkerFileQuerySchema.safeParse({
+					...query,
+					filterMode: removedOrUnreachableFilter,
+				}).success,
+			).toBe(false);
+		}
 		expect(bridgeWorkerFileQuerySchema.safeParse({ ...query, cacheResult: true }).success).toBe(
 			false,
 		);

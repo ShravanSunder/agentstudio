@@ -252,8 +252,8 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("contextless Zoom source uses the only registered worktree for its Files companion")
-        func contextlessZoomSourceUsesOnlyRegisteredWorktree() async {
+        @Test("contextless Zoom source keeps Viewer hidden without borrowing a worktree")
+        func contextlessZoomSourceDoesNotBorrowOnlyRegisteredWorktree() async {
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let (_, onlyWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
@@ -276,20 +276,229 @@ extension WebKitSerializedTests {
             let companion = harness.store.panePresentationAtom.zoomCompanion(
                 forSourcePane: sourcePane.id
             )
-            #expect(companion?.resolvedWorktreeId == onlyWorktree.id)
-            let companionPaneId = companion?.companionPaneId
-            #expect(companionPaneId != nil)
-            if let companionPaneId {
-                #expect(
-                    harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                        .viewerPresentation == .retainedVisible(companionPaneId: companionPaneId)
+            #expect(companion == nil)
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .unavailable
+            )
+            #expect(harness.viewRegistry.allBridgeViews.isEmpty)
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("live CWD retargets a visible Review companion between registered worktrees")
+        func liveCWDRetargetsVisibleReviewCompanion() async throws {
+            let paneEventBus = makeTestPaneRuntimeEventBus()
+            let harness = makeHarness(paneEventBus: paneEventBus)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, sourceWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let (_, destinationWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: sourceWorktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            harness.controller.execute(.zoomPane)
+            let originalCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId
+            )
+            #expect(
+                harness.coordinator.requestBridgePaneSurface(
+                    .review,
+                    paneId: originalCompanionPaneId
                 )
-                #expect(
-                    harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState.panelKind
-                        == .fileViewer
-                )
-                #expect(harness.store.pane(companionPaneId) == nil)
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[originalCompanionPaneId]?.controller
+                    .retainedViewerSurface == .review
+            )
+
+            await postCWDChange(
+                destinationWorktree.path.appending(path: "Sources"),
+                paneId: sourcePane.id,
+                to: paneEventBus
+            )
+            await eventually("Zoom companion should retarget to the destination worktree") {
+                guard
+                    let replacement = harness.store.panePresentationAtom.zoomCompanion(
+                        forSourcePane: sourcePane.id
+                    )
+                else {
+                    return false
+                }
+                return replacement.resolvedWorktreeId == destinationWorktree.id
+                    && replacement.companionPaneId != originalCompanionPaneId
             }
+
+            let replacementCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId
+            )
+            await harness.coordinator.drainBridgePaneRetirements()
+
+            #expect(harness.viewRegistry.allBridgeViews[originalCompanionPaneId] == nil)
+            #expect(
+                harness.coordinator.runtimeForPane(
+                    PaneId(existingUUID: originalCompanionPaneId)
+                ) == nil
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[replacementCompanionPaneId]?.controller
+                    .retainedViewerSurface == .review
+            )
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation
+                    == .retainedVisible(companionPaneId: replacementCompanionPaneId)
+            )
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("leaving registered worktrees retires stale Viewer content and shows unavailable")
+        func leavingRegisteredWorktreesShowsUnavailableWithoutStaleContent() async throws {
+            let paneEventBus = makeTestPaneRuntimeEventBus()
+            let harness = makeHarness(paneEventBus: paneEventBus)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, sourceWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: sourceWorktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            harness.controller.execute(.zoomPane)
+            let originalCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId
+            )
+
+            await postCWDChange(
+                harness.tempDir.appending(path: "unwatched"),
+                paneId: sourcePane.id,
+                to: paneEventBus
+            )
+            await eventually("Zoom Viewer should become visibly unavailable") {
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .unavailableVisible
+                    && harness.store.panePresentationAtom.zoomCompanion(
+                        forSourcePane: sourcePane.id
+                    ) == nil
+            }
+            await harness.coordinator.drainBridgePaneRetirements()
+
+            #expect(harness.viewRegistry.allBridgeViews[originalCompanionPaneId] == nil)
+            #expect(
+                harness.coordinator.runtimeForPane(
+                    PaneId(existingUUID: originalCompanionPaneId)
+                ) == nil
+            )
+            #expect(harness.viewRegistry.allBridgeViews.isEmpty)
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("returning to a registered worktree restores hidden Review continuity")
+        func returningToRegisteredWorktreeRestoresHiddenReviewContinuity() async throws {
+            let paneEventBus = makeTestPaneRuntimeEventBus()
+            let harness = makeHarness(paneEventBus: paneEventBus)
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (_, sourceWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let (_, destinationWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: sourceWorktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+            harness.controller.execute(.zoomPane)
+            let originalCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId
+            )
+            #expect(
+                harness.coordinator.requestBridgePaneSurface(
+                    .review,
+                    paneId: originalCompanionPaneId
+                )
+            )
+            harness.controller.execute(.showViewer)
+
+            await postCWDChange(
+                harness.tempDir.appending(path: "unwatched"),
+                paneId: sourcePane.id,
+                to: paneEventBus
+            )
+            await eventually("hidden Viewer should become unavailable without opening its column") {
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation == .unavailable
+            }
+
+            await postCWDChange(
+                destinationWorktree.path.appending(path: "Sources"),
+                paneId: sourcePane.id,
+                to: paneEventBus
+            )
+            await eventually("registered worktree should restore a hidden companion") {
+                guard
+                    let replacement = harness.store.panePresentationAtom.zoomCompanion(
+                        forSourcePane: sourcePane.id
+                    )
+                else {
+                    return false
+                }
+                return replacement.resolvedWorktreeId == destinationWorktree.id
+                    && replacement.lastZoomVisibility == .hidden
+            }
+
+            let replacementCompanionPaneId = try #require(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .companionPaneId
+            )
+            #expect(replacementCompanionPaneId != originalCompanionPaneId)
+            #expect(
+                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                    .viewerPresentation
+                    == .retainedHidden(companionPaneId: replacementCompanionPaneId)
+            )
+            #expect(
+                harness.viewRegistry.allBridgeViews[replacementCompanionPaneId]?.controller
+                    .retainedViewerSurface == .review
+            )
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("live CWD wins over a stale explicit worktree facet")
+        func liveCWDWinsOverStaleExplicitWorktreeFacet() async throws {
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let (sourceRepo, sourceWorktree) = makeRepoAndWorktree(
+                harness.store,
+                root: harness.tempDir
+            )
+            let (_, destinationWorktree) = makeRepoAndWorktree(
+                harness.store,
+                root: harness.tempDir
+            )
+            let sourcePane = harness.store.createPane(
+                launchDirectory: sourceWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: sourceRepo.id,
+                    worktreeId: sourceWorktree.id,
+                    cwd: destinationWorktree.path.appending(path: "Sources")
+                )
+            )
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.setActiveTab(sourceTab.id)
+            harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+
+            harness.controller.execute(.zoomPane)
+
+            #expect(
+                harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
+                    .resolvedWorktreeId == destinationWorktree.id
+            )
 
             await harness.coordinator.shutdown()
         }
@@ -559,7 +768,7 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("unresolvable Zoom source stays unavailable without partial companion resources")
+        @Test("unresolvable Zoom source keeps visible Viewer unavailable without partial resources")
         func unresolvableSourceLeavesNoPartialCompanionResources() async {
             let store = WorkspaceStore()
             let viewRegistry = ViewRegistry()
@@ -585,10 +794,10 @@ extension WebKitSerializedTests {
                 owningTabId: sourceTab.id
             )
 
-            #expect(presentation == .unavailable)
+            #expect(presentation == .unavailableVisible)
             #expect(
                 store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation == .unavailable
+                    .viewerPresentation == .unavailableVisible
             )
             #expect(store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id) == nil)
             #expect(viewRegistry.allBridgeViews.isEmpty)
@@ -661,5 +870,18 @@ private func enterForegroundZoomEnvironment(
             isOccluded: false
         ),
         for: owningWindowId
+    )
+}
+
+private func postCWDChange(
+    _ cwd: URL,
+    paneId: UUID,
+    to paneEventBus: EventBus<RuntimeEnvelope>
+) async {
+    _ = await paneEventBus.post(
+        RuntimeEnvelopeHarness.paneEnvelope(
+            event: .terminal(.cwdChanged(cwd.path)),
+            paneId: PaneId(existingUUID: paneId)
+        )
     )
 }

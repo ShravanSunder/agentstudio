@@ -32,6 +32,11 @@ extension SurfaceManager: WorkspaceSurfaceManaging {}
 final class WorkspaceSurfaceCoordinator {
     nonisolated static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceSurfaceCoordinator")
 
+    struct ZoomCompanionContinuity {
+        let surface: BridgeProductSurface
+        let visibility: ZoomViewerVisibility
+    }
+
     struct SwitchArrangementTransitions: Equatable {
         let hiddenPaneIds: Set<UUID>
         let paneIdsToReattach: Set<UUID>
@@ -100,6 +105,7 @@ final class WorkspaceSurfaceCoordinator {
     var bridgePaneActivityOwningWindowId: UUID?
     var bridgePaneActivityObservationGeneration: UInt64 = 0
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
+    var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -347,6 +353,7 @@ final class WorkspaceSurfaceCoordinator {
                 return
             }
             upsertPaneFilesystemProjectionContext(for: pane)
+            reconcileZoomCompanionAfterCWDChange(sourcePaneId: paneId)
         case .unchanged:
             return
         case .paneMissing:

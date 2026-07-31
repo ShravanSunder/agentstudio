@@ -228,6 +228,38 @@ describe('BridgeApp pane runtime hard cut', () => {
 		expect(paneRuntimeObservation.disposeCount).toBe(0);
 	});
 
+	test('dismisses the Files filter menu before its retained host becomes inactive', async () => {
+		// Arrange
+		await actWait(async (): Promise<void> => {
+			await render(<BridgeAppProtocolRouter protocol="worktree-file" />);
+			await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		expect(
+			await pollWithinActUntilTruthy(() =>
+				document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+			),
+		).not.toBeNull();
+
+		// Act: open Files Filters, then retain Files under an inactive host.
+		await dispatchBridgeViewerFilterShortcut();
+		expect(
+			document.querySelector('[data-testid="worktree-file-filter-menu-popover"][data-open]'),
+		).not.toBeNull();
+		await actClick(requireActiveContextButton('review'));
+		expect(
+			await pollWithinActUntilEqual(
+				() => appRoot.getAttribute('data-bridge-viewer-mode'),
+				'review',
+			),
+		).toBe('review');
+
+		// Assert
+		expect(
+			document.querySelector('[data-testid="worktree-file-filter-menu-popover"][data-open]'),
+		).toBeNull();
+	});
+
 	test('forwards one initial Review activation while page readiness is unresolved', async () => {
 		// Arrange
 		await actWait(async (): Promise<void> => {
@@ -623,7 +655,14 @@ describe('BridgeApp pane runtime hard cut', () => {
 		expect.soft(reviewCodePanel.getAttribute('data-selected-item-id')).toBe(selectedReviewItemId);
 		expect.soft(reviewSearchValueAfterCommand).toBe('PositionReview080');
 		expect.soft(reviewSearchValueAfterReturn).toBe('PositionReview080');
-		expect.soft(reviewSearchInputAfterExplicitClear).toBeNull();
+		expect.soft(reviewSearchInputAfterExplicitClear?.value).toBe('');
+		expect
+			.soft(
+				reviewHost
+					.querySelector('[data-testid="bridge-review-search-toggle"]')
+					?.getAttribute('aria-pressed'),
+			)
+			.toBe('true');
 		expect
 			.soft(fileShell.getAttribute('data-selected-display-path'))
 			.toBe(bridgePanePositionFilePath);
@@ -836,6 +875,21 @@ async function dispatchBridgeReviewSelection(itemId: string): Promise<void> {
 		await Promise.resolve();
 	});
 	await advanceAnimationFrame();
+}
+
+async function dispatchBridgeViewerFilterShortcut(): Promise<void> {
+	await actWait(async (): Promise<void> => {
+		document.dispatchEvent(
+			new KeyboardEvent('keydown', {
+				altKey: true,
+				bubbles: true,
+				cancelable: true,
+				key: 'f',
+				metaKey: true,
+			}),
+		);
+		await Promise.resolve();
+	});
 }
 
 async function dispatchBridgePageControl(

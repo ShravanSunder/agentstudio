@@ -14,6 +14,7 @@ const fileTreeRow = {
 	changeStatus: 'modified',
 	depth: 1,
 	fileId: 'file-1',
+	fileClass: 'source',
 	isDirectory: false,
 	lineCount: 12_000,
 	name: 'File.swift',
@@ -137,6 +138,7 @@ describe('Bridge worker File display patch contract', () => {
 
 	test('rejects missing or cross-wired File surfaces and unknown patch variants', () => {
 		const event = makeFileDisplayPatchEvent();
+		const { fileClass: _fileClass, ...rowWithoutFileClass } = fileTreeRow;
 		for (const invalidEvent of [
 			{ ...event, surface: undefined },
 			{ ...event, surface: 'review' },
@@ -149,6 +151,30 @@ describe('Bridge worker File display patch contract', () => {
 			{
 				...event,
 				patches: [{ slice: 'fileTree', operation: 'clear', payload: {} }],
+			},
+			{
+				...event,
+				patches: [
+					{
+						slice: 'fileTree',
+						operation: 'batch',
+						payload: {
+							operations: [{ operation: 'upsert', row: rowWithoutFileClass }],
+						},
+					},
+				],
+			},
+			{
+				...event,
+				patches: [
+					{
+						slice: 'fileTree',
+						operation: 'batch',
+						payload: {
+							operations: [{ operation: 'upsert', row: { ...fileTreeRow, fileClass: 'binary' } }],
+						},
+					},
+				],
 			},
 			{
 				...event,

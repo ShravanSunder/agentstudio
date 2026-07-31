@@ -177,8 +177,13 @@ struct PaneSurfaceToolbarPresentationTests {
         arguments: [
             ZoomParentToolbarTestCase(
                 presentation: ZoomViewerPresentation.unavailable,
-                viewerEnabled: false,
+                viewerEnabled: true,
                 viewerSelected: false
+            ),
+            ZoomParentToolbarTestCase(
+                presentation: ZoomViewerPresentation.unavailableVisible,
+                viewerEnabled: true,
+                viewerSelected: true
             ),
             ZoomParentToolbarTestCase(
                 presentation: ZoomViewerPresentation.retryable,

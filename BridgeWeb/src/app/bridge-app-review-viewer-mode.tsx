@@ -27,6 +27,7 @@ import {
 } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
+import { useBridgeViewerToolbarShortcuts } from './use-bridge-viewer-toolbar-shortcuts.js';
 
 export interface BridgeReviewViewerModeProps {
 	readonly codeViewWorkerFactory?: () => Worker;
@@ -80,6 +81,12 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const [treeSearchText, setTreeSearchText] = useState('');
 	const [gitStatusFilter, setGitStatusFilter] = useState<BridgeFileChangeKind | 'all'>('all');
 	const [fileClassFilter, setFileClassFilter] = useState<BridgeFileClass | 'all'>('all');
+	const [facetMenuOpen, setFacetMenuOpen] = useState(false);
+	useEffect((): void => {
+		if (!isActive) {
+			setFacetMenuOpen(false);
+		}
+	}, [isActive]);
 	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
 		useState<BridgeReviewTreeSelectionRevealRequest | null>(null);
 	const treeSelectionRevealRevisionRef = useRef(0);
@@ -145,15 +152,28 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		},
 		[emitHoveredReviewItemIntent, isActive],
 	);
-	const openTreeSearch = useCallback((): void => {
-		setTreeSearchOpen(true);
+	const toggleTreeSearch = useCallback((): void => {
+		setTreeSearchOpen((isSearchOpen): boolean => {
+			if (isSearchOpen) {
+				setTreeSearchText('');
+				return false;
+			}
+			return true;
+		});
 	}, []);
+	const toggleFacetMenu = useCallback(
+		(): void => setFacetMenuOpen((isOpen): boolean => !isOpen),
+		[],
+	);
+	useBridgeViewerToolbarShortcuts({
+		isActive,
+		onToggleFilters: toggleFacetMenu,
+		onToggleSearch: toggleTreeSearch,
+		target,
+	});
 	const updateTreeSearchTextFromActiveTree = useCallback((searchText: string): void => {
 		if (!isActiveRef.current) {
 			return;
-		}
-		if (searchText.length === 0) {
-			setTreeSearchOpen(false);
 		}
 		setTreeSearchText(searchText);
 	}, []);
@@ -235,6 +255,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
 		codeViewControlHandleRef,
+		facetMenuOpen,
 		fileClassFilter,
 		gitStatusFilter,
 		presentationPositionKey,
@@ -255,8 +276,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		treeSelectionRevealRequest,
 		visibleCodeViewItems,
 		onTreeSearchModeChange: setTreeSearchMode,
-		onTreeSearchOpen: openTreeSearch,
+		onTreeSearchToggle: toggleTreeSearch,
 		onTreeSearchTextChange: updateTreeSearchTextFromActiveTree,
+		onFacetMenuOpenChange: setFacetMenuOpen,
 		onFileClassFilterChange: setFileClassFilter,
 		onGitStatusFilterChange: setGitStatusFilter,
 		onHoveredItemIdChange: publishHoveredReviewItemId,
@@ -275,6 +297,7 @@ function reviewPresentationState(props: {
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
 	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
 	readonly codeViewControlHandleRef: { current: BridgeCodeViewControlHandle | null };
+	readonly facetMenuOpen: boolean;
 	readonly fileClassFilter: BridgeFileClass | 'all';
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly presentationPositionKey: string;
@@ -295,8 +318,9 @@ function reviewPresentationState(props: {
 	readonly treeSelectionRevealRequest: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly visibleCodeViewItems: BridgeReviewRenderSnapshotController['visibleCodeViewItems'];
 	readonly onTreeSearchModeChange: (mode: BridgeReviewSearchMode) => void;
-	readonly onTreeSearchOpen: () => void;
+	readonly onTreeSearchToggle: () => void;
 	readonly onTreeSearchTextChange: (searchText: string) => void;
+	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFileClassFilterChange: (filter: BridgeFileClass | 'all') => void;
 	readonly onGitStatusFilterChange: (filter: BridgeFileChangeKind | 'all') => void;
 	readonly onHoveredItemIdChange: (itemId: string | null) => void;
@@ -315,12 +339,14 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			facetMenuOpen: props.facetMenuOpen,
 			fileClassFilter: props.fileClassFilter,
 			gitStatusFilter: props.gitStatusFilter,
 			onCodeViewControlHandleChange: (handle): void => {
 				props.codeViewControlHandleRef.current = handle;
 			},
 			onFileClassFilterChange: props.onFileClassFilterChange,
+			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
 			onGitStatusFilterChange: props.onGitStatusFilterChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
@@ -329,7 +355,7 @@ function reviewPresentationState(props: {
 			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 			onCodeViewVisibleItemIdsChange: props.setReviewCodeViewVisibleItemIds,
 			onTreeSearchModeChange: props.onTreeSearchModeChange,
-			onTreeSearchOpen: props.onTreeSearchOpen,
+			onTreeSearchToggle: props.onTreeSearchToggle,
 			onTreeSearchTextChange: props.onTreeSearchTextChange,
 			onSelectItem: (itemId): void => {
 				props.selectReviewItem(itemId);

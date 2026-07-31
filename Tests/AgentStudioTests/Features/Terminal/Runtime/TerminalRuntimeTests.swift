@@ -467,6 +467,7 @@ struct TerminalRuntimeTests {
 
         #expect(runtime.metadata.title == "Build")
         #expect(runtime.scrollbarState == scrollbar)
+        #expect(runtime.searchLifecycleState == .active(query: "needle", epoch: 1))
         #expect(runtime.searchState == TerminalSearchState(query: "needle", totalMatches: 4, selectedMatchIndex: 2))
 
         await assertEventuallyAsync(
@@ -494,6 +495,7 @@ struct TerminalRuntimeTests {
         runtime.handleGhosttyEvent(.searchStarted(query: "needle"))
         runtime.handleGhosttyEvent(.searchEnded)
 
+        #expect(runtime.searchLifecycleState == .inactive(lastEndedEpoch: 1))
         #expect(runtime.searchState == nil)
 
         let replay = await runtime.eventsSince(seq: 0)

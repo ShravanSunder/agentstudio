@@ -393,6 +393,7 @@ function fileTreeUpsert(
 			changeStatus: 'modified' as const,
 			depth: 1,
 			fileId: `file-${rowId}`,
+			fileClass: 'source' as const,
 			isDirectory: false,
 			lineCount: 10,
 			name: path.split('/').at(-1) ?? path,

@@ -803,6 +803,7 @@ function fakeFileProvider(): BridgeWorktreeDevProvider {
 							changeStatus: 'modified',
 							depth: 1,
 							fileId: 'dev-file-id-1',
+							fileClass: 'source',
 							isDirectory: false,
 							lineCount: 2,
 							name: 'app.ts',

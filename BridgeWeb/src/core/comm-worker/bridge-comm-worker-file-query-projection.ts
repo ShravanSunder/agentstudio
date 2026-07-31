@@ -367,14 +367,7 @@ export class BridgeCommWorkerFileQueryProjection {
 		}
 		if (row.isDirectory) return query.filterMode === 'all';
 		if (query.filterMode === 'all') return true;
-		const availability = row.fileId === null ? undefined : this.#fileItemsById.get(row.fileId);
-		if (query.filterMode === 'fetchable') {
-			return availability?.availability.kind === 'available';
-		}
-		return (
-			availability?.availability.kind === 'binary' ||
-			availability?.availability.kind === 'unavailable'
-		);
+		return row.fileClass === query.filterMode;
 	}
 
 	#indexRawRow(row: FileTreeRow): void {
@@ -535,6 +528,7 @@ function fileTreeRowsEqual(left: FileTreeRow, right: FileTreeRow): boolean {
 		left.changeStatus === right.changeStatus &&
 		left.depth === right.depth &&
 		left.fileId === right.fileId &&
+		left.fileClass === right.fileClass &&
 		left.isDirectory === right.isDirectory &&
 		left.lineCount === right.lineCount &&
 		left.name === right.name &&

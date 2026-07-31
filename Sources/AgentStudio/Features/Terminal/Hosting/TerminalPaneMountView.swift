@@ -15,6 +15,31 @@ private actor TerminationDeliveryObservation {
     }
 }
 
+enum TerminalSearchPresentationState: Equatable {
+    case closed(epoch: UInt64)
+    case opening(expectedEpoch: UInt64)
+    case open(epoch: UInt64)
+    case closing(expectedEpoch: UInt64)
+
+    var epoch: UInt64 {
+        switch self {
+        case .closed(let epoch), .open(let epoch):
+            epoch
+        case .opening(let expectedEpoch), .closing(let expectedEpoch):
+            expectedEpoch
+        }
+    }
+
+    var presentsOverlay: Bool {
+        switch self {
+        case .opening, .open:
+            true
+        case .closed, .closing:
+            false
+        }
+    }
+}
+
 /// Host-side terminal pane container for Ghostty surfaces, overlays, and lifecycle UI.
 /// WorkspaceSurfaceCoordinator creates surfaces and passes them here via displaySurface().
 package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
@@ -32,6 +57,7 @@ package final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHe
     private let ghosttyMountView = GhosttyMountView()
     private(set) var surfaceScrollView: TerminalSurfaceScrollView?
     var searchOverlayView: TerminalSearchOverlayView?
+    var searchPresentationState = TerminalSearchPresentationState.closed(epoch: 0)
     var scrollToBottomIndicatorView: ScrollToBottomIndicatorView?
     private(set) weak var boundRuntime: TerminalRuntime?
     private var actionPerformerOverrideForTesting: (any TerminalSurfaceActionPerforming)?

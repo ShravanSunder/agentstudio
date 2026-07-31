@@ -349,6 +349,7 @@ function productTreeRow(row: WorktreeTreeRowMetadata): {
 	readonly changeStatus: string | null;
 	readonly depth: number;
 	readonly fileId: string | null;
+	readonly fileClass: WorktreeTreeRowMetadata['fileClass'];
 	readonly isDirectory: boolean;
 	readonly lineCount: number | null;
 	readonly name: string;
@@ -361,6 +362,7 @@ function productTreeRow(row: WorktreeTreeRowMetadata): {
 		changeStatus: row.changeStatus ?? null,
 		depth: row.depth,
 		fileId: row.fileId ?? null,
+		fileClass: row.fileClass,
 		isDirectory: row.isDirectory,
 		lineCount: row.lineCount ?? null,
 		name: row.name,

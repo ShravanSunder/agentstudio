@@ -98,6 +98,10 @@ struct BridgeProductFileMetadataContractTests {
         legacyEnvelope["sequence"] = 1
         var ignoredStatusRow = row
         ignoredStatusRow["changeStatus"] = "ignored"
+        var missingFileClassRow = row
+        missingFileClassRow.removeValue(forKey: "fileClass")
+        var invalidFileClassRow = row
+        invalidFileClassRow["fileClass"] = "text"
         let closedStatusWindow: [String: Any] = [
             "eventKind": "file.treeWindow",
             "finalWindow": true,
@@ -108,6 +112,18 @@ struct BridgeProductFileMetadataContractTests {
             "startIndex": 0,
             "totalRowCount": 1,
         ]
+        func treeWindow(row: [String: Any]) -> [String: Any] {
+            [
+                "eventKind": "file.treeWindow",
+                "finalWindow": true,
+                "lineage": ["lane": "foreground", "loadedBy": "startup_window"],
+                "pathScope": [],
+                "rows": [row],
+                "source": source,
+                "startIndex": 0,
+                "totalRowCount": 1,
+            ]
+        }
         let crossWiredStatusPatch: [String: Any] = [
             "eventKind": "file.statusPatch",
             "patch": [
@@ -124,6 +140,8 @@ struct BridgeProductFileMetadataContractTests {
             mismatchedSource,
             legacyEnvelope,
             closedStatusWindow,
+            treeWindow(row: missingFileClassRow),
+            treeWindow(row: invalidFileClassRow),
             crossWiredStatusPatch,
         ] {
             #expect(throws: (any Error).self) { _ = try decode(event) }
@@ -296,6 +314,7 @@ struct BridgeProductFileMetadataContractTests {
             "changeStatus": "modified",
             "depth": 1,
             "fileId": "file-\(index)",
+            "fileClass": "source",
             "isDirectory": false,
             "lineCount": 12,
             "name": "file-\(index).ts",

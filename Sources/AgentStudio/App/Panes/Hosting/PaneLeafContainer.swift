@@ -884,6 +884,18 @@ struct PaneViewRepresentable: NSViewRepresentable {
         // and recreate when the host instance changes.
     }
 
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: NSView,
+        context: Context
+    ) -> CGSize? {
+        let proposedSize = proposal.replacingUnspecifiedDimensions(by: nsView.frame.size)
+        guard proposedSize.width.isFinite, proposedSize.height.isFinite else {
+            return nil
+        }
+        return proposedSize
+    }
+
     static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
         RestoreTrace.log(
             "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"

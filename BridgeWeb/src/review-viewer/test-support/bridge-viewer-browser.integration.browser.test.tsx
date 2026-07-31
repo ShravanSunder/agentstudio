@@ -1,6 +1,7 @@
 import { act, useCallback, useRef, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
+import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
 import '../../app/bridge-app.css';
@@ -92,13 +93,13 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await expect.element(harness.renderResult.getByTestId('review-viewer-shell')).toBeVisible();
 		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).not.toBeNull();
 
-		// Act
-		await act(async (): Promise<void> => {
-			await harness.renderResult.getByTestId('bridge-review-search-toggle').click();
-		});
+		// Act: Command-Shift-F opens Search on the active Review surface.
+		await dispatchReviewViewerShortcut({ shiftKey: true });
 
 		// Assert
-		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).toBeNull();
+		const activeSearchToggle = harness.renderResult.getByTestId('bridge-review-search-toggle');
+		expect(activeSearchToggle.element().getAttribute('aria-pressed')).toBe('true');
+		expect(activeSearchToggle.element().getAttribute('aria-label')).toBe('Search files');
 		await expect
 			.poll(() => harness.pierreSearchInput(), {
 				message:
@@ -111,7 +112,22 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		}
 		expect(document.activeElement).toBe(searchInput);
 
+		// Act: repeating Command-Shift-F closes Search.
+		await dispatchReviewViewerShortcut({ shiftKey: true });
+
+		// Assert
+		expect(document.querySelector('[data-testid="bridge-review-search-input"]')).toBeNull();
+		expect(activeSearchToggle.element().getAttribute('aria-pressed')).toBe('false');
+		expect(activeSearchToggle.element().getAttribute('aria-label')).toBe('Search files');
+
 		// Act
+		await dispatchReviewViewerShortcut({ shiftKey: true });
+
+		// Act
+		const reopenedSearchInput = harness.pierreSearchInput();
+		if (!(reopenedSearchInput instanceof HTMLInputElement)) {
+			throw new Error('J1 REVIEW REOPENED SEARCH INPUT MISSING');
+		}
 		const expectedMatch = files[4];
 		if (expectedMatch === undefined) throw new Error('J1 REVIEW SEARCH FIXTURE MISSING');
 		await act(async (): Promise<void> => {
@@ -120,7 +136,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 
 		// Assert
-		expect(searchInput.value).toBe('RecoveryFile005');
+		expect(reopenedSearchInput.value).toBe('RecoveryFile005');
 		const searchField = requireReviewHTMLElement(
 			document.querySelector('[data-bridge-viewer-search-field="true"]'),
 		);
@@ -135,7 +151,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		);
 		const fieldBox = searchField.getBoundingClientRect();
 		const iconBox = searchIcon.getBoundingClientRect();
-		const inputBox = searchInput.getBoundingClientRect();
+		const inputBox = reopenedSearchInput.getBoundingClientRect();
 		const regexBox = regexButton.getBoundingClientRect();
 		const clearBox = clearButton.getBoundingClientRect();
 		const railToolbar = requireReviewHTMLElement(
@@ -231,9 +247,31 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 
+		// Assert: Clear resets the query without closing Search.
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-review-search-input'))
+			.toHaveValue('');
+		expect(activeSearchToggle.element().getAttribute('aria-pressed')).toBe('true');
+		expect(activeSearchToggle.element().getAttribute('aria-label')).toBe('Search files');
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
+
+		// Act: only the active toolbar toggle closes Search and clears its query.
+		await act(async (): Promise<void> => {
+			await harness.renderResult.getByTestId('bridge-review-search-input').fill('RecoveryFile005');
+			await activeSearchToggle.click();
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+
 		// Assert
 		expect(document.querySelector('[data-testid="bridge-review-search-input"]')).toBeNull();
-		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
+		expect(activeSearchToggle.element().getAttribute('aria-pressed')).toBe('false');
+		expect(activeSearchToggle.element().getAttribute('aria-label')).toBe('Search files');
+		await act(async (): Promise<void> => {
+			await activeSearchToggle.click();
+		});
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-review-search-input'))
+			.toHaveValue('');
 	});
 	test('Review facets replace visible rows with required ancestors and Clear restores the tree', async () => {
 		// Arrange
@@ -251,13 +289,17 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await harness.publishDisplay();
 		await expect.poll(() => mountedReviewTreePaths(harness.pierreTreeHost())).toHaveLength(9);
 
-		// Act: choose Added through the real shared facet menu.
-		await act(async (): Promise<void> => {
-			await harness.renderResult.getByTestId('bridge-review-facet-menu-control').click();
-		});
+		// Act: Command-Option-F opens the active Review Filters menu.
+		await dispatchReviewViewerShortcut({ altKey: true });
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-facet-popover'))
 			.toBeVisible();
+		await harness.setActive(false);
+		expect(
+			document.querySelector('[data-testid="bridge-review-facet-popover"][data-open]'),
+		).toBeNull();
+		await harness.setActive(true);
+		await dispatchReviewViewerShortcut({ altKey: true });
 		const reviewFacetPopover = requireReviewHTMLElement(
 			document.querySelector('[data-testid="bridge-review-facet-popover"]'),
 		);
@@ -276,18 +318,34 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 					reviewFacetTrigger.getBoundingClientRect().right,
 			),
 		).toBeLessThanOrEqual(1);
-		await act(async (): Promise<void> => {
-			reviewFacetOption.click();
-		});
+		await dispatchReviewViewerShortcut({ altKey: true });
+		expect(
+			document.querySelector('[data-testid="bridge-review-facet-popover"][data-open]'),
+		).toBeNull();
+		await dispatchReviewViewerShortcut({ altKey: true });
+		await dispatchReviewViewerMenuKey('Escape');
+		expect(
+			document.querySelector('[data-testid="bridge-review-facet-popover"][data-open]'),
+		).toBeNull();
+		await dispatchReviewViewerShortcut({ altKey: true });
+		expect(document.activeElement?.getAttribute('role')).toBe('menu');
+		await dispatchReviewViewerMenuKey('ArrowDown');
+		await expect.poll(highlightedReviewViewerMenuOptionLabel).toBe('Added');
+		await navigateReviewViewerMenuTo('Modified');
+		const focusedModifiedOption = highlightedReviewViewerMenuOption();
+		expect(focusedModifiedOption.textContent).toContain('Modified');
+		expect(document.activeElement).toBe(focusedModifiedOption);
+		await dispatchReviewViewerMenuKey('Enter');
+		await expect.poll(() => focusedModifiedOption.getAttribute('aria-checked')).toBe('true');
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 
 		// Assert
 		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([
 			'Sources',
-			'Sources/RecoveryGroup01',
-			'Sources/RecoveryGroup01/RecoveryFile001.swift',
-			'Sources/RecoveryGroup01/RecoveryFile002.swift',
-			'Sources/RecoveryGroup01/RecoveryFile003.swift',
+			'Sources/RecoveryGroup02',
+			'Sources/RecoveryGroup02/RecoveryFile004.swift',
+			'Sources/RecoveryGroup02/RecoveryFile005.swift',
+			'Sources/RecoveryGroup02/RecoveryFile006.swift',
 		]);
 
 		// Act: reset through the visible Clear action.
@@ -744,6 +802,56 @@ function mountedReviewTreePaths(treeHost: HTMLElement | null): readonly string[]
 		.toSorted();
 }
 
+async function dispatchReviewViewerShortcut(
+	modifiers: Readonly<{ altKey?: boolean; shiftKey?: boolean }>,
+): Promise<void> {
+	await act(async (): Promise<void> => {
+		document.dispatchEvent(
+			new KeyboardEvent('keydown', {
+				altKey: modifiers.altKey ?? false,
+				bubbles: true,
+				cancelable: true,
+				key: 'f',
+				metaKey: true,
+				shiftKey: modifiers.shiftKey ?? false,
+			}),
+		);
+	});
+}
+
+async function dispatchReviewViewerMenuKey(key: 'ArrowDown' | 'Enter' | 'Escape'): Promise<void> {
+	await act(async (): Promise<void> => {
+		await userEvent.keyboard(`{${key}}`);
+	});
+}
+
+async function navigateReviewViewerMenuTo(label: string): Promise<void> {
+	for (let optionIndex = 0; optionIndex < 14; optionIndex += 1) {
+		if (highlightedReviewViewerMenuOptionLabel() === label) {
+			return;
+		}
+		await dispatchReviewViewerMenuKey('ArrowDown');
+	}
+	throw new Error(`Expected Base UI arrow navigation to focus ${label}.`);
+}
+
+function highlightedReviewViewerMenuOption(): HTMLElement {
+	return requireReviewHTMLElement(
+		document.querySelector('[data-testid="bridge-review-facet-option"][data-highlighted]'),
+	);
+}
+
+function highlightedReviewViewerMenuOptionLabel(): string {
+	const highlightedOption = document.querySelector(
+		'[data-testid="bridge-review-facet-option"][data-highlighted]',
+	);
+	return (
+		highlightedOption
+			?.querySelector('[data-testid="bridge-review-facet-option-label"]')
+			?.textContent?.trim() ?? ''
+	);
+}
+
 function expectedExpandedRecoveryTreePaths(): readonly string[] {
 	return ['Sources', 'Sources/RecoveryGroup01', 'Sources/RecoveryGroup02'];
 }
@@ -830,6 +938,8 @@ function makeReadyReviewPresentationState(
 	return {
 		presentationKey,
 		shellProps: {
+			facetMenuOpen: false,
+			onFacetMenuOpenChange: (): void => {},
 			onSelectItem: (): void => {},
 			panelChromeSlice: {},
 			presentationPositionKey: `browser-review-position:${presentationKey}`,

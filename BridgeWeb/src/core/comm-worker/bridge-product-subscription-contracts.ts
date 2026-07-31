@@ -20,6 +20,10 @@ import {
 	bridgeProductFileSourceIdentitySchema,
 	type BridgeProductFileSourceIdentity,
 } from './bridge-product-file-contracts.js';
+import {
+	bridgeProductFileChangeStatusSchema,
+	bridgeProductFileTreeRowSchema,
+} from './bridge-product-file-tree-contracts.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
 import { preflightBridgeProductSubscriptionInterestStateCanonicalEncoding } from './bridge-product-subscription-interest-preflight.js';
 
@@ -33,6 +37,12 @@ export {
 	bridgeProductFileSourceIdentitySchema,
 	type BridgeProductFileSourceIdentity,
 } from './bridge-product-file-contracts.js';
+export {
+	bridgeProductFileChangeStatusSchema,
+	bridgeProductFileTreeFileClassSchema,
+	bridgeProductFileTreeRowSchema,
+	type BridgeProductFileTreeFileClass,
+} from './bridge-product-file-tree-contracts.js';
 
 export type BridgeProductDemandLaneParity = BridgeProductAssert<
 	BridgeProductTypeSetsEqual<z.infer<typeof bridgeProductDemandLaneSchema>, BridgeDemandLane>
@@ -225,17 +235,6 @@ export const bridgeProductSubscriptionInterestStateSchema =
 		}
 	});
 
-export const bridgeProductFileChangeStatusSchema = z.enum([
-	'added',
-	'deleted',
-	'modified',
-	'renamed',
-	'copied',
-	'typeChanged',
-	'unmerged',
-	'untracked',
-]);
-
 export const bridgeProductFileMetadataLoadedBySchema = z.enum([
 	'startup_window',
 	'foreground',
@@ -252,21 +251,6 @@ export const bridgeProductFileMetadataLineageSchema = z
 	.object({
 		lane: bridgeProductDemandLaneSchema,
 		loadedBy: bridgeProductFileMetadataLoadedBySchema,
-	})
-	.strict();
-
-export const bridgeProductFileTreeRowSchema = z
-	.object({
-		changeStatus: bridgeProductFileChangeStatusSchema.nullable(),
-		depth: bridgeProductNonnegativeSequenceSchema,
-		fileId: bridgeProductIdentifierSchema.nullable(),
-		isDirectory: z.boolean(),
-		lineCount: bridgeProductNonnegativeSequenceSchema.nullable(),
-		name: bridgeProductDisplayPathSchema,
-		parentPath: bridgeProductDisplayPathSchema.nullable(),
-		path: bridgeProductDisplayPathSchema,
-		rowId: bridgeProductIdentifierSchema,
-		sizeBytes: bridgeProductNonnegativeSequenceSchema.nullable(),
 	})
 	.strict();
 

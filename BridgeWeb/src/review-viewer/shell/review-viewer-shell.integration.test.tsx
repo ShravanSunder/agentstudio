@@ -715,6 +715,8 @@ function renderReviewViewerShellForTest(
 	props: Omit<
 		ReviewViewerShellProps,
 		| 'panelChromeSlice'
+		| 'facetMenuOpen'
+		| 'onFacetMenuOpenChange'
 		| 'presentationPositionKey'
 		| 'presentationRegistry'
 		| 'renderFulfillmentCoordinator'
@@ -729,6 +731,8 @@ function renderReviewViewerShellForTest(
 		createBridgeReviewItemRegistry({ reviewPackage: props.reviewPackage });
 	return ReviewViewerShell({
 		...props,
+		facetMenuOpen: false,
+		onFacetMenuOpenChange: (): void => {},
 		panelChromeSlice: props.panelChromeSlice ?? {},
 		presentationPositionKey: props.presentationPositionKey ?? 'review-shell-test-position',
 		presentationRegistry,

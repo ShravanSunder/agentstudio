@@ -19,13 +19,13 @@ describe('useBridgeFileViewerStoreBindings Browser Mode', () => {
 		await act(async () => {
 			const bindings = requireBindings(latestBindings);
 			bindings.viewerActions.setSearchText('Sources');
-			bindings.viewerActions.setFilterMode('fetchable');
+			bindings.viewerActions.setFilterMode('source');
 		});
 
 		const bindings = requireBindings(latestBindings);
 		expect(bindings.rootSnapshot).toMatchObject({
 			searchText: 'Sources',
-			filterMode: 'fetchable',
+			filterMode: 'source',
 		});
 		expect(Object.keys(bindings.viewerStore.getState()).toSorted()).toEqual([
 			'actions',

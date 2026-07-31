@@ -133,21 +133,26 @@ struct SingleTabContent: View {
             parentToolbar: parentToolbar
         ) {
             let ordinalMap = PaneOrdinalMap(orderedPaneIds: tab.layout.paneIds)
-            let isSplit = renderState.children.count > 1
+            let isSplit = renderState.isCompanionVisible
             let sourceContent = zoomChildContent(
                 renderState.children[0],
                 sourcePaneId: presentation.sourcePaneId,
                 isSplit: isSplit,
                 ordinalMap: ordinalMap
             )
-            let companionContent = renderState.children.dropFirst().first.map {
-                zoomChildContent(
-                    $0,
-                    sourcePaneId: presentation.sourcePaneId,
-                    isSplit: isSplit,
-                    ordinalMap: ordinalMap
-                )
-            }
+            let companionContent: AnyView? =
+                if presentation.viewerPresentation == .unavailableVisible {
+                    AnyView(ZoomViewerUnavailableView())
+                } else {
+                    renderState.children.dropFirst().first.map {
+                        zoomChildContent(
+                            $0,
+                            sourcePaneId: presentation.sourcePaneId,
+                            isSplit: isSplit,
+                            ordinalMap: ordinalMap
+                        )
+                    }
+                }
 
             ZoomPresentationContainer(
                 tabId: tabId,

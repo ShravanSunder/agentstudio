@@ -519,6 +519,7 @@ function worktreeTreeRowsForCurrentFiles(
 			const changedFile = changedFilesByPath.get(currentFilePath);
 			rowsByPath.set(path, {
 				depth: partIndex,
+				fileClass: isDirectory ? null : 'unknown',
 				isDirectory,
 				name: part,
 				parentPath,
