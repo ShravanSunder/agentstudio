@@ -31,12 +31,17 @@ export interface BridgeFileViewerShellProps {
 	readonly dispatchVisibleFileDemand: (change: BridgeFileViewerVisibleFileDemandChange) => void;
 	readonly displayModel: BridgeFileViewerDisplayModel;
 	readonly filterMode: BridgeFileViewerFilterMode;
+	readonly isFilterMenuOpen: boolean;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 	readonly isActive: boolean;
+	readonly isSearchOpen: boolean;
+	readonly onFilterMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFilterModeChange: (mode: BridgeFileViewerFilterMode) => void;
 	readonly onSearchModeChange: (mode: BridgeFileViewerSearchMode) => void;
+	readonly onSearchOpenChange: (isOpen: boolean) => void;
 	readonly onSearchTextChange: (text: string) => void;
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
+	readonly onToggleSearch: () => void;
 	readonly openFileState: BridgeFileViewerOpenState;
 	readonly openFileTotalHeightPixels: number | null;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
@@ -132,11 +137,17 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 					<BridgeFileViewerTreePanel
 						completeFileQueryTransaction={props.completeFileQueryTransaction}
 						filterMode={props.filterMode}
+						isFilterMenuOpen={props.isFilterMenuOpen}
 						fileTreePatchStream={props.fileTreePatchStream}
+						isActive={props.isActive}
+						isSearchOpen={props.isSearchOpen}
+						onFilterMenuOpenChange={props.onFilterMenuOpenChange}
 						onFilterModeChange={props.onFilterModeChange}
 						onSearchModeChange={props.onSearchModeChange}
+						onSearchOpenChange={props.onSearchOpenChange}
 						onSearchTextChange={props.onSearchTextChange}
 						onSelectFile={props.onSelectFile}
+						onToggleSearch={props.onToggleSearch}
 						onVisibleFileDemandChange={props.dispatchVisibleFileDemand}
 						searchMode={props.searchMode}
 						searchError={props.displayModel.searchError}

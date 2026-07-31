@@ -16,12 +16,12 @@ describe('Bridge file viewer UI store', () => {
 
 		store.getState().actions.setSearchText('Sources');
 		store.getState().actions.setSearchMode('regex');
-		store.getState().actions.setFilterMode('fetchable');
+		store.getState().actions.setFilterMode('source');
 
 		expect(store.getState().rootSnapshot).toMatchObject({
 			searchText: 'Sources',
 			searchMode: 'regex',
-			filterMode: 'fetchable',
+			filterMode: 'source',
 		});
 	});
 

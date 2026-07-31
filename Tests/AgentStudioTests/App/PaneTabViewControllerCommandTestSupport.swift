@@ -53,6 +53,7 @@ func makeHarness(
     windowLifecycleStore: WindowLifecycleAtom? = nil,
     workspaceWindowId: UUID? = nil,
     bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
+    paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
     bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
@@ -62,6 +63,7 @@ func makeHarness(
         windowLifecycleStore: windowLifecycleStore,
         workspaceWindowId: workspaceWindowId,
         bridgeGitReadScheduler: bridgeGitReadScheduler,
+        paneEventBus: paneEventBus,
         bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler
     )
 }
@@ -74,6 +76,7 @@ func makePaneTabViewControllerCommandHarness(
     windowLifecycleStore injectedWindowLifecycleStore: WindowLifecycleAtom? = nil,
     workspaceWindowId: UUID? = nil,
     bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
+    paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
     bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil
 ) -> PaneTabViewControllerCommandHarness {
     // Command execution still reads the app-global management-layer atom for
@@ -108,6 +111,7 @@ func makePaneTabViewControllerCommandHarness(
         runtime: runtime,
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
+        paneEventBus: paneEventBus,
         closeTransitionCoordinator: closeTransitionCoordinator,
         bridgeGitReadScheduler: bridgeGitReadScheduler,
         windowLifecycleStore: windowLifecycleStore,

@@ -24,6 +24,11 @@ Agents must use plain `mise run setup` by default. It builds vendors in the prim
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
 
+Identifiers: use the repo's UUIDv7 APIs for newly generated application and test
+identifiers (`UUIDv7.generate()` or the owning type's `generateUUIDv7()` helper).
+Do not substitute `UUID()` merely to avoid importing
+`AgentStudioInfrastructure`; add the owning import instead.
+
 ## Progressive Disclosure For Agents
 
 Use repo knowledge in layers. Start from the smallest source of truth that owns

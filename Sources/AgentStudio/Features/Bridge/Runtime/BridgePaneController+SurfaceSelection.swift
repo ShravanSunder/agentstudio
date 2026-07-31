@@ -2,6 +2,10 @@ import Foundation
 
 @MainActor
 extension BridgePaneController {
+    package var retainedViewerSurface: BridgeProductSurface? {
+        surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface
+    }
+
     @discardableResult
     package func requestViewerSurface(_ surface: BridgeProductSurface) -> Bool {
         guard let productSchemeProvider,

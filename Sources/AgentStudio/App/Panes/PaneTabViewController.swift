@@ -1205,18 +1205,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         if canExecute(.showViewer, target: sourcePaneId, targetType: .pane) {
             return true
         }
-        guard let capability = zoomCommandCapability(explicitPaneId: sourcePaneId) else {
-            return false
-        }
-        return resolvedViewerWorktreeId(forPane: capability.sourcePaneId) != nil
+        return zoomCommandCapability(explicitPaneId: sourcePaneId) != nil
     }
 
     private func executePaneSurfaceViewerCommand(sourcePaneId: UUID) -> Bool {
         switch executeZoomLocalViewerCommand(explicitPaneId: sourcePaneId) {
         case .notZoomLocal:
             return enterZoomAndShowViewer(explicitPaneId: sourcePaneId)
-        case .unavailable:
-            return false
         case .toggled(let didToggle):
             return didToggle
         }
@@ -2859,8 +2854,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             switch executeZoomLocalViewerCommand(explicitPaneId: nil) {
             case .notZoomLocal:
                 return enterZoomAndShowViewer(explicitPaneId: nil)
-            case .unavailable:
-                return false
             case .toggled(let didToggle):
                 return didToggle
             }
@@ -2888,9 +2881,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         switch presentation.viewerPresentation {
-        case .retainedVisible:
+        case .retainedVisible, .unavailableVisible:
             return true
-        case .retainedHidden:
+        case .retainedHidden, .unavailable:
             let didShowViewer = withAnimation(
                 .easeInOut(duration: AppStyles.General.Animation.standard)
             ) {
@@ -2903,14 +2896,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 executor.refreshZoomCompanionActivities()
             }
             return didShowViewer
-        case .retryable, .unavailable:
+        case .retryable:
             return false
         }
     }
 
     private enum ZoomLocalViewerCommandResult {
         case notZoomLocal
-        case unavailable
         case toggled(Bool)
     }
 
@@ -2928,7 +2920,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         switch presentation.viewerPresentation {
-        case .retainedHidden:
+        case .retainedHidden, .unavailable:
             let didToggle = withAnimation(
                 .easeInOut(duration: AppStyles.General.Animation.standard)
             ) {
@@ -2941,7 +2933,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 executor.refreshZoomCompanionActivities()
             }
             return .toggled(didToggle)
-        case .retainedVisible:
+        case .retainedVisible, .unavailableVisible:
             let didToggle = withAnimation(
                 .easeInOut(duration: AppStyles.General.Animation.standard)
             ) {
@@ -2961,8 +2953,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 viewerSurfaceRequest: bridgeViewerSurfaceRequestHandler
             )
             return .toggled(reconciledPresentation.companionPaneId != nil)
-        case .unavailable:
-            return .unavailable
         }
     }
 
@@ -3083,20 +3073,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
         let facets = paneState.durableContextFacets
-        let hasExplicitWorktreeId = facets.worktreeId != nil
+        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
+            return resolved.worktree.id
+        }
         if let worktreeId = facets.worktreeId,
             store.repositoryTopologyAtom.worktree(worktreeId) != nil
         {
             return worktreeId
         }
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
-            return resolved.worktree.id
-        }
-        if hasExplicitWorktreeId {
-            return nil
-        }
-        let worktreeIds = store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)
-        return worktreeIds.count == 1 ? worktreeIds[0] : nil
+        return nil
     }
 
     private func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
@@ -3280,8 +3265,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         if command == .showViewer, targetType == .pane {
             switch executeZoomLocalViewerCommand(explicitPaneId: target) {
             case .notZoomLocal:
-                return
-            case .unavailable:
                 return
             case .toggled:
                 return
@@ -3801,7 +3784,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             else {
                 return false
             }
-            return zoomPresentation.viewerPresentation != .unavailable
+            return true
         }
 
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
@@ -3867,12 +3850,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 else {
                     return false
                 }
-                return zoomPresentation.viewerPresentation != .unavailable
+                return true
             }
-            guard let capability = zoomCommandCapability(explicitPaneId: nil) else {
-                return false
-            }
-            return resolvedViewerWorktreeId(forPane: capability.sourcePaneId) != nil
+            return zoomCommandCapability(explicitPaneId: nil) != nil
         case .switchArrangement:
             return store.tabLayoutAtom.activeTabId != nil
         case .previousArrangement, .nextArrangement, .cycleArrangement:

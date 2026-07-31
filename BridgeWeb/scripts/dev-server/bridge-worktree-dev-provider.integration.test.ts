@@ -127,9 +127,14 @@ describe('Bridge worktree dev provider', () => {
 			);
 			expect(snapshot?.frameKind === 'worktree.snapshot' ? snapshot.treeRows : []).toEqual(
 				expect.arrayContaining([
-					expect.objectContaining({ isDirectory: false, path: 'README.md' }),
-					expect.objectContaining({ isDirectory: true, path: 'src' }),
 					expect.objectContaining({
+						fileClass: 'unknown',
+						isDirectory: false,
+						path: 'README.md',
+					}),
+					expect.objectContaining({ fileClass: null, isDirectory: true, path: 'src' }),
+					expect.objectContaining({
+						fileClass: 'unknown',
 						fileId: expect.stringMatching(/^dev-file-id-/u),
 						isDirectory: false,
 						path: 'src/app.ts',

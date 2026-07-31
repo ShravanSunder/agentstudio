@@ -938,6 +938,7 @@ function makeTreeWindowEvent(): BridgeProductSubscriptionEvent<'file.metadata'> 
 				changeStatus: 'modified',
 				depth: 0,
 				fileId: 'file-1',
+				fileClass: 'source',
 				isDirectory: false,
 				lineCount: 1,
 				name: 'File.swift',

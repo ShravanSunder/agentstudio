@@ -688,6 +688,7 @@ struct BridgePaneProductFileMetadataSourceTests {
                     depth: row.depth,
                     isDirectory: row.isDirectory,
                     fileId: row.fileId,
+                    fileClass: row.fileClass,
                     sizeBytes: row.sizeBytes,
                     lineCount: row.lineCount,
                     changeStatus: row.changeStatus?.rawValue

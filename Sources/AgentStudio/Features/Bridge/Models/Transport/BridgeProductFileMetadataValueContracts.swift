@@ -54,6 +54,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         case changeStatus
         case depth
         case fileId
+        case fileClass
         case isDirectory
         case lineCount
         case name
@@ -66,6 +67,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
     let changeStatus: BridgeProductFileChangeStatus?
     let depth: Int
     let fileId: String?
+    let fileClass: BridgeFileClass?
     let isDirectory: Bool
     let lineCount: Int?
     let name: String
@@ -78,6 +80,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         changeStatus: BridgeProductFileChangeStatus?,
         depth: Int,
         fileId: String?,
+        fileClass: BridgeFileClass?,
         isDirectory: Bool,
         lineCount: Int?,
         name: String,
@@ -89,6 +92,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         self.changeStatus = changeStatus
         self.depth = depth
         self.fileId = fileId
+        self.fileClass = fileClass
         self.isDirectory = isDirectory
         self.lineCount = lineCount
         self.name = name
@@ -116,6 +120,12 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         self.fileId = try BridgeProductContractDecoding.decodeRequiredNullable(
             String.self,
             forKey: .fileId,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        self.fileClass = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeFileClass.self,
+            forKey: .fileClass,
             from: container,
             codingPath: decoder.codingPath
         )
@@ -150,6 +160,7 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         try container.encode(changeStatus, forKey: .changeStatus)
         try container.encode(depth, forKey: .depth)
         try container.encode(fileId, forKey: .fileId)
+        try container.encode(fileClass, forKey: .fileClass)
         try container.encode(isDirectory, forKey: .isDirectory)
         try container.encode(lineCount, forKey: .lineCount)
         try container.encode(name, forKey: .name)
@@ -163,6 +174,21 @@ struct BridgeProductFileTreeRow: Codable, Equatable, Sendable {
         try BridgeProductContractDecoding.validateNonnegative(depth, name: "depth", codingPath: codingPath)
         if let fileId {
             try BridgeProductContractDecoding.validateIdentifier(fileId, codingPath: codingPath)
+        }
+        if isDirectory {
+            guard fileClass == nil else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File metadata directory rows cannot carry a file class",
+                    codingPath: codingPath
+                )
+            }
+        } else {
+            guard let fileClass, fileClass != .binary else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File metadata file rows require a path-and-size-backed file class",
+                    codingPath: codingPath
+                )
+            }
         }
         if let lineCount {
             try BridgeProductContractDecoding.validateNonnegative(

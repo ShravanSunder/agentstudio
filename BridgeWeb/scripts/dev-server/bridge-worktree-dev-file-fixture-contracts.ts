@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bridgeProductFileTreeFileClassSchema } from '../../src/core/comm-worker/bridge-product-file-tree-contracts.js';
 import { bridgeDemandLaneSchema } from '../../src/core/models/bridge-demand-models.js';
 import { bridgeIntakeFrameBaseSchema } from '../../src/core/models/bridge-intake-frame.js';
 
@@ -83,18 +84,35 @@ export const worktreeTreeRowLoadedBySchema = z.enum([
 
 export const worktreeTreeRowMetadataSchema = z
 	.object({
-		rowId: z.string().min(1),
-		path: z.string().min(1),
+		changeStatus: z.string().min(1).optional(),
+		depth: z.number().int().nonnegative(),
+		fileId: z.string().min(1).optional(),
+		fileClass: bridgeProductFileTreeFileClassSchema.nullable(),
+		isDirectory: z.boolean(),
+		lineCount: z.number().int().nonnegative().optional(),
 		name: z.string().min(1),
 		parentPath: z.string().min(1).nullable(),
-		depth: z.number().int().nonnegative(),
-		isDirectory: z.boolean(),
-		fileId: z.string().min(1).optional(),
+		path: z.string().min(1),
+		rowId: z.string().min(1),
 		sizeBytes: z.number().int().nonnegative().optional(),
-		lineCount: z.number().int().nonnegative().optional(),
-		changeStatus: z.string().min(1).optional(),
 	})
-	.strict();
+	.strict()
+	.superRefine((row, context): void => {
+		if (row.isDirectory && row.fileClass !== null) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Worktree directory rows cannot carry a file class.',
+				path: ['fileClass'],
+			});
+		}
+		if (!row.isDirectory && row.fileClass === null) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Worktree file rows require a path-and-size-backed file class.',
+				path: ['fileClass'],
+			});
+		}
+	});
 
 export const worktreeFileMetadataLineageSchema = z
 	.object({

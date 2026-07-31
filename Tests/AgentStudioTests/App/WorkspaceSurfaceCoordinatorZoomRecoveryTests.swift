@@ -102,7 +102,7 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("source worktree change retires the stale companion before explicit replacement")
+        @Test("source worktree change retires the stale companion while installing its replacement")
         func sourceWorktreeChangeRetiresBeforeReplacement() async throws {
             // Arrange
             let owningWindowId = UUID()
@@ -147,14 +147,10 @@ extension WebKitSerializedTests {
             let replacementSurfaceRequest: @MainActor (BridgeProductSurface, UUID) -> Bool = { surface, paneId in
                 #expect(surface == .file)
                 requestedReplacementPaneIds.append(paneId)
-                expectZoomRecoveryResourceIsAbsent(
-                    staleCompanionPaneId,
-                    in: harness
-                )
                 return true
             }
 
-            // Act — mismatch recovery is terminal cleanup, not replacement.
+            // Act
             let recoveryPresentation = harness.coordinator.reconcileZoomCompanion(
                 sourcePaneId: sourcePane.id,
                 owningTabId: sourceTab.id,
@@ -164,41 +160,15 @@ extension WebKitSerializedTests {
             await harness.coordinator.drainBridgeGitReadActivityPropagation()
 
             // Assert
-            #expect(recoveryPresentation == .retryable)
-            #expect(requestedReplacementPaneIds.isEmpty)
-            #expect(
-                harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
-                    .viewerPresentation == .retryable
-            )
-            #expect(
-                harness.store.panePresentationAtom.zoomCompanion(
-                    forSourcePane: sourcePane.id
-                ) == nil
-            )
-            expectZoomRecoveryResourcesRetired(
-                staleCompanionPaneId,
-                baseline: baseline,
-                in: harness
-            )
-
-            guard recoveryPresentation == .retryable else {
-                await harness.coordinator.shutdown()
-                return
-            }
-
-            // Act — a later explicit retry may create the replacement context.
-            let replacementPresentation = harness.coordinator.reconcileZoomCompanion(
-                sourcePaneId: sourcePane.id,
-                owningTabId: sourceTab.id,
-                viewerSurfaceRequest: replacementSurfaceRequest
-            )
-
-            // Assert
             let replacementCompanionPaneId = try #require(
-                replacementPresentation.companionPaneId
+                recoveryPresentation.companionPaneId
             )
             #expect(replacementCompanionPaneId != staleCompanionPaneId)
             #expect(requestedReplacementPaneIds == [replacementCompanionPaneId])
+            expectZoomRecoveryResourceIsAbsent(
+                staleCompanionPaneId,
+                in: harness
+            )
             expectZoomRecoveryReplacementInstalled(
                 companionPaneId: replacementCompanionPaneId,
                 sourcePaneId: sourcePane.id,
@@ -283,7 +253,7 @@ extension WebKitSerializedTests {
                 harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)
                     == ZoomPresentation(
                         sourcePaneId: sourcePane.id,
-                        viewerPresentation: .unavailable,
+                        viewerPresentation: .unavailableVisible,
                         transientSplitRatio: nil
                     )
             )

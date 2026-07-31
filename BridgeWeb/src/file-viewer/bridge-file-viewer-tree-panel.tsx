@@ -1,10 +1,6 @@
 import { FileTree } from '@pierre/trees/react';
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 
-import {
-	BridgeViewerFilterMenu,
-	type BridgeViewerFilterOption,
-} from '../app/bridge-viewer-filter-menu.js';
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
@@ -23,16 +19,23 @@ import type {
 	BridgeFileViewerDisplayTreeRow,
 	BridgeFileViewerSelection,
 } from './bridge-file-viewer-display-model.js';
+import { BridgeFileViewerFacetMenu } from './bridge-file-viewer-facet-menu.js';
 import { useBridgeFileViewerPierreTreeRuntime } from './bridge-file-viewer-pierre-tree-runtime.js';
 
 export interface BridgeFileViewerTreePanelProps {
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
+	readonly isActive: boolean;
+	readonly isFilterMenuOpen: boolean;
+	readonly isSearchOpen: boolean;
+	readonly onFilterMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFilterModeChange: (filterMode: BridgeFileViewerFilterMode) => void;
 	readonly onSearchModeChange: (searchMode: BridgeFileViewerSearchMode) => void;
+	readonly onSearchOpenChange: (isOpen: boolean) => void;
 	readonly onSearchTextChange: (searchText: string) => void;
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
+	readonly onToggleSearch: () => void;
 	readonly onVisibleFileDemandChange?: (change: BridgeFileViewerVisibleFileDemandChange) => void;
 	readonly projectedTreeRowCount: number;
 	readonly searchError: string | null;
@@ -51,14 +54,9 @@ export interface BridgeFileViewerTreePanelProps {
 }
 
 const bridgeFileViewerTreeRowHeightPixels = 24;
-const bridgeFileViewerFilterOptions = [
-	{ value: 'all', label: 'All files', selectedLabel: 'All', icon: '*' },
-	{ value: 'fetchable', label: 'Text files', selectedLabel: 'Text', icon: 'T' },
-	{ value: 'unavailable', label: 'Unavailable files', selectedLabel: 'Unavailable', icon: '!' },
-] satisfies readonly BridgeViewerFilterOption<BridgeFileViewerFilterMode>[];
 
 export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps): ReactElement {
-	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const { searchError, searchText } = props;
 	const treeRuntime = useBridgeFileViewerPierreTreeRuntime({
 		completeFileQueryTransaction: props.completeFileQueryTransaction,
 		fileTreePatchStream: props.fileTreePatchStream,
@@ -78,7 +76,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 	const declaredTreeHeightPixels = props.totalTreeHeightPixels ?? fallbackRenderedTreeHeightPixels;
 	const declaredTreeHeightSource = props.totalTreeHeightSource ?? 'localProjection';
 	const shouldShowSearchInput =
-		isSearchOpen || props.searchText.trim().length > 0 || props.searchError !== null;
+		props.isSearchOpen || searchText.trim().length > 0 || searchError !== null;
 	const visibleCountLabel =
 		props.searchError === null
 			? `${props.projectedTreeRowCount}/${props.totalTreeRowCount}`
@@ -128,18 +126,15 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					testId: 'bridge-file-viewer-rail-toolbar',
 					trailing: (
 						<>
-							<BridgeViewerFilterMenu
-								label="File class filter"
-								onChange={props.onFilterModeChange}
-								options={bridgeFileViewerFilterOptions}
-								testId="worktree-file-filter-menu"
-								value={props.filterMode}
+							<BridgeFileViewerFacetMenu
+								filterMode={props.filterMode}
+								onFilterModeChange={props.onFilterModeChange}
+								onOpenChange={props.onFilterMenuOpenChange}
+								open={props.isFilterMenuOpen}
 							/>
 							<BridgeViewerSearchControl
 								isActive={shouldShowSearchInput}
-								onOpenSearch={() => {
-									setIsSearchOpen(true);
-								}}
+								onToggleSearch={props.onToggleSearch}
 								searchToggleTestId="worktree-file-search-toggle"
 								testId="worktree-file-search-control"
 							/>

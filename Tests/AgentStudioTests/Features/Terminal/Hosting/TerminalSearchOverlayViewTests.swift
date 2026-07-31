@@ -27,14 +27,14 @@ struct TerminalSearchOverlayViewTests {
         #expect(closeCount == 1)
     }
 
-    @Test("update formats result label text")
-    func updateFormatsResultLabelText() {
+    @Test("result updates format the result label")
+    func resultUpdatesFormatResultLabel() {
         let overlay = TerminalSearchOverlayView()
 
-        overlay.update(query: "needle", totalMatches: 12, selectedMatchIndex: 3)
+        overlay.updateResults(totalMatches: 12, selectedMatchIndex: 3)
         #expect(overlay.resultLabelTextForTesting == "4 of 12")
 
-        overlay.update(query: "", totalMatches: nil, selectedMatchIndex: nil)
+        overlay.updateResults(totalMatches: nil, selectedMatchIndex: nil)
         #expect(overlay.resultLabelTextForTesting.isEmpty)
     }
 }

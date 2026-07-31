@@ -9,6 +9,7 @@ extension WorkspaceSurfaceCoordinator {
         let companion = store.panePresentationAtom.zoomCompanion(
             forSourcePane: sourcePaneId
         )
+        zoomCompanionContinuityBySourcePaneId.removeValue(forKey: sourcePaneId)
         store.panePresentationAtom.removeZoomSourcePane(sourcePaneId)
         guard let companion else { return }
         retireZoomCompanionResources(companion)
@@ -19,6 +20,7 @@ extension WorkspaceSurfaceCoordinator {
         forSourcePane sourcePaneId: UUID,
         viewerWorktreeStillResolves: Bool
     ) {
+        retainZoomCompanionContinuity(forSourcePane: sourcePaneId)
         let companion = store.panePresentationAtom.zoomCompanion(
             forSourcePane: sourcePaneId
         )
@@ -76,6 +78,7 @@ extension WorkspaceSurfaceCoordinator {
             )
         )
         store.panePresentationAtom.clearAllZoomRuntimeState()
+        zoomCompanionContinuityBySourcePaneId.removeAll()
     }
 
     func updateZoomCompanionOwnership(
@@ -151,6 +154,9 @@ extension WorkspaceSurfaceCoordinator {
         owningTabId: UUID,
         viewerSurfaceRequest: @MainActor (BridgeProductSurface, UUID) -> Bool
     ) -> ZoomViewerPresentation {
+        let continuity =
+            retainZoomCompanionContinuity(forSourcePane: sourcePaneId)
+            ?? ZoomCompanionContinuity(surface: .file, visibility: .visible)
         guard
             let context = zoomCompanionContext(
                 sourcePaneId: sourcePaneId,
@@ -161,6 +167,13 @@ extension WorkspaceSurfaceCoordinator {
                 forSourcePane: sourcePaneId,
                 viewerWorktreeStillResolves: false
             )
+            if continuity.visibility == .visible {
+                _ = store.panePresentationAtom.setZoomViewerVisible(
+                    true,
+                    forSourcePane: sourcePaneId
+                )
+                return .unavailableVisible
+            }
             return .unavailable
         }
 
@@ -176,7 +189,6 @@ extension WorkspaceSurfaceCoordinator {
                 forSourcePane: sourcePaneId,
                 viewerWorktreeStillResolves: true
             )
-            return .retryable
         }
 
         let companionPaneId = UUIDv7.generate()
@@ -206,7 +218,7 @@ extension WorkspaceSurfaceCoordinator {
 
         viewRegistry.ensureSlot(for: companionPaneId)
         _ = createBridgePaneView(for: companionPane, state: companionState)
-        guard viewerSurfaceRequest(.file, companionPaneId) else {
+        guard viewerSurfaceRequest(continuity.surface, companionPaneId) else {
             teardownView(for: companionPaneId)
             retireBridgePaneActivityAuthority(for: companionPaneId)
             viewRegistry.retireSlot(for: companionPaneId)
@@ -222,12 +234,18 @@ extension WorkspaceSurfaceCoordinator {
                 owningTabId: owningTabId,
                 resolvedWorktreeId: context.worktree.id,
                 companionPaneId: companionPaneId,
-                lastZoomVisibility: .visible
+                lastZoomVisibility: continuity.visibility
             ),
             forSourcePane: sourcePaneId
         )
+        zoomCompanionContinuityBySourcePaneId[sourcePaneId] = continuity
         refreshBridgePaneActivities()
-        return .retainedVisible(companionPaneId: companionPaneId)
+        switch continuity.visibility {
+        case .hidden:
+            return .retainedHidden(companionPaneId: companionPaneId)
+        case .visible:
+            return .retainedVisible(companionPaneId: companionPaneId)
+        }
     }
 
     private func retainedZoomCompanionPresentation(
@@ -240,15 +258,21 @@ extension WorkspaceSurfaceCoordinator {
             companion.owningTabId == owningTabId,
             companion.resolvedWorktreeId == resolvedWorktreeId,
             viewRegistry.allBridgeViews[companion.companionPaneId] != nil,
-            runtimeForPane(PaneId(existingUUID: companion.companionPaneId)) is BridgeRuntime,
-            let presentation = store.panePresentationAtom.zoomPresentation(forTab: owningTabId),
-            presentation.sourcePaneId == sourcePaneId,
-            presentation.viewerPresentation.companionPaneId == companion.companionPaneId
+            runtimeForPane(PaneId(existingUUID: companion.companionPaneId)) is BridgeRuntime
         else {
             return nil
         }
+        store.panePresentationAtom.cacheZoomCompanion(
+            companion,
+            forSourcePane: sourcePaneId
+        )
         refreshBridgePaneActivities()
-        return presentation.viewerPresentation
+        switch companion.lastZoomVisibility {
+        case .hidden:
+            return .retainedHidden(companionPaneId: companion.companionPaneId)
+        case .visible:
+            return .retainedVisible(companionPaneId: companion.companionPaneId)
+        }
     }
 
     private func zoomCompanionContext(
@@ -264,6 +288,16 @@ extension WorkspaceSurfaceCoordinator {
             return nil
         }
 
+        if let cwd = sourcePane.metadata.cwd {
+            guard
+                let resolved = store.repositoryTopologyAtom.repoAndWorktree(
+                    containing: cwd
+                )
+            else {
+                return nil
+            }
+            return (sourcePane, resolved.repo, resolved.worktree)
+        }
         if let worktreeId = sourcePane.worktreeId {
             guard
                 let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
@@ -273,26 +307,68 @@ extension WorkspaceSurfaceCoordinator {
             }
             return (sourcePane, repo, worktree)
         }
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(
-            containing: sourcePane.metadata.cwd
-        ) {
-            return (sourcePane, resolved.repo, resolved.worktree)
-        }
+        return nil
+    }
 
-        let registeredWorktreeContexts = store.repositoryTopologyAtom.repos.flatMap { repo in
-            repo.worktrees.map { worktree in
-                (repo: repo, worktree: worktree)
+    func reconcileZoomCompanionAfterCWDChange(sourcePaneId: UUID) {
+        let hasZoomRuntime =
+            store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePaneId) != nil
+            || zoomCompanionContinuityBySourcePaneId[sourcePaneId] != nil
+            || store.panePresentationAtom.zoomPresentationsByTabId.values.contains {
+                $0.sourcePaneId == sourcePaneId
             }
+        guard hasZoomRuntime,
+            let owningTabId = store.tabLayoutAtom.tabContaining(paneId: sourcePaneId)?.id
+        else {
+            return
         }
-        guard registeredWorktreeContexts.count == 1,
-            let onlyRegisteredContext = registeredWorktreeContexts.first
+        reconcileZoomCompanion(
+            sourcePaneId: sourcePaneId,
+            owningTabId: owningTabId
+        )
+    }
+
+    @discardableResult
+    private func retainZoomCompanionContinuity(
+        forSourcePane sourcePaneId: UUID
+    ) -> ZoomCompanionContinuity? {
+        if let companion = store.panePresentationAtom.zoomCompanion(
+            forSourcePane: sourcePaneId
+        ) {
+            let retainedSurface =
+                viewRegistry.allBridgeViews[companion.companionPaneId]?.controller
+                .retainedViewerSurface
+                ?? zoomCompanionContinuityBySourcePaneId[sourcePaneId]?.surface
+                ?? .file
+            let continuity = ZoomCompanionContinuity(
+                surface: retainedSurface,
+                visibility: companion.lastZoomVisibility
+            )
+            zoomCompanionContinuityBySourcePaneId[sourcePaneId] = continuity
+            return continuity
+        }
+        if let continuity = zoomCompanionContinuityBySourcePaneId[sourcePaneId] {
+            return continuity
+        }
+        guard
+            let viewerPresentation = store.panePresentationAtom.zoomPresentationsByTabId.values
+                .first(where: { $0.sourcePaneId == sourcePaneId })?
+                .viewerPresentation
         else {
             return nil
         }
-        return (
-            sourcePane,
-            onlyRegisteredContext.repo,
-            onlyRegisteredContext.worktree
+        let visibility: ZoomViewerVisibility =
+            switch viewerPresentation {
+            case .unavailable, .retainedHidden:
+                .hidden
+            case .unavailableVisible, .retryable, .retainedVisible:
+                .visible
+            }
+        let continuity = ZoomCompanionContinuity(
+            surface: .file,
+            visibility: visibility
         )
+        zoomCompanionContinuityBySourcePaneId[sourcePaneId] = continuity
+        return continuity
     }
 }

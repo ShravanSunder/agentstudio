@@ -30,6 +30,7 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
     private(set) var sizeConstraints: TerminalSizeConstraints?
     private(set) var scrollbarState: ScrollbarState?
     private(set) var searchState: TerminalSearchState?
+    private(set) var searchLifecycleState: TerminalSearchLifecycleState
     private(set) var mouseShape: TerminalMouseShape?
     private(set) var isMouseVisible: Bool = true
     private var localSearchEpoch: UInt64?
@@ -52,6 +53,7 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
         self.commandProgress = nil
         self.scrollbarState = nil
         self.searchState = nil
+        self.searchLifecycleState = .inactive(lastEndedEpoch: 0)
         self.mouseShape = nil
         self.localSearchEpoch = nil
         self.capabilities = [.input, .resize, .search]
@@ -207,6 +209,7 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
 
         if let lifecycle = batch.searchLifecycle {
             localSearchEpoch = lifecycle.latestEpoch
+            searchLifecycleState = lifecycle.state
             switch lifecycle.state {
             case .active(let query, let epoch):
                 localSearchEpoch = epoch
@@ -354,9 +357,13 @@ package final class TerminalRuntime: BusPostingPaneRuntime, TerminalRuntimeSnaps
     ) -> Bool {
         switch event {
         case .searchStarted(let query):
+            let epoch = searchLifecycleState.epoch &+ 1
+            localSearchEpoch = epoch
+            searchLifecycleState = .active(query: query, epoch: epoch)
             searchState = TerminalSearchState(query: query ?? "", totalMatches: nil, selectedMatchIndex: nil)
             return true
         case .searchEnded:
+            searchLifecycleState = .inactive(lastEndedEpoch: searchLifecycleState.epoch)
             searchState = nil
             return true
         case .searchMatchesUpdated(let totalMatches):

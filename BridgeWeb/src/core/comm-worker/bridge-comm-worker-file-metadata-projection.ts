@@ -580,6 +580,7 @@ function fileTreeRowsEqual(left: FileTreeRow, right: FileTreeRow): boolean {
 		left.changeStatus === right.changeStatus &&
 		left.depth === right.depth &&
 		left.fileId === right.fileId &&
+		left.fileClass === right.fileClass &&
 		left.isDirectory === right.isDirectory &&
 		left.lineCount === right.lineCount &&
 		left.name === right.name &&

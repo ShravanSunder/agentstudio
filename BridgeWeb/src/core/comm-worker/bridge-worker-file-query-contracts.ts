@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
+import { bridgeProductFileTreeFileClassSchema } from './bridge-product-subscription-contracts.js';
+
 const bridgeWorkerFileQuerySearchTextMaximumLength = 4_096;
 
 export const bridgeWorkerFileQuerySchema = z
 	.object({
-		filterMode: z.enum(['all', 'fetchable', 'unavailable']),
+		filterMode: z.union([z.literal('all'), bridgeProductFileTreeFileClassSchema]),
 		searchMode: z.enum(['text', 'regex']),
 		searchText: z.string().max(bridgeWorkerFileQuerySearchTextMaximumLength),
 	})

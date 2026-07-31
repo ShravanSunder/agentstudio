@@ -159,6 +159,7 @@ struct BridgeFilePrefixCorpusTests {
                     depth: 0,
                     isDirectory: false,
                     fileId: nil,
+                    fileClass: .unknown,
                     sizeBytes: sourceData.count,
                     lineCount: nil,
                     changeStatus: nil

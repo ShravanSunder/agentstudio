@@ -1,7 +1,8 @@
+import AgentStudioInfrastructure
 import AppKit
 
 @MainActor
-final class TerminalSearchOverlayView: NSView {
+final class TerminalSearchOverlayView: NSView, NSSearchFieldDelegate {
     enum NavigationDirection: Equatable {
         case next
         case previous
@@ -9,6 +10,7 @@ final class TerminalSearchOverlayView: NSView {
 
     var onQueryChanged: ((String) -> Void)?
     var onNavigate: ((NavigationDirection) -> Void)?
+    var onReturnFocusToTerminal: (() -> Void)?
     var onClose: (() -> Void)?
 
     private let containerView = NSVisualEffectView()
@@ -31,29 +33,34 @@ final class TerminalSearchOverlayView: NSView {
         addSubview(containerView)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.target = self
-        searchField.action = #selector(handleSearchFieldChange)
+        searchField.delegate = self
 
         resultLabel.translatesAutoresizingMaskIntoConstraints = false
         resultLabel.alignment = .center
 
-        previousButton.translatesAutoresizingMaskIntoConstraints = false
-        previousButton.title = "Prev"
+        configureIconButton(
+            previousButton,
+            symbolName: "chevron.up",
+            accessibilityLabel: "Previous Match"
+        )
         previousButton.target = self
         previousButton.action = #selector(handlePrevious)
-        previousButton.bezelStyle = .texturedRounded
 
-        nextButton.translatesAutoresizingMaskIntoConstraints = false
-        nextButton.title = "Next"
+        configureIconButton(
+            nextButton,
+            symbolName: "chevron.down",
+            accessibilityLabel: "Next Match"
+        )
         nextButton.target = self
         nextButton.action = #selector(handleNext)
-        nextButton.bezelStyle = .texturedRounded
 
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.title = "Close"
+        configureIconButton(
+            closeButton,
+            symbolName: "xmark",
+            accessibilityLabel: "Close Find"
+        )
         closeButton.target = self
         closeButton.action = #selector(handleClose)
-        closeButton.bezelStyle = .texturedRounded
 
         containerView.addSubview(searchField)
         containerView.addSubview(resultLabel)
@@ -67,33 +74,66 @@ final class TerminalSearchOverlayView: NSView {
             containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            searchField.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 10),
-            searchField.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 10),
-            searchField.widthAnchor.constraint(equalToConstant: 180),
+            searchField.topAnchor.constraint(
+                equalTo: containerView.topAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayContentInset
+            ),
+            searchField.leadingAnchor.constraint(
+                equalTo: containerView.leadingAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayContentInset
+            ),
+            searchField.bottomAnchor.constraint(
+                equalTo: containerView.bottomAnchor,
+                constant: -AppStyles.WorkspaceFocus.Terminal.searchOverlayContentInset
+            ),
+            searchField.widthAnchor.constraint(
+                greaterThanOrEqualToConstant:
+                    AppStyles.WorkspaceFocus.Terminal.searchOverlayMinimumFieldWidth
+            ),
 
             resultLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            resultLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8),
+            resultLabel.leadingAnchor.constraint(
+                equalTo: searchField.trailingAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayResultSpacing
+            ),
             resultLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
 
             previousButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            previousButton.leadingAnchor.constraint(equalTo: resultLabel.trailingAnchor, constant: 8),
+            previousButton.leadingAnchor.constraint(
+                equalTo: resultLabel.trailingAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayResultSpacing
+            ),
 
             nextButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            nextButton.leadingAnchor.constraint(equalTo: previousButton.trailingAnchor, constant: 6),
+            nextButton.leadingAnchor.constraint(
+                equalTo: previousButton.trailingAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayControlSpacing
+            ),
 
             closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            closeButton.leadingAnchor.constraint(equalTo: nextButton.trailingAnchor, constant: 6),
-            closeButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -10),
-            closeButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -10),
+            closeButton.leadingAnchor.constraint(
+                equalTo: nextButton.trailingAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayControlSpacing
+            ),
+            closeButton.trailingAnchor.constraint(
+                equalTo: containerView.trailingAnchor,
+                constant: -AppStyles.WorkspaceFocus.Terminal.searchOverlayContentInset
+            ),
         ])
+
+        searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
     }
 
-    func update(query: String, totalMatches: Int?, selectedMatchIndex: Int?) {
+    func initializeQuery(_ query: String) {
         searchField.stringValue = query
+    }
+
+    func updateResults(totalMatches: Int?, selectedMatchIndex: Int?) {
         if let totalMatches {
             let selectedDisplayIndex = (selectedMatchIndex ?? -1) + 1
             resultLabel.stringValue = "\(max(0, selectedDisplayIndex)) of \(totalMatches)"
@@ -102,8 +142,40 @@ final class TerminalSearchOverlayView: NSView {
         }
     }
 
-    @objc private func handleSearchFieldChange() {
+    func focusSearchField() {
+        window?.makeFirstResponder(searchField)
+    }
+
+    func ownsFirstResponder(_ responder: NSResponder?) -> Bool {
+        responder === searchField || responder === searchField.currentEditor()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard notification.object as? NSSearchField === searchField else {
+            return
+        }
         onQueryChanged?(searchField.stringValue)
+    }
+
+    func control(
+        _ control: NSControl,
+        textView: NSTextView,
+        doCommandBy commandSelector: Selector
+    ) -> Bool {
+        guard
+            control === searchField,
+            textView === searchField.currentEditor(),
+            commandSelector == #selector(NSResponder.cancelOperation(_:))
+        else {
+            return false
+        }
+
+        if searchField.stringValue.isEmpty {
+            onClose?()
+        } else {
+            onReturnFocusToTerminal?()
+        }
+        return true
     }
 
     @objc private func handlePrevious() {
@@ -116,6 +188,41 @@ final class TerminalSearchOverlayView: NSView {
 
     @objc private func handleClose() {
         onClose?()
+    }
+
+    private func configureIconButton(
+        _ button: NSButton,
+        symbolName: String,
+        accessibilityLabel: String
+    ) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.title = ""
+        button.bezelStyle = .texturedRounded
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.setAccessibilityLabel(accessibilityLabel)
+
+        let image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: accessibilityLabel
+        )
+        image?.setName(NSImage.Name(symbolName))
+        button.image =
+            image?.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(
+                    pointSize: AppStyles.WorkspaceFocus.Terminal.searchOverlayIconSize,
+                    weight: .medium
+                )
+            ) ?? image
+
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(
+                equalToConstant: AppStyles.WorkspaceFocus.Terminal.searchOverlayButtonSize
+            ),
+            button.heightAnchor.constraint(
+                equalToConstant: AppStyles.WorkspaceFocus.Terminal.searchOverlayButtonSize
+            ),
+        ])
     }
 }
 
