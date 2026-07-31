@@ -43,6 +43,107 @@ if "$ROOT_DIR/scripts/release-tag-metadata.sh" v0.0.54-beta >/dev/null 2>&1; the
   exit 1
 fi
 
+beta_repo="$(mktemp -d)"
+missing_stable_repo="$(mktemp -d)"
+cleanup_beta_repos() {
+  find "$beta_repo" -mindepth 1 -delete
+  rmdir "$beta_repo"
+  find "$missing_stable_repo" -mindepth 1 -delete
+  rmdir "$missing_stable_repo"
+}
+trap cleanup_beta_repos EXIT
+
+git -C "$beta_repo" init -q
+git -C "$beta_repo" config user.name "AgentStudio Release Tests"
+git -C "$beta_repo" config user.email "release-tests@agentstudio.invalid"
+git -C "$beta_repo" commit --allow-empty -q -m "stable 0.0.67"
+git -C "$beta_repo" tag v0.0.67
+git -C "$beta_repo" commit --allow-empty -q -m "stable 0.0.68"
+git -C "$beta_repo" tag v0.0.68
+git -C "$beta_repo" tag v0.0.69-beta.7
+git -C "$beta_repo" commit --allow-empty -q -m "daily beta candidate"
+beta_candidate_sha="$(git -C "$beta_repo" rev-parse HEAD)"
+
+resolver_output="$(
+  GIT_DIR="$beta_repo/.git" GIT_WORK_TREE="$beta_repo" \
+    "$ROOT_DIR/scripts/resolve-daily-beta-tag.sh" "$beta_candidate_sha" 123
+)"
+assert_contains "$resolver_output" "should_tag=true"
+assert_contains "$resolver_output" "candidate_sha=$beta_candidate_sha"
+assert_contains "$resolver_output" "tag=v0.0.69-beta.123"
+
+git -C "$beta_repo" tag v0.0.69-beta.122 "$beta_candidate_sha"
+resolver_noop_output="$(
+  GIT_DIR="$beta_repo/.git" GIT_WORK_TREE="$beta_repo" \
+    "$ROOT_DIR/scripts/resolve-daily-beta-tag.sh" "$beta_candidate_sha" 123
+)"
+assert_contains "$resolver_noop_output" "should_tag=false"
+assert_contains "$resolver_noop_output" "candidate_sha=$beta_candidate_sha"
+assert_contains "$resolver_noop_output" "tag=v0.0.69-beta.122"
+git -C "$beta_repo" tag -d v0.0.69-beta.122 >/dev/null
+
+if GIT_DIR="$beta_repo/.git" GIT_WORK_TREE="$beta_repo" \
+  "$ROOT_DIR/scripts/resolve-daily-beta-tag.sh" "$beta_candidate_sha" abc >/dev/null 2>&1
+then
+  echo "non-numeric daily beta run number unexpectedly passed" >&2
+  exit 1
+fi
+
+git -C "$missing_stable_repo" init -q
+git -C "$missing_stable_repo" config user.name "AgentStudio Release Tests"
+git -C "$missing_stable_repo" config user.email "release-tests@agentstudio.invalid"
+git -C "$missing_stable_repo" commit --allow-empty -q -m "candidate without stable tag"
+missing_stable_sha="$(git -C "$missing_stable_repo" rev-parse HEAD)"
+if GIT_DIR="$missing_stable_repo/.git" GIT_WORK_TREE="$missing_stable_repo" \
+  "$ROOT_DIR/scripts/resolve-daily-beta-tag.sh" "$missing_stable_sha" 123 >/dev/null 2>&1
+then
+  echo "daily beta resolver unexpectedly accepted a repository without a stable tag" >&2
+  exit 1
+fi
+
+git -C "$beta_repo" tag v0.0.69-beta.123 v0.0.68
+if GIT_DIR="$beta_repo/.git" GIT_WORK_TREE="$beta_repo" \
+  "$ROOT_DIR/scripts/resolve-daily-beta-tag.sh" "$beta_candidate_sha" 123 >/dev/null 2>&1
+then
+  echo "daily beta resolver unexpectedly accepted a tag collision" >&2
+  exit 1
+fi
+
+cleanup_beta_repos
+trap - EXIT
+
+daily_beta_workflow_path="$ROOT_DIR/.github/workflows/daily-beta.yml"
+if [[ ! -f "$daily_beta_workflow_path" ]]; then
+  echo "daily beta workflow is missing: $daily_beta_workflow_path" >&2
+  exit 1
+fi
+daily_beta_workflow="$(<"$daily_beta_workflow_path")"
+
+assert_contains "$daily_beta_workflow" "schedule:"
+assert_contains "$daily_beta_workflow" "cron: '0 12 * * *'"
+assert_contains "$daily_beta_workflow" "timezone: 'America/Toronto'"
+assert_contains "$daily_beta_workflow" "workflow_dispatch:"
+assert_contains "$daily_beta_workflow" "contents: write"
+assert_contains "$daily_beta_workflow" "group: daily-beta-tag"
+assert_contains "$daily_beta_workflow" "cancel-in-progress: false"
+assert_contains "$daily_beta_workflow" \
+  "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4"
+assert_contains "$daily_beta_workflow" "ref: main"
+assert_contains "$daily_beta_workflow" "fetch-depth: 0"
+assert_contains "$daily_beta_workflow" 'token: ${{ secrets.HOMEBREW_TAP_TOKEN }}'
+assert_contains "$daily_beta_workflow" "git fetch origin main --tags"
+assert_contains "$daily_beta_workflow" "git rev-parse 'origin/main^{commit}'"
+assert_contains "$daily_beta_workflow" "scripts/resolve-daily-beta-tag.sh"
+assert_contains "$daily_beta_workflow" "if: steps.beta.outputs.should_tag == 'true'"
+assert_contains "$daily_beta_workflow" 'git tag "$BETA_TAG" "$CANDIDATE_SHA"'
+assert_contains "$daily_beta_workflow" 'git push origin "refs/tags/$BETA_TAG"'
+assert_not_contains "$daily_beta_workflow" "GITHUB_TOKEN"
+assert_not_contains "$daily_beta_workflow" "APPLE_CERTIFICATE_BASE64"
+assert_not_contains "$daily_beta_workflow" "APPLE_NOTARY_PASSWORD"
+assert_not_contains "$daily_beta_workflow" "notarytool"
+assert_not_contains "$daily_beta_workflow" "update-homebrew-tap.sh"
+assert_not_contains "$daily_beta_workflow" "softprops/action-gh-release"
+
 stable_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" stable 0.0.54 "$SHA")"
 beta_cask="$("$ROOT_DIR/scripts/render-homebrew-cask.sh" beta 0.0.54-beta.1 "$SHA")"
 

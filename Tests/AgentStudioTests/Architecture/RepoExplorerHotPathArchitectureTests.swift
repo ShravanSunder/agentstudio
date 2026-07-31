@@ -42,6 +42,43 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains(".id(sidebarProjectionFingerprint)"))
     }
 
+    @Test("projection requests are built only after observation admits a semantic input change")
+    func projectionRequestsAreBuiltOnlyAfterObservationAdmission() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!source.contains(".onChange(of: projectionRequestKey)"))
+        #expect(source.contains("withObservationTracking"))
+        #expect(source.contains("private func observeProjectionInputs("))
+        #expect(
+            source.contains(
+                """
+                .onChange(of: debouncedQuery) { _, _ in
+                            let clock = ContinuousClock()
+                            let requestBuildStart = clock.now
+                            let request = projectionRequest
+                            refreshProjection(
+                                request: request,
+                                requestBuildDuration: requestBuildStart.duration(to: clock.now)
+                            )
+                        }
+                """
+            )
+        )
+        #expect(
+            source.contains(
+                """
+                refreshProjection(
+                            request: request,
+                            requestBuildDuration: requestBuildDuration
+                """
+            )
+        )
+    }
+
     @Test("visibility mode changes stay in measured projection worker path")
     func visibilityModeChangesStayInMeasuredProjectionWorkerPath() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
