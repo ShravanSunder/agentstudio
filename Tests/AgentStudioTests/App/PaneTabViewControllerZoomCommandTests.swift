@@ -209,6 +209,38 @@ struct PaneTabViewControllerZoomCommandTests {
         )
     }
 
+    @Test("Zoom Viewer recovers a stale explicit worktree from the pane CWD")
+    func zoomViewerRecoversStaleWorktreeFromCWD() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (staleRepo, staleWorktree) = makeRepoAndWorktree(
+            harness.store,
+            root: harness.tempDir
+        )
+        let (_, replacementWorktree) = makeRepoAndWorktree(
+            harness.store,
+            root: harness.tempDir
+        )
+        let sourcePane = harness.store.createPane(
+            launchDirectory: replacementWorktree.path,
+            facets: PaneContextFacets(
+                repoId: staleRepo.id,
+                worktreeId: staleWorktree.id,
+                cwd: replacementWorktree.path
+            )
+        )
+        let sourceTab = Tab(paneId: sourcePane.id)
+        harness.store.appendTab(sourceTab)
+        harness.store.setActiveTab(sourceTab.id)
+        harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
+        harness.store.reconcileDiscoveredWorktrees(staleRepo.id, worktrees: [])
+
+        #expect(harness.store.repositoryTopologyAtom.worktree(staleWorktree.id) == nil)
+        #expect(
+            harness.controller.canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePane.id)
+        )
+    }
+
     @Test("same-tab explicit Zoom retargets, then an equal target cancels")
     func explicitSameTabZoomRetargetsThenCancels() throws {
         let harness = makeHarness()
