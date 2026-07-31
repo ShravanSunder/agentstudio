@@ -88,6 +88,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("def wait_for_readback"))
         #expect(source.contains("time.monotonic() + timeout"))
         #expect(source.contains("readiness timed out"))
+        #expect(source.contains("pace_projection_application()"))
+        #expect(source.contains("def pace_projection_application():"))
         #expect(!source.contains("sidebar grouping read-back mismatch"))
         #expect(!source.contains("sidebar surface read-back mismatch"))
         #expect(source.contains("workload_fixture_key=$WORKLOAD_FIXTURE_KEY"))

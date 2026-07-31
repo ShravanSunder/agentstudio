@@ -605,6 +605,10 @@ try:
         print(f"{label} readiness timed out: {last_result}", file=sys.stderr)
         sys.exit(1)
 
+    def pace_projection_application():
+        if step_delay > 0:
+            time.sleep(step_delay)
+
     def set_grouping(surface, mode):
         command_by_grouping = {
             ("repo", "repo"): "setRepoSidebarGroupingRepo",
@@ -626,6 +630,7 @@ try:
             f"sidebar.grouping.get {surface}",
             lambda result: result.get("mode") == mode,
         )
+        pace_projection_application()
 
     def set_surface(surface):
         command_by_surface = {
