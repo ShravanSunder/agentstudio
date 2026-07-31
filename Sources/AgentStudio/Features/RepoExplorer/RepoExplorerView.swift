@@ -3,6 +3,7 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import AppKit
 import Foundation
+import Observation
 import SwiftUI
 
 package typealias BridgeAttendanceSnapshot =
@@ -101,6 +102,7 @@ package struct RepoExplorerView: View {
     @State private var projectionGeneration = 0
     @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
+    @State private var projectionObservationID: UUID?
 
     private static let filterDebounceMilliseconds = 25
 
@@ -141,7 +143,7 @@ package struct RepoExplorerView: View {
 
     private var projectionRequest: RepoExplorerProjectionRequest {
         RepoExplorerProjectionRequest(
-            generation: projectionGeneration + 1,
+            generation: 0,
             snapshot: sidebarSnapshot,
             expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
             isFiltering: isFiltering,
@@ -178,12 +180,13 @@ package struct RepoExplorerView: View {
         .task {
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
-            refreshProjection(force: true)
+            startProjectionObservation()
         }
         .onDisappear {
             debounceTask?.cancel()
             projectionTask?.cancel()
             projectionTask = nil
+            projectionObservationID = nil
             updateSidebarVisibleWorktrees([])
             RepoExplorerFocusPublisher.publish(
                 focusedField: nil,
@@ -236,9 +239,6 @@ package struct RepoExplorerView: View {
                 focusedField: newValue,
                 into: uiState
             )
-        }
-        .onChange(of: projectionRequestKey) { _, _ in
-            refreshProjection()
         }
     }
 
@@ -661,44 +661,47 @@ package struct RepoExplorerView: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
     }
 
-    private struct ProjectionRequestKey: Equatable {
-        let snapshot: RepoExplorerSnapshot
-        let expandedGroupIds: Set<String>
-        let isFiltering: Bool
-        let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
+    private func startProjectionObservation() {
+        let observationID = UUID()
+        projectionObservationID = observationID
+        observeProjectionInputs(observationID: observationID, force: true)
     }
 
-    private var projectionRequestKey: ProjectionRequestKey {
-        let request = projectionRequest
-        return ProjectionRequestKey(
-            snapshot: request.snapshot,
-            expandedGroupIds: request.expandedGroupIds,
-            isFiltering: request.isFiltering,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+    private func observeProjectionInputs(
+        observationID: UUID,
+        force: Bool = false
+    ) {
+        guard projectionObservationID == observationID else { return }
+
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
+        let request = withObservationTracking {
+            projectionRequest
+        } onChange: {
+            Task { @MainActor in
+                await Task.yield()
+                guard projectionObservationID == observationID else { return }
+                observeProjectionInputs(observationID: observationID)
+            }
+        }
+        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        refreshProjection(
+            request: request,
+            requestBuildDuration: requestBuildDuration,
+            force: force
         )
     }
 
     private func refreshProjection(
+        request: RepoExplorerProjectionRequest,
+        requestBuildDuration: Duration,
         force: Bool = false,
         trigger: AppPolicies.SidebarProjection.Trigger? = nil
     ) {
-        let clock = ContinuousClock()
-        let requestBuildStart = clock.now
-        let request = projectionRequest
-        let requestKey = ProjectionRequestKey(
-            snapshot: request.snapshot,
-            expandedGroupIds: request.expandedGroupIds,
-            isFiltering: request.isFiltering,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
-        )
+        let requestKey = Self.projectionRequestKey(for: request)
         if !force,
             let cachedProjectionRequest,
-            ProjectionRequestKey(
-                snapshot: cachedProjectionRequest.snapshot,
-                expandedGroupIds: cachedProjectionRequest.expandedGroupIds,
-                isFiltering: cachedProjectionRequest.isFiltering,
-                worktreeFactsByWorktreeId: cachedProjectionRequest.worktreeFactsByWorktreeId
-            ) == requestKey
+            Self.projectionRequestKey(for: cachedProjectionRequest) == requestKey
         {
             return
         }
@@ -730,7 +733,6 @@ package struct RepoExplorerView: View {
             trigger: projectionTrigger,
             worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
         )
-        let requestBuildDuration = requestBuildStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
             duration: requestBuildDuration,
@@ -870,6 +872,24 @@ package struct RepoExplorerView: View {
 }
 
 extension RepoExplorerView {
+    private struct ProjectionRequestKey: Equatable {
+        let snapshot: RepoExplorerSnapshot
+        let expandedGroupIds: Set<String>
+        let isFiltering: Bool
+        let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
+    }
+
+    private static func projectionRequestKey(
+        for request: RepoExplorerProjectionRequest
+    ) -> ProjectionRequestKey {
+        ProjectionRequestKey(
+            snapshot: request.snapshot,
+            expandedGroupIds: request.expandedGroupIds,
+            isFiltering: request.isFiltering,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+        )
+    }
+
     private func sidebarProjectionTraceAttributes(
         for request: RepoExplorerProjectionRequest,
         phase: String,
