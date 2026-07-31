@@ -197,6 +197,34 @@ struct RepoExplorerViewProjectionHelperTests {
         #expect(RepoExplorerView.sidebarProjectionTrigger(previous: previous, next: next) == .sortOrder)
     }
 
+    @Test("query changes have their own search projection trigger")
+    func queryChangesHaveTheirOwnSearchProjectionTrigger() {
+        let previous = RepoExplorerProjectionRequest(
+            generation: 1,
+            snapshot: RepoExplorerSnapshot(
+                repos: [],
+                repoEnrichmentByRepoId: [:],
+                query: ""
+            ),
+            expandedGroupIds: [],
+            isFiltering: false,
+            trigger: .startupDiagnostic
+        )
+        let next = RepoExplorerProjectionRequest(
+            generation: 2,
+            snapshot: RepoExplorerSnapshot(
+                repos: [],
+                repoEnrichmentByRepoId: [:],
+                query: "agent-studio"
+            ),
+            expandedGroupIds: [],
+            isFiltering: true,
+            trigger: .startupDiagnostic
+        )
+
+        #expect(RepoExplorerView.sidebarProjectionTrigger(previous: previous, next: next) == .search)
+    }
+
     @Test("branchStatus maps sync and line diff values from snapshot summary")
     func branchStatusMapsSnapshotSyncAndLineDiff() {
         let worktreeId = UUID()

@@ -234,6 +234,15 @@ package struct RepoExplorerView: View {
                 }
             }
         }
+        .onChange(of: debouncedQuery) { _, _ in
+            let clock = ContinuousClock()
+            let requestBuildStart = clock.now
+            let request = projectionRequest
+            refreshProjection(
+                request: request,
+                requestBuildDuration: requestBuildStart.duration(to: clock.now)
+            )
+        }
         .onChange(of: focusedField) { _, newValue in
             RepoExplorerFocusPublisher.publish(
                 focusedField: newValue,

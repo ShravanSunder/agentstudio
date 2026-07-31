@@ -56,6 +56,21 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(
             source.contains(
                 """
+                .onChange(of: debouncedQuery) { _, _ in
+                            let clock = ContinuousClock()
+                            let requestBuildStart = clock.now
+                            let request = projectionRequest
+                            refreshProjection(
+                                request: request,
+                                requestBuildDuration: requestBuildStart.duration(to: clock.now)
+                            )
+                        }
+                """
+            )
+        )
+        #expect(
+            source.contains(
+                """
                 refreshProjection(
                             request: request,
                             requestBuildDuration: requestBuildDuration
