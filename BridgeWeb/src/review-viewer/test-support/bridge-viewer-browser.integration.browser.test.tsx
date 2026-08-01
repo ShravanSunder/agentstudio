@@ -93,10 +93,8 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await expect.element(harness.renderResult.getByTestId('review-viewer-shell')).toBeVisible();
 		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).not.toBeNull();
 
-		// Act: Command-Shift-F opens Search on the active Review surface.
 		await dispatchReviewViewerShortcut({ shiftKey: true });
 
-		// Assert
 		const activeSearchToggle = harness.renderResult.getByTestId('bridge-review-search-toggle');
 		expect(activeSearchToggle.element().getAttribute('aria-pressed')).toBe('true');
 		expect(activeSearchToggle.element().getAttribute('aria-label')).toBe('Search files');
@@ -112,18 +110,14 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		}
 		expect(document.activeElement).toBe(searchInput);
 
-		// Act: repeating Command-Shift-F closes Search.
 		await dispatchReviewViewerShortcut({ shiftKey: true });
 
-		// Assert
 		expect(document.querySelector('[data-testid="bridge-review-search-input"]')).toBeNull();
 		expect(activeSearchToggle.element().getAttribute('aria-pressed')).toBe('false');
 		expect(activeSearchToggle.element().getAttribute('aria-label')).toBe('Search files');
 
-		// Act
 		await dispatchReviewViewerShortcut({ shiftKey: true });
 
-		// Act
 		const reopenedSearchInput = harness.pierreSearchInput();
 		if (!(reopenedSearchInput instanceof HTMLInputElement)) {
 			throw new Error('J1 REVIEW REOPENED SEARCH INPUT MISSING');
@@ -135,7 +129,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		});
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 
-		// Assert
 		expect(reopenedSearchInput.value).toBe('RecoveryFile005');
 		const searchField = requireReviewHTMLElement(
 			document.querySelector('[data-bridge-viewer-search-field="true"]'),
@@ -224,22 +217,39 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 
 		// Assert
 		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([]);
+
+		await act(async (): Promise<void> => {
+			await harness.renderResult
+				.getByTestId('bridge-review-search-input')
+				.fill(String.raw`RecoveryFile005\.swift$`);
+		});
+		await advanceBridgeReviewRecoveryWitnessFrames(2);
+		const acceptedSearchPaths = [
+			'Sources',
+			'Sources/RecoveryGroup02',
+			'Sources/RecoveryGroup02/RecoveryFile005.swift',
+		];
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual(acceptedSearchPaths);
 		const invalidRegexSearchInput = harness.pierreSearchInput();
 		if (!(invalidRegexSearchInput instanceof HTMLInputElement)) {
 			throw new Error('Review regex search input is missing before invalid-regex proof.');
 		}
+		const selectedItemCommandCountBeforeInvalidSearch = harness.selectedItemCommandCount();
+		const viewportCommandsBeforeInvalidSearch = harness.viewportCommandVisibleItemIds();
 
-		// Act: invalid regex must fail closed without losing the query input.
+		// Act: invalid regex keeps the entered value but must retain the last accepted projection.
 		await act(async (): Promise<void> => {
 			await harness.renderResult.getByTestId('bridge-review-search-input').fill('[');
 		});
 		await advanceBridgeReviewRecoveryWitnessFrames(2);
 
 		// Assert
-		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual([]);
+		expect(mountedReviewTreePaths(harness.pierreTreeHost())).toEqual(acceptedSearchPaths);
 		await expect
 			.element(harness.renderResult.getByTestId('bridge-review-tree-search-status'))
 			.toHaveTextContent('Invalid regex');
+		expect(harness.selectedItemCommandCount()).toBe(selectedItemCommandCountBeforeInvalidSearch);
+		expect(harness.viewportCommandVisibleItemIds()).toEqual(viewportCommandsBeforeInvalidSearch);
 
 		// Act: Clear is the far-right reset for the same shared field.
 		await act(async (): Promise<void> => {

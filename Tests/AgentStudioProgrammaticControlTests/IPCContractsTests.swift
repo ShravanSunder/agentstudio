@@ -269,6 +269,31 @@ struct IPCContractsTests {
         #expect(params.searchMode == .text)
     }
 
+    @Test("bridge file tree search params reject more than 4,096 UTF-16 units")
+    func bridgeFileTreeSearchParamsRejectOversizedUTF16Input() throws {
+        let admittedPayload = try JSONSerialization.data(withJSONObject: [
+            "handle": "pane:1",
+            "searchText": String(repeating: "🧭", count: 2048),
+        ])
+        let rejectedPayload = try JSONSerialization.data(withJSONObject: [
+            "handle": "pane:1",
+            "searchText": String(repeating: "🧭", count: 2048) + "a",
+        ])
+
+        let admitted = try JSONDecoder().decode(
+            IPCBridgeFileTreeSearchParams.self,
+            from: admittedPayload
+        )
+
+        #expect(admitted.searchText.utf16.count == 4096)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                IPCBridgeFileTreeSearchParams.self,
+                from: rejectedPayload
+            )
+        }
+    }
+
     @Test("bridge file tree filter command encodes one surface-discriminated candidate")
     func bridgeFileTreeFilterCommandEncodesSurfaceDiscriminatedCandidate() throws {
         let reviewCommand = IPCBridgePageControlCommand.fileTreeSetFilter(

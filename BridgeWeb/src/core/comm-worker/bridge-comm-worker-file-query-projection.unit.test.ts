@@ -29,7 +29,7 @@ describe('Bridge comm worker File query projection', () => {
 			searchText: '[',
 			totalRowCount: 3,
 		});
-		expect(queryStatus(invalid).searchError).toContain('regular expression');
+		expect(queryStatus(invalid).searchError).toBe('Invalid regex');
 	});
 
 	test('retains file-class query and reevaluates a class-only row correction', () => {

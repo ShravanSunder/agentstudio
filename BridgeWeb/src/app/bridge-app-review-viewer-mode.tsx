@@ -29,6 +29,13 @@ import {
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+import {
+	createBridgeViewerSearchState,
+	transitionBridgeViewerSearchState,
+	type BridgeViewerSearchAction,
+	type BridgeViewerSearchError,
+	type BridgeViewerSearchRejectionReason,
+} from './bridge-viewer-search-state.js';
 import { BridgeViewerViewSettingsMenu } from './bridge-viewer-view-settings-menu.js';
 import type { BridgeReviewViewSettings } from './bridge-viewer-view-settings.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
@@ -89,9 +96,10 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
 	const updateReviewDisplayProjection = controller.updateReviewDisplayProjection;
 	const visibleCodeViewItems = controller.visibleCodeViewItems;
-	const [treeSearchMode, setTreeSearchMode] = useState<BridgeReviewSearchMode>({ kind: 'text' });
-	const [treeSearchOpen, setTreeSearchOpen] = useState(false);
-	const [treeSearchText, setTreeSearchText] = useState('');
+	const [treeSearchState, setTreeSearchState] = useState(createBridgeViewerSearchState);
+	const [treeSearchRejectionMessage, setTreeSearchRejectionMessage] = useState<string | null>(null);
+	const treeSearchStateRef = useRef(treeSearchState);
+	treeSearchStateRef.current = treeSearchState;
 	const [reviewFilter, setReviewFilter] = useState<BridgeReviewFilterCandidate>({
 		categoryFilter: 'all',
 		gitStatusFilter: 'all',
@@ -204,15 +212,27 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		},
 		[emitHoveredReviewItemIntent, isActive],
 	);
-	const toggleTreeSearch = useCallback((): void => {
-		setTreeSearchOpen((isSearchOpen): boolean => {
-			if (isSearchOpen) {
-				setTreeSearchText('');
-				return false;
+	const applyTreeSearchActions = useCallback(
+		(actions: readonly BridgeViewerSearchAction[]): BridgeViewerSearchRejectionReason | null => {
+			let nextState = treeSearchStateRef.current;
+			for (const action of actions) {
+				const transition = transitionBridgeViewerSearchState(nextState, action);
+				if (transition.rejectionReason !== null) {
+					setTreeSearchRejectionMessage('Search query is too long');
+					return transition.rejectionReason;
+				}
+				nextState = transition.state;
 			}
-			return true;
-		});
-	}, []);
+			setTreeSearchRejectionMessage(null);
+			treeSearchStateRef.current = nextState;
+			setTreeSearchState(nextState);
+			return null;
+		},
+		[],
+	);
+	const toggleTreeSearch = useCallback((): void => {
+		applyTreeSearchActions([{ type: treeSearchStateRef.current.isOpen ? 'close' : 'open' }]);
+	}, [applyTreeSearchActions]);
 	const toggleFacetMenu = useCallback(
 		(): void => setFacetMenuOpen((isOpen): boolean => !isOpen),
 		[],
@@ -223,12 +243,27 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		onToggleSearch: toggleTreeSearch,
 		target,
 	});
-	const updateTreeSearchTextFromActiveTree = useCallback((searchText: string): void => {
-		if (!isActiveRef.current) {
-			return;
-		}
-		setTreeSearchText(searchText);
-	}, []);
+	const updateTreeSearchTextFromActiveTree = useCallback(
+		(searchText: string): void => {
+			if (!isActiveRef.current) {
+				return;
+			}
+			applyTreeSearchActions([{ type: 'change_query', query: searchText }]);
+		},
+		[applyTreeSearchActions],
+	);
+	const updateTreeSearchMode = useCallback(
+		(mode: BridgeReviewSearchMode): void => {
+			applyTreeSearchActions([{ type: 'change_mode', mode: mode.kind }]);
+		},
+		[applyTreeSearchActions],
+	);
+	const clearOrCloseTreeSearch = useCallback((): void => {
+		applyTreeSearchActions([{ type: 'clear_or_close' }]);
+	}, [applyTreeSearchActions]);
+	const closeTreeSearch = useCallback((): void => {
+		applyTreeSearchActions([{ type: 'close' }]);
+	}, [applyTreeSearchActions]);
 	const presentationSnapshot = useMemo(
 		() =>
 			bridgeReviewPresentationSnapshotForDisplay({
@@ -282,17 +317,16 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		categoryFilter,
 		gitStatusFilter,
 		isActive,
+		onSearchRejected: (): void => setTreeSearchRejectionMessage('Search query is too long'),
 		projection: presentationSnapshot?.projection ?? null,
 		reviewPackage: presentationSnapshot?.reviewPackage ?? null,
 		selectedItemId,
 		selectReviewItem: selectReviewItemAndRevealTree,
+		applyTreeSearchActions,
 		setReviewFilter,
-		setTreeSearchMode,
-		setTreeSearchOpen,
-		setTreeSearchText,
 		target,
-		treeSearchMode,
-		treeSearchText,
+		treeSearchStateRef,
+		treeSearchState,
 		showBinary,
 		showLarge,
 	});
@@ -331,12 +365,18 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		setReviewCodeViewVisibleItemIds: publishCodeViewVisibleItemIds,
 		setReviewViewportItemIds: publishTreeVisibleItemIds,
 		telemetryRecorder: telemetryRecorderRef.current,
-		treeSearchMode,
-		treeSearchOpen,
-		treeSearchText,
+		treeAcceptedSearchMode: { kind: treeSearchState.acceptedCriteria.mode },
+		treeAcceptedSearchText: treeSearchState.acceptedCriteria.query,
+		treeSearchError: treeSearchState.error,
+		treeSearchMode: { kind: treeSearchState.enteredCriteria.mode },
+		treeSearchOpen: treeSearchState.isOpen,
+		treeSearchText: treeSearchState.enteredCriteria.query,
+		treeSearchStatusMessage: treeSearchRejectionMessage,
 		treeSelectionRevealRequest,
 		visibleCodeViewItems,
-		onTreeSearchModeChange: setTreeSearchMode,
+		onTreeSearchClear: clearOrCloseTreeSearch,
+		onTreeSearchClose: closeTreeSearch,
+		onTreeSearchModeChange: updateTreeSearchMode,
 		onTreeSearchToggle: toggleTreeSearch,
 		onTreeSearchTextChange: updateTreeSearchTextFromActiveTree,
 		onFacetMenuOpenChange: setFacetMenuOpen,
@@ -375,11 +415,17 @@ function reviewPresentationState(props: {
 	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly treeAcceptedSearchMode: BridgeReviewSearchMode;
+	readonly treeAcceptedSearchText: string;
+	readonly treeSearchError: BridgeViewerSearchError | null;
 	readonly treeSearchMode: BridgeReviewSearchMode;
 	readonly treeSearchOpen: boolean;
 	readonly treeSearchText: string;
+	readonly treeSearchStatusMessage: string | null;
 	readonly treeSelectionRevealRequest: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly visibleCodeViewItems: BridgeReviewRenderSnapshotController['visibleCodeViewItems'];
+	readonly onTreeSearchClear: () => void;
+	readonly onTreeSearchClose: () => void;
 	readonly onTreeSearchModeChange: (mode: BridgeReviewSearchMode) => void;
 	readonly onTreeSearchToggle: () => void;
 	readonly onTreeSearchTextChange: (searchText: string) => void;
@@ -419,6 +465,8 @@ function reviewPresentationState(props: {
 			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,
 			onCodeViewVisibleItemIdsChange: props.setReviewCodeViewVisibleItemIds,
 			onTreeSearchModeChange: props.onTreeSearchModeChange,
+			onTreeSearchClear: props.onTreeSearchClear,
+			onTreeSearchClose: props.onTreeSearchClose,
 			onTreeSearchToggle: props.onTreeSearchToggle,
 			onTreeSearchTextChange: props.onTreeSearchTextChange,
 			onSelectItem: (itemId): void => {
@@ -437,6 +485,10 @@ function reviewPresentationState(props: {
 			treeSearchMode: props.treeSearchMode,
 			treeSearchOpen: props.treeSearchOpen,
 			treeSearchText: props.treeSearchText,
+			treeSearchStatusMessage: props.treeSearchStatusMessage,
+			treeAcceptedSearchMode: props.treeAcceptedSearchMode,
+			treeAcceptedSearchText: props.treeAcceptedSearchText,
+			treeSearchError: props.treeSearchError,
 			treeSelectionRevealRequest: props.treeSelectionRevealRequest,
 			visibleCodeViewItems: props.visibleCodeViewItems,
 			...(props.codeViewWorkerFactory === undefined

@@ -623,6 +623,8 @@ public struct IPCBridgeDiffCollapseFileParams: Codable, Equatable, Sendable {
 }
 
 public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
+    public static let maximumSearchTextUTF16Length = 4096
+
     public let handle: String
     public let searchText: String
     public let searchMode: IPCBridgeReviewSearchMode
@@ -650,7 +652,15 @@ public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         handle = try container.decode(String.self, forKey: .handle)
-        searchText = try container.decode(String.self, forKey: .searchText)
+        let decodedSearchText = try container.decode(String.self, forKey: .searchText)
+        guard decodedSearchText.utf16.count <= Self.maximumSearchTextUTF16Length else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .searchText,
+                in: container,
+                debugDescription: "Bridge file tree Search text exceeds the supported length"
+            )
+        }
+        searchText = decodedSearchText
         searchMode =
             try container.decodeIfPresent(IPCBridgeReviewSearchMode.self, forKey: .searchMode) ?? .text
         correlationId = try container.decodeIfPresent(UUID.self, forKey: .correlationId)

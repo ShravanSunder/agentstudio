@@ -6,9 +6,11 @@ import {
 	publishBridgeAppControlProbe,
 } from '../app/bridge-app-control-probe.js';
 import {
+	bridgeAppControlCommandRejectionReason,
 	bridgeAppControlCommandSchema,
 	type BridgeAppControlCommand,
 } from '../app/bridge-app-control.js';
+import type { BridgeViewerSearchRejectionReason } from '../app/bridge-viewer-search-state.js';
 import type {
 	BridgeFileViewerDisplayModel,
 	BridgeFileViewerSelection,
@@ -23,6 +25,7 @@ interface UseBridgeFileViewerControlEventListenersProps {
 	readonly controlProbeSequenceRef: { current: number };
 	readonly displayModel: BridgeFileViewerDisplayModel;
 	readonly isActive: boolean;
+	readonly onSearchResult: (reason: BridgeViewerSearchRejectionReason | null) => void;
 	readonly rootSnapshot: BridgeFileViewerRootSnapshot;
 	readonly selectFile: (
 		selection: BridgeFileViewerSelection,
@@ -47,7 +50,13 @@ export function useBridgeFileViewerControlEventListeners(
 				: invalidBridgeAppControlProbeCommand;
 			const result = parsedCommand.success
 				? applyBridgeFileViewerControlCommand({ command, props })
-				: { reason: 'invalid_control_command', status: 'rejected' as const };
+				: {
+						reason: bridgeAppControlCommandRejectionReason(detail),
+						status: 'rejected' as const,
+					};
+			if (command.method === 'bridge.fileTree.search') {
+				props.onSearchResult(result.reason === 'search_query_too_long' ? result.reason : null);
+			}
 			const liveRootSnapshot = props.viewerStore.getState().rootSnapshot;
 			publishBridgeAppControlProbe({
 				command,
@@ -61,8 +70,8 @@ export function useBridgeFileViewerControlEventListeners(
 					selectedItemId: result.selectedItemId ?? props.selectedFileId,
 					showBinary: false,
 					showLarge: false,
-					treeSearchMode: { kind: liveRootSnapshot.searchMode },
-					treeSearchText: liveRootSnapshot.searchText,
+					treeSearchMode: { kind: liveRootSnapshot.search.enteredCriteria.mode },
+					treeSearchText: liveRootSnapshot.search.enteredCriteria.query,
 				},
 				status: result.status,
 			});
@@ -92,10 +101,15 @@ function applyBridgeFileViewerControlCommand(props: {
 	const command = props.command;
 	const controlProps = props.props;
 	switch (command.method) {
-		case 'bridge.fileTree.search':
-			controlProps.viewerActions.setSearchText(command.searchText);
-			controlProps.viewerActions.setSearchMode(command.searchMode.kind);
-			return { reason: null, status: 'accepted' };
+		case 'bridge.fileTree.search': {
+			const transition = controlProps.viewerActions.transitionSearch({
+				type: 'apply_semantic_criteria',
+				criteria: { query: command.searchText, mode: command.searchMode.kind },
+			});
+			return transition.rejectionReason === null
+				? { reason: null, status: 'accepted' }
+				: { reason: transition.rejectionReason, status: 'rejected' };
+		}
 		case 'bridge.fileTree.setFilter':
 			if (command.filter.surface !== 'files') {
 				return { reason: 'unsupported_file_filter', status: 'rejected' };

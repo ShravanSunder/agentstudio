@@ -69,7 +69,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	} = props;
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
 	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
-	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const [searchRejectionMessage, setSearchRejectionMessage] = useState<string | null>(null);
 	const [viewSettings, setViewSettings] = useState<BridgeFilesViewSettings>(
 		bridgeFilesDefaultViewSettings,
 	);
@@ -108,7 +108,10 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
 	const controlProbeSequenceRef = useRef(0);
 	const { rootSnapshot, viewerActions, viewerStore } = useBridgeFileViewerStoreBindings();
-	const { filterMode, searchMode, searchText } = rootSnapshot;
+	const { filterMode, search } = rootSnapshot;
+	const { acceptedCriteria, enteredCriteria } = search;
+	const searchMode = acceptedCriteria.mode;
+	const searchText = acceptedCriteria.query;
 	const queryKey = bridgeWorkerFileQueryKey({ filterMode, searchMode, searchText });
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const dispatchFileViewQueryFact = renderSnapshotController.dispatchFileViewQueryFact;
@@ -119,18 +122,19 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		() => bridgeFileViewerDisplayModelForSnapshot(renderSnapshotController.fileDisplaySnapshot),
 		[renderSnapshotController.fileDisplaySnapshot],
 	);
-	const shouldShowSearchInput =
-		isSearchOpen || searchText.trim().length > 0 || displayModel.searchError !== null;
 	const toggleSearch = useCallback((): void => {
-		if (shouldShowSearchInput) {
-			setIsSearchOpen(false);
-			if (searchText.length > 0 || displayModel.searchError !== null) {
-				viewerActions.setSearchText('');
-			}
-			return;
-		}
-		setIsSearchOpen(true);
-	}, [displayModel.searchError, searchText.length, shouldShowSearchInput, viewerActions]);
+		setSearchRejectionMessage(null);
+		viewerActions.transitionSearch({ type: search.isOpen ? 'close' : 'open' });
+	}, [search.isOpen, viewerActions]);
+	const changeSearchText = useCallback(
+		(query: string): void => {
+			const transition = viewerActions.transitionSearch({ type: 'change_query', query });
+			setSearchRejectionMessage(
+				transition.rejectionReason === 'search_query_too_long' ? 'Search query is too long' : null,
+			);
+		},
+		[viewerActions],
+	);
 	const toggleFilters = useCallback(
 		(): void => setIsFilterMenuOpen((isOpen): boolean => !isOpen),
 		[],
@@ -208,6 +212,11 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		controlProbeSequenceRef,
 		displayModel,
 		isActive,
+		onSearchResult: (reason): void => {
+			setSearchRejectionMessage(
+				reason === 'search_query_too_long' ? 'Search query is too long' : null,
+			);
+		},
 		rootSnapshot,
 		selectFile,
 		selectedFileId: selection?.fileId ?? null,
@@ -293,20 +302,28 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				isFilterMenuOpen={isFilterMenuOpen}
 				fileTreePatchStream={renderSnapshotController.fileTreePatchStream}
 				isActive={isActive}
-				isSearchOpen={isSearchOpen}
+				isSearchOpen={search.isOpen}
 				onFilterMenuOpenChange={setIsFilterMenuOpen}
 				onFilterModeChange={viewerActions.setFilterMode}
-				onSearchModeChange={viewerActions.setSearchMode}
-				onSearchOpenChange={setIsSearchOpen}
-				onSearchTextChange={viewerActions.setSearchText}
+				onClearSearch={(): void => {
+					setSearchRejectionMessage(null);
+					viewerActions.transitionSearch({ type: 'clear_or_close' });
+				}}
+				onSearchModeChange={(mode): void => {
+					setSearchRejectionMessage(null);
+					viewerActions.transitionSearch({ type: 'change_mode', mode });
+				}}
+				onSearchTextChange={changeSearchText}
 				onSelectFile={selectFileFromTree}
 				onToggleSearch={toggleSearch}
 				openFileState={openFileState}
 				openFileTotalHeightPixels={openFileTotalHeightPixels}
 				panelChromeSlice={renderSnapshotController.panelChromeSlice}
 				renderFulfillmentCoordinator={renderSnapshotController.renderFulfillmentCoordinator}
-				searchMode={searchMode}
-				searchText={searchText}
+				searchError={search.error === null ? null : 'Invalid regex'}
+				searchMode={enteredCriteria.mode}
+				searchStatusMessage={searchRejectionMessage}
+				searchText={enteredCriteria.query}
 				selectedCodeViewItem={renderSnapshotController.selectedCodeViewItem}
 				selectedPath={selectedPath}
 				telemetryRecorder={telemetryRecorder}

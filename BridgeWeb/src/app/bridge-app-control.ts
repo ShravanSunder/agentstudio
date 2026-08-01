@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bridgeFileTreeSearchTextMaximumLength } from '../core/models/bridge-file-tree-search.js';
 import {
 	bridgeFileChangeKindSchema,
 	bridgeReviewFilterCategorySchema,
@@ -33,6 +34,23 @@ export const bridgeFileTreeFilterCandidateSchema = z.discriminatedUnion('surface
 export type BridgeFileTreeFilterCandidate = z.infer<typeof bridgeFileTreeFilterCandidateSchema>;
 export type BridgeViewerCategoryFilter = z.infer<typeof bridgeViewerCategoryFilterSchema>;
 
+const bridgeFileTreeSearchModeCandidateSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('text') }).strict(),
+	z.object({ kind: z.literal('regex') }).strict(),
+]);
+
+const bridgeFileTreeSearchCandidateSchema = z
+	.object({
+		method: z.literal('bridge.fileTree.search'),
+		searchText: z.string(),
+		searchMode: bridgeFileTreeSearchModeCandidateSchema,
+	})
+	.strict();
+
+const bridgeFileTreeSearchCommandSchema = bridgeFileTreeSearchCandidateSchema.extend({
+	searchText: z.string().max(bridgeFileTreeSearchTextMaximumLength),
+});
+
 export const bridgeAppControlMethodSchema = z.enum([
 	'bridge.diff.scrollToFile',
 	'bridge.diff.expandFile',
@@ -56,11 +74,7 @@ export const bridgeAppControlCommandSchema = z.discriminatedUnion('method', [
 		method: z.literal('bridge.diff.collapseFile'),
 		itemId: z.string().min(1),
 	}),
-	z.object({
-		method: z.literal('bridge.fileTree.search'),
-		searchText: z.string(),
-		searchMode: bridgeReviewSearchModeSchema,
-	}),
+	bridgeFileTreeSearchCommandSchema,
 	z
 		.object({
 			method: z.literal('bridge.fileTree.setFilter'),
@@ -76,6 +90,20 @@ export const bridgeAppControlCommandSchema = z.discriminatedUnion('method', [
 		itemId: z.string().min(1).optional(),
 	}),
 ]);
+
+export type BridgeAppControlCommandRejectionReason =
+	| 'invalid_control_command'
+	| 'search_query_too_long';
+
+export function bridgeAppControlCommandRejectionReason(
+	detail: unknown,
+): BridgeAppControlCommandRejectionReason {
+	const candidate = bridgeFileTreeSearchCandidateSchema.safeParse(detail);
+	return candidate.success &&
+		candidate.data.searchText.length > bridgeFileTreeSearchTextMaximumLength
+		? 'search_query_too_long'
+		: 'invalid_control_command';
+}
 
 export type BridgeAppControlCommand = z.infer<typeof bridgeAppControlCommandSchema>;
 

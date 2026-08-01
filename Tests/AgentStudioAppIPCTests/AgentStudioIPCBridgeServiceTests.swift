@@ -1,4 +1,5 @@
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -284,8 +285,7 @@ struct AgentStudioIPCBridgeServiceTests {
 
     @Test("debug unsafe no-auth serves semantic Bridge control methods")
     func debugUnsafeNoAuthServesSemanticBridgeControlMethods() throws {
-        let paneId = UUID()
-        let correlationId = UUID()
+        let paneId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -295,25 +295,6 @@ struct AgentStudioIPCBridgeServiceTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-
-        let searchResponse = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(74),
-                method: "bridge.fileTree.search",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "searchText": .string("BridgePaneController"),
-                    "correlationId": .string(correlationId.uuidString),
-                ])
-            )
-        )
-        let searchResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: searchResponse)
-        #expect(searchResult.paneId == paneId)
-        #expect(searchResult.method == "bridge.fileTree.search")
-        #expect(searchResult.status == "accepted")
-        #expect(searchResult.treeSearchText == "BridgePaneController")
-        #expect(searchResult.correlationId == correlationId)
 
         let filterResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -386,6 +367,48 @@ struct AgentStudioIPCBridgeServiceTests {
         let scrollResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: scrollResponse)
         #expect(scrollResult.method == "bridge.diff.scrollToFile")
         #expect(scrollResult.itemId == "item-source")
+    }
+
+    @Test("debug unsafe no-auth preserves semantic Bridge Search mode")
+    func debugUnsafeNoAuthPreservesSemanticBridgeSearchMode() throws {
+        let paneId = UUIDv7.generate()
+        let correlationId = UUIDv7.generate()
+        let searchModeInvocationRecorder = BridgeSearchModeInvocationRecorder()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
+            bridgePort: FakeBridgePort(
+                paneId: paneId,
+                searchModeInvocationRecorder: searchModeInvocationRecorder
+            )
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(74),
+                method: "bridge.fileTree.search",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "searchText": .string("BridgePaneController"),
+                    "searchMode": .object(["kind": .string("regex")]),
+                    "correlationId": .string(correlationId.uuidString),
+                ])
+            )
+        )
+
+        let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
+        #expect(result.paneId == paneId)
+        #expect(result.method == "bridge.fileTree.search")
+        #expect(result.status == "accepted")
+        #expect(result.treeSearchText == "BridgePaneController")
+        #expect(searchModeInvocationRecorder.snapshot() == [.regex])
+        #expect(result.correlationId == correlationId)
     }
 
     @Test("debug unsafe no-auth preserves the Files filter candidate")

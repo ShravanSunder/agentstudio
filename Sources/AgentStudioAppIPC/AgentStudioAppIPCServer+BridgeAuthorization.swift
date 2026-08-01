@@ -42,6 +42,7 @@ extension AgentStudioAppIPCServer {
                 IPCBridgeFileTreeSearchParams(
                     handle: $0,
                     searchText: params.searchText,
+                    searchMode: params.searchMode,
                     correlationId: params.correlationId
                 )
             }

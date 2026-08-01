@@ -13,6 +13,10 @@ import {
 	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
 } from './bridge-viewer-chrome.js';
+import {
+	bridgeViewerFiltersShortcut,
+	bridgeViewerShortcutTitle,
+} from './bridge-viewer-local-shortcuts.js';
 import { cn } from './class-name.js';
 
 export interface BridgeViewerFilterOption<TValue extends string> {
@@ -175,6 +179,7 @@ export function BridgeViewerFilterTrigger(props: {
 	readonly label: string;
 	readonly selectedLabel: string;
 	readonly testId: string;
+	readonly title?: string;
 	readonly triggerGlyphTestId: string;
 }): ReactElement {
 	return (
@@ -182,7 +187,7 @@ export function BridgeViewerFilterTrigger(props: {
 			aria-label={props.label}
 			className={bridgeViewerMenuTriggerClassName}
 			data-testid={props.testId}
-			title={props.label}
+			title={props.title ?? props.label}
 		>
 			<span className="relative flex min-w-0 items-center truncate">
 				<FilterTriggerGlyph testId={props.triggerGlyphTestId} />
@@ -229,6 +234,7 @@ export function BridgeViewerFacetMenu(props: {
 				label={props.label}
 				selectedLabel={props.selectedLabel}
 				testId={props.testId}
+				title={bridgeViewerShortcutTitle(props.label, bridgeViewerFiltersShortcut)}
 				triggerGlyphTestId={props.triggerGlyphTestId}
 			/>
 			<DropdownMenuContent
@@ -316,6 +322,10 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 				label={titleForFilterLabel(props.label)}
 				selectedLabel={selectedLabel}
 				testId={props.testId}
+				title={bridgeViewerShortcutTitle(
+					titleForFilterLabel(props.label),
+					bridgeViewerFiltersShortcut,
+				)}
 				triggerGlyphTestId={testIds.triggerGlyph}
 			/>
 			<DropdownMenuContent
