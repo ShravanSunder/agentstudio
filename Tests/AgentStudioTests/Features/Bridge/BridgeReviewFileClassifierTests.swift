@@ -14,6 +14,7 @@ struct BridgeReviewFileClassifierTests {
         #expect(classify("Fixtures/sample.json") == .fixture)
         #expect(classify("Sources/App/logo.png", isBinary: true) == .binary)
         #expect(classify("Sources/App/Large.swift", sizeBytes: 2_000_000) == .large)
+        #expect(classify("assets/logo.png") == .unknown)
     }
 
     private func classify(

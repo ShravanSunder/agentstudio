@@ -812,6 +812,7 @@ function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
 								changeStatus: 'modified',
 								depth: 1,
 								fileId: 'file-1',
+								fileClass: 'source',
 								isDirectory: false,
 								lineCount: 12_000,
 								name: 'File.swift',

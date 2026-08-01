@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AppKit
 import Observation
 
@@ -13,20 +14,40 @@ extension TerminalPaneMountView {
                 isEffectivelyPinnedToBottom: isEffectivelyPinnedToBottom
             )
         }
-        if let searchState = runtime.searchState {
+        reconcileSearchPresentation(with: runtime.searchLifecycleState)
+        if searchPresentationState.presentsOverlay {
+            let isCreatingSearchOverlay = searchOverlayView == nil
             ensureSearchOverlay()
-            searchOverlayView?.update(
-                query: searchState.query,
-                totalMatches: searchState.totalMatches,
-                selectedMatchIndex: searchState.selectedMatchIndex
-            )
+            if isCreatingSearchOverlay,
+                runtime.searchLifecycleState.isActive,
+                runtime.searchLifecycleState.epoch == searchPresentationState.epoch,
+                let searchState = runtime.searchState
+            {
+                searchOverlayView?.initializeQuery(searchState.query)
+            }
+            if runtime.searchLifecycleState.isActive,
+                runtime.searchLifecycleState.epoch == searchPresentationState.epoch,
+                let searchState = runtime.searchState
+            {
+                searchOverlayView?.updateResults(
+                    totalMatches: searchState.totalMatches,
+                    selectedMatchIndex: searchState.selectedMatchIndex
+                )
+            }
         } else {
             hideSearchOverlay()
         }
     }
 
     @objc package func startSearch(_ sender: Any?) {
+        if let searchOverlayView {
+            searchOverlayView.focusSearchField()
+            return
+        }
+
+        searchPresentationState = .opening(expectedEpoch: searchPresentationState.epoch &+ 1)
         ensureSearchOverlay()
+        searchOverlayView?.focusSearchField()
         _ = currentActionPerformer?.performBindingAction(.startSearch)
     }
 
@@ -39,13 +60,14 @@ extension TerminalPaneMountView {
     }
 
     func handleSearchCancelOperation(_ sender: Any?) -> Bool {
-        guard searchOverlayView != nil else {
+        guard
+            let searchOverlayView,
+            searchOverlayView.ownsFirstResponder(window?.firstResponder)
+        else {
             return false
         }
 
-        _ = currentActionPerformer?.performBindingAction(.endSearch)
-        hideSearchOverlay()
-        return true
+        return focusOwningTerminal()
     }
 
     func ensureSearchOverlay() {
@@ -60,23 +82,89 @@ extension TerminalPaneMountView {
                 direction == .next ? .next : .previous
             _ = self?.currentActionPerformer?.performBindingAction(.navigateSearch(actionDirection))
         }
+        overlay.onReturnFocusToTerminal = { [weak self] in
+            _ = self?.focusOwningTerminal()
+        }
         overlay.onClose = { [weak self] in
-            _ = self?.currentActionPerformer?.performBindingAction(.endSearch)
-            self?.hideSearchOverlay()
+            self?.endSearchAndHideOverlay()
         }
         addSubview(overlay)
+        let preferredWidthConstraint = overlay.widthAnchor.constraint(
+            equalTo: widthAnchor,
+            constant: -(AppStyles.WorkspaceFocus.Terminal.searchOverlayHorizontalInset * 2)
+        )
+        preferredWidthConstraint.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            overlay.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayHorizontalInset
+            ),
             overlay.centerXAnchor.constraint(equalTo: centerXAnchor),
-            overlay.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+            overlay.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leadingAnchor,
+                constant: AppStyles.WorkspaceFocus.Terminal.searchOverlayHorizontalInset
+            ),
+            overlay.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -AppStyles.WorkspaceFocus.Terminal.searchOverlayHorizontalInset
+            ),
+            overlay.widthAnchor.constraint(
+                lessThanOrEqualToConstant:
+                    AppStyles.WorkspaceFocus.Terminal.searchOverlayMaximumWidth
+            ),
+            preferredWidthConstraint,
             overlay.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
         ])
         searchOverlayView = overlay
+        overlay.focusSearchField()
     }
 
     func hideSearchOverlay() {
         searchOverlayView?.removeFromSuperview()
         searchOverlayView = nil
+    }
+
+    private func endSearchAndHideOverlay() {
+        searchPresentationState = .closing(expectedEpoch: searchPresentationState.epoch)
+        _ = currentActionPerformer?.performBindingAction(.endSearch)
+        hideSearchOverlay()
+        _ = focusOwningTerminal()
+    }
+
+    private func reconcileSearchPresentation(
+        with lifecycleState: TerminalSearchLifecycleState
+    ) {
+        let observedEpoch = lifecycleState.epoch
+
+        switch searchPresentationState {
+        case .opening(let expectedEpoch):
+            guard observedEpoch >= expectedEpoch else {
+                return
+            }
+        case .closing(let expectedEpoch):
+            guard observedEpoch >= expectedEpoch else {
+                return
+            }
+            if observedEpoch == expectedEpoch, lifecycleState.isActive {
+                return
+            }
+        case .closed(let epoch), .open(let epoch):
+            guard observedEpoch >= epoch else {
+                return
+            }
+        }
+
+        searchPresentationState =
+            lifecycleState.isActive
+            ? .open(epoch: observedEpoch)
+            : .closed(epoch: observedEpoch)
+    }
+
+    private func focusOwningTerminal() -> Bool {
+        guard let window else {
+            return false
+        }
+        return window.makeFirstResponder(self)
     }
 
     func ensureScrollToBottomIndicator() {
@@ -97,6 +185,7 @@ extension TerminalPaneMountView {
             _ = runtime.scrollbarState
             _ = runtime.cellSize
             _ = runtime.searchState
+            _ = runtime.searchLifecycleState
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, let currentRuntime = self.boundRuntime, currentRuntime === runtime else { return }
@@ -110,21 +199,21 @@ extension TerminalPaneMountView {
         if let overlay = searchOverlayView {
             let overlayPoint = convert(point, to: overlay)
             if overlay.bounds.contains(overlayPoint) {
-                return overlay.hitTest(overlayPoint) ?? overlay
+                return overlay.hitTest(point) ?? overlay
             }
         }
 
         if let indicator = scrollToBottomIndicatorView, !indicator.isHidden {
             let indicatorPoint = convert(point, to: indicator)
             if indicator.bounds.contains(indicatorPoint) {
-                return indicator.hitTest(indicatorPoint) ?? indicator
+                return indicator.hitTest(point) ?? indicator
             }
         }
 
         if let overlay = errorOverlay, !overlay.isHidden {
             let overlayPoint = convert(point, to: overlay)
             if overlay.bounds.contains(overlayPoint) {
-                return overlay.hitTest(overlayPoint)
+                return overlay.hitTest(point)
             }
         }
 

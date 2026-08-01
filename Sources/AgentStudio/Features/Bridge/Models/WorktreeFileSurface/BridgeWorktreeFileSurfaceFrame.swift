@@ -180,6 +180,7 @@ struct BridgeWorktreeTreeRowMetadata: Codable, Equatable, Sendable {
     let depth: Int
     let isDirectory: Bool
     let fileId: String?
+    let fileClass: BridgeFileClass?
     let sizeBytes: Int?
     let lineCount: Int?
     let changeStatus: String?
@@ -192,6 +193,7 @@ struct BridgeWorktreeTreeRowMetadata: Codable, Equatable, Sendable {
         case depth
         case isDirectory
         case fileId
+        case fileClass
         case sizeBytes
         case lineCount
         case changeStatus
@@ -210,6 +212,7 @@ struct BridgeWorktreeTreeRowMetadata: Codable, Equatable, Sendable {
         try container.encode(depth, forKey: .depth)
         try container.encode(isDirectory, forKey: .isDirectory)
         try container.encodeIfPresent(fileId, forKey: .fileId)
+        try container.encode(fileClass, forKey: .fileClass)
         try container.encodeIfPresent(sizeBytes, forKey: .sizeBytes)
         try container.encodeIfPresent(lineCount, forKey: .lineCount)
         try container.encodeIfPresent(changeStatus, forKey: .changeStatus)

@@ -30,7 +30,7 @@ export function BridgeViewerSearchField(props: BridgeViewerSearchFieldProps): Re
 		<>
 			<div
 				className={cn(
-					'mx-2 mb-2 flex h-7 min-w-0 items-center gap-1 rounded-md border px-1.5',
+					'm-2 flex h-7 min-w-0 items-center gap-1 rounded-md border px-1.5',
 					'border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)]',
 					'focus-within:border-[var(--bridge-focus-border)] focus-within:ring-1 focus-within:ring-[var(--bridge-focus-ring)]',
 					props.errorMessage === null

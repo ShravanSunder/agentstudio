@@ -515,6 +515,7 @@ function itemFailureProvider(): BridgeWorktreeDevProvider {
 					treeRows: [healthyPath, failingPath].map((path, index) => ({
 						changeStatus: 'modified',
 						depth: 1,
+						fileClass: 'source',
 						fileId: `dev-file-id-${index + 1}`,
 						isDirectory: false,
 						lineCount: 2,

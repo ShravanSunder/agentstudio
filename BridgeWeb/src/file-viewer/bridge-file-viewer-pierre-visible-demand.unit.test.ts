@@ -55,6 +55,7 @@ function fileRow(
 		changeStatus: 'modified' as const,
 		depth: 1,
 		fileId,
+		fileClass: 'source',
 		isDirectory: false,
 		lineCount: 10,
 		name: path.split('/').at(-1) ?? path,

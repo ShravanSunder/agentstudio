@@ -5,6 +5,7 @@ export function makeWorktreeFileTreeRow(path: string, rowId: string): WorktreeFi
 		changeStatus: 'modified',
 		depth: 0,
 		fileId: `file-${rowId}`,
+		fileClass: 'source',
 		isDirectory: false,
 		lineCount: 1,
 		name: path,

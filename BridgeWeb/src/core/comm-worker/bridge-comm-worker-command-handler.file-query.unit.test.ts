@@ -27,10 +27,10 @@ describe('Bridge comm worker File query command handling', () => {
 		});
 		const command = encodeBridgeWorkerFileQueryUpdateCommand({
 			epoch: 9,
-			filterMode: 'unavailable',
+			filterMode: 'source',
 			requestId: 'file-query-1',
 			searchMode: 'regex',
-			searchText: '\\.bin$',
+			searchText: '\\.swift$',
 		});
 
 		expect(handler.handleMessage(command)).toEqual([]);

@@ -132,7 +132,7 @@ struct ZoomPresentationContainer: View {
                     SplitView(
                         .horizontal,
                         viewerPresentationSplit,
-                        left: { sourceContent },
+                        left: { sourceColumnContent },
                         right: {
                             companionContent
                         },
@@ -146,15 +146,6 @@ struct ZoomPresentationContainer: View {
                             persistSplitRatio(splitRatio)
                         }
                     )
-
-                    if atom(\.managementLayer).isActive,
-                        sourceManagementContext.showsIdentityBlock
-                    {
-                        ManagementPaneIdentityStrip(
-                            context: sourceManagementContext,
-                            octiconLoader: octiconLoader
-                        )
-                    }
 
                     parentToolbar
                 }
@@ -185,6 +176,21 @@ struct ZoomPresentationContainer: View {
         }
         .onDisappear {
             viewRegistry.unregisterSurface(surfaceId)
+        }
+    }
+
+    private var sourceColumnContent: some View {
+        VStack(spacing: 0) {
+            sourceContent
+
+            if atom(\.managementLayer).isActive,
+                sourceManagementContext.showsIdentityBlock
+            {
+                ManagementPaneIdentityStrip(
+                    context: sourceManagementContext,
+                    octiconLoader: octiconLoader
+                )
+            }
         }
     }
 
@@ -477,6 +483,9 @@ struct ZoomPresentationContainer: View {
         case .unavailable, .retryable:
             layout = Layout(paneId: presentation.sourcePaneId)
             isCompanionVisible = false
+        case .unavailableVisible:
+            layout = Layout(paneId: presentation.sourcePaneId)
+            isCompanionVisible = true
 
         case .retainedHidden(let companionPaneId), .retainedVisible(let companionPaneId):
             let companionPaneSlot = viewRegistry.slot(for: companionPaneId)

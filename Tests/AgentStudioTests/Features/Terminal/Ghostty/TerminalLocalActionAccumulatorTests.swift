@@ -453,6 +453,86 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(accumulator.retainedEntryCount == 0)
     }
 
+    @Test("search epochs remain monotonic across fully drained sessions")
+    func searchEpochsRemainMonotonicAcrossFullyDrainedSessions() throws {
+        let scheduler = DrainScheduleRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: scheduler.record)
+        let surfaceID = UUIDv7.generate()
+
+        accumulator.offer(.searchStarted(query: "first"), for: surfaceID)
+        let firstStartedBatch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(firstStartedBatch.searchLifecycle?.state == .active(query: "first", epoch: 1))
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+
+        accumulator.offer(.searchEnded, for: surfaceID)
+        let firstEndedBatch = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(firstEndedBatch.searchLifecycle?.state == .inactive(lastEndedEpoch: 1))
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+        #expect(accumulator.pendingSurfaceCount == 0)
+        #expect(accumulator.retainedEntryCount == 0)
+
+        accumulator.offer(.searchStarted(query: "second"), for: surfaceID)
+        let secondStartedBatch = try #require(accumulator.beginDrain(for: surfaceID))
+
+        #expect(secondStartedBatch.searchLifecycle?.state == .active(query: "second", epoch: 2))
+    }
+
+    @Test("title barrier eviction preserves the search epoch")
+    func titleBarrierEvictionPreservesSearchEpoch() throws {
+        let accumulator = TerminalLocalActionAccumulator { _, _ in }
+        let surfaceID = UUIDv7.generate()
+
+        accumulator.offer(.searchStarted(query: "first"), for: surfaceID)
+        _ = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+        accumulator.offer(.searchEnded, for: surfaceID)
+        _ = try #require(accumulator.beginDrain(for: surfaceID))
+        #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+
+        accumulator.offer(.titleChanged("after search"), for: surfaceID)
+        _ = try #require(accumulator.detachTitleBeforeExactBarrier(for: surfaceID))
+
+        accumulator.offer(.searchStarted(query: "second"), for: surfaceID)
+        let secondStartedBatch = try #require(accumulator.beginDrain(for: surfaceID))
+
+        #expect(secondStartedBatch.searchLifecycle?.state == .active(query: "second", epoch: 2))
+    }
+
+    @Test("surface removal resets only that surface search epoch")
+    func surfaceRemovalResetsOnlyThatSurfaceSearchEpoch() throws {
+        let accumulator = TerminalLocalActionAccumulator { _, _ in }
+        let removedSurfaceID = UUIDv7.generate()
+        let closedSurfaceID = UUIDv7.generate()
+        let retainedSurfaceID = UUIDv7.generate()
+
+        for surfaceID in [removedSurfaceID, closedSurfaceID, retainedSurfaceID] {
+            accumulator.offer(.searchStarted(query: "first"), for: surfaceID)
+            _ = try #require(accumulator.beginDrain(for: surfaceID))
+            #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+            accumulator.offer(.searchEnded, for: surfaceID)
+            _ = try #require(accumulator.beginDrain(for: surfaceID))
+            #expect(accumulator.finishDrain(for: surfaceID) == .idle)
+        }
+
+        accumulator.removeSurface(removedSurfaceID)
+        #expect(
+            accumulator.detachActivityForSurfaceClose(
+                closedSurfaceID,
+                defaultActivityContext: nil
+            ) == nil
+        )
+        accumulator.offer(.searchStarted(query: "replacement"), for: removedSurfaceID)
+        accumulator.offer(.searchStarted(query: "closed replacement"), for: closedSurfaceID)
+        accumulator.offer(.searchStarted(query: "retained"), for: retainedSurfaceID)
+
+        let replacementBatch = try #require(accumulator.beginDrain(for: removedSurfaceID))
+        let closedReplacementBatch = try #require(accumulator.beginDrain(for: closedSurfaceID))
+        let retainedBatch = try #require(accumulator.beginDrain(for: retainedSurfaceID))
+        #expect(replacementBatch.searchLifecycle?.state == .active(query: "replacement", epoch: 1))
+        #expect(closedReplacementBatch.searchLifecycle?.state == .active(query: "closed replacement", epoch: 1))
+        #expect(retainedBatch.searchLifecycle?.state == .active(query: "retained", epoch: 2))
+    }
+
     @Test("concurrent offers are linearized without retained debt")
     func concurrentOffersAreLinearized() async throws {
         let scheduler = DrainScheduleRecorder()

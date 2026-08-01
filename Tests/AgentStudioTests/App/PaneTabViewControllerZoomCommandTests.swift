@@ -104,6 +104,34 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
     }
 
+    @Test("Worktree Viewer outside watched worktrees enters Zoom and toggles its unavailable surface")
+    func worktreeViewerShowsUnavailableSurfaceOutsideWatchedWorktrees() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let sourcePane = harness.store.createPane(
+            launchDirectory: harness.tempDir.appending(path: "unwatched")
+        )
+        let tab = Tab(paneId: sourcePane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(sourcePane.id, inTab: tab.id)
+
+        #expect(harness.controller.canExecute(.showViewer))
+        harness.controller.execute(.showViewer)
+
+        #expect(
+            harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
+                .viewerPresentation == .unavailableVisible
+        )
+
+        harness.controller.execute(.showViewer)
+
+        #expect(
+            harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
+                .viewerPresentation == .unavailable
+        )
+    }
+
     @Test("Zoom reattaches a minimized terminal source without expanding its durable arrangement")
     func zoomReattachesMinimizedTerminalSource() throws {
         // Mutation caught: Zoom enters presentation state without reattaching the hidden terminal surface.

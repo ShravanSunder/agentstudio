@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @MainActor
 @Suite(.serialized)
@@ -379,7 +380,7 @@ struct WorkspacePanePresentationAtomTests {
         let atom = WorkspacePanePresentationAtom()
         let tabId = UUID()
         let sourcePaneId = UUID()
-        let companion = makeCompanion(tabId: tabId)
+        let companion = makeCompanion(tabId: tabId, visibility: .hidden)
         atom.cacheZoomCompanion(companion, forSourcePane: sourcePaneId)
         atom.enterZoom(
             inTab: tabId,
@@ -394,6 +395,30 @@ struct WorkspacePanePresentationAtomTests {
 
         #expect(atom.zoomCompanion(forSourcePane: sourcePaneId) == nil)
         #expect(atom.zoomPresentation(forTab: tabId)?.viewerPresentation == .unavailable)
+    }
+
+    @Test("unavailable Viewer visibility toggles without requiring companion metadata")
+    func unavailableViewerVisibilityTogglesWithoutCompanion() {
+        let atom = WorkspacePanePresentationAtom()
+        let tabId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        atom.enterZoom(
+            inTab: tabId,
+            sourcePaneId: sourcePaneId,
+            viewerPresentation: .unavailable
+        )
+
+        let didShow = atom.setZoomViewerVisible(true, forSourcePane: sourcePaneId)
+
+        #expect(didShow)
+        #expect(atom.zoomPresentation(forTab: tabId)?.viewerPresentation == .unavailableVisible)
+        #expect(atom.zoomCompanion(forSourcePane: sourcePaneId) == nil)
+
+        let didHide = atom.setZoomViewerVisible(false, forSourcePane: sourcePaneId)
+
+        #expect(didHide)
+        #expect(atom.zoomPresentation(forTab: tabId)?.viewerPresentation == .unavailable)
+        #expect(atom.zoomCompanion(forSourcePane: sourcePaneId) == nil)
     }
 
     @Test

@@ -315,6 +315,14 @@ package enum AppStyles {
             package static let errorOverlayContentSpacing: CGFloat = 24
             package static let errorOverlaySectionSpacing: CGFloat = 16
             package static let errorOverlayActionTopPadding: CGFloat = 8
+            package static let searchOverlayHorizontalInset: CGFloat = 12
+            package static let searchOverlayMaximumWidth: CGFloat = 720
+            package static let searchOverlayContentInset: CGFloat = 10
+            package static let searchOverlayResultSpacing: CGFloat = 8
+            package static let searchOverlayControlSpacing: CGFloat = 6
+            package static let searchOverlayButtonSize: CGFloat = AppStyles.General.Button.compact
+            package static let searchOverlayIconSize: CGFloat = AppStyles.General.Icon.compact
+            package static let searchOverlayMinimumFieldWidth: CGFloat = 120
         }
 
         package enum Webview {

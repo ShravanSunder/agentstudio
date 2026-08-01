@@ -3,13 +3,14 @@ import Observation
 
 package enum ZoomViewerPresentation: Equatable, Sendable {
     case unavailable
+    case unavailableVisible
     case retryable
     case retainedHidden(companionPaneId: UUID)
     case retainedVisible(companionPaneId: UUID)
 
     package var companionPaneId: UUID? {
         switch self {
-        case .unavailable, .retryable:
+        case .unavailable, .unavailableVisible, .retryable:
             nil
         case .retainedHidden(let companionPaneId), .retainedVisible(let companionPaneId):
             companionPaneId
@@ -150,6 +151,19 @@ package final class WorkspacePanePresentationAtom {
         _ isVisible: Bool,
         forSourcePane sourcePaneId: UUID
     ) -> Bool {
+        if let (tabId, unavailablePresentation) = zoomPresentationsByTabId.first(
+            where: { _, presentation in
+                presentation.sourcePaneId == sourcePaneId
+                    && (presentation.viewerPresentation == .unavailable
+                        || presentation.viewerPresentation == .unavailableVisible)
+            }
+        ) {
+            var presentation = unavailablePresentation
+            presentation.viewerPresentation = isVisible ? .unavailableVisible : .unavailable
+            zoomPresentationsByTabId[tabId] = presentation
+            return true
+        }
+
         guard var companion = zoomCompanionsBySourcePaneId[sourcePaneId],
             var presentation = zoomPresentationsByTabId[companion.owningTabId],
             presentation.sourcePaneId == sourcePaneId,
@@ -195,7 +209,19 @@ package final class WorkspacePanePresentationAtom {
         zoomCompanionsBySourcePaneId.removeValue(forKey: sourcePaneId)
         for (tabId, var presentation) in zoomPresentationsByTabId
         where presentation.sourcePaneId == sourcePaneId {
-            presentation.viewerPresentation = viewerWorktreeStillResolves ? .retryable : .unavailable
+            if viewerWorktreeStillResolves {
+                presentation.viewerPresentation = .retryable
+            } else {
+                let wasVisible =
+                    switch presentation.viewerPresentation {
+                    case .unavailableVisible, .retainedVisible:
+                        true
+                    case .unavailable, .retryable, .retainedHidden:
+                        false
+                    }
+                presentation.viewerPresentation =
+                    wasVisible ? .unavailableVisible : .unavailable
+            }
             zoomPresentationsByTabId[tabId] = presentation
         }
     }
@@ -219,7 +245,7 @@ package final class WorkspacePanePresentationAtom {
         inTab tabId: UUID
     ) -> ZoomViewerPresentation {
         switch viewerPresentation {
-        case .unavailable, .retryable:
+        case .unavailable, .unavailableVisible, .retryable:
             return viewerPresentation
         case .retainedHidden, .retainedVisible:
             guard let metadata = zoomCompanionsBySourcePaneId[sourcePaneId],

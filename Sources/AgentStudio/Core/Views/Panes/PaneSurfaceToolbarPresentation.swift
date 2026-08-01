@@ -357,7 +357,9 @@ package enum PaneSurfaceToolbarResolver {
         let viewerState: (isEnabled: Bool, isSelected: Bool) =
             switch viewerPresentation {
             case .unavailable:
-                (false, false)
+                (true, false)
+            case .unavailableVisible:
+                (true, true)
             case .retryable, .retainedHidden:
                 (true, false)
             case .retainedVisible:

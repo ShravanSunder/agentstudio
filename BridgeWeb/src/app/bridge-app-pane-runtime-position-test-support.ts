@@ -100,6 +100,7 @@ function makeFileDisplayEvent(fileContents: string): BridgeWorkerFileDisplayPatc
 								changeStatus: rowIndex % 3 === 0 ? ('modified' as const) : null,
 								depth: 1,
 								fileId: `position-file-${ordinal}`,
+								fileClass: 'source' as const,
 								isDirectory: false,
 								lineCount: rowIndex === 0 ? fileLineCount : 12,
 								name: `PositionFile${ordinal}.swift`,

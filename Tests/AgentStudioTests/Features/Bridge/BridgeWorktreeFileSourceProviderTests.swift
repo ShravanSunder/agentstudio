@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -6,6 +7,46 @@ import Testing
 @testable import AgentStudioBridge
 
 struct BridgeWorktreeFileSourceProviderTests {
+    @Test("File tree rows carry every path-and-size-backed native file class")
+    func fileTreeRowsCarryEveryPathAndSizeBackedNativeFileClass() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appending(path: "bridge-file-class-\(UUIDv7.generate().uuidString)")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let fixtures: [(path: String, bytes: Data, expectedClass: BridgeFileClass)] = [
+            ("Sources/App/View.swift", Data("struct View {}".utf8), .source),
+            ("Tests/App/ViewTests.swift", Data("test".utf8), .test),
+            ("docs/readme.md", Data("# Docs".utf8), .docs),
+            ("Package.swift", Data("// package".utf8), .config),
+            ("Generated/API.swift", Data("// generated".utf8), .generated),
+            ("vendor/library.js", Data("export {}".utf8), .vendor),
+            ("Fixtures/sample.txt", Data("fixture".utf8), .fixture),
+            ("assets/logo.png", Data([1, 2, 3]), .unknown),
+            ("Sources/App/Large.swift", Data(repeating: 65, count: 1_000_000), .large),
+        ]
+        for fixture in fixtures {
+            let fileURL = rootURL.appending(path: fixture.path)
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try fixture.bytes.write(to: fileURL)
+        }
+
+        let refreshed = await BridgeWorktreeFileMaterializer.refreshTreeRows(
+            rootURL: rootURL,
+            relativePaths: Set(fixtures.map(\.path))
+        )
+
+        #expect(refreshed.missingPaths.isEmpty)
+        let fileClassByPath = Dictionary(
+            uniqueKeysWithValues: refreshed.rows.map { ($0.path, $0.fileClass) }
+        )
+        for fixture in fixtures {
+            #expect(fileClassByPath[fixture.path] == fixture.expectedClass)
+        }
+    }
+
     @Test("tracked paths remain visible through ignored ancestor fallback")
     func trackedPathsRemainVisibleThroughIgnoredAncestorFallback() throws {
         // Arrange

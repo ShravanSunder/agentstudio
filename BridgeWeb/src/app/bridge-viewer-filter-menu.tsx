@@ -22,6 +22,13 @@ export interface BridgeViewerFilterOption<TValue extends string> {
 	readonly icon?: ReactNode;
 }
 
+export interface BridgeViewerFacetMenuOption<TValue extends string> {
+	readonly value: TValue;
+	readonly label: string;
+	readonly description: string;
+	readonly icon?: ReactNode;
+}
+
 export interface BridgeViewerFilterMenuProps<TValue extends string> {
 	readonly label: string;
 	readonly value: TValue;
@@ -81,7 +88,7 @@ export function BridgeViewerFilterOptionRow(props: {
 				props.checked && 'text-[var(--bridge-text-primary)]',
 			)}
 			data-testid={props.optionTestId}
-			onClick={props.onSelect}
+			onCheckedChange={props.onSelect}
 		>
 			<span
 				aria-hidden="true"
@@ -158,6 +165,102 @@ export function BridgeViewerFilterTrigger(props: {
 				<span className="sr-only">{props.selectedLabel}</span>
 			</span>
 		</DropdownMenuTrigger>
+	);
+}
+
+export function BridgeViewerFacetMenu(props: {
+	readonly children: ReactNode;
+	readonly clearDisabled: boolean;
+	readonly clearLabel: string;
+	readonly clearTestId: string;
+	readonly contentClassName: string;
+	readonly contentTestId: string;
+	readonly description: string;
+	readonly hasActiveFilter: boolean;
+	readonly headerTestId: string;
+	readonly label: string;
+	readonly onClear: () => void;
+	readonly onOpenChange: (open: boolean) => void;
+	readonly open: boolean;
+	readonly selectedLabel: string;
+	readonly testId: string;
+	readonly title: string;
+	readonly triggerActiveIndicatorTestId: string;
+	readonly triggerGlyphTestId: string;
+}): ReactElement {
+	return (
+		<DropdownMenu onOpenChange={props.onOpenChange} open={props.open}>
+			<BridgeViewerFilterTrigger
+				activeIndicatorTestId={props.triggerActiveIndicatorTestId}
+				hasActiveFilter={props.hasActiveFilter}
+				label={props.label}
+				selectedLabel={props.selectedLabel}
+				testId={props.testId}
+				triggerGlyphTestId={props.triggerGlyphTestId}
+			/>
+			<DropdownMenuContent
+				align="end"
+				className={cn(bridgeViewerFilterMenuSurfaceClassName, props.contentClassName)}
+				data-testid={props.contentTestId}
+				sideOffset={6}
+			>
+				<BridgeViewerFilterMenuHeader
+					description={props.description}
+					testId={props.headerTestId}
+					title={props.title}
+				/>
+				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				{props.children}
+				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
+				<BridgeViewerFilterClearItem
+					disabled={props.clearDisabled}
+					label={props.clearLabel}
+					onClear={props.onClear}
+					testId={props.clearTestId}
+				/>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+export function BridgeViewerFacetGroup<TValue extends string>(props: {
+	readonly activeValue: TValue;
+	readonly defaultValue: TValue;
+	readonly label: string;
+	readonly onChange: (value: TValue) => void;
+	readonly optionBadgeTestId: string;
+	readonly optionLabelTestId: string;
+	readonly optionTestId: string;
+	readonly options: readonly BridgeViewerFacetMenuOption<TValue>[];
+	readonly testId: string;
+}): ReactElement {
+	const visibleOptions = props.options.filter(
+		(option: BridgeViewerFacetMenuOption<TValue>): boolean => option.value !== props.defaultValue,
+	);
+
+	return (
+		<section aria-label={props.label} data-testid={props.testId}>
+			<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
+				{props.label}
+			</p>
+			<div className="space-y-0.5">
+				{visibleOptions.map(
+					(option: BridgeViewerFacetMenuOption<TValue>): ReactElement => (
+						<BridgeViewerFilterOptionRow
+							checked={option.value === props.activeValue}
+							icon={option.icon ?? option.label.slice(0, 1)}
+							key={option.value}
+							label={option.label}
+							onSelect={() => props.onChange(option.value)}
+							optionBadgeTestId={props.optionBadgeTestId}
+							optionLabelTestId={props.optionLabelTestId}
+							optionTestId={props.optionTestId}
+							value={option.value}
+						/>
+					),
+				)}
+			</div>
+		</section>
 	);
 }
 

@@ -9,6 +9,7 @@ import {
 	type ReactElement,
 } from 'react';
 
+import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { bridgeFileViewerContentHeaderTitle } from './bridge-file-viewer-content-header-title.js';
 import {
@@ -56,6 +57,13 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		viewerHeaderControls,
 	} = props;
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
+	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	useEffect((): void => {
+		if (!isActive) {
+			setIsFilterMenuOpen(false);
+		}
+	}, [isActive]);
 	const isActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
@@ -71,6 +79,28 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		() => bridgeFileViewerDisplayModelForSnapshot(renderSnapshotController.fileDisplaySnapshot),
 		[renderSnapshotController.fileDisplaySnapshot],
 	);
+	const shouldShowSearchInput =
+		isSearchOpen || searchText.trim().length > 0 || displayModel.searchError !== null;
+	const toggleSearch = useCallback((): void => {
+		if (shouldShowSearchInput) {
+			setIsSearchOpen(false);
+			if (searchText.length > 0 || displayModel.searchError !== null) {
+				viewerActions.setSearchText('');
+			}
+			return;
+		}
+		setIsSearchOpen(true);
+	}, [displayModel.searchError, searchText.length, shouldShowSearchInput, viewerActions]);
+	const toggleFilters = useCallback(
+		(): void => setIsFilterMenuOpen((isOpen): boolean => !isOpen),
+		[],
+	);
+	useBridgeViewerToolbarShortcuts({
+		isActive,
+		onToggleFilters: toggleFilters,
+		onToggleSearch: toggleSearch,
+		target: controlTarget,
+	});
 	useBridgeFileViewerDisplaySourceReporter({
 		...(onDisplaySourceChange === undefined ? {} : { onDisplaySourceChange }),
 		source: displayModel.source,
@@ -184,12 +214,17 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				dispatchVisibleFileDemand={dispatchVisibleFileDemand}
 				displayModel={displayModel}
 				filterMode={filterMode}
+				isFilterMenuOpen={isFilterMenuOpen}
 				fileTreePatchStream={renderSnapshotController.fileTreePatchStream}
 				isActive={isActive}
+				isSearchOpen={isSearchOpen}
+				onFilterMenuOpenChange={setIsFilterMenuOpen}
 				onFilterModeChange={viewerActions.setFilterMode}
 				onSearchModeChange={viewerActions.setSearchMode}
+				onSearchOpenChange={setIsSearchOpen}
 				onSearchTextChange={viewerActions.setSearchText}
 				onSelectFile={selectFileFromTree}
+				onToggleSearch={toggleSearch}
 				openFileState={openFileState}
 				openFileTotalHeightPixels={openFileTotalHeightPixels}
 				panelChromeSlice={renderSnapshotController.panelChromeSlice}

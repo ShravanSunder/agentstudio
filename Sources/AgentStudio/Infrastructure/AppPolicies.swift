@@ -306,7 +306,7 @@ package enum AppPolicies {
 
     package enum WorkspaceFocus {
         package enum Terminal {
-            package static let stickyBottomBufferPx: CGFloat = 60
+            package static let stickyBottomBufferPx: CGFloat = 48
         }
     }
 
