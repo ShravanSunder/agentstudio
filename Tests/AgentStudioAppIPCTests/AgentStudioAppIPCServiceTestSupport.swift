@@ -140,6 +140,15 @@ struct FakeRuntimePort: AppIPCRuntimePort {
     }
 }
 
+@MainActor
+final class BridgePageControlInvocationRecorder {
+    private(set) var filterCandidates: [IPCBridgeFileTreeFilterCandidate] = []
+
+    func recordFilterCandidate(_ candidate: IPCBridgeFileTreeFilterCandidate) {
+        filterCandidates.append(candidate)
+    }
+}
+
 struct FakeBridgePort: AppIPCBridgePort {
     let paneId: UUID
     let itemId: String
@@ -147,6 +156,7 @@ struct FakeBridgePort: AppIPCBridgePort {
     let pageControlStatus: String
     let pageControlReason: String?
     let renderStateResult: IPCBridgeRenderStateResult?
+    let pageControlInvocationRecorder: BridgePageControlInvocationRecorder?
 
     nonisolated init(
         paneId: UUID = UUID(),
@@ -154,7 +164,8 @@ struct FakeBridgePort: AppIPCBridgePort {
         contentHandleId: String = "handle-head",
         pageControlStatus: String = "accepted",
         pageControlReason: String? = nil,
-        renderStateResult: IPCBridgeRenderStateResult? = nil
+        renderStateResult: IPCBridgeRenderStateResult? = nil,
+        pageControlInvocationRecorder: BridgePageControlInvocationRecorder? = nil
     ) {
         self.paneId = paneId
         self.itemId = itemId
@@ -162,6 +173,7 @@ struct FakeBridgePort: AppIPCBridgePort {
         self.pageControlStatus = pageControlStatus
         self.pageControlReason = pageControlReason
         self.renderStateResult = renderStateResult
+        self.pageControlInvocationRecorder = pageControlInvocationRecorder
     }
 
     func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult {
@@ -294,14 +306,30 @@ struct FakeBridgePort: AppIPCBridgePort {
     }
 
     func setFileTreeFilter(_ params: IPCBridgeFileTreeSetFilterParams) async throws -> IPCBridgePageControlResult {
-        bridgePageControlResult(
-            method: "bridge.fileTree.setFilter",
-            itemId: nil,
-            path: nil,
-            gitStatusFilter: params.gitStatusFilter,
-            fileClassFilter: params.fileClassFilter,
-            correlationId: params.correlationId
-        )
+        pageControlInvocationRecorder?.recordFilterCandidate(params.candidate)
+        return switch params.candidate {
+        case .files(let categoryFilter):
+            bridgePageControlResult(
+                method: "bridge.fileTree.setFilter",
+                itemId: nil,
+                path: nil,
+                filterSurface: .files,
+                categoryFilter: categoryFilter,
+                correlationId: params.correlationId
+            )
+        case .review(let gitStatusFilter, let categoryFilter, let showBinary, let showLarge):
+            bridgePageControlResult(
+                method: "bridge.fileTree.setFilter",
+                itemId: nil,
+                path: nil,
+                filterSurface: .review,
+                gitStatusFilter: gitStatusFilter,
+                categoryFilter: categoryFilter,
+                showBinary: showBinary,
+                showLarge: showLarge,
+                correlationId: params.correlationId
+            )
+        }
     }
 
     func revealFileTreePath(_ params: IPCBridgeFileTreeRevealPathParams) async throws -> IPCBridgePageControlResult {
@@ -418,8 +446,11 @@ struct FakeBridgePort: AppIPCBridgePort {
         itemId: String?,
         path: String?,
         treeSearchText: String = "",
-        gitStatusFilter: String = "all",
-        fileClassFilter: String = "all",
+        filterSurface: IPCBridgeFileTreeFilterSurface = .review,
+        gitStatusFilter: IPCBridgeGitStatusFilter = .all,
+        categoryFilter: IPCBridgeFilterCategory = .all,
+        showBinary: Bool = false,
+        showLarge: Bool = false,
         renderMode: String = "codeView",
         correlationId: UUID?
     ) -> IPCBridgePageControlResult {
@@ -430,8 +461,11 @@ struct FakeBridgePort: AppIPCBridgePort {
             itemId: itemId,
             path: path,
             treeSearchText: treeSearchText,
+            filterSurface: filterSurface,
             gitStatusFilter: gitStatusFilter,
-            fileClassFilter: fileClassFilter,
+            categoryFilter: categoryFilter,
+            showBinary: showBinary,
+            showLarge: showLarge,
             renderMode: renderMode,
             reason: pageControlReason,
             correlationId: correlationId

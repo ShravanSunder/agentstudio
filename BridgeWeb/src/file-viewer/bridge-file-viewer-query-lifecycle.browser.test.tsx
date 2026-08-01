@@ -5,6 +5,7 @@ import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode mounts the production File shell.
 import '../app/bridge-app.css';
+import { bridgeAppControlProbeSchema } from '../app/bridge-app-control.js';
 import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	actClickAndSettleFileViewerMenu,
@@ -12,6 +13,7 @@ import {
 } from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerBrowserHarnessApp } from './bridge-file-viewer-browser-test-app.js';
 import {
+	fileNavigationCommandForPath,
 	makeFileContent,
 	makeFileDescriptorForContent,
 	makeFileMetadataEvents,
@@ -23,6 +25,8 @@ import {
 	settleBridgeFileViewerBrowserUpdates,
 	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
+	selectedDisplayPath,
+	waitForSelectedDisplayPath,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
@@ -66,6 +70,46 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		expect(
 			dispatchedMessages.filter((message): boolean => message.command === 'select'),
 		).toHaveLength(1);
+	});
+
+	test('clears an excluded File selection without auto-selecting a filtered replacement', async () => {
+		// Arrange
+		await render(
+			<BridgeFileViewerBrowserHarnessApp
+				initialMetadataEvents={makeMixedFileClassTreeMetadataEvents()}
+				navigationCommand={fileNavigationCommandForPath('Sources/App/TextFile.ts')}
+			/>,
+		);
+		await waitForMetadataTreeRowCount(19);
+		await waitForSelectedDisplayPath('Sources/App/TextFile.ts');
+
+		// Act
+		await act(async (): Promise<void> => {
+			window.dispatchEvent(
+				new CustomEvent('__bridge_review_control', {
+					detail: {
+						filter: { categoryFilter: 'docs', surface: 'files' },
+						method: 'bridge.fileTree.setFilter',
+					},
+				}),
+			);
+			await Promise.resolve();
+		});
+		await waitForMetadataTreeRowCount(1);
+
+		// Assert
+		await expect.poll(selectedDisplayPath, { timeout: 1_000 }).toBeNull();
+		await expect
+			.poll((): readonly string[] => mountedFileTreePaths())
+			.toEqual(['Docs', 'Docs/Guide.md']);
+		const probe = bridgeAppControlProbeSchema.safeParse(window.bridgeReviewControlProbe);
+		expect(probe.success).toBe(true);
+		if (!probe.success) return;
+		expect(probe.data).toMatchObject({
+			categoryFilter: 'docs',
+			filterSurface: 'files',
+			status: 'accepted',
+		});
 	});
 
 	test('projects text and regex matches with required ancestors through the visible File search', async () => {
@@ -221,7 +265,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		).not.toBeNull();
 	});
 
-	test('File Type filters use real native classes, preserve ancestors, and Clear restores the tree', async () => {
+	test('File category filters use real native classes, preserve ancestors, and Clear restores the tree', async () => {
 		// Arrange
 		const renderResult = await render(
 			<BridgeFileViewerBrowserHarnessApp
@@ -240,19 +284,20 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		);
 
 		// Assert: Files exposes exactly the native path-and-size-backed taxonomy.
-		expect(filterPopover.textContent).toContain('File type');
+		expect(filterPopover.textContent).toContain('File category');
 		expect(filterPopover.textContent).not.toContain('Git status');
 		expect(filterPopover.textContent).not.toContain('Binary');
+		expect(filterPopover.textContent).not.toContain('Large');
 		for (const fileClassLabel of [
-			'Source',
-			'Test',
-			'Docs',
-			'Config',
+			'All',
+			'Source code',
+			'Tests',
+			'Documentation',
+			'Configuration',
 			'Generated',
-			'Vendor',
-			'Large',
-			'Fixture',
-			'Unknown',
+			'Dependencies and build output',
+			'Fixtures',
+			'Other',
 		]) {
 			expect(filterPopover.textContent).toContain(fileClassLabel);
 		}
@@ -274,10 +319,10 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// Act: Base UI owns menu focus, highlighted-option navigation, and Return selection.
 		expect(document.activeElement?.getAttribute('role')).toBe('menu');
 		await dispatchFileViewerMenuKey('ArrowDown');
-		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('Source');
-		await navigateFileViewerMenuTo('Vendor');
+		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('All');
+		await navigateFileViewerMenuTo('Dependencies and build output');
 		const focusedVendorOption = highlightedFileViewerMenuOption();
-		expect(focusedVendorOption.textContent).toContain('Vendor');
+		expect(focusedVendorOption.textContent).toContain('Dependencies and build output');
 		expect(document.activeElement).toBe(focusedVendorOption);
 		await dispatchFileViewerMenuKey('Enter');
 		await expect.poll(() => focusedVendorOption.getAttribute('aria-checked')).toBe('true');
@@ -290,14 +335,14 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 
 		// Act / Assert: every exposed category selects real metadata-backed rows.
 		// oxlint-disable no-await-in-loop -- Each selection mutates one shared Base UI menu and must settle before the next.
-		for (const fileClassCase of fileClassFilterCases) {
+		for (const categoryCase of categoryFilterCases) {
 			await actClickAndSettleFileViewerMenu(
-				await waitForFileViewerMenuOptionContaining({ text: fileClassCase.label }),
+				await waitForFileViewerMenuOptionContaining({ text: categoryCase.label }),
 			);
 			await settleBridgeFileViewerBrowserUpdates();
 			await expect
 				.poll((): readonly string[] => mountedFileTreePaths())
-				.toEqual(fileClassCase.expectedPaths);
+				.toEqual(categoryCase.expectedPaths);
 		}
 		// oxlint-enable no-await-in-loop
 
@@ -314,20 +359,20 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	});
 });
 
-const fileClassFilterCases = [
-	{ expectedPaths: ['Sources/App', 'Sources/App/TextFile.ts'], label: 'Source' },
-	{ expectedPaths: ['Tests', 'Tests/TextFile.test.ts'], label: 'Test' },
-	{ expectedPaths: ['Docs', 'Docs/Guide.md'], label: 'Docs' },
-	{ expectedPaths: ['Config', 'Config/package.json'], label: 'Config' },
+const categoryFilterCases = [
+	{ expectedPaths: ['Sources/App', 'Sources/App/TextFile.ts'], label: 'Source code' },
+	{ expectedPaths: ['Tests', 'Tests/TextFile.test.ts'], label: 'Tests' },
+	{ expectedPaths: ['Docs', 'Docs/Guide.md'], label: 'Documentation' },
+	{ expectedPaths: ['Config', 'Config/package.json'], label: 'Configuration' },
 	{ expectedPaths: ['Generated', 'Generated/API.generated.swift'], label: 'Generated' },
-	{ expectedPaths: ['Vendor', 'Vendor/Library.js'], label: 'Vendor' },
-	{ expectedPaths: ['Large', 'Large/blob.txt'], label: 'Large' },
-	{ expectedPaths: ['Fixtures', 'Fixtures/sample.txt'], label: 'Fixture' },
-	{ expectedPaths: ['Assets', 'Assets/logo.png'], label: 'Unknown' },
+	{ expectedPaths: ['Vendor', 'Vendor/Library.js'], label: 'Dependencies and build output' },
+	{ expectedPaths: ['Fixtures', 'Fixtures/sample.txt'], label: 'Fixtures' },
+	{ expectedPaths: ['Assets', 'Assets/logo.png'], label: 'Other' },
 ] as const;
 
-const allClassifiedFileTreePaths = fileClassFilterCases
-	.flatMap((fileClassCase): readonly string[] => fileClassCase.expectedPaths)
+const allClassifiedFileTreePaths = categoryFilterCases
+	.flatMap((categoryCase): readonly string[] => categoryCase.expectedPaths)
+	.concat(['Large', 'Large/blob.txt'])
 	.toSorted();
 
 function requireHTMLElement(element: Element | null): HTMLElement {

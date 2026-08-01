@@ -50,8 +50,7 @@ extension AgentStudioAppIPCServer {
             return try await authorizedBridgeContext(for: request, rawHandle: params.handle) {
                 IPCBridgeFileTreeSetFilterParams(
                     handle: $0,
-                    gitStatusFilter: params.gitStatusFilter,
-                    fileClassFilter: params.fileClassFilter,
+                    candidate: params.candidate,
                     correlationId: params.correlationId
                 )
             }

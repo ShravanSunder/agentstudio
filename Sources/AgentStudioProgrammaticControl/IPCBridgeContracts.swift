@@ -657,25 +657,6 @@ public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
     }
 }
 
-public struct IPCBridgeFileTreeSetFilterParams: Codable, Equatable, Sendable {
-    public let handle: String
-    public let gitStatusFilter: String
-    public let fileClassFilter: String
-    public let correlationId: UUID?
-
-    public init(
-        handle: String,
-        gitStatusFilter: String,
-        fileClassFilter: String,
-        correlationId: UUID? = nil
-    ) {
-        self.handle = handle
-        self.gitStatusFilter = gitStatusFilter
-        self.fileClassFilter = fileClassFilter
-        self.correlationId = correlationId
-    }
-}
-
 public struct IPCBridgeFileTreeRevealPathParams: Codable, Equatable, Sendable {
     public let handle: String
     public let path: String
@@ -721,7 +702,7 @@ public enum IPCBridgePageControlCommand: Equatable, Sendable {
     case expandFile(itemId: String)
     case collapseFile(itemId: String)
     case fileTreeSearch(searchText: String, searchMode: IPCBridgeReviewSearchMode = .text)
-    case fileTreeSetFilter(gitStatusFilter: String, fileClassFilter: String)
+    case fileTreeSetFilter(candidate: IPCBridgeFileTreeFilterCandidate)
     case fileTreeRevealPath(path: String)
     case fileViewShowMarkdownPreview(itemId: String?)
 
@@ -751,8 +732,7 @@ extension IPCBridgePageControlCommand: Codable {
         case itemId
         case searchText
         case searchMode
-        case gitStatusFilter
-        case fileClassFilter
+        case filter
         case path
     }
 
@@ -773,8 +753,10 @@ extension IPCBridgePageControlCommand: Codable {
             )
         case "bridge.fileTree.setFilter":
             self = .fileTreeSetFilter(
-                gitStatusFilter: try container.decode(String.self, forKey: .gitStatusFilter),
-                fileClassFilter: try container.decode(String.self, forKey: .fileClassFilter)
+                candidate: try container.decode(
+                    IPCBridgeFileTreeFilterCandidate.self,
+                    forKey: .filter
+                )
             )
         case "bridge.fileTree.revealPath":
             self = .fileTreeRevealPath(path: try container.decode(String.self, forKey: .path))
@@ -804,9 +786,8 @@ extension IPCBridgePageControlCommand: Codable {
         case .fileTreeSearch(let searchText, let searchMode):
             try container.encode(searchText, forKey: .searchText)
             try container.encode(searchMode, forKey: .searchMode)
-        case .fileTreeSetFilter(let gitStatusFilter, let fileClassFilter):
-            try container.encode(gitStatusFilter, forKey: .gitStatusFilter)
-            try container.encode(fileClassFilter, forKey: .fileClassFilter)
+        case .fileTreeSetFilter(let candidate):
+            try container.encode(candidate, forKey: .filter)
         case .fileTreeRevealPath(let path):
             try container.encode(path, forKey: .path)
         case .fileViewShowMarkdownPreview(let itemId):
@@ -822,8 +803,11 @@ public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
     public let itemId: String?
     public let path: String?
     public let treeSearchText: String
-    public let gitStatusFilter: String
-    public let fileClassFilter: String
+    public let filterSurface: IPCBridgeFileTreeFilterSurface
+    public let gitStatusFilter: IPCBridgeGitStatusFilter
+    public let categoryFilter: IPCBridgeFilterCategory
+    public let showBinary: Bool
+    public let showLarge: Bool
     public let renderMode: String
     public let reason: String?
     public let correlationId: UUID?
@@ -835,8 +819,11 @@ public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
         itemId: String?,
         path: String?,
         treeSearchText: String,
-        gitStatusFilter: String,
-        fileClassFilter: String,
+        filterSurface: IPCBridgeFileTreeFilterSurface,
+        gitStatusFilter: IPCBridgeGitStatusFilter,
+        categoryFilter: IPCBridgeFilterCategory,
+        showBinary: Bool,
+        showLarge: Bool,
         renderMode: String,
         reason: String?,
         correlationId: UUID?
@@ -847,8 +834,11 @@ public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
         self.itemId = itemId
         self.path = path
         self.treeSearchText = treeSearchText
+        self.filterSurface = filterSurface
         self.gitStatusFilter = gitStatusFilter
-        self.fileClassFilter = fileClassFilter
+        self.categoryFilter = categoryFilter
+        self.showBinary = showBinary
+        self.showLarge = showLarge
         self.renderMode = renderMode
         self.reason = reason
         self.correlationId = correlationId

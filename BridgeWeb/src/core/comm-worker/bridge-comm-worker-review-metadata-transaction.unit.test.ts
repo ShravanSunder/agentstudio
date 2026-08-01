@@ -752,11 +752,8 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort({
 			beforePostMessage: (message): void => {
-				if (
-					rejectCandidateDisplay &&
-					message.kind === 'reviewDisplayPatch' &&
-					JSON.stringify(message).includes('source-candidate')
-				) {
+				if (rejectCandidateDisplay && message.kind === 'reviewDisplayPatch') {
+					rejectCandidateDisplay = false;
 					throw new Error('injected critical B display failure');
 				}
 			},
@@ -919,6 +916,8 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 					payload: { status: 'stale' },
 					slice: 'reviewSource',
 				},
+				expect.objectContaining({ operation: 'batch', slice: 'reviewItem' }),
+				expect.objectContaining({ operation: 'batch', slice: 'reviewTree' }),
 			],
 		});
 		expect(JSON.stringify(reviewDisplayMessages.at(-1))).toContain('source-active');

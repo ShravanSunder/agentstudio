@@ -4,15 +4,13 @@ import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-ru
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
-import type {
-	BridgeFileChangeKind,
-	BridgeFileClass,
-} from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
+import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
 import { bridgeReviewPresentationSnapshotForDisplay } from './bridge-app-review-presentation-adapter.js';
 import {
@@ -40,6 +38,11 @@ export interface BridgeReviewViewerModeProps {
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
 	readonly viewerHeaderControls: ReactElement;
 }
+
+type BridgeReviewFilterCandidate = Extract<
+	BridgeFileTreeFilterCandidate,
+	{ readonly surface: 'review' }
+>;
 
 export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
@@ -79,8 +82,14 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const [treeSearchMode, setTreeSearchMode] = useState<BridgeReviewSearchMode>({ kind: 'text' });
 	const [treeSearchOpen, setTreeSearchOpen] = useState(false);
 	const [treeSearchText, setTreeSearchText] = useState('');
-	const [gitStatusFilter, setGitStatusFilter] = useState<BridgeFileChangeKind | 'all'>('all');
-	const [fileClassFilter, setFileClassFilter] = useState<BridgeFileClass | 'all'>('all');
+	const [reviewFilter, setReviewFilter] = useState<BridgeReviewFilterCandidate>({
+		categoryFilter: 'all',
+		gitStatusFilter: 'all',
+		showBinary: false,
+		showLarge: false,
+		surface: 'review',
+	});
+	const { categoryFilter, gitStatusFilter, showBinary, showLarge } = reviewFilter;
 	const [facetMenuOpen, setFacetMenuOpen] = useState(false);
 	useEffect((): void => {
 		if (!isActive) {
@@ -97,8 +106,15 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	isActiveRef.current = isActive;
 	useEffect((): void => {
 		if (catalogSnapshot.epoch === null) return;
-		updateReviewDisplayProjection({ fileClassFilter, gitStatusFilter });
-	}, [catalogSnapshot.epoch, fileClassFilter, gitStatusFilter, updateReviewDisplayProjection]);
+		updateReviewDisplayProjection({ categoryFilter, gitStatusFilter, showBinary, showLarge });
+	}, [
+		catalogSnapshot.epoch,
+		categoryFilter,
+		gitStatusFilter,
+		showBinary,
+		showLarge,
+		updateReviewDisplayProjection,
+	]);
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	useEffect(
 		(): (() => void) =>
@@ -199,6 +215,11 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		telemetryRecorderRef,
 	});
 	const selectReviewItem = selectionController.selectReviewItem;
+	const clearReviewSelection = useCallback((): void => {
+		clearSelectedReviewItemId();
+		const treeFallback = document.querySelector('[data-testid="bridge-review-trees-panel"]');
+		if (treeFallback instanceof HTMLElement) treeFallback.focus({ preventScroll: true });
+	}, [clearSelectedReviewItemId]);
 	const selectReviewItemAndRevealTree = useCallback(
 		(itemId: string, selectedSource: Parameters<typeof selectReviewItem>[1] = 'user'): boolean => {
 			if (!selectReviewItem(itemId, selectedSource)) {
@@ -222,25 +243,26 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	useBridgeReviewControlEventListeners({
 		codeViewControlHandleRef,
 		controlProbeSequenceRef,
-		fileClassFilter,
+		categoryFilter,
 		gitStatusFilter,
 		isActive,
 		projection: presentationSnapshot?.projection ?? null,
 		reviewPackage: presentationSnapshot?.reviewPackage ?? null,
 		selectedItemId,
 		selectReviewItem: selectReviewItemAndRevealTree,
-		setFileClassFilter,
-		setGitStatusFilter,
+		setReviewFilter,
 		setTreeSearchMode,
 		setTreeSearchOpen,
 		setTreeSearchText,
 		target,
 		treeSearchMode,
 		treeSearchText,
+		showBinary,
+		showLarge,
 	});
 	useBridgeReviewNavigationController({
 		catalogRevision: catalogSnapshot.revision,
-		clearReviewSelection: clearSelectedReviewItemId,
+		clearReviewSelection,
 		getReviewItem: displayStore.getReviewItemSnapshot,
 		isActive,
 		navigationCommand,
@@ -256,8 +278,10 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		panelChromeSlice,
 		codeViewControlHandleRef,
 		facetMenuOpen,
-		fileClassFilter,
+		categoryFilter,
 		gitStatusFilter,
+		showBinary,
+		showLarge,
 		presentationPositionKey,
 		presentationSnapshot,
 		renderFulfillmentCoordinator: reviewClient.renderFulfillmentCoordinator,
@@ -279,8 +303,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		onTreeSearchToggle: toggleTreeSearch,
 		onTreeSearchTextChange: updateTreeSearchTextFromActiveTree,
 		onFacetMenuOpenChange: setFacetMenuOpen,
-		onFileClassFilterChange: setFileClassFilter,
-		onGitStatusFilterChange: setGitStatusFilter,
+		onFilterChange: setReviewFilter,
 		onHoveredItemIdChange: publishHoveredReviewItemId,
 	});
 	return (
@@ -298,8 +321,10 @@ function reviewPresentationState(props: {
 	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
 	readonly codeViewControlHandleRef: { current: BridgeCodeViewControlHandle | null };
 	readonly facetMenuOpen: boolean;
-	readonly fileClassFilter: BridgeFileClass | 'all';
+	readonly categoryFilter: BridgeReviewFilterCandidate['categoryFilter'];
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
+	readonly showBinary: boolean;
+	readonly showLarge: boolean;
 	readonly presentationPositionKey: string;
 	readonly presentationSnapshot: ReturnType<typeof bridgeReviewPresentationSnapshotForDisplay>;
 	readonly renderFulfillmentCoordinator: BridgePaneSurfaceClient['renderFulfillmentCoordinator'];
@@ -321,8 +346,7 @@ function reviewPresentationState(props: {
 	readonly onTreeSearchToggle: () => void;
 	readonly onTreeSearchTextChange: (searchText: string) => void;
 	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
-	readonly onFileClassFilterChange: (filter: BridgeFileClass | 'all') => void;
-	readonly onGitStatusFilterChange: (filter: BridgeFileChangeKind | 'all') => void;
+	readonly onFilterChange: (filter: BridgeReviewFilterCandidate) => void;
 	readonly onHoveredItemIdChange: (itemId: string | null) => void;
 }): BridgeReviewViewerPresentationState {
 	if (props.reviewSourceSlice === null) return { status: 'empty' };
@@ -340,14 +364,15 @@ function reviewPresentationState(props: {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
 			facetMenuOpen: props.facetMenuOpen,
-			fileClassFilter: props.fileClassFilter,
+			categoryFilter: props.categoryFilter,
 			gitStatusFilter: props.gitStatusFilter,
+			showBinary: props.showBinary,
+			showLarge: props.showLarge,
 			onCodeViewControlHandleChange: (handle): void => {
 				props.codeViewControlHandleRef.current = handle;
 			},
-			onFileClassFilterChange: props.onFileClassFilterChange,
+			onFilterChange: props.onFilterChange,
 			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
-			onGitStatusFilterChange: props.onGitStatusFilterChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
 			presentationPositionKey: props.presentationPositionKey,

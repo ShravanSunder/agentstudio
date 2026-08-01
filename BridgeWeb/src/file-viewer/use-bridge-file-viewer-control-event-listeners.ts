@@ -54,10 +54,13 @@ export function useBridgeFileViewerControlEventListeners(
 				reason: result.reason,
 				sequence: nextBridgeAppControlProbeSequence(props.controlProbeSequenceRef),
 				state: {
-					fileClassFilter: 'all',
+					categoryFilter: liveRootSnapshot.filterMode,
+					filterSurface: 'files',
 					gitStatusFilter: 'all',
 					renderMode: { kind: 'codeView' },
 					selectedItemId: result.selectedItemId ?? props.selectedFileId,
+					showBinary: false,
+					showLarge: false,
 					treeSearchMode: { kind: liveRootSnapshot.searchMode },
 					treeSearchText: liveRootSnapshot.searchText,
 				},
@@ -94,10 +97,10 @@ function applyBridgeFileViewerControlCommand(props: {
 			controlProps.viewerActions.setSearchMode(command.searchMode.kind);
 			return { reason: null, status: 'accepted' };
 		case 'bridge.fileTree.setFilter':
-			if (command.gitStatusFilter !== 'all' || command.fileClassFilter !== 'all') {
+			if (command.filter.surface !== 'files') {
 				return { reason: 'unsupported_file_filter', status: 'rejected' };
 			}
-			controlProps.viewerActions.setFilterMode('all');
+			controlProps.viewerActions.setFilterMode(command.filter.categoryFilter);
 			return { reason: null, status: 'accepted' };
 		case 'bridge.fileTree.revealPath': {
 			const row = controlProps.displayModel.treeRowByPath.get(command.path);

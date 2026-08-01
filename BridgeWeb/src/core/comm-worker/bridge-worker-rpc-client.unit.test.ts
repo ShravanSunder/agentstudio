@@ -242,7 +242,12 @@ describe('Bridge worker RPC client', () => {
 		expect(dispatch).toHaveBeenCalledOnce();
 		expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
 			command: 'reviewProjectionUpdate',
-			query: { fileClassFilter: 'source', gitStatusFilter: 'added' },
+			query: {
+				categoryFilter: 'source',
+				gitStatusFilter: 'added',
+				showBinary: false,
+				showLarge: false,
+			},
 		});
 		fileClient.dispose();
 		reviewClient.dispose();
@@ -324,7 +329,12 @@ function makeReviewProjectionCommandInput(): BridgeWorkerRpcCommandInput {
 	return {
 		command: 'reviewProjectionUpdate',
 		epoch: 11,
-		query: { fileClassFilter: 'source', gitStatusFilter: 'added' },
+		query: {
+			categoryFilter: 'source',
+			gitStatusFilter: 'added',
+			showBinary: false,
+			showLarge: false,
+		},
 	};
 }
 

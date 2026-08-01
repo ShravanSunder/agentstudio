@@ -330,6 +330,8 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		await dispatchReviewViewerShortcut({ altKey: true });
 		expect(document.activeElement?.getAttribute('role')).toBe('menu');
 		await dispatchReviewViewerMenuKey('ArrowDown');
+		await expect.poll(highlightedReviewViewerMenuOptionLabel).toBe('All statuses');
+		await dispatchReviewViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedReviewViewerMenuOptionLabel).toBe('Added');
 		await navigateReviewViewerMenuTo('Modified');
 		const focusedModifiedOption = highlightedReviewViewerMenuOption();
@@ -613,6 +615,20 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 
 		// Assert
 		expect(events.filter((event) => event.startsWith('select:'))).toHaveLength(1);
+
+		// Act: a Filter projection excludes the current selection.
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Filter selected Review item' }).click();
+		});
+
+		// Assert: selection clears without auto-selecting the remaining row.
+		await expect.poll(() => events.includes('clear')).toBe(true);
+		await expect
+			.element(rendered.getByTestId('review-navigation-selection'))
+			.toHaveTextContent('none');
+		expect(events.filter((event) => event.startsWith('select:'))).toEqual([
+			'select:item-two:programmatic',
+		]);
 
 		// Act
 		await act(async (): Promise<void> => {

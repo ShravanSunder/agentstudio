@@ -108,6 +108,37 @@ export function BridgeViewerFilterOptionRow(props: {
 	);
 }
 
+export function BridgeViewerFacetToggleRow(props: {
+	readonly checked: boolean;
+	readonly description: string;
+	readonly label: string;
+	readonly onCheckedChange: (checked: boolean) => void;
+	readonly testId: string;
+}): ReactElement {
+	return (
+		<DropdownMenuCheckboxItem
+			aria-label={props.label}
+			checked={props.checked}
+			className={cn(
+				bridgeViewerFilterOptionClassName,
+				'min-h-10 py-1.5',
+				props.checked && 'text-[var(--bridge-text-primary)]',
+			)}
+			data-testid={props.testId}
+			onCheckedChange={(checked: boolean): void => props.onCheckedChange(checked)}
+		>
+			<span className="min-w-0">
+				<span className="block truncate" data-bridge-filter-row-label="">
+					{props.label}
+				</span>
+				<span className="block truncate text-[11px] text-[var(--bridge-text-muted)]">
+					{props.description}
+				</span>
+			</span>
+		</DropdownMenuCheckboxItem>
+	);
+}
+
 export function BridgeViewerFilterClearItem(props: {
 	readonly disabled: boolean;
 	readonly label: string;
@@ -234,17 +265,13 @@ export function BridgeViewerFacetGroup<TValue extends string>(props: {
 	readonly options: readonly BridgeViewerFacetMenuOption<TValue>[];
 	readonly testId: string;
 }): ReactElement {
-	const visibleOptions = props.options.filter(
-		(option: BridgeViewerFacetMenuOption<TValue>): boolean => option.value !== props.defaultValue,
-	);
-
 	return (
 		<section aria-label={props.label} data-testid={props.testId}>
 			<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
 				{props.label}
 			</p>
 			<div className="space-y-0.5">
-				{visibleOptions.map(
+				{props.options.map(
 					(option: BridgeViewerFacetMenuOption<TValue>): ReactElement => (
 						<BridgeViewerFilterOptionRow
 							checked={option.value === props.activeValue}

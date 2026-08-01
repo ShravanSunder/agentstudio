@@ -14,6 +14,10 @@ export const bridgeWorkerFileQuerySchema = z
 
 export type BridgeWorkerFileQuery = z.infer<typeof bridgeWorkerFileQuerySchema>;
 
+export function bridgeWorkerFileQueryKey(query: BridgeWorkerFileQuery): string {
+	return `${query.filterMode}\u{0}${query.searchMode}\u{0}${query.searchText}`;
+}
+
 export const bridgeWorkerFileQueryDisplayPayloadSchema = bridgeWorkerFileQuerySchema
 	.extend({
 		projectedRowCount: z.number().int().nonnegative(),

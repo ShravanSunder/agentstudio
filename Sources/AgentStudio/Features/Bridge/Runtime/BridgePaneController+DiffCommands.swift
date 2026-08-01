@@ -736,7 +736,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             comparisonSemantics: endpoints.comparisonSemantics,
             pathScope: endpoints.pathScope,
             fileTarget: nil,
-            viewFilter: BridgeViewFilter(),
+            viewFilter: BridgeViewFilter(
+                showHiddenFiles: true,
+                showBinaryFiles: true,
+                showLargeFiles: true
+            ),
             grouping: BridgeChangeGrouping(kind: .flat),
             provenanceFilter: BridgeProvenanceFilter()
         )

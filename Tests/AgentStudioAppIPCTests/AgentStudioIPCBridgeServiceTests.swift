@@ -322,15 +322,23 @@ struct AgentStudioIPCBridgeServiceTests {
                 method: "bridge.fileTree.setFilter",
                 params: .object([
                     "handle": .string("pane:1"),
-                    "gitStatusFilter": .string("modified"),
-                    "fileClassFilter": .string("source"),
+                    "candidate": .object([
+                        "surface": .string("review"),
+                        "gitStatusFilter": .string("modified"),
+                        "categoryFilter": .string("source"),
+                        "showBinary": .bool(true),
+                        "showLarge": .bool(false),
+                    ]),
                 ])
             )
         )
         let filterResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: filterResponse)
         #expect(filterResult.method == "bridge.fileTree.setFilter")
-        #expect(filterResult.gitStatusFilter == "modified")
-        #expect(filterResult.fileClassFilter == "source")
+        #expect(filterResult.filterSurface == .review)
+        #expect(filterResult.gitStatusFilter == .modified)
+        #expect(filterResult.categoryFilter == .source)
+        #expect(filterResult.showBinary)
+        #expect(!filterResult.showLarge)
 
         let revealResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -378,6 +386,42 @@ struct AgentStudioIPCBridgeServiceTests {
         let scrollResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: scrollResponse)
         #expect(scrollResult.method == "bridge.diff.scrollToFile")
         #expect(scrollResult.itemId == "item-source")
+    }
+
+    @Test("debug unsafe no-auth preserves the Files filter candidate")
+    func debugUnsafeNoAuthPreservesFilesFilterCandidate() throws {
+        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000000751")!
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(91),
+                method: "bridge.fileTree.setFilter",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "candidate": .object([
+                        "surface": .string("files"),
+                        "categoryFilter": .string("docs"),
+                    ]),
+                ])
+            )
+        )
+
+        let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
+        #expect(result.filterSurface == .files)
+        #expect(result.gitStatusFilter == .all)
+        #expect(result.categoryFilter == .docs)
+        #expect(!result.showBinary)
+        #expect(!result.showLarge)
     }
 
     @Test("debug unsafe no-auth serves Bridge diff expand and collapse methods")
@@ -476,11 +520,7 @@ struct AgentStudioIPCBridgeServiceTests {
             (
                 85,
                 "bridge.fileTree.setFilter",
-                .object([
-                    "handle": .string("pane:1"),
-                    "gitStatusFilter": .string("modified"),
-                    "fileClassFilter": .string("source"),
-                ])
+                bridgeReviewFilterParams(handle: "pane:1")
             ),
             (
                 86,
@@ -790,4 +830,17 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(bridgePayload["paneId"] as? String == paneId.uuidString)
         #expect(bridgePayload["itemId"] as? String == "item-source")
     }
+}
+
+private func bridgeReviewFilterParams(handle: String) -> JSONValue {
+    .object([
+        "handle": .string(handle),
+        "candidate": .object([
+            "surface": .string("review"),
+            "gitStatusFilter": .string("modified"),
+            "categoryFilter": .string("source"),
+            "showBinary": .bool(false),
+            "showLarge": .bool(false),
+        ]),
+    ])
 }

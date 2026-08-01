@@ -7,6 +7,17 @@ import type {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker Review query projection', () => {
+	test('hides Binary and Large before the surface installs its default visibility', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerReviewQueryProjection();
+
+		// Act
+		const initialPatches = projection.applyDisplayPatches(reviewSnapshotPatches());
+
+		// Assert
+		expect(projectedItemIds(initialPatches)).toEqual(['item-added', 'item-modified']);
+	});
+
 	test('filters files with required ancestors and Clear restores canonical order', () => {
 		// Arrange
 		const projection = new BridgeCommWorkerReviewQueryProjection();
@@ -14,12 +25,16 @@ describe('Bridge comm worker Review query projection', () => {
 
 		// Act
 		const addedPatches = projection.updateQuery({
-			fileClassFilter: 'all',
+			categoryFilter: 'all',
 			gitStatusFilter: 'added',
+			showBinary: false,
+			showLarge: false,
 		});
 		const clearedPatches = projection.updateQuery({
-			fileClassFilter: 'all',
+			categoryFilter: 'all',
 			gitStatusFilter: 'all',
+			showBinary: false,
+			showLarge: false,
 		});
 
 		// Assert
@@ -46,18 +61,54 @@ describe('Bridge comm worker Review query projection', () => {
 
 		// Act
 		const sourceAddedPatches = projection.updateQuery({
-			fileClassFilter: 'source',
+			categoryFilter: 'source',
 			gitStatusFilter: 'added',
+			showBinary: false,
+			showLarge: false,
 		});
 		const testAddedPatches = projection.updateQuery({
-			fileClassFilter: 'test',
+			categoryFilter: 'test',
 			gitStatusFilter: 'added',
+			showBinary: false,
+			showLarge: false,
 		});
 
 		// Assert
 		expect(projectedItemIds(sourceAddedPatches)).toEqual(['item-added']);
 		expect(projectedItemIds(testAddedPatches)).toEqual([]);
 		expect(projectedTreePaths(testAddedPatches)).toEqual([]);
+	});
+
+	test('keeps Binary and Large visibility independent from the exclusive category filter', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerReviewQueryProjection();
+		projection.applyDisplayPatches(reviewSnapshotPatches());
+
+		// Act
+		const binaryVisiblePatches = projection.updateQuery({
+			categoryFilter: 'all',
+			gitStatusFilter: 'all',
+			showBinary: true,
+			showLarge: false,
+		});
+		const largeVisiblePatches = projection.updateQuery({
+			categoryFilter: 'all',
+			gitStatusFilter: 'all',
+			showBinary: false,
+			showLarge: true,
+		});
+
+		// Assert
+		expect(projectedItemIds(binaryVisiblePatches)).toEqual([
+			'item-added',
+			'item-modified',
+			'item-binary',
+		]);
+		expect(projectedItemIds(largeVisiblePatches)).toEqual([
+			'item-added',
+			'item-modified',
+			'item-large',
+		]);
 	});
 });
 
@@ -74,6 +125,18 @@ function reviewSnapshotPatches(): readonly BridgeWorkerReviewDisplayPatch[] {
 			fileClass: 'test',
 			itemId: 'item-modified',
 			path: 'Sources/Group02/Modified.swift',
+		}),
+		reviewDisplayItem({
+			changeKind: 'modified',
+			fileClass: 'binary',
+			itemId: 'item-binary',
+			path: 'Sources/Group02/Asset.bin',
+		}),
+		reviewDisplayItem({
+			changeKind: 'modified',
+			fileClass: 'large',
+			itemId: 'item-large',
+			path: 'Sources/Group02/Large.txt',
 		}),
 	];
 	return [
@@ -130,7 +193,7 @@ function reviewSnapshotPatches(): readonly BridgeWorkerReviewDisplayPatch[] {
 
 function reviewDisplayItem(props: {
 	readonly changeKind: 'added' | 'modified';
-	readonly fileClass: 'source' | 'test';
+	readonly fileClass: 'source' | 'test' | 'binary' | 'large';
 	readonly itemId: string;
 	readonly path: string;
 }): BridgeWorkerReviewDisplayItem {

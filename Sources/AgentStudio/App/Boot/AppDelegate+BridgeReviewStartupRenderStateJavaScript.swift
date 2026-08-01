@@ -384,8 +384,13 @@ extension AppDelegate {
                     new CustomEvent('__bridge_review_control', {
                       detail: {
                         method: 'bridge.fileTree.setFilter',
-                        gitStatusFilter: 'modified',
-                        fileClassFilter: 'all'
+                        filter: {
+                          surface: 'review',
+                          gitStatusFilter: 'modified',
+                          categoryFilter: 'all',
+                          showBinary: false,
+                          showLarge: false
+                        }
                       }
                     })
                   );

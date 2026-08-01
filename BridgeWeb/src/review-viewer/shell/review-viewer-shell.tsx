@@ -1,7 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 
+import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
-import { bridgeViewerFileClassOptions } from '../../app/bridge-viewer-file-class-options.js';
+import type { BridgeViewerFileCategory } from '../../app/bridge-viewer-file-class-options.js';
 import type { BridgeViewerFacetMenuOption } from '../../app/bridge-viewer-filter-menu.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
@@ -19,7 +20,6 @@ import {
 } from '../../foundation/review-package/bridge-review-item-registry.js';
 import type {
 	BridgeFileChangeKind,
-	BridgeFileClass,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -82,9 +82,12 @@ export interface ReviewViewerShellProps {
 	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
 	readonly gitStatusFilter?: BridgeFileChangeKind | 'all';
 	readonly isActive?: boolean;
-	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
-	readonly fileClassFilter?: BridgeFileClass | 'all';
-	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
+	readonly onFilterChange?: (
+		filter: Extract<BridgeFileTreeFilterCandidate, { readonly surface: 'review' }>,
+	) => void;
+	readonly categoryFilter?: BridgeViewerFileCategory | 'all';
+	readonly showBinary?: boolean;
+	readonly showLarge?: boolean;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
@@ -103,7 +106,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const hiddenVisiblePathText = hiddenVisiblePathTextForRegistry(registry);
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
-	const fileClassFilter = props.fileClassFilter ?? 'all';
+	const categoryFilter = props.categoryFilter ?? 'all';
 	const statusText =
 		props.isActive === true && props.panelChromeSlice.isLoading === true
 			? (props.panelChromeSlice.message ?? null)
@@ -431,14 +434,14 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						trailing: [
 							<div className="shrink-0" data-testid="bridge-review-facet-menu" key="facet-menu">
 								<BridgeReviewFacetMenu
-									fileClassFilter={fileClassFilter}
-									fileClassOptions={bridgeViewerFileClassOptions}
+									categoryFilter={categoryFilter}
 									gitStatusFilter={gitStatusFilter}
 									gitStatusOptions={gitStatusOptions}
-									onFileClassFilterChange={(value): void => props.onFileClassFilterChange?.(value)}
-									onGitStatusFilterChange={(value): void => props.onGitStatusFilterChange?.(value)}
+									onFilterChange={(value): void => props.onFilterChange?.(value)}
 									onOpenChange={props.onFacetMenuOpenChange}
 									open={props.facetMenuOpen}
+									showBinary={props.showBinary ?? false}
+									showLarge={props.showLarge ?? false}
 								/>
 							</div>,
 							<div data-testid="bridge-review-search-control-slot" key="search-control">

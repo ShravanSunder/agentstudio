@@ -3,7 +3,6 @@ import { useLayoutEffect } from 'react';
 
 import type {
 	BridgeFileChangeKind,
-	BridgeFileClass,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
@@ -20,26 +19,33 @@ import {
 import {
 	bridgeAppControlCommandSchema,
 	type BridgeAppControlCommand,
+	type BridgeFileTreeFilterCandidate,
 } from './bridge-app-control.js';
+
+type BridgeReviewFilterCandidate = Extract<
+	BridgeFileTreeFilterCandidate,
+	{ readonly surface: 'review' }
+>;
 
 interface UseBridgeReviewControlEventListenersProps {
 	readonly codeViewControlHandleRef: MutableRefObject<BridgeCodeViewControlHandle | null>;
 	readonly controlProbeSequenceRef: MutableRefObject<number>;
-	readonly fileClassFilter: BridgeFileClass | 'all';
+	readonly categoryFilter: BridgeReviewFilterCandidate['categoryFilter'];
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly isActive: boolean;
 	readonly projection: BridgeReviewProjectionResult | null;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedItemId: string | null;
 	readonly selectReviewItem: (itemId: string) => boolean;
-	readonly setFileClassFilter: (filter: BridgeFileClass | 'all') => void;
-	readonly setGitStatusFilter: (filter: BridgeFileChangeKind | 'all') => void;
+	readonly setReviewFilter: (filter: BridgeReviewFilterCandidate) => void;
 	readonly setTreeSearchMode: (mode: BridgeReviewSearchMode) => void;
 	readonly setTreeSearchOpen: (isOpen: boolean) => void;
 	readonly setTreeSearchText: (searchText: string) => void;
 	readonly target: EventTarget;
 	readonly treeSearchMode: BridgeReviewSearchMode;
 	readonly treeSearchText: string;
+	readonly showBinary: boolean;
+	readonly showLarge: boolean;
 }
 
 export function useBridgeReviewControlEventListeners(
@@ -77,10 +83,13 @@ export function useBridgeReviewControlEventListeners(
 				? applyBridgeReviewControlCommand({ command, props })
 				: { reason: 'invalid_control_command', status: 'rejected' as const };
 			const probeState: BridgeAppControlProbeState = {
-				fileClassFilter: props.fileClassFilter,
+				categoryFilter: props.categoryFilter,
+				filterSurface: 'review',
 				gitStatusFilter: props.gitStatusFilter,
 				renderMode: { kind: 'codeView' },
 				selectedItemId: props.selectedItemId,
+				showBinary: props.showBinary,
+				showLarge: props.showLarge,
 				treeSearchMode: props.treeSearchMode,
 				treeSearchText: props.treeSearchText,
 				...result.probeStatePatch,
@@ -138,12 +147,16 @@ function applyBridgeReviewControlCommand(props: {
 				status: 'accepted',
 			};
 		case 'bridge.fileTree.setFilter':
-			controlProps.setGitStatusFilter(command.gitStatusFilter);
-			controlProps.setFileClassFilter(command.fileClassFilter);
+			if (command.filter.surface !== 'review') {
+				return { reason: 'unsupported_surface', status: 'rejected' };
+			}
+			controlProps.setReviewFilter(command.filter);
 			return {
 				probeStatePatch: {
-					fileClassFilter: command.fileClassFilter,
-					gitStatusFilter: command.gitStatusFilter,
+					categoryFilter: command.filter.categoryFilter,
+					gitStatusFilter: command.filter.gitStatusFilter,
+					showBinary: command.filter.showBinary,
+					showLarge: command.filter.showLarge,
 				},
 				reason: null,
 				status: 'accepted',

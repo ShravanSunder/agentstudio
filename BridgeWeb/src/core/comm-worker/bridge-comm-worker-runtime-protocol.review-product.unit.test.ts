@@ -6,6 +6,7 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
+import { expectedEmptyReviewProjectionResetPatches } from './bridge-comm-worker-entry.test-support.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
@@ -230,6 +231,7 @@ describe('Bridge comm worker Review product runtime', () => {
 					payload: { error: 'metadataUnavailable', status: 'failed' },
 					slice: 'reviewSource',
 				},
+				...expectedEmptyReviewProjectionResetPatches(),
 			],
 			surface: 'review',
 		});

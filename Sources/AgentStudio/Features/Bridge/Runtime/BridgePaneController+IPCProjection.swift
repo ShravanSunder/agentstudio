@@ -48,8 +48,11 @@ private struct BridgePageControlProbeSnapshot: Decodable {
     let itemId: String?
     let path: String?
     let treeSearchText: String
-    let gitStatusFilter: String
-    let fileClassFilter: String
+    let filterSurface: IPCBridgeFileTreeFilterSurface
+    let gitStatusFilter: IPCBridgeGitStatusFilter
+    let categoryFilter: IPCBridgeFilterCategory
+    let showBinary: Bool
+    let showLarge: Bool
     let renderMode: BridgePageControlRenderModeSnapshot
     let reason: String?
 }
@@ -241,8 +244,17 @@ extension BridgePaneController {
                 itemId: null,
                 path: null,
                 treeSearchText: '',
+                filterSurface:
+                  \(commandLiteral).method === 'bridge.fileTree.setFilter'
+                    ? \(commandLiteral).filter.surface
+                    : 'review',
                 gitStatusFilter: 'all',
-                fileClassFilter: 'all',
+                categoryFilter:
+                  \(commandLiteral).method === 'bridge.fileTree.setFilter'
+                    ? \(commandLiteral).filter.categoryFilter
+                    : 'all',
+                showBinary: false,
+                showLarge: false,
                 renderMode: { kind: 'codeView' },
                 reason: 'missing_control_probe'
               };
@@ -264,8 +276,11 @@ extension BridgePaneController {
             itemId: snapshot.itemId,
             path: snapshot.path,
             treeSearchText: snapshot.treeSearchText,
+            filterSurface: snapshot.filterSurface,
             gitStatusFilter: snapshot.gitStatusFilter,
-            fileClassFilter: snapshot.fileClassFilter,
+            categoryFilter: snapshot.categoryFilter,
+            showBinary: snapshot.showBinary,
+            showLarge: snapshot.showLarge,
             renderMode: snapshot.renderMode.kind,
             reason: snapshot.reason,
             correlationId: correlationId

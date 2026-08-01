@@ -10,6 +10,7 @@ import {
 } from 'react';
 
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
+import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { bridgeFileViewerContentHeaderTitle } from './bridge-file-viewer-content-header-title.js';
 import {
@@ -59,6 +60,8 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
 	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const projectionExclusionClearedSelectionRef = useRef(false);
+	const selectionQueryKeyRef = useRef('');
 	useEffect((): void => {
 		if (!isActive) {
 			setIsFilterMenuOpen(false);
@@ -70,6 +73,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const controlProbeSequenceRef = useRef(0);
 	const { rootSnapshot, viewerActions, viewerStore } = useBridgeFileViewerStoreBindings();
 	const { filterMode, searchMode, searchText } = rootSnapshot;
+	const queryKey = bridgeWorkerFileQueryKey({ filterMode, searchMode, searchText });
 	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection });
 	const dispatchFileViewQueryFact = renderSnapshotController.dispatchFileViewQueryFact;
 	useEffect((): void => {
@@ -119,14 +123,45 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			if (!isActiveRef.current) {
 				return;
 			}
+			projectionExclusionClearedSelectionRef.current = false;
+			selectionQueryKeyRef.current = queryKey;
 			setSelection(nextSelection);
 			renderSnapshotController.dispatchSelectedFileViewContentRequest({
 				fileId: nextSelection.fileId,
 				selectedSource: source,
 			});
 		},
-		[renderSnapshotController],
+		[queryKey, renderSnapshotController],
 	);
+	useEffect((): void => {
+		if (
+			!isActive ||
+			selection === null ||
+			displayModel.acceptedQueryKey !== queryKey ||
+			selectionQueryKeyRef.current === queryKey
+		)
+			return;
+		const selectedRow = displayModel.treeRowByPath.get(selection.path);
+		if (selectedRow?.fileId === selection.fileId && !selectedRow.isDirectory) {
+			selectionQueryKeyRef.current = queryKey;
+			return;
+		}
+		projectionExclusionClearedSelectionRef.current = true;
+		selectionQueryKeyRef.current = queryKey;
+		setSelection(null);
+		renderSnapshotController.clearSelectedFileViewContent();
+		const treeFallback = document.querySelector(
+			'[data-testid="bridge-file-viewer-pierre-file-tree"]',
+		);
+		if (treeFallback instanceof HTMLElement) treeFallback.focus({ preventScroll: true });
+	}, [
+		displayModel.acceptedQueryKey,
+		displayModel.treeRowByPath,
+		isActive,
+		queryKey,
+		renderSnapshotController,
+		selection,
+	]);
 	const selectFileFromTree = useCallback(
 		(nextSelection: BridgeFileViewerSelection): void => {
 			selectFile(nextSelection, 'user');
@@ -162,7 +197,11 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			}
 			return;
 		}
-		if (!autoOpenInitialFile || selection !== null) {
+		if (
+			!autoOpenInitialFile ||
+			selection !== null ||
+			projectionExclusionClearedSelectionRef.current
+		) {
 			return;
 		}
 		const firstFileRow = displayModel.firstFileRow;

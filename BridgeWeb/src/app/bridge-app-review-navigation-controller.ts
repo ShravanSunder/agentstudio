@@ -7,7 +7,9 @@ import type {
 import { recordBridgeReviewSelectionDiagnosticStage } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
-export type BridgeReviewNavigationSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
+export type BridgeReviewNavigationSelectionSource = NonNullable<
+	BridgeWorkerSelectCommand['selectedSource']
+>;
 
 export interface BridgeReviewNavigationTarget {
 	readonly commandId: string;
@@ -63,6 +65,7 @@ export function useBridgeReviewNavigationController(
 	} = props;
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
 	const pendingLocalSelectionItemIdRef = useRef<string | null>(null);
+	const projectionExclusionClearedSelectionRef = useRef(false);
 
 	useEffect((): void => {
 		if (
@@ -103,10 +106,18 @@ export function useBridgeReviewNavigationController(
 		if (!isActive) {
 			return;
 		}
-		if (selectedItemId !== null && orderedItemIds.includes(selectedItemId)) {
+		if (selectedItemId !== null) {
+			if (orderedItemIds.includes(selectedItemId)) {
+				pendingLocalSelectionItemIdRef.current = null;
+				projectionExclusionClearedSelectionRef.current = false;
+				return;
+			}
 			pendingLocalSelectionItemIdRef.current = null;
+			projectionExclusionClearedSelectionRef.current = true;
+			clearReviewSelection();
 			return;
 		}
+		if (projectionExclusionClearedSelectionRef.current) return;
 		const pendingLocalSelectionItemId = pendingLocalSelectionItemIdRef.current;
 		if (pendingLocalSelectionItemId !== null) {
 			if (orderedItemIds.includes(pendingLocalSelectionItemId)) {

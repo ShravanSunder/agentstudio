@@ -15,6 +15,8 @@ export const bridgeFileClassSchema = z.enum([
 	'fixture',
 	'unknown',
 ]);
+export const bridgeReviewFilterCategorySchema = bridgeFileClassSchema.exclude(['binary', 'large']);
+export type BridgeReviewFilterCategory = z.infer<typeof bridgeReviewFilterCategorySchema>;
 export const bridgeFileChangeKindSchema = z.enum([
 	'added',
 	'modified',
@@ -207,7 +209,9 @@ export const bridgeReviewFilterStateSchema = z.object({
 	treeSearchText: z.string(),
 	treeSearchMode: bridgeReviewSearchModeSchema,
 	gitStatusFilter: z.union([z.literal('all'), bridgeFileChangeKindSchema]),
-	fileClassFilter: z.union([z.literal('all'), bridgeFileClassSchema]),
+	categoryFilter: z.union([z.literal('all'), bridgeReviewFilterCategorySchema]),
+	showBinary: z.boolean(),
+	showLarge: z.boolean(),
 });
 
 export type BridgeReviewFilterState = z.infer<typeof bridgeReviewFilterStateSchema>;

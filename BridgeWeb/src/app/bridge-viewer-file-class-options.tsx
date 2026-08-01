@@ -4,58 +4,71 @@ import type { ReactNode } from 'react';
 import type { BridgeFileClass } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeViewerFacetMenuOption } from './bridge-viewer-filter-menu.js';
 
-export type BridgeViewerFileTreeClass = Exclude<BridgeFileClass, 'binary'>;
+export type BridgeViewerFileCategory = Exclude<BridgeFileClass, 'binary' | 'large'>;
 
-const bridgeViewerFileClasses: readonly BridgeFileClass[] = [
+const bridgeViewerFileCategories: readonly BridgeViewerFileCategory[] = [
 	'source',
 	'test',
 	'docs',
 	'config',
 	'generated',
 	'vendor',
-	'binary',
-	'large',
 	'fixture',
 	'unknown',
 ];
 
-export const bridgeViewerFileClassOptions: readonly BridgeViewerFacetMenuOption<
-	BridgeFileClass | 'all'
+export const bridgeViewerFileCategoryOptions: readonly BridgeViewerFacetMenuOption<
+	BridgeViewerFileCategory | 'all'
 >[] = [
-	{ value: 'all', label: 'All file types', description: 'Show every classified file', icon: '*' },
-	...bridgeViewerFileClasses.map(
-		(fileClass: BridgeFileClass): BridgeViewerFacetMenuOption<BridgeFileClass | 'all'> => ({
-			value: fileClass,
-			label: sentenceCase(fileClass),
-			description: descriptionForFileClass(fileClass),
-			icon: bridgeViewerFileClassIcon(fileClass),
+	{ value: 'all', label: 'All', description: 'Show every supported category', icon: '*' },
+	...bridgeViewerFileCategories.map(
+		(
+			fileCategory: BridgeViewerFileCategory,
+		): BridgeViewerFacetMenuOption<BridgeViewerFileCategory | 'all'> => ({
+			value: fileCategory,
+			label: labelForFileCategory(fileCategory),
+			description: descriptionForFileCategory(fileCategory),
+			icon: bridgeViewerFileCategoryIcon(fileCategory),
 		}),
 	),
 ];
 
-export const bridgeViewerFileTreeClassOptions: readonly BridgeViewerFacetMenuOption<
-	BridgeViewerFileTreeClass | 'all'
->[] = bridgeViewerFileClassOptions.filter(
-	(option): option is BridgeViewerFacetMenuOption<BridgeViewerFileTreeClass | 'all'> =>
-		option.value !== 'binary',
-);
-
-export function bridgeViewerFileClassIcon(fileClass: BridgeFileClass | 'all'): ReactNode {
-	if (fileClass === 'all') {
+export function bridgeViewerFileCategoryIcon(
+	fileCategory: BridgeViewerFileCategory | 'all',
+): ReactNode {
+	if (fileCategory === 'all') {
 		return '*';
 	}
-	if (fileClass === 'docs') {
+	if (fileCategory === 'docs') {
 		return <FolderIcon aria-hidden="true" className="size-3.5" />;
 	}
-	return fileClass.slice(0, 1).toUpperCase();
+	return fileCategory.slice(0, 1).toUpperCase();
 }
 
-function sentenceCase(value: string): string {
-	return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+function labelForFileCategory(fileCategory: BridgeViewerFileCategory): string {
+	switch (fileCategory) {
+		case 'source':
+			return 'Source code';
+		case 'test':
+			return 'Tests';
+		case 'docs':
+			return 'Documentation';
+		case 'config':
+			return 'Configuration';
+		case 'generated':
+			return 'Generated';
+		case 'vendor':
+			return 'Dependencies and build output';
+		case 'fixture':
+			return 'Fixtures';
+		case 'unknown':
+			return 'Other';
+	}
+	return assertNeverBridgeViewerFileCategory(fileCategory);
 }
 
-function descriptionForFileClass(fileClass: BridgeFileClass): string {
-	switch (fileClass) {
+function descriptionForFileCategory(fileCategory: BridgeViewerFileCategory): string {
+	switch (fileCategory) {
 		case 'source':
 			return 'Swift, TypeScript, JavaScript, and CSS implementation files';
 		case 'test':
@@ -68,18 +81,14 @@ function descriptionForFileClass(fileClass: BridgeFileClass): string {
 			return 'Files under generated trees or with a generated Swift suffix';
 		case 'vendor':
 			return 'Files under dependency, vendor, build, or DerivedData trees';
-		case 'binary':
-			return 'Binary files and non-text assets';
-		case 'large':
-			return 'Files at least 1 MB according to native metadata';
 		case 'fixture':
 			return 'Files under fixture data trees';
 		case 'unknown':
 			return 'Files without a matching path or size classification';
 	}
-	return assertNeverBridgeFileClass(fileClass);
+	return assertNeverBridgeViewerFileCategory(fileCategory);
 }
 
-function assertNeverBridgeFileClass(fileClass: never): never {
-	throw new Error(`Unsupported Bridge file class: ${String(fileClass)}`);
+function assertNeverBridgeViewerFileCategory(fileCategory: never): never {
+	throw new Error(`Unsupported Bridge file category: ${String(fileCategory)}`);
 }
