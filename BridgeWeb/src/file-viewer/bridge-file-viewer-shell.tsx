@@ -11,6 +11,7 @@ import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerSelectedCodeViewItem,
 } from './bridge-file-viewer-code-panel.js';
+import type { BridgeFilesCodeViewOptions } from './bridge-file-viewer-code-view-options.js';
 import type {
 	BridgeFileViewerFilterMode,
 	BridgeFileViewerSearchMode,
@@ -24,6 +25,7 @@ import type {
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
 
 export interface BridgeFileViewerShellProps {
+	readonly codeViewOptions?: BridgeFilesCodeViewOptions;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
@@ -122,6 +124,9 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 							renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
 							selectedCodeViewItem={props.selectedCodeViewItem}
 							totalHeightPixels={props.openFileTotalHeightPixels}
+							{...(props.codeViewOptions === undefined
+								? {}
+								: { codeViewOptions: props.codeViewOptions })}
 							{...(props.codeViewWorkerFactory === undefined
 								? {}
 								: { codeViewWorkerFactory: props.codeViewWorkerFactory })}

@@ -7,6 +7,11 @@ import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-
 import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import {
+	bridgeCodeViewOptions,
+	createBridgeReviewViewSettingsDefaults,
+	deriveBridgeReviewCodeViewOptions,
+} from '../review-viewer/code-view/bridge-code-view-options.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
@@ -24,6 +29,8 @@ import {
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+import { BridgeViewerViewSettingsMenu } from './bridge-viewer-view-settings-menu.js';
+import type { BridgeReviewViewSettings } from './bridge-viewer-view-settings.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 import { useBridgeViewerToolbarShortcuts } from './use-bridge-viewer-toolbar-shortcuts.js';
 
@@ -43,6 +50,9 @@ type BridgeReviewFilterCandidate = Extract<
 	BridgeFileTreeFilterCandidate,
 	{ readonly surface: 'review' }
 >;
+
+const bridgeReviewDefaultViewSettings =
+	createBridgeReviewViewSettingsDefaults(bridgeCodeViewOptions);
 
 export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
@@ -91,11 +101,37 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	});
 	const { categoryFilter, gitStatusFilter, showBinary, showLarge } = reviewFilter;
 	const [facetMenuOpen, setFacetMenuOpen] = useState(false);
+	const [viewSettings, setViewSettings] = useState<BridgeReviewViewSettings>(
+		bridgeReviewDefaultViewSettings,
+	);
+	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
 	useEffect((): void => {
 		if (!isActive) {
 			setFacetMenuOpen(false);
+			setViewSettingsMenuOpen(false);
 		}
 	}, [isActive]);
+	const codeViewOptions = useMemo(
+		() =>
+			deriveBridgeReviewCodeViewOptions({
+				compatibilityOptions: bridgeCodeViewOptions,
+				viewSettings,
+			}),
+		[viewSettings],
+	);
+	const contentHeaderControls = (
+		<>
+			{viewerHeaderControls}
+			<BridgeViewerViewSettingsMenu
+				defaultSettings={bridgeReviewDefaultViewSettings}
+				onChange={setViewSettings}
+				onOpenChange={setViewSettingsMenuOpen}
+				open={viewSettingsMenuOpen}
+				settings={viewSettings}
+				surface="review"
+			/>
+		</>
+	);
 	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
 		useState<BridgeReviewTreeSelectionRevealRequest | null>(null);
 	const treeSelectionRevealRevisionRef = useRef(0);
@@ -273,6 +309,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		selectReviewItem: selectReviewItemAndRevealTree,
 	});
 	const presentationState = reviewPresentationState({
+		codeViewOptions,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
@@ -310,12 +347,13 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		<BridgeReviewViewerShellBoundary
 			isActive={isActive}
 			presentationState={presentationState}
-			viewerHeaderControls={viewerHeaderControls}
+			viewerHeaderControls={contentHeaderControls}
 		/>
 	);
 }
 
 function reviewPresentationState(props: {
+	readonly codeViewOptions: ReturnType<typeof deriveBridgeReviewCodeViewOptions>;
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
 	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
@@ -363,6 +401,7 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			codeViewOptions: props.codeViewOptions,
 			facetMenuOpen: props.facetMenuOpen,
 			categoryFilter: props.categoryFilter,
 			gitStatusFilter: props.gitStatusFilter,

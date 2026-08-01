@@ -27,6 +27,7 @@ import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
+import type { BridgeReviewCodeViewOptions } from '../code-view/bridge-code-view-options.js';
 import type { SelectedContentPaintTelemetryStart } from '../code-view/bridge-code-view-panel-types.js';
 import {
 	BridgeCodeViewPanel,
@@ -45,6 +46,7 @@ import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
+	readonly codeViewOptions?: BridgeReviewCodeViewOptions;
 	readonly presentationRegistry: BridgeReviewItemRegistry;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -331,6 +333,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
 									visibleCodeViewItems={props.visibleCodeViewItems ?? []}
+									{...(props.codeViewOptions === undefined
+										? {}
+										: { codeViewOptions: props.codeViewOptions })}
 									{...(props.onCodeViewVisibleItemIdsChange === undefined
 										? {}
 										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}

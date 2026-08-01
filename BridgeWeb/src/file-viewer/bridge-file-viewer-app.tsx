@@ -9,9 +9,16 @@ import {
 	type ReactElement,
 } from 'react';
 
+import { BridgeViewerViewSettingsMenu } from '../app/bridge-viewer-view-settings-menu.js';
+import type { BridgeFilesViewSettings } from '../app/bridge-viewer-view-settings.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
+import {
+	bridgeFileViewerCodeViewOptions,
+	createBridgeFilesViewSettingsDefaults,
+	deriveBridgeFilesCodeViewOptions,
+} from './bridge-file-viewer-code-view-options.js';
 import { bridgeFileViewerContentHeaderTitle } from './bridge-file-viewer-content-header-title.js';
 import {
 	bridgeFileViewerDisplayModelForSnapshot,
@@ -35,6 +42,9 @@ const LazyBridgeFileViewerShell = lazy(async () => {
 
 const bridgeFileViewerDisplayLineHeightPixels = 20;
 const bridgeFileViewerTreeRowHeightPixels = 24;
+const bridgeFilesDefaultViewSettings = createBridgeFilesViewSettingsDefaults(
+	bridgeFileViewerCodeViewOptions,
+);
 
 export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): ReactElement {
 	return <BridgeFileViewerAppImpl {...props} />;
@@ -60,13 +70,39 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
 	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
 	const [isSearchOpen, setIsSearchOpen] = useState(false);
+	const [viewSettings, setViewSettings] = useState<BridgeFilesViewSettings>(
+		bridgeFilesDefaultViewSettings,
+	);
+	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
 	const projectionExclusionClearedSelectionRef = useRef(false);
 	const selectionQueryKeyRef = useRef('');
 	useEffect((): void => {
 		if (!isActive) {
 			setIsFilterMenuOpen(false);
+			setViewSettingsMenuOpen(false);
 		}
 	}, [isActive]);
+	const codeViewOptions = useMemo(
+		() =>
+			deriveBridgeFilesCodeViewOptions({
+				compatibilityOptions: bridgeFileViewerCodeViewOptions,
+				viewSettings,
+			}),
+		[viewSettings],
+	);
+	const contentHeaderControls = (
+		<>
+			{viewerHeaderControls}
+			<BridgeViewerViewSettingsMenu
+				defaultSettings={bridgeFilesDefaultViewSettings}
+				onChange={setViewSettings}
+				onOpenChange={setViewSettingsMenuOpen}
+				open={viewSettingsMenuOpen}
+				settings={viewSettings}
+				surface="file"
+			/>
+		</>
+	);
 	const isActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
@@ -243,11 +279,12 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			fallback={
 				<BridgeFileViewerLazyLoadingFrame
 					isActive={isActive}
-					viewerHeaderControls={viewerHeaderControls}
+					viewerHeaderControls={contentHeaderControls}
 				/>
 			}
 		>
 			<LazyBridgeFileViewerShell
+				codeViewOptions={codeViewOptions}
 				completeFileQueryTransaction={renderSnapshotController.completeFileQueryTransaction}
 				contentHeaderTitle={contentHeaderTitle}
 				dispatchVisibleFileDemand={dispatchVisibleFileDemand}
@@ -276,7 +313,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				telemetryTraceContext={telemetryTraceContext ?? null}
 				totalTreeHeight={totalTreeHeight}
 				totalTreeRowCount={totalTreeRowCount}
-				viewerHeaderControls={viewerHeaderControls}
+				viewerHeaderControls={contentHeaderControls}
 				{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
 				{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
 			/>

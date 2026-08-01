@@ -56,6 +56,15 @@ export const bridgeViewerFilterClearClassName = cn(
 	'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
 );
 
+export const bridgeViewerMenuTriggerClassName = cn(
+	'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
+	bridgeViewerChromeIconButtonClassName,
+	'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
+	'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+	'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+	'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
+);
+
 export function BridgeViewerFilterMenuHeader(props: {
 	readonly description: string;
 	readonly testId: string;
@@ -171,14 +180,7 @@ export function BridgeViewerFilterTrigger(props: {
 	return (
 		<DropdownMenuTrigger
 			aria-label={props.label}
-			className={cn(
-				'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
-				bridgeViewerChromeIconButtonClassName,
-				'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-				'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-				'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
-			)}
+			className={bridgeViewerMenuTriggerClassName}
 			data-testid={props.testId}
 			title={props.label}
 		>

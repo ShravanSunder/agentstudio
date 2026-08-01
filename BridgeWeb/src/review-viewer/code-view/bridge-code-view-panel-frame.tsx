@@ -6,7 +6,6 @@ import { useMemo } from 'react';
 import { cn } from '../../app/class-name.js';
 import { BridgePierreWorkerPoolProvider } from '../workers/pierre/bridge-pierre-worker-pool.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
-import { bridgeCodeViewOptions } from './bridge-code-view-options.js';
 import type {
 	BridgeCodeViewMaterializationDiagnostic,
 	BridgeCodeViewRenderedItemsSource,
@@ -14,6 +13,7 @@ import type {
 import type { BridgeCodeViewSelectionScrollDiagnostic } from './bridge-code-view-panel-types.js';
 
 interface BridgeCodeViewPanelFrameProps {
+	readonly codeViewOptions: Readonly<CodeViewOptions<undefined>>;
 	readonly handleCodeViewScroll: (
 		scrollTop: number,
 		viewer: BridgeCodeViewRenderedItemsSource,
@@ -51,8 +51,8 @@ interface BridgeCodeViewPanelFrameProps {
 
 export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): ReactElement {
 	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
-		() => ({ ...bridgeCodeViewOptions, onPostRender: props.handleCodeViewPostRender }),
-		[props.handleCodeViewPostRender],
+		() => ({ ...props.codeViewOptions, onPostRender: props.handleCodeViewPostRender }),
+		[props.codeViewOptions, props.handleCodeViewPostRender],
 	);
 	return (
 		<section

@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'vitest';
 
+import { expectedEmptyReviewProjectionResetPatches } from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
-import { expectedEmptyReviewProjectionResetPatches } from './bridge-comm-worker-entry.test-support.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
