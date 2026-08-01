@@ -120,7 +120,7 @@ struct RepoExplorerWorktreeRowContent: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(favoriteActionSpec.label)
-                    .help(favoriteActionSpec.helpText)
+                    .controlHelp(favoriteActionSpec.controlTooltipRenderValue())
                     .disabled(!favoriteCommandPresentation.isEnabled)
                 }
             }

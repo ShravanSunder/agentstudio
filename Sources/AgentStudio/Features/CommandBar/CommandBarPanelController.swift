@@ -60,6 +60,7 @@ package final class CommandBarPanelController {
     private let octiconLoader: OcticonLoader
     private let repoCache: RepoCacheAtom
     private let dispatcher: any AppCommandDispatching
+    private let targetedSpecResolver: CommandBarTargetedSpecResolver
     private let quickOpenDirectoryHandler: @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
@@ -87,6 +88,8 @@ package final class CommandBarPanelController {
         octiconLoader: OcticonLoader,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
+        targetedSpecResolver: @escaping CommandBarTargetedSpecResolver =
+            CommandBarCommandPresentation.catalogTargetedSpecResolver,
         quickOpenDirectoryHandler:
             @escaping @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void,
         notificationInboxCommands: InboxNotificationCommands? = nil,
@@ -97,6 +100,7 @@ package final class CommandBarPanelController {
         self.octiconLoader = octiconLoader
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.targetedSpecResolver = targetedSpecResolver
         self.quickOpenDirectoryHandler = quickOpenDirectoryHandler
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
@@ -345,7 +349,8 @@ package final class CommandBarPanelController {
                 resolution: CommandBarWorktreeActionResolver.resolve(
                     presence: presence,
                     modifier: modifier,
-                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
+                    targetedSpecResolver: targetedSpecResolver
                 ),
                 presence: presence,
                 itemId: item.id,
@@ -360,7 +365,10 @@ package final class CommandBarPanelController {
 
     func showActions(for item: CommandBarItem) {
         guard case .quickOpen(let target) = item.action else { return }
+        showActions(for: target)
+    }
 
+    private func showActions(for target: CommandBarQuickOpenTarget) {
         switch target {
         case .repository(let repositoryStableKey):
             guard
@@ -414,22 +422,31 @@ package final class CommandBarPanelController {
         }
         guard let worktree = resolveQuickOpenWorktree(target) else { return }
         let canOpenInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
-        let command: AppCommand
+        let placement: CommandBarWorktreeTerminalPlacement
         switch modifier {
         case .plain:
-            command = canOpenInCurrentTab ? .openWorktreeInPane : .openNewTerminalInTab
+            placement = canOpenInCurrentTab ? .currentTabPane : .newTab
         case .command:
-            command = .openNewTerminalInTab
+            placement = .newTab
         case .option:
             guard canOpenInCurrentTab else { return }
-            command = .openWorktreeInPane
+            placement = .currentTabPane
         }
-        guard dispatcher.canDispatch(command, target: worktree.id, targetType: .worktree) else {
+        guard
+            let commandSpec = CommandBarCommandPresentation.targetedWorktreeTerminalSpec(
+                for: placement,
+                targetedSpecResolver: targetedSpecResolver
+            )
+        else {
+            showActions(for: target)
+            return
+        }
+        guard dispatcher.canDispatch(commandSpec.command, target: worktree.id, targetType: .worktree) else {
             return
         }
         state.recordRecent(itemId: itemId)
         dismiss()
-        dispatcher.dispatch(command, target: worktree.id, targetType: .worktree)
+        dispatcher.dispatch(commandSpec.command, target: worktree.id, targetType: .worktree)
     }
 
     private func executeQuickOpenDirectory(
@@ -543,8 +560,9 @@ package final class CommandBarPanelController {
         case .pane(let paneID, let workspaceID):
             guard
                 workspaceID == store.identityAtom.workspaceId,
+                let pane = store.paneAtom.pane(paneID),
                 WorkspacePaneRecencyEligibility.isEligibleForRecording(
-                    pane: store.paneAtom.pane(paneID),
+                    pane: pane,
                     workspaceMatches: true,
                     tabs: store.tabLayoutAtom.tabs,
                     targetableTabID: store.tabLayoutAtom.tabContaining(paneId: paneID)?.id
@@ -555,12 +573,19 @@ package final class CommandBarPanelController {
                 return
             }
             guard isCurrentActivation(activationGeneration) else { return }
-            guard dispatcher.canDispatch(.focusPane, target: paneID, targetType: .pane) else {
+            let targetType = CommandBarDataSource.targetTypeForPane(pane)
+            guard
+                let focusPaneSpec = CommandBarCommandPresentation.targetedSpec(
+                    for: .focusPane,
+                    targetType: targetType
+                ),
+                dispatcher.canDispatch(focusPaneSpec.command, target: paneID, targetType: targetType)
+            else {
                 return
             }
             state.recordRecent(itemId: itemId)
             dismiss()
-            dispatcher.dispatch(.focusPane, target: paneID, targetType: .pane)
+            dispatcher.dispatch(focusPaneSpec.command, target: paneID, targetType: targetType)
         }
     }
 

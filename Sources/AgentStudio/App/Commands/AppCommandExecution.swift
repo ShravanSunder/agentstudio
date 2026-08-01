@@ -23,12 +23,20 @@ protocol WorkspaceCommandHandling: AnyObject {
 protocol ShellCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome
     func showRepoCommandBar()
     func refreshWorktrees()
     func refocusActivePane()
+}
+
+extension ShellCommandHandling {
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
+        guard request.arguments == .noArguments else { return false }
+        return canExecute(request.command)
+    }
 }
 
 struct AppCommandExecutionRequest: Equatable, Sendable {

@@ -3,6 +3,22 @@ import AgentStudioRepoExplorer
 import Foundation
 
 extension AppDelegate: ShellCommandHandling {
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
+        if request.arguments == .noArguments {
+            return canExecute(request.command)
+        }
+        guard atomStore != nil else { return false }
+        switch (request.command, request.arguments) {
+        case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode),
+            (.setRepoSidebarSortOrder, .repoSidebarSortOrder),
+            (.setInboxRowStateFilter, .inboxRowStateFilter),
+            (.setInboxContentMode, .inboxContentMode):
+            return true
+        default:
+            return false
+        }
+    }
+
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,

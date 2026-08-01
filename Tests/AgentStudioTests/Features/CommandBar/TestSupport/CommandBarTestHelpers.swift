@@ -1,6 +1,37 @@
 import AppKit
 import Testing
 
+@testable import AgentStudioCommandBar
+@testable import AgentStudioCore
+
+func commandBarSurfaceRejectedTargetedSpecResolver(
+    command: AppCommand,
+    targetType: SearchItemType
+) -> AppCommandSpec? {
+    let catalogSpec = command.definition
+    return CommandBarCommandPresentation.commandBarTargetedSpec(
+        for: command,
+        targetType: targetType,
+        definitionResolver: { requestedCommand in
+            guard requestedCommand == command else { return requestedCommand.definition }
+            return AppCommandSpec(
+                command: catalogSpec.command,
+                shortcut: catalogSpec.shortcut,
+                displayShortcutTrigger: catalogSpec.displayShortcutTrigger,
+                label: catalogSpec.label,
+                icon: catalogSpec.icon,
+                helpText: catalogSpec.helpText,
+                surfacePolicy: .exposed([.contextMenu]),
+                targeting: catalogSpec.targeting,
+                requiresManagementLayer: catalogSpec.requiresManagementLayer,
+                visibleWhen: catalogSpec.visibleWhen,
+                commandBarGroupName: catalogSpec.commandBarGroupName,
+                commandBarGroupPriority: catalogSpec.commandBarGroupPriority
+            )
+        }
+    )
+}
+
 func makeKeyEvent(
     type: NSEvent.EventType = .keyDown,
     modifierFlags: NSEvent.ModifierFlags = [],

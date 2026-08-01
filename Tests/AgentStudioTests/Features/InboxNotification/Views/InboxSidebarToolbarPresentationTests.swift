@@ -47,6 +47,45 @@ struct InboxSidebarToolbarPresentationTests {
         #expect(!capability.canDispatch(.clearAllInboxNotifications))
     }
 
+    @Test("typed request capability overrides parameterless command capability")
+    @MainActor
+    func typedRequestCapabilityOverridesParameterlessCommandCapability() {
+        let dispatcher = InboxSidebarCommandDispatcherProbe(
+            deniedCommands: [.setInboxRowStateFilter]
+        )
+        let capability = InboxSidebarCommandCapability(
+            dispatcher: dispatcher,
+            capabilityOverrides: [.setInboxRowStateFilter: true]
+        )
+
+        #expect(capability.canDispatch(.setInboxRowStateFilter))
+    }
+
+    @Test("toolbar capability evaluates the exact next argument values")
+    @MainActor
+    func toolbarCapabilityEvaluatesExactNextArgumentValues() {
+        var observedRowStateFilters: [InboxNotificationRowStateFilter] = []
+        var observedContentModes: [InboxNotificationContentMode] = []
+
+        let capabilities = InboxNotificationSidebarView.argumentCommandCapabilities(
+            nextRowStateFilter: .all,
+            nextContentMode: .rollUpAlerts,
+            canSetRowStateFilter: { filter in
+                observedRowStateFilters.append(filter)
+                return filter == .all
+            },
+            canSetContentMode: { mode in
+                observedContentModes.append(mode)
+                return mode == .rollUpAlerts
+            }
+        )
+
+        #expect(observedRowStateFilters == [.all])
+        #expect(observedContentModes == [.rollUpAlerts])
+        #expect(capabilities[.setInboxRowStateFilter] == true)
+        #expect(capabilities[.setInboxContentMode] == true)
+    }
+
     @Test("delete command rows source presentation from command specs")
     @MainActor
     func deleteCommandRowsSourcePresentationFromCommandSpecs() throws {

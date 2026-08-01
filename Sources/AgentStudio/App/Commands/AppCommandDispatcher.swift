@@ -38,6 +38,10 @@ final class AppCommandDispatcher: AppCommandDispatching {
 
     @discardableResult
     func dispatch(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        guard canDispatch(request) else {
+            Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
+            return .unsupportedCommand
+        }
         switch request.arguments {
         case .noArguments:
             break
@@ -47,10 +51,6 @@ final class AppCommandDispatcher: AppCommandDispatching {
             return appCommandRouter.execute(request)
         }
 
-        guard canDispatch(request.command) else {
-            Self.logger.warning("Command request rejected: \(request.command.rawValue, privacy: .public)")
-            return .unsupportedCommand
-        }
         if let appCommandRouter {
             let outcome = appCommandRouter.execute(request)
             if outcome != .unsupportedCommand {
@@ -145,6 +145,23 @@ final class AppCommandDispatcher: AppCommandDispatching {
             return false
         }
         return canExecutionOwnersExecute(command, definition: definition)
+    }
+
+    func canDispatch(_ request: AppCommandExecutionRequest) -> Bool {
+        guard let definition = definitions[request.command],
+            definition.targeting.supportsContextualInvocation
+        else {
+            return false
+        }
+        guard request.arguments != .noArguments else {
+            return canDispatch(request.command)
+        }
+        if definition.requiresManagementLayer,
+            !atom(\.managementLayer).isActive
+        {
+            return false
+        }
+        return appCommandRouter?.canExecute(request) ?? false
     }
 
     func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {

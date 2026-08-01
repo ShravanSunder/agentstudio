@@ -186,6 +186,21 @@ struct ArrangementPanelMountTests {
         }
     }
 
+    @Test("pane visibility controls use typed command tooltips")
+    func paneVisibilityControlsUseTypedCommandTooltips() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/Panes/ArrangementPanel.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            source.contains(
+                ".controlHelp(visibilityAction.commandSpec.controlTooltipRenderValue())"
+            )
+        )
+        #expect(!source.contains("visibilityAction.commandSpec.helpText"))
+    }
+
     @Test("arrangement rename survives transient AppKit focus churn")
     func arrangementRenameSurvivesTransientFocusChurn() async throws {
         try await withAsyncTestCoreAtoms { _ in

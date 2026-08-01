@@ -60,11 +60,7 @@ package struct PaneInboxNotificationPopover: View {
     }
 
     package var body: some View {
-        let commandContext = InboxCommandContextProjection.current(
-            workspacePane: atom(\.workspacePane)
-        )
         let clearCommandPresentation = PaneInboxClearCommandPresentation.resolve(
-            commandContext: commandContext,
             targetPaneId: parentPaneId,
             dispatcher: commandDispatcher
         )

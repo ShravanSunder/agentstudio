@@ -59,6 +59,8 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(source.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
         #expect(source.contains("if favoriteControlVisibility.showsContextMenuAction"))
+        #expect(source.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
+        #expect(!source.contains(".help(favoriteActionSpec.helpText)"))
     }
 
     @Test("context menu groups creation actions by destination")

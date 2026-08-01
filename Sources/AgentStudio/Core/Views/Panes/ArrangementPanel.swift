@@ -501,9 +501,7 @@ package struct ArrangementPanel: View {
                         action: visibilityAction.perform
                     )
                 }
-                .help(
-                    visibilityAction.commandSpec.helpText
-                )
+                .controlHelp(visibilityAction.commandSpec.controlTooltipRenderValue())
             }
         }
         .padding(.horizontal, AppStyles.General.Spacing.standard)

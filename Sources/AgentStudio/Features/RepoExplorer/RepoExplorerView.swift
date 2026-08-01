@@ -24,6 +24,8 @@ package struct RepoExplorerView: View {
     let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let commandDispatcher: any AppCommandDispatching
+    let canSetVisibilityMode: ((RepoExplorerVisibilityMode) -> Bool)?
+    let canSetSortOrder: ((RepoExplorerSortOrder) -> Bool)?
     let onSetVisibilityMode: (RepoExplorerVisibilityMode) -> Void
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
     let onRefreshWorktrees: () -> Void
@@ -45,6 +47,8 @@ package struct RepoExplorerView: View {
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         commandDispatcher: any AppCommandDispatching,
+        canSetVisibilityMode: ((RepoExplorerVisibilityMode) -> Bool)? = nil,
+        canSetSortOrder: ((RepoExplorerSortOrder) -> Bool)? = nil,
         onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void,
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefreshWorktrees: @escaping () -> Void,
@@ -62,6 +66,8 @@ package struct RepoExplorerView: View {
         self.repoExplorerPrefs = repoExplorerPrefs
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.commandDispatcher = commandDispatcher
+        self.canSetVisibilityMode = canSetVisibilityMode
+        self.canSetSortOrder = canSetSortOrder
         self.onSetVisibilityMode = onSetVisibilityMode
         self.onSetSortOrder = onSetSortOrder
         self.onRefreshWorktrees = onRefreshWorktrees
@@ -822,12 +828,20 @@ extension RepoExplorerView {
 
     @ViewBuilder
     private var repoToolbarRow: some View {
+        let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
+        let nextVisibilityMode: RepoExplorerVisibilityMode = isFavoritesOnly ? .all : .favoritesOnly
+        let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
         let commandPresentation = RepoExplorerToolbarCommandPresentation.resolve(
             commandContext: currentCommandContext,
-            dispatcher: commandDispatcher
+            dispatcher: commandDispatcher,
+            capabilityOverrides: Self.argumentCommandCapabilities(
+                nextVisibilityMode: nextVisibilityMode,
+                nextSortOrder: nextSortOrder,
+                canSetVisibilityMode: canSetVisibilityMode,
+                canSetSortOrder: canSetSortOrder
+            )
         )
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
-        let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
         let presentedGroupingModes = RepoExplorerGroupingMode.allCases.filter { groupingMode in
             commandPresentation.command(groupingCommand(for: groupingMode)) != nil
         }
@@ -841,7 +855,7 @@ extension RepoExplorerView {
                     isFavoritesOnly: isFavoritesOnly,
                     commandPresentation: visibilityCommand
                 ) {
-                    onSetVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
+                    onSetVisibilityMode(nextVisibilityMode)
                 }
             }
 
@@ -865,7 +879,7 @@ extension RepoExplorerView {
                     frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
                     onHover: { updateTooltipTarget(.sort, isHovered: $0) },
                     onToggle: {
-                        onSetSortOrder(repoExplorerPrefs.sortOrder.toggled)
+                        onSetSortOrder(nextSortOrder)
                     }
                 )
                 .disabled(!sortCommand.isEnabled)
@@ -934,24 +948,6 @@ extension RepoExplorerView {
                 label: "Repo toolbar row"
             )
         )
-    }
-
-    private func presentedGroupingCommand(
-        for mode: RepoExplorerGroupingMode,
-        in commandPresentation: RepoExplorerToolbarCommandPresentation
-    ) -> RepoExplorerPresentedCommand {
-        guard let presentedCommand = commandPresentation.command(groupingCommand(for: mode)) else {
-            preconditionFailure("Grouping popover received a presentation-denied mode")
-        }
-        return presentedCommand
-    }
-
-    private func groupingCommand(for mode: RepoExplorerGroupingMode) -> AppCommand {
-        switch mode {
-        case .repo: .setRepoSidebarGroupingRepo
-        case .pane: .setRepoSidebarGroupingPane
-        case .tab: .setRepoSidebarGroupingTab
-        }
     }
 
     private struct ProjectionRequestKey: Equatable {

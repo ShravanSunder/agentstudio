@@ -131,7 +131,10 @@ enum CommandBarDataSource {
             case .repos:
                 repoScopeItems(store: store, dispatcher: dispatcher)
             case .inbox:
-                inboxItems(commands: notificationInboxCommands)
+                inboxItems(
+                    commands: notificationInboxCommands,
+                    commandContext: commandContext
+                )
             }
         let items =
             rootQueryState == .empty
@@ -228,6 +231,14 @@ enum CommandBarDataSource {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
+        guard
+            let selectTabSpec = CommandBarCommandPresentation.targetedSpec(
+                for: .selectTab,
+                targetType: .tab
+            )
+        else {
+            return []
+        }
         return workspaceTab.tabs.enumerated().map { index, tab in
             let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
             let isActive = tab.id == store.tabShellAtom.activeTabId
@@ -245,8 +256,8 @@ enum CommandBarDataSource {
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
                 keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
-                action: .dispatchTargeted(.selectTab, target: tab.id, targetType: .tab),
-                command: .selectTab
+                action: .dispatchTargeted(selectTabSpec.command, target: tab.id, targetType: .tab),
+                command: selectTabSpec.command
             )
         }
     }
@@ -270,6 +281,14 @@ enum CommandBarDataSource {
 
                 let capturedPaneId = pane.id
                 let targetType = targetTypeForPane(pane)
+                guard
+                    let focusPaneSpec = CommandBarCommandPresentation.targetedSpec(
+                        for: .focusPane,
+                        targetType: targetType
+                    )
+                else {
+                    continue
+                }
                 var paneKeywords = keywordsForPane(pane, store: store, repoCache: repoCache)
                 paneKeywords.append(tabDisplayTitle(tab: tab, store: store, repoCache: repoCache))
                 items.append(
@@ -288,76 +307,12 @@ enum CommandBarDataSource {
                         group: Group.panes,
                         groupPriority: Priority.panes,
                         keywords: stableUniqueKeywords(paneKeywords),
-                        action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
-                        command: .focusPane
-                    ))
-            }
-        }
-        return items
-    }
-
-    // MARK: - Panes Scope (grouped by tab)
-
-    private static func paneAndTabItems(
-        store: WorkspaceStore,
-        repoCache: RepoCacheAtom
-    ) -> [CommandBarItem] {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let workspacePane = store.paneAtom
-        var items: [CommandBarItem] = []
-        for (tabIndex, tab) in workspaceTab.tabs.enumerated() {
-            let tabTitle = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
-            let tabGroupName = "Tab \(tabIndex + 1): \(tabTitle)"
-            let isActiveTab = tab.id == store.tabShellAtom.activeTabId
-
-            // Tab as selectable item
-            items.append(
-                CommandBarItem(
-                    id: "tab-\(tab.id.uuidString)",
-                    title: tabTitle,
-                    subtitle: tabLocationSubtitle(
-                        tabIndex: tabIndex,
-                        paneCount: nil,
-                        isActive: isActiveTab
-                    ),
-                    icon: .system(.rectangleStack),
-                    group: tabGroupName,
-                    groupPriority: Priority.paneTabBase + tabIndex,
-                    keywords: keywordsForTab(tab, store: store, repoCache: repoCache),
-                    action: .dispatchTargeted(.selectTab, target: tab.id, targetType: .tab),
-                    command: .selectTab
-                ))
-
-            // Panes within this tab
-            for (paneIndex, paneId) in tab.activePaneIds.enumerated() {
-                guard let pane = workspacePane.pane(paneId) else { continue }
-                let isActive = tab.activePaneId == paneId
-
-                let capturedPaneId = pane.id
-                let targetType = targetTypeForPane(pane)
-                var paneKeywords = keywordsForPane(pane, store: store, repoCache: repoCache)
-                paneKeywords.append(tabTitle)
-                items.append(
-                    CommandBarItem(
-                        id: "pane-\(pane.id.uuidString)",
-                        title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
-                        subtitle: paneLocationSubtitle(
-                            tabTitle: nil,
-                            tabIndex: tabIndex,
-                            paneIndex: paneIndex,
-                            isActive: isActive
+                        action: .dispatchTargeted(
+                            focusPaneSpec.command,
+                            target: capturedPaneId,
+                            targetType: targetType
                         ),
-                        secondaryLine: paneNoteSecondaryLine(pane),
-                        icon: iconForPane(pane),
-                        iconColor: nil,
-                        group: tabGroupName,
-                        groupPriority: Priority.paneTabBase + tabIndex,
-                        keywords: stableUniqueKeywords(paneKeywords),
-                        action: .dispatchTargeted(.focusPane, target: capturedPaneId, targetType: targetType),
-                        command: .focusPane
+                        command: focusPaneSpec.command
                     ))
             }
         }
@@ -782,11 +737,11 @@ enum CommandBarDataSource {
 
     // MARK: - Helpers
 
-    private static func targetTypeForPane(_ pane: Pane) -> SearchItemType {
+    static func targetTypeForPane(_ pane: Pane) -> SearchItemType {
         pane.worktreeId == nil ? .floatingTerminal : .pane
     }
 
-    private static func iconForPane(_ pane: Pane) -> CommandIcon {
+    static func iconForPane(_ pane: Pane) -> CommandIcon {
         switch pane.content {
         case .webview: return .system(.globe)
         case .bridgePanel: return .system(.rectangleSplit2x1)
@@ -833,7 +788,7 @@ enum CommandBarDataSource {
         return keywords
     }
 
-    private static func paneDisplayLabel(
+    static func paneDisplayLabel(
         for pane: Pane,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
@@ -878,7 +833,7 @@ enum CommandBarDataSource {
 }
 
 extension CommandBarDataSource {
-    fileprivate static func tabDisplayTitle(
+    static func tabDisplayTitle(
         tab: AgentStudioCore.Tab,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom

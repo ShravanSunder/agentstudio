@@ -16,7 +16,8 @@ enum RepoExplorerCommandPresentation {
         _ commands: [AppCommand],
         surface: AppCommandSurface,
         commandContext: CommandContext,
-        dispatcher: any AppCommandDispatching
+        dispatcher: any AppCommandDispatching,
+        capabilityOverrides: [AppCommand: Bool] = [:]
     ) -> [RepoExplorerPresentedCommand] {
         commands.compactMap { command in
             let commandSpec = command.definition
@@ -33,7 +34,7 @@ enum RepoExplorerCommandPresentation {
 
             return RepoExplorerPresentedCommand(
                 commandSpec: commandSpec,
-                isEnabled: dispatcher.canDispatch(command)
+                isEnabled: capabilityOverrides[command] ?? dispatcher.canDispatch(command)
             )
         }
     }
@@ -177,13 +178,15 @@ struct RepoExplorerToolbarCommandPresentation {
     @MainActor
     static func resolve(
         commandContext: CommandContext,
-        dispatcher: any AppCommandDispatching
+        dispatcher: any AppCommandDispatching,
+        capabilityOverrides: [AppCommand: Bool] = [:]
     ) -> Self {
         let presentedCommands = RepoExplorerCommandPresentation.contextualCommands(
             toolbarCommands,
             surface: .inlineControl,
             commandContext: commandContext,
-            dispatcher: dispatcher
+            dispatcher: dispatcher,
+            capabilityOverrides: capabilityOverrides
         )
         return Self(
             commandsByIdentity: Dictionary(

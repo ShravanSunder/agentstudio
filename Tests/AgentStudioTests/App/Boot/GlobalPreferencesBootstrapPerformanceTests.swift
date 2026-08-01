@@ -5,11 +5,11 @@ import Testing
 @testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
-struct GlobalPreferencesBootstrapBenchmarkTests {
+struct GlobalPreferencesBootstrapPerformanceTests {
     private static let sampleCount = 1000
     private static let p95BudgetMilliseconds = 2.0
-    private static let slowSampleThresholdMilliseconds = 20.0
-    private static let allowedSlowSampleCount = 6
+    private static let slowSampleThresholdMilliseconds = 10.0
+    private static let allowedSlowSampleCount = 10
 
     @Test("global preferences loader stays within startup budget")
     func globalPreferencesLoaderStaysWithinStartupBudget() throws {

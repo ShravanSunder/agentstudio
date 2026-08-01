@@ -98,6 +98,47 @@ struct RepoExplorerCommandPresentationTests {
             ])
     }
 
+    @Test("typed request capability overrides parameterless command capability")
+    func typedRequestCapabilityOverridesParameterlessCommandCapability() throws {
+        let dispatcher = RecordingRepoExplorerCommandDispatcher()
+
+        let commands = RepoExplorerCommandPresentation.contextualCommands(
+            [.setRepoSidebarVisibilityMode],
+            surface: .inlineControl,
+            commandContext: .empty,
+            dispatcher: dispatcher,
+            capabilityOverrides: [.setRepoSidebarVisibilityMode: true]
+        )
+
+        let command = try #require(commands.first)
+        #expect(command.isEnabled)
+        #expect(dispatcher.contextualCapabilityQueries.isEmpty)
+    }
+
+    @Test("toolbar capability evaluates the exact next argument values")
+    func toolbarCapabilityEvaluatesExactNextArgumentValues() {
+        var observedVisibilityModes: [RepoExplorerVisibilityMode] = []
+        var observedSortOrders: [RepoExplorerSortOrder] = []
+
+        let capabilities = RepoExplorerView.argumentCommandCapabilities(
+            nextVisibilityMode: .favoritesOnly,
+            nextSortOrder: .descending,
+            canSetVisibilityMode: { mode in
+                observedVisibilityModes.append(mode)
+                return mode == .favoritesOnly
+            },
+            canSetSortOrder: { order in
+                observedSortOrders.append(order)
+                return order == .descending
+            }
+        )
+
+        #expect(observedVisibilityModes == [.favoritesOnly])
+        #expect(observedSortOrders == [.descending])
+        #expect(capabilities[.setRepoSidebarVisibilityMode] == true)
+        #expect(capabilities[.setRepoSidebarSortOrder] == true)
+    }
+
     @Test("presentation-denied commands are omitted before capability is queried")
     func presentationDeniedCommandsAreOmittedBeforeCapabilityQuery() {
         let dispatcher = RecordingRepoExplorerCommandDispatcher()
@@ -147,6 +188,7 @@ private struct TargetedCapabilityQuery: Equatable, Hashable {
 private final class RecordingRepoExplorerCommandDispatcher: AppCommandDispatching {
     var enabledContextualCommands: Set<AppCommand> = []
     var enabledTargetedCommands: Set<TargetedCapabilityQuery> = []
+    private(set) var contextualCapabilityQueries: [AppCommand] = []
     private(set) var targetedCapabilityQueries: [TargetedCapabilityQuery] = []
 
     func dispatch(_: AppCommand) {}
@@ -154,7 +196,8 @@ private final class RecordingRepoExplorerCommandDispatcher: AppCommandDispatchin
     func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
 
     func canDispatch(_ command: AppCommand) -> Bool {
-        enabledContextualCommands.contains(command)
+        contextualCapabilityQueries.append(command)
+        return enabledContextualCommands.contains(command)
     }
 
     func canDispatch(

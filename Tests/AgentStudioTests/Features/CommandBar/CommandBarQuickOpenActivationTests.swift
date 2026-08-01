@@ -16,6 +16,9 @@ struct CommandBarQuickOpenActivationTests {
     private func makeController(
         store: WorkspaceStore = WorkspaceStore(),
         dispatcher: any AppCommandDispatching,
+        targetedSpecResolver:
+            @escaping @Sendable (AppCommand, SearchItemType) -> AppCommandSpec? =
+            CommandBarCommandPresentation.catalogTargetedSpecResolver,
         quickOpenDirectoryHandler:
             @escaping @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void = { _, _ in }
     ) -> CommandBarPanelController {
@@ -28,9 +31,42 @@ struct CommandBarQuickOpenActivationTests {
             ),
             repoCache: RepoCacheAtom(),
             dispatcher: dispatcher,
+            targetedSpecResolver: targetedSpecResolver,
             quickOpenDirectoryHandler: quickOpenDirectoryHandler,
             commandBarSurface: CommandBarSurfaceAtom()
         )
+    }
+
+    @Test("Quick Open keeps the row visible when the catalog rejects worktree targeting")
+    func quickOpenRequiresCatalogWorktreeAdmission() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let repository = store.addRepo(at: URL(filePath: "/tmp/command-bar-quick-open-catalog"))
+            let worktree = try #require(repository.worktrees.first)
+            let pane = store.createPane(title: "Current")
+            let tab = Tab(paneId: pane.id, name: "Current")
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(pane.id, inTab: tab.id)
+            let dispatcher = FakeAppCommandDispatcher()
+            let controller = makeController(
+                store: store,
+                dispatcher: dispatcher,
+                targetedSpecResolver: commandBarSurfaceRejectedTargetedSpecResolver
+            )
+            controller.state.show(defaultScope: .quickOpen)
+
+            controller.executeItem(
+                makeItem(
+                    id: "quick-open-catalog-rejected",
+                    action: .quickOpen(.worktree(worktreeStableKey: worktree.stableKey))
+                )
+            )
+
+            #expect(dispatcher.targetedDispatches.isEmpty)
+            #expect(controller.state.currentLevel?.id == "level-wt-\(worktree.id.uuidString)")
+            #expect(controller.state.isVisible)
+        }
     }
 
     private func makeItem(

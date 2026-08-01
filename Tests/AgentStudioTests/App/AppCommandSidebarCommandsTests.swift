@@ -9,6 +9,20 @@ import Testing
 @MainActor
 @Suite("AppCommand sidebar commands")
 struct AppCommandSidebarCommandsTests {
+    @Test("no-argument request capability does not require atom state")
+    func noArgumentRequestCapabilityDoesNotRequireAtomState() {
+        let delegate = AppDelegate()
+
+        #expect(
+            delegate.canExecute(
+                AppCommandExecutionRequest(
+                    command: .toggleSidebar,
+                    arguments: .noArguments
+                )
+            )
+        )
+    }
+
     @Test("dispatcher registers sidebar grouping commands")
     func dispatcherRegistersSidebarGroupingCommands() {
         let expected: [(AppCommand, String, CommandIcon)] = [

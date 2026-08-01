@@ -412,7 +412,7 @@ AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --b
 """
 
 [tasks.test-benchmark]
-description = "Run benchmark-only Swift tests"
+description = "Run benchmark-only bridge push tests"
 depends = ["build"]
 run = """
 #!/usr/bin/env bash
@@ -424,7 +424,6 @@ export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 xcb_pipe=$(_xcb_pipe_cmd)
 swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | $xcb_pipe
 swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2>&1 | $xcb_pipe
-swift test --build-path "$BUILD_PATH" --filter "GlobalPreferencesBootstrapBenchmarkTests" 2>&1 | $xcb_pipe
 """
 
 [tasks.clean-artifacts]

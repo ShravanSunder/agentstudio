@@ -79,6 +79,7 @@ struct CommandBarWorktreeRowBuilderTests {
         #expect(level.items.contains { $0.id == "wt-add-pane-\(worktree.id.uuidString)" })
         #expect(level.items[0].id == "wt-add-pane-\(worktree.id.uuidString)")
         #expect(level.items[1].id == "wt-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[1].icon == .system(.plusRectangle))
         #expect(level.items[2].id == "wt-\(worktree.id.uuidString)-copy-path")
         #expect(level.items[3].id == "wt-\(worktree.id.uuidString)-reveal-finder")
         #expect(level.items[4].id == "wt-review-\(worktree.id.uuidString)")
@@ -96,6 +97,7 @@ struct CommandBarWorktreeRowBuilderTests {
 
         #expect(level.items.count == 7)
         #expect(level.items[0].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items[0].icon == .system(.plusRectangle))
         #expect(level.items[1].id == "wt-\(presence.worktreeId.uuidString)-copy-path")
         #expect(level.items[2].id == "wt-\(presence.worktreeId.uuidString)-reveal-finder")
         #expect(level.items[3].id == "wt-review-\(presence.worktreeId.uuidString)")

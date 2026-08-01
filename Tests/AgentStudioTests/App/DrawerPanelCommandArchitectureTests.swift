@@ -29,7 +29,12 @@ struct DrawerPanelCommandArchitectureTests {
         #expect(source.contains("let addDrawerPaneAction = commandActionResolver("))
         #expect(source.contains("Button(action: addDrawerPaneAction.perform)"))
         #expect(source.contains(".disabled(!addDrawerPaneAction.isEnabled)"))
-        #expect(source.contains(".help(addDrawerPaneAction.commandSpec.helpText)"))
+        #expect(
+            source.contains(
+                ".controlHelp(addDrawerPaneAction.commandSpec.controlTooltipRenderValue())"
+            )
+        )
+        #expect(!source.contains(".help(addDrawerPaneAction.commandSpec.helpText)"))
         #expect(!source.contains("action(.addDrawerPane(parentPaneId: parentPaneId))"))
     }
 }

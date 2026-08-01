@@ -55,6 +55,7 @@ final class MockAppCommandRouter: ShellCommandHandling {
     var handledRequests: [AppCommandExecutionRequest] = []
     var appCommands: Set<AppCommand> = []
     var requestCommands: Set<AppCommand>?
+    var requestCapabilityCommands: Set<AppCommand> = []
     var parameterlessCanExecuteResult: Bool?
 
     func canExecute(_ command: AppCommand) -> Bool {
@@ -65,6 +66,10 @@ final class MockAppCommandRouter: ShellCommandHandling {
         _ = target
         _ = targetType
         return canExecute(command)
+    }
+
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
+        requestCapabilityCommands.contains(request.command)
     }
 
     func execute(_ command: AppCommand) -> Bool {
@@ -605,6 +610,7 @@ final class AppCommandTests {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
         appRouter.requestCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCapabilityCommands = [.setRepoSidebarVisibilityMode]
         appRouter.parameterlessCanExecuteResult = false
         let request = AppCommandExecutionRequest(
             command: .setRepoSidebarVisibilityMode,

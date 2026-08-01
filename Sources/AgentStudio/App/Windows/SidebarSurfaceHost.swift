@@ -86,6 +86,22 @@ struct SidebarSurfaceHost: View {
                 repoExplorerPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
+                canSetVisibilityMode: { mode in
+                    AppCommandDispatcher.shared.canDispatch(
+                        AppCommandExecutionRequest(
+                            command: .setRepoSidebarVisibilityMode,
+                            arguments: .repoSidebarVisibilityMode(mode)
+                        )
+                    )
+                },
+                canSetSortOrder: { order in
+                    AppCommandDispatcher.shared.canDispatch(
+                        AppCommandExecutionRequest(
+                            command: .setRepoSidebarSortOrder,
+                            arguments: .repoSidebarSortOrder(order)
+                        )
+                    )
+                },
                 onSetVisibilityMode: { mode in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(
@@ -137,6 +153,22 @@ struct SidebarSurfaceHost: View {
                 workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
                 repoCache: repoCache,
                 dispatcher: AppCommandDispatcher.shared,
+                canSetRowStateFilter: { filter in
+                    AppCommandDispatcher.shared.canDispatch(
+                        AppCommandExecutionRequest(
+                            command: .setInboxRowStateFilter,
+                            arguments: .inboxRowStateFilter(filter)
+                        )
+                    )
+                },
+                canSetContentMode: { mode in
+                    AppCommandDispatcher.shared.canDispatch(
+                        AppCommandExecutionRequest(
+                            command: .setInboxContentMode,
+                            arguments: .inboxContentMode(mode)
+                        )
+                    )
+                },
                 onSetRowStateFilter: { filter in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(

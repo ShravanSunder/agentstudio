@@ -13,28 +13,17 @@ import Testing
 @MainActor
 @Suite("PaneInboxNotificationPopover", .serialized)
 struct PaneInboxNotificationPopoverTests {
-    @Test("pane clear presentation requires contextual pane targeting")
-    func paneClearPresentationRequiresContextualPaneTargeting() {
+    @Test("pane clear presentation targets its physical pane independently of global context")
+    func paneClearPresentationTargetsItsPhysicalPaneIndependentlyOfGlobalContext() {
         let paneId = UUID()
         let dispatcher = PaneInboxCommandDispatcherProbe()
-        let paneContext = CommandContext(
-            focusedPaneId: paneId,
-            satisfiedRequirements: [.hasActivePane]
-        )
 
-        let permitted = PaneInboxClearCommandPresentation.resolve(
-            commandContext: paneContext,
-            targetPaneId: paneId,
-            dispatcher: dispatcher
-        )
-        let missingContext = PaneInboxClearCommandPresentation.resolve(
-            commandContext: .empty,
+        let presentation = PaneInboxClearCommandPresentation.resolve(
             targetPaneId: paneId,
             dispatcher: dispatcher
         )
 
-        #expect(permitted?.spec.command == .clearPaneInboxNotifications)
-        #expect(missingContext == nil)
+        #expect(presentation?.spec.command == .clearPaneInboxNotifications)
         #expect(
             dispatcher.capabilityQueries == [
                 PaneInboxCommandQuery(
@@ -49,10 +38,6 @@ struct PaneInboxNotificationPopoverTests {
     func paneClearPresentationStaysPresentButDisabledAndRechecksCapability() throws {
         let paneId = UUID()
         let dispatcher = PaneInboxCommandDispatcherProbe(targetedCapability: false)
-        let paneContext = CommandContext(
-            focusedPaneId: paneId,
-            satisfiedRequirements: [.hasActivePane]
-        )
         let expectedQuery = PaneInboxCommandQuery(
             command: .clearPaneInboxNotifications,
             target: paneId,
@@ -61,7 +46,6 @@ struct PaneInboxNotificationPopoverTests {
 
         let presentation = try #require(
             PaneInboxClearCommandPresentation.resolve(
-                commandContext: paneContext,
                 targetPaneId: paneId,
                 dispatcher: dispatcher
             )

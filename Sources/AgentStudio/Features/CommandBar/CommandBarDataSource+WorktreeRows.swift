@@ -387,16 +387,28 @@ extension CommandBarDataSource {
         )
 
         items.append(
-            contentsOf: presence.openPanes.map { location in
-                CommandBarItem(
+            contentsOf: presence.openPanes.compactMap { location in
+                guard
+                    let focusPaneSpec = CommandBarCommandPresentation.targetedSpec(
+                        for: .focusPane,
+                        targetType: .pane
+                    )
+                else {
+                    return nil
+                }
+                return CommandBarItem(
                     id: "wt-pane-\(location.paneId.uuidString)",
                     title: "Terminal — \(presence.worktreeName)",
                     subtitle: locationSubtitle(for: location),
                     icon: .system(.terminal),
                     group: "Navigate to",
                     groupPriority: 3,
-                    action: .dispatchTargeted(.focusPane, target: location.paneId, targetType: .pane),
-                    command: .focusPane
+                    action: .dispatchTargeted(
+                        focusPaneSpec.command,
+                        target: location.paneId,
+                        targetType: .pane
+                    ),
+                    command: focusPaneSpec.command
                 )
             }
         )
@@ -419,7 +431,12 @@ extension CommandBarDataSource {
         canOpenInCurrentTab: Bool
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
-        if canOpenInCurrentTab {
+        if canOpenInCurrentTab,
+            let openInPaneSpec = CommandBarCommandPresentation.commandBarTargetedSpec(
+                for: .openWorktreeInPane,
+                targetType: .worktree
+            )
+        {
             let currentTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.option])
             items.append(
                 CommandBarItem(
@@ -429,25 +446,37 @@ extension CommandBarDataSource {
                     shortcutTrigger: currentTabShortcut,
                     group: "Terminal",
                     groupPriority: 0,
-                    action: .dispatchTargeted(.openWorktreeInPane, target: worktreeId, targetType: .worktree),
-                    command: .openWorktreeInPane
+                    action: .dispatchTargeted(
+                        openInPaneSpec.command,
+                        target: worktreeId,
+                        targetType: .worktree
+                    ),
+                    command: openInPaneSpec.command
                 )
             )
         }
 
         let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
-        items.append(
-            CommandBarItem(
-                id: "wt-new-tab-\(worktreeId.uuidString)",
-                title: AppCommand.openNewTerminalInTab.definition.label,
-                icon: .system(.plusRectangle),
-                shortcutTrigger: newTabShortcut,
-                group: "Terminal",
-                groupPriority: 0,
-                action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
-                command: .openNewTerminalInTab
-            )
-        )
+        if let openInNewTabSpec = CommandBarCommandPresentation.commandBarTargetedSpec(
+            for: .openNewTerminalInTab,
+            targetType: .worktree
+        ) {
+            items.append(
+                CommandBarItem(
+                    id: "wt-new-tab-\(worktreeId.uuidString)",
+                    title: openInNewTabSpec.label,
+                    icon: .system(.plusRectangle),
+                    shortcutTrigger: newTabShortcut,
+                    group: "Terminal",
+                    groupPriority: 0,
+                    action: .dispatchTargeted(
+                        openInNewTabSpec.command,
+                        target: worktreeId,
+                        targetType: .worktree
+                    ),
+                    command: openInNewTabSpec.command
+                ))
+        }
         return items
     }
 
@@ -476,56 +505,51 @@ extension CommandBarDataSource {
         resolution: BridgePaneCommandResolution,
         groupPriority: Int
     ) -> [CommandBarItem] {
-        [
-            CommandBarItem(
-                id: "wt-review-\(worktreeId.uuidString)",
-                title: resolution.contextualLabel(for: .showBridgeReview),
-                icon: AppCommand.showBridgeReview.definition.icon,
-                group: "Panes",
-                groupPriority: groupPriority,
-                keywords: ["review", "bridge", "diff"],
-                action: .dispatchTargeted(.showBridgeReview, target: worktreeId, targetType: .worktree),
-                command: .showBridgeReview
+        let candidates: [(command: AppCommand, id: String, keywords: [String])] = [
+            (.showBridgeReview, "wt-review-\(worktreeId.uuidString)", ["review", "bridge", "diff"]),
+            (.showBridgeFiles, "wt-files-\(worktreeId.uuidString)", ["files", "bridge", "worktree"]),
+            (
+                .openBridgeReviewInNewTab,
+                "wt-review-new-tab-\(worktreeId.uuidString)",
+                ["review", "bridge", "diff", "new", "tab"]
             ),
-            CommandBarItem(
-                id: "wt-files-\(worktreeId.uuidString)",
-                title: resolution.contextualLabel(for: .showBridgeFiles),
-                icon: AppCommand.showBridgeFiles.definition.icon,
-                group: "Panes",
-                groupPriority: groupPriority,
-                keywords: ["files", "bridge", "worktree"],
-                action: .dispatchTargeted(.showBridgeFiles, target: worktreeId, targetType: .worktree),
-                command: .showBridgeFiles
-            ),
-            CommandBarItem(
-                id: "wt-review-new-tab-\(worktreeId.uuidString)",
-                title: AppCommand.openBridgeReviewInNewTab.definition.label,
-                icon: AppCommand.openBridgeReviewInNewTab.definition.icon,
-                group: "Panes",
-                groupPriority: groupPriority,
-                keywords: ["review", "bridge", "diff", "new", "tab"],
-                action: .dispatchTargeted(
-                    .openBridgeReviewInNewTab,
-                    target: worktreeId,
-                    targetType: .worktree
-                ),
-                command: .openBridgeReviewInNewTab
-            ),
-            CommandBarItem(
-                id: "wt-files-new-tab-\(worktreeId.uuidString)",
-                title: AppCommand.openBridgeFilesInNewTab.definition.label,
-                icon: AppCommand.openBridgeFilesInNewTab.definition.icon,
-                group: "Panes",
-                groupPriority: groupPriority,
-                keywords: ["files", "bridge", "worktree", "new", "tab"],
-                action: .dispatchTargeted(
-                    .openBridgeFilesInNewTab,
-                    target: worktreeId,
-                    targetType: .worktree
-                ),
-                command: .openBridgeFilesInNewTab
+            (
+                .openBridgeFilesInNewTab,
+                "wt-files-new-tab-\(worktreeId.uuidString)",
+                ["files", "bridge", "worktree", "new", "tab"]
             ),
         ]
+        return candidates.compactMap { candidate in
+            guard
+                let commandSpec = CommandBarCommandPresentation.commandBarTargetedSpec(
+                    for: candidate.command,
+                    targetType: .worktree
+                )
+            else {
+                return nil
+            }
+            let title: String
+            switch candidate.command {
+            case .showBridgeReview, .showBridgeFiles:
+                title = resolution.contextualLabel(for: candidate.command)
+            default:
+                title = commandSpec.label
+            }
+            return CommandBarItem(
+                id: candidate.id,
+                title: title,
+                icon: commandSpec.icon,
+                group: "Panes",
+                groupPriority: groupPriority,
+                keywords: candidate.keywords,
+                action: .dispatchTargeted(
+                    commandSpec.command,
+                    target: worktreeId,
+                    targetType: .worktree
+                ),
+                command: commandSpec.command
+            )
+        }
     }
 
     static func copyPathItem(

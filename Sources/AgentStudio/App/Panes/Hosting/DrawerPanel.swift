@@ -287,7 +287,7 @@ struct DrawerPanel: View {
             }
             .buttonStyle(.plain)
             .disabled(!addDrawerPaneAction.isEnabled)
-            .help(addDrawerPaneAction.commandSpec.helpText)
+            .controlHelp(addDrawerPaneAction.commandSpec.controlTooltipRenderValue())
             .accessibilityLabel(addDrawerPaneAction.commandSpec.label)
         }
     }

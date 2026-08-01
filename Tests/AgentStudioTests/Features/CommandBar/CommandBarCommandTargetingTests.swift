@@ -15,6 +15,50 @@ struct CommandBarCommandTargetingTests {
 
     private let dispatcher = FakeAppCommandDispatcher()
 
+    @Test("special-scope targeted rows follow declared target kinds")
+    func specialScopeTargetedRowsFollowDeclaredTargetKinds() {
+        #expect(
+            CommandBarCommandPresentation.targetedSpec(
+                for: .focusPane,
+                targetType: .pane
+            )?.command == .focusPane
+        )
+        #expect(
+            CommandBarCommandPresentation.targetedSpec(
+                for: .removeRepo,
+                targetType: .worktree
+            ) == nil
+        )
+    }
+
+    @Test("special-scope contextual rows follow command-bar presentation")
+    func specialScopeContextualRowsFollowCommandBarPresentation() {
+        #expect(
+            CommandBarCommandPresentation.contextualSpec(
+                for: .clearReadInboxNotifications,
+                commandContext: .empty
+            )?.command == .clearReadInboxNotifications
+        )
+        #expect(
+            CommandBarCommandPresentation.contextualSpec(
+                for: .setInboxRowStateFilter,
+                commandContext: .empty
+            ) == nil
+        )
+        #expect(
+            CommandBarCommandPresentation.contextualSpec(
+                for: .openWorktree,
+                commandContext: .empty
+            ) == nil
+        )
+        #expect(
+            CommandBarCommandPresentation.contextualSpec(
+                for: .closeTab,
+                commandContext: .empty
+            ) == nil
+        )
+    }
+
     @Test("contextual-and-targeted target-selection command drills into declared targets")
     func contextualAndTargetedTargetSelectionCommandDrillsIntoDeclaredTargets() throws {
         let store = WorkspaceStore()

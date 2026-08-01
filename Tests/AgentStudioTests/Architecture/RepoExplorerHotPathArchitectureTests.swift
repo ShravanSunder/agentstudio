@@ -174,8 +174,14 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!featureSource.contains("repoExplorerPrefs.setRepoVisibilityMode"))
         #expect(!featureSource.contains("repoExplorerPrefs.toggleSortOrder"))
         #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
-        #expect(featureSource.contains("onSetVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)"))
-        #expect(featureSource.contains("onSetSortOrder(repoExplorerPrefs.sortOrder.toggled)"))
+        #expect(
+            featureSource.contains(
+                "let nextVisibilityMode: RepoExplorerVisibilityMode = isFavoritesOnly ? .all : .favoritesOnly"
+            )
+        )
+        #expect(featureSource.contains("let nextSortOrder = repoExplorerPrefs.sortOrder.toggled"))
+        #expect(featureSource.contains("onSetVisibilityMode(nextVisibilityMode)"))
+        #expect(featureSource.contains("onSetSortOrder(nextSortOrder)"))
         #expect(featureSource.contains("let command = groupingCommand(for: candidate)"))
         #expect(featureSource.contains("commandPresentation.command(command)?.isEnabled == true"))
         #expect(featureSource.contains("commandDispatcher.dispatch(command)"))

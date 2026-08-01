@@ -99,9 +99,14 @@ struct InboxSidebarCommandPresentation {
 struct InboxSidebarCommandCapability {
     private let dispatchableCommands: Set<AppCommand>
 
-    init(dispatcher: any AppCommandDispatching) {
+    init(
+        dispatcher: any AppCommandDispatching,
+        capabilityOverrides: [AppCommand: Bool] = [:]
+    ) {
         dispatchableCommands = Set(
-            Self.commands.filter { dispatcher.canDispatch($0) }
+            Self.commands.filter { command in
+                capabilityOverrides[command] ?? dispatcher.canDispatch(command)
+            }
         )
     }
 
@@ -130,14 +135,13 @@ struct PaneInboxClearCommandPresentation {
     private let dispatcher: any AppCommandDispatching
 
     static func resolve(
-        commandContext: CommandContext,
         targetPaneId: UUID,
         dispatcher: any AppCommandDispatching
     ) -> Self? {
         let spec = AppCommand.clearPaneInboxNotifications.definition
         let query = AppCommandPresentationQuery(
             surface: .inlineControl,
-            subject: .contextualTarget(commandContext, .pane)
+            subject: .targeted(.pane)
         )
         guard spec.shouldPresent(query) else { return nil }
         return Self(
