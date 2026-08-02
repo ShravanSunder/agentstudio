@@ -448,11 +448,15 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         // reader can reach the trace callback while this test awaits it.
         // swiftlint:disable:next no_task_detached
         await Task.detached { [readerPaused] in
-            readerPaused.wait(timeout: .now() + 5) == .success
+            waitForSemaphore(readerPaused)
         }.value
     }
 
     func resumeReader() {
         readerResume.signal()
     }
+}
+
+private func waitForSemaphore(_ semaphore: DispatchSemaphore) -> Bool {
+    semaphore.wait(timeout: .now() + 5) == .success
 }
