@@ -23,9 +23,14 @@ struct MinimizedPaneDividerResizeTests {
         )
 
         let divider = try #require(metrics.dividerSegments.only)
+        let updatedLayout = drag(divider: divider, in: layout, translation: 40)
+
         #expect(divider.dividerId == layout.dividerIds[0])
         #expect(divider.resizeIntent == .visiblePanePair(leftPaneId: paneIds[0], rightPaneId: paneIds[2]))
         #expect(width(for: paneIds[1], in: metrics) == 0)
+        #expect(ratio(for: paneIds[0], in: updatedLayout) > ratio(for: paneIds[0], in: layout))
+        #expect(ratio(for: paneIds[2], in: updatedLayout) < ratio(for: paneIds[2], in: layout))
+        #expect(ratio(for: paneIds[1], in: updatedLayout).isApproximately(ratio(for: paneIds[1], in: layout)))
     }
 
     @Test
