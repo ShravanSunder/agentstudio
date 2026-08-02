@@ -633,7 +633,7 @@ struct CommandBarPanelControllerTests {
             #expect(dispatcher.dispatchedCommands.isEmpty)
             #expect(dispatcher.targetedDispatches.first?.command == .focusPane)
             #expect(dispatcher.targetedDispatches.first?.target == pane.id)
-            #expect(dispatcher.targetedDispatches.first?.targetType == .pane)
+            #expect(dispatcher.targetedDispatches.first?.targetType == .floatingTerminal)
             #expect(!controller.state.isVisible)
         }
     }
@@ -681,7 +681,7 @@ struct CommandBarPanelControllerTests {
             #expect(dispatcher.targetedDispatches.count == 1)
             #expect(dispatcher.targetedDispatches[0].command == .focusPane)
             #expect(dispatcher.targetedDispatches[0].target == secondPane.id)
-            #expect(dispatcher.targetedDispatches[0].targetType == .pane)
+            #expect(dispatcher.targetedDispatches[0].targetType == .floatingTerminal)
             #expect(!controller.state.isVisible)
 
             controller.state.show(prefix: "$")

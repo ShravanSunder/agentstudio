@@ -53,6 +53,7 @@ struct ZoomPresentationContainer: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let workspaceWindowId: UUID?
     let actionDispatcher: PaneActionDispatching
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let onOpenPaneGitHub: (UUID) -> Void
@@ -88,6 +89,7 @@ struct ZoomPresentationContainer: View {
         paneInboxPresentation: PaneInboxPresentation? = nil,
         workspaceWindowId: UUID? = nil,
         actionDispatcher: PaneActionDispatching,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onFocusPane: @escaping (UUID) -> Void = { _ in },
         onOpenPaneGitHub: @escaping (UUID) -> Void = { _ in },
@@ -112,6 +114,7 @@ struct ZoomPresentationContainer: View {
         self.paneInboxPresentation = paneInboxPresentation
         self.workspaceWindowId = workspaceWindowId
         self.actionDispatcher = actionDispatcher
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onFocusPane = onFocusPane
         self.onOpenPaneGitHub = onOpenPaneGitHub
@@ -214,17 +217,20 @@ struct ZoomPresentationContainer: View {
     @ViewBuilder
     private var parentToolbar: some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
-            let zoomAction = sequencedZoomExitAction(
-                toolbarModel.zoomAction.projectingVisibleLabel(
-                    showsZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
+            let zoomAction = toolbarModel.zoomAction.map { zoomAction in
+                sequencedZoomExitAction(
+                    zoomAction.projectingVisibleLabel(
+                        showsZoomToolbarLabel ? zoomAction.state.visibleLabel : nil
+                    )
                 )
-            )
+            }
             PaneSurfaceToolbarHost(
                 anchorPaneId: sourcePaneId,
                 locationTargetPaneId: sourcePaneId,
+                toolbarSurface: .terminalZoom,
                 drawer: store.paneAtom.pane(sourcePaneId)?.drawer,
                 leadingToolbarActions: [],
-                contextToolbarActions: [zoomAction, toolbarModel.viewerAction],
+                contextToolbarActions: [zoomAction, toolbarModel.viewerAction].compactMap(\.self),
                 store: store,
                 octiconLoader: octiconLoader,
                 editorChooser: editorChooser,
@@ -294,12 +300,14 @@ struct ZoomPresentationContainer: View {
 
                 VStack {
                     HStack(spacing: AppStyles.General.Spacing.standard) {
-                        managementCircleButton(
-                            action: sequencedZoomExitAction(toolbarModel.zoomAction),
-                            isHovered: zoomHovered,
-                            accessibilityIdentifier: "paneManagement.zoom"
-                        )
-                        .onHover { zoomHovered = $0 }
+                        if let zoomAction = toolbarModel.zoomAction {
+                            managementCircleButton(
+                                action: sequencedZoomExitAction(zoomAction),
+                                isHovered: zoomHovered,
+                                accessibilityIdentifier: "paneManagement.zoom"
+                            )
+                            .onHover { zoomHovered = $0 }
+                        }
 
                         if let showArrangementsAction = toolbarModel.showArrangementsAction {
                             managementCircleButton(
@@ -382,6 +390,7 @@ struct ZoomPresentationContainer: View {
                 tabSize: tabSize,
                 iconBarFrame: iconBarFrame,
                 actionDispatcher: actionDispatcher,
+                arrangementInlineRenameState: arrangementInlineRenameState,
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onFocusPane: onFocusPane,
                 paneInboxPresentation: paneInboxPresentation,

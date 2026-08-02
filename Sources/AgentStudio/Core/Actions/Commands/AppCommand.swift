@@ -135,7 +135,7 @@ extension AppCommand {
 // MARK: - SearchItemType
 
 /// Types of items that can be searched and targeted by commands.
-package enum SearchItemType: String, CaseIterable {
+package enum SearchItemType: String, CaseIterable, Hashable, Sendable {
     case repo
     case worktree
     case tab
@@ -173,12 +173,12 @@ package struct AppCommandSpec {
     package let label: String
     package let icon: CommandIcon
     package let helpText: String
-    package let appliesTo: Set<SearchItemType>
+    package let surfacePolicy: AppCommandSurfacePolicy
+    package let targeting: AppCommandTargeting
     package let requiresManagementLayer: Bool
-    package let visibleWhen: Set<FocusRequirement>
+    package let visibleWhen: Set<CommandRequirement>
     package let commandBarGroupName: String
     package let commandBarGroupPriority: Int
-    package let isHiddenInCommandBar: Bool
 
     package init(
         command: AppCommand,
@@ -187,12 +187,12 @@ package struct AppCommandSpec {
         label: String,
         icon: CommandIcon,
         helpText: String,
-        appliesTo: Set<SearchItemType> = [],
+        surfacePolicy: AppCommandSurfacePolicy,
+        targeting: AppCommandTargeting,
         requiresManagementLayer: Bool = false,
-        visibleWhen: Set<FocusRequirement> = [],
+        visibleWhen: Set<CommandRequirement> = [],
         commandBarGroupName: String = "Commands",
-        commandBarGroupPriority: Int = 8,
-        isHiddenInCommandBar: Bool = false
+        commandBarGroupPriority: Int = 8
     ) {
         self.command = command
         self.shortcut = shortcut
@@ -200,12 +200,12 @@ package struct AppCommandSpec {
         self.label = label
         self.icon = icon
         self.helpText = helpText
-        self.appliesTo = appliesTo
+        self.surfacePolicy = surfacePolicy
+        self.targeting = targeting
         self.requiresManagementLayer = requiresManagementLayer
         self.visibleWhen = visibleWhen
         self.commandBarGroupName = commandBarGroupName
         self.commandBarGroupPriority = commandBarGroupPriority
-        self.isHiddenInCommandBar = isHiddenInCommandBar
     }
 
     package var keyBinding: KeyBinding? { shortcut?.keyBinding }

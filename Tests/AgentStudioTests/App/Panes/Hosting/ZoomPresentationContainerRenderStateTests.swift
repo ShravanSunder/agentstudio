@@ -61,16 +61,23 @@ struct ZoomPresentationContainerRenderStateTests {
             Issue.record("Zoom container must own exactly one Zoom toolbar")
             return
         }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(toolbarModel.viewerAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.isEnabled)
-        #expect(toolbarModel.zoomAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.visibleLabel == "Zoomed")
+        guard
+            let viewerAction = toolbarModel.viewerAction,
+            let zoomAction = toolbarModel.zoomAction
+        else {
+            Issue.record("Admitted Zoom commands must retain both toolbar actions")
+            return
+        }
+        #expect(viewerAction.state.isEnabled)
+        #expect(viewerAction.state.isSelected)
+        #expect(zoomAction.state.isEnabled)
+        #expect(zoomAction.state.isSelected)
+        #expect(zoomAction.state.visibleLabel == "Zoomed")
         #expect(fixture.recorder.viewerSourcePaneIds.isEmpty)
         #expect(fixture.recorder.zoomSourcePaneIds.isEmpty)
 
-        toolbarModel.zoomAction.perform()
-        toolbarModel.viewerAction.perform()
+        zoomAction.perform()
+        viewerAction.perform()
 
         #expect(fixture.recorder.viewerSourcePaneIds == [fixture.sourcePaneId])
         #expect(fixture.recorder.zoomSourcePaneIds == [fixture.sourcePaneId])
@@ -117,10 +124,17 @@ struct ZoomPresentationContainerRenderStateTests {
             Issue.record("Zoom container must retain its parent Zoom toolbar")
             return
         }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(!toolbarModel.viewerAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.isEnabled)
-        #expect(toolbarModel.zoomAction.state.isSelected)
+        guard
+            let viewerAction = toolbarModel.viewerAction,
+            let zoomAction = toolbarModel.zoomAction
+        else {
+            Issue.record("Admitted Zoom commands must retain both toolbar actions")
+            return
+        }
+        #expect(viewerAction.state.isEnabled)
+        #expect(!viewerAction.state.isSelected)
+        #expect(zoomAction.state.isEnabled)
+        #expect(zoomAction.state.isSelected)
     }
 
     @Test("visible unavailable Viewer reserves its companion column without a Bridge host")
@@ -151,8 +165,12 @@ struct ZoomPresentationContainerRenderStateTests {
             Issue.record("Unavailable Viewer must retain the Zoom parent toolbar")
             return
         }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(toolbarModel.viewerAction.state.isSelected)
+        guard let viewerAction = toolbarModel.viewerAction else {
+            Issue.record("Admitted Viewer command must retain its toolbar action")
+            return
+        }
+        #expect(viewerAction.state.isEnabled)
+        #expect(viewerAction.state.isSelected)
     }
 
     private func makeFixture() -> ZoomPresentationContainerFixture {

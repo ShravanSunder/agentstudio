@@ -80,12 +80,11 @@ extension AppDelegate {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        return atom(\.workspacePaneFocus).currentFocus(
+        return atom(\.workspaceFocusedPane).resolve(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner),
-            workspacePanePresentation: store.panePresentationAtom
-        ).activePaneId
+            requestedOwner: atom(\.workspaceFocusOwner).owner
+        )?.paneId
     }
 
     func observeLaunchRestoreReadiness() {

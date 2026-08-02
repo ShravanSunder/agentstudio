@@ -373,34 +373,29 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
             },
-            onClose: { [weak self] tabId in
-                self?.dispatchAction(.closeTab(tabId: tabId))
+            canDispatchCommand: { command, tabId in
+                AppCommandDispatcher.shared.canDispatch(
+                    command,
+                    target: tabId,
+                    targetType: .tab
+                )
             },
             onCommand: { [weak self] command, tabId in
-                self?.handleTabCommand(command, tabId: tabId)
-            },
-            onToggleZoom: { [weak self] tabId, sourcePaneId in
-                self?.handleArrangementPanelZoomToggle(
-                    tabId: tabId,
-                    sourcePaneId: sourcePaneId
+                guard self != nil else { return }
+                AppCommandDispatcher.shared.dispatch(
+                    command,
+                    target: tabId,
+                    targetType: .tab
                 )
+            },
+            onShowArrangements: { [weak self] tabId in
+                self?.showTabContextMenuArrangements(tabId: tabId)
             },
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
             },
-            onAdd: { [weak self] in
-                self?.addNewTab()
-            },
             onPaneAction: { [weak self] action in
                 self?.dispatchAction(action)
-            },
-            onSaveArrangement: { [weak self] tabId in
-                guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
-                let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-                self.dispatchAction(.createArrangement(tabId: tabId, name: name))
-            },
-            onOpenRepoInTab: {
-                AppCommandDispatcher.shared.dispatch(.showCommandBarRepos)
             },
             workspaceWindowId: workspaceWindowId
         )
@@ -1089,6 +1084,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
+            arrangementInlineRenameState: arrangementInlineRenameState,
             onPaneFocusTrigger: { [weak self] trigger in
                 self?.handlePaneFocusTrigger(trigger)
             },
@@ -1100,12 +1096,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
-            },
-            onToggleZoom: { [weak self] sourcePaneId in
-                self?.handleArrangementPanelZoomToggle(
-                    tabId: tabId,
-                    sourcePaneId: sourcePaneId
-                )
             },
             notificationCountForWorktree: { worktreeId in
                 WorkspaceNotificationCountProjection.rollUpAlertCount(
@@ -1128,7 +1118,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return PersistentTabHostView(tabId: tabId, rootView: contentView)
     }
 
-    private func normalPaneSurfaceToolbarPresentation(
+    func normalPaneSurfaceToolbarPresentation(
         for paneId: UUID
     ) -> PaneSurfaceToolbarPresentation {
         guard
@@ -1139,13 +1129,28 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return .hidden
         }
 
+        let terminalModeActions: TerminalModeToolbarActions?
+        if case .terminal = paneState.paneContent {
+            terminalModeActions = TerminalModeToolbarActions(
+                zoomAction: paneSurfaceToolbarAction(
+                    command: .zoomPane,
+                    sourcePaneId: paneId,
+                    surface: .pane
+                ),
+                viewerAction: paneSurfaceToolbarAction(
+                    command: .showViewer,
+                    sourcePaneId: paneId,
+                    surface: .pane
+                )
+            )
+        } else {
+            terminalModeActions = nil
+        }
+
         return PaneSurfaceToolbarResolver.resolve(
             content: paneState.paneContent,
             placement: .normalMainPane,
-            terminalModeActions: TerminalModeToolbarActions(
-                zoomAction: paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId),
-                viewerAction: paneSurfaceToolbarAction(command: .showViewer, sourcePaneId: paneId)
-            ),
+            terminalModeActions: terminalModeActions,
             showArrangementsAction: paneShowArrangementsAction(
                 sourcePaneId: paneId,
                 sourceTabId: tabId
@@ -1153,18 +1158,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func zoomPaneSurfaceToolbarPresentation(
+    func zoomPaneSurfaceToolbarPresentation(
         for paneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> PaneSurfaceToolbarPresentation {
         guard let tabId = store.tabLayoutAtom.tabID(containingPane: paneId) else {
             return .hidden
         }
-        let zoomAction = paneSurfaceToolbarAction(command: .zoomPane, sourcePaneId: paneId)
         return PaneSurfaceToolbarResolver.resolveZoom(
             viewerPresentation: viewerPresentation,
-            viewerAction: paneSurfaceToolbarAction(command: .showViewer, sourcePaneId: paneId),
-            zoomAction: zoomAction,
+            viewerAction: paneSurfaceToolbarAction(
+                command: .showViewer,
+                sourcePaneId: paneId,
+                surface: .terminalZoom
+            ),
+            zoomAction: paneSurfaceToolbarAction(
+                command: .zoomPane,
+                sourcePaneId: paneId,
+                surface: .terminalZoom
+            ),
             showArrangementsAction: paneShowArrangementsAction(
                 sourcePaneId: paneId,
                 sourceTabId: tabId
@@ -1174,13 +1186,27 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func paneSurfaceToolbarAction(
         command: AppCommand,
-        sourcePaneId: UUID
-    ) -> PaneSurfaceToolbarAction {
+        sourcePaneId: UUID,
+        surface: AppCommandToolbarSurface
+    ) -> PaneSurfaceToolbarAction? {
         let definition = command.definition
-        let isEnabled =
-            command == .showViewer
-            ? canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId)
-            : canExecute(command, target: sourcePaneId, targetType: .pane)
+        guard
+            definition.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .toolbar(surface),
+                    subject: .targeted(.pane)
+                )
+            )
+        else {
+            return nil
+        }
+
+        let dispatcher = AppCommandDispatcher.shared
+        let isEnabled = dispatcher.canDispatch(
+            command,
+            target: sourcePaneId,
+            targetType: .pane
+        )
         return PaneSurfaceToolbarAction(
             state: PaneSurfaceToolbarAction.State(
                 label: definition.label,
@@ -1190,13 +1216,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 isEnabled: isEnabled,
                 isSelected: false
             ),
-            perform: { [weak self] in
-                guard let self else { return }
-                if command == .showViewer {
-                    _ = executePaneSurfaceViewerCommand(sourcePaneId: sourcePaneId)
-                } else {
-                    execute(command, target: sourcePaneId, targetType: .pane)
-                }
+            perform: {
+                dispatcher.dispatch(
+                    command,
+                    target: sourcePaneId,
+                    targetType: .pane
+                )
             }
         )
     }
@@ -1221,16 +1246,19 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         sourcePaneId: UUID,
         sourceTabId: UUID
     ) -> PaneSurfaceToolbarAction {
-        let definition = AppCommand.switchArrangement.definition
+        let actionSpec = LocalActionSpec.showArrangements.actionSpec
         let isEnabled =
             store.tabLayoutAtom.tab(sourceTabId)?.activePaneIds.contains(sourcePaneId) == true
 
         return PaneSurfaceToolbarAction(
             state: PaneSurfaceToolbarAction.State(
-                label: definition.label,
+                label: actionSpec.label,
                 accessibilityIdentifier: "paneManagement.showArrangements",
-                icon: definition.icon,
-                tooltip: definition.controlTooltipRenderValue(),
+                icon: actionSpec.icon,
+                tooltip: actionSpec.controlTooltipRenderValue(
+                    provenance: .localAction(rawValue: "paneShowArrangements"),
+                    shortcutText: AppShortcut.showArrangementPanel.spec.trigger.displayText
+                ),
                 isEnabled: isEnabled,
                 isSelected: false
             ),
@@ -2318,12 +2346,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    // MARK: - Tab Commands
-
-    func executeTabContextMenuCommand(_ command: AppCommand, tabId: UUID) {
-        handleTabCommand(command, tabId: tabId)
-    }
-
     func handleArrangementPanelZoomToggle(
         tabId: UUID,
         sourcePaneId: UUID?
@@ -2341,69 +2363,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         execute(.zoomPane)
     }
 
-    /// Route tab context menu commands through the validated pipeline.
-    private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
-        if command == .renameTab {
-            guard store.tabLayoutAtom.tab(tabId) != nil else {
-                Self.logger.warning("renameTab context menu command ignored: tab \(tabId) not found")
-                return
-            }
-            requestTabRenamePresentation(for: tabId)
-            return
+    func showTabContextMenuArrangements(tabId: UUID) {
+        guard store.tabLayoutAtom.tab(tabId) != nil else { return }
+        if store.tabLayoutAtom.activeTabId != tabId {
+            dispatchAction(.selectTab(tabId: tabId))
         }
-
-        let action: WorkspaceActionCommand?
-
-        switch command {
-        case .closeTab:
-            action = .closeTab(tabId: tabId)
-        case .breakUpTab:
-            action = .breakUpTab(tabId: tabId)
-        case .equalizePanes:
-            action = .equalizePanes(tabId: tabId)
-        case .zoomPane:
-            guard let paneId = store.tabLayoutAtom.tab(tabId)?.activePaneId else {
-                return
-            }
-            execute(.zoomPane, target: paneId, targetType: .pane)
-            return
-        case .splitRight, .splitLeft:
-            // Resolve split direction using the target tab's active pane
-            guard let tab = store.tabLayoutAtom.tab(tabId),
-                let paneId = tab.activePaneId
-            else { return }
-            let direction: SplitNewDirection = {
-                switch command {
-                case .splitRight: return .right
-                case .splitLeft: return .left
-                default: return .right
-                }
-            }()
-            action = .insertPane(
-                source: .newTerminal,
-                targetTabId: tabId,
-                targetPaneId: paneId,
-                direction: direction,
-                sizingMode: .halveTarget
-            )
-        case .newFloatingTerminal:
-            action = nil
-        case .switchArrangement, .deleteArrangement, .renameArrangement:
-            // Arrangement management now handled through the arrangement panel popover
-            // in the tab bar. Context menu entries still work as no-ops here.
-            action = nil
-        case .saveArrangement:
-            // Direct action — save current layout as a new arrangement
-            guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
-            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            action = .createArrangement(tabId: tabId, name: name)
-        default:
-            action = nil
-        }
-
-        if let action {
-            dispatchAction(action)
-        }
+        guard
+            let workspaceWindowId =
+                workspaceWindowId
+                ?? windowLifecycleStore.focusedWindowId
+                ?? windowLifecycleStore.keyWindowId
+        else { return }
+        arrangementPanelPresentation.present(
+            tabId: tabId,
+            workspaceWindowId: workspaceWindowId
+        )
     }
 
     private func requestTabRenamePresentation(for tabId: UUID) {
@@ -2881,8 +2855,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneId = drawerPaneId
         }
 
+        guard let paneId else {
+            return nil
+        }
+        return resolvedBridgeCommandMountView(paneId: paneId)
+    }
+
+    private func resolvedBridgeCommandMountView(paneId: UUID) -> BridgePaneMountView? {
         guard
-            let paneId,
             let pane = store.paneAtom.pane(paneId),
             case .bridgePanel = pane.content
         else {
@@ -3302,6 +3282,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
         }
 
+        if command == .reloadBridgeWebView, targetType == .pane {
+            _ = resolvedBridgeCommandMountView(paneId: target)?.controller.reloadWebView()
+            return
+        }
+
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             handleTargetedPaneInboxCommand(command, target: target, targetType: targetType)
             return
@@ -3320,32 +3305,71 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
+        if isTargetedPaneLocationCommand(command) {
+            guard targetType == .pane else { return }
+            _ = handleTargetedPaneLocationCommand(command, paneId: target)
+            return
+        }
+
+        if command == .toggleDrawer, targetType == .pane {
+            guard let action = targetedPaneWorkspaceAction(command: command, paneId: target, targetType: targetType)
+            else {
+                return
+            }
+            dispatchAction(action)
+            handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: target)))
+            syncFocusOwnerAfterDrawerMutation(parentPaneId: target)
+            return
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
+            guard
+                prepareTargetedArrangementTabSelection(
+                    command: command,
+                    target: target,
+                    targetType: targetType
+                )
+            else {
+                return
+            }
             dispatchAction(action)
             return
         }
 
-        // Targeted non-pane commands (e.g. from command bar)
+        if executeTargetedRenameCommand(command, target: target, targetType: targetType) {
+            return
+        }
+
+        Self.logger.warning(
+            "Targeted command ignored for unsupported target pair command=\(String(describing: command), privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
+        )
+    }
+
+    private func executeTargetedRenameCommand(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
         switch (command, targetType) {
         case (.renameTab, .tab):
             guard store.tabLayoutAtom.tab(target) != nil else {
                 Self.logger.warning("renameTab targeted command ignored: tab \(target) not found")
-                return
+                return true
             }
             requestTabRenamePresentation(for: target)
+            return true
         case (.renameArrangement, .tab):
             guard
-                let tab = store.tabLayoutAtom.tabs.first(where: { tab in
-                    tab.arrangements.contains(where: { $0.id == target })
-                }),
-                let arrangement = tab.arrangements.first(where: { $0.id == target })
+                let arrangementTarget = arrangementTarget(target)
             else {
                 Self.logger.warning("renameArrangement targeted command ignored: arrangement \(target) not found")
-                return
+                return true
             }
+            let tab = arrangementTarget.tab
+            let arrangement = arrangementTarget.arrangement
             guard !arrangement.isDefault else {
                 Self.logger.warning("renameArrangement targeted command ignored: cannot rename default arrangement")
-                return
+                return true
             }
             if store.tabLayoutAtom.activeTabId != tab.id {
                 dispatchAction(.selectTab(tabId: tab.id))
@@ -3355,10 +3379,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 currentName: arrangement.name,
                 isDefault: arrangement.isDefault
             )
+            return true
         default:
-            Self.logger.warning(
-                "Targeted command ignored for unsupported target pair command=\(String(describing: command), privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
-            )
+            return false
         }
     }
 
@@ -3666,22 +3689,152 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
+    private struct TargetedPaneCommandTarget {
+        let paneId: UUID
+        let owningTabId: UUID
+        let drawerParentPaneId: UUID?
+    }
+
+    private func targetedPaneCommandTarget(
+        paneId: UUID,
+        targetType: SearchItemType
+    ) -> TargetedPaneCommandTarget? {
+        guard targetType == .pane, let pane = store.paneAtom.pane(paneId) else {
+            return nil
+        }
+
+        if let parentPaneId = pane.parentPaneId {
+            guard
+                let parentPane = store.paneAtom.pane(parentPaneId),
+                parentPane.drawer?.paneIds.contains(paneId) == true,
+                let owningTab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)
+            else {
+                return nil
+            }
+            return TargetedPaneCommandTarget(
+                paneId: paneId,
+                owningTabId: owningTab.id,
+                drawerParentPaneId: parentPaneId
+            )
+        }
+
+        guard let owningTab = store.tabLayoutAtom.tabContaining(paneId: paneId) else {
+            return nil
+        }
+        return TargetedPaneCommandTarget(
+            paneId: paneId,
+            owningTabId: owningTab.id,
+            drawerParentPaneId: nil
+        )
+    }
+
+    private func targetedPaneWorkspaceAction(
+        command: AppCommand,
+        paneId: UUID,
+        targetType: SearchItemType
+    ) -> WorkspaceActionCommand? {
+        guard
+            let target = targetedPaneCommandTarget(
+                paneId: paneId,
+                targetType: targetType
+            ),
+            let owningTab = store.tabLayoutAtom.tab(target.owningTabId)
+        else {
+            return nil
+        }
+
+        switch command {
+        case .minimizePane:
+            if let parentPaneId = target.drawerParentPaneId {
+                guard
+                    let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+                    drawerView.layout.contains(target.paneId),
+                    !drawerView.minimizedPaneIds.contains(target.paneId)
+                else {
+                    return nil
+                }
+                return .minimizeDrawerPane(
+                    parentPaneId: parentPaneId,
+                    drawerPaneId: target.paneId
+                )
+            }
+            guard owningTab.activePaneIds.contains(target.paneId) else {
+                return nil
+            }
+            return .minimizePane(
+                tabId: target.owningTabId,
+                paneId: target.paneId
+            )
+        case .expandPane:
+            if let parentPaneId = target.drawerParentPaneId {
+                guard
+                    let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+                    drawerView.minimizedPaneIds.contains(target.paneId)
+                else {
+                    return nil
+                }
+                return .expandDrawerPane(
+                    parentPaneId: parentPaneId,
+                    drawerPaneId: target.paneId
+                )
+            }
+            guard owningTab.activeMinimizedPaneIds.contains(target.paneId) else {
+                return nil
+            }
+            return .expandPane(
+                tabId: target.owningTabId,
+                paneId: target.paneId
+            )
+        case .closePane:
+            return .closePane(
+                tabId: target.owningTabId,
+                paneId: target.paneId
+            )
+        case .toggleDrawer:
+            guard
+                target.drawerParentPaneId == nil,
+                owningTab.activePaneIds.contains(target.paneId),
+                store.paneAtom.pane(target.paneId)?.drawer != nil
+            else {
+                return nil
+            }
+            return .toggleDrawer(paneId: target.paneId)
+        default:
+            return nil
+        }
+    }
+
     private func targetedAction(
         command: AppCommand,
         target: UUID,
         targetType: SearchItemType
     ) -> WorkspaceActionCommand? {
+        if let paneAction = targetedPaneWorkspaceAction(
+            command: command,
+            paneId: target,
+            targetType: targetType
+        ) {
+            return paneAction
+        }
         if let repositoryAction = targetedRepositoryAction(command: command, target: target, targetType: targetType) {
             return repositoryAction
         }
+        if let tabAction = targetedTabAction(command: command, target: target, targetType: targetType) {
+            return tabAction
+        }
 
         switch (command, targetType) {
-        case (.selectTab, .tab):
-            return .selectTab(tabId: target)
-        case (.closeTab, .tab):
-            return .closeTab(tabId: target)
-        case (.breakUpTab, .tab):
-            return .breakUpTab(tabId: target)
+        case (.splitRight, .pane):
+            guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(target) }) else {
+                return nil
+            }
+            return .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: target,
+                direction: .right,
+                sizingMode: .halveTarget
+            )
         case (.closePane, .pane), (.closePane, .floatingTerminal):
             guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(target) }) else {
                 return nil
@@ -3703,11 +3856,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 targetTabId: target
             )
         case (.switchArrangement, .tab):
-            guard let tabId = store.tabLayoutAtom.activeTabId else { return nil }
-            return .switchArrangement(tabId: tabId, arrangementId: target)
+            guard let arrangementTarget = arrangementTarget(target) else { return nil }
+            return .switchArrangement(tabId: arrangementTarget.tab.id, arrangementId: target)
         case (.deleteArrangement, .tab):
-            guard let tabId = store.tabLayoutAtom.activeTabId else { return nil }
-            return .removeArrangement(tabId: tabId, arrangementId: target)
+            guard let arrangementTarget = arrangementTarget(target) else { return nil }
+            return .removeArrangement(tabId: arrangementTarget.tab.id, arrangementId: target)
         case (.navigateDrawerPane, .pane):
             guard let tabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(tabId),
@@ -3719,17 +3872,76 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return .detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: target)
         case (.addDrawerPane, .pane), (.addDrawerPane, .floatingTerminal):
             return .addDrawerPane(parentPaneId: target)
-        case (.newTerminalInTab, .tab):
-            guard let tab = store.tabLayoutAtom.tab(target), let targetPaneId = tab.activePaneId else { return nil }
+        case (.renameArrangement, .tab):
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func prepareTargetedArrangementTabSelection(
+        command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> Bool {
+        guard
+            targetType == .tab,
+            command == .switchArrangement || command == .deleteArrangement
+        else {
+            return true
+        }
+        guard let owningTabId = arrangementTarget(target)?.tab.id else {
+            return false
+        }
+        if store.tabLayoutAtom.activeTabId != owningTabId {
+            dispatchAction(.selectTab(tabId: owningTabId))
+        }
+        return store.tabLayoutAtom.activeTabId == owningTabId
+    }
+
+    private func arrangementTarget(
+        _ arrangementId: UUID
+    ) -> (tab: AgentStudioCore.Tab, arrangement: PaneArrangement)? {
+        for tab in store.tabLayoutAtom.tabs {
+            if let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) {
+                return (tab: tab, arrangement: arrangement)
+            }
+        }
+        return nil
+    }
+
+    private func targetedTabAction(
+        command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> WorkspaceActionCommand? {
+        guard targetType == .tab, let tab = store.tabLayoutAtom.tab(target) else { return nil }
+
+        switch command {
+        case .selectTab:
+            return .selectTab(tabId: tab.id)
+        case .closeTab:
+            return .closeTab(tabId: tab.id)
+        case .breakUpTab:
+            return .breakUpTab(tabId: tab.id)
+        case .splitRight, .splitLeft, .newTerminalInTab:
+            guard let targetPaneId = tab.activePaneId else { return nil }
             return .insertPane(
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: targetPaneId,
-                direction: .right,
+                direction: command == .splitLeft ? .left : .right,
                 sizingMode: .halveTarget
             )
-        case (.renameArrangement, .tab):
-            return nil
+        case .equalizePanes:
+            return .equalizePanes(tabId: tab.id)
+        case .saveArrangement:
+            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
+            return .createArrangement(tabId: tab.id, name: name)
+        case .newFloatingTerminal:
+            let launchDirectory = tab.activePaneId
+                .flatMap { store.paneAtom.pane($0)?.metadata.facets.cwd }
+            return .openFloatingTerminal(launchDirectory: launchDirectory, title: nil)
         default:
             return nil
         }
@@ -3818,6 +4030,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
+        if command == .reloadBridgeWebView, targetType == .pane {
+            return resolvedBridgeCommandMountView(paneId: target) != nil
+        }
+
+        if command == .movePaneToTab, targetType == .pane {
+            return canMovePaneToAnotherTab(sourcePaneId: target)
+        }
+
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
         }
@@ -3843,6 +4063,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 
+        if isTargetedPaneLocationCommand(command) {
+            guard targetType == .pane else {
+                return false
+            }
+            return targetedPaneLocationPath(paneId: target) != nil
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             return canDispatchAction(action)
         }
@@ -3852,16 +4079,27 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return store.tabLayoutAtom.tab(target) != nil
         case (.renameArrangement, .tab):
             guard
-                let tab = store.tabLayoutAtom.tabs.first(where: { tab in
-                    tab.arrangements.contains(where: { $0.id == target })
-                }),
-                let arrangement = tab.arrangements.first(where: { $0.id == target })
+                let arrangementTarget = arrangementTarget(target)
             else {
                 return false
             }
-            return !arrangement.isDefault
+            return !arrangementTarget.arrangement.isDefault
         default:
             return false
+        }
+    }
+
+    private func canMovePaneToAnotherTab(sourcePaneId: UUID) -> Bool {
+        guard
+            let sourceTabId = store.tabLayoutAtom.tabs.first(where: {
+                $0.activePaneIds.contains(sourcePaneId)
+            })?.id
+        else {
+            return false
+        }
+
+        return store.tabLayoutAtom.tabs.contains { tab in
+            tab.id != sourceTabId && (tab.activePaneId != nil || !tab.activePaneIds.isEmpty)
         }
     }
 
@@ -4034,6 +4272,57 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .copyCurrentPanePath:
             guard let path = activeMainPanePath() else { return false }
             copyPathHandler(path)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isTargetedPaneLocationCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .openPaneLocationInFinder, .copyCurrentPanePath, .openPaneLocationInEditorMenu:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func targetedPaneLocationPath(paneId: UUID) -> URL? {
+        guard
+            targetedPaneCommandTarget(
+                paneId: paneId,
+                targetType: .pane
+            ) != nil
+        else {
+            return nil
+        }
+        return PaneManagementContext.project(
+            paneId: paneId,
+            store: store
+        ).targetPath
+    }
+
+    private func handleTargetedPaneLocationCommand(
+        _ command: AppCommand,
+        paneId: UUID
+    ) -> Bool {
+        guard let targetPath = targetedPaneLocationPath(paneId: paneId) else {
+            return false
+        }
+
+        switch command {
+        case .openPaneLocationInFinder:
+            return openFinderHandler(targetPath)
+        case .copyCurrentPanePath:
+            copyPathHandler(targetPath)
+            return true
+        case .openPaneLocationInEditorMenu:
+            if editorChooser.openForPaneId == paneId {
+                editorChooser.setOpenEditorPane(nil)
+                return true
+            }
+            editorChooser.setAvailableTargets(installedEditorTargetsProvider())
+            editorChooser.setOpenEditorPane(paneId)
             return true
         default:
             return false

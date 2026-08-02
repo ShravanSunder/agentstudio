@@ -59,6 +59,8 @@ struct RepoExplorerWorktreeRowTests {
 
         #expect(source.contains("showsFavoriteControl: favoriteControlVisibility.showsInlineButton"))
         #expect(source.contains("if favoriteControlVisibility.showsContextMenuAction"))
+        #expect(source.contains(".controlHelp(favoriteActionSpec.controlTooltipRenderValue())"))
+        #expect(!source.contains(".help(favoriteActionSpec.helpText)"))
     }
 
     @Test("context menu groups creation actions by destination")
@@ -71,8 +73,12 @@ struct RepoExplorerWorktreeRowTests {
         #expect(source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
-        #expect(source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
-        #expect(source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
+        #expect(source.contains("commandPresentation.contextMenuCommand(.openWorktreeInPane)"))
+        #expect(source.contains("menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)"))
+        #expect(source.contains("commandPresentation.contextMenuCommand(.openNewTerminalInTab)"))
+        #expect(source.contains("menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)"))
+        #expect(!source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
+        #expect(!source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

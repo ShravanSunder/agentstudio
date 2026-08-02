@@ -237,7 +237,7 @@ extension WebKitSerializedTests {
                 try await WebPageTestHarness.withManagedPage(retainedPage) { retainedPage in
                     #expect(
                         await waitForBridgeCommandCondition {
-                            await bridgeController.productSessionOwner.activeBootstrap() != nil
+                            bridgeController.hasPublishedProductSessionBootstrap
                                 && !retainedPage.isLoading
                         }
                     )
@@ -264,8 +264,20 @@ extension WebKitSerializedTests {
                         }
                     )
 
+                    #expect(
+                        harness.controller.canExecute(
+                            .reloadBridgeWebView,
+                            target: bridgePane.id,
+                            targetType: .pane
+                        )
+                    )
+
                     // Act
-                    harness.controller.execute(.reloadBridgeWebView)
+                    harness.controller.execute(
+                        .reloadBridgeWebView,
+                        target: bridgePane.id,
+                        targetType: .pane
+                    )
 
                     // Assert
                     #expect(
@@ -284,21 +296,27 @@ extension WebKitSerializedTests {
                     #expect(bridgeMountView.controller === bridgeController)
                     #expect(bridgeController.page === retainedPage)
                     #expect(harness.store.paneAtom.pane(bridgePane.id)?.content == bridgeContentBeforeReload)
-                    let bootstrapAfterReload = try #require(
-                        await bridgeController.productSessionOwner.activeBootstrap()
-                    )
-                    #expect(
-                        await waitForBridgeCommandCondition {
-                            let snapshot = bridgeController.surfaceSelectionAuthority.diagnosticSnapshot
-                            guard let acceptedRequest = snapshot.lastAcceptedRequest else {
-                                return false
-                            }
-                            return snapshot.currentRequest == nil
-                                && acceptedRequest.requestId != reviewRequestBeforeReload.requestId
-                                && acceptedRequest.surface == .review
-                                && acceptedRequest.paneSessionId == bootstrapAfterReload.paneSessionId
-                                && acceptedRequest.workerInstanceId == bootstrapAfterReload.workerInstanceId
+                    let didAcceptRetainedSurface = await waitForBridgeCommandCondition {
+                        let snapshot = bridgeController.surfaceSelectionAuthority.diagnosticSnapshot
+                        guard
+                            let acceptedRequest = snapshot.lastAcceptedRequest,
+                            let activeBootstrap =
+                                await bridgeController.productSessionOwner.activeBootstrap()
+                        else {
+                            return false
                         }
+                        return snapshot.currentRequest == nil
+                            && acceptedRequest.requestId != reviewRequestBeforeReload.requestId
+                            && acceptedRequest.surface == .review
+                            && acceptedRequest.paneSessionId == activeBootstrap.paneSessionId
+                            && acceptedRequest.workerInstanceId == activeBootstrap.workerInstanceId
+                    }
+                    #expect(
+                        didAcceptRetainedSurface,
+                        Comment(
+                            rawValue:
+                                "Reloaded worker did not accept retained surface: \(bridgeController.surfaceSelectionAuthority.diagnosticSnapshot)"
+                        )
                     )
                 }
             }

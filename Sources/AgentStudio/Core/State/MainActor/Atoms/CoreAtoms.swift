@@ -230,8 +230,12 @@ package final class CoreAtoms {
         WorkspaceLookupDerived()
     }
 
-    package var workspacePaneFocus: WorkspacePaneFocusDerived {
-        WorkspacePaneFocusDerived()
+    package var workspaceFocusedPane: WorkspaceFocusedPaneResolver {
+        WorkspaceFocusedPaneResolver()
+    }
+
+    package var commandContext: CommandContextDerived {
+        CommandContextDerived()
     }
 
     package private(set) lazy var attendedPane = AttendedPaneDerived(

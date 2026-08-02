@@ -95,6 +95,8 @@ package enum LocalActionSpec {
     case movePaneToTabMenu
     case openGitHubInNewTab
     case arrangements
+    case addTerminalToTab
+    case showArrangements
     case saveCurrentLayoutAsArrangement
     case showPane
     case hidePane
@@ -194,6 +196,18 @@ package enum LocalActionSpec {
         case .arrangements:
             return ActionSpec(
                 label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))
+        case .addTerminalToTab:
+            return ActionSpec(
+                label: "Add Terminal to Tab",
+                helpText: "Choose where to add a terminal in the tab",
+                icon: .system(.terminal)
+            )
+        case .showArrangements:
+            return ActionSpec(
+                label: "Show Arrangements",
+                helpText: "Show arrangements for the active tab",
+                icon: .system(.rectangle3Group)
+            )
         case .saveCurrentLayoutAsArrangement:
             return ActionSpec(
                 label: "Save Current Layout as Arrangement", helpText: "Save current layout as arrangement",

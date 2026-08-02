@@ -77,14 +77,14 @@ extension CommandBarDataSource {
     static func projectQuickOpenLocations(
         canonicalItems: [CommandBarItem],
         store: WorkspaceStore,
-        focus: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?
     ) -> [CommandBarItem] {
         let canonicalByID = Dictionary(uniqueKeysWithValues: canonicalItems.map { ($0.id, $0) })
         var promotedIDs: Set<String> = []
         var promotedPathKeys: Set<String> = []
         var currentRows: [CommandBarItem] = []
 
-        if let worktree = quickOpenCurrentWorktree(store: store, focus: focus),
+        if let worktree = quickOpenCurrentWorktree(store: store, focusedPane: focusedPane),
             let repository = store.repositoryTopologyAtom.repo(containing: worktree.id),
             let canonicalID = quickOpenCanonicalID(worktree: worktree, repository: repository),
             let item = canonicalByID[canonicalID]
@@ -97,8 +97,8 @@ extension CommandBarDataSource {
             )
             promotedIDs.insert(canonicalID)
             promotedPathKeys.insert(quickOpenPathKey(worktree.path))
-        } else if let activePaneID = focus.activePaneId,
-            let cwd = store.paneAtom.pane(activePaneID)?.metadata.cwd
+        } else if let focusedPane,
+            let cwd = store.paneAtom.pane(focusedPane.paneId)?.metadata.cwd
         {
             appendCurrentDirectory(
                 cwd,
@@ -167,9 +167,9 @@ extension CommandBarDataSource {
 
     private static func quickOpenCurrentWorktree(
         store: WorkspaceStore,
-        focus: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?
     ) -> Worktree? {
-        if let worktreeID = focus.activeWorktreeId,
+        if let worktreeID = focusedPane?.worktreeId,
             let worktree = store.repositoryTopologyAtom.worktree(worktreeID)
         {
             return worktree

@@ -54,24 +54,23 @@ final class AppCommandCatalogTests {
     @MainActor
 
     @Test
-    func test_dispatcher_openNewTerminalInTab_appliesToWorktree() {
+    func test_dispatcher_openNewTerminalInTab_targetsWorktrees() {
         // Act
         let def = AppCommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        #expect(def.appliesTo.contains(.worktree))
+        #expect(def.targeting == .targeted([.worktree]))
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_commands_forWorktree_includesOpenNewTerminal() {
+    func test_dispatcher_openNewTerminalInTab_isExposedInCommandBarAndContextMenus() {
         // Act
-        let worktreeCommands = AppCommandDispatcher.shared.commands(for: .worktree)
+        let def = AppCommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        let commandNames = worktreeCommands.map(\.command)
-        #expect(commandNames.contains(.openNewTerminalInTab))
+        #expect(def.surfacePolicy == .exposed([.commandBar, .contextMenu]))
     }
 
     @MainActor
@@ -88,12 +87,13 @@ final class AppCommandCatalogTests {
     @MainActor
 
     @Test
-    func test_dispatcher_filterSidebar_noAppliesTo() {
-        // Act — filterSidebar is a global command, not tied to an item type
+    func test_dispatcher_filterSidebar_isContextual() {
+        // Act
         let def = AppCommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def.appliesTo.isEmpty)
+        #expect(def.targeting == .contextual)
+        #expect(def.surfacePolicy == .exposed([.commandBar, .mainMenu]))
     }
 
     // MARK: - Webview Commands
@@ -138,7 +138,22 @@ final class AppCommandCatalogTests {
         )
         #expect(def.label == "Pane Zoom")
         #expect(def.icon == canonicalZoomSymbol.map(CommandIcon.system))
-        #expect(def.appliesTo == [.pane])
+        #expect(
+            def.surfacePolicy
+                == .exposed([
+                    .commandBar,
+                    .toolbar(.pane),
+                    .toolbar(.terminalZoom),
+                    .inlineControl,
+                ])
+        )
+        #expect(
+            def.targeting
+                == .contextualAndTargeted(
+                    [.pane],
+                    preferredInvocation: .contextual
+                )
+        )
         #expect(def.visibleWhen == [.supportsTerminalZoom])
         #expect(def.ipcCommandListEntry.executionModes == [.headless])
         #expect(def.ipcCommandListEntry.targetKinds == [.pane])
@@ -159,8 +174,74 @@ final class AppCommandCatalogTests {
     func test_dispatcher_showViewer_isAvailableForZoomEntryAndActiveZoom() {
         let definition = AppCommand.showViewer.definition
 
-        #expect(definition.appliesTo.isEmpty)
+        #expect(
+            definition.surfacePolicy
+                == .exposed([
+                    .commandBar,
+                    .toolbar(.terminalZoom),
+                ])
+        )
+        #expect(
+            definition.targeting
+                == .contextualAndTargeted(
+                    [.pane],
+                    preferredInvocation: .contextual
+                )
+        )
         #expect(definition.visibleWhen == [.supportsTerminalZoom])
+    }
+
+    @Test
+    func test_catalog_preserves_menu_and_generatedCommandDistinction() {
+        #expect(AppCommand.selectTab1.definition.surfacePolicy == .exposed([.mainMenu]))
+        #expect(AppCommand.selectTab1.definition.targeting == .contextual)
+        #expect(AppCommand.selectTab.definition.surfacePolicy == .notPresented)
+        #expect(AppCommand.selectTab.definition.targeting == .targeted([.tab]))
+        #expect(AppCommand.focusPane1.definition.surfacePolicy == .notPresented)
+        #expect(AppCommand.focusPane.definition.surfacePolicy == .notPresented)
+        #expect(AppCommand.focusPane.definition.targeting == .targeted([.pane, .floatingTerminal]))
+    }
+
+    @Test
+    func test_catalog_preserves_multiStageMovePaneTargeting() {
+        let definition = AppCommand.movePaneToTab.definition
+
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .contextMenu, .inlineControl]))
+        #expect(definition.targeting == .targeted([.pane, .tab]))
+    }
+
+    @Test
+    func test_catalog_preserves_collapsedPaneCloseContextMenu() {
+        let definition = AppCommand.closePane.definition
+
+        #expect(definition.surfacePolicy == .exposed([.commandBar, .contextMenu, .inlineControl]))
+        #expect(
+            definition.targeting
+                == .contextualAndTargeted(
+                    [.pane, .floatingTerminal],
+                    preferredInvocation: .targetSelection
+                )
+        )
+    }
+
+    @Test
+    func test_catalog_declaresExactArrangementPlacementSurfaces() {
+        #expect(
+            AppCommand.switchArrangement.definition.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.app), .inlineControl])
+        )
+        #expect(
+            AppCommand.saveArrangement.definition.surfacePolicy
+                == .exposed([.commandBar, .contextMenu, .inlineControl])
+        )
+        #expect(
+            AppCommand.renameArrangement.definition.surfacePolicy
+                == .exposed([.commandBar, .contextMenu, .inlineControl])
+        )
+        #expect(
+            AppCommand.deleteArrangement.definition.surfacePolicy
+                == .exposed([.commandBar, .contextMenu])
+        )
     }
 
     @MainActor
@@ -185,8 +266,10 @@ final class AppCommandCatalogTests {
 
     @Test
     func test_dispatcher_signIn_noKeyBindings() {
-        // Sign-in commands are invoked from command bar, no global shortcuts
+        // Sign-in commands are internal dispatch identities with no global shortcuts.
         #expect(AppCommandDispatcher.shared.definition(for: .signInGitHub).keyBinding == nil)
         #expect(AppCommandDispatcher.shared.definition(for: .signInGoogle).keyBinding == nil)
+        #expect(AppCommand.signInGitHub.definition.surfacePolicy == .notPresented)
+        #expect(AppCommand.signInGoogle.definition.surfacePolicy == .notPresented)
     }
 }

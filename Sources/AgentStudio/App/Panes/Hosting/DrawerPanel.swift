@@ -61,6 +61,7 @@ struct DrawerPanel: View {
     let editorChooser: EditorChooserState
     let viewRegistry: ViewRegistry
     let action: (WorkspaceActionCommand) -> Void
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -79,6 +80,18 @@ struct DrawerPanel: View {
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
+    }
+
+    private var commandActionResolver: TargetedCommandControlActionResolver {
+        { command, surface, target, targetType in
+            TargetedCommandControlAction.resolve(
+                command: command,
+                surface: surface,
+                target: target,
+                targetType: targetType,
+                dispatcher: AppCommandDispatcher.shared
+            )
+        }
     }
 
     private var drawerSurfaceId: String {
@@ -107,6 +120,7 @@ struct DrawerPanel: View {
         editorChooser: EditorChooserState,
         viewRegistry: ViewRegistry,
         action: @escaping (WorkspaceActionCommand) -> Void,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
@@ -132,6 +146,7 @@ struct DrawerPanel: View {
         self.editorChooser = editorChooser
         self.viewRegistry = viewRegistry
         self.action = action
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         self.onResize = onResize
         self.onDismiss = onDismiss
         self.onPaneFocusTrigger = onPaneFocusTrigger
@@ -206,7 +221,8 @@ struct DrawerPanel: View {
             minimizedPaneIds: minimizedPaneIds,
             ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
             collapsedPaneWidth: managementLayer.isActive ? CollapsedPaneBar.barWidth : 0,
-            onSaveArrangement: nil,
+            arrangementInlineRenameState: arrangementInlineRenameState,
+            commandActionResolver: commandActionResolver,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: drawerActionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
@@ -251,20 +267,29 @@ struct DrawerPanel: View {
 
     @ViewBuilder
     private var addDrawerButton: some View {
-        Button {
-            action(.addDrawerPane(parentPaneId: parentPaneId))
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 48, height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
-                )
+        let addDrawerPaneAction = commandActionResolver(
+            .addDrawerPane,
+            .inlineControl,
+            parentPaneId,
+            .pane
+        )
+
+        if let addDrawerPaneAction {
+            Button(action: addDrawerPaneAction.perform) {
+                Image(systemName: "plus")
+                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 48, height: 48)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.white.opacity(AppStyles.General.Fill.hover))
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!addDrawerPaneAction.isEnabled)
+            .controlHelp(addDrawerPaneAction.commandSpec.controlTooltipRenderValue())
+            .accessibilityLabel(addDrawerPaneAction.commandSpec.label)
         }
-        .buttonStyle(.plain)
-        .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
     var body: some View {
@@ -402,6 +427,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     editorChooser: atomRegistry.editorChooser,
                     viewRegistry: ViewRegistry(),
                     action: { _ in },
+                    arrangementInlineRenameState: ArrangementInlineRenameState(),
                     onResize: { _ in },
                     onDismiss: {},
                     onPaneFocusTrigger: { _ in },

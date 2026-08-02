@@ -676,7 +676,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 | `.panes` | `$ ` | Panes grouped by parent tab, tabs as selectable items |
 | `.repos` | `# ` | Repos and worktrees for opening, with presence awareness |
 
-**`CommandBarDataSource`** — Builds `CommandBarItem` arrays from live app state, scope-filtered. Constructor params: `scope`, `store: WorkspaceStore`, `repoCache: RepoCacheAtom`, `dispatcher: AppCommandDispatcher`. Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab..." → list of open tabs). Visibility is driven by `AppCommandSpec.visibleWhen` against `atom(\.workspaceFocusContext).currentFocus`, while enablement continues to flow through `AppCommandDispatcher.canDispatch`.
+**`CommandBarDataSource`** — Builds `CommandBarItem` arrays from live app state, scope-filtered. Constructor params: `scope`, `store: WorkspaceStore`, `repoCache: RepoCacheAtom`, `dispatcher: AppCommandDispatcher`. It requests `.commandBar` presentation against the current `CommandContext`, and uses `AppCommandTargeting.preferredInvocation` plus declared target kinds to build direct-dispatch rows or `CommandBarLevel` drill-ins. `shouldPresent` controls presence; enablement continues to flow through the matching `AppCommandDispatcher.canDispatch` overload.
 
 **`WorktreePresence`** — Value type capturing a worktree's open state in the workspace: `worktreeId`, `repoId`, `openPanes: [WorktreePaneLocation]`, computed `openState: WorktreeOpenState` (`.notOpen`, `.singlePane`, `.multiplePanes`). Used by the `.repos` scope and `.everything` worktree rows to show presence indicators and resolve context-aware actions.
 
@@ -708,61 +708,65 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
 - **`AppCommand` + `AppCommandSpec`** for dispatchable app commands
 - **`LocalActionSpec` / `ActionSpec`** for local UI actions that do not route through `AppCommandDispatcher`
 
-`AppCommand` is still the authoritative command ID. The metadata lives in an exhaustive
-`AppCommand.definition` switch, so adding a new command case forces metadata completion at compile time.
+`AppCommand` is the authoritative command ID shared by two exhaustive
+projections. `AppCommand.definition` owns interactive presentation metadata;
+the App-owned `AppCommand.ipcSpec` companion owns IPC exposure, durable-target,
+privilege, and argument contracts. Adding a command case forces both
+projections to classify it at compile time.
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ AppCommand                                                  │
-│ authoritative dispatchable command id                       │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ AppCommandSpec                                                  │
-│ authoritative metadata for dispatchable commands             │
-│                                                              │
-│ - command                                                    │
-│ - label                                                      │
-│ - icon                                                       │
-│ - helpText                                                   │
-│ - keyBinding                                                 │
-│ - appliesTo                                                  │
-│ - requiresManagementLayer                                     │
-│ - visibleWhen                                                │
-│ - command bar group / priority                               │
-└──────────────────────────────────────────────────────────────┘
-                           │
-            ┌──────────────┼───────────────┬──────────────────┐
-            ▼              ▼               ▼                  ▼
-┌─────────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
-│ menus/toolbars  │ │ command bar   │ │ titlebar     │ │ app surfaces │
-│ read metadata   │ │ reads metadata│ │ reads metadata│ │ read metadata│
-└─────────────────┘ └───────────────┘ └──────────────┘ └──────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ AppCommandDispatcher                                             │
-│ - lookup definition by AppCommand                            │
-│ - route execution                                             │
-│ - canDispatch gate                                            │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                 ┌─────────┴─────────┐
-                 ▼                   ▼
-┌──────────────────────────┐   ┌──────────────────────────────┐
-│ ShellCommandHandling     │   │ WorkspaceCommandHandling     │
-│ app/window/sidebar shell │   │ tab/pane/workspace handling  │
-└──────────────────────────┘   └──────────────────────────────┘
-                                          │
-                                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceCommandResolver                                    │
-│ resolves AppCommand → WorkspaceActionCommand? using live state   │
-│ builds ActionStateSnapshot for validation                   │
-│ → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator               │
-└──────────────────────────────────────────────────────────────┘
+WorkspaceFocusOwnerAtom (only mutable requested-focus owner)
+  → WorkspaceFocusedPaneResolver
+  → WorkspaceFocusedPane
+      ├─ focus/status presentation
+      └─ CommandContextDerived + workspace/presentation facts
+          → CommandContext + satisfied CommandRequirement values
+
+AppCommand
+  ├─ AppCommand.definition
+  │   └─ AppCommandSpec
+  │       ├─ display and tooltip projection
+  │       ├─ AppCommandSurfacePolicy
+  │       ├─ AppCommandTargeting + preferred invocation
+  │       └─ visibleWhen requirements
+  └─ AppCommand.ipcSpec
+      ├─ AppCommandIPCExposure
+      ├─ targetless | required(primary, additional)
+      ├─ privilege classification
+      └─ noArguments | typed argument/filter execution payload
+
+AppCommandPresentationQuery
+  → AppCommandSpec.shouldPresent(...)       presence only
+  → AppCommandDispatcher.canDispatch(...)  enabled/executable
+  → execution owner + validators           authoritative effects
 ```
+
+`WorkspaceFocusedPaneResolver` is a stateless read operation. It validates the
+requested main-pane, empty-drawer, or drawer-child owner against the active tab
+and live drawer state, returning immutable focus identity/content.
+`CommandContextDerived` consumes that value and projects an independent,
+immutable `CommandContext`. Neither projection mutates focus or workspace
+state.
+
+Every `AppCommandSpec` explicitly declares an `AppCommandSurfacePolicy`.
+Interactive consumers identify themselves as command bar, main menu, context
+menu, inline control, or an exact toolbar surface (`app`, `pane`, or
+`terminalZoom`). The host still owns placement, ordering, spacing, selected
+state, and control construction.
+
+`AppCommandSpec.shouldPresent` accepts a typed contextual, targeted, or
+contextual-target subject. It checks only surface exposure, satisfied
+`CommandRequirement` values, and declared `SearchItemType` support. It controls
+presence, never enablement, authorization, or mutation validity. Visible
+controls use contextual or targeted `canDispatch`; dispatch repeats the same
+mode preflight before an execution owner runs. Workspace and runtime validators
+remain authoritative immediately before effects.
+
+`AppCommandTargeting` makes contextual-only, targeted-only, and combined
+commands explicit. Combined commands also declare whether their preferred root
+invocation dispatches contextually or opens target selection. Dispatch rejects
+an undeclared invocation mode or target kind before calling
+`ShellCommandHandling` or `WorkspaceCommandHandling`.
 
 `ShellCommandHandling` is deliberately narrow. It may open app windows,
 toggle the sidebar shell, open command-bar modes, and start app-level
@@ -772,10 +776,19 @@ children, or workspace validation terminate in `WorkspaceCommandHandling`
 on `PaneTabViewController`. This keeps keyboard shortcuts, command-bar
 rows, and drawer buttons on the same resolver path.
 
-For UI actions that are *not* `AppCommand`s — for example drawer hover tooltips, sidebar
-editor menus, settings buttons, and command-bar mode entries — the app uses
-`ActionSpec` and `LocalActionSpec` in `Core/Actions/UIActionPresentation.swift`.
-This keeps labels, help text, and icons centralized even when an action is not a dispatcher-backed command.
+Keyboard routing stays separate: `ActiveKeyboardSurface` and
+`AppShortcutDispatchPolicy` own shortcut precedence and transient-surface
+suppression. IPC likewise does not request an interactive surface.
+`AppCommand+IPCProjection.swift` owns exhaustive discriminated IPC contracts,
+and the adapter owns durable-target authorization and execution validation.
+Existing public target-kind, privilege, argument-schema arrays and JSON encoding
+appear only when those internal contracts project to `IPCCommandListEntry`.
+
+For UI actions that are *not* `AppCommand`s — for example drawer hover
+tooltips, sidebar editor menus, settings buttons, and command-bar mode entries
+— the app uses `ActionSpec` and `LocalActionSpec` in
+`Core/Actions/UIActionPresentation.swift`. This keeps labels, help text, and
+icons centralized even when an action is not dispatcher-backed.
 
 **Why two metadata layers?**
 - `AppCommandSpec` owns anything that must dispatch through the validated command pipeline.
@@ -785,63 +798,29 @@ This keeps `AppCommand` as the single command ID while still removing duplicated
 
 ### 3.9 Command Bar Integration
 
-The command bar is a presentation layer over the shared command and focus models. It does not define command metadata, own visibility rules, or bypass the command pipeline.
+The command bar is a presentation layer over the shared command, context, and
+focus models. It does not define command metadata, own visibility rules, or
+bypass the command pipeline.
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ AppCommand                                                  │
-│ authoritative user command id                               │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ AppCommandSpec                                                 │
-│ authoritative metadata for dispatchable commands            │
-└──────────────────────────────────────────────────────────────┘
-                           │
-          ┌────────────────┼────────────────┬─────────────────┐
-          ▼                ▼                ▼                 ▼
-┌─────────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
-│ menus/toolbars  │ │ command bar   │ │ sidebar      │ │ drawer       │
-│ read AppCommandSpec│ │ reads Command │ │ reads specs  │ │ reads specs  │
-│ + ActionSpec    │ │ Spec + focus  │ │ + ActionSpec │ │ + ActionSpec │
-└─────────────────┘ └───────────────┘ └──────────────┘ └──────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ AppCommandDispatcher                                            │
-│ - lookup spec by AppCommand                                  │
-│ - filter visibility                                           │
-│ - route execution                                             │
-└──────────────────────────────────────────────────────────────┘
-                           │
-               ┌───────────┴───────────┐
-               ▼                       ▼
-┌──────────────────────────┐   ┌──────────────────────────────┐
-│ ShellCommandHandling     │   │ WorkspaceCommandHandling     │
-│ app/window/sidebar shell │   │ tab/pane/workspace handling  │
-└──────────────────────────┘   └──────────────────────────────┘
-                                          │
-                                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceCommandResolver                                    │
-│ resolves AppCommand → WorkspaceActionCommand? using live state   │
-│ builds ActionStateSnapshot for validation                   │
-└──────────────────────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceCommandValidator                                   │
-│ validates WorkspaceActionCommand                                 │
-└──────────────────────────────────────────────────────────────┘
-                                          │
-                                          ▼
-┌──────────────────────────────────────────────────────────────┐
-│ WorkspaceActionExecutor / WorkspaceSurfaceCoordinator                            │
-└──────────────────────────────────────────────────────────────┘
+WorkspaceFocusedPane → status strip presentation
+CommandContext + AppCommandSpec
+  → shouldPresent(.commandBar, contextual/targeted subject)
+  → AppCommandTargeting.preferredInvocation
+      ├─ contextual dispatch row
+      └─ declared target-kind drill-in
+  → matching AppCommandDispatcher.canDispatch overload
+  → contextual/targeted dispatch mode preflight
+  → WorkspaceCommandResolver
+  → WorkspaceCommandValidator
+  → WorkspaceSurfaceCoordinator
 ```
 
-This architecture gives us one true command ID (`AppCommand`), one true command metadata record (`AppCommandSpec`), one shared focus surface (`atom(\.workspaceFocus).currentFocus(...)`), and one shared UI metadata shape (`ActionSpec`).
+This architecture gives us one command ID (`AppCommand`), independent
+interactive (`AppCommandSpec`) and IPC (`AppCommandIPCSpec`) projections, one
+mutable workspace-focus owner (`WorkspaceFocusOwnerAtom`), separate immutable
+focus and command-policy projections, and one shared UI metadata shape
+(`ActionSpec`).
 
 ---
 
@@ -936,11 +915,13 @@ CommandBarView.executeItem(item)
 │
 ├─ .dispatch(command)
 │   └─ onDismiss() → AppCommandDispatcher.dispatch(command)
+│       → reject unless AppCommandTargeting supports contextual invocation
 │       → WorkspaceCommandHandling.execute(command)
 │         → WorkspaceCommandResolver → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator → WorkspaceStore
 │
 ├─ .dispatchTargeted(command, target: UUID, targetType)
 │   └─ onDismiss() → AppCommandDispatcher.dispatch(command, target, targetType)
+│       → reject unless AppCommandTargeting declares targetType
 │       → WorkspaceCommandHandling.execute(command, target, targetType)
 │         → WorkspaceCommandResolver (with explicit target) → WorkspaceCommandValidator → WorkspaceSurfaceCoordinator
 │
@@ -1045,9 +1026,11 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Persistence/EntityRecencyStore.swift` | Independent application and workspace recency hydration/flush lifecycles |
 | `Core/State/MainActor/Atoms/WorkspaceTabLayoutDerived.swift` | Rich tab read model composed from shell, cursor, graph, arrangement cursor, and presentation |
 | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
-| `Core/State/MainActor/Atoms/WorkspacePaneFocus.swift` | Shared `WorkspacePaneFocus` and `FocusRequirement` domain types for command visibility and status UI |
-| `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Runtime focus owner for main-pane, empty-drawer, and drawer-pane focus |
-| `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` | Shared app-wide pane focus reader for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` | Sole mutable requested-focus owner for main-pane, empty-drawer, and drawer-pane focus |
+| `Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` | Immutable normalized focus identity/content used by focus presentation and command-context projection |
+| `Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` | Stateless normalization of requested focus against active tab, pane, and drawer state |
+| `Core/State/MainActor/Atoms/CommandContext.swift` | Immutable command-policy projection and `CommandRequirement` vocabulary |
+| `Core/State/MainActor/Atoms/CommandContextDerived.swift` | Stateless projection from focused-pane plus workspace/presentation facts into `CommandContext` |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/SQLite/WorkspaceSQLiteDatastore.swift` | Explicit core/local preparation, retained database ownership, strict hydration, local-slice I/O, and commit sequencing |
 | `Core/State/SQLite/WorkspaceSQLiteDatastoreFactory.swift` | App composition helper that supplies production database URLs and tracing |
@@ -1069,6 +1052,7 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
 | `App/Coordination/WorkspaceSurfaceCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| `App/Commands/AppCommand+IPCProjection.swift` | Independent exhaustive IPC companion contracts and public command-list DTO projection |
 | `App/Windows/MainWindowController.swift` | Primary window management |
 | `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
@@ -1076,6 +1060,8 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift` | Placeholder shown for zmx panes awaiting geometry (`.preparing`) or failed starts |
 | `Features/Terminal/Restore/TerminalRestoreScheduler.swift` | Orders panes by `VisibilityTier` for staged restore (visible first) |
 | **Core/Actions** (workspace mutations) | |
+| `Core/Actions/Commands/AppCommand.swift` | Exhaustive command identity plus interactive spec shape and dispatch protocol |
+| `Core/Actions/Commands/AppCommand+Catalog.swift` | Exhaustive interactive presentation catalog keyed by `AppCommand` |
 | `Core/Actions/WorkspaceActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
 | `Core/Actions/ActionResolver.swift` | `WorkspaceCommandResolver` resolves user input → WorkspaceActionCommand |
 | `Core/Actions/ActionValidator.swift` | `WorkspaceCommandValidator` validates actions before execution |

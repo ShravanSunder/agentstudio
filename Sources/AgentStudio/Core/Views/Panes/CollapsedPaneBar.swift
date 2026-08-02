@@ -3,15 +3,48 @@ import AgentStudioSharedComponents
 import AppKit
 import SwiftUI
 
+@MainActor
+package struct CollapsedPaneBarCommandPresentation {
+    package let contextMenuExpand: TargetedCommandControlAction?
+    package let contextMenuClose: TargetedCommandControlAction?
+    package let inlineExpand: TargetedCommandControlAction?
+
+    package static func resolve(
+        paneId: UUID,
+        actionResolver: TargetedCommandControlActionResolver
+    ) -> Self {
+        Self(
+            contextMenuExpand: actionResolver(
+                .expandPane,
+                .contextMenu,
+                paneId,
+                .pane
+            ),
+            contextMenuClose: actionResolver(
+                .closePane,
+                .contextMenu,
+                paneId,
+                .pane
+            ),
+            inlineExpand: actionResolver(
+                .expandPane,
+                .inlineControl,
+                paneId,
+                .pane
+            )
+        )
+    }
+}
+
 package struct CollapsedPaneBar: View {
     let paneId: UUID
     let octiconLoader: OcticonLoader
     let tabId: UUID
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
+    let commandActionResolver: TargetedCommandControlActionResolver
     let onFocus: () -> Void
-    let onSaveArrangement: (() -> Void)?
-    let onToggleZoom: (UUID?) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let workspaceWindowId: UUID?
@@ -21,7 +54,6 @@ package struct CollapsedPaneBar: View {
     @State private var isArrangementHovered = false
     @State private var isArrangementPanelPresented = false
     @State private var arrangementPopoverToggleGate = PopoverToggleGate()
-    @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
 
     package static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
     static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
@@ -32,9 +64,9 @@ package struct CollapsedPaneBar: View {
         tabId: UUID,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
+        commandActionResolver: @escaping TargetedCommandControlActionResolver,
         onFocus: @escaping () -> Void,
-        onSaveArrangement: (() -> Void)? = nil,
-        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false,
         workspaceWindowId: UUID? = nil
@@ -44,9 +76,9 @@ package struct CollapsedPaneBar: View {
         self.tabId = tabId
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.arrangementInlineRenameState = arrangementInlineRenameState
+        self.commandActionResolver = commandActionResolver
         self.onFocus = onFocus
-        self.onSaveArrangement = onSaveArrangement
-        self.onToggleZoom = onToggleZoom
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.workspaceWindowId = workspaceWindowId
@@ -63,6 +95,10 @@ package struct CollapsedPaneBar: View {
     package var body: some View {
         let paneDisplay = atom(\.paneDisplay)
         let displayParts = paneDisplay.displayParts(for: paneId)
+        let commandPresentation = CollapsedPaneBarCommandPresentation.resolve(
+            paneId: paneId,
+            actionResolver: commandActionResolver
+        )
         let iconTint =
             paneDisplay.accentColorHex(for: paneId)
             .flatMap { NSColor(hex: $0) }
@@ -72,7 +108,7 @@ package struct CollapsedPaneBar: View {
         VStack(spacing: AppStyles.General.Spacing.standard) {
             ManagementMinimizedPaneHint()
 
-            expandButton
+            expandButton(commandPresentation.inlineExpand)
 
             if !isDrawerChild {
                 arrangementButton
@@ -102,18 +138,31 @@ package struct CollapsedPaneBar: View {
         .onHover { isHovered = $0 }
         .help(displayParts.primaryLabel)
         .contextMenu {
-            Button {
-                actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
-            } label: {
-                Label(AppCommand.expandPane.definition.label, systemImage: "arrow.up.left.and.arrow.down.right")
+            if let expandAction = commandPresentation.contextMenuExpand {
+                Button {
+                    expandAction.perform()
+                } label: {
+                    Label(
+                        expandAction.commandSpec.label,
+                        systemImage: "arrow.up.left.and.arrow.down.right"
+                    )
+                }
+                .disabled(!expandAction.isEnabled)
             }
 
-            Divider()
+            if commandPresentation.contextMenuExpand != nil,
+                commandPresentation.contextMenuClose != nil
+            {
+                Divider()
+            }
 
-            Button(role: .destructive) {
-                beginCloseTransition()
-            } label: {
-                Label(AppCommand.closePane.definition.label, systemImage: "xmark")
+            if let closeAction = commandPresentation.contextMenuClose {
+                Button(role: .destructive) {
+                    beginCloseTransition(closeAction: closeAction)
+                } label: {
+                    Label(closeAction.commandSpec.label, systemImage: "xmark")
+                }
+                .disabled(!closeAction.isEnabled)
             }
         }
         .opacity(isClosing ? 0.58 : 1)
@@ -124,29 +173,35 @@ package struct CollapsedPaneBar: View {
         .background(framePreferenceBackground)
     }
 
-    private var expandButton: some View {
-        Button {
-            actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
-        } label: {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isExpandHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isExpandHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
+    @ViewBuilder
+    private func expandButton(
+        _ expandAction: TargetedCommandControlAction?
+    ) -> some View {
+        if let expandAction {
+            Button {
+                expandAction.perform()
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                    .foregroundStyle(isExpandHovered ? .primary : .secondary)
+                    .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
+                    .background(
+                        Circle()
+                            .fill(
+                                Color.white.opacity(
+                                    isExpandHovered
+                                        ? AppStyles.General.Fill.pressed
+                                        : AppStyles.General.Fill.muted
+                                )
                             )
-                        )
-                )
-                .contentShape(Circle())
+                    )
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isExpandHovered = $0 }
+            .controlHelp(expandAction.commandSpec.controlTooltipRenderValue())
+            .disabled(!expandAction.isEnabled)
         }
-        .buttonStyle(.plain)
-        .onHover { isExpandHovered = $0 }
-        .help(AppCommand.expandPane.definition.controlToolTip)
     }
 
     private var arrangementButton: some View {
@@ -211,13 +266,10 @@ package struct CollapsedPaneBar: View {
                 zoomMode: zoomMode,
                 arrangements: arrangements,
                 inlineRenameState: arrangementInlineRenameState,
+                commandActionResolver: commandActionResolver,
                 onPaneAction: { action in
                     actionDispatcher.dispatch(action)
                 },
-                onToggleZoom: { sourcePaneId in
-                    onToggleZoom(sourcePaneId)
-                },
-                onSaveArrangement: { onSaveArrangement?() },
                 onDismiss: dismissArrangementPopover,
                 highlightPaneId: paneId
             )
@@ -369,9 +421,11 @@ package struct CollapsedPaneBar: View {
         }
     }
 
-    private func beginCloseTransition() {
+    private func beginCloseTransition(
+        closeAction: TargetedCommandControlAction
+    ) {
         closeTransitionCoordinator.beginClosingPane(paneId) {
-            actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneId))
+            closeAction.perform()
         }
     }
 }

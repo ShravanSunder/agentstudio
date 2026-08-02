@@ -20,17 +20,6 @@ enum PaneManagementTrailingControl: Equatable {
     }
 }
 
-@MainActor
-private func ancestorChainDescription(for view: NSView) -> String {
-    var nodes: [String] = []
-    var current: NSView? = view
-    while let currentView = current {
-        nodes.append("class=\(type(of: currentView)) id=\(ObjectIdentifier(currentView))")
-        current = currentView.superview
-    }
-    return nodes.joined(separator: " -> ")
-}
-
 /// Renders a single pane leaf container.
 /// Handles terminal views (with surface dimming and drag handles) and
 /// non-terminal views (webview, code viewer stubs) uniformly.
@@ -46,6 +35,7 @@ struct PaneLeafContainer: View {
     let editorChooser: EditorChooserState
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let commandDispatcher: any AppCommandDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
     let notificationCountForWorktree: (UUID) -> Int
@@ -84,6 +74,7 @@ struct PaneLeafContainer: View {
         editorChooser: EditorChooserState,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        commandDispatcher: any AppCommandDispatching = AppCommandDispatcher.shared,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
@@ -106,6 +97,7 @@ struct PaneLeafContainer: View {
         self.editorChooser = editorChooser
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.commandDispatcher = commandDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.notificationCountForWorktree = notificationCountForWorktree
@@ -214,6 +206,34 @@ struct PaneLeafContainer: View {
                 notificationCountForWorktree: notificationCountForWorktree
             )
             let locationTargetPaneId = currentLocationTargetPaneId
+            let minimizePresentation = commandPresentation(
+                .minimizePane,
+                surface: .inlineControl
+            )
+            let closePresentation = commandPresentation(
+                .closePane,
+                surface: .inlineControl
+            )
+            let splitPresentation = commandPresentation(
+                .splitRight,
+                surface: .inlineControl
+            )
+            let detachPresentation = commandPresentation(
+                .detachDrawerPane,
+                surface: .inlineControl
+            )
+            let inlineMovePresentation = commandPresentation(
+                .movePaneToTab,
+                surface: .inlineControl
+            )
+            let extractContextMenuPresentation = commandPresentation(
+                .extractPaneToTab,
+                surface: .contextMenu
+            )
+            let moveContextMenuPresentation = commandPresentation(
+                .movePaneToTab,
+                surface: .contextMenu
+            )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
                     PaneViewRepresentable(paneHost: paneHost)
@@ -243,6 +263,7 @@ struct PaneLeafContainer: View {
                         PaneSurfaceToolbarHost(
                             anchorPaneId: paneHost.id,
                             locationTargetPaneId: locationTargetPaneId,
+                            toolbarSurface: .pane,
                             drawer: drawer,
                             leadingToolbarActions: toolbarPresentation.leadingActions,
                             contextToolbarActions: toolbarPresentation.contextActions,
@@ -358,78 +379,29 @@ struct PaneLeafContainer: View {
                 if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
                     VStack {
                         HStack(spacing: AppStyles.General.Spacing.standard) {
-                            Button {
-                                actionDispatcher.dispatch(.minimizePane(tabId: tabId, paneId: paneHost.id))
-                            } label: {
-                                Image(systemName: "minus")
-                                    .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
-                                    .foregroundStyle(
-                                        .white.opacity(
-                                            AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isMinimizeHovered))
-                                    )
-                                    .frame(
-                                        width: AppStyles.Shell.ManagementLayer.actionSize,
-                                        height: AppStyles.Shell.ManagementLayer.actionSize
-                                    )
-                                    .background(
-                                        Circle()
-                                            .fill(
-                                                Color.black.opacity(
-                                                    AppStyles.Shell.ManagementLayer.backgroundOpacity(
-                                                        isHovered: isMinimizeHovered)))
-                                    )
-                                    .contentShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .onHover { isMinimizeHovered = $0 }
-                            .help(AppCommand.minimizePane.definition.controlToolTip)
-                            .accessibilityHidden(true)
-                            .background {
-                                AccessibilityPressBridge(
-                                    identifier: "paneManagement.minimize",
-                                    label: AppCommand.minimizePane.definition.label
+                            if let minimizePresentation {
+                                managementCommandCircleButton(
+                                    presentation: minimizePresentation,
+                                    systemName: "minus",
+                                    isHovered: isMinimizeHovered,
+                                    accessibilityIdentifier: "paneManagement.minimize"
                                 ) {
-                                    actionDispatcher.dispatch(
-                                        .minimizePane(tabId: tabId, paneId: paneHost.id)
-                                    )
+                                    minimizePresentation.perform()
                                 }
+                                .onHover { isMinimizeHovered = $0 }
                             }
 
-                            Button {
-                                beginCloseTransition()
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
-                                    .foregroundStyle(
-                                        .white.opacity(
-                                            AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isCloseHovered))
-                                    )
-                                    .frame(
-                                        width: AppStyles.Shell.ManagementLayer.actionSize,
-                                        height: AppStyles.Shell.ManagementLayer.actionSize
-                                    )
-                                    .background(
-                                        Circle()
-                                            .fill(
-                                                Color.black.opacity(
-                                                    AppStyles.Shell.ManagementLayer.backgroundOpacity(
-                                                        isHovered: isCloseHovered)))
-                                    )
-                                    .contentShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .onHover { isCloseHovered = $0 }
-                            .help(AppCommand.closePane.definition.controlToolTip)
-                            .disabled(isClosing)
-                            .accessibilityHidden(true)
-                            .background {
-                                AccessibilityPressBridge(
-                                    identifier: "paneManagement.close",
-                                    label: AppCommand.closePane.definition.label,
-                                    isEnabled: !isClosing
+                            if let closePresentation {
+                                managementCommandCircleButton(
+                                    presentation: closePresentation,
+                                    systemName: "xmark",
+                                    isHovered: isCloseHovered,
+                                    accessibilityIdentifier: "paneManagement.close",
+                                    additionalEnabledState: !isClosing
                                 ) {
                                     beginCloseTransition()
                                 }
+                                .onHover { isCloseHovered = $0 }
                             }
 
                             if let showArrangementsAction = toolbarPresentation.showArrangementsAction {
@@ -455,23 +427,17 @@ struct PaneLeafContainer: View {
                         HStack {
                             Spacer()
                             VStack(spacing: AppStyles.General.Spacing.standard) {
-                                paneEdgeButton(
-                                    systemName: "plus",
-                                    isHovered: isSplitHovered,
-                                    toolTipText: AppCommand.splitRight.definition.controlToolTip
-                                ) {
-                                    actionDispatcher.dispatch(
-                                        .insertPane(
-                                            source: .newTerminal,
-                                            targetTabId: tabId,
-                                            targetPaneId: paneHost.id,
-                                            direction: .right,
-                                            sizingMode: .halveTarget
-                                        )
-                                    )
+                                if let splitPresentation {
+                                    paneEdgeCommandButton(
+                                        presentation: splitPresentation,
+                                        systemName: "plus",
+                                        isHovered: isSplitHovered,
+                                        accessibilityIdentifier: "paneManagement.addPane"
+                                    ) {
+                                        splitPresentation.perform()
+                                    }
+                                    .onHover { isSplitHovered = $0 }
                                 }
-                                .onHover { isSplitHovered = $0 }
-                                .accessibilityIdentifier("paneManagement.addPane")
 
                                 paneEdgeButton(
                                     systemName: "globe",
@@ -493,24 +459,24 @@ struct PaneLeafContainer: View {
                                 isDrawerChild: isDrawerChild
                             ) {
                             case .detachDrawerPane:
-                                ManagementTrailingEdgeTabButton(
-                                    systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
-                                    isHovered: isDetachHovered,
-                                    isEnabled: true,
-                                    tooltip: AppCommand.detachDrawerPane.definition.controlTooltipRenderValue(),
-                                    accessibilityIdentifier: "paneManagement.detachDrawerPane",
-                                    onAnchorViewChanged: nil
-                                ) {
-                                    AppCommandDispatcher.shared.dispatch(
-                                        .detachDrawerPane,
-                                        target: paneHost.id,
-                                        targetType: .pane
-                                    )
+                                if let detachPresentation {
+                                    ManagementTrailingEdgeTabButton(
+                                        systemName: SystemSymbol.rectanglePortraitAndArrowRight.rawValue,
+                                        isHovered: isDetachHovered,
+                                        isEnabled: detachPresentation.isEnabled,
+                                        tooltip: detachPresentation.spec.controlTooltipRenderValue(),
+                                        accessibilityIdentifier: "paneManagement.detachDrawerPane",
+                                        onAnchorViewChanged: nil
+                                    ) {
+                                        detachPresentation.perform()
+                                    }
+                                    .onHover { isDetachHovered = $0 }
                                 }
-                                .onHover { isDetachHovered = $0 }
                             case .movePaneToTab:
-                                if !managementContext.showsIdentityBlock {
-                                    movePaneTrailingEdgeTabButton
+                                if !managementContext.showsIdentityBlock,
+                                    let inlineMovePresentation
+                                {
+                                    movePaneTrailingEdgeTabButton(inlineMovePresentation)
                                 }
                             }
                         }
@@ -529,10 +495,11 @@ struct PaneLeafContainer: View {
                         !isSplitResizing,
                         !suppressMainPaneManagementInteraction,
                         managementContext.showsIdentityBlock,
-                        let identityCardBounds
+                        let identityCardBounds,
+                        let inlineMovePresentation
                     {
                         let cardFrame = overlayGeometry[identityCardBounds]
-                        movePaneTrailingEdgeTabButton
+                        movePaneTrailingEdgeTabButton(inlineMovePresentation)
                             .position(
                                 x: overlayGeometry.size.width
                                     - (AppStyles.Shell.PaneChrome.paneSplitButtonSize / 2),
@@ -574,12 +541,25 @@ struct PaneLeafContainer: View {
                     && managementChromePresentation == .ordinary
                     && !isDrawerChild
                 {
-                    Button(LocalActionSpec.extractPaneToNewTab.actionSpec.label) {
-                        actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
+                    if let extractContextMenuPresentation {
+                        Button {
+                            extractContextMenuPresentation.perform()
+                        } label: {
+                            commandMenuLabel(extractContextMenuPresentation.spec)
+                        }
+                        .disabled(!extractContextMenuPresentation.isEnabled)
                     }
 
-                    Menu(LocalActionSpec.movePaneToTabMenu.actionSpec.label) {
-                        movePaneDestinationMenuItems
+                    if let moveContextMenuPresentation {
+                        Menu {
+                            movePaneDestinationMenuItems(moveContextMenuPresentation)
+                        } label: {
+                            commandMenuLabel(moveContextMenuPresentation.spec)
+                        }
+                        .disabled(
+                            !moveContextMenuPresentation.isEnabled
+                                || movePaneDestinations.isEmpty
+                        )
                     }
                 }
             }
@@ -615,8 +595,19 @@ struct PaneLeafContainer: View {
             }
         )
     }
+}
 
+extension PaneLeafContainer {
     func beginCloseTransition() {
+        guard
+            let closePresentation = commandPresentation(
+                .closePane,
+                surface: .inlineControl
+            ),
+            closePresentation.isEnabled
+        else {
+            return
+        }
         RestoreTrace.log(
             "PaneLeafContainer.beginCloseTransition pane=\(paneHost.id) drawerChild=\(drawerParentPaneId != nil) tab=\(tabId) closing=\(isClosing)"
         )
@@ -624,8 +615,20 @@ struct PaneLeafContainer: View {
             RestoreTrace.log(
                 "PaneLeafContainer.performClose pane=\(self.paneHost.id) drawerChild=\(self.drawerParentPaneId != nil) tab=\(self.tabId)"
             )
-            actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneHost.id))
+            closePresentation.perform()
         }
+    }
+
+    private func commandPresentation(
+        _ command: AppCommand,
+        surface: AppCommandSurface
+    ) -> PaneLeafCommandPresentation? {
+        PaneLeafCommandPresentation.resolve(
+            command: command,
+            surface: surface,
+            targetPaneId: paneHost.id,
+            dispatcher: commandDispatcher
+        )
     }
 
     private func tabDisplayTitle(tab: AgentStudioCore.Tab) -> String {
@@ -688,6 +691,51 @@ struct PaneLeafContainer: View {
         }
     }
 
+    private func managementCommandCircleButton(
+        presentation: PaneLeafCommandPresentation,
+        systemName: String,
+        isHovered: Bool,
+        accessibilityIdentifier: String,
+        additionalEnabledState: Bool = true,
+        action: @escaping @MainActor @Sendable () -> Void
+    ) -> some View {
+        let isEnabled = presentation.isEnabled && additionalEnabledState
+        return Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
+                .foregroundStyle(
+                    .white.opacity(
+                        AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered)
+                    )
+                )
+                .frame(
+                    width: AppStyles.Shell.ManagementLayer.actionSize,
+                    height: AppStyles.Shell.ManagementLayer.actionSize
+                )
+                .background(
+                    Circle()
+                        .fill(
+                            Color.black.opacity(
+                                AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+                            )
+                        )
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .controlHelp(presentation.spec.controlTooltipRenderValue())
+        .accessibilityHidden(true)
+        .background {
+            AccessibilityPressBridge(
+                identifier: accessibilityIdentifier,
+                label: presentation.spec.label,
+                isEnabled: isEnabled,
+                action: action
+            )
+        }
+    }
+
     private func paneEdgeButton(
         systemName: String,
         isHovered: Bool,
@@ -701,23 +749,59 @@ struct PaneLeafContainer: View {
         .help(toolTipText)
     }
 
+    private func paneEdgeCommandButton(
+        presentation: PaneLeafCommandPresentation,
+        systemName: String,
+        isHovered: Bool,
+        accessibilityIdentifier: String,
+        action: @escaping @MainActor @Sendable () -> Void
+    ) -> some View {
+        Button(action: action) {
+            paneEdgeCommandButtonLabel(
+                systemName: systemName,
+                isHovered: isHovered
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!presentation.isEnabled)
+        .controlHelp(presentation.spec.controlTooltipRenderValue())
+        .accessibilityHidden(true)
+        .background {
+            AccessibilityPressBridge(
+                identifier: accessibilityIdentifier,
+                label: presentation.spec.label,
+                isEnabled: presentation.isEnabled,
+                action: action
+            )
+        }
+    }
+
     @ViewBuilder
-    private var movePaneDestinationMenuItems: some View {
+    private func movePaneDestinationMenuItems(
+        _ presentation: PaneLeafCommandPresentation
+    ) -> some View {
         ForEach(movePaneDestinations) { destination in
             Button(destination.title) {
-                movePane(to: destination)
+                movePane(to: destination, presentation: presentation)
             }
         }
     }
 
-    private func presentMovePaneDestinationMenu() {
-        guard let movePaneMenuAnchorView else { return }
+    private func presentMovePaneDestinationMenu(
+        _ presentation: PaneLeafCommandPresentation
+    ) {
+        guard
+            presentation.isEnabled,
+            let movePaneMenuAnchorView
+        else {
+            return
+        }
         movePaneMenuPresenter.present(
             destinations: movePaneDestinations.map { destination in
                 PaneMoveDestinationMenuPresenter.Destination(
                     title: destination.title,
                     perform: {
-                        movePane(to: destination)
+                        movePane(to: destination, presentation: presentation)
                     }
                 )
             },
@@ -725,38 +809,81 @@ struct PaneLeafContainer: View {
         )
     }
 
-    private var movePaneTrailingEdgeTabButton: some View {
+    private func movePaneTrailingEdgeTabButton(
+        _ presentation: PaneLeafCommandPresentation
+    ) -> some View {
         ManagementTrailingEdgeTabButton(
             systemName: SystemSymbol.arrowLeftArrowRight.rawValue,
             isHovered: isMovePaneHovered,
-            isEnabled: !movePaneDestinations.isEmpty,
-            tooltip: AppCommand.movePaneToTab.definition.controlTooltipRenderValue(),
+            isEnabled: presentation.isEnabled && !movePaneDestinations.isEmpty,
+            tooltip: presentation.spec.controlTooltipRenderValue(),
             accessibilityIdentifier: "paneManagement.movePaneToTab",
             onAnchorViewChanged: { view in
                 if movePaneMenuAnchorView !== view {
                     movePaneMenuAnchorView = view
                 }
             },
-            action: presentMovePaneDestinationMenu
+            action: {
+                presentMovePaneDestinationMenu(presentation)
+            }
         )
         .onHover { isMovePaneHovered = $0 }
     }
 
-    private func movePane(to destination: MovePaneDestination) {
-        guard
-            let targetTab = store.tabLayoutAtom.tab(destination.tabId),
-            let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first
-        else { return }
+    private func movePane(
+        to destination: MovePaneDestination,
+        presentation: PaneLeafCommandPresentation
+    ) {
+        guard store.tabLayoutAtom.tab(destination.tabId) != nil else { return }
 
-        actionDispatcher.dispatch(
-            .insertPane(
-                source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
-                targetTabId: destination.tabId,
-                targetPaneId: targetPaneId,
-                direction: .right,
-                sizingMode: .halveTarget
-            )
+        presentation.movePane(
+            sourceTabId: tabId,
+            targetTabId: destination.tabId
         )
+    }
+
+    private func commandMenuLabel(_ spec: AppCommandSpec) -> some View {
+        Label {
+            Text(spec.label)
+        } icon: {
+            spec.icon.swiftUIImage(loader: octiconLoader)
+        }
+    }
+
+    private func paneEdgeCommandButtonLabel(
+        systemName: String,
+        isHovered: Bool
+    ) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: AppStyles.Shell.PaneChrome.paneSplitIconSize, weight: .bold))
+            .foregroundStyle(
+                .white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered))
+            )
+            .frame(
+                width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
+                height: AppStyles.Shell.PaneChrome.paneEdgeButtonHeight
+            )
+            .background(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                )
+                .fill(
+                    Color.black.opacity(
+                        AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
+                    )
+                )
+            )
+            .contentShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomLeadingRadius: AppStyles.General.CornerRadius.panel + 4,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                )
+            )
     }
 
     private func paneEdgeButtonLabel(
@@ -858,56 +985,6 @@ struct DragHandleDragPreview: View {
         }
     }
 }
-
-// MARK: - NSViewRepresentable for PaneHostView
-
-/// Bridges any PaneHostView (NSView) into SwiftUI.
-/// Returns the stable swiftUIContainer — same NSView every time, preventing IOSurface reparenting.
-struct PaneViewRepresentable: NSViewRepresentable {
-    let paneHost: PaneHostView
-
-    #if DEBUG
-        static var onDismantleForTesting: (() -> Void)?
-    #endif
-
-    func makeNSView(context: Context) -> NSView {
-        RestoreTrace.log(
-            "PaneViewRepresentable.makeNSView paneId=\(paneHost.paneId) containerId=\(ObjectIdentifier(paneHost.swiftUIContainer)) hostId=\(ObjectIdentifier(paneHost))"
-        )
-        return paneHost.swiftUIContainer
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // Nothing — container is stable, pane manages itself.
-        // Host replacement is handled by .id(paneHost.hostIdentity) on the
-        // PaneViewRepresentable call site, which forces SwiftUI to dismantle
-        // and recreate when the host instance changes.
-    }
-
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        nsView: NSView,
-        context: Context
-    ) -> CGSize? {
-        let proposedSize = proposal.replacingUnspecifiedDimensions(by: nsView.frame.size)
-        guard proposedSize.width.isFinite, proposedSize.height.isFinite else {
-            return nil
-        }
-        return proposedSize
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
-        RestoreTrace.log(
-            "PaneViewRepresentable.dismantleNSView viewId=\(ObjectIdentifier(nsView)) superview=\(nsView.superview != nil) window=\(nsView.window != nil) ancestry=\(ancestorChainDescription(for: nsView))"
-        )
-        #if DEBUG
-            onDismantleForTesting?()
-        #endif
-    }
-}
-
-@available(*, deprecated, renamed: "PaneLeafContainer")
-typealias TerminalPaneLeaf = PaneLeafContainer
 
 /// Payload for dragging the new tab button.
 struct NewTabDragPayload: Codable, Transferable {

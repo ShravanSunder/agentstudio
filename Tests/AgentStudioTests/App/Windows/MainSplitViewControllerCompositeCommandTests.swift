@@ -249,8 +249,8 @@ struct MainSplitViewControllerCompositeCommandTests {
         )
     }
 
-    @Test("production pane inbox popover clear uses window scoped wiring")
-    func productionPaneInboxPopoverClearUsesWindowScopedWiring() async throws {
+    @Test("production pane inbox popover clear reaches the targeted PaneTab owner")
+    func productionPaneInboxPopoverClearReachesTargetedPaneTabOwner() async throws {
         try await withIsolatedCommandDispatcher(
             configure: {},
             body: {
@@ -258,16 +258,15 @@ struct MainSplitViewControllerCompositeCommandTests {
                 try await withMainSplitViewControllerHarness(
                     withRepos: true,
                     inboxAtom: inboxAtom,
+                    paneTabRegistersAsCommandHandler: true,
                     body: { harness in
                         let pane = harness.store.createPane()
                         let tab = Tab(paneId: pane.id)
                         harness.store.appendTab(tab)
                         harness.store.setActiveTab(tab.id)
+                        harness.atoms.core.workspaceFocusOwner.focusMainPane(pane.id)
                         let notification = makePaneInboxNotification(paneId: pane.id, title: "Clearable")
                         inboxAtom.append(notification)
-                        let commandHandler = MainSplitViewControllerCommandHandlerProbe()
-                        AppCommandDispatcher.shared.handler = commandHandler
-                        AppCommandDispatcher.shared.appCommandRouter = nil
 
                         let hostingView = makePaneInboxPopoverHostingView(
                             presentation: harness.controller.makePaneInboxPresentation(),
@@ -283,7 +282,6 @@ struct MainSplitViewControllerCompositeCommandTests {
 
                         pressAccessibleElement(clearButton)
 
-                        #expect(commandHandler.executedTargets.isEmpty)
                         #expect(inboxAtom.notifications.first?.isRead == true)
                         #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
                     }
@@ -442,9 +440,6 @@ private func makePaneInboxPopoverHostingView(
             presentation.popoverContent(
                 parentPaneId,
                 paneIds,
-                {
-                    presentation.clear(parentPaneId, paneIds)
-                },
                 ignorePaneInboxPopoverClose
             )
             .frame(width: 360, height: 240)

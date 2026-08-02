@@ -9,6 +9,20 @@ import Testing
 @MainActor
 @Suite("AppCommand sidebar commands")
 struct AppCommandSidebarCommandsTests {
+    @Test("no-argument request capability does not require atom state")
+    func noArgumentRequestCapabilityDoesNotRequireAtomState() {
+        let delegate = AppDelegate()
+
+        #expect(
+            delegate.canExecute(
+                AppCommandExecutionRequest(
+                    command: .toggleSidebar,
+                    arguments: .noArguments
+                )
+            )
+        )
+    }
+
     @Test("dispatcher registers sidebar grouping commands")
     func dispatcherRegistersSidebarGroupingCommands() {
         let expected: [(AppCommand, String, CommandIcon)] = [
@@ -26,7 +40,9 @@ struct AppCommandSidebarCommandsTests {
             #expect(definition.label == label)
             #expect(definition.icon == icon)
             #expect(definition.commandBarGroupName == (command.rawValue.hasPrefix("setInbox") ? "Inbox" : "Sidebar"))
-            #expect(!definition.isHiddenInCommandBar)
+            #expect(definition.surfacePolicy.exposes(.commandBar))
+            #expect(definition.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+            #expect(definition.targeting == .contextual)
         }
     }
 
@@ -70,7 +86,9 @@ struct AppCommandSidebarCommandsTests {
         #expect(definition.label == "Set Repo Sidebar Visibility Mode")
         #expect(definition.icon == .system(.bookmark))
         #expect(definition.commandBarGroupName == "Sidebar")
-        #expect(definition.isHiddenInCommandBar)
+        #expect(!definition.surfacePolicy.exposes(.commandBar))
+        #expect(definition.surfacePolicy == .exposed([.inlineControl]))
+        #expect(definition.targeting == .contextual)
         #expect(
             definition.argumentSchema == [
                 IPCCommandArgumentSchema(
@@ -80,7 +98,7 @@ struct AppCommandSidebarCommandsTests {
                 )
             ])
         #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcExposure.targetKinds.isEmpty)
+        #expect(definition.ipcCommandListEntry.targetKinds.isEmpty)
         #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
 
@@ -91,7 +109,9 @@ struct AppCommandSidebarCommandsTests {
         #expect(definition.label == "Set Repo Sidebar Sort Order")
         #expect(definition.icon == .system(.arrowUpArrowDown))
         #expect(definition.commandBarGroupName == "Sidebar")
-        #expect(definition.isHiddenInCommandBar)
+        #expect(!definition.surfacePolicy.exposes(.commandBar))
+        #expect(definition.surfacePolicy == .exposed([.inlineControl]))
+        #expect(definition.targeting == .contextual)
         #expect(
             definition.argumentSchema == [
                 IPCCommandArgumentSchema(
@@ -101,7 +121,7 @@ struct AppCommandSidebarCommandsTests {
                 )
             ])
         #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcExposure.targetKinds.isEmpty)
+        #expect(definition.ipcCommandListEntry.targetKinds.isEmpty)
         #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
 

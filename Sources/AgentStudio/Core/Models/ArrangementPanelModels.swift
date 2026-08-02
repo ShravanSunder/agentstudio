@@ -67,13 +67,16 @@ package struct ArrangementPanelZoomSourceIdentity: Equatable, Sendable {
 
 package struct ArrangementPanelZoomMode: Equatable, Sendable {
     package let label: String
+    package let sourcePaneId: UUID
     package let sourceIdentity: ArrangementPanelZoomSourceIdentity?
 
     package init(
         label: String,
+        sourcePaneId: UUID,
         sourceIdentity: ArrangementPanelZoomSourceIdentity? = nil
     ) {
         self.label = label
+        self.sourcePaneId = sourcePaneId
         self.sourceIdentity = sourceIdentity
     }
 }

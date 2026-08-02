@@ -92,7 +92,7 @@ struct PaneTabViewControllerCommandTests {
         harness.store.appendTab(secondTab)
         harness.store.setActiveTab(firstTab.id)
 
-        harness.controller.executeTabContextMenuCommand(.renameTab, tabId: secondTab.id)
+        harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
 
         #expect(harness.store.activeTabId == secondTab.id)
         #expect(harness.tabRenamePopoverState.presentedTabId == nil)

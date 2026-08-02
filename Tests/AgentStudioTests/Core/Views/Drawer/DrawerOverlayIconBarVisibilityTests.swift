@@ -227,15 +227,14 @@ struct DrawerOverlayIconBarVisibilityTests {
         let hostingView = NSHostingView<AnyView>(
             rootView: AnyView(
                 DrawerOverlay(
-                    paneId: UUID(),
                     octiconLoader: makeCoreTestOcticonLoader(),
                     drawer: nil,
                     isIconBarVisible: isIconBarVisible,
+                    toggleDrawerAction: makeTargetedAction(.toggleDrawer),
+                    addDrawerPaneAction: makeTargetedAction(.addDrawerPane),
                     trailingActions: trailingActions,
                     paneSurfaceActions: paneSurfaceActions ?? [probeAction],
-                    paneContextActions: paneContextActions,
-                    action: { _ in },
-                    onPaneFocusTrigger: { _ in }
+                    paneContextActions: paneContextActions
                 )
                 .frame(width: width)
             )
@@ -258,13 +257,24 @@ struct DrawerOverlayIconBarVisibilityTests {
 
     private func makeTrailingActions() -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
-            canOpenTarget: true,
+            openEditorMenuAction: makeTargetedAction(.openPaneLocationInEditorMenu),
+            openFinderAction: makeTargetedAction(.openPaneLocationInFinder),
+            copyPathAction: makeTargetedAction(.copyCurrentPanePath),
+            showPaneInboxAction: makeTargetedAction(.showPaneInboxNotifications),
             editorMenuContent: AnyView(EmptyView()),
             editorMenuPresented: .constant(false),
             buttonTitle: nil,
-            onOpenFinder: {},
-            onOpenInbox: {},
             inboxPopoverContent: AnyView(EmptyView())
+        )
+    }
+
+    private func makeTargetedAction(
+        _ command: AppCommand
+    ) -> TargetedCommandControlAction {
+        TargetedCommandControlAction(
+            commandSpec: command.definition,
+            isEnabled: true,
+            perform: {}
         )
     }
 

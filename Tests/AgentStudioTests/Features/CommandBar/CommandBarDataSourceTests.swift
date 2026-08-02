@@ -140,38 +140,6 @@ struct CommandBarDataSourceTests {
         #expect(!ids.contains("cmd-closeWindow"))
     }
 
-    @Test("Bridge Reload appears only when the active Bridge mount can execute it")
-    func bridgeReloadRequiresMountedBridgeCommandAvailability() {
-        // Arrange
-        let dispatcher = FakeAppCommandDispatcher()
-        let focus = WorkspacePaneFocus(
-            paneContentType: .bridge,
-            satisfiedRequirements: [.hasActivePane, .paneIsBridge]
-        )
-        dispatcher.availableCommands.remove(.reloadBridgeWebView)
-
-        // Act
-        let unavailableItems = CommandBarDataSource.items(
-            scope: .commands,
-            store: makeStore(),
-            repoCache: makeRepoCache(),
-            dispatcher: dispatcher,
-            focus: focus
-        )
-        dispatcher.availableCommands.insert(.reloadBridgeWebView)
-        let availableItems = CommandBarDataSource.items(
-            scope: .commands,
-            store: makeStore(),
-            repoCache: makeRepoCache(),
-            dispatcher: dispatcher,
-            focus: focus
-        )
-
-        // Assert
-        #expect(!unavailableItems.contains { $0.id == "cmd-reloadBridgeWebView" })
-        #expect(availableItems.contains { $0.id == "cmd-reloadBridgeWebView" })
-    }
-
     @Test
     func test_commandsScope_hasCorrectSubgroups() {
         let store = makeRichCommandStore()
@@ -225,6 +193,10 @@ struct CommandBarDataSourceTests {
         #expect(viewerItems.count == 1)
         #expect(viewerItems["cmd-showViewer"]?.title == "Worktree Viewer")
         #expect(viewerItems.values.allSatisfy { !$0.hasChildren })
+        guard case .dispatch(.showViewer) = viewerItems["cmd-showViewer"]?.action else {
+            Issue.record("Expected contextual-preferred Viewer command to dispatch directly")
+            return
+        }
     }
 
     @Test

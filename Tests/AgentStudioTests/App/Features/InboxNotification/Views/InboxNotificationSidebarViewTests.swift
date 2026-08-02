@@ -937,6 +937,10 @@ private struct InboxSidebarRootHarness: View {
             focusedField: $focusedField,
             sections: sections,
             flashingRowIds: [],
+            commandPresentation: InboxSidebarCommandPresentation(commandContext: .empty),
+            commandCapability: InboxSidebarCommandCapability(
+                dispatcher: FakeInboxAppCommandDispatcher()
+            ),
             actions: .init(
                 onEscape: {},
                 onToggleSort: {},

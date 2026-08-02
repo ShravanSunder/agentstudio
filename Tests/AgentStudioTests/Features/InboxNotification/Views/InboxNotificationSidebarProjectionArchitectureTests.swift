@@ -53,16 +53,12 @@ struct InboxSidebarProjectionArchitectureTests {
 
         let rowFilterRead = try #require(source.range(of: "let nextRowStateFilter"))
         let contentModeRead = try #require(source.range(of: "let nextContentMode"))
-        let rowFilterClear = source.range(
-            of: "displayOverride = nil",
-            range: rowFilterRead.upperBound..<contentModeRead.lowerBound
-        )
-        let contentModeClear = source.range(
+        let firstOverrideClear = source.range(
             of: "displayOverride = nil",
             range: contentModeRead.upperBound..<source.endIndex
         )
 
-        #expect(rowFilterClear != nil)
-        #expect(contentModeClear != nil)
+        #expect(rowFilterRead.lowerBound < contentModeRead.lowerBound)
+        #expect(firstOverrideClear != nil)
     }
 }
