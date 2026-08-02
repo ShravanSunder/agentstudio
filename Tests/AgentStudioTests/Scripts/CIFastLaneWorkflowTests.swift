@@ -47,19 +47,24 @@ struct CIFastLaneWorkflowTests {
     @Test("Swift build cache rolls forward per commit within a compatible toolchain")
     func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
-        let cacheStep = try workflowStep(named: "Cache Swift build", in: ciWorkflow)
+        let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: ciWorkflow)
+        let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: ciWorkflow)
 
-        #expect(cacheStep.contains("path: .build-ci"))
+        #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
-            cacheStep.contains(
-                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}"
+            restoreCacheStep.contains(
+                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ hashFiles('Package.swift', 'Package.resolved') }}"
             )
         )
         #expect(
-            cacheStep.contains(
-                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-"
+            restoreCacheStep.contains(
+                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || 'main-' }}"
             )
         )
+        #expect(restoreCacheStep.contains("actions/cache/restore@v4"))
+        #expect(saveCacheStep.contains("path: .build-ci"))
+        #expect(saveCacheStep.contains("actions/cache/save@v4"))
+        #expect(saveCacheStep.contains("steps.swift-build-cache-restore.outputs.cache-primary-key"))
     }
 
     @Test("benchmark workflow uses the canonical CI Swift build directory")
@@ -140,7 +145,7 @@ struct CIFastLaneWorkflowTests {
         #expect(ciWorkflow.contains("path: .build-ci"))
         #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
-        #expect(prebuildStep.contains("run: mise run test:swift:prebuild"))
+        #expect(prebuildStep.contains("run: mise run --skip-deps test:swift:prebuild"))
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))

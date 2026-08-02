@@ -218,7 +218,7 @@ struct WorkspaceSQLiteCommitProtocolTests {
         let concurrentRead = Task.detached {
             try fixture.coreRepository.fetchAuthoritativeSnapshot()
         }
-        guard fixture.readBarrier.waitUntilReaderIsPaused() else {
+        guard await fixture.readBarrier.waitUntilReaderIsPaused() else {
             fixture.readBarrier.resumeReader()
             Issue.record("Authoritative read did not reach the topology barrier")
             _ = try await concurrentRead.value
@@ -443,8 +443,13 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         }
     }
 
-    func waitUntilReaderIsPaused() -> Bool {
-        readerPaused.wait(timeout: .now() + 5) == .success
+    func waitUntilReaderIsPaused() async -> Bool {
+        // Keep the semaphore wait off the MainActor so the detached database
+        // reader can reach the trace callback while this test awaits it.
+        // swiftlint:disable:next no_task_detached
+        await Task.detached { [readerPaused] in
+            readerPaused.wait(timeout: .now() + 5) == .success
+        }.value
     }
 
     func resumeReader() {

@@ -131,6 +131,12 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
 
+      - name: Install lint tools for Swift test contracts
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: brew install swiftlint
+
       # --- Build BridgeWeb resources for SwiftPM ---
 
       - name: Setup pnpm
