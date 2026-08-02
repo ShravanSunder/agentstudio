@@ -122,10 +122,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build-ci
-          key: swift-benchmark-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          key: benchmark-swift-build-ci-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
-            swift-benchmark-${{ runner.os }}-
-            swift-${{ runner.os }}-
+            benchmark-swift-build-ci-${{ runner.os }}-
 
       - name: Test large non-WebKit lane
         env:
