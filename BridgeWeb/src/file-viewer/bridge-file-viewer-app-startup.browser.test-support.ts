@@ -1,4 +1,5 @@
 import { act } from 'react';
+import { userEvent } from 'vitest/browser';
 
 import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
@@ -147,11 +148,9 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 	});
 }
 
-export async function actClickAndSettleFileViewerMenu(element: {
-	readonly click: () => void;
-}): Promise<void> {
+export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
 	await act(async (): Promise<void> => {
-		element.click();
+		await userEvent.click(element);
 		await Promise.resolve();
 		const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
 		if (menuContent instanceof HTMLElement) {
