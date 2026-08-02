@@ -18,6 +18,7 @@ struct ActiveTabContent: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation? = nil
@@ -62,6 +63,7 @@ struct ActiveTabContent: View {
                 activePaneId: tab.activePaneId,
                 minimizedPaneIds: tab.activeMinimizedPaneIds,
                 visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: activeTabId),
+                arrangementInlineRenameState: arrangementInlineRenameState,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,

@@ -132,30 +132,6 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(!source.contains("toolTip"))
     }
 
-    @Test("encoded command list entries expose only IPC contract keys")
-    func encodedCommandListEntriesExposeOnlyIPCContractKeys() throws {
-        let harness = CommandAdapterHarness()
-        let result = try harness.adapter.listCommands()
-        let encodedData = try JSONEncoder().encode(result)
-        let decodedObject = try #require(
-            JSONSerialization.jsonObject(with: encodedData) as? [String: Any]
-        )
-        let encodedCommands = try #require(decodedObject["commands"] as? [[String: Any]])
-        let expectedEntryKeys = Set([
-            "id",
-            "title",
-            "executionModes",
-            "targetKinds",
-            "requiredPrivileges",
-            "argumentSchema",
-        ])
-
-        #expect(!encodedCommands.isEmpty)
-        for encodedCommand in encodedCommands {
-            #expect(Set(encodedCommand.keys) == expectedEntryKeys)
-        }
-    }
-
     @Test("rejects ui-presentation command specs before workspace window checks")
     func rejectsUIPresentationCommandSpecsBeforeWorkspaceWindowChecks() throws {
         let harness = CommandAdapterHarness(windowSnapshot: .empty)
@@ -813,6 +789,11 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(authorizer.containsPane(id: durablePane.id))
         #expect(!authorizer.containsPane(id: nonDurablePane.id))
     }
+}
+
+@MainActor
+func makeIPCCommandAdapterForPresentationIsolationTests() -> AgentStudioIPCCommandAdapter {
+    CommandAdapterHarness().adapter
 }
 
 @MainActor

@@ -26,6 +26,7 @@ typealias MainSplitViewControllerTestSidebarBuilder =
 private func makeMainSplitViewControllerHarness(
     withRepos: Bool,
     inboxAtom: InboxNotificationAtom,
+    paneTabRegistersAsCommandHandler: Bool,
     configureUIState: @MainActor (WorkspaceSidebarState) -> Void,
     configureWorkspaceWindowMemory: @MainActor (WorkspaceWindowMemoryAtom) -> Void,
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder
@@ -89,7 +90,7 @@ private func makeMainSplitViewControllerHarness(
         sidebarRootViewBuilder: { dependencies in
             sidebarRootViewBuilder(dependencies.uiState, dependencies.onDismissInbox)
         },
-        paneTabRegistersAsCommandHandler: false
+        paneTabRegistersAsCommandHandler: paneTabRegistersAsCommandHandler
     )
     let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
@@ -112,6 +113,7 @@ private func makeMainSplitViewControllerHarness(
 func withMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
+    paneTabRegistersAsCommandHandler: Bool = false,
     configureUIState: @MainActor (WorkspaceSidebarState) -> Void = { _ in },
     configureWorkspaceWindowMemory: @MainActor (WorkspaceWindowMemoryAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
@@ -122,6 +124,7 @@ func withMainSplitViewControllerHarness<T>(
     let harness = makeMainSplitViewControllerHarness(
         withRepos: withRepos,
         inboxAtom: inboxAtom,
+        paneTabRegistersAsCommandHandler: paneTabRegistersAsCommandHandler,
         configureUIState: configureUIState,
         configureWorkspaceWindowMemory: configureWorkspaceWindowMemory,
         sidebarRootViewBuilder: sidebarRootViewBuilder
@@ -157,6 +160,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
     let harness = makeMainSplitViewControllerHarness(
         withRepos: withRepos,
         inboxAtom: inboxAtom,
+        paneTabRegistersAsCommandHandler: false,
         configureUIState: configureUIState,
         configureWorkspaceWindowMemory: configureWorkspaceWindowMemory,
         sidebarRootViewBuilder: sidebarRootViewBuilder

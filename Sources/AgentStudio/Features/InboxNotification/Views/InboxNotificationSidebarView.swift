@@ -27,6 +27,8 @@ package struct InboxNotificationSidebarView: View {
     let workspaceRepositoryTopologyAtom: RepositoryTopologyAtom
     let repoCache: RepoCacheAtom
     let dispatcher: any AppCommandDispatching
+    let canSetRowStateFilter: ((InboxNotificationRowStateFilter) -> Bool)?
+    let canSetContentMode: ((InboxNotificationContentMode) -> Bool)?
     let onSetRowStateFilter: (InboxNotificationRowStateFilter) -> Void
     let onSetContentMode: (InboxNotificationContentMode) -> Void
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -62,6 +64,8 @@ package struct InboxNotificationSidebarView: View {
         workspaceRepositoryTopologyAtom: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching,
+        canSetRowStateFilter: ((InboxNotificationRowStateFilter) -> Bool)? = nil,
+        canSetContentMode: ((InboxNotificationContentMode) -> Bool)? = nil,
         onSetRowStateFilter: @escaping (InboxNotificationRowStateFilter) -> Void,
         onSetContentMode: @escaping (InboxNotificationContentMode) -> Void,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
@@ -80,6 +84,8 @@ package struct InboxNotificationSidebarView: View {
         self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.canSetRowStateFilter = canSetRowStateFilter
+        self.canSetContentMode = canSetContentMode
         self.onSetRowStateFilter = onSetRowStateFilter
         self.onSetContentMode = onSetContentMode
         self.performanceTraceRecorder = performanceTraceRecorder
@@ -114,6 +120,13 @@ package struct InboxNotificationSidebarView: View {
     }
 
     package var body: some View {
+        let commandContext = InboxCommandContextProjection.current(
+            workspacePane: workspacePaneAtom
+        )
+        let nextRowStateFilter: InboxNotificationRowStateFilter =
+            effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly
+        let nextContentMode: InboxNotificationContentMode =
+            effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts
         InboxSidebarRootContainer(
             octiconLoader: octiconLoader,
             uiState: uiState,
@@ -128,11 +141,23 @@ package struct InboxNotificationSidebarView: View {
             focusedField: $focusedField,
             sections: listModel.sections,
             flashingRowIds: flashingRowIds,
+            commandPresentation: InboxSidebarCommandPresentation(
+                commandContext: commandContext
+            ),
+            commandCapability: InboxSidebarCommandCapability(
+                dispatcher: dispatcher,
+                capabilityOverrides: Self.argumentCommandCapabilities(
+                    nextRowStateFilter: nextRowStateFilter,
+                    nextContentMode: nextContentMode,
+                    canSetRowStateFilter: canSetRowStateFilter,
+                    canSetContentMode: canSetContentMode
+                )
+            ),
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
-                onToggleRowStateFilter: toggleRowStateFilter,
-                onCycleContentMode: cycleContentMode,
+                onToggleRowStateFilter: { setRowStateFilter(nextRowStateFilter) },
+                onCycleContentMode: { setContentMode(nextContentMode) },
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
                 onClearAllHistory: clearAllInboxNotifications,
@@ -545,18 +570,30 @@ package struct InboxNotificationSidebarView: View {
         dispatcher.dispatch(command)
     }
 
-    private func toggleRowStateFilter() {
-        let nextRowStateFilter: InboxNotificationRowStateFilter =
-            effectiveRowStateFilter == .unreadOnly ? .all : .unreadOnly
+    private func setRowStateFilter(_ rowStateFilter: InboxNotificationRowStateFilter) {
         displayOverride = nil
-        onSetRowStateFilter(nextRowStateFilter)
+        onSetRowStateFilter(rowStateFilter)
     }
 
-    private func cycleContentMode() {
-        let nextContentMode: InboxNotificationContentMode =
-            effectiveContentMode == .rollUpAlerts ? .all : .rollUpAlerts
+    private func setContentMode(_ contentMode: InboxNotificationContentMode) {
         displayOverride = nil
-        onSetContentMode(nextContentMode)
+        onSetContentMode(contentMode)
+    }
+
+    static func argumentCommandCapabilities(
+        nextRowStateFilter: InboxNotificationRowStateFilter,
+        nextContentMode: InboxNotificationContentMode,
+        canSetRowStateFilter: ((InboxNotificationRowStateFilter) -> Bool)?,
+        canSetContentMode: ((InboxNotificationContentMode) -> Bool)?
+    ) -> [AppCommand: Bool] {
+        var capabilities: [AppCommand: Bool] = [:]
+        if let canSetRowStateFilter {
+            capabilities[.setInboxRowStateFilter] = canSetRowStateFilter(nextRowStateFilter)
+        }
+        if let canSetContentMode {
+            capabilities[.setInboxContentMode] = canSetContentMode(nextContentMode)
+        }
+        return capabilities
     }
 
     func clearReadInboxNotifications() {

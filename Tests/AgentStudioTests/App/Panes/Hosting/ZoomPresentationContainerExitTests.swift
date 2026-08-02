@@ -85,6 +85,7 @@ struct ZoomPresentationContainerExitTests {
                 octiconLoader: makeTestOcticonLoader(),
                 editorChooser: makeTestAtomRegistry().editorChooser,
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
+                arrangementInlineRenameState: ArrangementInlineRenameState(),
                 onPaneFocusTrigger: { _ in },
                 viewRegistry: viewRegistry,
                 surfaceId: "zoom-toolbar-exit-test",

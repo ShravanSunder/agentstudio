@@ -23,6 +23,7 @@ protocol WorkspaceCommandHandling: AnyObject {
 protocol ShellCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand) -> Bool
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome
@@ -31,14 +32,21 @@ protocol ShellCommandHandling: AnyObject {
     func refocusActivePane()
 }
 
+extension ShellCommandHandling {
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
+        guard request.arguments == .noArguments else { return false }
+        return canExecute(request.command)
+    }
+}
+
 struct AppCommandExecutionRequest: Equatable, Sendable {
     let command: AppCommand
-    let arguments: AppCommandExecutionArguments?
+    let arguments: AppCommandExecutionArguments
     let executionContext: AppCommandExecutionContext
 
     init(
         command: AppCommand,
-        arguments: AppCommandExecutionArguments? = nil,
+        arguments: AppCommandExecutionArguments = .noArguments,
         executionContext: AppCommandExecutionContext = .interactive
     ) {
         self.command = command
@@ -53,24 +61,26 @@ enum AppCommandExecutionContext: Equatable, Sendable {
 }
 
 enum AppCommandExecutionArguments: Equatable, Sendable {
+    case noArguments
     case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
     case repoSidebarSortOrder(RepoExplorerSortOrder)
     case inboxRowStateFilter(InboxNotificationRowStateFilter)
     case inboxContentMode(InboxNotificationContentMode)
 
     static func commandOwnedArguments(
-        command: AppCommand,
+        contract: AppCommandIPCArgumentContract,
         rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool,
-        argumentSchema: [IPCCommandArgumentSchema]
-    ) throws -> Self? {
+        argumentsContainOnlyStrings: Bool
+    ) throws -> Self {
         try validate(
             rawArguments: rawArguments,
             argumentsContainOnlyStrings: argumentsContainOnlyStrings,
-            against: argumentSchema
+            against: contract.argumentSchema
         )
-        switch command {
-        case .setRepoSidebarVisibilityMode:
+        switch contract {
+        case .noArguments:
+            return .noArguments
+        case .repoSidebarVisibilityMode:
             guard
                 let rawMode = rawArguments["mode"],
                 let mode = RepoExplorerVisibilityMode(rawValue: rawMode)
@@ -78,7 +88,7 @@ enum AppCommandExecutionArguments: Equatable, Sendable {
                 throw AppCommandArgumentDecodingError.validationRejected
             }
             return .repoSidebarVisibilityMode(mode)
-        case .setRepoSidebarSortOrder:
+        case .repoSidebarSortOrder:
             guard
                 let rawOrder = rawArguments["order"],
                 let order = RepoExplorerSortOrder(rawValue: rawOrder)
@@ -86,7 +96,7 @@ enum AppCommandExecutionArguments: Equatable, Sendable {
                 throw AppCommandArgumentDecodingError.validationRejected
             }
             return .repoSidebarSortOrder(order)
-        case .setInboxRowStateFilter:
+        case .inboxRowStateFilter:
             guard
                 let rawFilter = rawArguments["filter"],
                 let filter = InboxNotificationRowStateFilter(rawValue: rawFilter)
@@ -94,7 +104,7 @@ enum AppCommandExecutionArguments: Equatable, Sendable {
                 throw AppCommandArgumentDecodingError.validationRejected
             }
             return .inboxRowStateFilter(filter)
-        case .setInboxContentMode:
+        case .inboxContentMode:
             guard
                 let rawMode = rawArguments["mode"],
                 let mode = InboxNotificationContentMode(rawValue: rawMode)
@@ -102,11 +112,6 @@ enum AppCommandExecutionArguments: Equatable, Sendable {
                 throw AppCommandArgumentDecodingError.validationRejected
             }
             return .inboxContentMode(mode)
-        default:
-            guard rawArguments.isEmpty else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            return nil
         }
     }
 
@@ -173,9 +178,12 @@ extension ShellCommandHandling {
     }
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
-        guard request.arguments == nil else {
+        switch request.arguments {
+        case .noArguments:
+            return execute(request.command) ? .applied : .unsupportedCommand
+        case .repoSidebarVisibilityMode, .repoSidebarSortOrder,
+            .inboxRowStateFilter, .inboxContentMode:
             return .unsupportedCommand
         }
-        return execute(request.command) ? .applied : .unsupportedCommand
     }
 }

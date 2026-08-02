@@ -9,11 +9,16 @@ drift.
 
 | File | Owns |
 |------|------|
-| `Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift` | Package-visible command **identities**, specs, and dispatch protocol. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppCommand.swift` | Package-visible command **identities**, spec shape, and dispatch protocol. |
 | `Sources/AgentStudio/Core/Actions/Commands/AppShortcut.swift` | Package-visible keyboard **bindings** + contexts where they fire. |
-| `Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift` | `AppCommandSpec` — ties an `AppCommand` to its `AppShortcut` plus command-bar metadata. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppCommand+Catalog.swift` | Exhaustive interactive `AppCommandSpec` catalog — copy, shortcut, surfaces, targeting, context requirements, and command-bar grouping. |
+| `Sources/AgentStudio/Core/Actions/Commands/AppCommandPresentationPolicy.swift` | Typed interactive surfaces, targeting modes, presentation subjects, and the pure `shouldPresent` query. |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` | Immutable normalized focus identity and content. |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` | Pure requested-focus normalization against live workspace state. |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContext.swift` | Immutable command-policy facts and requirements. |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/CommandContextDerived.swift` | Pure projection from focused-pane and workspace/presentation facts. |
 | `Sources/AgentStudio/Core/Actions/Commands/AppCommand+DisplayDescriptor.swift` | Package-visible projection from `AppCommandSpec` into app-free display descriptors and tooltip render values. |
-| `Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift` | App-owned projection from `AppCommandSpec.ipcExposure` into public IPC command-list DTOs. |
+| `Sources/AgentStudio/App/Commands/AppCommand+IPCProjection.swift` | Independent exhaustive `AppCommand.ipcSpec` companion projection for IPC exposure, durable targets, privileges, and arguments, plus public command-list DTO projection. |
 | `Sources/AgentStudio/Core/Actions/UIActionPresentation.swift` | `LocalActionSpec` and app-free action presentation helpers for tooltips, button labels, menu items. |
 | `Sources/AgentStudio/Core/Actions/ControlTooltipSource.swift` | App-free tooltip source, provenance, copy style, and resolver. |
 | `Sources/AgentStudio/Infrastructure/ControlTooltipRenderValue.swift` | Render-only tooltip value that UI primitives and shared components may consume. |
@@ -45,22 +50,126 @@ drift.
 ```
 
 `AppCommand` is the identity. `AppShortcut` decides which keystrokes
-fire it. `AppCommandSpec` exposes it in the command bar. Core projection
-extensions turn that metadata into app-free tooltip display descriptors; App
-adds executable-only dispatch and IPC projections. `LocalActionSpec` provides
-UI text for buttons/menus that aren't part of the command bar.
+request it. `AppCommandSpec` declares interactive presentation, targeting, and
+command-context requirements. Core projection extensions turn that display
+metadata into app-free tooltip descriptors. App adds executable-only dispatch
+and the independent exhaustive `AppCommand.ipcSpec` companion projection.
+`LocalActionSpec` provides UI text for controls that are not
+dispatcher-backed commands.
 
 ## Module Boundary
 
 Command identity, shortcut vocabulary, metadata, and the dispatch protocol live
 in `AgentStudioCore` with `package` visibility because Feature modules such as
 CommandBar consume them. Concrete dispatch, AppKit key conversion, executable
-handlers, and IPC projection stay in the `AgentStudio` App target.
+handlers, and the IPC companion projection stay in the `AgentStudio` App
+target.
 
 This split lets Features depend on Core without importing App or a sibling
 Feature. Do not move concrete App dispatchers into Core, create a Feature-owned
 copy of the command vocabulary, or widen the command surface to `public` merely
 to cross a package target boundary.
+
+## Exhaustive interactive and IPC projections
+
+`AppCommand` is the shared exhaustive identity, but interactive presentation
+and IPC policy are independent projections:
+
+```text
+AppCommand
+  ├─ exhaustive definition switch
+  │   → AppCommandSpec
+  │   → interactive copy, shortcut, surfaces, targeting, requirements
+  └─ exhaustive ipcSpec switches
+      → AppCommandIPCExposure
+      → AppCommandIPCDurableTargetContract
+      → AppCommandIPCArgumentContract + privilege classification
+      → AppCommandExecutionArguments
+```
+
+The IPC projection represents durable targeting as
+`.targetless` or `.required(primary:additional:)`, and arguments as
+`.noArguments` or a typed argument/filter variant. Its command, exposure,
+durable-target, privilege, and argument switches are exhaustive and have no
+`default`; adding an `AppCommand` must classify both planes before the code
+compiles.
+
+`AgentStudioIPCCommandAdapter.listCommands()` enumerates
+`AppCommand.allCases`, resolves the interactive definition for canonical public
+copy, then projects the independent IPC contract into `IPCCommandListEntry`.
+The internal unions project to the existing execution-mode, target-kind,
+privilege, and argument-schema arrays only for the public DTO; its JSON shape
+and encoding remain unchanged. Internal optionality and execution modes remain
+discriminated unions.
+
+## Focus, presentation, and execution
+
+These are separate contracts:
+
+```text
+WorkspaceFocusOwnerAtom (sole mutable requested-focus owner)
+  → WorkspaceFocusedPaneResolver
+  → WorkspaceFocusedPane (normalized focus identity/content)
+      ├─ status and focus presentation
+      └─ CommandContextDerived + workspace/presentation facts
+          → CommandContext + satisfied CommandRequirement values
+
+AppCommandSpec + AppCommandPresentationQuery
+  → shouldPresent(...) = presence only
+
+AppCommandDispatcher.canDispatch(...) + execution validators
+  → enablement and execution authority
+```
+
+`WorkspaceFocusedPaneResolver` validates requested main-pane, empty-drawer, and
+drawer-child focus against the active tab and visible drawer state. Its
+immutable result is the focus presentation value. `CommandContextDerived`
+consumes that result and produces a separate immutable `CommandContext`;
+neither type owns mutable state or consults AppKit responder objects.
+
+Every command declares a required `AppCommandSurfacePolicy`:
+
+- `.exposed(Set<AppCommandSurface>)` lists the interactive hosts that may
+  present it.
+- `.notPresented` identifies shortcut-only, IPC-only, generated-target-row, or
+  internal commands with no independently presented control.
+
+The surface vocabulary is `.commandBar`, `.mainMenu`, `.contextMenu`,
+`.inlineControl`, and `.toolbar(...)`. Toolbar identity is intentionally
+specific: `.toolbar(.app)`, `.toolbar(.pane)`, and
+`.toolbar(.terminalZoom)` are different hosts. A normal pane toolbar must not
+inherit terminal-Zoom Viewer exposure.
+
+Hosts ask `AppCommandSpec.shouldPresent(...)` with an
+`AppCommandPresentationQuery`. The subject is contextual, targeted by
+`SearchItemType`, or both. The query checks surface exposure, then contextual
+requirements and/or declared target-kind support. It contains no target UUID,
+store, authorization, or mutable UI state.
+
+`shouldPresent` controls presence only. Visible controls use the matching
+contextual or targeted `canDispatch` overload for enabled state, and dispatch
+repeats that preflight before the execution owner and its workspace/runtime
+validators run. A visible command may therefore be disabled; a hidden command
+does not gain or lose execution authority.
+
+`AppCommandTargeting` declares invocation shape:
+
+- `.contextual`
+- `.targeted(nonEmptyTargetKinds)`
+- `.contextualAndTargeted(nonEmptyTargetKinds, preferredInvocation:)`
+
+The preferred invocation tells command-bar root rows whether to dispatch
+contextually or drill into target selection. Dispatchers reject contextual
+requests for targeted-only commands and targeted requests whose kind is not
+declared before calling an execution owner.
+
+Five contracts remain orthogonal: `shouldPresent` owns presentation,
+`canDispatch` owns current capability, execution owners and validators own
+effects, `ActiveKeyboardSurface`/`AppShortcutDispatchPolicy` own keyboard
+routing, and `AppCommand.ipcSpec` plus the IPC adapter own programmatic
+authority. UI exposure, satisfied command requirements, or interactive
+targeting never grant IPC execution modes, durable handle kinds, privileges, or
+arguments.
 
 ## Command planes
 
@@ -94,14 +203,20 @@ silently present UI.
 
 ## Adding a new command — decision tree
 
-1. **New command identity?** Add a case to `AppCommand` enum.
+1. **New command identity?** Add a case to `AppCommand`.
 2. **Keyboard binding?** Add a case to `AppShortcut` with its trigger and
    contexts.
-3. **Visible in the command bar / used in tooltips?** Add an `AppCommandSpec`
-   entry in `AppCommand+Catalog.swift` that ties the command to the
-   shortcut plus label / icon / `helpText`.
-4. **UI button or menu item that isn't in the command bar?** Add a
-   `LocalActionSpec` case for label / helpText / icon.
+3. **Interactive command metadata?** Add its exhaustive `AppCommandSpec`
+   entry with label, icon, help text, surface policy, targeting policy,
+   command requirements, shortcut, and command-bar grouping.
+4. **IPC classification?** Classify the same identity in the exhaustive
+   exposure, durable-target, privilege, and argument switches in
+   `AppCommand+IPCProjection.swift`.
+5. **Interactive host?** Have the host request its exact
+   `AppCommandPresentationQuery`, keep placement/order local, and use the
+   matching `canDispatch` overload for enabled state.
+6. **UI-only action with no command identity?** Add a `LocalActionSpec` case
+   for label, help text, icon, and tooltip projection.
 
 You almost never want to skip a layer. If you find yourself hardcoding
 a key character in a view OR a label string in a controller, you're
@@ -137,18 +252,22 @@ AppShortcut → AppCommand → AppCommandDispatcher
 ```
 
 The command bar uses the same `AppCommandDispatcher.dispatch(...)` path as
-keyboard shortcuts. If a command works from a button but not from
-`Cmd-P`, the execution owner is probably wrong or the command is using a
-side channel instead of the same binding/state model as the button.
+keyboard shortcuts. Root rows follow `AppCommandTargeting.preferredInvocation`:
+contextual rows dispatch directly, targeted rows drill into only the declared
+target kinds, and commands supporting both use their declared preference. The
+dispatcher repeats contextual or targeted mode preflight before calling an
+execution owner. If a command works from a button but not from `Cmd-P`, the
+execution owner is probably wrong or the command is using a side channel
+instead of the same binding/state model as the button.
 
-Programmatic control uses the same command metadata, but it does not treat
-command-bar presentation as command execution. `command.list` projects
-`AppCommandSpec` IPC metadata for discovery, including execution mode, target
-handle kinds, typed argument schema, and required privileges. `command.execute`
-is still reserved for commands explicitly marked headless-executable; it
-validates the command's typed argument schema from `AppCommandSpec` before
-dispatching to the app/shell owner. Command-bar presentation remains explicit as
-`ui.commandBar.open`; see
+Programmatic control shares `AppCommand` identity and canonical public copy, but
+it does not derive authority from command-bar presentation. `command.list`
+projects the independent `AppCommand.ipcSpec` contract for discovery, including
+execution mode, durable target handle kinds, typed argument schema, and
+required privileges. `command.execute` is still reserved for commands
+explicitly marked headless-executable; it validates and decodes the command's
+typed IPC argument contract before dispatching to the app/shell owner.
+Command-bar presentation remains explicit as `ui.commandBar.open`; see
 [AgentStudio IPC Architecture](agentstudio_ipc_architecture.md#command-and-ui-presentation-boundary).
 If a command row only opens a chooser or requires interactive input, add a
 semantic IPC method with explicit parameters before exposing it through
@@ -391,6 +510,10 @@ Current surface-owned app shortcuts:
   `.paneInbox(parentPaneId:)`, `.editorChooser(paneId:)`, and
   `.paneNote(paneId:)` own no app shortcuts.
 
+These keyboard surfaces are not `AppCommandSurface` values. Interactive
+surface exposure never changes shortcut precedence, transient-surface
+suppression, or command-bar activation reservation.
+
 SwiftUI/AppKit surfaces that know their owning workspace window pass that
 `workspaceWindowId` into registration; the key/focused-window fallback is only
 a last-resort resolution path. A transient surface keeps the same workspace
@@ -551,6 +674,14 @@ Steps:
     directly; pin the contract at the spec level (assert
     `AppShortcut.foo.spec.alternateTriggers` contains what you expect)
     plus the gate site's behavior with synthetic NSEvents.
+  ▸ Presentation policy tests cover every surface/subject combination,
+    including unsupported surfaces, unsatisfied requirements, undeclared target
+    kinds, and `.notPresented`.
+  ▸ Dispatcher tests prove contextual and targeted mode preflight separately
+    from execution-owner capability and mutation/runtime validation.
+  ▸ IPC projection tests pin exhaustive discriminated contracts, public
+    command-list cardinality, and byte-equivalent sorted JSON independently
+    from interactive presentation policy.
   ▸ For UI hints, snapshot the displayed string from the same helpers
     the production code uses — don't hardcode the expected character
     (it should come from the spec).

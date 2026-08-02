@@ -19,43 +19,46 @@ extension AppCommand {
         .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
     ]
 
-    func hiddenTabSelectionDefinition(index: Int) -> AppCommandSpec {
+    func menuTabSelectionDefinition(index: Int) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
             shortcut: Self.selectTabShortcut(index: index),
             label: "Select Tab \(index)",
             icon: .system(.rectangleStack),
             helpText: "Select tab \(index)",
+            surfacePolicy: .exposed([.mainMenu]),
+            targeting: .contextual,
             visibleWhen: [.hasActiveTab],
-            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
         )
     }
 
-    func hiddenFocusPaneDefinition(index: Int) -> AppCommandSpec {
+    func shortcutFocusPaneDefinition(index: Int) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
             shortcut: Self.focusPaneShortcut(index: index),
             label: "Focus Pane \(index)",
             icon: .system(.rectangleSplit2x1),
             helpText: "Focus pane \(index)",
+            surfacePolicy: .notPresented,
+            targeting: .contextual,
             visibleWhen: [.hasActiveTab],
             commandBarGroupName: "Focus",
-            commandBarGroupPriority: CommandBarGroupPriority.focus,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.focus
         )
     }
 
-    func hiddenFocusDrawerPaneDefinition(index: Int) -> AppCommandSpec {
+    func shortcutFocusDrawerPaneDefinition(index: Int) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
             label: "Focus Drawer Pane \(index)",
             icon: .system(.rectangleBottomhalfInsetFilled),
             helpText: "Focus drawer pane \(index)",
+            surfacePolicy: .notPresented,
+            targeting: .contextual,
             visibleWhen: [.hasActivePane],
             commandBarGroupName: "Focus",
-            commandBarGroupPriority: CommandBarGroupPriority.focus,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.focus
         )
     }
 
@@ -65,19 +68,27 @@ extension AppCommand {
             label: label,
             icon: icon,
             helpText: helpText,
+            surfacePolicy: .exposed([.commandBar]),
+            targeting: .contextual,
             visibleWhen: [.hasActiveTab, .hasMultiplePanes],
             commandBarGroupName: "Focus",
             commandBarGroupPriority: CommandBarGroupPriority.focus
         )
     }
 
-    func worktreeDefinition(label: String, icon: CommandIcon, helpText: String) -> AppCommandSpec {
+    func worktreeDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpText: String,
+        surfacePolicy: AppCommandSurfacePolicy
+    ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
             label: label,
             icon: icon,
             helpText: helpText,
-            appliesTo: [.worktree],
+            surfacePolicy: surfacePolicy,
+            targeting: .targeted([.worktree]),
             commandBarGroupName: "Repo",
             commandBarGroupPriority: CommandBarGroupPriority.repo
         )
@@ -93,6 +104,8 @@ extension AppCommand {
             label: "Group Repos by \(label)",
             icon: icon,
             helpText: "Group the repo sidebar by \(helpTarget)",
+            surfacePolicy: .exposed([.commandBar, .inlineControl]),
+            targeting: .contextual,
             commandBarGroupName: "Sidebar",
             commandBarGroupPriority: CommandBarGroupPriority.sidebar
         )
@@ -104,9 +117,10 @@ extension AppCommand {
             label: "Set Repo Sidebar Visibility Mode",
             icon: .system(.bookmark),
             helpText: "Set the repo sidebar visibility mode",
+            surfacePolicy: .exposed([.inlineControl]),
+            targeting: .contextual,
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar
         )
     }
 
@@ -116,9 +130,10 @@ extension AppCommand {
             label: "Set Repo Sidebar Sort Order",
             icon: .system(.arrowUpArrowDown),
             helpText: "Set the repo sidebar sort order",
+            surfacePolicy: .exposed([.inlineControl]),
+            targeting: .contextual,
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.sidebar,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.sidebar
         )
     }
 
@@ -132,6 +147,8 @@ extension AppCommand {
             label: "Group Inbox by \(label)",
             icon: icon,
             helpText: "Group inbox notifications by \(helpTarget)",
+            surfacePolicy: .exposed([.commandBar, .inlineControl]),
+            targeting: .contextual,
             commandBarGroupName: "Inbox",
             commandBarGroupPriority: CommandBarGroupPriority.inbox
         )
@@ -143,9 +160,10 @@ extension AppCommand {
             label: "Set Inbox Row Filter",
             icon: .system(.envelopeBadge),
             helpText: "Set whether the inbox shows all or unread notifications",
+            surfacePolicy: .exposed([.inlineControl]),
+            targeting: .contextual,
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.inbox,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.inbox
         )
     }
 
@@ -155,9 +173,10 @@ extension AppCommand {
             label: "Set Inbox Content Mode",
             icon: .system(.dotCircleViewfinder),
             helpText: "Set which notification content lane the inbox shows",
+            surfacePolicy: .exposed([.inlineControl]),
+            targeting: .contextual,
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.inbox,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.inbox
         )
     }
 
@@ -171,10 +190,10 @@ extension AppCommand {
             label: label,
             icon: .system(icon),
             helpText: helpText,
-            appliesTo: [.repo],
+            surfacePolicy: .exposed([.contextMenu, .inlineControl]),
+            targeting: .targeted([.repo]),
             commandBarGroupName: "Repo",
-            commandBarGroupPriority: CommandBarGroupPriority.repo,
-            isHiddenInCommandBar: true
+            commandBarGroupPriority: CommandBarGroupPriority.repo
         )
     }
 
@@ -182,7 +201,9 @@ extension AppCommand {
         shortcut: AppShortcut? = nil,
         label: String,
         icon: CommandIcon,
-        helpText: String
+        helpText: String,
+        surfacePolicy: AppCommandSurfacePolicy,
+        targeting: AppCommandTargeting
     ) -> AppCommandSpec {
         AppCommandSpec(
             command: self,
@@ -190,10 +211,126 @@ extension AppCommand {
             label: label,
             icon: icon,
             helpText: helpText,
-            appliesTo: [.tab],
+            surfacePolicy: surfacePolicy,
+            targeting: targeting,
             visibleWhen: [.hasActiveTab, .hasArrangements],
             commandBarGroupName: "Tab",
             commandBarGroupPriority: CommandBarGroupPriority.tab
+        )
+    }
+
+    func windowDefinition(
+        shortcut: AppShortcut? = nil,
+        label: String,
+        icon: CommandIcon,
+        helpText: String,
+        surfacePolicy: AppCommandSurfacePolicy,
+        targeting: AppCommandTargeting
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            shortcut: shortcut,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: surfacePolicy,
+            targeting: targeting,
+            commandBarGroupName: "Window",
+            commandBarGroupPriority: CommandBarGroupPriority.window
+        )
+    }
+
+    func inboxActionDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpText: String
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: .exposed([.commandBar, .inlineControl]),
+            targeting: .contextual,
+            commandBarGroupName: "Inbox",
+            commandBarGroupPriority: CommandBarGroupPriority.inbox
+        )
+    }
+
+    func paneInboxDefinition(
+        shortcut: AppShortcut? = nil,
+        label: String,
+        icon: CommandIcon,
+        helpText: String,
+        surfacePolicy: AppCommandSurfacePolicy
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            shortcut: shortcut,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: surfacePolicy,
+            targeting: .contextualAndTargeted(
+                [.pane, .floatingTerminal],
+                preferredInvocation: .contextual
+            ),
+            visibleWhen: [.hasActivePane],
+            commandBarGroupName: "Pane",
+            commandBarGroupPriority: CommandBarGroupPriority.pane
+        )
+    }
+
+    func commandBarNavigationDefinition(
+        shortcut: AppShortcut? = nil,
+        label: String,
+        icon: CommandIcon,
+        helpText: String,
+        surfacePolicy: AppCommandSurfacePolicy
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            shortcut: shortcut,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: surfacePolicy,
+            targeting: .contextual,
+            commandBarGroupName: "Commands",
+            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+        )
+    }
+
+    func bridgeDefinition(
+        label: String,
+        icon: CommandIcon,
+        helpText: String
+    ) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            surfacePolicy: .exposed([.commandBar, .contextMenu]),
+            targeting: .contextualAndTargeted(
+                [.worktree],
+                preferredInvocation: .contextual
+            ),
+            commandBarGroupName: "Bridge",
+            commandBarGroupPriority: CommandBarGroupPriority.bridge
+        )
+    }
+
+    func authenticationDefinition(providerName: String) -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Sign in to \(providerName)",
+            icon: .system(.personBadgeKey),
+            helpText: "Start \(providerName) sign-in",
+            surfacePolicy: .notPresented,
+            targeting: .contextual,
+            commandBarGroupName: "Auth",
+            commandBarGroupPriority: CommandBarGroupPriority.auth
         )
     }
 
@@ -206,8 +343,9 @@ extension AppCommand {
             label: label,
             icon: icon,
             helpText: helpText,
-            requiresManagementLayer: true,
-            isHiddenInCommandBar: true
+            surfacePolicy: .notPresented,
+            targeting: .contextual,
+            requiresManagementLayer: true
         )
     }
 }

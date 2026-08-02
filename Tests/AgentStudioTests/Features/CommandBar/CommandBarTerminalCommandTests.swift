@@ -19,19 +19,12 @@ struct CommandBarTerminalCommandTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        let focus = WorkspacePaneFocus(
-            activeTabId: tab.id,
-            activePaneId: pane.id,
-            paneContentType: .terminal,
-            satisfiedRequirements: [.hasActivePane]
-        )
 
         let items = CommandBarDataSource.items(
             scope: .commands,
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: FakeAppCommandDispatcher(),
-            focus: focus
+            dispatcher: FakeAppCommandDispatcher()
         )
 
         let scroll = items.first { $0.command == .scrollToBottom }

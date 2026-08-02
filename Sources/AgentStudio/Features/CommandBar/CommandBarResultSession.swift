@@ -8,7 +8,8 @@ import Observation
 final class CommandBarResultSession {
     private struct RootItemSnapshotCacheIdentity: Equatable {
         let scope: CommandBarScope
-        let focus: WorkspacePaneFocus
+        let focusedPane: WorkspaceFocusedPane?
+        let commandContext: CommandContext
         let rootSessionGeneration: Int
         let queryState: CommandBarRootQueryState
     }
@@ -50,9 +51,14 @@ final class CommandBarResultSession {
 
     func snapshot(state: CommandBarState) -> CommandBarResultSnapshot {
         _ = rootItemSnapshotInvalidationRevision
-        let currentContext = currentContext()
+        let focusedPane = currentFocusedPane()
+        let commandContext = currentCommandContext(focusedPane: focusedPane)
         let canOpenWorktreeInCurrentTab = canOpenWorktreeInCurrentTab()
-        let itemSnapshot = buildItemSnapshot(state: state, focus: currentContext)
+        let itemSnapshot = buildItemSnapshot(
+            state: state,
+            focusedPane: focusedPane,
+            commandContext: commandContext
+        )
         let searchDocument = CommandBarSearchDocument(
             items: itemSnapshot.items,
             query: state.isNested ? state.searchQuery : state.normalizedRootQuery,
@@ -96,13 +102,15 @@ final class CommandBarResultSession {
             ),
             canOpenWorktreeInCurrentTab: canOpenWorktreeInCurrentTab,
             currentMode: currentMode(),
-            currentContext: currentContext
+            focusedPane: focusedPane,
+            commandContext: commandContext
         )
     }
 
     private func buildItemSnapshot(
         state: CommandBarState,
-        focus: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?,
+        commandContext: CommandContext
     ) -> CommandBarItemSnapshot {
         if let level = state.currentLevel {
             return CommandBarItemSnapshot(
@@ -116,7 +124,8 @@ final class CommandBarResultSession {
             state.hasMeaningfulRootQuery ? .meaningful : .empty
         let identity = RootItemSnapshotCacheIdentity(
             scope: state.activeScope,
-            focus: focus,
+            focusedPane: focusedPane,
+            commandContext: commandContext,
             rootSessionGeneration: state.rootSessionGeneration,
             queryState: queryState
         )
@@ -132,7 +141,8 @@ final class CommandBarResultSession {
             scope: state.activeScope,
             queryState: queryState,
             recentCommands: state.recentCommands,
-            focus: focus
+            focusedPane: focusedPane,
+            commandContext: commandContext
         )
         cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
         isRootItemSnapshotInvalidated = false
@@ -144,7 +154,8 @@ final class CommandBarResultSession {
         scope: CommandBarScope,
         queryState: CommandBarRootQueryState,
         recentCommands: [AppCommand],
-        focus: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?,
+        commandContext: CommandContext
     ) -> CommandBarItemSnapshot {
         rootItemSnapshotObservationGeneration += 1
         let observationGeneration = rootItemSnapshotObservationGeneration
@@ -159,7 +170,8 @@ final class CommandBarResultSession {
                     store: store,
                     repoCache: repoCache,
                     dispatcher: dispatcher,
-                    focus: focus,
+                    focusedPane: focusedPane,
+                    commandContext: commandContext,
                     notificationInboxCommands: notificationInboxCommands,
                     performanceTraceRecorder: performanceTraceRecorder
                 )
@@ -180,7 +192,16 @@ final class CommandBarResultSession {
     private func dimmedItemIds(for displayedItems: [CommandBarItem]) -> Set<String> {
         var ids = Set<String>()
         for item in displayedItems {
-            if let command = item.command, !dispatcher.canDispatch(command) {
+            let isAvailable =
+                switch item.action {
+                case .dispatch(let command):
+                    dispatcher.canDispatch(command)
+                case .dispatchTargeted(let command, let target, let targetType):
+                    dispatcher.canDispatch(command, target: target, targetType: targetType)
+                case .navigate, .navigateRepo, .custom, .worktreeAction, .quickOpen, .activateRecent:
+                    true
+                }
+            if !isAvailable {
                 ids.insert(item.id)
             }
         }
@@ -191,15 +212,29 @@ final class CommandBarResultSession {
         atom(\.managementLayer).isActive ? .management : .normal
     }
 
-    private func currentContext() -> WorkspacePaneFocus {
+    private func currentFocusedPane() -> WorkspaceFocusedPane? {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        return atom(\.workspacePaneFocus).currentFocus(
+        return atom(\.workspaceFocusedPane).resolve(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            requestedOwner: atom(\.workspaceFocusOwner).owner
+        )
+    }
+
+    private func currentCommandContext(
+        focusedPane: WorkspaceFocusedPane?
+    ) -> CommandContext {
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        return atom(\.commandContext).currentContext(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            focusedPane: focusedPane,
             workspacePanePresentation: store.panePresentationAtom
         )
     }

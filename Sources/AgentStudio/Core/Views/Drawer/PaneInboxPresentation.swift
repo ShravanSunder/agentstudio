@@ -49,7 +49,7 @@ package struct PaneInboxPresentation {
     package let pendingRequest: @MainActor () -> PaneInboxRequest?
     package let clearRequest: @MainActor (PaneInboxRequest) -> Void
     let popoverContent:
-        @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void, @escaping @MainActor @Sendable () -> Void)
+        @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void)
             -> AnyView
     package let pruneFilterModes: @MainActor (Set<UUID>) -> Void
 
@@ -66,7 +66,6 @@ package struct PaneInboxPresentation {
             @escaping @MainActor (
                 UUID,
                 [UUID],
-                @escaping @MainActor @Sendable () -> Void,
                 @escaping @MainActor @Sendable () -> Void
             ) -> AnyView,
         pruneFilterModes: @escaping @MainActor (Set<UUID>) -> Void
@@ -87,22 +86,20 @@ package struct PaneInboxPresentation {
         parentPaneId: UUID,
         paneIds: [UUID],
         baseTrailingActions: DrawerOverlay.TrailingActions,
+        showPaneInboxAction: TargetedCommandControlAction?,
         inboxPopoverPresented: Binding<Bool>
     ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
-            canOpenTarget: baseTrailingActions.canOpenTarget,
+            openEditorMenuAction: baseTrailingActions.openEditorMenuAction,
+            openFinderAction: baseTrailingActions.openFinderAction,
+            copyPathAction: baseTrailingActions.copyPathAction,
+            showPaneInboxAction: showPaneInboxAction,
             editorMenuContent: baseTrailingActions.editorMenuContent,
             editorMenuPresented: baseTrailingActions.editorMenuPresented,
             buttonTitle: baseTrailingActions.buttonTitle,
-            onOpenFinder: baseTrailingActions.onOpenFinder,
-            onCopyPath: baseTrailingActions.onCopyPath,
-            onOpenInbox: { openRollUpAlerts(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
                 parentPaneId, paneIds,
-                {
-                    clear(parentPaneId, paneIds)
-                },
                 {
                     inboxPopoverPresented.wrappedValue = false
                 }),

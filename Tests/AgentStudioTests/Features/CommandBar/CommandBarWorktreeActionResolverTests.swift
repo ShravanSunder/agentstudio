@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCommandBar
+@testable import AgentStudioCore
 
 @Suite
 struct CommandBarWorktreeActionResolverTests {
@@ -69,6 +70,20 @@ struct CommandBarWorktreeActionResolverTests {
 
         #expect(
             resolution == .dispatch(command: .openNewTerminalInTab, target: presence.worktreeId, targetType: .worktree))
+    }
+
+    @Test("Command-Return falls back to the actions menu when the catalog rejects worktree targeting")
+    func commandReturnRequiresCatalogWorktreeAdmission() {
+        let presence = makeWorktreePresence(paneCount: 1)
+
+        let resolution = CommandBarWorktreeActionResolver.resolve(
+            presence: presence,
+            modifier: .command,
+            canOpenInCurrentTab: true,
+            targetedSpecResolver: commandBarSurfaceRejectedTargetedSpecResolver
+        )
+
+        #expect(resolution == .showActionsMenu)
     }
 
     @Test

@@ -45,6 +45,7 @@ struct FlatTabStripContainerAllMinimizedTests {
                     activePaneId: nil,
                     minimizedPaneIds: [pane.id],
                     visiblePaneIds: [],
+                    arrangementInlineRenameState: ArrangementInlineRenameState(),
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: { _ in },

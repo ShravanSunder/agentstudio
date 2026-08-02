@@ -303,15 +303,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.workspacePaneFocus).currentFocus(
+        let focusedPane = atom(\.workspaceFocusedPane).resolve(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceFocusOwner: atom(\.workspaceFocusOwner),
+            requestedOwner: atom(\.workspaceFocusOwner).owner
+        )
+        let commandContext = atom(\.commandContext).currentContext(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            focusedPane: focusedPane,
             workspacePanePresentation: store.panePresentationAtom
         )
-        let isVisible = definition.isVisible(in: focus)
-        menuItem.isHidden = !isVisible
-        guard isVisible else { return false }
+        let shouldPresent = definition.shouldPresent(
+            AppCommandPresentationQuery(
+                surface: .mainMenu,
+                subject: .contextual(commandContext)
+            )
+        )
+        menuItem.isHidden = !shouldPresent
+        guard shouldPresent else { return false }
         return AppCommandDispatcher.shared.canDispatch(command)
     }
 
@@ -345,12 +355,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(menuItem(command: .newWindow, action: #selector(newWindow)))
+        fileMenu.addItem(menuItem(command: .newWindow, action: #selector(dispatchNewWindowMenuCommand)))
         fileMenu.addItem(menuItem(command: .newTab, action: #selector(newTab)))
         fileMenu.addItem(menuItem(command: .showCommandBarRepos, action: #selector(showCommandBarRepos)))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(menuItem(command: .closeTab, action: #selector(closeTab)))
-        fileMenu.addItem(menuItem(command: .closeWindow, action: #selector(closeWindow)))
+        fileMenu.addItem(menuItem(command: .closeWindow, action: #selector(dispatchCloseWindowMenuCommand)))
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -460,6 +470,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         showOrCreateMainWindow()
     }
 
+    @objc func dispatchNewWindowMenuCommand() {
+        AppCommandDispatcher.shared.dispatch(.newWindow)
+    }
+
     @objc private func newTab() {
         AppCommandDispatcher.shared.dispatch(.newTab)
     }
@@ -474,6 +488,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func closeWindow() {
         NSApp.keyWindow?.close()
+    }
+
+    @objc func dispatchCloseWindowMenuCommand() {
+        AppCommandDispatcher.shared.dispatch(.closeWindow)
     }
 
     // MARK: - Repo/Folder Intake

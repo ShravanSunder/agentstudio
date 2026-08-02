@@ -13,7 +13,7 @@ extension CommandBarDataSource {
         canonicalItems: [CommandBarItem],
         recentCommands: [AppCommand],
         store: WorkspaceStore,
-        focus: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?
     ) -> [CommandBarItem] {
         switch scope {
         case .everything:
@@ -26,7 +26,7 @@ extension CommandBarDataSource {
             return projectQuickOpenLocations(
                 canonicalItems: canonicalItems,
                 store: store,
-                focus: focus
+                focusedPane: focusedPane
             )
         case .repos:
             return projectRecentRepositoryScope(
@@ -37,7 +37,7 @@ extension CommandBarDataSource {
             return projectRecentPanes(
                 canonicalItems: canonicalItems,
                 store: store,
-                focusedPaneID: focus.activePaneId
+                focusedPaneID: focusedPane?.paneId
             )
         case .commands:
             return projectRecentCommands(

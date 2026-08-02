@@ -34,8 +34,8 @@ struct FlatPaneStripContent: View {
     let minimizedPaneIds: Set<UUID>
     let ordinalMap: PaneOrdinalMap
     let collapsedPaneWidth: CGFloat
-    let onSaveArrangement: (() -> Void)?
-    var onToggleZoom: (UUID?) -> Void = { _ in }
+    let arrangementInlineRenameState: ArrangementInlineRenameState
+    let commandActionResolver: TargetedCommandControlActionResolver
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -78,9 +78,9 @@ struct FlatPaneStripContent: View {
                                 tabId: tabId,
                                 closeTransitionCoordinator: closeTransitionCoordinator,
                                 actionDispatcher: actionDispatcher,
+                                arrangementInlineRenameState: arrangementInlineRenameState,
+                                commandActionResolver: commandActionResolver,
                                 onFocus: { onFocusPane(paneId) },
-                                onSaveArrangement: onSaveArrangement,
-                                onToggleZoom: onToggleZoom,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
                                 useDrawerFramePreference: useDrawerFramePreference,
                                 workspaceWindowId: workspaceWindowId
@@ -101,8 +101,8 @@ struct FlatPaneStripContent: View {
                             activePaneId: activePaneId,
                             layout: layout,
                             collapsedPaneWidth: collapsedPaneWidth,
-                            onSaveArrangement: onSaveArrangement,
-                            onToggleZoom: onToggleZoom,
+                            arrangementInlineRenameState: arrangementInlineRenameState,
+                            commandActionResolver: commandActionResolver,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
                             onPaneFocusTrigger: onPaneFocusTrigger,
@@ -154,8 +154,8 @@ private struct PaneSegmentSlotView: View {
     let activePaneId: UUID?
     let layout: AgentStudioCore.Layout
     let collapsedPaneWidth: CGFloat
-    let onSaveArrangement: (() -> Void)?
-    let onToggleZoom: (UUID?) -> Void
+    let arrangementInlineRenameState: ArrangementInlineRenameState
+    let commandActionResolver: TargetedCommandControlActionResolver
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -186,9 +186,9 @@ private struct PaneSegmentSlotView: View {
                         tabId: tabId,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
+                        arrangementInlineRenameState: arrangementInlineRenameState,
+                        commandActionResolver: commandActionResolver,
                         onFocus: { onFocusPane(segment.paneId) },
-                        onSaveArrangement: onSaveArrangement,
-                        onToggleZoom: onToggleZoom,
                         dropTargetCoordinateSpace: coordinateSpaceName,
                         useDrawerFramePreference: useDrawerFramePreference,
                         workspaceWindowId: workspaceWindowId

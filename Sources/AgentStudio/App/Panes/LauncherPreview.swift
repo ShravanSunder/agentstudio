@@ -399,6 +399,7 @@ struct LauncherShortcutRow: View {
     let keyImage: String?
     let title: String
     let subtitle: String
+    let isEnabled: Bool
     let action: () -> Void
 
     @State private var isHovered = false
@@ -441,6 +442,7 @@ struct LauncherShortcutRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
         .onHover { isHovered = $0 }
     }
 

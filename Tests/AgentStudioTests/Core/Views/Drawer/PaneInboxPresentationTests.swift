@@ -72,29 +72,29 @@ struct PaneInboxPresentationTests {
         let parentPaneId = UUID()
         let drawerChildPaneId = UUID()
         let paneIds = [parentPaneId, drawerChildPaneId]
-        var openedRollUpParentPaneId: UUID?
-        var openedRollUpPaneIds: [UUID]?
         var didOpenFinder = false
+        var didShowPaneInbox = false
         let baseActions = DrawerOverlay.TrailingActions(
-            canOpenTarget: true,
+            openEditorMenuAction: makeCommandAction(.openPaneLocationInEditorMenu),
+            openFinderAction: makeCommandAction(
+                .openPaneLocationInFinder,
+                perform: { didOpenFinder = true }
+            ),
+            copyPathAction: makeCommandAction(.copyCurrentPanePath),
             editorMenuContent: AnyView(EmptyView()),
             editorMenuPresented: .constant(false),
-            buttonTitle: "Cursor",
-            onOpenFinder: { didOpenFinder = true }
+            buttonTitle: "Cursor"
         )
         let presentation = PaneInboxPresentation(
             unreadCount: { requestedPaneIds in requestedPaneIds == paneIds ? 1 : 0 },
             clear: { _, _ in },
             open: { _, _ in },
-            openRollUpAlerts: { parentPaneId, paneIds in
-                openedRollUpParentPaneId = parentPaneId
-                openedRollUpPaneIds = paneIds
-            },
+            openRollUpAlerts: { _, _ in },
             toggle: { _, _ in },
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _, _, _ in AnyView(EmptyView()) },
+            popoverContent: { _, _, _ in AnyView(EmptyView()) },
             pruneFilterModes: { _ in }
         )
         var isPopoverPresented = false
@@ -103,13 +103,16 @@ struct PaneInboxPresentationTests {
             parentPaneId: parentPaneId,
             paneIds: paneIds,
             baseTrailingActions: baseActions,
+            showPaneInboxAction: makeCommandAction(
+                .showPaneInboxNotifications,
+                perform: { didShowPaneInbox = true }
+            ),
             inboxPopoverPresented: Binding(
                 get: { isPopoverPresented },
                 set: { isPopoverPresented = $0 }
             )
         )
 
-        #expect(actions.canOpenTarget == true)
         #expect(actions.buttonTitle == "Cursor")
         #expect(actions.inboxUnreadBadge?.text == "1")
         #expect(actions.inboxPopoverContent != nil)
@@ -117,12 +120,11 @@ struct PaneInboxPresentationTests {
         actions.inboxPopoverPresented.wrappedValue = true
         #expect(isPopoverPresented)
 
-        actions.onOpenFinder()
+        actions.openFinderAction?.perform()
         #expect(didOpenFinder)
 
-        actions.onOpenInbox?()
-        #expect(openedRollUpParentPaneId == parentPaneId)
-        #expect(openedRollUpPaneIds == paneIds)
+        actions.showPaneInboxAction?.perform()
+        #expect(didShowPaneInbox)
     }
 
     @Test("pane inbox badge caps at nine plus")
@@ -153,6 +155,17 @@ struct PaneInboxPresentationTests {
             uniqueKeysWithValues: ([parentPane] + drawerPanes).map { pane in
                 (pane.id, pane)
             }
+        )
+    }
+
+    private func makeCommandAction(
+        _ command: AppCommand,
+        perform: @escaping @MainActor () -> Void = {}
+    ) -> TargetedCommandControlAction {
+        TargetedCommandControlAction(
+            commandSpec: command.definition,
+            isEnabled: true,
+            perform: perform
         )
     }
 }

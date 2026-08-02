@@ -27,9 +27,13 @@ struct WelcomeLauncherArchitectureTests {
         )
 
         #expect(source.contains("keyImage: \"folder.badge.plus\""))
-        #expect(source.contains("title: \"Watch Folder\""))
+        #expect(source.contains("let watchFolderDefinition = AppCommand.watchFolder.definition"))
+        #expect(source.contains("title: watchFolderDefinition.label"))
+        #expect(!source.contains("title: \"Watch Folder\""))
         #expect(source.contains("subtitle: \"Scan and keep watching a folder for repos.\""))
-        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(.watchFolder) }"))
+        #expect(source.contains("let watchFolderPresentation = ShellTabBarCommandPresentation("))
+        #expect(source.contains("surface: .inlineControl"))
+        #expect(source.contains("action: watchFolderPresentation.perform"))
         #expect(!source.contains("private func launcherIconShortcutButton("))
     }
 
@@ -47,10 +51,15 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition"))
         #expect(source.contains("key: quickFindDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: quickFindDefinition.label"))
-        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(quickFindDefinition.command) }"))
+        #expect(source.contains("let quickFindPresentation = ShellTabBarCommandPresentation("))
+        #expect(source.contains("action: quickFindPresentation.perform"))
         #expect(source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
-        #expect(source.contains("action: { AppCommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }"))
+        #expect(source.contains("title: watchFolderDefinition.label"))
+        #expect(source.contains("let repositoriesPresentation = ShellTabBarCommandPresentation("))
+        #expect(source.contains("action: repositoriesPresentation.perform"))
+        #expect(source.contains("isEnabled: quickFindPresentation.isEnabled"))
+        #expect(source.contains("isEnabled: repositoriesPresentation.isEnabled"))
         #expect(!source.contains("title: \"Command palette\""))
     }
 
@@ -65,11 +74,15 @@ struct WelcomeLauncherArchitectureTests {
         )
 
         #expect(source.contains("struct WatchFolderTabBarMenu: View"))
-        #expect(source.contains("AppCommandDispatcher.shared.definition(for: .watchFolder)"))
-        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.watchFolder)"))
+        #expect(source.contains("ShellTabBarCommandPresentation("))
+        #expect(source.contains("command: .watchFolder"))
+        #expect(source.contains("commandContext: ShellTabBarCommandContext.current()"))
+        #expect(source.contains("presentation.perform()"))
+        #expect(source.contains("guard dispatcher.canDispatch(command) else { return }"))
+        #expect(source.contains("dispatcher.dispatch(command)"))
         #expect(source.contains("ChromeToolbarButtonLabel("))
         #expect(source.contains("symbolName: \"folder.badge.plus\""))
-        #expect(source.contains(".help(commandDefinition.controlToolTip)"))
+        #expect(source.contains(".help(presentation.controlToolTip)"))
         #expect(!source.contains("\"Watch Folder\""))
     }
 }

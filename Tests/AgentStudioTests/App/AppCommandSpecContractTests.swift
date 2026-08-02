@@ -27,6 +27,27 @@ struct CommandSpecContractTests {
         }
     }
 
+    @Test("every command has one valid explicit presentation policy")
+    func everyCommandHasOneValidExplicitPresentationPolicy() {
+        let definitions = AppCommand.allCases.map(\.definition)
+        let commandRawValues = definitions.map(\.command.rawValue)
+
+        #expect(definitions.count == AppCommand.allCases.count)
+        #expect(Set(commandRawValues).count == AppCommand.allCases.count)
+        #expect(Set(commandRawValues) == Set(AppCommand.allCases.map(\.rawValue)))
+
+        for definition in definitions {
+            #expect(
+                definition.surfacePolicy.isValid,
+                "\(definition.command.rawValue) has an invalid surface policy"
+            )
+            #expect(
+                definition.targeting.isValid,
+                "\(definition.command.rawValue) has an invalid targeting policy"
+            )
+        }
+    }
+
     @Test("shortcut triggers are unique within each routing context")
     func shortcutTriggersAreUniqueWithinEachRoutingContext() {
         var seenShortcuts: [ShortcutRouteKey: AppShortcut] = [:]
@@ -51,11 +72,20 @@ struct CommandSpecContractTests {
     @Test("commands scope mirrors visible AppCommandSpec metadata")
     func commandsScopeMirrorsVisibleCommandSpecMetadata() throws {
         let store = makeCommandRichStore()
-        let focus = WorkspacePaneFocus(
+        let focusedPaneId = UUID()
+        let focusedPane = WorkspaceFocusedPane(
+            owner: .mainPane(paneId: focusedPaneId),
+            activeMainPaneId: focusedPaneId,
+            paneId: focusedPaneId,
+            repoId: nil,
+            worktreeId: nil,
+            contentType: .terminal
+        )
+        let commandContext = CommandContext(
             activeTabId: UUID(),
-            activePaneId: UUID(),
-            paneContentType: .terminal,
-            satisfiedRequirements: Set(FocusRequirement.allCases)
+            focusedPaneId: focusedPaneId,
+            focusedContentType: .terminal,
+            satisfiedRequirements: Set(CommandRequirement.allCases)
         )
 
         let items = CommandBarDataSource.items(
@@ -63,14 +93,20 @@ struct CommandSpecContractTests {
             store: store,
             repoCache: RepoCacheAtom(),
             dispatcher: AppCommandDispatcher.shared,
-            focus: focus
+            focusedPane: focusedPane,
+            commandContext: commandContext
         )
         let itemsByCommand = Dictionary(
             uniqueKeysWithValues: items.compactMap { item in
                 item.command.map { ($0, item) }
             })
         let expectedDefinitions = AppCommandDispatcher.shared.definitions.values.filter {
-            !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
+            $0.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .commandBar,
+                    subject: .contextual(commandContext)
+                )
+            )
         }
 
         #expect(itemsByCommand.count == expectedDefinitions.count)
@@ -130,7 +166,9 @@ struct CommandSpecContractTests {
             command: .renameArrangement,
             label: "Rename Arrangement",
             icon: .system(.pencil),
-            helpText: "Rename the current arrangement"
+            helpText: "Rename the current arrangement",
+            surfacePolicy: .exposed([.commandBar]),
+            targeting: .targeted([.tab])
         )
 
         let renderValue = ControlTooltipResolver.resolve(definition.controlTooltipSource())

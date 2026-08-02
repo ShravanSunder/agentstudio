@@ -7,14 +7,14 @@ import SwiftUI
 /// Top row of the command bar showing optional management state and current pane context.
 struct CommandBarStatusStrip: View {
     let mode: CommandBarAppMode
-    let context: WorkspacePaneFocus
+    let focusedPane: WorkspaceFocusedPane?
 
     init(
         mode: CommandBarAppMode,
-        context: WorkspacePaneFocus
+        focusedPane: WorkspaceFocusedPane?
     ) {
         self.mode = mode
-        self.context = context
+        self.focusedPane = focusedPane
     }
 
     var body: some View {
@@ -31,11 +31,11 @@ struct CommandBarStatusStrip: View {
 
             Spacer()
 
-            if let icon = context.icon, let label = context.label {
+            if let focusedPane {
                 HStack(spacing: 4) {
-                    Image(systemName: icon)
+                    Image(systemName: focusedPane.commandBarStatusIcon)
                         .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
-                    Text(label)
+                    Text(focusedPane.commandBarStatusLabel)
                         .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
                 .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.statusContextOpacity))
@@ -43,5 +43,37 @@ struct CommandBarStatusStrip: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 28)
+    }
+}
+
+extension WorkspaceFocusedPane {
+    var commandBarStatusLabel: String {
+        switch contentType {
+        case .terminal:
+            return "Terminal"
+        case .webview:
+            return "Webview"
+        case .bridge:
+            return "Bridge"
+        case .codeViewer:
+            return "Code Viewer"
+        case .unsupported:
+            return "Unsupported"
+        }
+    }
+
+    var commandBarStatusIcon: String {
+        switch contentType {
+        case .terminal:
+            return "terminal"
+        case .webview:
+            return "globe"
+        case .bridge:
+            return "rectangle.split.2x1"
+        case .codeViewer:
+            return "doc.text"
+        case .unsupported:
+            return "questionmark.square"
+        }
     }
 }

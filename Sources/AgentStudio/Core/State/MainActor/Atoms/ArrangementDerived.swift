@@ -62,6 +62,7 @@ package struct ArrangementDerived {
 
         return ArrangementPanelZoomMode(
             label: "Cancel Zoom",
+            sourcePaneId: presentation.sourcePaneId,
             sourceIdentity: zoomSourceIdentity(for: presentation.sourcePaneId)
         )
     }

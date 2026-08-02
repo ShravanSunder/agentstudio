@@ -7,18 +7,15 @@ import SwiftUI
 struct RepoExplorerVisibilityButton: View {
     let octiconLoader: OcticonLoader
     let isFavoritesOnly: Bool
+    let commandPresentation: RepoExplorerPresentedCommand
     let onToggle: () -> Void
-
-    private var commandSpec: AppCommandSpec {
-        AppCommand.setRepoSidebarVisibilityMode.definition
-    }
 
     private var label: String {
         isFavoritesOnly ? "Show All Repos" : "Show Favorite Repos"
     }
 
     var body: some View {
-        let commandSpec = commandSpec
+        let commandSpec = commandPresentation.commandSpec
         SidebarToolbarActionButton(
             label: label,
             accessibilityIdentifier: "repoSidebarVisibilityButton",
@@ -34,5 +31,6 @@ struct RepoExplorerVisibilityButton: View {
             isActive: isFavoritesOnly,
             action: onToggle
         )
+        .disabled(!commandPresentation.isEnabled)
     }
 }

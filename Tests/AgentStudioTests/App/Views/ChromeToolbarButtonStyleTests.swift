@@ -98,14 +98,14 @@ struct ChromeToolbarButtonStyleTests {
             to: "struct TabBarDivider"
         )
         let managementSection = try section(
-            in: customTabBarSource,
-            from: "private struct TabBarManagementLayerButton",
+            in: shellControlsSource,
+            from: "struct TabBarManagementLayerButton",
             to: "/// Circular \"+\" button"
         )
         let newTabSection = try section(
-            in: customTabBarSource,
-            from: "private struct NewTabButton",
-            to: "/// Individual pill-shaped tab"
+            in: shellControlsSource,
+            from: "struct NewTabButton",
+            to: "struct SidebarNavDivider"
         )
         let overflowMenuSection = try section(
             in: customTabBarSource,
@@ -119,7 +119,11 @@ struct ChromeToolbarButtonStyleTests {
 
         for circularSection in [watchSection, managementSection, newTabSection] {
             #expect(circularSection.contains("ChromeToolbarButtonLabel("))
-            #expect(circularSection.contains("Button {"))
+            #expect(circularSection.contains("Button"))
+            #expect(
+                circularSection.contains("presentation.perform")
+                    || circularSection.contains("newTabToolbarPresentation.perform")
+            )
             #expect(!containsMenuInitializer(in: circularSection))
             #expect(!circularSection.contains(".menuStyle"))
             #expect(!circularSection.contains("showsBackground: false"))

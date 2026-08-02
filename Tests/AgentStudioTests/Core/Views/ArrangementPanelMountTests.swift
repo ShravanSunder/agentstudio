@@ -12,7 +12,7 @@ struct ArrangementPanelMountTests {
     func normalTerminalRowsExposeTargetedZoomAction() throws {
         try withTestCoreAtoms { _ in
             let paneId = UUID()
-            var zoomTargets: [UUID?] = []
+            let actionResolver = RecordingArrangementPanelActionResolver()
             let hostingView = NSHostingView(
                 rootView: ArrangementPanel(
                     tabId: UUID(),
@@ -36,9 +36,8 @@ struct ArrangementPanelMountTests {
                         )
                     ],
                     inlineRenameState: ArrangementInlineRenameState(),
+                    commandActionResolver: actionResolver.resolve,
                     onPaneAction: { _ in },
-                    onToggleZoom: { zoomTargets.append($0) },
-                    onSaveArrangement: {},
                     onDismiss: {}
                 )
             )
@@ -54,7 +53,16 @@ struct ArrangementPanelMountTests {
             #expect(zoomView.isAccessibilityElement())
             #expect(zoomView.accessibilityLabel() == "Pane Zoom")
             #expect(zoomView.accessibilityPerformPress())
-            #expect(zoomTargets == [paneId])
+            #expect(
+                actionResolver.performedRequests == [
+                    ArrangementPanelActionRequest(
+                        command: .zoomPane,
+                        surface: .inlineControl,
+                        target: paneId,
+                        targetType: .pane
+                    )
+                ]
+            )
         }
     }
 
@@ -71,8 +79,7 @@ struct ArrangementPanelMountTests {
                         supportsZoom: false
                     )
                 ],
-                zoomMode: nil,
-                onToggleZoom: { _ in }
+                zoomMode: nil
             )
 
             #expect(
@@ -87,7 +94,8 @@ struct ArrangementPanelMountTests {
     @Test("active Pane Zoom exposes a status block with explicit Cancel Zoom")
     func activePaneZoomExposesStatusBlockWithExplicitCancelZoom() throws {
         try withTestCoreAtoms { _ in
-            var zoomTargets: [UUID?] = []
+            let sourcePaneId = UUID()
+            let actionResolver = RecordingArrangementPanelActionResolver()
             let hostingView = makeArrangementPanelHostingView(
                 panes: [
                     PaneVisibilityInfo(
@@ -99,13 +107,14 @@ struct ArrangementPanelMountTests {
                 ],
                 zoomMode: ArrangementPanelZoomMode(
                     label: "Cancel Zoom",
+                    sourcePaneId: sourcePaneId,
                     sourceIdentity: ArrangementPanelZoomSourceIdentity(
                         title: "repo | feature/pane-zoom | worktree",
                         detail: "/Users/example/project/worktree",
                         fullPath: "/Users/example/project/worktree"
                     )
                 ),
-                onToggleZoom: { zoomTargets.append($0) }
+                commandActionResolver: actionResolver.resolve
             )
 
             let zoomView = try #require(
@@ -124,8 +133,72 @@ struct ArrangementPanelMountTests {
             #expect(zoomView.accessibilityLabel() == "Cancel Zoom")
             #expect(zoomView.accessibilityValue() == nil)
             #expect(zoomView.accessibilityPerformPress())
-            #expect(zoomTargets == [nil])
+            #expect(
+                actionResolver.performedRequests == [
+                    ArrangementPanelActionRequest(
+                        command: .zoomPane,
+                        surface: .inlineControl,
+                        target: sourcePaneId,
+                        targetType: .pane
+                    )
+                ]
+            )
         }
+    }
+
+    @Test("pane visibility controls use targeted inline commands")
+    func paneVisibilityControlsUseTargetedInlineCommands() throws {
+        try withTestCoreAtoms { _ in
+            let paneId = UUID()
+            let actionResolver = RecordingArrangementPanelActionResolver()
+            var legacyActions: [WorkspaceActionCommand] = []
+            let hostingView = makeArrangementPanelHostingView(
+                panes: [
+                    PaneVisibilityInfo(
+                        id: paneId,
+                        title: "Terminal",
+                        isMinimized: false
+                    )
+                ],
+                zoomMode: nil,
+                commandActionResolver: actionResolver.resolve,
+                onPaneAction: { legacyActions.append($0) }
+            )
+
+            let visibilityView = try #require(
+                findArrangementPanelView(
+                    in: hostingView,
+                    identifier: "arrangement-panel-pane-\(paneId.uuidString)-visibility"
+                )
+            )
+            #expect(visibilityView.accessibilityPerformPress())
+            #expect(
+                actionResolver.performedRequests == [
+                    ArrangementPanelActionRequest(
+                        command: .minimizePane,
+                        surface: .inlineControl,
+                        target: paneId,
+                        targetType: .pane
+                    )
+                ]
+            )
+            #expect(legacyActions.isEmpty)
+        }
+    }
+
+    @Test("pane visibility controls use typed command tooltips")
+    func paneVisibilityControlsUseTypedCommandTooltips() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/Panes/ArrangementPanel.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            source.contains(
+                ".controlHelp(visibilityAction.commandSpec.controlTooltipRenderValue())"
+            )
+        )
+        #expect(!source.contains("visibilityAction.commandSpec.helpText"))
     }
 
     @Test("arrangement rename survives transient AppKit focus churn")
@@ -154,9 +227,8 @@ struct ArrangementPanelMountTests {
                         )
                     ],
                     inlineRenameState: renameState,
+                    commandActionResolver: makePresentedCommandAction,
                     onPaneAction: { _ in },
-                    onToggleZoom: { _ in },
-                    onSaveArrangement: {},
                     onDismiss: {}
                 )
             )
@@ -193,7 +265,9 @@ struct ArrangementPanelMountTests {
 private func makeArrangementPanelHostingView(
     panes: [PaneVisibilityInfo],
     zoomMode: ArrangementPanelZoomMode?,
-    onToggleZoom: @escaping (UUID?) -> Void
+    commandActionResolver: @escaping TargetedCommandControlActionResolver =
+        makePresentedCommandAction,
+    onPaneAction: @escaping (WorkspaceActionCommand) -> Void = { _ in }
 ) -> NSHostingView<ArrangementPanel> {
     let hostingView = NSHostingView(
         rootView: ArrangementPanel(
@@ -211,15 +285,85 @@ private func makeArrangementPanelHostingView(
                 )
             ],
             inlineRenameState: ArrangementInlineRenameState(),
-            onPaneAction: { _ in },
-            onToggleZoom: onToggleZoom,
-            onSaveArrangement: {},
+            commandActionResolver: commandActionResolver,
+            onPaneAction: onPaneAction,
             onDismiss: {}
         )
     )
     hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
     hostingView.layoutSubtreeIfNeeded()
     return hostingView
+}
+
+private struct ArrangementPanelActionRequest: Equatable {
+    let command: AppCommand
+    let surface: AppCommandSurface
+    let target: UUID
+    let targetType: SearchItemType
+}
+
+@MainActor
+private final class RecordingArrangementPanelActionResolver {
+    private(set) var requests: [ArrangementPanelActionRequest] = []
+    private(set) var performedRequests: [ArrangementPanelActionRequest] = []
+
+    func resolve(
+        command: AppCommand,
+        surface: AppCommandSurface,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> TargetedCommandControlAction? {
+        let request = ArrangementPanelActionRequest(
+            command: command,
+            surface: surface,
+            target: target,
+            targetType: targetType
+        )
+        requests.append(request)
+        let commandSpec = command.definition
+        guard
+            commandSpec.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: surface,
+                    subject: .targeted(targetType)
+                )
+            )
+        else {
+            return nil
+        }
+        return TargetedCommandControlAction(
+            commandSpec: commandSpec,
+            isEnabled: true,
+            perform: { [weak self] in
+                self?.performedRequests.append(request)
+            }
+        )
+    }
+}
+
+@MainActor
+private func makePresentedCommandAction(
+    command: AppCommand,
+    surface: AppCommandSurface,
+    target _: UUID,
+    targetType: SearchItemType
+) -> TargetedCommandControlAction? {
+    let commandSpec = command.definition
+    guard
+        commandSpec.shouldPresent(
+            AppCommandPresentationQuery(
+                surface: surface,
+                subject: .targeted(targetType)
+            )
+        )
+    else {
+        return nil
+    }
+    return TargetedCommandControlAction(
+        commandSpec: commandSpec,
+        isEnabled: true,
+        perform: {}
+    )
 }
 
 @MainActor

@@ -13,8 +13,8 @@ struct PaneTabViewControllerZoomCommandTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("tab-scoped Zoom enters Zoom on the target tab's active durable pane")
-    func tabScopedZoomUsesTargetTabActivePane() throws {
+    @Test("targeted Zoom enters Zoom on the target tab's active durable pane")
+    func targetedZoomUsesTargetTabActivePane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane()
@@ -35,7 +35,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(targetActivePane.id, inTab: targetTab.id)
         harness.store.setActiveTab(sourceTab.id)
 
-        harness.controller.executeTabContextMenuCommand(.zoomPane, tabId: targetTab.id)
+        harness.controller.execute(.zoomPane, target: targetActivePane.id, targetType: .pane)
 
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id) == nil)
         #expect(

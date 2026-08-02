@@ -19,7 +19,7 @@ struct CommandBarView: View {
         return VStack(spacing: 0) {
             CommandBarStatusStrip(
                 mode: resultSnapshot.currentMode,
-                context: resultSnapshot.currentContext
+                focusedPane: resultSnapshot.focusedPane
             )
 
             Divider()
