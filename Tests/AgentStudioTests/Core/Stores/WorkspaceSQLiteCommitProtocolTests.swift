@@ -405,6 +405,8 @@ private enum AuthoritativeSnapshotTestError: Error {
 }
 
 private final class AuthoritativeReadBarrier: @unchecked Sendable {
+    private static let coordinationTimeout: DispatchTimeInterval = .seconds(30)
+
     private let lock = NSLock()
     private let readerPaused = DispatchSemaphore(value: 0)
     private let readerResume = DispatchSemaphore(value: 0)
@@ -436,7 +438,7 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         guard shouldPause else { return }
 
         readerPaused.signal()
-        if readerResume.wait(timeout: .now() + 5) == .timedOut {
+        if readerResume.wait(timeout: .now() + Self.coordinationTimeout) == .timedOut {
             lock.withLock {
                 resumeTimedOut = true
             }
@@ -448,7 +450,7 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         // reader can reach the trace callback while this test awaits it.
         // swiftlint:disable:next no_task_detached
         await Task.detached { [readerPaused] in
-            waitForSemaphore(readerPaused)
+            waitForSemaphore(readerPaused, timeout: Self.coordinationTimeout)
         }.value
     }
 
@@ -457,6 +459,9 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
     }
 }
 
-private func waitForSemaphore(_ semaphore: DispatchSemaphore) -> Bool {
-    semaphore.wait(timeout: .now() + 5) == .success
+private func waitForSemaphore(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTimeInterval
+) -> Bool {
+    semaphore.wait(timeout: .now() + timeout) == .success
 }

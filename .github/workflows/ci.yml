@@ -12,7 +12,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  static:
+  quality:
     runs-on: macos-26
 
     steps:
@@ -55,7 +55,7 @@ jobs:
       - name: Lint
         run: mise run lint
 
-  bridge-web:
+  bridge-web-tests:
     runs-on: macos-26
 
     steps:
@@ -92,7 +92,7 @@ jobs:
           pnpm --dir BridgeWeb run build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 
-  test:
+  swift-tests:
     runs-on: macos-26
     env:
       SWIFT_BUILD_DIR: .build-ci
