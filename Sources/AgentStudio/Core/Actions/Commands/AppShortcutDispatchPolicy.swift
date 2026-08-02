@@ -99,7 +99,8 @@ package enum AppShortcutDispatchPolicy {
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
-            .showCommandBarPanes, .showCommandBarRepos, .openWebview, .showViewer,
+            .showCommandBarPanes, .showCommandBarRepos, .openWebview, .reloadBridgeWebView,
+            .showViewer,
             .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:

@@ -11,6 +11,9 @@ struct BridgePaneContentView: View {
 
     var body: some View {
         WebView(controller.page)
+            .webViewContextMenu { _ in
+                EmptyView()
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -13,6 +13,10 @@ import {
 	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
 } from './bridge-viewer-chrome.js';
+import {
+	bridgeViewerFiltersShortcut,
+	bridgeViewerShortcutTitle,
+} from './bridge-viewer-local-shortcuts.js';
 import { cn } from './class-name.js';
 
 export interface BridgeViewerFilterOption<TValue extends string> {
@@ -54,6 +58,15 @@ export const bridgeViewerFilterClearClassName = cn(
 	'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
 	'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
 	'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
+);
+
+export const bridgeViewerMenuTriggerClassName = cn(
+	'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
+	bridgeViewerChromeIconButtonClassName,
+	'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
+	'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+	'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+	'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
 );
 
 export function BridgeViewerFilterMenuHeader(props: {
@@ -108,6 +121,37 @@ export function BridgeViewerFilterOptionRow(props: {
 	);
 }
 
+export function BridgeViewerFacetToggleRow(props: {
+	readonly checked: boolean;
+	readonly description: string;
+	readonly label: string;
+	readonly onCheckedChange: (checked: boolean) => void;
+	readonly testId: string;
+}): ReactElement {
+	return (
+		<DropdownMenuCheckboxItem
+			aria-label={props.label}
+			checked={props.checked}
+			className={cn(
+				bridgeViewerFilterOptionClassName,
+				'min-h-10 py-1.5',
+				props.checked && 'text-[var(--bridge-text-primary)]',
+			)}
+			data-testid={props.testId}
+			onCheckedChange={(checked: boolean): void => props.onCheckedChange(checked)}
+		>
+			<span className="min-w-0">
+				<span className="block truncate" data-bridge-filter-row-label="">
+					{props.label}
+				</span>
+				<span className="block truncate text-[11px] text-[var(--bridge-text-muted)]">
+					{props.description}
+				</span>
+			</span>
+		</DropdownMenuCheckboxItem>
+	);
+}
+
 export function BridgeViewerFilterClearItem(props: {
 	readonly disabled: boolean;
 	readonly label: string;
@@ -135,21 +179,15 @@ export function BridgeViewerFilterTrigger(props: {
 	readonly label: string;
 	readonly selectedLabel: string;
 	readonly testId: string;
+	readonly title?: string;
 	readonly triggerGlyphTestId: string;
 }): ReactElement {
 	return (
 		<DropdownMenuTrigger
 			aria-label={props.label}
-			className={cn(
-				'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
-				bridgeViewerChromeIconButtonClassName,
-				'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-				'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-				'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
-			)}
+			className={bridgeViewerMenuTriggerClassName}
 			data-testid={props.testId}
-			title={props.label}
+			title={props.title ?? props.label}
 		>
 			<span className="relative flex min-w-0 items-center truncate">
 				<FilterTriggerGlyph testId={props.triggerGlyphTestId} />
@@ -196,6 +234,7 @@ export function BridgeViewerFacetMenu(props: {
 				label={props.label}
 				selectedLabel={props.selectedLabel}
 				testId={props.testId}
+				title={bridgeViewerShortcutTitle(props.label, bridgeViewerFiltersShortcut)}
 				triggerGlyphTestId={props.triggerGlyphTestId}
 			/>
 			<DropdownMenuContent
@@ -234,17 +273,13 @@ export function BridgeViewerFacetGroup<TValue extends string>(props: {
 	readonly options: readonly BridgeViewerFacetMenuOption<TValue>[];
 	readonly testId: string;
 }): ReactElement {
-	const visibleOptions = props.options.filter(
-		(option: BridgeViewerFacetMenuOption<TValue>): boolean => option.value !== props.defaultValue,
-	);
-
 	return (
 		<section aria-label={props.label} data-testid={props.testId}>
 			<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
 				{props.label}
 			</p>
 			<div className="space-y-0.5">
-				{visibleOptions.map(
+				{props.options.map(
 					(option: BridgeViewerFacetMenuOption<TValue>): ReactElement => (
 						<BridgeViewerFilterOptionRow
 							checked={option.value === props.activeValue}
@@ -287,6 +322,10 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 				label={titleForFilterLabel(props.label)}
 				selectedLabel={selectedLabel}
 				testId={props.testId}
+				title={bridgeViewerShortcutTitle(
+					titleForFilterLabel(props.label),
+					bridgeViewerFiltersShortcut,
+				)}
 				triggerGlyphTestId={testIds.triggerGlyph}
 			/>
 			<DropdownMenuContent

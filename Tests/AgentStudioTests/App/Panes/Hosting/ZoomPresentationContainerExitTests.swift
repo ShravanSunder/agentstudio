@@ -10,23 +10,19 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite(.serialized)
+@Suite
 struct ZoomPresentationContainerExitTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("Zoom toolbar contracts before cancelling and ignores repeated presses")
-    func zoomToolbarContractsBeforeCancelling() async throws {
-        try await expectSequencedZoomExit(
+    @Test("Zoom exit controls defer cancellation until animation completion and ignore repeated presses")
+    func zoomExitControlsDeferCancellationUntilAnimationCompletion() throws {
+        try expectSequencedZoomExit(
             accessibilityIdentifier: "paneSurfaceToolbar.zoom",
             managementActive: false
         )
-    }
-
-    @Test("Zoom management control contracts before cancelling and ignores repeated presses")
-    func zoomManagementControlContractsBeforeCancelling() async throws {
-        try await expectSequencedZoomExit(
+        try expectSequencedZoomExit(
             accessibilityIdentifier: "paneManagement.zoom",
             managementActive: true
         )
@@ -35,16 +31,12 @@ struct ZoomPresentationContainerExitTests {
     private func expectSequencedZoomExit(
         accessibilityIdentifier: String,
         managementActive: Bool
-    ) async throws {
-        let sourcePaneId = UUID()
+    ) throws {
+        let sourcePaneId = UUIDv7.generate()
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
         let recorder = ZoomExitRecorder()
-        let (cancellationEvents, cancellationContinuation) = AsyncStream.makeStream(
-            of: Void.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        defer { cancellationContinuation.finish() }
+        let animationDriver = DeferredZoomExitAnimationDriver()
         if managementActive {
             atom(\.managementLayer).activate()
         }
@@ -75,7 +67,6 @@ struct ZoomPresentationContainerExitTests {
                             visibleLabel: "Zoomed",
                             perform: {
                                 recorder.recordCancellation(sourcePaneId: sourcePaneId)
-                                cancellationContinuation.yield()
                             }
                         )
                     )
@@ -89,7 +80,8 @@ struct ZoomPresentationContainerExitTests {
                 onPaneFocusTrigger: { _ in },
                 viewRegistry: viewRegistry,
                 surfaceId: "zoom-toolbar-exit-test",
-                renderedPaneIds: [sourcePaneId]
+                renderedPaneIds: [sourcePaneId],
+                performZoomExitAnimation: animationDriver.perform
             )
             .frame(width: 640, height: 360)
         )
@@ -118,39 +110,12 @@ struct ZoomPresentationContainerExitTests {
         #expect(zoomControlView.accessibilityPerformPress())
         #expect(zoomControlView.accessibilityPerformPress())
         #expect(recorder.cancelledSourcePaneIds.isEmpty)
+        #expect(animationDriver.animationRequestCount == 1)
 
-        #expect(await waitForCancellationEvent(cancellationEvents))
-        await waitForNextMainActorTurn()
+        animationDriver.completeAnimation()
 
         #expect(recorder.cancelledSourcePaneIds == [sourcePaneId])
         #expect(recorder.wasZoomToolbarMountedAtCancellation)
-    }
-
-    private func waitForCancellationEvent(
-        _ cancellationEvents: AsyncStream<Void>,
-        timeout: Duration = .seconds(10)
-    ) async -> Bool {
-        let clock = ContinuousClock()
-        return await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                for await _ in cancellationEvents {
-                    return true
-                }
-                return false
-            }
-            group.addTask {
-                do {
-                    try await clock.sleep(for: timeout)
-                } catch {
-                    return false
-                }
-                return false
-            }
-
-            let didCancel = await group.next() ?? false
-            group.cancelAll()
-            return didCancel
-        }
     }
 
     private func toolbarAction(
@@ -174,10 +139,6 @@ struct ZoomPresentationContainerExitTests {
         )
     }
 
-    private func waitForNextMainActorTurn() async {
-        await Task.yield()
-    }
-
     private func makeNoOpPaneActionDispatcher() -> PaneTabActionDispatcher {
         PaneTabActionDispatcher(
             dispatch: { _ in },
@@ -185,6 +146,27 @@ struct ZoomPresentationContainerExitTests {
             shouldAcceptDrop: { _, _, _, _ in false },
             handleDrop: { _, _, _, _ in }
         )
+    }
+}
+
+@MainActor
+private final class DeferredZoomExitAnimationDriver {
+    private var pendingCompletion: (() -> Void)?
+    private(set) var animationRequestCount = 0
+
+    func perform(
+        updates: () -> Void,
+        completion: @escaping () -> Void
+    ) {
+        animationRequestCount += 1
+        updates()
+        pendingCompletion = completion
+    }
+
+    func completeAnimation() {
+        let completion = pendingCompletion
+        pendingCompletion = nil
+        completion?()
     }
 }
 

@@ -268,7 +268,8 @@ export async function renderBridgeReviewRecoveryWitness(
 		publishDemandedContent: async (): Promise<readonly string[]> => {
 			const demandedItemIds = new Set<string>();
 			for (const command of sentCommands) {
-				if (command.command === 'select') demandedItemIds.add(command.selectedItemId);
+				if (command.command === 'select' && command.selectedItemId !== null)
+					demandedItemIds.add(command.selectedItemId);
 				if (command.command === 'viewport') {
 					for (const itemId of command.visibleItemIds) demandedItemIds.add(itemId);
 				}
@@ -970,13 +971,10 @@ function completeReviewFileContentMessages(
 }
 
 function reviewWitnessFileContents(file: BridgeReviewRecoveryWitnessFile, marker: string): string {
-	return Array.from(
-		{ length: file.lineCount },
-		(_, lineIndex): string =>
-			`let recoveryWitness${String(lineIndex + 1).padStart(3, '0')} = "${marker}_LINE_${String(
-				lineIndex + 1,
-			).padStart(3, '0')}"`,
-	).join('\n');
+	return Array.from({ length: file.lineCount }, (_, lineIndex): string => {
+		const lineNumber = String(lineIndex + 1).padStart(3, '0');
+		return `let recoveryWitness${lineNumber} = "${marker}_LINE_${lineNumber}"`;
+	}).join('\n');
 }
 
 function textIncludingOpenShadowRoots(root: Element | ShadowRoot): string {

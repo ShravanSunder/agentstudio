@@ -336,6 +336,18 @@ package final class BridgePaneController {
         page.load(URL(string: "agentstudio://app/index.html"))
     }
 
+    /// Reload the existing browser page without changing native source authority.
+    package var canReloadWebView: Bool {
+        !isTeardownStarted
+    }
+
+    @discardableResult
+    package func reloadWebView() -> Bool {
+        guard canReloadWebView else { return false }
+        _ = page.reload()
+        return true
+    }
+
     /// Called when the pane is being removed or the controller is being deallocated.
     @discardableResult
     package func teardown() -> Task<Bool, Never> {

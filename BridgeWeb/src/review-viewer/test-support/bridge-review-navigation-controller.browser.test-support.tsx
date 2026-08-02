@@ -15,7 +15,7 @@ export function ReviewNavigationControllerProbe(props: {
 		reviewNavigationCommand('command-two', 'item-two'),
 	);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-	const orderedItemIds = ['item-one', 'item-two'] as const;
+	const [orderedItemIds, setOrderedItemIds] = useState<readonly string[]>(['item-one', 'item-two']);
 	const clearReviewSelection = useCallback((): void => {
 		props.events.push('clear');
 		setSelectedItemId(null);
@@ -50,6 +50,9 @@ export function ReviewNavigationControllerProbe(props: {
 		<>
 			<button onClick={(): void => setCatalogRevision((revision) => revision + 1)} type="button">
 				Advance Review catalog revision
+			</button>
+			<button onClick={(): void => setOrderedItemIds(['item-one'])} type="button">
+				Filter selected Review item
 			</button>
 			<button
 				onClick={(): void =>

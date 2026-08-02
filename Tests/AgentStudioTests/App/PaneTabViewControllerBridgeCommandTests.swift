@@ -162,6 +162,241 @@ extension WebKitSerializedTests {
             }
         }
 
+        @Test("Bridge Web View Reload is available only for the active mounted Bridge pane")
+        func bridgeWebViewReloadAvailabilityRequiresActiveMountedBridgePane() async throws {
+            try await withBridgeCommandHarness { harness in
+                // Arrange
+                let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                harness.controller.execute(
+                    .showBridgeReview,
+                    target: worktree.id,
+                    targetType: .worktree
+                )
+                let mountedBridgePane = try #require(
+                    singleCreatedBridgePane(in: harness, excluding: baselinePaneIds)
+                )
+                let mountedBridgeTab = try #require(
+                    harness.store.tabLayoutAtom.tabContaining(paneId: mountedBridgePane.id)
+                )
+                let unmountedBridgePane = harness.store.paneAtom.createPane(
+                    content: .bridgePanel(
+                        BridgePaneState(
+                            panelKind: .fileViewer,
+                            source: .workspace(
+                                rootPath: worktree.path.path,
+                                baseline: .localDefaultBranch(branchName: "main")
+                            )
+                        )
+                    ),
+                    metadata: PaneMetadata(
+                        title: "Unmounted Bridge",
+                        facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
+                    )
+                )
+                let unmountedBridgeTab = Tab(
+                    paneId: unmountedBridgePane.id,
+                    name: "Unmounted Bridge"
+                )
+                harness.store.tabLayoutAtom.appendTab(unmountedBridgeTab)
+
+                // Act / Assert
+                harness.store.tabLayoutAtom.setActiveTab(unmountedBridgeTab.id)
+                #expect(!harness.controller.canExecute(.reloadBridgeWebView))
+
+                harness.store.tabLayoutAtom.setActiveTab(mountedBridgeTab.id)
+                #expect(harness.controller.canExecute(.reloadBridgeWebView))
+
+                let mountedBridgeController = try #require(
+                    harness.viewRegistry.allBridgeViews[mountedBridgePane.id]?.controller
+                )
+                let retirementTask = mountedBridgeController.teardown()
+                #expect(!harness.controller.canExecute(.reloadBridgeWebView))
+                _ = await retirementTask.value
+            }
+        }
+
+        @Test("Bridge Web View Reload resets browser state without replacing native authority")
+        func bridgeWebViewReloadPreservesControllerPageAndSourceAuthority() async throws {
+            try await withBridgeCommandHarness { harness in
+                // Arrange
+                let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                harness.controller.execute(
+                    .showBridgeFiles,
+                    target: worktree.id,
+                    targetType: .worktree
+                )
+                let bridgePane = try #require(
+                    singleCreatedBridgePane(in: harness, excluding: baselinePaneIds)
+                )
+                let bridgeContentBeforeReload = bridgePane.content
+                let bridgeMountView = try #require(harness.viewRegistry.allBridgeViews[bridgePane.id])
+                let bridgeController = bridgeMountView.controller
+                let retainedPage = bridgeController.page
+                try await WebPageTestHarness.withManagedPage(retainedPage) { retainedPage in
+                    #expect(
+                        await waitForBridgeCommandCondition {
+                            bridgeController.hasPublishedProductSessionBootstrap
+                                && !retainedPage.isLoading
+                        }
+                    )
+                    let bootstrapBeforeReload = try #require(
+                        await bridgeController.productSessionOwner.activeBootstrap()
+                    )
+                    #expect(bridgeController.requestViewerSurface(.review))
+                    let reviewRequestBeforeReload = try await requireSurfaceSelection(
+                        .review,
+                        from: bridgeController,
+                        because: "Reload setup must acknowledge Review as the retained native surface"
+                    )
+                    try await acknowledgeSurfaceSelection(
+                        reviewRequestBeforeReload,
+                        bootstrap: bootstrapBeforeReload,
+                        in: bridgeController
+                    )
+                    _ = try await retainedPage.callJavaScript(
+                        "document.title = 'AgentStudio Bridge Reload Probe'"
+                    )
+                    #expect(
+                        await waitForBridgeCommandCondition {
+                            retainedPage.title == "AgentStudio Bridge Reload Probe"
+                        }
+                    )
+
+                    #expect(
+                        harness.controller.canExecute(
+                            .reloadBridgeWebView,
+                            target: bridgePane.id,
+                            targetType: .pane
+                        )
+                    )
+
+                    // Act
+                    harness.controller.execute(
+                        .reloadBridgeWebView,
+                        target: bridgePane.id,
+                        targetType: .pane
+                    )
+
+                    // Assert
+                    #expect(
+                        await waitForBridgeCommandCondition {
+                            guard
+                                let activeBootstrap =
+                                    await bridgeController.productSessionOwner.activeBootstrap()
+                            else { return false }
+                            return activeBootstrap.workerInstanceId
+                                != bootstrapBeforeReload.workerInstanceId
+                                && !retainedPage.isLoading
+                        }
+                    )
+                    #expect(retainedPage.title != "AgentStudio Bridge Reload Probe")
+                    #expect(harness.viewRegistry.allBridgeViews[bridgePane.id] === bridgeMountView)
+                    #expect(bridgeMountView.controller === bridgeController)
+                    #expect(bridgeController.page === retainedPage)
+                    #expect(harness.store.paneAtom.pane(bridgePane.id)?.content == bridgeContentBeforeReload)
+                    let didAcceptRetainedSurface = await waitForBridgeCommandCondition {
+                        let snapshot = bridgeController.surfaceSelectionAuthority.diagnosticSnapshot
+                        guard
+                            let acceptedRequest = snapshot.lastAcceptedRequest,
+                            let activeBootstrap =
+                                await bridgeController.productSessionOwner.activeBootstrap()
+                        else {
+                            return false
+                        }
+                        return snapshot.currentRequest == nil
+                            && acceptedRequest.requestId != reviewRequestBeforeReload.requestId
+                            && acceptedRequest.surface == .review
+                            && acceptedRequest.paneSessionId == activeBootstrap.paneSessionId
+                            && acceptedRequest.workerInstanceId == activeBootstrap.workerInstanceId
+                    }
+                    #expect(
+                        didAcceptRetainedSurface,
+                        Comment(
+                            rawValue:
+                                "Reloaded worker did not accept retained surface: \(bridgeController.surfaceSelectionAuthority.diagnosticSnapshot)"
+                        )
+                    )
+                }
+            }
+        }
+
+        @Test("Command-R toggles Management Layer without reloading a mounted Bridge Web View")
+        func commandRTogglesManagementLayerWithoutReloadingMountedBridgeWebView() async throws {
+            try await withBridgeCommandHarness { harness in
+                // Arrange
+                configureMainWindowKeyboardOwner(
+                    windowLifecycleStore: harness.windowLifecycleStore
+                )
+                let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                harness.controller.execute(
+                    .showBridgeFiles,
+                    target: worktree.id,
+                    targetType: .worktree
+                )
+                let bridgePane = try #require(
+                    singleCreatedBridgePane(in: harness, excluding: baselinePaneIds)
+                )
+                let bridgeMountView = try #require(harness.viewRegistry.allBridgeViews[bridgePane.id])
+                let bridgeController = bridgeMountView.controller
+                let retainedPage = bridgeController.page
+                try await WebPageTestHarness.withManagedPage(retainedPage) { retainedPage in
+                    #expect(
+                        await waitForBridgeCommandCondition {
+                            await bridgeController.productSessionOwner.activeBootstrap() != nil
+                                && !retainedPage.isLoading
+                        }
+                    )
+                    let bootstrapBeforeCommand = try #require(
+                        await bridgeController.productSessionOwner.activeBootstrap()
+                    )
+                    _ = try await retainedPage.callJavaScript(
+                        "document.title = 'AgentStudio Command-R Probe'"
+                    )
+                    #expect(
+                        await waitForBridgeCommandCondition {
+                            retainedPage.title == "AgentStudio Command-R Probe"
+                        }
+                    )
+                    let commandREvent = try #require(
+                        makeKeyEvent(
+                            modifierFlags: [.command],
+                            characters: "r",
+                            charactersIgnoringModifiers: "r",
+                            keyCode: 15
+                        )
+                    )
+                    let managementLayer = atom(\.managementLayer)
+                    #expect(!managementLayer.isActive)
+
+                    // Act
+                    try await withIsolatedCommandDispatcher(
+                        configure: {
+                            AppCommandDispatcher.shared.handler = harness.controller
+                            AppCommandDispatcher.shared.appCommandRouter = nil
+                        },
+                        body: {
+                            #expect(harness.controller.handleAppOwnedKeyEvent(commandREvent))
+                        }
+                    )
+
+                    // Assert
+                    #expect(managementLayer.isActive)
+                    #expect(!retainedPage.isLoading)
+                    #expect(retainedPage.title == "AgentStudio Command-R Probe")
+                    #expect(harness.viewRegistry.allBridgeViews[bridgePane.id] === bridgeMountView)
+                    #expect(bridgeMountView.controller === bridgeController)
+                    #expect(bridgeController.page === retainedPage)
+                    let bootstrapAfterCommand = try #require(
+                        await bridgeController.productSessionOwner.activeBootstrap()
+                    )
+                    #expect(bootstrapAfterCommand == bootstrapBeforeCommand)
+                }
+            }
+        }
+
         @Test("successful targeted Bridge commands record location and attended pane recency")
         func successfulTargetedCommandsRecordLocationAndPaneRecency() async throws {
             for command in [
@@ -369,6 +604,21 @@ private func singleCreatedBridgePane(
 }
 
 @MainActor
+private func waitForBridgeCommandCondition(
+    timeout: Duration = .seconds(5),
+    _ condition: @escaping @MainActor () async -> Bool
+) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return true
+        }
+        await Task.yield()
+    }
+    return await condition()
+}
+
+@MainActor
 private func attachExistingBridgeHostToWindow(
     paneId: UUID,
     in harness: PaneTabViewControllerCommandHarness
@@ -408,5 +658,29 @@ private func requireAnySurfaceSelection(
     return try #require(
         controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest,
         Comment(rawValue: description)
+    )
+}
+
+@MainActor
+private func acknowledgeSurfaceSelection(
+    _ request: BridgePaneSurfaceSelectionRequest,
+    bootstrap: BridgeProductSessionBootstrap,
+    in controller: BridgePaneController
+) async throws {
+    let productAdmission = try #require(controller.productAdmissionGate.acquire())
+    let correlation = try BridgeProductControlCorrelation(
+        paneSessionId: bootstrap.paneSessionId,
+        requestId: "bridge-command-surface-receipt",
+        requestSequence: 1,
+        workerInstanceId: bootstrap.workerInstanceId
+    )
+    await controller.handleCommittedProductActiveViewerModeUpdate(
+        sessionId: "bridge-command-viewer-session",
+        sequence: 1,
+        mode: request.surface.activeViewerMode,
+        activeSource: nil,
+        productAdmission: productAdmission,
+        nativeSelectionRequestId: request.requestId,
+        productCorrelation: correlation
     )
 }

@@ -30,6 +30,7 @@ export function instrumentBridgeCommWorkerStoreActions(
 		...(props.telemetryClient === undefined ? {} : { telemetryClient: props.telemetryClient }),
 	};
 	return {
+		clearSelectedFact: props.actions.clearSelectedFact,
 		applyHoveredFact: props.actions.applyHoveredFact,
 		applySelectedFact: (fact): BridgeCommWorkerTouchedResult =>
 			recordBridgeCommWorkerStoreActionTelemetry({

@@ -45,6 +45,12 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(zoomPane.targetKinds == [.pane])
         #expect(zoomPane.requiredPrivileges == [.layoutMutate])
 
+        let reloadBridgeWebView = try #require(
+            commandsById[IPCCommandIdentifier(rawValue: AppCommand.reloadBridgeWebView.rawValue)])
+        #expect(reloadBridgeWebView.executionModes == [.headless])
+        #expect(reloadBridgeWebView.targetKinds == [.pane])
+        #expect(reloadBridgeWebView.requiredPrivileges == [.workspaceRead])
+
         let repoVisibility = try #require(
             commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue)])
         #expect(repoVisibility.executionModes == [.headless])
@@ -492,6 +498,55 @@ struct AgentStudioIPCCommandAdapterTests {
         )
     }
 
+    @Test("Bridge Web View Reload executes for its explicit pane target")
+    func bridgeWebViewReloadExecutesForExplicitPaneTarget() async throws {
+        let commandHandler = RecordingWorkspaceCommandHandler()
+        let harness = CommandAdapterHarness()
+        let pane = harness.workspaceStore.createPane(
+            content: .bridgePanel(
+                BridgePaneState(
+                    panelKind: .fileViewer,
+                    source: .workspace(
+                        rootPath: "/tmp/agentstudio-ipc-bridge-reload",
+                        baseline: .headMinusOne
+                    )
+                )
+            ),
+            metadata: PaneMetadata(contentType: .review, title: "Bridge")
+        )
+        let tab = Tab(paneId: pane.id)
+        harness.workspaceStore.appendTab(tab)
+        harness.workspaceStore.setActiveTab(tab.id)
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = commandHandler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let result = try harness.adapter.executeCommand(
+                    IPCCommandExecuteParams(
+                        commandId: IPCCommandIdentifier(
+                            rawValue: AppCommand.reloadBridgeWebView.rawValue
+                        ),
+                        targetHandle: "pane:\(pane.id.uuidString)"
+                    )
+                )
+
+                #expect(result.applied)
+                #expect(result.targetHandle == "pane:\(pane.id.uuidString)")
+                #expect(
+                    commandHandler.targetedCommands == [
+                        RecordingWorkspaceCommandHandler.TargetedCommand(
+                            command: .reloadBridgeWebView,
+                            target: pane.id,
+                            targetType: .pane
+                        )
+                    ])
+            }
+        )
+    }
+
     @Test("targeted repo commands reject repositories outside the authorized workspace")
     func targetedRepoCommandsRejectRepositoriesOutsideAuthorizedWorkspace() throws {
         let harness = CommandAdapterHarness()
@@ -875,7 +930,7 @@ private final class RecordingWorkspaceCommandHandler: WorkspaceCommandHandling {
     func canExecute(_ command: AppCommand, target _: UUID, targetType: SearchItemType) -> Bool {
         switch (command, targetType) {
         case (.addRepoFavorite, .repo), (.removeRepoFavorite, .repo),
-            (.zoomPane, .pane):
+            (.zoomPane, .pane), (.reloadBridgeWebView, .pane):
             true
         default:
             false

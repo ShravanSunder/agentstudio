@@ -198,7 +198,7 @@ extension AppCommand {
                 .newFloatingTerminal, .newWindow, .closeWindow,
                 .showCommandBarEverything, .showCommandBarQuickOpen,
                 .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
-                .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
+                .openWebview, .reloadBridgeWebView, .showViewer, .showBridgeReview, .showBridgeFiles,
                 .openBridgeReviewInNewTab, .openBridgeFilesInNewTab,
                 .signInGitHub, .signInGoogle, .filterSidebar, .openNewTerminalInTab:
                 .noArguments
@@ -215,6 +215,11 @@ extension AppCommand {
                 )
             case .showViewer:
                 .notExposed
+            case .reloadBridgeWebView:
+                .headless(
+                    durableTarget: ipcDurableTargetContract,
+                    requiredPrivilege: ipcRequiredPrivilege
+                )
             case .showInboxNotifications, .showWorktreeSidebar:
                 .headlessAndInteractive(
                     durableTarget: ipcDurableTargetContract,
@@ -300,7 +305,8 @@ extension AppCommand {
             .focusDrawerPaneRight, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
-            .copyCurrentPanePath, .showPaneInboxNotifications, .clearPaneInboxNotifications:
+            .copyCurrentPanePath, .reloadBridgeWebView,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications:
             return .required(primary: .pane, additional: [])
         case .newTab, .undoCloseTab, .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -348,7 +354,7 @@ extension AppCommand {
             .setInboxContentMode, .addRepoFavorite, .removeRepoFavorite:
             return .sidebarStateMutate
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-            .openPaneLocationInEditorMenu, .copyCurrentPanePath,
+            .openPaneLocationInEditorMenu, .copyCurrentPanePath, .reloadBridgeWebView,
             .showCommandBarQuickOpen, .signInGitHub, .signInGoogle, .filterSidebar:
             return .workspaceRead
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,

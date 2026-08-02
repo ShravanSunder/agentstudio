@@ -5,6 +5,7 @@ import type {
 	BridgeMainRenderSnapshot,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeWorkerContentAvailabilityPatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
+import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 
 export interface BridgeFileViewerDisplayItem extends BridgeMainFileItemDisplayPayload {
 	readonly fileId: string;
@@ -19,6 +20,7 @@ export interface BridgeFileViewerDisplaySource {
 }
 
 export interface BridgeFileViewerDisplayModel {
+	readonly acceptedQueryKey: string | null;
 	readonly fileItemById: BridgeFileViewerDisplayItemIndex;
 	readonly projectedRowCount: number;
 	readonly searchError: string | null;
@@ -59,6 +61,8 @@ export function bridgeFileViewerDisplayModelForSnapshot(
 	snapshot: BridgeFileDisplaySnapshot,
 ): BridgeFileViewerDisplayModel {
 	return {
+		acceptedQueryKey:
+			snapshot.fileQuerySlice === null ? null : bridgeWorkerFileQueryKey(snapshot.fileQuerySlice),
 		fileItemById: bridgeFileViewerDisplayItemIndex(snapshot.fileItemById),
 		projectedRowCount:
 			snapshot.fileQuerySlice?.projectedRowCount ?? snapshot.fileTreeSlice.index.size,

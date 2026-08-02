@@ -928,16 +928,9 @@ extension AppCommand {
                 surfacePolicy: .exposed([.commandBar, .mainMenu, .contextMenu, .inlineControl])
             )
         case .openWebview:
-            return AppCommandSpec(
-                command: self,
-                label: "Open New Webview Tab",
-                icon: .system(.globe),
-                helpText: "Open a new webview tab",
-                surfacePolicy: .exposed([.commandBar, .mainMenu]),
-                targeting: .contextual,
-                commandBarGroupName: "Webview",
-                commandBarGroupPriority: CommandBarGroupPriority.webview
-            )
+            return openWebviewDefinition()
+        case .reloadBridgeWebView:
+            return bridgeWebViewReloadDefinition()
         case .showViewer:
             return AppCommandSpec(
                 command: self,

@@ -585,6 +585,20 @@ describe('BridgeApp pane runtime hard cut', () => {
 				searchText: 'PositionReview080',
 			}),
 		);
+		const rejectedFilesFilterOnReview = await dispatchBridgePageControl({
+			method: 'bridge.fileTree.setFilter',
+			filter: { surface: 'files', categoryFilter: 'docs' },
+		});
+		const acceptedReviewFilter = await dispatchBridgePageControl({
+			method: 'bridge.fileTree.setFilter',
+			filter: {
+				surface: 'review',
+				categoryFilter: 'source',
+				gitStatusFilter: 'modified',
+				showBinary: true,
+				showLarge: true,
+			},
+		});
 		const reviewSearchValueAfterCommand = reviewSearchInputWithin(reviewHost)?.value;
 
 		// Act: switch through production chrome, then route File reveal and search.
@@ -605,6 +619,20 @@ describe('BridgeApp pane runtime hard cut', () => {
 				searchText: 'PositionFile080',
 			}),
 		);
+		const rejectedReviewFilterOnFiles = await dispatchBridgePageControl({
+			method: 'bridge.fileTree.setFilter',
+			filter: {
+				surface: 'review',
+				categoryFilter: 'all',
+				gitStatusFilter: 'all',
+				showBinary: false,
+				showLarge: false,
+			},
+		});
+		const acceptedFilesFilter = await dispatchBridgePageControl({
+			method: 'bridge.fileTree.setFilter',
+			filter: { surface: 'files', categoryFilter: 'source' },
+		});
 		const fileShell = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 		);
@@ -654,6 +682,24 @@ describe('BridgeApp pane runtime hard cut', () => {
 		]);
 		expect.soft(reviewCodePanel.getAttribute('data-selected-item-id')).toBe(selectedReviewItemId);
 		expect.soft(reviewSearchValueAfterCommand).toBe('PositionReview080');
+		expect.soft(rejectedFilesFilterOnReview).toMatchObject({
+			method: 'bridge.fileTree.setFilter',
+			status: 'rejected',
+			filterSurface: 'review',
+			categoryFilter: 'all',
+			gitStatusFilter: 'all',
+			showBinary: false,
+			showLarge: false,
+		});
+		expect.soft(acceptedReviewFilter).toMatchObject({
+			method: 'bridge.fileTree.setFilter',
+			status: 'accepted',
+			filterSurface: 'review',
+			categoryFilter: 'source',
+			gitStatusFilter: 'modified',
+			showBinary: true,
+			showLarge: true,
+		});
 		expect.soft(reviewSearchValueAfterReturn).toBe('PositionReview080');
 		expect.soft(reviewSearchInputAfterExplicitClear?.value).toBe('');
 		expect
@@ -670,6 +716,18 @@ describe('BridgeApp pane runtime hard cut', () => {
 			.soft(fileShell.getAttribute('data-worktree-open-file-path'))
 			.toBe(bridgePanePositionFilePath);
 		expect.soft(fileSearchInput()?.value).toBe('PositionFile080');
+		expect.soft(rejectedReviewFilterOnFiles).toMatchObject({
+			method: 'bridge.fileTree.setFilter',
+			status: 'rejected',
+			filterSurface: 'files',
+			categoryFilter: 'all',
+		});
+		expect.soft(acceptedFilesFilter).toMatchObject({
+			method: 'bridge.fileTree.setFilter',
+			status: 'accepted',
+			filterSurface: 'files',
+			categoryFilter: 'source',
+		});
 		expect.soft(rejectedProbe).toMatchObject({
 			method: 'bridge.fileTree.search',
 			status: 'rejected',

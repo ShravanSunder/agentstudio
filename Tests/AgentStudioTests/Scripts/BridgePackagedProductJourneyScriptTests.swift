@@ -48,6 +48,76 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.stdout.contains("no frame_not_live skip"))
     }
 
+    @Test("verifier hard-cuts Files and Review filter requests to complete candidates")
+    func verifierUsesCompleteSurfaceDiscriminatedFilterCandidates() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("fileClassFilter"))
+        let reviewCandidateStart = try #require(source.range(of: "filter_result = session.request("))
+        let reviewCandidateEnd = try #require(
+            source.range(
+                of: #"require_filter_control(filter_result, "review")"#,
+                range: reviewCandidateStart.upperBound..<source.endIndex
+            )
+        )
+        let reviewCandidate = source[
+            reviewCandidateStart.lowerBound..<reviewCandidateEnd.upperBound
+        ]
+        #expect(reviewCandidate.contains(#""surface": "review""#))
+        #expect(reviewCandidate.contains(#""gitStatusFilter": "all""#))
+        #expect(reviewCandidate.contains(#""categoryFilter": "all""#))
+        #expect(reviewCandidate.contains(#""showBinary": True"#))
+        #expect(reviewCandidate.contains(#""showLarge": True"#))
+
+        let fileCandidateStart = try #require(source.range(of: "file_filter_result = session.request("))
+        let fileCandidateEnd = try #require(
+            source.range(
+                of: #"require_filter_control(file_filter_result, "files")"#,
+                range: fileCandidateStart.upperBound..<source.endIndex
+            )
+        )
+        let fileCandidate = source[fileCandidateStart.lowerBound..<fileCandidateEnd.upperBound]
+        #expect(fileCandidate.contains(#""surface": "files""#))
+        #expect(fileCandidate.contains(#""categoryFilter": "all""#))
+        #expect(source.contains(#"result.get("filterSurface") != expected_surface"#))
+        #expect(source.contains(#"result.get("categoryFilter") != "all""#))
+    }
+
+    @Test("verifier proves supported Search ingress boundaries without claiming key or focus proof")
+    func verifierProvesSupportedSearchIngressBoundaries() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(source.contains(#"invalid_regex_query = "[""#))
+        #expect(source.contains(#"maximum_search_text = "x" * 4096"#))
+        #expect(source.contains(#"oversized_search_text = "x" * 4097"#))
+        #expect(source.contains("def request_error(self, method, params):"))
+        #expect(source.contains(#"oversized_error.get("code") != -32602"#))
+        #expect(source.contains(#"invalid_search.get("treeSearchText") != invalid_regex_query"#))
+        #expect(source.contains(#"maximum_search.get("treeSearchText") != maximum_search_text"#))
+    }
+
+    @Test("verifier avoids unsupported Reload execution and proves fixture continuity")
+    func verifierAvoidsUnsupportedReloadExecutionAndProvesReadOnlyContinuity() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(!source.contains(#""command.execute""#))
+        #expect(source.contains(#"[ "$final_fixture_digest" != "$expected_fixture_digest" ]"#))
+        #expect(
+            source.contains(
+                #"[ "$final_review_diff_count" -ne "$expected_review_diff_count" ]"#
+            )
+        )
+    }
+
     @Test("verifier waits for initial Review readiness before proving refresh advancement")
     func verifierWaitsForInitialReviewReadinessBeforeProvingRefreshAdvancement() throws {
         let source = try String(

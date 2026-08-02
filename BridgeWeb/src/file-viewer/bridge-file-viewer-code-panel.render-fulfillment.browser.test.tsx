@@ -30,6 +30,10 @@ import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerCodePanelState,
 } from './bridge-file-viewer-code-panel.js';
+import {
+	bridgeFileViewerCodeViewOptions,
+	deriveBridgeFilesCodeViewOptions,
+} from './bridge-file-viewer-code-view-options.js';
 
 type ExactFilePierreItem = Extract<BridgeMainRenderPublicationItem, { readonly type: 'file' }> &
 	CodeViewFileItem;
@@ -48,6 +52,91 @@ interface PendingAnimationFrame {
 }
 
 describe('BridgeFileViewerCodePanel render fulfillment', () => {
+	test('applies Files view settings on the same mounted Pierre owner without changing selection', async () => {
+		// Arrange: capture the public CodeView owner and option updates from the production React bridge.
+		const mountedInstances: CodeView[] = [];
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetup = CodeView.prototype.setup;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			mountedInstances.push(this);
+			originalSetup.call(this, root);
+		};
+		CodeView.prototype.setOptions = function captureAppliedOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+
+		const selectedCodeViewItem = requireExactFilePierreItem(
+			makeFilePublication({
+				contentsMarker: 'view-settings',
+				publicationSequence: 1,
+				version: 1,
+			}).job.payload.item,
+		);
+		const panelProps = {
+			codeViewWorkerPoolEnabled: false,
+			openFileState: {
+				displayItem: null,
+				fileId: 'file-1',
+				path: 'Sources/App/View.swift',
+				status: 'ready',
+			} satisfies BridgeFileViewerCodePanelState,
+			renderFulfillmentCoordinator: {
+				observePostRender: (): void => {},
+				reconcilePublication: (): void => {},
+			},
+			selectedCodeViewItem,
+			totalHeightPixels: null,
+		};
+
+		try {
+			const initialOptions = deriveBridgeFilesCodeViewOptions({
+				compatibilityOptions: bridgeFileViewerCodeViewOptions,
+				viewSettings: { lineNumbers: true, wordWrap: true },
+			});
+			const rendered = await render(
+				<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={initialOptions} />,
+			);
+			const initialOwner = mountedInstances.at(-1);
+			await settleBridgeCodeViewState(
+				(): boolean => initialOwner?.getItem(selectedCodeViewItem.id) === selectedCodeViewItem,
+				'Expected the initial Files selection to be owned by the mounted Pierre CodeView.',
+			);
+
+			// Act
+			const changedOptions = deriveBridgeFilesCodeViewOptions({
+				compatibilityOptions: bridgeFileViewerCodeViewOptions,
+				viewSettings: { lineNumbers: false, wordWrap: false },
+			});
+			await act(async (): Promise<void> => {
+				await rendered.rerender(
+					<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={changedOptions} />,
+				);
+				await Promise.resolve();
+			});
+
+			// Assert
+			expect(mountedInstances).toHaveLength(1);
+			expect(mountedInstances[0]).toBe(initialOwner);
+			expect(initialOwner?.getItem(selectedCodeViewItem.id)).toBe(selectedCodeViewItem);
+			expect(appliedOptions.at(-1)).toMatchObject({
+				disableLineNumbers: true,
+				overflow: 'scroll',
+			});
+			expect(
+				document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]'),
+			).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
+		} finally {
+			CodeView.prototype.setup = originalSetup;
+			CodeView.prototype.setOptions = originalSetOptions;
+		}
+	});
+
 	test('settles File fulfillment only from exact main-adapted public Pierre items', async () => {
 		// Arrange: capture Pierre's public callback while retaining a real mounted CodeView and its
 		// public current-item and rendered-membership readback APIs.

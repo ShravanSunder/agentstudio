@@ -1,4 +1,5 @@
 import AgentStudioIPCTransport
+import AgentStudioInfrastructure
 import AgentStudioProgrammaticControl
 import Foundation
 import Testing
@@ -284,8 +285,7 @@ struct AgentStudioIPCBridgeServiceTests {
 
     @Test("debug unsafe no-auth serves semantic Bridge control methods")
     func debugUnsafeNoAuthServesSemanticBridgeControlMethods() throws {
-        let paneId = UUID()
-        let correlationId = UUID()
+        let paneId = UUIDv7.generate()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
@@ -296,25 +296,6 @@ struct AgentStudioIPCBridgeServiceTests {
         }
         try fixture.server.start()
 
-        let searchResponse = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(74),
-                method: "bridge.fileTree.search",
-                params: .object([
-                    "handle": .string("pane:1"),
-                    "searchText": .string("BridgePaneController"),
-                    "correlationId": .string(correlationId.uuidString),
-                ])
-            )
-        )
-        let searchResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: searchResponse)
-        #expect(searchResult.paneId == paneId)
-        #expect(searchResult.method == "bridge.fileTree.search")
-        #expect(searchResult.status == "accepted")
-        #expect(searchResult.treeSearchText == "BridgePaneController")
-        #expect(searchResult.correlationId == correlationId)
-
         let filterResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
@@ -322,15 +303,23 @@ struct AgentStudioIPCBridgeServiceTests {
                 method: "bridge.fileTree.setFilter",
                 params: .object([
                     "handle": .string("pane:1"),
-                    "gitStatusFilter": .string("modified"),
-                    "fileClassFilter": .string("source"),
+                    "candidate": .object([
+                        "surface": .string("review"),
+                        "gitStatusFilter": .string("modified"),
+                        "categoryFilter": .string("source"),
+                        "showBinary": .bool(true),
+                        "showLarge": .bool(false),
+                    ]),
                 ])
             )
         )
         let filterResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: filterResponse)
         #expect(filterResult.method == "bridge.fileTree.setFilter")
-        #expect(filterResult.gitStatusFilter == "modified")
-        #expect(filterResult.fileClassFilter == "source")
+        #expect(filterResult.filterSurface == .review)
+        #expect(filterResult.gitStatusFilter == .modified)
+        #expect(filterResult.categoryFilter == .source)
+        #expect(filterResult.showBinary)
+        #expect(!filterResult.showLarge)
 
         let revealResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -378,6 +367,84 @@ struct AgentStudioIPCBridgeServiceTests {
         let scrollResult = try decodeResponseResult(IPCBridgePageControlResult.self, from: scrollResponse)
         #expect(scrollResult.method == "bridge.diff.scrollToFile")
         #expect(scrollResult.itemId == "item-source")
+    }
+
+    @Test("debug unsafe no-auth preserves semantic Bridge Search mode")
+    func debugUnsafeNoAuthPreservesSemanticBridgeSearchMode() throws {
+        let paneId = UUIDv7.generate()
+        let correlationId = UUIDv7.generate()
+        let searchModeInvocationRecorder = BridgeSearchModeInvocationRecorder()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)],
+            bridgePort: FakeBridgePort(
+                paneId: paneId,
+                searchModeInvocationRecorder: searchModeInvocationRecorder
+            )
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(74),
+                method: "bridge.fileTree.search",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "searchText": .string("BridgePaneController"),
+                    "searchMode": .object(["kind": .string("regex")]),
+                    "correlationId": .string(correlationId.uuidString),
+                ])
+            )
+        )
+
+        let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
+        #expect(result.paneId == paneId)
+        #expect(result.method == "bridge.fileTree.search")
+        #expect(result.status == "accepted")
+        #expect(result.treeSearchText == "BridgePaneController")
+        #expect(searchModeInvocationRecorder.snapshot() == [.regex])
+        #expect(result.correlationId == correlationId)
+    }
+
+    @Test("debug unsafe no-auth preserves the Files filter candidate")
+    func debugUnsafeNoAuthPreservesFilesFilterCandidate() throws {
+        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000000751")!
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(91),
+                method: "bridge.fileTree.setFilter",
+                params: .object([
+                    "handle": .string("pane:1"),
+                    "candidate": .object([
+                        "surface": .string("files"),
+                        "categoryFilter": .string("docs"),
+                    ]),
+                ])
+            )
+        )
+
+        let result = try decodeResponseResult(IPCBridgePageControlResult.self, from: response)
+        #expect(result.filterSurface == .files)
+        #expect(result.gitStatusFilter == .all)
+        #expect(result.categoryFilter == .docs)
+        #expect(!result.showBinary)
+        #expect(!result.showLarge)
     }
 
     @Test("debug unsafe no-auth serves Bridge diff expand and collapse methods")
@@ -476,11 +543,7 @@ struct AgentStudioIPCBridgeServiceTests {
             (
                 85,
                 "bridge.fileTree.setFilter",
-                .object([
-                    "handle": .string("pane:1"),
-                    "gitStatusFilter": .string("modified"),
-                    "fileClassFilter": .string("source"),
-                ])
+                bridgeReviewFilterParams(handle: "pane:1")
             ),
             (
                 86,
@@ -790,4 +853,17 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(bridgePayload["paneId"] as? String == paneId.uuidString)
         #expect(bridgePayload["itemId"] as? String == "item-source")
     }
+}
+
+private func bridgeReviewFilterParams(handle: String) -> JSONValue {
+    .object([
+        "handle": .string(handle),
+        "candidate": .object([
+            "surface": .string("review"),
+            "gitStatusFilter": .string("modified"),
+            "categoryFilter": .string("source"),
+            "showBinary": .bool(false),
+            "showLarge": .bool(false),
+        ]),
+    ])
 }

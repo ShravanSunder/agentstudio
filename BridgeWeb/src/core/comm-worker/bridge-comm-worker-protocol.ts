@@ -41,7 +41,7 @@ export interface EncodeBridgeWorkerCommandBaseProps {
 
 export interface EncodeBridgeWorkerSelectCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly surface: BridgeWorkerSelectCommand['surface'];
-	readonly selectedItemId: string;
+	readonly selectedItemId: BridgeWorkerSelectCommand['selectedItemId'];
 	readonly selectedSource: BridgeWorkerSelectCommand['selectedSource'];
 }
 

@@ -174,12 +174,6 @@ struct AgentStudioIPCClientCoreTests {
             "pane:2",
             "BridgePaneController"
         )
-        let filterInvocation = try parseIPCInvocation(
-            "bridge-file-tree-set-filter",
-            "pane:2",
-            "modified",
-            "source"
-        )
         let revealInvocation = try parseIPCInvocation(
             "bridge-file-tree-reveal-path",
             "pane:2",
@@ -223,16 +217,6 @@ struct AgentStudioIPCClientCoreTests {
                 )
         )
         #expect(
-            filterInvocation.command
-                == .bridgeFileTreeSetFilter(
-                    IPCBridgeFileTreeSetFilterParams(
-                        handle: "pane:2",
-                        gitStatusFilter: "modified",
-                        fileClassFilter: "source"
-                    )
-                )
-        )
-        #expect(
             revealInvocation.command
                 == .bridgeFileTreeRevealPath(
                     IPCBridgeFileTreeRevealPathParams(handle: "pane:2", path: "Sources/App/View.swift")
@@ -246,6 +230,49 @@ struct AgentStudioIPCClientCoreTests {
         )
         #expect(telemetrySnapshotInvocation.command == .bridgeTelemetrySnapshot(handle: "pane:2"))
         #expect(telemetryFlushInvocation.command == .bridgeTelemetryFlush(handle: "pane:2"))
+    }
+
+    @Test("parses surface-specific bridge file tree filter commands")
+    func parsesSurfaceSpecificBridgeFileTreeFilterCommands() throws {
+        let reviewInvocation = try parseIPCInvocation(
+            "bridge-file-tree-set-filter",
+            "pane:2",
+            "review",
+            "modified",
+            "source",
+            "true",
+            "false"
+        )
+        let filesInvocation = try parseIPCInvocation(
+            "bridge-file-tree-set-filter",
+            "pane:2",
+            "files",
+            "docs"
+        )
+
+        #expect(
+            reviewInvocation.command
+                == .bridgeFileTreeSetFilter(
+                    IPCBridgeFileTreeSetFilterParams(
+                        handle: "pane:2",
+                        candidate: .review(
+                            gitStatusFilter: .modified,
+                            categoryFilter: .source,
+                            showBinary: true,
+                            showLarge: false
+                        )
+                    )
+                )
+        )
+        #expect(
+            filesInvocation.command
+                == .bridgeFileTreeSetFilter(
+                    IPCBridgeFileTreeSetFilterParams(
+                        handle: "pane:2",
+                        candidate: .files(categoryFilter: .docs)
+                    )
+                )
+        )
     }
 
     @Test("parses bridge diff expand and collapse commands")
@@ -283,8 +310,12 @@ struct AgentStudioIPCClientCoreTests {
             .bridgeFileTreeSetFilter(
                 IPCBridgeFileTreeSetFilterParams(
                     handle: "pane:2",
-                    gitStatusFilter: "modified",
-                    fileClassFilter: "source"
+                    candidate: .review(
+                        gitStatusFilter: .modified,
+                        categoryFilter: .source,
+                        showBinary: true,
+                        showLarge: false
+                    )
                 )
             ),
             requestId: 16
@@ -298,8 +329,52 @@ struct AgentStudioIPCClientCoreTests {
             return
         }
         #expect(params["handle"] == .string("pane:2"))
-        #expect(params["gitStatusFilter"] == .string("modified"))
-        #expect(params["fileClassFilter"] == .string("source"))
+        #expect(
+            params["candidate"]
+                == .object([
+                    "surface": .string("review"),
+                    "gitStatusFilter": .string("modified"),
+                    "categoryFilter": .string("source"),
+                    "showBinary": .bool(true),
+                    "showLarge": .bool(false),
+                ])
+        )
+        #expect(params["gitStatusFilter"] == nil)
+        #expect(params["fileClassFilter"] == nil)
+    }
+
+    @Test("rejects invalid bridge file tree filter enum and boolean arguments")
+    func rejectsInvalidBridgeFileTreeFilterArguments() {
+        #expect(throws: AgentStudioIPCClientError.self) {
+            try parseIPCInvocation(
+                "bridge-file-tree-set-filter",
+                "pane:2",
+                "files",
+                "binary"
+            )
+        }
+        #expect(throws: AgentStudioIPCClientError.self) {
+            try parseIPCInvocation(
+                "bridge-file-tree-set-filter",
+                "pane:2",
+                "review",
+                "changed",
+                "source",
+                "true",
+                "false"
+            )
+        }
+        #expect(throws: AgentStudioIPCClientError.self) {
+            try parseIPCInvocation(
+                "bridge-file-tree-set-filter",
+                "pane:2",
+                "review",
+                "modified",
+                "source",
+                "yes",
+                "false"
+            )
+        }
     }
 
     @Test("builds bridge file view open request frame")

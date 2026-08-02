@@ -197,7 +197,16 @@ export function useBridgeReviewRenderSnapshotController(
 	}, [props.reviewClient]);
 	const clearSelectedReviewItemId = useCallback((): void => {
 		displayStore.applyWorkerPatch({ operation: 'delete', slice: 'selection' });
-	}, [displayStore]);
+		latestReviewSelectRequestIdRef.current = props.reviewClient.send(
+			encodeBridgeWorkerSelectCommand({
+				epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+				requestId: 'review-client-owned',
+				selectedItemId: null,
+				selectedSource: null,
+				surface: 'review',
+			}),
+		);
+	}, [displayStore, props.reviewClient]);
 	const commitSelectedReviewItemId = useCallback(
 		(itemId: string): void => {
 			displayStore.setLocalSelection({ selectedItemId: itemId, source: 'user' });

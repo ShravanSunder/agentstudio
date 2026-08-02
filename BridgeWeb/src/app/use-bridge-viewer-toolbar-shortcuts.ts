@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
 
+import {
+	bridgeViewerFiltersShortcut,
+	bridgeViewerSearchShortcut,
+	matchesBridgeViewerLocalShortcut,
+} from './bridge-viewer-local-shortcuts.js';
+
 export interface UseBridgeViewerToolbarShortcutsProps {
 	readonly isActive: boolean;
 	readonly onToggleFilters: () => void;
@@ -15,24 +21,20 @@ export function useBridgeViewerToolbarShortcuts(props: UseBridgeViewerToolbarSho
 		}
 		const target = explicitTarget ?? document;
 		const handleKeyDown = (event: Event): void => {
-			if (!(event instanceof KeyboardEvent) || !isBridgeViewerToolbarShortcut(event)) {
+			if (!(event instanceof KeyboardEvent)) {
 				return;
 			}
-			event.preventDefault();
-			if (event.shiftKey) {
+			if (matchesBridgeViewerLocalShortcut(event, bridgeViewerSearchShortcut)) {
+				event.preventDefault();
 				onToggleSearch();
 				return;
 			}
-			onToggleFilters();
+			if (matchesBridgeViewerLocalShortcut(event, bridgeViewerFiltersShortcut)) {
+				event.preventDefault();
+				onToggleFilters();
+			}
 		};
 		target.addEventListener('keydown', handleKeyDown);
 		return (): void => target.removeEventListener('keydown', handleKeyDown);
 	}, [explicitTarget, isActive, onToggleFilters, onToggleSearch]);
-}
-
-function isBridgeViewerToolbarShortcut(event: KeyboardEvent): boolean {
-	if (event.key.toLowerCase() !== 'f' || !event.metaKey || event.ctrlKey) {
-		return false;
-	}
-	return event.shiftKey !== event.altKey;
 }
