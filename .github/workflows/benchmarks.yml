@@ -138,10 +138,7 @@ jobs:
         run: |
           set -o pipefail
           mise run test-benchmark 2>&1 | tee benchmark.log
-          grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
-          if [ ! -s benchmark-lines.txt ]; then
-            echo "[PushBenchmark] No benchmark threshold lines emitted in this run." > benchmark-lines.txt
-          fi
+          grep -E "^global-preferences-loader " benchmark.log > benchmark-lines.txt
           cat benchmark-lines.txt
 
       - name: Upload benchmark results

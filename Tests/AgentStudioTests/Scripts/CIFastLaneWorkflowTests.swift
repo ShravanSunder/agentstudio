@@ -57,6 +57,24 @@ struct CIFastLaneWorkflowTests {
         #expect(!benchmarkWorkflow.contains(".build-benchmark"))
     }
 
+    @Test("benchmark lane executes a current Swift benchmark and rejects empty output")
+    func benchmarkLaneExecutesCurrentSwiftBenchmark() throws {
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let benchmarkTask = try miseTask(named: "test-benchmark", in: miseConfig)
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
+        let benchmarkStep = try workflowStep(named: "Swift benchmark tests", in: benchmarkWorkflow)
+
+        #expect(benchmarkTask.contains("--filter \"GlobalPreferencesBootstrapPerformanceTests\""))
+        #expect(benchmarkTask.contains("export _XCB_BYPASS=1"))
+        #expect(!benchmarkTask.contains("PushBenchmarkSupportTests"))
+        #expect(!benchmarkTask.contains("PushPerformanceBenchmarkTests"))
+        #expect(benchmarkStep.contains("grep -E \"^global-preferences-loader \" benchmark.log"))
+        #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
+    }
+
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
