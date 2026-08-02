@@ -129,6 +129,7 @@ jobs:
 
       - name: Test large non-WebKit lane
         env:
+          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           _XCB_BYPASS: "1"
         run: mise run test-large
