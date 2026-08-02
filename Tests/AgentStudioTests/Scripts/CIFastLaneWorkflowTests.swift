@@ -41,6 +41,22 @@ struct CIFastLaneWorkflowTests {
         )
     }
 
+    @Test("benchmark workflow uses the canonical CI Swift build directory")
+    func benchmarkWorkflowUsesCanonicalCISwiftBuildDirectory() throws {
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
+        let cacheStep = try workflowStep(
+            named: "Cache Swift benchmark build",
+            in: benchmarkWorkflow
+        )
+
+        #expect(benchmarkWorkflow.contains("SWIFT_BUILD_DIR: .build-ci"))
+        #expect(cacheStep.contains("path: .build-ci"))
+        #expect(!benchmarkWorkflow.contains(".build-benchmark"))
+    }
+
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)

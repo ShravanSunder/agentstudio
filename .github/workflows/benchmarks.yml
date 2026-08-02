@@ -12,7 +12,7 @@ jobs:
   benchmarks:
     runs-on: macos-26
     env:
-      SWIFT_BUILD_DIR: .build-benchmark
+      SWIFT_BUILD_DIR: .build-ci
       XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
@@ -121,7 +121,7 @@ jobs:
       - name: Cache Swift benchmark build
         uses: actions/cache@v4
         with:
-          path: .build-benchmark
+          path: .build-ci
           key: swift-benchmark-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             swift-benchmark-${{ runner.os }}-
