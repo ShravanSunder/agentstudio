@@ -12,7 +12,7 @@ jobs:
   benchmarks:
     runs-on: macos-26
     env:
-      SWIFT_BUILD_DIR: .build-benchmark
+      SWIFT_BUILD_DIR: .build-ci
       XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
@@ -121,14 +121,14 @@ jobs:
       - name: Cache Swift benchmark build
         uses: actions/cache@v4
         with:
-          path: .build-benchmark
-          key: swift-benchmark-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          path: .build-ci
+          key: benchmark-swift-build-ci-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
-            swift-benchmark-${{ runner.os }}-
-            swift-${{ runner.os }}-
+            benchmark-swift-build-ci-${{ runner.os }}-
 
       - name: Test large non-WebKit lane
         env:
+          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           _XCB_BYPASS: "1"
         run: mise run test-large
@@ -137,10 +137,9 @@ jobs:
         run: |
           set -o pipefail
           mise run test-benchmark 2>&1 | tee benchmark.log
-          grep -E "\[PushBenchmark\]" benchmark.log > benchmark-lines.txt || true
-          if [ ! -s benchmark-lines.txt ]; then
-            echo "[PushBenchmark] No benchmark threshold lines emitted in this run." > benchmark-lines.txt
-          fi
+          grep -oE "global-preferences-loader (missing|valid) count=[0-9]+ p95_ms=[0-9.]+ max_ms=[0-9.]+ slow_samples_over_10\\.0ms=[0-9]+" benchmark.log > benchmark-lines.txt
+          test "$(grep -c "global-preferences-loader missing " benchmark-lines.txt)" -eq 1
+          test "$(grep -c "global-preferences-loader valid " benchmark-lines.txt)" -eq 1
           cat benchmark-lines.txt
 
       - name: Upload benchmark results

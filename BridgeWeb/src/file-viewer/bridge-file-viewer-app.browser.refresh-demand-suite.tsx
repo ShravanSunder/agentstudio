@@ -103,7 +103,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForBridgeViewerTreeItemButton('src/old/initial.ts');
-		await waitForBridgeFileViewerWorkerMessageDrain();
+		await settleBridgeFileViewerBrowserUpdates();
 		expect(fileTreeDisclosureRow('src')?.getAttribute('aria-expanded')).toBe('true');
 		expect(fileTreeDisclosureRow('src/old')?.getAttribute('aria-expanded')).toBe('true');
 		expect(fileTreeDisclosureRow('src/other')?.getAttribute('aria-expanded')).toBe('true');

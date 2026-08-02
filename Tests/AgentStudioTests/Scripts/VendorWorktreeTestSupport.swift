@@ -512,6 +512,9 @@ struct VendorWorktreeFixture {
         process.arguments = arguments
         process.currentDirectoryURL = directory
         var mergedEnvironment = ProcessInfo.processInfo.environment
+        mergedEnvironment["CI"] = "false"
+        mergedEnvironment["GITHUB_ACTIONS"] = "false"
+        mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
         for (key, value) in environment {
             mergedEnvironment[key] = value
         }
