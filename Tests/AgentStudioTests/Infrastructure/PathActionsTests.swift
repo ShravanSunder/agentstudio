@@ -10,11 +10,14 @@ struct PathActionsTests {
     func copyPathReturnsPasteboardWriteResultAndWritesPath() {
         let path = URL(filePath: "/tmp/agentstudio-path-actions")
         let pasteboard = InMemoryPasteboard()
+        let staleType = NSPasteboard.PasteboardType("com.agentstudio.tests.stale")
+        _ = pasteboard.setString("stale", forType: staleType)
 
         let copied = PathActions.copyPath(path, to: pasteboard)
 
         #expect(copied)
         #expect(pasteboard.string(forType: .string) == path.path)
+        #expect(pasteboard.string(forType: staleType) == nil)
     }
 }
 
