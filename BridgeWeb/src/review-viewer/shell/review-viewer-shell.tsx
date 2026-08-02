@@ -1,4 +1,4 @@
-import { useRef, type ReactElement, type ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
 
 import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
@@ -117,6 +117,23 @@ const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, st
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const surfaceRootRef = useRef<HTMLElement>(null);
 	const searchTriggerRef = useRef<HTMLButtonElement>(null);
+	const treeSearchText = props.treeSearchText ?? '';
+	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
+	useBridgeViewerSearchFocusRestoration({
+		isActive: props.isActive ?? true,
+		isSearchOpen: treeSearchOpen,
+		searchTriggerRef,
+		surfaceRootRef,
+	});
+	return renderReviewViewerShellPresentation({ props, searchTriggerRef, surfaceRootRef });
+}
+
+export function renderReviewViewerShellPresentation(presentation: {
+	readonly props: ReviewViewerShellProps;
+	readonly searchTriggerRef: RefObject<HTMLButtonElement | null>;
+	readonly surfaceRootRef: RefObject<HTMLElement | null>;
+}): ReactElement {
+	const { props, searchTriggerRef, surfaceRootRef } = presentation;
 	const registry = props.presentationRegistry;
 	const hiddenVisiblePathText = hiddenVisiblePathTextForRegistry(registry);
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
@@ -131,12 +148,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const treeAcceptedSearchText = props.treeAcceptedSearchText ?? treeSearchText;
 	const treeAcceptedSearchMode = props.treeAcceptedSearchMode ?? treeSearchMode;
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
-	useBridgeViewerSearchFocusRestoration({
-		isActive: props.isActive ?? true,
-		isSearchOpen: treeSearchOpen,
-		searchTriggerRef,
-		surfaceRootRef,
-	});
 	const treeSearchCompilation = compileBridgeFileTreeSearchPattern({
 		searchMode: treeSearchMode.kind,
 		searchText: treeSearchText,

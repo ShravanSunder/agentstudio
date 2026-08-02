@@ -334,6 +334,54 @@ struct IPCContractsTests {
         }
     }
 
+    @Test("bridge file tree filter params reject undeclared top-level fields")
+    func bridgeFileTreeFilterParamsRejectUndeclaredTopLevelFields() throws {
+        let invalidPayloads = [
+            """
+            {
+              "handle": "pane:1",
+              "candidate": {
+                "surface": "files",
+                "categoryFilter": "source"
+              },
+              "fileClassFilter": "source"
+            }
+            """,
+            """
+            {
+              "handle": "pane:1",
+              "candidate": {
+                "surface": "review",
+                "gitStatusFilter": "modified",
+                "categoryFilter": "source",
+                "showBinary": true,
+                "showLarge": true
+              },
+              "gitStatusFilter": "modified"
+            }
+            """,
+            """
+            {
+              "handle": "pane:1",
+              "candidate": {
+                "surface": "files",
+                "categoryFilter": "source"
+              },
+              "showHidden": true
+            }
+            """,
+        ]
+
+        for invalidPayload in invalidPayloads {
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(
+                    IPCBridgeFileTreeSetFilterParams.self,
+                    from: Data(invalidPayload.utf8)
+                )
+            }
+        }
+    }
+
     @Test("bridge Files filter candidate rejects Review-only fields")
     func bridgeFilesFilterCandidateRejectsReviewOnlyFields() throws {
         let invalidPayload = """

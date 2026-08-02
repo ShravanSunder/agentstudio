@@ -108,6 +108,7 @@ package enum AppCommand: String, CaseIterable {
     case showCommandBarRepos
     // Webview commands
     case openWebview
+    case reloadBridgeWebView
     case showViewer
     case showBridgeReview
     case showBridgeFiles

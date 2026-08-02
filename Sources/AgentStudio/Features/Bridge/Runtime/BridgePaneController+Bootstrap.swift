@@ -358,7 +358,7 @@ extension BridgePaneController {
             }) == true
         else { return }
         let surfaceSelectionSnapshot = surfaceSelectionAuthority.diagnosticSnapshot
-        if surfaceSelectionSnapshot.needsDelivery || surfaceSelectionSnapshot.currentRequest != nil,
+        if surfaceSelectionSnapshot.desiredSurface != nil,
             let productSchemeProvider
         {
             await bindAndPublishRetainedSurfaceSelection(

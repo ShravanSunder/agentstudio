@@ -83,6 +83,19 @@ extension AppCommand {
         )
     }
 
+    func bridgeWebViewReloadDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Reload Bridge Web View",
+            icon: .system(.arrowClockwise),
+            helpText:
+                "Reload the Bridge browser page and discard browser presentation state without refreshing worktree source data",
+            visibleWhen: [.hasActivePane, .paneIsBridge],
+            commandBarGroupName: "Bridge",
+            commandBarGroupPriority: CommandBarGroupPriority.bridge
+        )
+    }
+
     func repoSidebarGroupingDefinition(
         label: String,
         icon: CommandIcon,

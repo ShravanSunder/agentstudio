@@ -75,4 +75,52 @@ struct BridgeAppCommandContractTests {
         #expect(definition.ipcExposure.targetKinds.isEmpty)
         #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
     }
+
+    @Test("Bridge Web View Reload is a no-shortcut browser presentation escape hatch")
+    func bridgeWebViewReloadCommandCatalogContract() throws {
+        // Arrange
+        let reloadBridgeWebView = try #require(
+            AppCommand(rawValue: "reloadBridgeWebView")
+        )
+
+        // Act
+        let definition = AppCommandDispatcher.shared.definition(for: reloadBridgeWebView)
+
+        // Assert
+        #expect(definition.label == "Reload Bridge Web View")
+        #expect(definition.icon == .system(.arrowClockwise))
+        #expect(
+            definition.helpText
+                == "Reload the Bridge browser page and discard browser presentation state without refreshing worktree source data"
+        )
+        #expect(definition.appliesTo.isEmpty)
+        #expect(definition.visibleWhen == [.hasActivePane, .paneIsBridge])
+        #expect(definition.shortcut == nil)
+        #expect(definition.keyBinding == nil)
+        #expect(definition.ipcExposure.executionModes.isEmpty)
+        #expect(definition.ipcExposure.targetKinds.isEmpty)
+        #expect(definition.ipcExposure.requiredPrivileges.isEmpty)
+    }
+
+    @Test("Command-R remains exclusively the Management Layer toggle")
+    func commandRDoesNotDispatchBridgeWebViewReload() throws {
+        // Arrange
+        let reloadBridgeWebView = try #require(
+            AppCommand(rawValue: "reloadBridgeWebView")
+        )
+        let commandR = ShortcutTrigger(
+            key: .character(.r),
+            modifiers: [.command]
+        )
+
+        // Act
+        let resolvedShortcut = ShortcutDecoder.shortcut(for: commandR, in: .global)
+        let reloadShortcuts = AppShortcut.allCases.filter {
+            $0.command == reloadBridgeWebView
+        }
+
+        // Assert
+        #expect(resolvedShortcut == .toggleManagementLayer)
+        #expect(reloadShortcuts.isEmpty)
+    }
 }

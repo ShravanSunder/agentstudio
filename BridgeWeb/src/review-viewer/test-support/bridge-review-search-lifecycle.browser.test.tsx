@@ -24,6 +24,9 @@ describe('Bridge Review Search lifecycle', () => {
 			makeBridgeReviewRecoveryWitnessFiles({ count: 6, lineCount: 3, markerPrefix: 'SEARCH' }),
 		);
 		await harness.publishDisplay();
+		await expect
+			.element(harness.renderResult.getByTestId('bridge-review-search-toggle'))
+			.toBeEnabled();
 		await act(async (): Promise<void> => {
 			await harness.renderResult.getByTestId('bridge-review-search-toggle').click();
 			await harness.renderResult.getByTestId('bridge-review-regex-toggle').click();

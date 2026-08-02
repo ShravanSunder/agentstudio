@@ -205,17 +205,6 @@ export const bridgeReviewSearchModeSchema = z.discriminatedUnion('kind', [
 
 export type BridgeReviewSearchMode = z.infer<typeof bridgeReviewSearchModeSchema>;
 
-export const bridgeReviewFilterStateSchema = z.object({
-	treeSearchText: z.string(),
-	treeSearchMode: bridgeReviewSearchModeSchema,
-	gitStatusFilter: z.union([z.literal('all'), bridgeFileChangeKindSchema]),
-	categoryFilter: z.union([z.literal('all'), bridgeReviewFilterCategorySchema]),
-	showBinary: z.boolean(),
-	showLarge: z.boolean(),
-});
-
-export type BridgeReviewFilterState = z.infer<typeof bridgeReviewFilterStateSchema>;
-
 export const bridgeReviewProjectionRequestSchema = z.object({
 	mode: bridgeReviewProjectionModeSchema,
 	facets: z.array(bridgeReviewProjectionFacetSchema).readonly(),

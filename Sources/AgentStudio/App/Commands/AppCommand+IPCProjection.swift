@@ -81,8 +81,10 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
             return [.layoutMutate]
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
-            .copyCurrentPanePath, .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,
-            .showCommandBarQuickOpen, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            .copyCurrentPanePath, .reloadBridgeWebView,
+            .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,
+            .showCommandBarQuickOpen, .showCommandBarCommands, .showCommandBarPanes,
+            .showCommandBarRepos:
             return [.workspaceRead]
         }
     }
@@ -137,7 +139,7 @@ extension AppCommand {
                     targetKinds: [.pane],
                     requiredPrivileges: [.layoutMutate]
                 )
-            case .showViewer:
+            case .showViewer, .reloadBridgeWebView:
                 AppCommandIPCExposure(
                     executionModes: [],
                     targetKinds: [],

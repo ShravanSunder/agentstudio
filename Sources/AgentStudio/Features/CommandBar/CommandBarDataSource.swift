@@ -351,11 +351,14 @@ enum CommandBarDataSource {
 
     /// Visible command definitions, filtered once.
     private static func visibleCommands(
-        dispatcher _: any AppCommandDispatching,
+        dispatcher: any AppCommandDispatching,
         focus: WorkspacePaneFocus
     ) -> [AppCommandSpec] {
         AppCommand.allCases.map(\.definition).filter {
-            !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
+            !$0.isHiddenInCommandBar
+                && $0.isVisible(in: focus)
+                && ($0.command != .reloadBridgeWebView
+                    || dispatcher.canDispatch(.reloadBridgeWebView))
         }
     }
 

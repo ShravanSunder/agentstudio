@@ -903,6 +903,8 @@ extension AppCommand {
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
+        case .reloadBridgeWebView:
+            return bridgeWebViewReloadDefinition()
         case .showViewer:
             return AppCommandSpec(
                 command: self,

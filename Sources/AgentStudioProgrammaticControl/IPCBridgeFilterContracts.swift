@@ -26,7 +26,7 @@ public enum IPCBridgeGitStatusFilter: String, Codable, Equatable, Sendable {
     case copied
 }
 
-private struct IPCBridgeFilterCandidateCodingKey: CodingKey {
+private struct IPCBridgeFilterCodingKey: CodingKey {
     let stringValue: String
     let intValue: Int?
 
@@ -77,7 +77,7 @@ public enum IPCBridgeFileTreeFilterCandidate: Codable, Equatable, Sendable {
         case .review:
             allowedKeys = Set(CodingKeys.allCases.map(\.rawValue))
         }
-        let receivedKeys = try decoder.container(keyedBy: IPCBridgeFilterCandidateCodingKey.self).allKeys
+        let receivedKeys = try decoder.container(keyedBy: IPCBridgeFilterCodingKey.self).allKeys
         guard receivedKeys.allSatisfy({ allowedKeys.contains($0.stringValue) }) else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
@@ -131,6 +131,12 @@ public struct IPCBridgeFileTreeSetFilterParams: Codable, Equatable, Sendable {
     public let candidate: IPCBridgeFileTreeFilterCandidate
     public let correlationId: UUID?
 
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case handle
+        case candidate
+        case correlationId
+    }
+
     public init(
         handle: String,
         candidate: IPCBridgeFileTreeFilterCandidate,
@@ -139,5 +145,23 @@ public struct IPCBridgeFileTreeSetFilterParams: Codable, Equatable, Sendable {
         self.handle = handle
         self.candidate = candidate
         self.correlationId = correlationId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let allowedKeys = Set(CodingKeys.allCases.map(\.rawValue))
+        let receivedKeys = try decoder.container(keyedBy: IPCBridgeFilterCodingKey.self).allKeys
+        guard receivedKeys.allSatisfy({ allowedKeys.contains($0.stringValue) }) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Bridge filter params cannot carry undeclared fields"
+                )
+            )
+        }
+
+        handle = try container.decode(String.self, forKey: .handle)
+        candidate = try container.decode(IPCBridgeFileTreeFilterCandidate.self, forKey: .candidate)
+        correlationId = try container.decodeIfPresent(UUID.self, forKey: .correlationId)
     }
 }

@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from 'react';
+import { createRef, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, test } from 'vitest';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
@@ -24,7 +24,7 @@ import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import {
 	BridgeReviewCanvasLoadingState,
-	ReviewViewerShell,
+	renderReviewViewerShellPresentation,
 	type ReviewViewerShellProps,
 } from './review-viewer-shell.js';
 
@@ -729,14 +729,18 @@ function renderReviewViewerShellForTest(
 	const presentationRegistry =
 		props.presentationRegistry ??
 		createBridgeReviewItemRegistry({ reviewPackage: props.reviewPackage });
-	return ReviewViewerShell({
-		...props,
-		facetMenuOpen: false,
-		onFacetMenuOpenChange: (): void => {},
-		panelChromeSlice: props.panelChromeSlice ?? {},
-		presentationPositionKey: props.presentationPositionKey ?? 'review-shell-test-position',
-		presentationRegistry,
-		renderFulfillmentCoordinator: shellTestRenderFulfillmentCoordinator,
+	return renderReviewViewerShellPresentation({
+		props: {
+			...props,
+			facetMenuOpen: false,
+			onFacetMenuOpenChange: (): void => {},
+			panelChromeSlice: props.panelChromeSlice ?? {},
+			presentationPositionKey: props.presentationPositionKey ?? 'review-shell-test-position',
+			presentationRegistry,
+			renderFulfillmentCoordinator: shellTestRenderFulfillmentCoordinator,
+		},
+		searchTriggerRef: createRef<HTMLButtonElement>(),
+		surfaceRootRef: createRef<HTMLElement>(),
 	});
 }
 

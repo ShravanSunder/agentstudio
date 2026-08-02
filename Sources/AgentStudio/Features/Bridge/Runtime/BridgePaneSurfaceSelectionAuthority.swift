@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 struct BridgePaneSurfaceSelectionRequest: Equatable, Sendable {
@@ -68,12 +69,18 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         {
             return nil
         }
-        guard needsDelivery || currentRequest != nil else { return nil }
+        let acceptedBindingChanged =
+            lastAcceptedRequest.map {
+                $0.surface == desiredSurface
+                    && ($0.paneSessionId != paneSessionId
+                        || $0.workerInstanceId != workerInstanceId)
+            } ?? false
+        guard needsDelivery || currentRequest != nil || acceptedBindingChanged else { return nil }
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
         try BridgeProductContractDecoding.validateIdentifier(workerInstanceId, codingPath: [])
         nextSelectionRevision += 1
         let request = BridgePaneSurfaceSelectionRequest(
-            requestId: UUID().uuidString,
+            requestId: UUIDv7.generate().uuidString,
             selectionRevision: nextSelectionRevision,
             surface: desiredSurface,
             paneSessionId: paneSessionId,
