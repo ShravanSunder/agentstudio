@@ -21,6 +21,7 @@ import {
 	makeTreeRowsOnlyMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actUpdate,
 	installBridgeFileViewerNoopResizeObserver,
 	settleBridgeFileViewerBrowserUpdates,
 	waitForMetadataTreeRowCount,
@@ -123,7 +124,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		expect(document.querySelector('[data-testid="worktree-file-search-toggle"]')).not.toBeNull();
 		const fileTree = renderResult.getByTestId('bridge-file-viewer-pierre-file-tree').element();
 		if (!(fileTree instanceof HTMLElement)) throw new Error('Expected the Files tree focus owner.');
-		fileTree.focus();
+		await actUpdate((): void => fileTree.focus());
 
 		// Act: Command-Shift-F opens the active Files Search control.
 		await dispatchFileViewerShortcut({ shiftKey: true });
@@ -310,7 +311,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const fileTree = requireHTMLElement(
 			renderResult.getByTestId('bridge-file-viewer-pierre-file-tree').element(),
 		);
-		fileTree.focus();
+		await actUpdate((): void => fileTree.focus());
 
 		// Act: reject a complete semantic candidate while Search is closed.
 		await dispatchFileViewerSearchCommand({ mode: 'text', query: 'a'.repeat(4_097) });
@@ -380,9 +381,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const focusedPath = 'Sources/AgentStudio/App/AppDelegate.swift';
 		await expect.poll(() => mountedFileTreeRow(focusedPath)).not.toBeNull();
 		const originalRow = requireHTMLElement(mountedFileTreeRow(focusedPath));
-		await act(async (): Promise<void> => {
-			originalRow.focus();
-		});
+		await actUpdate((): void => originalRow.focus());
 		await expect.poll(deepActiveElement).toBe(originalRow);
 
 		// Act: Search keeps the focused semantic path eligible.
@@ -403,9 +402,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await expect.poll(deepActiveElement).toBe(eligibleRow);
 
 		// Act: exclude the recorded path before closing the next Search.
-		await act(async (): Promise<void> => {
-			eligibleRow.focus();
-		});
+		await actUpdate((): void => eligibleRow.focus());
 		await dispatchFileViewerShortcut({ shiftKey: true });
 		await act(async (): Promise<void> => {
 			await renderResult.getByTestId('worktree-file-search-input').fill('NoSuchPath');
