@@ -478,7 +478,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await dispatchFileViewerShortcut({ altKey: true });
 
 		// Act: Base UI owns menu focus, highlighted-option navigation, and Return selection.
-		await expect.poll(() => document.activeElement?.getAttribute('role')).toBe('menu');
+		await waitForFileViewerMenuFocus();
 		await dispatchFileViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('All');
 		await navigateFileViewerMenuTo('Dependencies and build output');
@@ -581,6 +581,19 @@ async function dispatchFileViewerMenuKey(key: 'ArrowDown' | 'Enter' | 'Escape'):
 	await act(async (): Promise<void> => {
 		await userEvent.keyboard(`{${key}}`);
 	});
+}
+
+async function waitForFileViewerMenuFocus(): Promise<void> {
+	await expect
+		.poll((): boolean => {
+			const openFilterMenu = document.querySelector(
+				'[data-testid="worktree-file-filter-menu-popover"][data-open]',
+			);
+			return (
+				document.activeElement !== null && openFilterMenu?.contains(document.activeElement) === true
+			);
+		})
+		.toBe(true);
 }
 
 async function navigateFileViewerMenuTo(label: string): Promise<void> {

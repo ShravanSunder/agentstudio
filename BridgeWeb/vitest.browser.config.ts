@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import react from '@vitejs/plugin-react';
@@ -6,6 +6,7 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, type TestUserConfig } from 'vitest/config';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
+const repositoryTemporaryRoot = resolve(bridgeWebPackageRoot, '..', 'tmp');
 
 const browserConfig = {
 	enabled: true,
@@ -23,7 +24,7 @@ const browserConfig = {
 		height: 972,
 	},
 	screenshotFailures: true,
-	screenshotDirectory: '../tmp/bridgeweb-vitest-screenshots',
+	screenshotDirectory: resolve(repositoryTemporaryRoot, 'bridgeweb-vitest-screenshots'),
 } satisfies NonNullable<TestUserConfig['browser']>;
 
 export default defineConfig({
@@ -47,6 +48,11 @@ export default defineConfig({
 		projects: [
 			{
 				plugins: [react()],
+				server: {
+					fs: {
+						allow: [bridgeWebPackageRoot, repositoryTemporaryRoot],
+					},
+				},
 				resolve: {
 					alias: {
 						'@': `${bridgeWebPackageRoot}/src`,
@@ -68,6 +74,11 @@ export default defineConfig({
 			},
 			{
 				plugins: [react()],
+				server: {
+					fs: {
+						allow: [bridgeWebPackageRoot, repositoryTemporaryRoot],
+					},
+				},
 				resolve: {
 					alias: {
 						'@': `${bridgeWebPackageRoot}/src`,

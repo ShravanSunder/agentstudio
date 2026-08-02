@@ -62,6 +62,51 @@ struct CIFastLaneWorkflowTests {
         )
     }
 
+    @Test("benchmark workflow uses the canonical CI Swift build directory")
+    func benchmarkWorkflowUsesCanonicalCISwiftBuildDirectory() throws {
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
+        let benchmarksJob = try workflowJob(named: "benchmarks", in: benchmarkWorkflow)
+        let cacheStep = try workflowStep(
+            named: "Cache Swift benchmark build",
+            in: benchmarksJob
+        )
+
+        #expect(benchmarksJob.contains("SWIFT_BUILD_DIR: .build-ci"))
+        #expect(cacheStep.contains("path: .build-ci"))
+        #expect(
+            cacheStep.contains(
+                "key: benchmark-swift-build-ci-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}"
+            )
+        )
+        #expect(cacheStep.contains("restore-keys: |\n            benchmark-swift-build-ci-${{ runner.os }}-"))
+        #expect(!cacheStep.contains("swift-benchmark-"))
+        #expect(!benchmarksJob.contains(".build-benchmark"))
+    }
+
+    @Test("benchmark lane executes a current Swift benchmark and rejects empty output")
+    func benchmarkLaneExecutesCurrentSwiftBenchmark() throws {
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let benchmarkTask = try miseTask(named: "test:swift:benchmark", in: miseConfig)
+        let benchmarkWorkflow = try String(
+            contentsOfFile: ".github/workflows/benchmarks.yml",
+            encoding: .utf8
+        )
+        let benchmarkStep = try workflowStep(named: "Swift benchmark tests", in: benchmarkWorkflow)
+
+        #expect(benchmarkTask.contains("--filter \"GlobalPreferencesBootstrapPerformanceTests\""))
+        #expect(benchmarkTask.contains("set -euo pipefail"))
+        #expect(benchmarkTask.contains("export _XCB_BYPASS=1"))
+        #expect(!benchmarkTask.contains("PushBenchmarkSupportTests"))
+        #expect(!benchmarkTask.contains("PushPerformanceBenchmarkTests"))
+        #expect(benchmarkStep.contains("grep -oE \"global-preferences-loader (missing|valid)"))
+        #expect(benchmarkStep.contains("grep -c \"global-preferences-loader missing \""))
+        #expect(benchmarkStep.contains("grep -c \"global-preferences-loader valid \""))
+        #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
+    }
+
     @Test("fast lane keeps cached parallel default")
     func fastLaneKeepsCachedParallelDefault() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
@@ -106,6 +151,7 @@ struct CIFastLaneWorkflowTests {
         #expect(webKitLaneStep.contains("run: mise run test:swift:webkit"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD"))
+        #expect(largeLaneStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
         #expect(largeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(largeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(largeLaneStep.contains("run: mise run test:swift:large"))
@@ -219,6 +265,24 @@ struct CIFastLaneWorkflowTests {
             endingBefore: "\n      - name: ",
             in: workflow
         )
+    }
+
+    private func workflowJob(named jobName: String, in workflow: String) throws -> String {
+        let workflowLines = workflow.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let startIndex = workflowLines.firstIndex(where: { $0 == "  \(jobName):" }) else {
+            throw CIFastLaneWorkflowError.missingBlock("  \(jobName):")
+        }
+
+        var endIndex = workflowLines.index(after: startIndex)
+        while endIndex < workflowLines.endIndex {
+            let line = workflowLines[endIndex]
+            if line.hasPrefix("  "), !line.hasPrefix("    "), !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                break
+            }
+            endIndex = workflowLines.index(after: endIndex)
+        }
+
+        return workflowLines[startIndex..<endIndex].joined(separator: "\n")
     }
 
     private func shellCase(named caseName: String, in script: String) throws -> String {
