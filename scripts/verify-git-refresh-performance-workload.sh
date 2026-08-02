@@ -617,8 +617,8 @@ materialize_workspace_fixture() {
     "AGENTSTUDIO_PERF_FIXTURE_EXPECTED_TABS=1"
   )
 
-  log_command env "${materializer_env[@]}" mise run test -- --filter "$materializer_filter"
-  env "${materializer_env[@]}" mise run test -- --filter "$materializer_filter" \
+  log_command env "${materializer_env[@]}" mise run test:swift -- --filter "$materializer_filter"
+  env "${materializer_env[@]}" mise run test:swift -- --filter "$materializer_filter" \
     >"$materialization_log" 2>&1
 }
 

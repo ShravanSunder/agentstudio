@@ -338,7 +338,7 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			document.querySelector('[data-testid="bridge-review-facet-popover"][data-open]'),
 		).toBeNull();
 		await dispatchReviewViewerShortcut({ altKey: true });
-		expect(document.activeElement?.getAttribute('role')).toBe('menu');
+		await expect.poll(() => document.activeElement?.getAttribute('role')).toBe('menu');
 		await dispatchReviewViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedReviewViewerMenuOptionLabel).toBe('All statuses');
 		await dispatchReviewViewerMenuKey('ArrowDown');

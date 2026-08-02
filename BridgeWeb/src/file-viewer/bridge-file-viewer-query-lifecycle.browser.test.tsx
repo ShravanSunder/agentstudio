@@ -380,8 +380,10 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const focusedPath = 'Sources/AgentStudio/App/AppDelegate.swift';
 		await expect.poll(() => mountedFileTreeRow(focusedPath)).not.toBeNull();
 		const originalRow = requireHTMLElement(mountedFileTreeRow(focusedPath));
-		originalRow.focus();
-		expect(deepActiveElement()).toBe(originalRow);
+		await act(async (): Promise<void> => {
+			originalRow.focus();
+		});
+		await expect.poll(deepActiveElement).toBe(originalRow);
 
 		// Act: Search keeps the focused semantic path eligible.
 		await dispatchFileViewerShortcut({ shiftKey: true });
@@ -398,10 +400,12 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		});
 
 		// Assert: the owner resolves the current row, not a stale DOM node.
-		expect(deepActiveElement()).toBe(eligibleRow);
+		await expect.poll(deepActiveElement).toBe(eligibleRow);
 
 		// Act: exclude the recorded path before closing the next Search.
-		eligibleRow.focus();
+		await act(async (): Promise<void> => {
+			eligibleRow.focus();
+		});
 		await dispatchFileViewerShortcut({ shiftKey: true });
 		await act(async (): Promise<void> => {
 			await renderResult.getByTestId('worktree-file-search-input').fill('NoSuchPath');
@@ -417,9 +421,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		});
 
 		// Assert: an ineligible path falls back to the Search trigger.
-		expect(document.activeElement).toBe(
-			renderResult.getByTestId('worktree-file-search-toggle').element(),
-		);
+		await expect
+			.poll(() => document.activeElement)
+			.toBe(renderResult.getByTestId('worktree-file-search-toggle').element());
 	});
 
 	test('File category filters use real native classes, preserve ancestors, and Clear restores the tree', async () => {
@@ -474,7 +478,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await dispatchFileViewerShortcut({ altKey: true });
 
 		// Act: Base UI owns menu focus, highlighted-option navigation, and Return selection.
-		expect(document.activeElement?.getAttribute('role')).toBe('menu');
+		await expect.poll(() => document.activeElement?.getAttribute('role')).toBe('menu');
 		await dispatchFileViewerMenuKey('ArrowDown');
 		await expect.poll(highlightedFileViewerMenuOptionLabel).toBe('All');
 		await navigateFileViewerMenuTo('Dependencies and build output');

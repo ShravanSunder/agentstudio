@@ -42,7 +42,7 @@ export SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECOND
 export SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-120}"
 
 echo "global preferences loader benchmark budget: p95 <= 2 ms, max <= 10 ms"
-mise run test -- --filter globalPreferencesLoaderStaysWithinStartupBudget
+mise run test:swift -- --filter globalPreferencesLoaderStaysWithinStartupBudget
 
 if ! "$CURL_BIN" --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_URL" >/dev/null; then
   echo "OTLP collector is not healthy at $COLLECTOR_HEALTH_URL" >&2

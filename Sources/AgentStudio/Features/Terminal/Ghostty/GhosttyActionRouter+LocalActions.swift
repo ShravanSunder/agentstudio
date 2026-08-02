@@ -47,6 +47,28 @@ struct TerminalLocalActionMountedHostResolver {
     )
 }
 
+@MainActor
+struct TerminalLocalActionDrainDependencies {
+    let mountedHostResolver: TerminalLocalActionMountedHostResolver
+    let runtimeRegistry: RuntimeRegistry
+    let fallbackRuntimeRegistry: RuntimeRegistry?
+    let activityContext: @MainActor (UUID) -> TerminalActivityProjectionContext?
+    let submitActivityInput: @MainActor (TerminalActivitySourceInput) async -> Void
+
+    static var live: Self {
+        let runtimeRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        return Self(
+            mountedHostResolver: .surfaceManager,
+            runtimeRegistry: runtimeRegistry,
+            fallbackRuntimeRegistry: ObjectIdentifier(runtimeRegistry) != ObjectIdentifier(RuntimeRegistry.shared)
+                ? RuntimeRegistry.shared
+                : nil,
+            activityContext: { Ghostty.ActionRouter.terminalActivityProjectionContext(paneID: $0) },
+            submitActivityInput: { await Ghostty.ActionRouter.submitTerminalActivityInput($0) }
+        )
+    }
+}
+
 extension Ghostty.ActionRouter {
     static func admitTranslatedActionToTerminalRuntime(
         _ event: GhosttyEvent,
@@ -208,16 +230,20 @@ extension Ghostty.ActionRouter {
     static func drainLocalActions(for surfaceID: UUID) async {
         await drainLocalActions(
             for: surfaceID,
-            mountedHostResolver: .surfaceManager
+            dependencies: .live
         )
     }
 
     @MainActor
     static func drainLocalActions(
         for surfaceID: UUID,
-        mountedHostResolver: TerminalLocalActionMountedHostResolver
+        dependencies: TerminalLocalActionDrainDependencies
     ) async {
-        guard let mountedHost = mountedHostResolver.resolve(expectedSurfaceID: surfaceID) else {
+        guard
+            let mountedHost = dependencies.mountedHostResolver.resolve(
+                expectedSurfaceID: surfaceID
+            )
+        else {
             retireLocalActions(for: surfaceID)
             return
         }
@@ -227,7 +253,7 @@ extension Ghostty.ActionRouter {
         guard
             let batch = localActionAccumulator.beginDrain(
                 for: surfaceID,
-                defaultActivityContext: terminalActivityProjectionContext(paneID: paneUUID)
+                defaultActivityContext: dependencies.activityContext(paneUUID)
             )
         else { return }
         defer {
@@ -243,12 +269,10 @@ extension Ghostty.ActionRouter {
         }
 
         let paneID = PaneId(existingUUID: paneUUID)
-        let routedRuntime = runtimeRegistryForActionRouting.runtime(for: paneID) as? TerminalRuntime
+        let routedRuntime = dependencies.runtimeRegistry.runtime(for: paneID) as? TerminalRuntime
         let runtime =
             routedRuntime
-            ?? (ObjectIdentifier(runtimeRegistryForActionRouting) != ObjectIdentifier(RuntimeRegistry.shared)
-                ? RuntimeRegistry.shared.runtime(for: paneID) as? TerminalRuntime
-                : nil)
+            ?? dependencies.fallbackRuntimeRegistry?.runtime(for: paneID) as? TerminalRuntime
 
         let equalWriteSuppressedCount: Int
         if let runtime {
@@ -275,7 +299,7 @@ extension Ghostty.ActionRouter {
             let context = batch.activityContext
         {
             let projectionStartedAt = clock.now
-            await submitTerminalActivityInput(
+            await dependencies.submitActivityInput(
                 .aggregate(
                     surfaceID: surfaceID,
                     paneID: paneUUID,
