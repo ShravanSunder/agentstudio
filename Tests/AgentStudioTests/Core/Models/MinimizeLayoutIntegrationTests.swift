@@ -237,7 +237,12 @@ final class MinimizeLayoutIntegrationTests {
         let minimizedSegment = renderInfo.paneSegments.first { $0.isMinimized }
         #expect(minimizedSegment != nil)
         #expect(minimizedSegment?.frame.width == 0)
-        #expect(renderInfo.dividerSegments.isEmpty)
+        #expect(renderInfo.dividerSegments.count == 1)
+        #expect(renderInfo.dividerSegments[0].dividerId == updated.layout.dividerIds[0])
+        #expect(
+            renderInfo.dividerSegments[0].resizeIntent
+                == .visiblePanePair(leftPaneId: paneIds[0], rightPaneId: paneIds[2])
+        )
 
         let visibleSegments = renderInfo.paneSegments.filter { !$0.isMinimized }
         let totalVisibleWidth = visibleSegments.reduce(0) { $0 + $1.frame.width }
