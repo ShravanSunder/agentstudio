@@ -2824,6 +2824,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             executor.openWebview()
             return true
+        case .reloadBridgeWebView:
+            guard let bridgeMountView = resolvedBridgeCommandMountView() else {
+                return false
+            }
+            return bridgeMountView.controller.reloadWebView()
         case .showViewer:
             switch executeZoomLocalViewerCommand(explicitPaneId: nil) {
             case .notZoomLocal:
@@ -2837,6 +2842,38 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         default:
             return false
         }
+    }
+
+    private func resolvedBridgeCommandMountView() -> BridgePaneMountView? {
+        let paneId: UUID?
+        switch normalizedWorkspaceNavigationScopeState() {
+        case .mainPane(let mainPaneId):
+            paneId = mainPaneId ?? activeMainPaneId()
+        case .emptyDrawer(let parentPaneId):
+            paneId = parentPaneId
+        case .drawerPane(_, let drawerPaneId):
+            paneId = drawerPaneId
+        }
+
+        guard let paneId else {
+            return nil
+        }
+        return resolvedBridgeCommandMountView(paneId: paneId)
+    }
+
+    private func resolvedBridgeCommandMountView(paneId: UUID) -> BridgePaneMountView? {
+        guard
+            let pane = store.paneAtom.pane(paneId),
+            case .bridgePanel = pane.content
+        else {
+            return nil
+        }
+        guard let bridgeMountView = viewRegistry.allBridgeViews[paneId],
+            bridgeMountView.controller.canReloadWebView
+        else {
+            return nil
+        }
+        return bridgeMountView
     }
 
     private func enterZoomAndShowViewer(explicitPaneId: UUID?) -> Bool {
@@ -3243,6 +3280,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             case .toggled:
                 return
             }
+        }
+
+        if command == .reloadBridgeWebView, targetType == .pane {
+            _ = resolvedBridgeCommandMountView(paneId: target)?.controller.reloadWebView()
+            return
         }
 
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
@@ -3988,6 +4030,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
+        if command == .reloadBridgeWebView, targetType == .pane {
+            return resolvedBridgeCommandMountView(paneId: target) != nil
+        }
+
         if command == .movePaneToTab, targetType == .pane {
             return canMovePaneToAnotherTab(sourcePaneId: target)
         }
@@ -4076,6 +4122,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return true
             }
             return zoomCommandCapability(explicitPaneId: nil) != nil
+        case .reloadBridgeWebView:
+            return resolvedBridgeCommandMountView() != nil
         case .switchArrangement:
             return store.tabLayoutAtom.activeTabId != nil
         case .previousArrangement, .nextArrangement, .cycleArrangement:

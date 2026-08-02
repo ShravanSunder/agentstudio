@@ -34,10 +34,13 @@ import {
 } from './bridge-comm-worker-review-runtime-application.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
+	isSelectedContentReadyPreparationCurrent,
+	readSelectedReviewDemandEpoch,
+} from './bridge-comm-worker-selection-demand.js';
+import {
 	createBridgeCommWorkerStore,
 	type BridgeCommWorkerRow,
 	type BridgeCommWorkerStore,
-	type BridgeCommWorkerStoreState,
 	type BridgeCommWorkerViewportRange,
 } from './bridge-comm-worker-store.js';
 import {
@@ -636,6 +639,27 @@ interface HandleBridgeWorkerSelectCommandProps {
 function handleBridgeWorkerSelectCommand(
 	props: HandleBridgeWorkerSelectCommandProps,
 ): readonly BridgeWorkerServerToMainMessage[] {
+	if (props.message.selectedItemId === null) {
+		props.store.actions.clearSelectedFact({ epoch: props.message.epoch });
+		if (props.message.surface === 'fileView') {
+			publishBridgeCommWorkerFileMetadataDemand({
+				epoch: props.message.epoch,
+				fileViewRuntimeSource: props.fileViewRuntimeSource,
+				store: props.store,
+				...(props.updateFileMetadataDemand === undefined
+					? {}
+					: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
+			});
+		}
+		const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+			epoch: props.message.epoch,
+			sequence: props.createSequence(),
+		});
+		return [
+			...(slicePatch === null ? [] : [slicePatch]),
+			buildBridgeWorkerReadyHealthEvent(props.message.requestId),
+		];
+	}
 	if (props.message.surface === 'review') {
 		applySelectedReviewRuntimeSourceItemIfNeeded({
 			epoch: props.message.epoch,
@@ -701,6 +725,7 @@ function scheduleSelectedContentReadyPreparationForSelection(
 	>,
 ): void {
 	const selectedItemId = props.message.selectedItemId;
+	if (selectedItemId === null) return;
 	if (
 		!isSelectedContentReadyPreparationCurrent({
 			epoch: props.message.epoch,
@@ -764,27 +789,6 @@ function scheduleSelectedFileViewContentReadyPreparationForCurrentDemand(props: 
 		itemId: selectedId,
 		store: props.store,
 	});
-}
-
-function isSelectedContentReadyPreparationCurrent(props: {
-	readonly epoch: number;
-	readonly itemId: string;
-	readonly store: BridgeCommWorkerStore;
-}): boolean {
-	const state = props.store.getState();
-	return (
-		state.selectedId === props.itemId &&
-		state.demandByKey.get(props.itemId) === `selected:${props.epoch}`
-	);
-}
-
-function readSelectedReviewDemandEpoch(state: BridgeCommWorkerStoreState): number | null {
-	if (!state.selectedDemandEnabled || state.selectedId === null) {
-		return null;
-	}
-	const selectedDemandKey = state.demandByKey.get(state.selectedId);
-	const selectedDemandEpochMatch = /^selected:(\d+)$/u.exec(selectedDemandKey ?? '');
-	return selectedDemandEpochMatch === null ? null : Number(selectedDemandEpochMatch[1]);
 }
 
 interface HandleBridgeWorkerReviewInvalidateCommandProps {

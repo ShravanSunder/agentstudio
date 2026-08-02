@@ -45,7 +45,7 @@ jobs:
         run: mise run bridge-web-install
 
       - name: BridgeWeb Vitest stress tests
-        run: mise run bridge-web-browser-stress-test
+        run: mise run test:bridge-web:stress
 
       - name: Get submodule SHAs
         id: submodules
@@ -131,12 +131,12 @@ jobs:
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           _XCB_BYPASS: "1"
-        run: mise run test-large
+        run: mise run test:swift:large
 
       - name: Swift benchmark tests
         run: |
           set -o pipefail
-          mise run test-benchmark 2>&1 | tee benchmark.log
+          mise run test:swift:benchmark 2>&1 | tee benchmark.log
           grep -oE "global-preferences-loader (missing|valid) count=[0-9]+ p95_ms=[0-9.]+ max_ms=[0-9.]+ slow_samples_over_10\\.0ms=[0-9]+" benchmark.log > benchmark-lines.txt
           test "$(grep -c "global-preferences-loader missing " benchmark-lines.txt)" -eq 1
           test "$(grep -c "global-preferences-loader valid " benchmark-lines.txt)" -eq 1

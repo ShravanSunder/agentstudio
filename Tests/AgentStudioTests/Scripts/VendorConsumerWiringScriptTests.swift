@@ -11,14 +11,14 @@ struct VendorConsumerWiringScriptTests {
         let directConsumers = [
             "build",
             "build-release",
-            "test",
-            "test-fast",
-            "test-large",
-            "test-prebuild",
-            "test-webkit",
-            "test-coverage",
-            "test-e2e",
-            "test-zmx-e2e",
+            "test:swift",
+            "test:swift:fast",
+            "test:swift:large",
+            "test:swift:prebuild",
+            "test:swift:webkit",
+            "test:swift:coverage",
+            "test:swift:e2e",
+            "test:swift:zmx-e2e",
         ]
 
         // Act / Assert
@@ -31,12 +31,12 @@ struct VendorConsumerWiringScriptTests {
                 "mise task \(taskName) must verify vendors before Swift consumption")
         }
 
-        let benchmarkTask = try #require(taskBlock(named: "test-benchmark", in: source))
+        let benchmarkTask = try #require(taskBlock(named: "test:swift:benchmark", in: source))
         #expect(
             benchmarkTask.contains("depends = [\"build\"]")
                 || benchmarkTask.contains("depends = [\"verify-vendors\", \"build\"]")
                 || benchmarkTask.contains("depends = [\"build\", \"verify-vendors\"]"),
-            "test-benchmark must inherit verification through build")
+            "test:swift:benchmark must inherit verification through build")
     }
 
     @Test("direct scripts verify before build test packaging signing or launch")
@@ -331,7 +331,10 @@ struct VendorConsumerWiringScriptTests {
     }
 
     private func taskBlock(named taskName: String, in source: String) -> String? {
-        guard let start = source.range(of: "[tasks.\(taskName)]") else {
+        let quotedMarker = "[tasks.\"\(taskName)\"]"
+        let bareMarker = "[tasks.\(taskName)]"
+        let marker = source.contains(quotedMarker) ? quotedMarker : bareMarker
+        guard let start = source.range(of: marker) else {
             return nil
         }
         let remainder = source[start.lowerBound...]

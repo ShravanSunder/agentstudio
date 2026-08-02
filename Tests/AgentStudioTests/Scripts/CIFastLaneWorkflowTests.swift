@@ -3,6 +3,27 @@ import Testing
 
 @Suite("CI fast lane workflow")
 struct CIFastLaneWorkflowTests {
+    @Test("top-level test task owns every routine local test and pull-request gate")
+    func topLevelTestTaskOwnsEveryRoutineLocalTestAndPullRequestGate() throws {
+        let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
+        let testTask = try miseTask(named: "test", in: miseConfig)
+
+        #expect(testTask.contains("mise run lint"))
+        #expect(testTask.contains("mise run test:architecture"))
+        #expect(testTask.contains("mise run test:bridge-web"))
+        #expect(testTask.contains("mise run bridge-web-build"))
+        #expect(testTask.contains("test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html"))
+        #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-300}\""))
+        #expect(
+            testTask.contains(
+                "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-900}\""
+            )
+        )
+        #expect(testTask.contains("SWIFT_TEST_INCLUDE_E2E=1"))
+        #expect(testTask.contains("mise run test:swift"))
+        #expect(testTask.contains("git diff --check"))
+    }
+
     @Test("macOS workflows select the supported Xcode before toolchain setup")
     func macOSWorkflowsSelectSupportedXcodeBeforeToolchainSetup() throws {
         let workflowPaths = [
@@ -68,7 +89,7 @@ struct CIFastLaneWorkflowTests {
     @Test("benchmark lane executes a current Swift benchmark and rejects empty output")
     func benchmarkLaneExecutesCurrentSwiftBenchmark() throws {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)
-        let benchmarkTask = try miseTask(named: "test-benchmark", in: miseConfig)
+        let benchmarkTask = try miseTask(named: "test:swift:benchmark", in: miseConfig)
         let benchmarkWorkflow = try String(
             contentsOfFile: ".github/workflows/benchmarks.yml",
             encoding: .utf8
@@ -119,21 +140,21 @@ struct CIFastLaneWorkflowTests {
         #expect(ciWorkflow.contains("path: .build-ci"))
         #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
-        #expect(prebuildStep.contains("run: mise run test-prebuild"))
+        #expect(prebuildStep.contains("run: mise run test:swift:prebuild"))
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
-        #expect(fastLaneStep.contains("run: mise run --raw test-fast"))
+        #expect(fastLaneStep.contains("run: mise run --raw test:swift:fast"))
         #expect(webKitLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
-        #expect(webKitLaneStep.contains("run: mise run test-webkit"))
+        #expect(webKitLaneStep.contains("run: mise run test:swift:webkit"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(largeLaneStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
         #expect(largeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(largeLaneStep.contains("_XCB_BYPASS: \"1\""))
-        #expect(largeLaneStep.contains("run: mise run test-large"))
+        #expect(largeLaneStep.contains("run: mise run test:swift:large"))
         #expect(swiftTestTaskScript.contains("test|test-fast|test-large|test-prebuild|test-webkit)"))
         #expect(swiftTestTaskScript.contains("if [ \"$mode\" = \"test-prebuild\" ]; then\n  prebuild_swift_tests"))
         #expect(swiftTestTaskScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
@@ -198,9 +219,9 @@ struct CIFastLaneWorkflowTests {
             endingBefore: "\nfi\n",
             in: swiftTestTaskScript
         )
-        let coverageTask = try miseTask(named: "test-coverage", in: miseConfig)
-        let generalE2ETask = try miseTask(named: "test-e2e", in: miseConfig)
-        let zmxE2ETask = try miseTask(named: "test-zmx-e2e", in: miseConfig)
+        let coverageTask = try miseTask(named: "test:swift:coverage", in: miseConfig)
+        let generalE2ETask = try miseTask(named: "test:swift:e2e", in: miseConfig)
+        let zmxE2ETask = try miseTask(named: "test:swift:zmx-e2e", in: miseConfig)
 
         #expect(
             forwardedArgumentsBlock.contains(
@@ -281,11 +302,10 @@ struct CIFastLaneWorkflowTests {
     }
 
     private func miseTask(named taskName: String, in config: String) throws -> String {
-        try namedBlock(
-            startingWith: "[tasks.\(taskName)]",
-            endingBefore: "\n[tasks.",
-            in: config
-        )
+        let quotedMarker = "[tasks.\"\(taskName)\"]"
+        let bareMarker = "[tasks.\(taskName)]"
+        let marker = config.contains(quotedMarker) ? quotedMarker : bareMarker
+        return try namedBlock(startingWith: marker, endingBefore: "\n[tasks.", in: config)
     }
 
     private func namedBlock(startingWith marker: String, endingBefore terminator: String, in text: String) throws

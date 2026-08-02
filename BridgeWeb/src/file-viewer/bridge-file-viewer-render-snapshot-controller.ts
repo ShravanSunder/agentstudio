@@ -50,6 +50,7 @@ export function BridgeFileViewerSurfaceClientProvider(
 }
 
 export interface BridgeFileViewerRenderSnapshotController {
+	readonly clearSelectedFileViewContent: () => void;
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
 	readonly dispatchFileViewQueryFact: (query: BridgeWorkerFileQuery) => void;
 	readonly dispatchSelectedFileViewContentRequest: (props: {
@@ -147,6 +148,19 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 		},
 		[fileViewClient, recordLatestFileSelectLifecycleSnapshot, renderSnapshotStore],
 	);
+	const clearSelectedFileViewContent = useCallback((): void => {
+		renderSnapshotStore.applyWorkerPatch({ operation: 'delete', slice: 'selection' });
+		latestFileSelectRequestIdRef.current = fileViewClient.send(
+			encodeBridgeWorkerSelectCommand({
+				epoch: nextBridgeFileViewerWorkerEpoch(workerEpochRef),
+				requestId: nextBridgeFileViewerWorkerRequestId(requestSequenceRef),
+				selectedItemId: null,
+				selectedSource: null,
+				surface: 'fileView',
+			}),
+		);
+		recordLatestFileSelectLifecycleSnapshot();
+	}, [fileViewClient, recordLatestFileSelectLifecycleSnapshot, renderSnapshotStore]);
 	const dispatchFileViewQueryFact = useCallback(
 		(query: BridgeWorkerFileQuery): void => {
 			fileViewClient.send(
@@ -195,6 +209,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 
 	return useMemo(
 		(): BridgeFileViewerRenderSnapshotController => ({
+			clearSelectedFileViewContent,
 			completeFileQueryTransaction: renderSnapshotStore.completeFileQueryTransaction,
 			dispatchFileViewQueryFact,
 			dispatchSelectedFileViewContentRequest,
@@ -213,6 +228,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 			renderFulfillmentCoordinator: fileViewClient.renderFulfillmentCoordinator,
 		}),
 		[
+			clearSelectedFileViewContent,
 			dispatchSelectedFileViewContentRequest,
 			dispatchFileViewQueryFact,
 			dispatchVisibleFileViewViewportFact,

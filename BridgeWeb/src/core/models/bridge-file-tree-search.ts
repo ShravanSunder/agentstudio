@@ -1,5 +1,7 @@
 export type BridgeFileTreeSearchMode = 'regex' | 'text';
 
+export const bridgeFileTreeSearchTextMaximumLength = 4_096;
+
 export interface BridgeFileTreeSearchPatternCompilation {
 	readonly pattern: RegExp | null;
 	readonly searchError: string | null;
@@ -19,10 +21,10 @@ export function compileBridgeFileTreeSearchPattern(props: {
 			),
 			searchError: null,
 		};
-	} catch (error) {
+	} catch {
 		return {
 			pattern: null,
-			searchError: error instanceof Error ? error.message : 'Invalid regular expression',
+			searchError: 'Invalid regex',
 		};
 	}
 }

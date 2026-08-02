@@ -1,10 +1,13 @@
 import { FileTree } from '@pierre/trees/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, Ref } from 'react';
 
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
-import { BridgeViewerSearchField } from '../app/bridge-viewer-search-field.js';
+import {
+	BridgeViewerSearchField,
+	BridgeViewerSearchStatus,
+} from '../app/bridge-viewer-search-field.js';
 import { bridgeViewerTreeStyle } from '../app/bridge-viewer-tree-theme.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -29,10 +32,10 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly isActive: boolean;
 	readonly isFilterMenuOpen: boolean;
 	readonly isSearchOpen: boolean;
+	readonly onClearSearch: () => void;
 	readonly onFilterMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFilterModeChange: (filterMode: BridgeFileViewerFilterMode) => void;
 	readonly onSearchModeChange: (searchMode: BridgeFileViewerSearchMode) => void;
-	readonly onSearchOpenChange: (isOpen: boolean) => void;
 	readonly onSearchTextChange: (searchText: string) => void;
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly onToggleSearch: () => void;
@@ -40,7 +43,9 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly projectedTreeRowCount: number;
 	readonly searchError: string | null;
 	readonly searchMode: BridgeFileViewerSearchMode;
+	readonly searchStatusMessage: string | null;
 	readonly searchText: string;
+	readonly searchTriggerRef?: Ref<HTMLButtonElement>;
 	readonly selectedPath: string | null;
 	readonly source: BridgeFileViewerDisplaySource | null;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
@@ -102,6 +107,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				bodyElement: 'section',
 				bodyOnClick: treeRuntime.handleTreeClick,
 				bodyTestId: 'bridge-file-viewer-pierre-file-tree',
+				bodyTabIndex: -1,
 				border: 'subtle',
 				headerTestId: 'bridge-file-viewer-toolbar',
 				layout: 'grid',
@@ -137,6 +143,9 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 								onToggleSearch={props.onToggleSearch}
 								searchToggleTestId="worktree-file-search-toggle"
 								testId="worktree-file-search-control"
+								{...(props.searchTriggerRef === undefined
+									? {}
+									: { triggerRef: props.searchTriggerRef })}
 							/>
 						</>
 					),
@@ -149,17 +158,22 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 						errorMessage={props.searchError === null ? null : 'Invalid regex'}
 						inputTestId="worktree-file-search-input"
 						onChange={props.onSearchTextChange}
-						onClear={(): void => props.onSearchTextChange('')}
+						onClear={props.onClearSearch}
+						onClose={props.onToggleSearch}
 						onSearchModeChange={(searchMode) => {
 							props.onSearchModeChange(searchMode.kind);
 						}}
 						regexToggleTestId="worktree-file-regex-toggle"
 						searchMode={{ kind: props.searchMode }}
-						statusTestId="worktree-file-filter-status"
 						value={props.searchText}
 					/>
 				) : null,
-				toolbarFooter: null,
+				toolbarFooter: (
+					<BridgeViewerSearchStatus
+						message={props.searchStatusMessage ?? props.searchError}
+						testId="worktree-file-filter-status"
+					/>
+				),
 			})}
 		</>
 	);

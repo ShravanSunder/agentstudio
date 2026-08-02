@@ -124,7 +124,12 @@ describe('Bridge app review render snapshot controller', () => {
 
 		// Act
 		controller.emitSelectedReviewItemIntent('item-source', 'user');
-		controller.updateReviewDisplayProjection({ fileClassFilter: 'docs', gitStatusFilter: 'all' });
+		controller.updateReviewDisplayProjection({
+			categoryFilter: 'docs',
+			gitStatusFilter: 'all',
+			showBinary: false,
+			showLarge: false,
+		});
 
 		// Assert
 		expect(sentCommands).toEqual([
@@ -132,7 +137,12 @@ describe('Bridge app review render snapshot controller', () => {
 			expect.objectContaining({
 				command: 'reviewProjectionUpdate',
 				epoch: 2,
-				query: { fileClassFilter: 'docs', gitStatusFilter: 'all' },
+				query: {
+					categoryFilter: 'docs',
+					gitStatusFilter: 'all',
+					showBinary: false,
+					showLarge: false,
+				},
 			}),
 		]);
 	});

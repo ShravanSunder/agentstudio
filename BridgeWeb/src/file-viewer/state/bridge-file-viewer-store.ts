@@ -1,19 +1,21 @@
 import { useRef, useSyncExternalStore } from 'react';
 
-import type {
-	BridgeFileViewerFilterMode,
-	BridgeFileViewerSearchMode,
-} from '../bridge-file-viewer-contracts.js';
+import {
+	createBridgeViewerSearchState,
+	transitionBridgeViewerSearchState,
+	type BridgeViewerSearchAction,
+	type BridgeViewerSearchState,
+	type BridgeViewerSearchTransition,
+} from '../../app/bridge-viewer-search-state.js';
+import type { BridgeFileViewerFilterMode } from '../bridge-file-viewer-contracts.js';
 
 export interface BridgeFileViewerRootSnapshot {
-	readonly searchText: string;
-	readonly searchMode: BridgeFileViewerSearchMode;
+	readonly search: BridgeViewerSearchState;
 	readonly filterMode: BridgeFileViewerFilterMode;
 }
 
 export interface BridgeFileViewerStoreActions {
-	readonly setSearchText: (searchText: string) => void;
-	readonly setSearchMode: (searchMode: BridgeFileViewerSearchMode) => void;
+	readonly transitionSearch: (action: BridgeViewerSearchAction) => BridgeViewerSearchTransition;
 	readonly setFilterMode: (filterMode: BridgeFileViewerFilterMode) => void;
 }
 
@@ -86,11 +88,12 @@ export function createBridgeFileViewerStore(): BridgeFileViewerStore {
 		);
 	};
 	const actions: BridgeFileViewerStoreActions = {
-		setSearchText: (searchText: string): void => {
-			replaceRootSnapshot({ searchText });
-		},
-		setSearchMode: (searchMode: BridgeFileViewerSearchMode): void => {
-			replaceRootSnapshot({ searchMode });
+		transitionSearch: (action: BridgeViewerSearchAction): BridgeViewerSearchTransition => {
+			const transition = transitionBridgeViewerSearchState(state.rootSnapshot.search, action);
+			if (transition.state !== state.rootSnapshot.search) {
+				replaceRootSnapshot({ search: transition.state });
+			}
+			return transition;
 		},
 		setFilterMode: (filterMode: BridgeFileViewerFilterMode): void => {
 			replaceRootSnapshot({ filterMode });
@@ -98,8 +101,7 @@ export function createBridgeFileViewerStore(): BridgeFileViewerStore {
 	};
 	state = {
 		rootSnapshot: {
-			searchText: '',
-			searchMode: 'text',
+			search: createBridgeViewerSearchState(),
 			filterMode: 'all',
 		},
 		actions,

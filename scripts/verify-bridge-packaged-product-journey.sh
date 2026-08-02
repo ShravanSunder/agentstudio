@@ -14,6 +14,9 @@ dry-run ok: uses one persistent authenticated semantic IPC session
 dry-run ok: requires exactly 257 initial Review diffs and retains the 100-diff floor before IPC authentication
 dry-run ok: proves Review early/middle/final traversal
 dry-run ok: proves two independent panes and hidden-to-foreground refresh
+dry-run ok: hard-cuts Files and Review Filter candidates with semantic read-back
+dry-run ok: proves supported Search admission and length boundaries
+dry-run ok: proves the disposable worktree remains read-only
 dry-run ok: binds Victoria marker and proof token
 dry-run ok: leaves the candidate available for PID-targeted Peekaboo
 dry-run ok: requires visible document and live RAF; no frame_not_live skip
@@ -313,7 +316,7 @@ class Session:
         self._reader.close()
         self._socket.close()
 
-    def request(self, method, params):
+    def _request_response(self, method, params):
         request_id = self._next_id
         self._next_id += 1
         payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
@@ -325,9 +328,20 @@ class Session:
             response = json.loads(line)
             if response.get("id") != request_id:
                 continue
-            if response.get("error") is not None:
-                fail(f"{method} failed: {response['error']}")
-            return response.get("result", {})
+            return response
+
+    def request(self, method, params):
+        response = self._request_response(method, params)
+        if response.get("error") is not None:
+            fail(f"{method} failed: {response['error']}")
+        return response.get("result", {})
+
+    def request_error(self, method, params):
+        response = self._request_response(method, params)
+        error = response.get("error")
+        if error is None:
+            fail(f"{method} unexpectedly succeeded when an error was required")
+        return error
 
 
 def wait_for(label, read, accept, attempts=120):
@@ -347,6 +361,20 @@ def require_control(result, method, item_id=None, path=None):
         fail(f"{method} selected the wrong item: {result}")
     if path is not None and result.get("path") != path:
         fail(f"{method} revealed the wrong path: {result}")
+
+
+def require_filter_control(result, expected_surface):
+    require_control(result, "bridge.fileTree.setFilter")
+    if result.get("filterSurface") != expected_surface:
+        fail(f"Filter receipt named the wrong surface: {result}")
+    if result.get("categoryFilter") != "all":
+        fail(f"Filter receipt did not read back the All category: {result}")
+    if expected_surface == "review" and (
+        result.get("gitStatusFilter") != "all"
+        or result.get("showBinary") is not True
+        or result.get("showLarge") is not True
+    ):
+        fail(f"Review Filter receipt did not read back the complete candidate: {result}")
 
 
 def canonical(value):
@@ -503,6 +531,52 @@ try:
         >= expected_review_diff_count,
     )
 
+    invalid_regex_query = "["
+    invalid_search = session.request(
+        "bridge.fileTree.search",
+        {
+            "handle": review_handle,
+            "searchText": invalid_regex_query,
+            "searchMode": {"kind": "regex"},
+        },
+    )
+    require_control(invalid_search, "bridge.fileTree.search")
+    if invalid_search.get("treeSearchText") != invalid_regex_query:
+        fail("Review invalid-regex Search receipt did not echo the entered candidate")
+
+    maximum_search_text = "x" * 4096
+    maximum_search = session.request(
+        "bridge.fileTree.search",
+        {
+            "handle": review_handle,
+            "searchText": maximum_search_text,
+            "searchMode": {"kind": "text"},
+        },
+    )
+    require_control(maximum_search, "bridge.fileTree.search")
+    if maximum_search.get("treeSearchText") != maximum_search_text:
+        fail("Review maximum-length Search receipt did not echo the admitted candidate")
+
+    oversized_search_text = "x" * 4097
+    oversized_error = session.request_error(
+        "bridge.fileTree.search",
+        {
+            "handle": review_handle,
+            "searchText": oversized_search_text,
+            "searchMode": {"kind": "text"},
+        },
+    )
+    if oversized_error.get("code") != -32602:
+        fail("Review oversized Search was not rejected as invalid params")
+
+    cleared_search = session.request(
+        "bridge.fileTree.search",
+        {"handle": review_handle, "searchText": "", "searchMode": {"kind": "text"}},
+    )
+    require_control(cleared_search, "bridge.fileTree.search")
+    if cleared_search.get("treeSearchText") != "":
+        fail(f"Review Search did not clear after boundary checks: {cleared_search}")
+
     for position, relative_path in zip(("early", "middle", "final"), sentinel_paths):
         item = items_by_path[relative_path]
         item_id = item.get("itemId")
@@ -516,9 +590,18 @@ try:
             fail(f"Review {position} search receipt is stale: {search}")
         filter_result = session.request(
             "bridge.fileTree.setFilter",
-            {"handle": review_handle, "gitStatusFilter": "all", "fileClassFilter": "all"},
+            {
+                "handle": review_handle,
+                "candidate": {
+                    "surface": "review",
+                    "gitStatusFilter": "all",
+                    "categoryFilter": "all",
+                    "showBinary": True,
+                    "showLarge": True,
+                },
+            },
         )
-        require_control(filter_result, "bridge.fileTree.setFilter")
+        require_filter_control(filter_result, "review")
         reveal = session.request(
             "bridge.fileTree.revealPath", {"handle": review_handle, "path": relative_path}
         )
@@ -577,6 +660,18 @@ try:
         and (value.get("summary", {}).get("worktreeDescriptorCount") or 0)
         >= expected_file_count,
     )
+
+    file_filter_result = session.request(
+        "bridge.fileTree.setFilter",
+        {
+            "handle": file_handle,
+            "candidate": {
+                "surface": "files",
+                "categoryFilter": "all",
+            },
+        },
+    )
+    require_filter_control(file_filter_result, "files")
 
     def reveal_final_file():
         return session.request(
@@ -645,6 +740,20 @@ try:
 finally:
     session.close()
 PY
+
+final_review_diff_count="$(
+  "$GIT_BIN" -C "$fixture_root" diff --name-only "$baseline_commit" -- \
+    | awk 'NF { count += 1 } END { print count + 0 }'
+)"
+if [ "$final_review_diff_count" -ne "$expected_review_diff_count" ]; then
+  echo "Bridge packaged journey mutated the fixture Review diff: expected $expected_review_diff_count, observed $final_review_diff_count" >&2
+  exit 1
+fi
+final_fixture_digest="$(fixture_digest_for_current_worktree "$fixture_root" "$baseline_commit")"
+if [ "$final_fixture_digest" != "$expected_fixture_digest" ]; then
+  echo "Bridge packaged journey mutated the fixture contents" >&2
+  exit 1
+fi
 
 echo "Bridge packaged LaunchServices product journey PASS"
 echo "pid=$state_pid"

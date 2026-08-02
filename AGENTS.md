@@ -10,11 +10,30 @@ Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew insta
 ```bash
 mise run setup                # Prepare or reuse vendored build inputs for this worktree
 mise run build                # Build the Swift app
-mise run test                 # Run tests (Swift 6 `Testing`)
+mise run test                 # Run every routine local test and pull-request gate
+mise run test:swift           # Run the Swift + serialized WebKit test lane
 mise run format               # Auto-format all Swift sources
 mise run lint                 # Lint (swift-format + SwiftLint + AgentStudio architecture lint)
 .build/debug/AgentStudio      # Launch debug build
 ```
+
+Before pushing, opening, or updating a PR, run the complete local PR gate from
+the repository root:
+
+```bash
+mise run test
+```
+
+The aggregate owns Swift lint and architecture lint, the architecture-tool
+package tests, BridgeWeb lint/typecheck/unit/integration/browser/Vite E2E tests,
+the packaged BridgeWeb build, Swift non-serialized, serialized WebKit, and
+general E2E tests, and `git diff --check`. Use `mise run test:<lane>` for focused work, such as
+`mise run test:swift -- --filter "CommandBarState"`,
+`mise run test:bridge-web`, or `mise run test:architecture`. Scope-specific
+manual, packaged, observability, performance, release, or UI proof remains
+additional when the change requires it. Post-merge benchmark/stress tasks and
+the opt-in zmx lifecycle lane are not pull-request gates. Do not claim a branch
+or PR is ready until `mise run test` exits successfully on the current HEAD.
 
 First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
@@ -47,11 +66,12 @@ the question, then inspect current code/tests before making claims.
    or native macOS affordance changes, also read
    [Style Guide](docs/guides/style_guide.md) and
    [App Architecture](docs/architecture/appkit_swiftui_architecture.md).
-3. Testing: climb the proof pyramid. Start with focused Swift tests for the
-   changed code, then `mise run lint`; use `mise run test` for broad repo
-   health when the scope calls for it. Do not call unit tests, mocks, or fake
-   integration coverage a smoke. If a higher proof layer is blocked, report the
-   blocker separately from the passing lower-layer proof.
+3. Testing: climb the proof pyramid. Start with focused `mise run test:<lane>`
+   tasks for the changed code. Before PR readiness, run the complete local PR
+   gate with `mise run test` from the repository root.
+   Do not call unit tests, mocks, or fake integration coverage a smoke. If a
+   higher proof layer is blocked, report the blocker separately from the
+   passing lower-layer proof.
 4. Observability: use the shared Victoria path below. AgentStudio produces
    telemetry; the shared stack owns VictoriaMetrics, VictoriaLogs, and
    VictoriaTraces. Prefer marker-scoped verifiers over screenshots, stale JSONL,
@@ -562,7 +582,8 @@ peekaboo see --app "PID:$PID" --json
 ### Definition of Done
 
 1. All requirements met
-2. All tests pass (`mise run test` — show pass/fail counts)
+2. All applicable tests pass, including the complete local PR gate in Build &
+   Test — show commands, pass/fail counts, and exit codes
 3. Lint passes (`mise run lint` — zero errors)
 4. Code reflects the shared mental model
 5. Evidence provided (exit codes, counts)
@@ -835,7 +856,7 @@ built; it does not change target ownership or imply isolated compilation.
 
 **For filtered test runs:** prefer mise (it allocates a slot for you):
 ```bash
-mise run test -- --filter "CommandBarState"
+mise run test:swift -- --filter "CommandBarState"
 ```
 If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
 ```bash

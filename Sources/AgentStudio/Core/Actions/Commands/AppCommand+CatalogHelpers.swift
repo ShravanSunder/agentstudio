@@ -94,6 +94,34 @@ extension AppCommand {
         )
     }
 
+    func bridgeWebViewReloadDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Reload Bridge Web View",
+            icon: .system(.arrowClockwise),
+            helpText:
+                "Reload the Bridge browser page and discard browser presentation state without refreshing worktree source data",
+            surfacePolicy: .exposed([.commandBar]),
+            targeting: .contextual,
+            visibleWhen: [.hasActivePane, .paneIsBridge],
+            commandBarGroupName: "Bridge",
+            commandBarGroupPriority: CommandBarGroupPriority.bridge
+        )
+    }
+
+    func openWebviewDefinition() -> AppCommandSpec {
+        AppCommandSpec(
+            command: self,
+            label: "Open New Webview Tab",
+            icon: .system(.globe),
+            helpText: "Open a new webview tab",
+            surfacePolicy: .exposed([.commandBar, .mainMenu]),
+            targeting: .contextual,
+            commandBarGroupName: "Webview",
+            commandBarGroupPriority: CommandBarGroupPriority.webview
+        )
+    }
+
     func repoSidebarGroupingDefinition(
         label: String,
         icon: CommandIcon,

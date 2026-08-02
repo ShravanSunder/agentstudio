@@ -1,13 +1,19 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
 
+import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
-import { bridgeViewerFileClassOptions } from '../../app/bridge-viewer-file-class-options.js';
+import type { BridgeViewerFileCategory } from '../../app/bridge-viewer-file-class-options.js';
 import type { BridgeViewerFacetMenuOption } from '../../app/bridge-viewer-filter-menu.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
-import { BridgeViewerSearchField } from '../../app/bridge-viewer-search-field.js';
+import {
+	BridgeViewerSearchField,
+	BridgeViewerSearchStatus,
+} from '../../app/bridge-viewer-search-field.js';
+import type { BridgeViewerSearchError } from '../../app/bridge-viewer-search-state.js';
+import { useBridgeViewerSearchFocusRestoration } from '../../app/use-bridge-viewer-search-focus-restoration.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../../core/comm-worker/bridge-worker-contracts.js';
@@ -19,7 +25,6 @@ import {
 } from '../../foundation/review-package/bridge-review-item-registry.js';
 import type {
 	BridgeFileChangeKind,
-	BridgeFileClass,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -27,6 +32,7 @@ import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
+import type { BridgeReviewCodeViewOptions } from '../code-view/bridge-code-view-options.js';
 import type { SelectedContentPaintTelemetryStart } from '../code-view/bridge-code-view-panel-types.js';
 import {
 	BridgeCodeViewPanel,
@@ -45,6 +51,7 @@ import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
+	readonly codeViewOptions?: BridgeReviewCodeViewOptions;
 	readonly presentationRegistry: BridgeReviewItemRegistry;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -72,19 +79,28 @@ export interface ReviewViewerShellProps {
 	readonly projectionMode?: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 	readonly treeSearchText?: string;
+	readonly treeAcceptedSearchText?: string;
 	readonly treeSelectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
 	readonly treeSearchMode?: BridgeReviewSearchMode;
+	readonly treeAcceptedSearchMode?: BridgeReviewSearchMode;
+	readonly treeSearchError?: BridgeViewerSearchError | null;
+	readonly treeSearchStatusMessage?: string | null;
 	readonly treeSearchOpen?: boolean;
 	readonly onTreeSearchToggle?: () => void;
 	readonly onTreeSearchModeChange?: (mode: BridgeReviewSearchMode) => void;
 	readonly onTreeSearchTextChange?: (searchText: string) => void;
+	readonly onTreeSearchClear?: () => void;
+	readonly onTreeSearchClose?: () => void;
 	readonly facetMenuOpen: boolean;
 	readonly onFacetMenuOpenChange: (isOpen: boolean) => void;
 	readonly gitStatusFilter?: BridgeFileChangeKind | 'all';
 	readonly isActive?: boolean;
-	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
-	readonly fileClassFilter?: BridgeFileClass | 'all';
-	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
+	readonly onFilterChange?: (
+		filter: Extract<BridgeFileTreeFilterCandidate, { readonly surface: 'review' }>,
+	) => void;
+	readonly categoryFilter?: BridgeViewerFileCategory | 'all';
+	readonly showBinary?: boolean;
+	readonly showLarge?: boolean;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
@@ -99,24 +115,51 @@ export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, string>();
 
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
+	const surfaceRootRef = useRef<HTMLElement>(null);
+	const searchTriggerRef = useRef<HTMLButtonElement>(null);
+	const treeSearchText = props.treeSearchText ?? '';
+	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
+	useBridgeViewerSearchFocusRestoration({
+		isActive: props.isActive ?? true,
+		isSearchOpen: treeSearchOpen,
+		searchTriggerRef,
+		surfaceRootRef,
+	});
+	return renderReviewViewerShellPresentation({ props, searchTriggerRef, surfaceRootRef });
+}
+
+export function renderReviewViewerShellPresentation(presentation: {
+	readonly props: ReviewViewerShellProps;
+	readonly searchTriggerRef: RefObject<HTMLButtonElement | null>;
+	readonly surfaceRootRef: RefObject<HTMLElement | null>;
+}): ReactElement {
+	const { props, searchTriggerRef, surfaceRootRef } = presentation;
 	const registry = props.presentationRegistry;
 	const hiddenVisiblePathText = hiddenVisiblePathTextForRegistry(registry);
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
-	const fileClassFilter = props.fileClassFilter ?? 'all';
+	const categoryFilter = props.categoryFilter ?? 'all';
 	const statusText =
 		props.isActive === true && props.panelChromeSlice.isLoading === true
 			? (props.panelChromeSlice.message ?? null)
 			: null;
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
+	const treeAcceptedSearchText = props.treeAcceptedSearchText ?? treeSearchText;
+	const treeAcceptedSearchMode = props.treeAcceptedSearchMode ?? treeSearchMode;
 	const treeSearchOpen = props.treeSearchOpen === true || treeSearchText.length > 0;
 	const treeSearchCompilation = compileBridgeFileTreeSearchPattern({
 		searchMode: treeSearchMode.kind,
 		searchText: treeSearchText,
 	});
 	const treeSearchErrorMessage =
-		treeSearchCompilation.searchError === null ? null : 'Invalid regex';
+		props.treeSearchError === undefined
+			? treeSearchCompilation.searchError === null
+				? null
+				: 'Invalid regex'
+			: props.treeSearchError === null
+				? null
+				: 'Invalid regex';
 	const projection = props.projection;
 	const selectedItem =
 		props.selectedItemId === null
@@ -147,6 +190,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 
 	return (
 		<main
+			ref={surfaceRootRef}
 			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
 			data-review-selected-demand-admitted-bytes={selectedDemandTelemetry?.admittedBytes}
 			data-review-selected-demand-admitted-bytes-by-lane={serializeReviewDemandLaneBytes(
@@ -274,6 +318,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-projection-mode={projectionMode.kind}
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
+			tabIndex={-1}
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
@@ -328,6 +373,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
 									visibleCodeViewItems={props.visibleCodeViewItems ?? []}
+									{...(props.codeViewOptions === undefined
+										? {}
+										: { codeViewOptions: props.codeViewOptions })}
 									{...(props.onCodeViewVisibleItemIdsChange === undefined
 										? {}
 										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
@@ -379,8 +427,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									projection={projection}
 									reviewPackage={props.reviewPackage}
 									reviewTreeRows={props.reviewTreeRows ?? []}
-									searchMode={treeSearchMode}
-									searchText={treeSearchText}
+									searchMode={treeAcceptedSearchMode}
+									searchText={treeAcceptedSearchText}
 									selectedItemId={props.selectedItemId}
 									selectionRevealRequest={props.treeSelectionRevealRequest ?? null}
 									{...(props.telemetryRecorder === undefined
@@ -409,14 +457,26 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							errorMessage={treeSearchErrorMessage}
 							inputTestId="bridge-review-search-input"
 							onChange={(value): void => props.onTreeSearchTextChange?.(value)}
-							onClear={(): void => props.onTreeSearchTextChange?.('')}
+							onClear={(): void => {
+								if (props.onTreeSearchClear !== undefined) {
+									props.onTreeSearchClear();
+									return;
+								}
+								props.onTreeSearchTextChange?.('');
+							}}
+							onClose={(): void => props.onTreeSearchClose?.()}
 							onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
 							regexToggleTestId="bridge-review-regex-toggle"
 							searchMode={treeSearchMode}
-							statusTestId="bridge-review-tree-search-status"
 							value={treeSearchText}
 						/>
 					) : null,
+					toolbarFooter: (
+						<BridgeViewerSearchStatus
+							message={props.treeSearchStatusMessage ?? treeSearchErrorMessage}
+							testId="bridge-review-tree-search-status"
+						/>
+					),
 					toolbar: BridgeViewerRailToolbar({
 						leading: (
 							<BridgeReviewProjectionMenu
@@ -431,14 +491,14 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						trailing: [
 							<div className="shrink-0" data-testid="bridge-review-facet-menu" key="facet-menu">
 								<BridgeReviewFacetMenu
-									fileClassFilter={fileClassFilter}
-									fileClassOptions={bridgeViewerFileClassOptions}
+									categoryFilter={categoryFilter}
 									gitStatusFilter={gitStatusFilter}
 									gitStatusOptions={gitStatusOptions}
-									onFileClassFilterChange={(value): void => props.onFileClassFilterChange?.(value)}
-									onGitStatusFilterChange={(value): void => props.onGitStatusFilterChange?.(value)}
+									onFilterChange={(value): void => props.onFilterChange?.(value)}
 									onOpenChange={props.onFacetMenuOpenChange}
 									open={props.facetMenuOpen}
+									showBinary={props.showBinary ?? false}
+									showLarge={props.showLarge ?? false}
 								/>
 							</div>,
 							<div data-testid="bridge-review-search-control-slot" key="search-control">
@@ -448,6 +508,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									onToggleSearch={(): void => props.onTreeSearchToggle?.()}
 									searchToggleTestId="bridge-review-search-toggle"
 									testId="bridge-review-search-control"
+									triggerRef={searchTriggerRef}
 								/>
 							</div>,
 						],

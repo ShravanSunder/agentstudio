@@ -472,6 +472,50 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const viewportCommandCountBeforeDeactivation = harness.sentCommands.filter(
 			(command) => command.command === 'viewport',
 		).length;
+		const commandCountBeforeViewSettingChange = harness.sentCommands.length;
+		const reviewShellElement = requireHTMLElement(
+			document.querySelector('[data-testid="review-viewer-shell"]'),
+		);
+		const reviewIdentityBeforeViewSettingChange = {
+			generation: reviewShellElement.getAttribute('data-review-metadata-generation'),
+			packageId: reviewShellElement.getAttribute('data-review-metadata-id'),
+			selectedPath: reviewShellElement.getAttribute('data-selected-display-path'),
+		};
+		const codePanelBeforeViewSettingChange = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-code-view-panel"]'),
+		);
+
+		// Act: change Review rendering through the real full-surface gear menu.
+		await act(async (): Promise<void> => {
+			requireHTMLElement(
+				document.querySelector('[data-testid="bridge-review-view-settings-trigger"]'),
+			).click();
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			const wordWrapRow = [
+				...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+			].find(
+				(row): boolean =>
+					row.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
+					'Word wrap',
+			);
+			if (wordWrapRow === undefined) throw new Error('Missing Review Word wrap setting');
+			wordWrapRow.click();
+			await settleRenderedReviewFrame();
+		});
+
+		// Assert: rendering changes without selection, source, session command, or shell replacement.
+		expect(
+			requireHTMLElement(document.querySelector('[data-testid="bridge-code-view-panel"]')),
+		).toBe(codePanelBeforeViewSettingChange);
+		expect({
+			generation: reviewShellElement.getAttribute('data-review-metadata-generation'),
+			packageId: reviewShellElement.getAttribute('data-review-metadata-id'),
+			selectedPath: reviewShellElement.getAttribute('data-selected-display-path'),
+		}).toEqual(reviewIdentityBeforeViewSettingChange);
+		expect(harness.sentCommands).toHaveLength(commandCountBeforeViewSettingChange);
+		await expect.element(codePanel).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
 
 		// Act: retain the recovered shell while Review becomes inactive.
 		await act(async (): Promise<void> => {

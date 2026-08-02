@@ -22,6 +22,42 @@ import {
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 
 describe('BridgeWorkerContracts', () => {
+	test('requires selection identity and source to be cleared together', () => {
+		// Arrange
+		const selectionCommand = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'select',
+			requestId: 'request-selection-pair',
+			epoch: 3,
+			transferDescriptors: [],
+			surface: 'review',
+		};
+
+		// Act
+		const missingSelectionSource = bridgeWorkerMainToServerMessageSchema.safeParse({
+			...selectionCommand,
+			selectedItemId: 'item-1',
+			selectedSource: null,
+		});
+		const missingSelectionIdentity = bridgeWorkerMainToServerMessageSchema.safeParse({
+			...selectionCommand,
+			selectedItemId: null,
+			selectedSource: 'user',
+		});
+		const clearedSelection = bridgeWorkerMainToServerMessageSchema.safeParse({
+			...selectionCommand,
+			selectedItemId: null,
+			selectedSource: null,
+		});
+
+		// Assert
+		expect(missingSelectionSource.success).toBe(false);
+		expect(missingSelectionIdentity.success).toBe(false);
+		expect(clearedSelection.success).toBe(true);
+	});
+
 	test('accepts policy-only session bootstrap and rejects every legacy runtime carrier', () => {
 		// Arrange
 		const policyOnlyBootstrap = {
@@ -108,8 +144,10 @@ describe('BridgeWorkerContracts', () => {
 			epoch: 8,
 			transferDescriptors: [],
 			query: {
-				fileClassFilter: 'source',
+				categoryFilter: 'source',
 				gitStatusFilter: 'added',
+				showBinary: false,
+				showLarge: false,
 			},
 		};
 

@@ -1,7 +1,8 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
+import { useBridgeViewerSearchFocusRestoration } from '../app/use-bridge-viewer-search-focus-restoration.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -11,6 +12,7 @@ import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerSelectedCodeViewItem,
 } from './bridge-file-viewer-code-panel.js';
+import type { BridgeFilesCodeViewOptions } from './bridge-file-viewer-code-view-options.js';
 import type {
 	BridgeFileViewerFilterMode,
 	BridgeFileViewerSearchMode,
@@ -24,6 +26,7 @@ import type {
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
 
 export interface BridgeFileViewerShellProps {
+	readonly codeViewOptions?: BridgeFilesCodeViewOptions;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly completeFileQueryTransaction: (transactionId: string) => boolean;
@@ -35,10 +38,10 @@ export interface BridgeFileViewerShellProps {
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 	readonly isActive: boolean;
 	readonly isSearchOpen: boolean;
+	readonly onClearSearch: () => void;
 	readonly onFilterMenuOpenChange: (isOpen: boolean) => void;
 	readonly onFilterModeChange: (mode: BridgeFileViewerFilterMode) => void;
 	readonly onSearchModeChange: (mode: BridgeFileViewerSearchMode) => void;
-	readonly onSearchOpenChange: (isOpen: boolean) => void;
 	readonly onSearchTextChange: (text: string) => void;
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly onToggleSearch: () => void;
@@ -50,6 +53,8 @@ export interface BridgeFileViewerShellProps {
 		'observePostRender' | 'reconcilePublication'
 	>;
 	readonly searchMode: BridgeFileViewerSearchMode;
+	readonly searchError: string | null;
+	readonly searchStatusMessage: string | null;
 	readonly searchText: string;
 	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly selectedPath: string | null;
@@ -64,15 +69,21 @@ export interface BridgeFileViewerShellProps {
 }
 
 export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactElement {
+	const surfaceRootRef = useRef<HTMLElement>(null);
+	const searchTriggerRef = useRef<HTMLButtonElement>(null);
+	useBridgeViewerSearchFocusRestoration({
+		isActive: props.isActive,
+		isSearchOpen: props.isSearchOpen,
+		searchTriggerRef,
+		surfaceRootRef,
+	});
 	const selectedDisplayItem =
 		props.openFileState.status === 'idle' ? null : props.openFileState.displayItem;
 	const status = props.displayModel.status;
-	const statusText =
-		props.isActive && props.panelChromeSlice.isLoading === true
-			? (props.panelChromeSlice.message ?? null)
-			: null;
+	const statusText = bridgeFileViewerHeaderStatusText(props.isActive, props.panelChromeSlice);
 	return (
 		<main
+			ref={surfaceRootRef}
 			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
 			data-file-display-branch={
 				status?.state === 'ready' ? (status.branchName ?? undefined) : undefined
@@ -89,6 +100,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 			data-testid="bridge-file-viewer-shell"
 			data-worktree-metadata-file-row-count={props.displayModel.fileItemById.size}
 			data-worktree-metadata-tree-row-count={props.displayModel.projectedRowCount}
+			tabIndex={-1}
 			{...(props.openFileState.status === 'idle'
 				? {}
 				: {
@@ -122,6 +134,9 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 							renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
 							selectedCodeViewItem={props.selectedCodeViewItem}
 							totalHeightPixels={props.openFileTotalHeightPixels}
+							{...(props.codeViewOptions === undefined
+								? {}
+								: { codeViewOptions: props.codeViewOptions })}
 							{...(props.codeViewWorkerFactory === undefined
 								? {}
 								: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
@@ -143,16 +158,18 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 						isSearchOpen={props.isSearchOpen}
 						onFilterMenuOpenChange={props.onFilterMenuOpenChange}
 						onFilterModeChange={props.onFilterModeChange}
+						onClearSearch={props.onClearSearch}
 						onSearchModeChange={props.onSearchModeChange}
-						onSearchOpenChange={props.onSearchOpenChange}
 						onSearchTextChange={props.onSearchTextChange}
 						onSelectFile={props.onSelectFile}
 						onToggleSearch={props.onToggleSearch}
 						onVisibleFileDemandChange={props.dispatchVisibleFileDemand}
 						searchMode={props.searchMode}
-						searchError={props.displayModel.searchError}
+						searchError={props.searchError}
 						searchText={props.searchText}
+						searchStatusMessage={props.searchStatusMessage}
 						selectedPath={props.selectedPath}
+						searchTriggerRef={searchTriggerRef}
 						source={props.displayModel.source}
 						{...(props.telemetryRecorder === undefined
 							? {}
@@ -169,4 +186,13 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 			/>
 		</main>
 	);
+}
+
+export function bridgeFileViewerHeaderStatusText(
+	isActive: boolean,
+	panelChromeSlice: BridgeWorkerPanelChromePatchPayload,
+): string | null {
+	return isActive && panelChromeSlice.isLoading === true
+		? (panelChromeSlice.message ?? null)
+		: null;
 }

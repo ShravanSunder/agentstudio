@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 
-import { bridgeViewerFileTreeClassOptions } from '../app/bridge-viewer-file-class-options.js';
+import { bridgeViewerFileCategoryOptions } from '../app/bridge-viewer-file-class-options.js';
 import { BridgeViewerFacetGroup, BridgeViewerFacetMenu } from '../app/bridge-viewer-filter-menu.js';
 import type { BridgeFileViewerFilterMode } from './bridge-file-viewer-contracts.js';
 
@@ -37,12 +37,12 @@ export function BridgeFileViewerFacetMenu(props: BridgeFileViewerFacetMenuProps)
 			<BridgeViewerFacetGroup
 				activeValue={props.filterMode}
 				defaultValue="all"
-				label="File type"
+				label="File category"
 				onChange={props.onFilterModeChange}
 				optionBadgeTestId="worktree-file-filter-menu-option-badge"
 				optionLabelTestId="worktree-file-filter-menu-option-label"
 				optionTestId="worktree-file-filter-menu-option"
-				options={bridgeViewerFileTreeClassOptions}
+				options={bridgeViewerFileCategoryOptions}
 				testId="worktree-file-filter-menu-group"
 			/>
 		</BridgeViewerFacetMenu>

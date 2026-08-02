@@ -44,7 +44,7 @@ jobs:
         run: mise run lint
 
       - name: AgentStudio architecture lint tool tests
-        run: swift test --package-path Tools/AgentStudioArchitectureLint
+        run: mise run test:architecture
 
       - name: Format check (swift-format)
         run: |
@@ -73,16 +73,16 @@ jobs:
         run: mise run bridge-web-install
 
       - name: BridgeWeb check
-        run: mise run bridge-web-check
+        run: mise run test:bridge-web:check
 
       - name: BridgeWeb Vitest unit tests
-        run: mise run bridge-web-unit-test
+        run: mise run test:bridge-web:unit
 
       - name: BridgeWeb Vitest integration tests
-        run: mise run bridge-web-integration-test
+        run: mise run test:bridge-web:integration
 
       - name: BridgeWeb Vitest E2E tests
-        run: mise run bridge-web-e2e-test
+        run: mise run test:bridge-web:e2e
 
       - name: BridgeWeb packaged build
         run: |
@@ -182,14 +182,14 @@ jobs:
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
-        run: mise run test-prebuild
+        run: mise run test:swift:prebuild
 
       - name: Test fast lane
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
           _XCB_BYPASS: "1"
-        run: mise run --raw test-fast
+        run: mise run --raw test:swift:fast
 
       - name: Test WebKit lane
         env:
@@ -198,7 +198,7 @@ jobs:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
-        run: mise run test-webkit
+        run: mise run test:swift:webkit
 
       - name: Upload test results
         if: always()

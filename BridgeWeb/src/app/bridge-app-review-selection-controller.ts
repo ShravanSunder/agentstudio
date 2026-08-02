@@ -8,7 +8,7 @@ import {
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeReviewSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 
-export type BridgeReviewSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
+export type BridgeReviewSelectionSource = NonNullable<BridgeWorkerSelectCommand['selectedSource']>;
 
 export interface UseBridgeReviewSelectionControllerProps {
 	readonly commitLocalSelection: (itemId: string) => void;

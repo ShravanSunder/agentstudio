@@ -28,6 +28,6 @@ describe('Bridge file tree search', () => {
 
 		const invalid = compileBridgeFileTreeSearchPattern({ searchMode: 'regex', searchText: '[' });
 		expect(invalid.pattern).toBeNull();
-		expect(invalid.searchError).toContain('regular expression');
+		expect(invalid.searchError).toBe('Invalid regex');
 	});
 });

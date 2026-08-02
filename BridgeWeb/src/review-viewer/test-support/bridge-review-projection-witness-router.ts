@@ -11,6 +11,7 @@ type ReviewProjectionUpdateCommand = Extract<
 >;
 
 export class BridgeReviewProjectionWitnessRouter {
+	#activeWorkerDerivationEpoch: number | null = null;
 	#listener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	#latestProjectionRevision = 0;
 	#latestSequence = 0;
@@ -27,7 +28,7 @@ export class BridgeReviewProjectionWitnessRouter {
 		this.#latestSequence += 1;
 		this.#listener({
 			direction: 'serverWorkerToMain',
-			epoch: command.epoch,
+			epoch: this.#activeWorkerDerivationEpoch ?? command.epoch,
 			kind: 'reviewDisplayPatch',
 			patches,
 			projectionRevision: this.#latestProjectionRevision,
@@ -39,14 +40,17 @@ export class BridgeReviewProjectionWitnessRouter {
 	}
 
 	publishRaw(event: BridgeWorkerReviewDisplayPatchEvent): void {
+		this.#activeWorkerDerivationEpoch = event.epoch;
 		this.#latestProjectionRevision = Math.max(
-			this.#latestProjectionRevision,
+			this.#latestProjectionRevision + 1,
 			event.projectionRevision,
 		);
-		this.#latestSequence = Math.max(this.#latestSequence, event.sequence);
+		this.#latestSequence = Math.max(this.#latestSequence + 1, event.sequence);
 		this.#listener?.({
 			...event,
 			patches: this.#projection.applyDisplayPatches(event.patches),
+			projectionRevision: this.#latestProjectionRevision,
+			sequence: this.#latestSequence,
 		});
 	}
 

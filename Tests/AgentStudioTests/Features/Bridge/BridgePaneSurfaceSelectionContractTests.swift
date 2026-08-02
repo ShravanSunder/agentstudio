@@ -210,6 +210,39 @@ struct BridgePaneSurfaceSelectionContractTests {
         )
     }
 
+    @Test("acknowledged native surface intent rebinds to a replacement worker")
+    func acknowledgedNativeSurfaceIntentRebindsToReplacementWorker() throws {
+        // Arrange
+        var authority = BridgePaneSurfaceSelectionAuthority()
+        authority.retainIntent(surface: .review)
+        let workerARequest = try #require(
+            try authority.bindRetainedIntent(
+                paneSessionId: "pane-session-1",
+                workerInstanceId: "worker-instance-a"
+            )
+        )
+        #expect(
+            authority.admitReceipt(
+                nativeSelectionRequestId: workerARequest.requestId,
+                mode: .review,
+                paneSessionId: "pane-session-1",
+                workerInstanceId: "worker-instance-a"
+            ) == .accepted
+        )
+
+        // Act
+        let workerBRequest = try authority.bindRetainedIntent(
+            paneSessionId: "pane-session-1",
+            workerInstanceId: "worker-instance-b"
+        )
+
+        // Assert
+        let reboundRequest = try #require(workerBRequest)
+        #expect(reboundRequest.surface == .review)
+        #expect(reboundRequest.workerInstanceId == "worker-instance-b")
+        #expect(reboundRequest.selectionRevision == workerARequest.selectionRevision + 1)
+    }
+
     private func surfaceSelectionFrameObject() -> [String: AnyHashable] {
         [
             "kind": "pane.surfaceSelectionRequested",

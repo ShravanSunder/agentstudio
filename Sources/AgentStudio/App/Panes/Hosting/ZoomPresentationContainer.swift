@@ -6,6 +6,12 @@ import AppKit
 import Foundation
 import SwiftUI
 
+typealias ZoomExitAnimationPerformer =
+    @MainActor (
+        _ updates: () -> Void,
+        _ completion: @escaping () -> Void
+    ) -> Void
+
 enum ZoomManagementTitle {
     static func text(
         sourceOrdinal: Int?,
@@ -61,6 +67,7 @@ struct ZoomPresentationContainer: View {
     let viewRegistry: ViewRegistry
     let surfaceId: String
     let renderedPaneIds: Set<UUID>
+    private let performZoomExitAnimation: ZoomExitAnimationPerformer
 
     @State private var splitRatio: CGFloat
     @State private var showsZoomToolbarLabel = false
@@ -96,7 +103,8 @@ struct ZoomPresentationContainer: View {
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         viewRegistry: ViewRegistry,
         surfaceId: String,
-        renderedPaneIds: Set<UUID>
+        renderedPaneIds: Set<UUID>,
+        performZoomExitAnimation: @escaping ZoomExitAnimationPerformer = Self.performLiveZoomExitAnimation
     ) {
         self.tabId = tabId
         self.sourcePaneId = sourcePaneId
@@ -122,6 +130,7 @@ struct ZoomPresentationContainer: View {
         self.viewRegistry = viewRegistry
         self.surfaceId = surfaceId
         self.renderedPaneIds = renderedPaneIds
+        self.performZoomExitAnimation = performZoomExitAnimation
         _splitRatio = State(initialValue: CGFloat(splitRatio))
     }
 
@@ -265,15 +274,26 @@ struct ZoomPresentationContainer: View {
         guard !isZoomExitPending else { return }
         isZoomExitPending = true
 
+        performZoomExitAnimation(
+            {
+                showsZoomToolbarLabel = false
+            },
+            {
+                performCancel()
+                isZoomExitPending = false
+            })
+    }
+
+    private static func performLiveZoomExitAnimation(
+        updates: () -> Void,
+        completion: @escaping () -> Void
+    ) {
         withAnimation(
             .easeOut(duration: AppStyles.General.Animation.fast),
-            completionCriteria: .logicallyComplete
-        ) {
-            showsZoomToolbarLabel = false
-        } completion: {
-            performCancel()
-            isZoomExitPending = false
-        }
+            completionCriteria: .logicallyComplete,
+            updates,
+            completion: completion
+        )
     }
 
     @ViewBuilder

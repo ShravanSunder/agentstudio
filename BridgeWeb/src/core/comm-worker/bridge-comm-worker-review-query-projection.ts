@@ -20,8 +20,10 @@ type ReviewTreeRow = Extract<
 >['payload']['windows'][number]['rows'][number];
 
 const defaultReviewProjectionQuery: BridgeWorkerReviewProjectionQuery = {
-	fileClassFilter: 'all',
+	categoryFilter: 'all',
 	gitStatusFilter: 'all',
+	showBinary: false,
+	showLarge: false,
 };
 
 export class BridgeCommWorkerReviewQueryProjection {
@@ -35,7 +37,9 @@ export class BridgeCommWorkerReviewQueryProjection {
 		patches: readonly BridgeWorkerReviewDisplayPatch[],
 	): readonly BridgeWorkerReviewDisplayPatch[] {
 		for (const patch of patches) this.#applyRawPatch(patch);
-		return reviewProjectionQueryIsDefault(this.#query) ? patches : this.snapshotDisplayPatches();
+		return reviewProjectionQueryIsPassThrough(this.#query)
+			? patches
+			: this.snapshotDisplayPatches();
 	}
 
 	updateQuery(query: BridgeWorkerReviewProjectionQuery): readonly BridgeWorkerReviewDisplayPatch[] {
@@ -157,10 +161,12 @@ export class BridgeCommWorkerReviewQueryProjection {
 
 	#matchesQuery(item: BridgeWorkerReviewDisplayItem): boolean {
 		return (
-			(this.#query.fileClassFilter === 'all' ||
-				item.metadata.fileClass === this.#query.fileClassFilter) &&
+			(this.#query.categoryFilter === 'all' ||
+				item.metadata.fileClass === this.#query.categoryFilter) &&
 			(this.#query.gitStatusFilter === 'all' ||
-				item.metadata.changeKind === this.#query.gitStatusFilter)
+				item.metadata.changeKind === this.#query.gitStatusFilter) &&
+			(item.metadata.fileClass !== 'binary' || this.#query.showBinary) &&
+			(item.metadata.fileClass !== 'large' || this.#query.showLarge)
 		);
 	}
 }
@@ -187,8 +193,13 @@ function requiredReviewTreeRows(props: {
 	return props.rows.filter((row) => includedRowIds.has(row.rowId));
 }
 
-function reviewProjectionQueryIsDefault(query: BridgeWorkerReviewProjectionQuery): boolean {
-	return query.fileClassFilter === 'all' && query.gitStatusFilter === 'all';
+function reviewProjectionQueryIsPassThrough(query: BridgeWorkerReviewProjectionQuery): boolean {
+	return (
+		query.categoryFilter === 'all' &&
+		query.gitStatusFilter === 'all' &&
+		query.showBinary &&
+		query.showLarge
+	);
 }
 
 function reviewProjectionQueriesEqual(
@@ -196,7 +207,10 @@ function reviewProjectionQueriesEqual(
 	right: BridgeWorkerReviewProjectionQuery,
 ): boolean {
 	return (
-		left.fileClassFilter === right.fileClassFilter && left.gitStatusFilter === right.gitStatusFilter
+		left.categoryFilter === right.categoryFilter &&
+		left.gitStatusFilter === right.gitStatusFilter &&
+		left.showBinary === right.showBinary &&
+		left.showLarge === right.showLarge
 	);
 }
 

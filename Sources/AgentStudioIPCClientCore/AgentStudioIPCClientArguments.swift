@@ -243,14 +243,7 @@ public enum AgentStudioIPCClientArguments {
                 IPCBridgeFileTreeSearchParams(handle: values[0], searchText: values[1])
             )
         case "bridge-file-tree-set-filter":
-            let values = try requireCount(remainingArguments, 3)
-            return .bridgeFileTreeSetFilter(
-                IPCBridgeFileTreeSetFilterParams(
-                    handle: values[0],
-                    gitStatusFilter: values[1],
-                    fileClassFilter: values[2]
-                )
-            )
+            return try parseBridgeFileTreeFilterCommand(remainingArguments)
         case "bridge-file-tree-reveal-path":
             let values = try requireCount(remainingArguments, 2)
             return .bridgeFileTreeRevealPath(
@@ -300,6 +293,53 @@ public enum AgentStudioIPCClientArguments {
             throw AgentStudioIPCClientError(reason: .invalidArguments)
         }
         return parsedWorktreeId
+    }
+
+    private static func parseBridgeFileTreeFilterCommand(
+        _ arguments: [String]
+    ) throws -> AgentStudioIPCClientCommand {
+        guard arguments.count >= 2,
+            let surface = IPCBridgeFileTreeFilterSurface(rawValue: arguments[1])
+        else {
+            throw AgentStudioIPCClientError(reason: .invalidArguments)
+        }
+        let candidate: IPCBridgeFileTreeFilterCandidate
+        switch surface {
+        case .files:
+            let values = try requireCount(arguments, 3)
+            guard let categoryFilter = IPCBridgeFilterCategory(rawValue: values[2]) else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            candidate = .files(categoryFilter: categoryFilter)
+        case .review:
+            let values = try requireCount(arguments, 6)
+            guard
+                let gitStatusFilter = IPCBridgeGitStatusFilter(rawValue: values[2]),
+                let categoryFilter = IPCBridgeFilterCategory(rawValue: values[3])
+            else {
+                throw AgentStudioIPCClientError(reason: .invalidArguments)
+            }
+            candidate = .review(
+                gitStatusFilter: gitStatusFilter,
+                categoryFilter: categoryFilter,
+                showBinary: try parseBoolean(values[4]),
+                showLarge: try parseBoolean(values[5])
+            )
+        }
+        return .bridgeFileTreeSetFilter(
+            IPCBridgeFileTreeSetFilterParams(handle: arguments[0], candidate: candidate)
+        )
+    }
+
+    private static func parseBoolean(_ rawValue: String) throws -> Bool {
+        switch rawValue {
+        case "true":
+            return true
+        case "false":
+            return false
+        default:
+            throw AgentStudioIPCClientError(reason: .invalidArguments)
+        }
     }
 
     @discardableResult
