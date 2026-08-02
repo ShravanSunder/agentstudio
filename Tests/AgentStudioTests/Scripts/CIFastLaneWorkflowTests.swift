@@ -71,7 +71,9 @@ struct CIFastLaneWorkflowTests {
         #expect(benchmarkTask.contains("export _XCB_BYPASS=1"))
         #expect(!benchmarkTask.contains("PushBenchmarkSupportTests"))
         #expect(!benchmarkTask.contains("PushPerformanceBenchmarkTests"))
-        #expect(benchmarkStep.contains("grep -E \"^global-preferences-loader \" benchmark.log"))
+        #expect(benchmarkStep.contains("grep -oE \"global-preferences-loader (missing|valid)"))
+        #expect(benchmarkStep.contains("grep -c \"global-preferences-loader missing \""))
+        #expect(benchmarkStep.contains("grep -c \"global-preferences-loader valid \""))
         #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
     }
 

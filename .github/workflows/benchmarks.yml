@@ -138,7 +138,9 @@ jobs:
         run: |
           set -o pipefail
           mise run test-benchmark 2>&1 | tee benchmark.log
-          grep -E "^global-preferences-loader " benchmark.log > benchmark-lines.txt
+          grep -oE "global-preferences-loader (missing|valid) count=[0-9]+ p95_ms=[0-9.]+ max_ms=[0-9.]+ slow_samples_over_10\\.0ms=[0-9]+" benchmark.log > benchmark-lines.txt
+          test "$(grep -c "global-preferences-loader missing " benchmark-lines.txt)" -eq 1
+          test "$(grep -c "global-preferences-loader valid " benchmark-lines.txt)" -eq 1
           cat benchmark-lines.txt
 
       - name: Upload benchmark results
