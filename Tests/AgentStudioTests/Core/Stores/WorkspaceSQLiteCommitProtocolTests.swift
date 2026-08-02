@@ -213,24 +213,33 @@ struct WorkspaceSQLiteCommitProtocolTests {
         fixture.readBarrier.arm()
 
         // Act
-        // A detached reader is required so its test barrier does not block the MainActor writer.
+        // The reader's synchronous trace barrier must not occupy MainActor.
         // swiftlint:disable:next no_task_detached
         let concurrentRead = Task.detached {
             try fixture.coreRepository.fetchAuthoritativeSnapshot()
         }
-        guard await fixture.readBarrier.waitUntilReaderIsPaused() else {
-            fixture.readBarrier.resumeReader()
-            Issue.record("Authoritative read did not reach the topology barrier")
-            _ = try await concurrentRead.value
-            return
+        // Keep the entire reader-to-writer handshake off MainActor. Returning
+        // either barrier event through MainActor makes database progress depend
+        // on unrelated MainActor test scheduling under full-suite load.
+        // swiftlint:disable:next no_task_detached
+        let concurrentCommit = Task.detached {
+            guard fixture.readBarrier.waitUntilReaderIsPaused() else {
+                fixture.readBarrier.resumeReader()
+                throw AuthoritativeSnapshotTestError.readerDidNotReachTopologyBarrier
+            }
+            defer { fixture.readBarrier.resumeReader() }
+            try updateConcurrentAuthoritativeReadFixture(fixture)
         }
         do {
-            try await updateConcurrentAuthoritativeReadFixture(fixture)
+            try await concurrentCommit.value
+        } catch AuthoritativeSnapshotTestError.readerDidNotReachTopologyBarrier {
+            _ = try await concurrentRead.value
+            Issue.record("Authoritative read did not reach the topology barrier")
+            return
         } catch {
-            fixture.readBarrier.resumeReader()
+            _ = try? await concurrentRead.value
             throw error
         }
-        fixture.readBarrier.resumeReader()
         let generationObservedDuringCommit = try requireLoadedAuthoritativeSnapshot(
             try await concurrentRead.value
         )
@@ -346,8 +355,8 @@ private func seedConcurrentAuthoritativeReadTopology(
 
 private func updateConcurrentAuthoritativeReadFixture(
     _ fixture: ConcurrentAuthoritativeReadFixture
-) async throws {
-    try await fixture.corePool.write { database in
+) throws {
+    try fixture.corePool.write { database in
         try database.execute(
             sql: "UPDATE workspace SET name = ? WHERE id = ?",
             arguments: ["New Workspace", fixture.workspaceId.uuidString]
@@ -402,10 +411,11 @@ private func requireLoadedAuthoritativeSnapshot(
 
 private enum AuthoritativeSnapshotTestError: Error {
     case notLoaded
+    case readerDidNotReachTopologyBarrier
 }
 
 private final class AuthoritativeReadBarrier: @unchecked Sendable {
-    private static let coordinationTimeout: DispatchTimeInterval = .seconds(30)
+    private static let coordinationTimeout: DispatchTimeInterval = .seconds(5)
 
     private let lock = NSLock()
     private let readerPaused = DispatchSemaphore(value: 0)
@@ -445,13 +455,8 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         }
     }
 
-    func waitUntilReaderIsPaused() async -> Bool {
-        // Keep the semaphore wait off the MainActor so the detached database
-        // reader can reach the trace callback while this test awaits it.
-        // swiftlint:disable:next no_task_detached
-        await Task.detached { [readerPaused] in
-            waitForSemaphore(readerPaused, timeout: Self.coordinationTimeout)
-        }.value
+    func waitUntilReaderIsPaused() -> Bool {
+        waitForSemaphore(readerPaused, timeout: Self.coordinationTimeout)
     }
 
     func resumeReader() {
