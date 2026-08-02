@@ -92,8 +92,6 @@ struct LauncherScriptFixture {
         process.arguments = [scriptPath] + arguments
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         var mergedEnvironment = ProcessInfo.processInfo.environment
-        mergedEnvironment["CI"] = "false"
-        mergedEnvironment["GITHUB_ACTIONS"] = "false"
         mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
         mergedEnvironment["HOME"] = root.path
         mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_ALLOW_TEST_OVERRIDES"] = "1"
@@ -120,8 +118,6 @@ struct LauncherScriptFixture {
         process.arguments = [scriptPath]
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         var mergedEnvironment = ProcessInfo.processInfo.environment
-        mergedEnvironment["CI"] = "false"
-        mergedEnvironment["GITHUB_ACTIONS"] = "false"
         mergedEnvironment.removeValue(forKey: "SWIFT_BUILD_DIR")
         mergedEnvironment["AGENTSTUDIO_OBSERVABILITY_STATE_FILE"] = stateFile.path
         for (key, value) in environment {
