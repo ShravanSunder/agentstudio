@@ -44,6 +44,17 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
+    @Test("CI jobs use descriptive check names")
+    func ciJobsUseDescriptiveCheckNames() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+
+        #expect(workflow.contains("  code-quality:\n    name: Code quality"))
+        #expect(workflow.contains("  bridge-web-validation:\n    name: BridgeWeb validation"))
+        #expect(workflow.contains("  swift-test-suite:\n    name: Swift test suite"))
+        #expect(!workflow.contains("  static:"))
+        #expect(!workflow.contains("  test:"))
+    }
+
     @Test("Swift build cache rolls forward per commit within a compatible toolchain")
     func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
@@ -149,6 +160,7 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
+        #expect(fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run --raw test:swift:fast"))
@@ -182,7 +194,7 @@ struct CIFastLaneWorkflowTests {
         #expect(nonSerializedRunner.contains("--skip E2ESerializedTests"))
         #expect(nonSerializedRunner.contains("--skip ZmxE2ETests"))
         #expect(fastRunner.contains("--parallel"))
-        #expect(!fastRunner.contains("--num-workers"))
+        #expect(fastRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
         #expect(
             fastRunner.contains(
                 "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\""

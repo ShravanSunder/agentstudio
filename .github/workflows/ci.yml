@@ -12,7 +12,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  quality:
+  code-quality:
+    name: Code quality
     runs-on: macos-26
 
     steps:
@@ -55,7 +56,8 @@ jobs:
       - name: Lint
         run: mise run lint
 
-  bridge-web-tests:
+  bridge-web-validation:
+    name: BridgeWeb validation
     runs-on: macos-26
 
     steps:
@@ -83,7 +85,7 @@ jobs:
       - name: Run BridgeWeb lanes
         run: |
           # Keep the CPU-heavy unit lane separate from browser integration/E2E.
-          # They already run concurrently with the static and Swift jobs; sharing
+          # They already run concurrently with the code-quality and Swift test jobs; sharing
           # this runner causes Vitest's per-test timeout to become load-dependent.
           pnpm --dir BridgeWeb run check
           pnpm --dir BridgeWeb run test:unit
@@ -92,7 +94,8 @@ jobs:
           pnpm --dir BridgeWeb run build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 
-  swift-tests:
+  swift-test-suite:
+    name: Swift test suite
     runs-on: macos-26
     env:
       SWIFT_BUILD_DIR: .build-ci
@@ -245,6 +248,7 @@ jobs:
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
+          SWIFT_TEST_NUM_WORKERS: "4"
           _XCB_BYPASS: "1"
         run: mise run --raw test:swift:fast
 
