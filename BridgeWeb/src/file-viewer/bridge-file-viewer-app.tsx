@@ -93,14 +93,16 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	const contentHeaderControls = (
 		<>
 			{viewerHeaderControls}
-			<BridgeViewerViewSettingsMenu
-				defaultSettings={bridgeFilesDefaultViewSettings}
-				onChange={setViewSettings}
-				onOpenChange={setViewSettingsMenuOpen}
-				open={viewSettingsMenuOpen}
-				settings={viewSettings}
-				surface="file"
-			/>
+			{isActive ? (
+				<BridgeViewerViewSettingsMenu
+					defaultSettings={bridgeFilesDefaultViewSettings}
+					onChange={setViewSettings}
+					onOpenChange={setViewSettingsMenuOpen}
+					open={viewSettingsMenuOpen}
+					settings={viewSettings}
+					surface="file"
+				/>
+			) : null}
 		</>
 	);
 	const isActiveRef = useRef(isActive);

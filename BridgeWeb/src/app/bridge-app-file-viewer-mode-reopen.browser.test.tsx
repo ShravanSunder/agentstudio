@@ -139,6 +139,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 
 		await clickContext('review');
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+		await waitForViewSettingsClosed('file');
 		await openViewSettings('review');
 		expect(viewSettingsRow('review', 'Word wrap').getAttribute('aria-checked')).toBe('true');
 		await actClick(viewSettingsRow('review', 'Line numbers'));
@@ -146,12 +147,14 @@ describe('Bridge file viewer mode re-open on switch', () => {
 
 		await clickContext('file');
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		await waitForViewSettingsClosed('review');
 		await openViewSettings('file');
 		expect(viewSettingsRow('file', 'Word wrap').getAttribute('aria-checked')).toBe('false');
 		expect(viewSettingsRow('file', 'Line numbers').getAttribute('aria-checked')).toBe('true');
 
 		await clickContext('review');
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+		await waitForViewSettingsClosed('file');
 		await openViewSettings('review');
 		expect(viewSettingsRow('review', 'Word wrap').getAttribute('aria-checked')).toBe('true');
 		expect(viewSettingsRow('review', 'Line numbers').getAttribute('aria-checked')).toBe('false');
@@ -229,11 +232,36 @@ async function clickContext(context: 'file' | 'review'): Promise<void> {
 async function openViewSettings(surface: 'file' | 'review'): Promise<void> {
 	const trigger = activeViewSettingsTrigger(surface);
 	await actClick(trigger);
-	await actWait((): Promise<void> => Promise.resolve());
+	expect(
+		await pollWithinActUntilEqual(
+			() =>
+				document.querySelector(`[data-testid="bridge-${surface}-view-settings-content"]`) !== null,
+			true,
+		),
+	).toBe(true);
+	await actWait(async (): Promise<void> => {
+		const content = document.querySelector<HTMLElement>(
+			`[data-testid="bridge-${surface}-view-settings-content"]`,
+		);
+		if (content === null) return;
+		await Promise.all(
+			content.getAnimations().map(async (animation): Promise<void> => {
+				try {
+					await animation.finished;
+				} catch {
+					// A surface switch can cancel the menu transition it supersedes.
+				}
+			}),
+		);
+	});
 }
 
 async function closeViewSettings(surface: 'file' | 'review'): Promise<void> {
 	await actClick(activeViewSettingsTrigger(surface));
+	await waitForViewSettingsClosed(surface);
+}
+
+async function waitForViewSettingsClosed(surface: 'file' | 'review'): Promise<void> {
 	expect(
 		await pollWithinActUntilEqual(
 			() =>

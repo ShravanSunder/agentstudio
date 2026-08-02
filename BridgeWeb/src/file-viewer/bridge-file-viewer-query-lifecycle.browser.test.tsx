@@ -21,6 +21,7 @@ import {
 	makeTreeRowsOnlyMetadataEvents,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actClick,
 	actUpdate,
 	installBridgeFileViewerNoopResizeObserver,
 	settleBridgeFileViewerBrowserUpdates,
@@ -141,16 +142,12 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		expect(document.activeElement).toBe(searchInput);
 
 		// Act: the active toolbar toggle cancels an empty search and can reopen it.
-		await act(async (): Promise<void> => {
-			await searchToggle.click();
-		});
+		await actClick(requireHTMLElement(searchToggle.element()));
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
 		expect(document.activeElement).toBe(fileTree);
 		await expect.element(searchToggle).toHaveAttribute('aria-pressed', 'false');
 		await expect.element(searchToggle).toHaveAttribute('aria-label', 'Search files');
-		await act(async (): Promise<void> => {
-			await searchToggle.click();
-		});
+		await actClick(requireHTMLElement(searchToggle.element()));
 		searchInput = renderResult.getByTestId('worktree-file-search-input').element();
 		if (!(searchInput instanceof HTMLInputElement)) {
 			throw new Error('Expected the reopened File search input.');
@@ -165,9 +162,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// Assert: focus returns to the still-eligible Files tree and Search can reopen normally.
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
 		expect(document.activeElement).toBe(fileTree);
-		await act(async (): Promise<void> => {
-			await searchToggle.click();
-		});
+		await actClick(requireHTMLElement(searchToggle.element()));
 
 		// Act: enter a text query.
 		await act(async (): Promise<void> => {
@@ -254,17 +249,15 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// Act: close a populated search through the persistent toggle.
 		await act(async (): Promise<void> => {
 			await renderResult.getByTestId('worktree-file-search-input').fill('AppDelegate');
-			await searchToggle.click();
 		});
+		await actClick(requireHTMLElement(searchToggle.element()));
 		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert: closing clears the query, and reopening starts empty.
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
 		await expect.element(searchToggle).toHaveAttribute('aria-pressed', 'false');
 		await expect.element(searchToggle).toHaveAttribute('aria-label', 'Search files');
-		await act(async (): Promise<void> => {
-			await searchToggle.click();
-		});
+		await actClick(requireHTMLElement(searchToggle.element()));
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('');
 	});
 
@@ -355,9 +348,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const searchToggle = renderResult.getByTestId('worktree-file-search-toggle');
 
 		// Act: open directly from the trigger, then close from the focused field.
-		await act(async (): Promise<void> => {
-			await searchToggle.click();
-		});
+		await actClick(requireHTMLElement(searchToggle.element()));
 		const searchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);

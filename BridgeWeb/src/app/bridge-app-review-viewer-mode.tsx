@@ -130,14 +130,16 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const contentHeaderControls = (
 		<>
 			{viewerHeaderControls}
-			<BridgeViewerViewSettingsMenu
-				defaultSettings={bridgeReviewDefaultViewSettings}
-				onChange={setViewSettings}
-				onOpenChange={setViewSettingsMenuOpen}
-				open={viewSettingsMenuOpen}
-				settings={viewSettings}
-				surface="review"
-			/>
+			{isActive ? (
+				<BridgeViewerViewSettingsMenu
+					defaultSettings={bridgeReviewDefaultViewSettings}
+					onChange={setViewSettings}
+					onOpenChange={setViewSettingsMenuOpen}
+					open={viewSettingsMenuOpen}
+					settings={viewSettings}
+					surface="review"
+				/>
+			) : null}
 		</>
 	);
 	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
