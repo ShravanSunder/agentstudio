@@ -805,17 +805,13 @@ function mountedReviewTreePaths(treeHost: HTMLElement | null): readonly string[]
 async function dispatchReviewViewerShortcut(
 	modifiers: Readonly<{ altKey?: boolean; shiftKey?: boolean }>,
 ): Promise<void> {
+	const modifier = modifiers.altKey ? 'Alt' : modifiers.shiftKey ? 'Shift' : null;
+	if (modifier === null) {
+		throw new Error('Review viewer shortcut requires Alt or Shift');
+	}
+
 	await act(async (): Promise<void> => {
-		document.dispatchEvent(
-			new KeyboardEvent('keydown', {
-				altKey: modifiers.altKey ?? false,
-				bubbles: true,
-				cancelable: true,
-				key: 'f',
-				metaKey: true,
-				shiftKey: modifiers.shiftKey ?? false,
-			}),
-		);
+		await userEvent.keyboard(`{Meta>}{${modifier}>}f{/${modifier}}{/Meta}`);
 	});
 }
 
