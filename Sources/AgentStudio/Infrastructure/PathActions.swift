@@ -3,6 +3,17 @@ import Foundation
 import os
 
 @MainActor
+package protocol PathActionsPasteboard {
+    @discardableResult
+    func clearContents() -> Int
+
+    @discardableResult
+    func setString(_ string: String, forType type: NSPasteboard.PasteboardType) -> Bool
+}
+
+extension NSPasteboard: PathActionsPasteboard {}
+
+@MainActor
 package protocol PathActionsExecuting: Sendable {
     @discardableResult
     func copyPath(_ path: URL) -> Bool
@@ -31,8 +42,14 @@ package enum PathActions {
     @MainActor
     @discardableResult
     package static func copyPath(_ path: URL) -> Bool {
-        NSPasteboard.general.clearContents()
-        let success = NSPasteboard.general.setString(path.path, forType: .string)
+        copyPath(path, to: NSPasteboard.general)
+    }
+
+    @MainActor
+    @discardableResult
+    package static func copyPath(_ path: URL, to pasteboard: any PathActionsPasteboard) -> Bool {
+        pasteboard.clearContents()
+        let success = pasteboard.setString(path.path, forType: .string)
         if !success {
             logger.warning("Copy path failed for path=\(path.path, privacy: .public)")
         }
