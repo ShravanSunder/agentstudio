@@ -55,6 +55,18 @@ struct CIFastLaneWorkflowTests {
         #expect(!workflow.contains("  test:"))
     }
 
+    @Test("CI checkouts do not persist workflow credentials")
+    func ciCheckoutsDoNotPersistWorkflowCredentials() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+
+        for jobName in ["code-quality", "bridge-web-validation", "swift-test-suite"] {
+            let job = try workflowJob(named: jobName, in: workflow)
+            let checkoutStep = try workflowStep(named: "Checkout", in: job)
+
+            #expect(checkoutStep.contains("persist-credentials: false"))
+        }
+    }
+
     @Test("Swift build cache rolls forward per commit within a compatible toolchain")
     func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
