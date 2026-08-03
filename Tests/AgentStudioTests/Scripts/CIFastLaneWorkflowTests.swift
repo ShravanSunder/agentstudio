@@ -80,10 +80,18 @@ struct CIFastLaneWorkflowTests {
 
         let fingerprintStepRange = try #require(ciWorkflow.range(of: fingerprintStep))
         let restoreCacheStepRange = try #require(ciWorkflow.range(of: restoreCacheStep))
+        let bridgeBuildStepRange = try #require(
+            ciWorkflow.range(of: "      - name: BridgeWeb packaged build")
+        )
+        let resourceSetupStepRange = try #require(
+            ciWorkflow.range(of: "      - name: Setup dev resources")
+        )
 
         #expect(fingerprintStep.contains("id: swift-build-inputs"))
         #expect(fingerprintStep.contains("scripts/swift-build-input-fingerprint.sh"))
         #expect(fingerprintStep.contains("GITHUB_OUTPUT"))
+        #expect(bridgeBuildStepRange.lowerBound < fingerprintStepRange.lowerBound)
+        #expect(resourceSetupStepRange.lowerBound < fingerprintStepRange.lowerBound)
         #expect(fingerprintStepRange.lowerBound < restoreCacheStepRange.lowerBound)
         #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
