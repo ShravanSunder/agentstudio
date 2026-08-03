@@ -71,6 +71,20 @@ struct SwiftBuildInputFingerprintScriptTests {
         #expect(try fixture.fingerprint() != originalFingerprint)
     }
 
+    @Test("empty directory changes invalidate the fingerprint")
+    func emptyDirectoryChangesInvalidateTheFingerprint() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let originalFingerprint = try fixture.fingerprint()
+
+        try FileManager.default.createDirectory(
+            at: fixture.root.appendingPathComponent("Sources/AgentStudio/Resources/empty-directory"),
+            withIntermediateDirectories: false
+        )
+
+        #expect(try fixture.fingerprint() != originalFingerprint)
+    }
+
     @Test("generated resources and framework contents invalidate the fingerprint")
     func generatedResourcesAndFrameworkContentsInvalidateTheFingerprint() throws {
         let fixture = try Fixture()

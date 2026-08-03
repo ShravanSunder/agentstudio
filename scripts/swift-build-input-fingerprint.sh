@@ -49,6 +49,14 @@ record_symlink() {
     printf 'symlink\t%s\t%s\t%s\n' "$mode" "$relative_path" "$(/usr/bin/readlink "$absolute_path")"
 }
 
+record_directory() {
+    local absolute_path="$1"
+    local relative_path="${absolute_path#"$PROJECT_ROOT/"}"
+    local mode
+    mode=$(/usr/bin/stat -f '%Lp' "$absolute_path")
+    printf 'directory\t%s\t%s\n' "$mode" "$relative_path"
+}
+
 for relative_path in "${required_inputs[@]}"; do
     absolute_path="$PROJECT_ROOT/$relative_path"
     if [[ -f "$absolute_path" || -L "$absolute_path" ]]; then
@@ -60,10 +68,12 @@ for relative_path in "${required_inputs[@]}"; do
         continue
     fi
 
-    /usr/bin/find "$absolute_path" \( -type f -o -type l \) -print0 |
+    /usr/bin/find "$absolute_path" \( -type d -o -type f -o -type l \) -print0 |
         while IFS= read -r -d '' nested_path; do
             if [[ -L "$nested_path" ]]; then
                 record_symlink "$nested_path"
+            elif [[ -d "$nested_path" ]]; then
+                record_directory "$nested_path"
             else
                 record_file "$nested_path"
             fi

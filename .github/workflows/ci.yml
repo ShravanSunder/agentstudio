@@ -230,7 +230,13 @@ jobs:
         id: swift-build-inputs
         run: |
           fingerprint="$(scripts/swift-build-input-fingerprint.sh)"
+          toolchain_fingerprint="$({
+            xcodebuild -version
+            swift --version
+            xcrun --sdk macosx --show-sdk-version
+          } | /usr/bin/shasum -a 256 | /usr/bin/awk '{ print $1 }')"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$toolchain_fingerprint" >> "$GITHUB_OUTPUT"
 
       - name: Restore Swift build cache
         id: swift-build-cache-restore
@@ -238,9 +244,9 @@ jobs:
         with:
           path: .build-ci
           # The exact key is content-addressed so an exact hit contains compiled bundles for the current inputs.
-          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
+          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
           restore-keys: |
-            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-
+            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-
 
       - name: Prebuild Swift test bundles
         if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'

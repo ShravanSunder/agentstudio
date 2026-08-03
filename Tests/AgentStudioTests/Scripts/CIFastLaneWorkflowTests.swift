@@ -89,6 +89,10 @@ struct CIFastLaneWorkflowTests {
 
         #expect(fingerprintStep.contains("id: swift-build-inputs"))
         #expect(fingerprintStep.contains("scripts/swift-build-input-fingerprint.sh"))
+        #expect(fingerprintStep.contains("xcodebuild -version"))
+        #expect(fingerprintStep.contains("swift --version"))
+        #expect(fingerprintStep.contains("xcrun --sdk macosx --show-sdk-version"))
+        #expect(fingerprintStep.contains("toolchain=$toolchain_fingerprint"))
         #expect(fingerprintStep.contains("GITHUB_OUTPUT"))
         #expect(bridgeBuildStepRange.lowerBound < fingerprintStepRange.lowerBound)
         #expect(resourceSetupStepRange.lowerBound < fingerprintStepRange.lowerBound)
@@ -96,7 +100,7 @@ struct CIFastLaneWorkflowTests {
         #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
             restoreCacheStep.contains(
-                "key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}"
+                "key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}"
             )
         )
         #expect(!restoreCacheStep.contains("hashFiles"))
@@ -105,7 +109,12 @@ struct CIFastLaneWorkflowTests {
         #expect(!restoreCacheStep.contains("github.event.pull_request.number"))
         #expect(
             restoreCacheStep.contains(
-                "swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-"
+                "swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"
+            )
+        )
+        #expect(
+            restoreCacheStep.contains(
+                "restore-keys: |\n            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"
             )
         )
         #expect(restoreCacheStep.contains("actions/cache/restore@v4"))
