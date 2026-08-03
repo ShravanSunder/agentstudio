@@ -202,7 +202,7 @@ struct WorkspaceSQLiteCommitProtocolTests {
     }
 
     @Test("authoritative read remains on one generation while a writer commits")
-    func authoritativeReadRemainsOnOneGenerationWhileWriterCommits() async throws {
+    func authoritativeReadRemainsOnOneGenerationWhileWriterCommits() throws {
         // Arrange
         let fixture = try makeConcurrentAuthoritativeReadFixture()
         defer {
@@ -213,26 +213,26 @@ struct WorkspaceSQLiteCommitProtocolTests {
         fixture.readBarrier.arm()
 
         // Act
-        // A detached reader is required so its test barrier does not block the MainActor writer.
-        // swiftlint:disable:next no_task_detached
-        let concurrentRead = Task.detached {
-            try fixture.coreRepository.fetchAuthoritativeSnapshot()
+        let concurrentOutcome = ConcurrentAuthoritativeReadOutcome()
+        DispatchQueue.concurrentPerform(iterations: 2) { operationIndex in
+            if operationIndex == 0 {
+                concurrentOutcome.captureRead {
+                    try fixture.coreRepository.fetchAuthoritativeSnapshot()
+                }
+            } else {
+                concurrentOutcome.captureWrite {
+                    guard fixture.readBarrier.waitUntilReaderIsPaused() else {
+                        fixture.readBarrier.resumeReader()
+                        throw AuthoritativeSnapshotTestError.readerDidNotReachTopologyBarrier
+                    }
+                    defer { fixture.readBarrier.resumeReader() }
+                    try updateConcurrentAuthoritativeReadFixture(fixture)
+                }
+            }
         }
-        guard fixture.readBarrier.waitUntilReaderIsPaused() else {
-            fixture.readBarrier.resumeReader()
-            Issue.record("Authoritative read did not reach the topology barrier")
-            _ = try await concurrentRead.value
-            return
-        }
-        do {
-            try await updateConcurrentAuthoritativeReadFixture(fixture)
-        } catch {
-            fixture.readBarrier.resumeReader()
-            throw error
-        }
-        fixture.readBarrier.resumeReader()
+        try concurrentOutcome.requireSuccessfulWrite()
         let generationObservedDuringCommit = try requireLoadedAuthoritativeSnapshot(
-            try await concurrentRead.value
+            try concurrentOutcome.requireRead()
         )
         let newGeneration = try requireLoadedAuthoritativeSnapshot(fixture.coreRepository)
 
@@ -255,6 +255,42 @@ private struct ConcurrentAuthoritativeReadFixture: Sendable {
     let repoId: UUID
     let paneId: UUID
     let tabId: UUID
+}
+
+private final class ConcurrentAuthoritativeReadOutcome: @unchecked Sendable {
+    private let lock = NSLock()
+    private var readResult: Result<WorkspaceCoreRepository.AuthoritativeSnapshotRead, Error>?
+    private var writeResult: Result<Void, Error>?
+
+    func captureRead(
+        _ operation: () throws -> WorkspaceCoreRepository.AuthoritativeSnapshotRead
+    ) {
+        let result = Result { try operation() }
+        lock.withLock {
+            readResult = result
+        }
+    }
+
+    func captureWrite(_ operation: () throws -> Void) {
+        let result = Result { try operation() }
+        lock.withLock {
+            writeResult = result
+        }
+    }
+
+    func requireRead() throws -> WorkspaceCoreRepository.AuthoritativeSnapshotRead {
+        guard let result = lock.withLock({ readResult }) else {
+            throw AuthoritativeSnapshotTestError.concurrentReadDidNotComplete
+        }
+        return try result.get()
+    }
+
+    func requireSuccessfulWrite() throws {
+        guard let result = lock.withLock({ writeResult }) else {
+            throw AuthoritativeSnapshotTestError.concurrentWriteDidNotComplete
+        }
+        try result.get()
+    }
 }
 
 @MainActor
@@ -346,8 +382,8 @@ private func seedConcurrentAuthoritativeReadTopology(
 
 private func updateConcurrentAuthoritativeReadFixture(
     _ fixture: ConcurrentAuthoritativeReadFixture
-) async throws {
-    try await fixture.corePool.write { database in
+) throws {
+    try fixture.corePool.write { database in
         try database.execute(
             sql: "UPDATE workspace SET name = ? WHERE id = ?",
             arguments: ["New Workspace", fixture.workspaceId.uuidString]
@@ -401,10 +437,15 @@ private func requireLoadedAuthoritativeSnapshot(
 }
 
 private enum AuthoritativeSnapshotTestError: Error {
+    case concurrentReadDidNotComplete
+    case concurrentWriteDidNotComplete
     case notLoaded
+    case readerDidNotReachTopologyBarrier
 }
 
 private final class AuthoritativeReadBarrier: @unchecked Sendable {
+    private static let coordinationTimeout: DispatchTimeInterval = .seconds(5)
+
     private let lock = NSLock()
     private let readerPaused = DispatchSemaphore(value: 0)
     private let readerResume = DispatchSemaphore(value: 0)
@@ -436,7 +477,7 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
         guard shouldPause else { return }
 
         readerPaused.signal()
-        if readerResume.wait(timeout: .now() + 5) == .timedOut {
+        if readerResume.wait(timeout: .now() + Self.coordinationTimeout) == .timedOut {
             lock.withLock {
                 resumeTimedOut = true
             }
@@ -444,10 +485,17 @@ private final class AuthoritativeReadBarrier: @unchecked Sendable {
     }
 
     func waitUntilReaderIsPaused() -> Bool {
-        readerPaused.wait(timeout: .now() + 5) == .success
+        waitForSemaphore(readerPaused, timeout: Self.coordinationTimeout)
     }
 
     func resumeReader() {
         readerResume.signal()
     }
+}
+
+private func waitForSemaphore(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTimeInterval
+) -> Bool {
+    semaphore.wait(timeout: .now() + timeout) == .success
 }
