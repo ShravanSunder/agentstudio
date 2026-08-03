@@ -231,13 +231,13 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build-ci
-          # Cache keys are immutable; include the commit so each PR update can save a fresh build.
-          key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
+          # The exact key is content-addressed so an exact hit contains compiled bundles for the current inputs.
+          key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-ghostty-${{ steps.submodules.outputs.ghostty_sha }}-zmx-${{ steps.submodules.outputs.zmx_sha }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**/*.swift', 'Sources/**/Resources/**', 'Tests/**/*.swift', 'BridgeWeb/package.json', 'BridgeWeb/pnpm-lock.yaml', 'BridgeWeb/pnpm-workspace.yaml', 'BridgeWeb/index.html', 'BridgeWeb/src/**', 'BridgeWeb/scripts/**', 'BridgeWeb/*.config.*', 'BridgeWeb/tsconfig*.json', 'BridgeWeb/components.json', '.mise.toml', 'scripts/swift-build-slot.sh', 'scripts/swift-test-helpers.sh', 'scripts/run-swift-test-task.sh', '.github/workflows/ci.yml') }}
           restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-
-            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-
+            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-ghostty-${{ steps.submodules.outputs.ghostty_sha }}-zmx-${{ steps.submodules.outputs.zmx_sha }}-
 
       - name: Prebuild Swift test bundles
+        if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
