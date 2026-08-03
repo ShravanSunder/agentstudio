@@ -33,6 +33,8 @@ import {
 	waitForHydratedReviewCodeViewItem,
 } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
 
+const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
+
 export {
 	advanceBridgeReviewRecoveryWitnessFrames,
 	scanBridgeReviewRecoveryWitnessDocument,
@@ -179,6 +181,7 @@ export async function renderBridgeReviewRecoveryWitness(
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
 				isActive={isActive}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				{...(props.navigationCommand === undefined
 					? {}
 					: { navigationCommand: props.navigationCommand })}

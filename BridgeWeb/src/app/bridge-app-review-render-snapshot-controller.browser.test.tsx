@@ -27,6 +27,9 @@ import {
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+
+const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
+
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
 		// Arrange
@@ -82,6 +85,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={onActiveSourceChange}
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
@@ -108,6 +112,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await rendered.rerender(
 				<BridgeReviewViewerMode
 					isActive={false}
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 					onActiveSourceChange={onActiveSourceChange}
 					onNavigationSourceChange={vi.fn()}
 					reviewClient={harness.reviewClient}
@@ -130,6 +135,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={vi.fn()}
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
@@ -315,6 +321,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={vi.fn()}
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
@@ -417,6 +424,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
 				isActive={true}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={onActiveSourceChange}
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={reviewClient}
@@ -530,6 +538,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				<BridgeReviewViewerMode
 					codeViewWorkerPoolEnabled={false}
 					isActive={false}
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 					onActiveSourceChange={onActiveSourceChange}
 					onNavigationSourceChange={vi.fn()}
 					reviewClient={reviewClient}
