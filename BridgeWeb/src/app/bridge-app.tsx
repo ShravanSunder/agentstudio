@@ -480,7 +480,15 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		const currentActiveViewerMode = activeViewerModeRef.current;
 		const activeSource = activeViewerSourcesRef.current[currentActiveViewerMode];
 		const pendingNativeSurfaceSelection = pendingNativeSurfaceSelectionRef.current;
+		const currentNavigationAdmissionState = navigationAdmissionStateRef.current;
+		const pendingNativeSurfaceSelectionIsAdmitted =
+			pendingNativeSurfaceSelection !== null &&
+			bridgeAppNavigationCommandIsAdmitted(
+				currentNavigationAdmissionState,
+				pendingNativeSurfaceSelection.request.navigationCommand,
+			);
 		if (
+			pendingNativeSurfaceSelectionIsAdmitted &&
 			pendingNativeSurfaceSelection !== null &&
 			pendingNativeSurfaceSelection.request.navigationCommand.surface === currentActiveViewerMode
 		) {
@@ -523,6 +531,14 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				}
 			});
 			return;
+		}
+		if (
+			pendingNativeSurfaceSelection !== null &&
+			pendingNativeSurfaceSelection.request.navigationCommand.surface === currentActiveViewerMode &&
+			currentNavigationAdmissionState.pendingCommand?.commandId !==
+				pendingNativeSurfaceSelection.request.navigationCommand.commandId
+		) {
+			pendingNativeSurfaceSelectionRef.current = null;
 		}
 		const activationRevision = activeViewerModeActivationRevisionRef.current;
 		if (activeSource === null) {

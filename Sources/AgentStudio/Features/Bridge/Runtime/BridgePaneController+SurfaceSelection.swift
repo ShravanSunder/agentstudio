@@ -35,8 +35,8 @@ extension BridgePaneController {
     ) async throws {
         guard let productSchemeProvider,
             let productAdmission = productAdmissionGate.acquire(),
-            let retainedCommandId = productAdmission.withValidAdmission({
-                surfaceSelectionAuthority.retainReviewTarget(source: source, target: target)
+            let retainedCommandId = try productAdmission.withValidAdmission({
+                try surfaceSelectionAuthority.retainReviewTarget(source: source, target: target)
             })
         else {
             throw CancellationError()
@@ -88,18 +88,28 @@ extension BridgePaneController {
         )
     }
 
-    func rebindAndPublishRetainedSurfaceSelection(
+    func enqueueRetainedSurfaceSelectionReplay(
+        commandId: String,
         productAdmission: BridgeProductAdmissionContext,
         productSchemeProvider: BridgePaneProductSchemeProvider,
-        bootstrap: BridgeProductSessionBootstrap? = nil
-    ) async -> Bool {
-        await bindAndPublishSurfaceSelection(
-            binding: .currentRetainedIntent,
-            productAdmission: productAdmission,
-            productSchemeProvider: productSchemeProvider,
-            bootstrap: bootstrap,
-            streamAbsenceDisposition: .retainForReplay
-        )
+        bootstrap: BridgeProductSessionBootstrap
+    ) -> Task<Bool, Never> {
+        let precedingTransition = surfaceSelectionTransitionTail
+        let transition = Task { @MainActor [weak self] in
+            if let precedingTransition {
+                _ = await precedingTransition.value
+            }
+            guard let self else { return false }
+            return await self.bindAndPublishSurfaceSelection(
+                binding: .retainedCommand(commandId),
+                productAdmission: productAdmission,
+                productSchemeProvider: productSchemeProvider,
+                bootstrap: bootstrap,
+                streamAbsenceDisposition: .retainForReplay
+            )
+        }
+        surfaceSelectionTransitionTail = transition
+        return transition
     }
 
     private func bindAndPublishSurfaceSelection(
@@ -136,11 +146,6 @@ extension BridgePaneController {
                         paneSessionId: activeBootstrap.paneSessionId,
                         workerInstanceId: activeBootstrap.workerInstanceId
                     )
-                case .currentRetainedIntent:
-                    request = try surfaceSelectionAuthority.rebindRetainedIntent(
-                        paneSessionId: activeBootstrap.paneSessionId,
-                        workerInstanceId: activeBootstrap.workerInstanceId
-                    )
                 }
                 guard let request else { return [] }
                 return [request]
@@ -167,5 +172,4 @@ extension BridgePaneController {
 
 private enum BridgePaneSurfaceSelectionBinding {
     case retainedCommand(String)
-    case currentRetainedIntent
 }

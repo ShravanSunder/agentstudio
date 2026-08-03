@@ -165,6 +165,48 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
+	test('covers every comm-worker runtime and qualified fetch while allowing worker script loading', async () => {
+		await withFixtureTree(
+			{
+				'src/core/comm-worker/bridge-pane-runtime-environment.ts': `
+					export const transportOrigin = globalThis.location.origin;
+					export const productEndpoint = '/__bridge-product/content';
+				`,
+				'src/core/comm-worker/bridge-product-runtime-fetches.ts': `
+					export const first = globalThis.fetch('/one');
+					export const second = self['fetch']('/two');
+					export const third = window.fetch('/three');
+				`,
+				'src/core/comm-worker/bridge-pane-comm-worker-session.ts': `
+					export const loadWorkerScript = (workerScriptUrl: string) => fetch(workerScriptUrl);
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+				const endpointViolations = report.violations.filter(
+					(violation): boolean => violation.ruleId === 'product-endpoint-boundary',
+				);
+
+				expect(endpointViolations).toHaveLength(5);
+				expect(endpointViolations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-pane-runtime-environment.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-product-runtime-fetches.ts',
+						}),
+					]),
+				);
+				expect(endpointViolations).not.toContainEqual(
+					expect.objectContaining({
+						relativePath: 'src/core/comm-worker/bridge-pane-comm-worker-session.ts',
+					}),
+				);
+			},
+		);
+	});
+
 	test('ignores Pierre strings in assertions while still reporting real imports', async () => {
 		await withFixtureTree(
 			{

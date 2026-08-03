@@ -242,7 +242,7 @@ struct BridgeProductNavigationReviewTarget: Codable, Equatable, Sendable {
         try container.encodeIfPresent(version, forKey: .version)
     }
 
-    private func validate(codingPath: [any CodingKey]) throws {
+    func validate(codingPath: [any CodingKey]) throws {
         guard path != nil || reviewItemId != nil else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Review navigation target requires an item or file path",

@@ -70,6 +70,7 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         let desiredSurface: BridgeProductSurface?
         let lastAcceptedRequest: BridgePaneSurfaceSelectionRequest?
         let needsDelivery: Bool
+        let retainedCommandId: String?
     }
 
     private var currentRequest: BridgePaneSurfaceSelectionRequest?
@@ -83,7 +84,8 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
             currentRequest: currentRequest,
             desiredSurface: retainedIntent?.surface,
             lastAcceptedRequest: lastAcceptedRequest,
-            needsDelivery: needsDelivery
+            needsDelivery: needsDelivery,
+            retainedCommandId: retainedIntent?.commandId
         )
     }
 
@@ -111,7 +113,8 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
     mutating func retainReviewTarget(
         source: BridgeProductNavigationReviewSource,
         target: BridgeProductNavigationReviewTarget
-    ) -> String {
+    ) throws -> String {
+        try target.validate(codingPath: [])
         let commandId = UUIDv7.generate().uuidString
         replaceRetainedIntent(
             .reviewTarget(

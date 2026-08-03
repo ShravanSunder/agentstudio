@@ -353,8 +353,7 @@ function checkBridgeProductEndpointBoundary(context: SourceContext, node: ts.Nod
 	if (
 		isSharedBridgeProductRequestRuntimePath(context.relativePath) &&
 		ts.isCallExpression(node) &&
-		ts.isIdentifier(node.expression) &&
-		node.expression.text === 'fetch'
+		isDirectFetchCall(node, context.sourceFile)
 	) {
 		addViolation(context, {
 			ruleId: 'product-endpoint-boundary',
@@ -401,6 +400,11 @@ function checkBridgeProductEndpointBoundary(context: SourceContext, node: ts.Nod
 				'shared Bridge product runtime modules must not own packaged or Vite product endpoint strings',
 		});
 	}
+}
+
+function isDirectFetchCall(callExpression: ts.CallExpression, sourceFile: ts.SourceFile): boolean {
+	const calleeText = constantStringMemberAccessText(callExpression.expression, sourceFile);
+	return calleeText === 'fetch' || /^(?:globalThis|self|window)\.fetch$/u.test(calleeText ?? '');
 }
 
 function constantStringMemberAccessText(
@@ -824,9 +828,7 @@ function isSharedBridgeProductRuntimePath(relativePath: string): boolean {
 		return false;
 	}
 	return (
-		isPathInside(relativePath, 'src/core/comm-worker/bridge-comm-worker-') ||
-		isPathInside(relativePath, 'src/core/comm-worker/bridge-worker-') ||
-		isPathInside(relativePath, 'src/core/comm-worker/bridge-product-') ||
+		isPathInside(relativePath, 'src/core/comm-worker/') ||
 		relativePath === 'src/app/bridge-app.tsx' ||
 		(isPathInside(relativePath, 'src/app/bridge-app-') &&
 			!isPathInside(relativePath, 'src/app/bridge-app-dev-')) ||

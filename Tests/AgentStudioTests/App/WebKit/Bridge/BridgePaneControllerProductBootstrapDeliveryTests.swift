@@ -303,6 +303,108 @@ extension WebKitSerializedTests {
             #expect(await controller.teardown().value)
         }
 
+        @Test("queued exact Review command keeps ownership across worker replacement")
+        func queuedExactReviewCommandKeepsOwnershipAcrossWorkerReplacement() async throws {
+            // Arrange
+            let transitionSuspension = BridgeProductBootstrapDeliverySuspension()
+            let overlapState = BootstrapReplacementOverlapState()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                ),
+                appRootURL: testBridgeAppRootURL(),
+                initialPaneActivity: .foreground,
+                productSessionBootstrapSink: { _, _, installation, _, productAdmission in
+                    overlapState.deliveredInstallations.append(installation)
+                    do {
+                        let activeController = try #require(overlapState.controller)
+                        let productProvider = try #require(activeController.productSchemeProvider)
+                        overlapState.replacementMetadataProducer =
+                            try await installRefreshAdmissionMetadataProducer(
+                                installation: installation,
+                                productProvider: productProvider,
+                                productAdmission: productAdmission
+                            )
+                    } catch {
+                        await transitionSuspension.resumeDelivery()
+                        throw error
+                    }
+                    await transitionSuspension.resumeDelivery()
+                }
+            )
+            overlapState.controller = controller
+            controller.hasPublishedProductSessionBootstrap = true
+            controller.surfaceSelectionTransitionTail = Task { @MainActor in
+                await transitionSuspension.suspendDelivery()
+                return true
+            }
+            await transitionSuspension.waitUntilDeliveryIsSuspended()
+            let reviewSource = BridgeProductNavigationReviewSource(
+                generation: 1,
+                metadataSourceId: "review-query-queued-during-replacement",
+                packageId: "review-package-queued-during-replacement"
+            )
+            let reviewTarget = BridgeProductNavigationReviewTarget(
+                reviewItemId: "review-item-queued-during-replacement"
+            )
+
+            // Act
+            let exactCommandTask = Task { @MainActor in
+                do {
+                    try await controller.requestReviewTargetAndPublish(
+                        source: reviewSource,
+                        target: reviewTarget
+                    )
+                    return true
+                } catch {
+                    return false
+                }
+            }
+            var exactCommandWasRetained = false
+            for _ in 0..<1000 {
+                if controller.surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface == .review {
+                    exactCommandWasRetained = true
+                    break
+                }
+                await Task.yield()
+            }
+            #expect(exactCommandWasRetained)
+            let bootstrapTask = Task { @MainActor in
+                await controller.enqueueProductSessionBootstrapRequest(
+                    requestId: "replacement-overlapping-queued-exact-review",
+                    reason: .workerReplacement
+                )
+            }
+            let exactCommandSucceeded = await exactCommandTask.value
+            await bootstrapTask.value
+            let replacementInstallation = try #require(overlapState.deliveredInstallations.last)
+            let metadataProducer = try #require(overlapState.replacementMetadataProducer)
+            let publishedRequest = try await consumeBootstrapSurfaceSelectionRequest(
+                producerLease: metadataProducer,
+                installation: replacementInstallation,
+                productAdmission: try #require(controller.productAdmissionGate.acquire())
+            )
+
+            // Assert
+            #expect(exactCommandSucceeded)
+            guard
+                case .activateReviewTarget(_, _, let publishedSource, let publishedTarget) =
+                    publishedRequest.navigationCommand
+            else {
+                Issue.record("Expected the queued exact Review command on the replacement worker")
+                return
+            }
+            #expect(publishedSource == reviewSource)
+            #expect(publishedTarget == reviewTarget)
+            try await closeBridgeProductSessionProducer(
+                metadataProducer,
+                in: replacementInstallation.session
+            )
+            #expect(await controller.teardown().value)
+        }
+
         @Test("exact Review target replays after the replacement metadata stream opens")
         func exactReviewTargetReplaysAfterReplacementMetadataStreamOpens() async throws {
             // Arrange
@@ -590,6 +692,13 @@ private actor BridgeProductBootstrapDeliverySuspension {
         deliveryResumeContinuation?.resume()
         deliveryResumeContinuation = nil
     }
+}
+
+@MainActor
+private final class BootstrapReplacementOverlapState {
+    weak var controller: BridgePaneController?
+    var deliveredInstallations: [BridgeProductSessionInstallation] = []
+    var replacementMetadataProducer: BridgeProductProducerLease?
 }
 
 private struct BootstrapReviewReplaySubscription {

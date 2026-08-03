@@ -487,6 +487,92 @@ describe('BridgeApp pane runtime hard cut', () => {
 		});
 	});
 
+	test('does not receipt a source-rejected exact File target after source rotation', async () => {
+		// Arrange
+		await actWait(async (): Promise<void> => {
+			await render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					protocol="review"
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await actWait(async (): Promise<void> => {
+			installBridgePanePositionFixtures({
+				fileRenderStore: requireRenderStore('fileView'),
+				reviewRenderStore: requireRenderStore('review'),
+			});
+			await Promise.resolve();
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
+			appRoot,
+			bindingRevision: 1,
+			nativeSelectionRequestId: 'native-file-context-before-rejected-source',
+			publishNativeSurfaceSelectionRequest,
+			surface: 'file',
+		});
+		const rejectedCommandId = 'native-file-target-rejected-source';
+
+		// Act: retain an exact command for a source that is not accepted, then rotate the real source.
+		await publishNativeFileTargetSelectionRequest({
+			bindingRevision: 2,
+			commandId: rejectedCommandId,
+			path: bridgePanePositionFilePath,
+			sourceId: 'never-accepted-file-source',
+			subscriptionGeneration: 99,
+		});
+		await actWait(async (): Promise<void> => {
+			requireRenderStore('fileView').applyFileDisplayPatchEvent({
+				direction: 'serverWorkerToMain',
+				epoch: 2,
+				kind: 'fileDisplayPatch',
+				patches: [
+					{
+						operation: 'reset',
+						payload: { sourceGeneration: 2, sourceId: 'rotated-file-source' },
+						slice: 'fileTree',
+					},
+				],
+				projectionRevision: 2,
+				sequence: 2,
+				surface: 'fileView',
+				transferDescriptors: [],
+				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			});
+			await Promise.resolve();
+		});
+
+		// Assert: source churn cannot acknowledge a command that admission rejected.
+		expect(activeViewerModeUpdateForNativeRequest(rejectedCommandId)).toBeUndefined();
+
+		// Act: a subsequent command bound to the accepted source is admitted normally.
+		const admittedCommandId = 'native-file-target-rotated-source';
+		await publishNativeFileTargetSelectionRequest({
+			bindingRevision: 3,
+			commandId: admittedCommandId,
+			path: bridgePanePositionFilePath,
+			sourceId: 'rotated-file-source',
+			subscriptionGeneration: 2,
+		});
+
+		// Assert
+		expect(
+			await pollWithinActUntilTruthy(() =>
+				activeViewerModeUpdateForNativeRequest(admittedCommandId),
+			),
+		).toMatchObject({
+			command: 'activeViewerModeUpdate',
+			update: {
+				mode: 'file',
+				nativeSelectionRequestId: admittedCommandId,
+			},
+		});
+	});
+
 	test('retains real File and Review tree and code positions across native surface requests', async () => {
 		// Arrange
 		const handshake = installBridgeReadyHandshake();

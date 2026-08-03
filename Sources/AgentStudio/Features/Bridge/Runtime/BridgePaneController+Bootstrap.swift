@@ -359,14 +359,18 @@ extension BridgePaneController {
             }) == true
         else { return }
         let surfaceSelectionSnapshot = surfaceSelectionAuthority.diagnosticSnapshot
-        if surfaceSelectionSnapshot.desiredSurface != nil,
+        let surfaceSelectionReplay: Task<Bool, Never>?
+        if let retainedCommandId = surfaceSelectionSnapshot.retainedCommandId,
             let productSchemeProvider
         {
-            _ = await rebindAndPublishRetainedSurfaceSelection(
+            surfaceSelectionReplay = enqueueRetainedSurfaceSelectionReplay(
+                commandId: retainedCommandId,
                 productAdmission: productAdmission,
                 productSchemeProvider: productSchemeProvider,
                 bootstrap: installation.bootstrap
             )
+        } else {
+            surfaceSelectionReplay = nil
         }
         do {
             try await productSessionBootstrapSink(
@@ -376,6 +380,7 @@ extension BridgePaneController {
                 bridgeWorld,
                 productAdmission
             )
+            _ = await surfaceSelectionReplay?.value
             bridgeProductBootstrapLogger.debug(
                 "Delivered product session bootstrap requestId=\(requestId, privacy: .public)"
             )

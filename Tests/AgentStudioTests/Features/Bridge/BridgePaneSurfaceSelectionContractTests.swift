@@ -464,7 +464,7 @@ struct BridgePaneSurfaceSelectionContractTests {
         )
         let target = BridgeProductNavigationReviewTarget(reviewItemId: "review-item-1")
 
-        authority.retainReviewTarget(source: source, target: target)
+        try authority.retainReviewTarget(source: source, target: target)
         let request = try #require(
             try authority.rebindRetainedIntent(
                 paneSessionId: "pane-session-1",
@@ -483,6 +483,43 @@ struct BridgePaneSurfaceSelectionContractTests {
         #expect(revision == 1)
         #expect(boundSource == source)
         #expect(boundTarget == target)
+    }
+
+    @Test("over-limit Review path is rejected before navigation intent retention")
+    func overLimitReviewPathIsRejectedBeforeNavigationIntentRetention() throws {
+        // Arrange
+        var authority = BridgePaneSurfaceSelectionAuthority()
+        let source = BridgeProductNavigationReviewSource(
+            generation: 9,
+            metadataSourceId: "review-query-1",
+            packageId: "review-package-1"
+        )
+        let maximumTarget = BridgeProductNavigationReviewTarget(
+            path: String(repeating: "x", count: 4096),
+            reviewItemId: "review-item-1",
+            version: .head
+        )
+        let retainedCommandId = try authority.retainReviewTarget(
+            source: source,
+            target: maximumTarget
+        )
+        let retainedSnapshot = authority.diagnosticSnapshot
+        let overLimitTarget = BridgeProductNavigationReviewTarget(
+            path: String(repeating: "x", count: 4097),
+            reviewItemId: "review-item-2",
+            version: .head
+        )
+
+        // Act
+        #expect(throws: (any Error).self) {
+            try authority.retainReviewTarget(source: source, target: overLimitTarget)
+        }
+
+        // Assert
+        #expect(authority.diagnosticSnapshot.desiredSurface == retainedSnapshot.desiredSurface)
+        #expect(authority.diagnosticSnapshot.currentRequest == retainedSnapshot.currentRequest)
+        #expect(authority.diagnosticSnapshot.needsDelivery == retainedSnapshot.needsDelivery)
+        #expect(authority.diagnosticSnapshot.retainedCommandId == retainedCommandId)
     }
 
     @Test("binding invalidation rejects the stale receipt and truthfully rebinds retained intent")
@@ -524,11 +561,11 @@ struct BridgePaneSurfaceSelectionContractTests {
             metadataSourceId: "review-query-1",
             packageId: "review-package-1"
         )
-        let firstCommandId = authority.retainReviewTarget(
+        let firstCommandId = try authority.retainReviewTarget(
             source: source,
             target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-a")
         )
-        let secondCommandId = authority.retainReviewTarget(
+        let secondCommandId = try authority.retainReviewTarget(
             source: source,
             target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-b")
         )
@@ -559,7 +596,7 @@ struct BridgePaneSurfaceSelectionContractTests {
     func supersededReviewCommandCannotBindInterveningContextIntent() throws {
         // Arrange
         var authority = BridgePaneSurfaceSelectionAuthority()
-        let reviewCommandId = authority.retainReviewTarget(
+        let reviewCommandId = try authority.retainReviewTarget(
             source: BridgeProductNavigationReviewSource(
                 generation: 9,
                 metadataSourceId: "review-query-1",
