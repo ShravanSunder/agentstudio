@@ -19,6 +19,7 @@ import {
 	actWait,
 	installBridgeReadyHandshake,
 	pollWithinActUntilEqual,
+	pollWithinActUntilTruthy,
 } from './bridge-app-browser-test-actions.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
@@ -127,9 +128,11 @@ describe('Bridge file viewer mode re-open on switch', () => {
 			true,
 		);
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
-		await expect
-			.poll(() => activeFileShell()?.getAttribute('data-selected-display-path'))
-			.not.toBeNull();
+		expect(
+			await pollWithinActUntilTruthy(
+				() => activeFileShell()?.getAttribute('data-selected-display-path') ?? null,
+			),
+		).not.toBeNull();
 		const initialFileIdentity = fileIdentitySnapshot();
 
 		await openViewSettings('file');
@@ -271,6 +274,7 @@ async function waitForViewSettingsClosed(surface: 'file' | 'review'): Promise<vo
 			true,
 		),
 	).toBe(true);
+	await settleViewerFrames();
 }
 
 function activeViewSettingsTrigger(surface: 'file' | 'review'): HTMLElement {
