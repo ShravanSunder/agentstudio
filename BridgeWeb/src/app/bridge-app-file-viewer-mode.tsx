@@ -28,6 +28,12 @@ export interface BridgeFileViewerModeProps {
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly fileViewClient: BridgePaneSurfaceClient;
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
+	readonly isNavigationCommandStillEligible: (
+		command: Extract<
+			BridgeProductNavigationCommand,
+			{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
+		>,
+	) => boolean;
 	readonly isActive: boolean;
 	readonly navigationCommand?: Extract<
 		BridgeProductNavigationCommand,
@@ -116,6 +122,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 						? {}
 						: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 					isActive={props.isActive}
+					isNavigationCommandStillEligible={props.isNavigationCommandStillEligible}
 					controlTarget={props.controlTarget}
 					{...(props.navigationCommand === undefined
 						? {}

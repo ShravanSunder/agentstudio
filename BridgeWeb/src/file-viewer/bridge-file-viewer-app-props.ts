@@ -11,6 +11,12 @@ export interface BridgeFileViewerAppProps {
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly controlTarget?: EventTarget;
 	readonly isActive?: boolean;
+	readonly isNavigationCommandStillEligible?: (
+		command: Extract<
+			BridgeProductNavigationCommand,
+			{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
+		>,
+	) => boolean;
 	readonly navigationCommand?: Extract<
 		BridgeProductNavigationCommand,
 		{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }

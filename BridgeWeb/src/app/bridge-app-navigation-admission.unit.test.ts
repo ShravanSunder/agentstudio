@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import {
 	applyBridgeAppNavigationCommand,
+	bridgeAppRememberedNavigationTargetIsEligible,
 	bridgeAppReviewNavigationSourceForDisplaySlice,
 	clearBridgeAppAcceptedNavigationSource,
 	createBridgeAppNavigationAdmissionState,
@@ -212,6 +213,12 @@ describe('BridgeApp navigation admission', () => {
 		});
 		expect(restoredFile.activeSurface).toBe('file');
 		expect(restoredFile.targetCommands.file?.commandId).toBe('remembered-file-target');
+		const rememberedCommand = admittedTarget.targetCommands.file;
+		expect(rememberedCommand).toBeDefined();
+		if (rememberedCommand === undefined) throw new Error('Expected remembered File command.');
+		expect(bridgeAppRememberedNavigationTargetIsEligible(restoredFile, rememberedCommand)).toBe(
+			true,
+		);
 
 		const rotated = reportBridgeAppAcceptedNavigationSource(restoredFile, {
 			...fileSource,
@@ -225,6 +232,9 @@ describe('BridgeApp navigation admission', () => {
 		});
 		expect(afterRotationContext.activeSurface).toBe('file');
 		expect(afterRotationContext.targetCommands.file).toBeUndefined();
+		expect(
+			bridgeAppRememberedNavigationTargetIsEligible(afterRotationContext, rememberedCommand),
+		).toBe(false);
 	});
 
 	test('applies one binding once and permits one truthful newer rebind', () => {

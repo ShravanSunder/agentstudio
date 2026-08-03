@@ -49,6 +49,12 @@ export interface BridgeReviewViewerModeProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly isActive: boolean;
+	readonly isNavigationCommandStillEligible?: (
+		command: Extract<
+			BridgeProductNavigationCommand,
+			{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+		>,
+	) => boolean;
 	readonly navigationCommand?: Extract<
 		BridgeProductNavigationCommand,
 		{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
@@ -70,12 +76,14 @@ type BridgeReviewFilterCandidate = Extract<
 
 const bridgeReviewDefaultViewSettings =
 	createBridgeReviewViewSettingsDefaults(bridgeCodeViewOptions);
+const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
 
 export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): ReactElement {
 	const {
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		isActive,
+		isNavigationCommandStillEligible = bridgeReviewNavigationCommandIsAlwaysEligible,
 		navigationCommand,
 		onActiveSourceChange,
 		onNavigationSourceChange,
@@ -351,6 +359,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		clearReviewSelection,
 		getReviewItem: displayStore.getReviewItemSnapshot,
 		isActive,
+		isNavigationCommandStillEligible,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
 		orderedItemIds,

@@ -11,9 +11,11 @@ type BridgeReviewTargetNavigationCommand = Extract<
 	BridgeProductNavigationCommand,
 	{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
 >;
+const reviewNavigationCommandIsAlwaysEligible = (): boolean => true;
 
 export function ReviewNavigationControllerProbe(props: {
 	readonly events: string[];
+	readonly isNavigationCommandStillEligible?: () => boolean;
 }): ReactElement {
 	const [catalogRevision, setCatalogRevision] = useState(1);
 	const [navigationCommand, setNavigationCommand] = useState<BridgeReviewTargetNavigationCommand>(
@@ -39,10 +41,12 @@ export function ReviewNavigationControllerProbe(props: {
 		},
 		[props.events],
 	);
-	useBridgeReviewNavigationController({
+	const navigationControllerProps = {
 		catalogRevision,
 		clearReviewSelection,
 		getReviewItem: (): undefined => undefined,
+		isNavigationCommandStillEligible:
+			props.isNavigationCommandStillEligible ?? reviewNavigationCommandIsAlwaysEligible,
 		isActive: true,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
@@ -50,7 +54,8 @@ export function ReviewNavigationControllerProbe(props: {
 		selectedItemId,
 		selectInitialReviewItem: selectReviewItem,
 		selectReviewItem,
-	});
+	};
+	useBridgeReviewNavigationController(navigationControllerProps);
 	return (
 		<>
 			<button onClick={(): void => setCatalogRevision((revision) => revision + 1)} type="button">

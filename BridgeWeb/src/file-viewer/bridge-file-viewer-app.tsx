@@ -45,6 +45,7 @@ const bridgeFileViewerTreeRowHeightPixels = 24;
 const bridgeFilesDefaultViewSettings = createBridgeFilesViewSettingsDefaults(
 	bridgeFileViewerCodeViewOptions,
 );
+const bridgeFileViewerNavigationCommandIsAlwaysEligible = (): boolean => true;
 
 export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): ReactElement {
 	return <BridgeFileViewerAppImpl {...props} />;
@@ -61,6 +62,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		codeViewWorkerPoolEnabled,
 		controlTarget = document,
 		isActive = true,
+		isNavigationCommandStillEligible = bridgeFileViewerNavigationCommandIsAlwaysEligible,
 		navigationCommand,
 		onDisplaySourceChange,
 		telemetryRecorder,
@@ -240,6 +242,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		) {
 			const row = displayModel.treeRowByPath.get(navigationPath);
 			if (row?.fileId !== null && row?.fileId !== undefined && !row.isDirectory) {
+				if (!isNavigationCommandStillEligible(navigationCommand)) return;
 				appliedNavigationApplicationKeyRef.current = navigationApplicationKey;
 				selectFile({ fileId: row.fileId, path: row.path }, 'programmatic');
 			}
@@ -261,6 +264,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		displayModel.treeRowByPath,
 		displayModel.firstFileRow,
 		isActive,
+		isNavigationCommandStillEligible,
 		navigationCommand,
 		selectFile,
 		selection,

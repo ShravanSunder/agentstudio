@@ -39,8 +39,11 @@ import {
 	bridgePanePositionFileItemId,
 	bridgePanePositionFilePath,
 	bridgePanePositionReviewItemId,
+	bridgePaneReplacementFileItemId,
+	bridgePaneReplacementFilePath,
 	establishSemanticSurfacePosition,
 	installBridgePanePositionFixtures,
+	replaceFilePositionFixtureWithTarget,
 	waitForScrollableSurfaceOwners,
 } from './bridge-app-pane-runtime-position-test-support.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
@@ -487,7 +490,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 		});
 	});
 
-	test('does not receipt a source-rejected exact File target after source rotation', async () => {
+	test('revokes an admitted exact File target before a replacement source can apply it', async () => {
 		// Arrange
 		await actWait(async (): Promise<void> => {
 			await render(
@@ -515,62 +518,58 @@ describe('BridgeApp pane runtime hard cut', () => {
 			publishNativeSurfaceSelectionRequest,
 			surface: 'file',
 		});
-		const rejectedCommandId = 'native-file-target-rejected-source';
+		const admittedCommandId = 'native-file-target-admitted-source';
 
-		// Act: retain an exact command for a source that is not accepted, then rotate the real source.
+		// Act: admit an exact command against source A while its target is absent.
 		await publishNativeFileTargetSelectionRequest({
 			bindingRevision: 2,
-			commandId: rejectedCommandId,
-			path: bridgePanePositionFilePath,
-			sourceId: 'never-accepted-file-source',
-			subscriptionGeneration: 99,
+			commandId: admittedCommandId,
+			path: bridgePaneReplacementFilePath,
+			sourceId: 'position-file-source',
+			subscriptionGeneration: 1,
 		});
+		expect(
+			paneRuntimeObservation.surfaceCommands.some(
+				({ command, surface }): boolean =>
+					surface === 'fileView' &&
+					command.command === 'select' &&
+					command.selectedItemId === bridgePaneReplacementFileItemId,
+			),
+		).toBe(false);
+
+		// Act: source B replaces A and introduces the same target path in one projection commit.
 		await actWait(async (): Promise<void> => {
-			requireRenderStore('fileView').applyFileDisplayPatchEvent({
-				direction: 'serverWorkerToMain',
-				epoch: 2,
-				kind: 'fileDisplayPatch',
-				patches: [
-					{
-						operation: 'reset',
-						payload: { sourceGeneration: 2, sourceId: 'rotated-file-source' },
-						slice: 'fileTree',
-					},
-				],
-				projectionRevision: 2,
-				sequence: 2,
-				surface: 'fileView',
-				transferDescriptors: [],
-				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-			});
+			replaceFilePositionFixtureWithTarget(requireRenderStore('fileView'));
 			await Promise.resolve();
 		});
 
-		// Assert: source churn cannot acknowledge a command that admission rejected.
-		expect(activeViewerModeUpdateForNativeRequest(rejectedCommandId)).toBeUndefined();
-
-		// Act: a subsequent command bound to the accepted source is admitted normally.
-		const admittedCommandId = 'native-file-target-rotated-source';
-		await publishNativeFileTargetSelectionRequest({
+		// Act: surface-only navigation away and back must not restore the revoked target.
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
+			appRoot,
 			bindingRevision: 3,
-			commandId: admittedCommandId,
-			path: bridgePanePositionFilePath,
-			sourceId: 'rotated-file-source',
-			subscriptionGeneration: 2,
+			nativeSelectionRequestId: 'native-review-context-after-file-rotation',
+			publishNativeSurfaceSelectionRequest,
+			surface: 'review',
+		});
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
+			appRoot,
+			bindingRevision: 4,
+			nativeSelectionRequestId: 'native-file-context-after-file-rotation',
+			publishNativeSurfaceSelectionRequest,
+			surface: 'file',
 		});
 
-		// Assert
+		// Assert: the source-A command never mutates source B, including through later restoration.
 		expect(
-			await pollWithinActUntilTruthy(() =>
-				activeViewerModeUpdateForNativeRequest(admittedCommandId),
+			paneRuntimeObservation.surfaceCommands.some(
+				({ command, surface }): boolean =>
+					surface === 'fileView' &&
+					command.command === 'select' &&
+					command.selectedItemId === bridgePaneReplacementFileItemId,
 			),
-		).toMatchObject({
-			command: 'activeViewerModeUpdate',
-			update: {
-				mode: 'file',
-				nativeSelectionRequestId: admittedCommandId,
-			},
-		});
+		).toBe(false);
 	});
 
 	test('retains real File and Review tree and code positions across native surface requests', async () => {

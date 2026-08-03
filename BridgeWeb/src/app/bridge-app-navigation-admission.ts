@@ -6,7 +6,7 @@ export type BridgeAppNavigationSource = Extract<
 	{ readonly source: unknown }
 >['source'];
 
-type BridgeAppNavigationTargetCommand = Extract<
+export type BridgeAppNavigationTargetCommand = Extract<
 	BridgeProductNavigationCommand,
 	{ readonly commandKind: 'activateTarget' }
 >;
@@ -150,6 +150,20 @@ export function clearBridgeAppAcceptedNavigationSource(
 				: pendingCommand,
 		targetCommands: { ...state.targetCommands, [surface]: undefined },
 	};
+}
+
+export function bridgeAppRememberedNavigationTargetIsEligible(
+	state: BridgeAppNavigationAdmissionState,
+	command: BridgeAppNavigationTargetCommand,
+): boolean {
+	if (state.activeSurface !== command.surface) return false;
+	const rememberedCommand = state.targetCommands[command.surface];
+	return (
+		rememberedCommand !== undefined &&
+		rememberedCommand.commandId === command.commandId &&
+		rememberedCommand.bindingRevision === command.bindingRevision &&
+		bridgeAppNavigationSourcesEqual(rememberedCommand.source, command.source)
+	);
 }
 
 function bridgeAppNavigationSourcesEqual(

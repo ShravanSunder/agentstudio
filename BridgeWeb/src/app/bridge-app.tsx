@@ -46,11 +46,13 @@ import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
 	applyBridgeAppNavigationCommand,
+	bridgeAppRememberedNavigationTargetIsEligible,
 	clearBridgeAppAcceptedNavigationSource,
 	createBridgeAppNavigationAdmissionState,
 	reportBridgeAppAcceptedNavigationSource,
 	type BridgeAppNavigationAdmissionState,
 	type BridgeAppNavigationSource,
+	type BridgeAppNavigationTargetCommand,
 } from './bridge-app-navigation-admission.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 export type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
@@ -674,6 +676,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		},
 		[reportAcceptedNavigationSource],
 	);
+	const isNavigationCommandStillEligible = useCallback(
+		(command: BridgeAppNavigationTargetCommand): boolean =>
+			bridgeAppRememberedNavigationTargetIsEligible(navigationAdmissionStateRef.current, command),
+		[],
+	);
 	useLayoutEffect((): (() => void) => {
 		if (isBridgeReadyGateOpenRef.current) {
 			sendActiveViewerModeUpdate();
@@ -731,6 +738,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					<BridgeFileViewerMode
 						{...props}
 						fileViewClient={paneRuntimeHost.fileViewClient}
+						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
 						isActive={activeViewerMode === 'file'}
 						controlTarget={target}
 						onActiveSourceChange={reportFileActiveSource}
@@ -760,6 +768,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					<BridgeReviewViewerMode
 						{...props}
 						isActive={activeViewerMode === 'review'}
+						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
 						target={target}
 						onActiveSourceChange={reportReviewActiveSource}
 						onNavigationSourceChange={reportReviewNavigationSource}

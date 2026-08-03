@@ -40,6 +40,7 @@ export interface UseBridgeReviewNavigationControllerProps {
 	readonly clearReviewSelection: () => void;
 	readonly getReviewItem: (itemId: string) => BridgeWorkerReviewDisplayItem | undefined;
 	readonly isActive: boolean;
+	readonly isNavigationCommandStillEligible: (command: BridgeReviewNavigationCommand) => boolean;
 	readonly navigationCommand: BridgeReviewNavigationCommand | undefined;
 	readonly onTargetOutsideAcceptedProjection: (target: BridgeReviewNavigationTarget) => void;
 	readonly orderedItemIds: readonly string[];
@@ -62,6 +63,7 @@ export function useBridgeReviewNavigationController(
 		clearReviewSelection,
 		getReviewItem,
 		isActive,
+		isNavigationCommandStillEligible,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
 		orderedItemIds,
@@ -77,6 +79,7 @@ export function useBridgeReviewNavigationController(
 		if (
 			!isActive ||
 			navigationCommand === undefined ||
+			!isNavigationCommandStillEligible(navigationCommand) ||
 			appliedNavigationApplicationKeyRef.current ===
 				bridgeReviewNavigationApplicationKey(navigationCommand)
 		) {
@@ -103,6 +106,7 @@ export function useBridgeReviewNavigationController(
 		catalogRevision,
 		getReviewItem,
 		isActive,
+		isNavigationCommandStillEligible,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
 		orderedItemIds,

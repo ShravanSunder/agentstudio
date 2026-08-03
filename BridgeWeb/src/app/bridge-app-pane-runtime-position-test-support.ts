@@ -27,6 +27,8 @@ export interface SurfacePositionSnapshot {
 export const bridgePanePositionFileItemId = 'position-file-001';
 export const bridgePanePositionFilePath = 'Sources/PositionFile001.swift';
 export const bridgePanePositionReviewItemId = 'position-review-001';
+export const bridgePaneReplacementFileItemId = 'replacement-file-001';
+export const bridgePaneReplacementFilePath = 'Sources/ReplacementOnly.swift';
 
 const fileTreeRowCount = 180;
 const fileLineCount = 800;
@@ -40,6 +42,73 @@ export function installBridgePanePositionFixtures(props: {
 }): void {
 	installFilePositionFixture(props.fileRenderStore);
 	installReviewPositionFixture(props.reviewRenderStore);
+}
+
+export function replaceFilePositionFixtureWithTarget(
+	renderStore: BridgeMainRenderSnapshotStore,
+): void {
+	renderStore.applyFileDisplayPatchEvent({
+		direction: 'serverWorkerToMain',
+		epoch: 2,
+		kind: 'fileDisplayPatch',
+		patches: [
+			{
+				operation: 'reset',
+				payload: { sourceGeneration: 2, sourceId: 'replacement-file-source' },
+				slice: 'fileTree',
+			},
+			{
+				operation: 'batch',
+				payload: {
+					operations: [
+						{
+							operation: 'upsert',
+							row: {
+								changeStatus: 'modified',
+								depth: 1,
+								fileClass: 'source',
+								fileId: bridgePaneReplacementFileItemId,
+								isDirectory: false,
+								lineCount: 1,
+								name: 'ReplacementOnly.swift',
+								parentPath: 'Sources',
+								path: bridgePaneReplacementFilePath,
+								projectionIndex: 0,
+								rowId: 'replacement-file-row-001',
+								sizeBytes: 32,
+							},
+						},
+					],
+				},
+				slice: 'fileTree',
+			},
+			{
+				itemId: bridgePaneReplacementFileItemId,
+				operation: 'upsert',
+				payload: {
+					availability: { kind: 'available' },
+					displayPath: bridgePaneReplacementFilePath,
+					endsMidLine: false,
+					endsWithNewline: true,
+					extent: { kind: 'exactLineCount', lineCount: 1 },
+					fileExtension: 'swift',
+					language: 'swift',
+					payloadByteCount: 32,
+					payloadLineCount: 1,
+					rowId: 'replacement-file-row-001',
+					sizeBytes: 32,
+					totalLineCount: 1,
+					truncationKind: 'none',
+				},
+				slice: 'fileItem',
+			},
+		],
+		projectionRevision: 2,
+		sequence: 2,
+		surface: 'fileView',
+		transferDescriptors: [],
+		wireVersion: 1,
+	});
 }
 
 export async function waitForScrollableSurfaceOwners(props: {
