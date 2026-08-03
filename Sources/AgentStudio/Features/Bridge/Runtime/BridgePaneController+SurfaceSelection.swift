@@ -113,7 +113,16 @@ extension BridgePaneController {
         if let bootstrap {
             activeBootstrap = bootstrap
         } else {
-            guard let bootstrap = await productSessionOwner.activeBootstrap() else { return false }
+            guard let bootstrap = await productSessionOwner.activeBootstrap() else {
+                if case .retainedCommand(let commandId) = binding {
+                    _ = productAdmission.withValidAdmission {
+                        surfaceSelectionAuthority.invalidateFailedExactIntent(
+                            commandId: commandId
+                        )
+                    }
+                }
+                return false
+            }
             activeBootstrap = bootstrap
         }
         let admittedRequests: [BridgePaneSurfaceSelectionRequest]?

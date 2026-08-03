@@ -235,6 +235,74 @@ extension WebKitSerializedTests {
             #expect(await controller.teardown().value)
         }
 
+        @Test("exact Review command rejected without an active worker cannot replay")
+        func rejectedExactReviewCommandCannotReplayAfterReplacement() async throws {
+            // Arrange
+            var deliveredInstallations: [BridgeProductSessionInstallation] = []
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                ),
+                appRootURL: testBridgeAppRootURL(),
+                initialPaneActivity: .foreground,
+                productSessionBootstrapSink: { _, _, installation, _, _ in
+                    deliveredInstallations.append(installation)
+                }
+            )
+            controller.hasPublishedProductSessionBootstrap = true
+            #expect(await controller.productSessionOwner.retire(reason: .workerReplacement) == .retired)
+            #expect(await controller.productSessionOwner.activeBootstrap() == nil)
+            let reviewSource = BridgeProductNavigationReviewSource(
+                generation: 1,
+                metadataSourceId: "review-query-rejected-during-replacement",
+                packageId: "review-package-rejected-during-replacement"
+            )
+            let reviewTarget = BridgeProductNavigationReviewTarget(
+                reviewItemId: "review-item-rejected-during-replacement"
+            )
+
+            // Act
+            await #expect(throws: CancellationError.self) {
+                try await controller.requestReviewTargetAndPublish(
+                    source: reviewSource,
+                    target: reviewTarget
+                )
+            }
+            let rejectedSnapshot = controller.surfaceSelectionAuthority.diagnosticSnapshot
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "replacement-after-rejected-exact-review",
+                reason: .workerReplacement
+            )
+            let replacementInstallation = try #require(deliveredInstallations.last)
+            let productProvider = try #require(controller.productSchemeProvider)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let replacementMetadataProducer = try await installRefreshAdmissionMetadataProducer(
+                installation: replacementInstallation,
+                productProvider: productProvider,
+                productAdmission: productAdmission
+            )
+
+            // Assert
+            #expect(rejectedSnapshot.desiredSurface == nil)
+            #expect(rejectedSnapshot.currentRequest == nil)
+            #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface == nil)
+            #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest == nil)
+            await #expect(throws: BootstrapSurfaceSelectionReplayError.self) {
+                try await consumeBootstrapSurfaceSelectionRequest(
+                    producerLease: replacementMetadataProducer,
+                    installation: replacementInstallation,
+                    productAdmission: productAdmission
+                )
+            }
+            try await closeBridgeProductSessionProducer(
+                replacementMetadataProducer,
+                in: replacementInstallation.session
+            )
+            #expect(await controller.teardown().value)
+        }
+
         @Test("exact Review target replays after the replacement metadata stream opens")
         func exactReviewTargetReplaysAfterReplacementMetadataStreamOpens() async throws {
             // Arrange

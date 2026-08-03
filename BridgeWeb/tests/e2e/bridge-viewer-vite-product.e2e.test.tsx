@@ -369,42 +369,6 @@ function assertJourneyFreshness(props: {
 	).toBe(true);
 }
 
-async function selectFileBySearch(props: {
-	readonly page: Page;
-	readonly path: string;
-}): Promise<void> {
-	await props.page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', {
-		timeout: productJourneyTimeoutMilliseconds,
-	});
-	const searchInput = props.page.locator('[data-testid="worktree-file-search-input"]');
-	if ((await searchInput.count()) === 0) {
-		await props.page.locator('[data-testid="worktree-file-search-toggle"]').click({
-			timeout: productJourneyTimeoutMilliseconds,
-		});
-	}
-	await props.page.locator('[data-testid="worktree-file-search-input"]').fill(props.path);
-	await props.page.waitForFunction(
-		(targetPath: string): boolean => {
-			const treeHost = document.querySelector(
-				'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
-			);
-			return (
-				treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`) !== null
-			);
-		},
-		props.path,
-		{ timeout: productJourneyTimeoutMilliseconds },
-	);
-	await props.page.evaluate((targetPath: string): void => {
-		const treeHost = document.querySelector(
-			'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
-		);
-		const row = treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`);
-		if (!(row instanceof HTMLElement)) throw new Error(`File row missing: ${targetPath}`);
-		row.click();
-	}, props.path);
-}
-
 async function waitForSelectedFileReady(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly page: Page;
