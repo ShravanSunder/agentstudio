@@ -4,27 +4,11 @@ Date: 2026-08-02
 
 ## Planning basis
 
-Target classification: `general-domain`.
-
-Planning admission: `current-pair-ready`.
-
 Authoritative sources:
 
 - `../2026-08-02-bridgeweb-frontend-runtime-parity-user-requirements.md`
 - `../2026-08-02-bridgeweb-frontend-runtime-parity.md`
 - `../2026-08-02-bridgeweb-frontend-runtime-parity-program-design.md`
-
-Current source digests:
-
-- requirements: `1b5d3fa7442c6a27404fa071d87245813dd1548e559ebcb7b48b86eff0824e73`
-- specification: `bcda9772dae39abb9383ad616dd17ebf38573f99d9c4155e7e8d6c15863b8058`
-- program design: `ed61312c69636cfd79190e9bbc0b4d56792b43de9ff15cab220ba778d879670c`
-
-Pair-review identity: `/root/pr1_pair_review_after_inventory`, result `ready`.
-The reviewer confirmed the exact current digests and the corrected transport
-boundary: the existing shared admission owner defaults to twelve, Vite passes
-four at construction, and the injected request executor contains no queue or
-lifecycle.
 
 Current implementation base is `343b33193d9c101901f37cac0be6da0ce9938a2a`.
 `origin/main` is one unrelated minimized-pane-resize commit ahead. Before code
@@ -47,6 +31,8 @@ and `BridgeApp`.
 - Do not alter Files, Review, Search, Filters, or View Settings behavior.
 - Do not move queueing, admission, retry, decoding, stream consumption,
   response lifetime, or lifecycle into the injected request executor.
+- Do not change worker-health, retry, replacement, or public IPC success/error
+  semantics while cutting over the frontend path.
 - Do not weaken packaged Bridge behavior to accommodate Vite.
 - Do not create a second navigation protocol, acknowledgement, or target-render
   receipt.
@@ -63,7 +49,7 @@ transport, navigation-contract, and `BridgeApp` files; parallel implementation
 would create conflicting ownership and make the hard cut difficult to verify.
 
 ```text
-gate 0: verify branch, current source digests, and existing focused tests
+gate 0: verify branch, current source, and existing focused tests
   |
 slice 1: inject the tiny request executor and shared admission value
   |
@@ -88,7 +74,7 @@ Requirements: all; especially R6.
 
 Actions:
 
-1. Record the exact branch, HEAD, merge base, and source artifact digests.
+1. Record the exact branch, HEAD, and merge base.
 2. Re-run searches for the current direct Vite navigation prop, Vite route
    alias, route-derived admission value, and packaged
    `__bridge_select_review_item` event.
@@ -205,32 +191,37 @@ Implementation steps:
 1. Move the navigation discriminated union into the shared product-session
    contract. Hard-cut the `initialize` and `restoreMemory` vocabulary into
    `activateContext` and `activateTarget`.
-2. Extend the existing metadata and worker-to-main frame; do not add another
+2. Reuse the existing display-path validator in the Vite bootstrap, shared
+   TypeScript navigation schema, and Swift navigation encoder/decoder. Reject
+   an invalid path before any producer retains or publishes it.
+3. Extend the existing metadata and worker-to-main frame; do not add another
    protocol or state owner.
-3. Carry deterministic Vite intent in the existing dev bootstrap/session. Bind
+4. Carry deterministic Vite intent in the existing dev bootstrap/session. Bind
    exact targets only after the development adapter exposes the actual accepted
    File or Review source tuple.
-4. Project Review's already-existing accepted metadata source id, Review
+5. When opening a Vite subscription, enqueue `subscription.accepted` sequence
+   zero before returning control acceptance, then publish navigation through
+   the same writer without bypassing its existing per-frame observation gate.
+6. Project Review's already-existing accepted metadata source id, Review
    generation, and package id to `BridgeApp`; do not fabricate native stream or
    publication identity.
-5. Make `BridgeApp` the single source-admission owner. On source rotation,
+7. Make `BridgeApp` the single source-admission owner. On source rotation,
    synchronously remove stale child input and remembered target before a
    surface-only activation can restore it.
-6. Change existing Files/Review target-owner replay identity from command id
+8. Change existing Files/Review target-owner replay identity from command id
    alone to command id + binding revision + complete source tuple.
-7. Remove direct Vite navigation props and fixture-only product paths from the
+9. Remove direct Vite navigation props and fixture-only product paths from the
    React entry/router. Keep test-only fixtures inside test harnesses.
-8. Extend the existing Swift navigation model, selection authority, transport
+10. Extend the existing Swift navigation model, selection authority, transport
    frame, and metadata coordinator to carry the same surface plus optional
    exact target and complete source tuple.
-9. Reuse the existing pane/session/worker binding revision and correlation
-   lifecycle. Add only the smallest request-ID-keyed awaiter at the existing
-   selection-authority/controller boundary so IPC can wait for the existing
-   matching active-viewer receipt. Matching receipt resolves it; supersession,
-   worker replacement, invalidation, and teardown terminate it truthfully. This
-   is local use of the existing receipt, not a second wire acknowledgement or
-   target-render receipt.
-10. Replace `selectReviewItemForIPC`'s direct page event with committed-package
+11. Reuse the existing pane/session/worker binding revision. Exact-Review IPC
+   awaits native command binding and publication into the current product
+   session, then returns the existing `selected: true` result without waiting
+   for the active-viewer receipt or target rendering. Preserve the existing
+   package-unavailable, item-not-found, and generic publication-failure mapping;
+   add no continuation waiter, deadline, or public failure reason.
+12. Replace `selectReviewItemForIPC`'s direct page event with committed-package
     validation followed by the retained shared command. Remove the React
     `__bridge_select_review_item` listener and direct-event tests in the same
     checkpoint.
@@ -252,6 +243,11 @@ Likely write surfaces:
 Focused red/green proof:
 
 - strict schema rejects malformed commands before React state changes;
+- 4,096-byte File and Review paths are accepted, while 4,097-byte paths are
+  rejected before Vite pending-session retention and by Swift encoding/decoding;
+- `subscription.accepted` sequence zero is enqueued before a concurrent
+  sequence-one update while existing per-frame observation pacing is preserved,
+  without a wall-clock test;
 - pending exact target waits for the accepted source;
 - mismatch and stale revision change neither active surface nor child target;
 - File source-id or subscription-generation change revokes pending and
@@ -259,6 +255,9 @@ Focused red/green proof:
 - Review metadata-source, Review-generation, or package-id change revokes
   pending and remembered targets;
 - Review publication-id-only change does not revoke a valid target;
+- Review-first startup performs no inactive File render subscription when no
+  exact File command is pending; a pending exact File command may start only
+  the existing headless source reporter needed to resolve that command;
 - identical command/revision/source replay applies once;
 - the same logical intent with a newer binding revision and newly accepted
   source applies once;
@@ -266,9 +265,9 @@ Focused red/green proof:
 - the real Vite server opens Files, Review, and exact `README.md` only after the
   metadata/worker path;
 - Swift and TypeScript strict frame fixtures agree;
-- IPC does not return after metadata enqueue alone, returns after the matching
-  accepted/idempotent surface receipt, cannot complete from a stale worker
-  receipt, and terminates truthfully on replacement or teardown;
+- IPC returns after native binding/publication without waiting for an
+  active-viewer receipt, keeps the existing selected/error vocabulary, and
+  claims neither React application nor target rendering;
 - packaged IPC exact Review traverses Swift authority, metadata, the real comm
   worker, and WKWebView; and
 - static inspection finds neither the old frame nor the direct Review-selection
@@ -286,9 +285,9 @@ Slice gate:
 - `mise run lint` passes for the affected Swift/architecture surface.
 
 Split/replan trigger: if source admission cannot remain in `BridgeApp` plus the
-existing target owners, or if the request-ID awaiter cannot stay inside the
-existing selection-authority/controller lifecycle, stop before adding a store,
-coordinator, polling path, second receipt, or acknowledgement.
+existing target owners, or if IPC cannot preserve its existing result/error
+boundary without a waiter or new public failure meaning, stop before adding a
+store, coordinator, polling path, deadline, second receipt, or acknowledgement.
 
 ## Requirements/proof matrix
 
@@ -362,7 +361,9 @@ Before implementation review:
 3. Confirm packaged uses the omitted default twelve and only Vite supplies
    four.
 4. Confirm the executor contains only endpoint mapping and one network call.
-5. Confirm no unrelated Mindle sidecar is staged.
+5. Confirm navigation uses the existing display-path validator and the Vite
+   subscription-open path preserves sequence zero before sequence one.
+6. Confirm no unrelated Mindle sidecar is staged.
 
 ## Security and reliability boundary
 

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 } from './bridge-product-contract-primitives.js';
 import {
@@ -33,7 +34,7 @@ const bridgeProductDevFileNavigationTargetIntentSchema = z
 		surface: z.literal('file'),
 		target: z
 			.object({
-				path: z.string().min(1),
+				path: bridgeProductDisplayPathSchema,
 				targetKind: z.literal('file'),
 				version: z.enum(['base', 'head', 'current']),
 			})
@@ -48,7 +49,7 @@ const bridgeProductDevReviewNavigationTargetIntentSchema = z
 		surface: z.literal('review'),
 		target: z
 			.object({
-				path: z.string().min(1).optional(),
+				path: bridgeProductDisplayPathSchema.optional(),
 				reviewItemId: bridgeProductIdentifierSchema.optional(),
 				targetKind: z.literal('review'),
 				version: z.enum(['base', 'head', 'current']).optional(),

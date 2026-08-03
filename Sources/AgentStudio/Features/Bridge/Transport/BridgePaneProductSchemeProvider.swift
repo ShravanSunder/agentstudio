@@ -250,7 +250,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     func publishPaneSurfaceSelectionRequest(
         _ request: BridgePaneSurfaceSelectionRequest,
         productAdmission: BridgeProductAdmissionContext
-    ) async {
+    ) async -> Bool {
         await metadataCoordinator.publishPaneSurfaceSelectionRequest(
             request,
             productAdmission: productAdmission

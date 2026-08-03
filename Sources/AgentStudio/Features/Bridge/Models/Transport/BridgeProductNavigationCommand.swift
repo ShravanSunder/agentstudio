@@ -177,24 +177,15 @@ struct BridgeProductNavigationFileTarget: Codable, Equatable, Sendable {
         }
         path = try container.decode(String.self, forKey: .path)
         version = try container.decode(BridgeProductNavigationFileVersion.self, forKey: .version)
-        try Self.validatePath(path, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateDisplayPath(path, codingPath: decoder.codingPath)
     }
 
     func encode(to encoder: Encoder) throws {
-        try Self.validatePath(path, codingPath: encoder.codingPath)
+        try BridgeProductContractDecoding.validateDisplayPath(path, codingPath: encoder.codingPath)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(path, forKey: .path)
         try container.encode("file", forKey: .targetKind)
         try container.encode(version, forKey: .version)
-    }
-
-    fileprivate static func validatePath(_ path: String, codingPath: [any CodingKey]) throws {
-        guard !path.isEmpty else {
-            throw BridgeProductContractDecoding.invalidValue(
-                "Navigation path must not be empty",
-                codingPath: codingPath
-            )
-        }
     }
 }
 
@@ -265,7 +256,7 @@ struct BridgeProductNavigationReviewTarget: Codable, Equatable, Sendable {
             )
         }
         if let path {
-            try BridgeProductNavigationFileTarget.validatePath(path, codingPath: codingPath)
+            try BridgeProductContractDecoding.validateDisplayPath(path, codingPath: codingPath)
         }
         if let reviewItemId {
             try BridgeProductContractDecoding.validateIdentifier(reviewItemId, codingPath: codingPath)

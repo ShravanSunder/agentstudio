@@ -104,8 +104,8 @@ extension WebKitSerializedTests {
             #expect(acceptedSignal.sequenceFloor == 1)
         }
 
-        @Test("successor Review source commit terminates an impossible exact-target waiter")
-        func successorReviewSourceCommitTerminatesImpossibleExactTargetWaiter() async throws {
+        @Test("successor Review source commit invalidates an impossible retained exact target")
+        func successorReviewSourceCommitInvalidatesImpossibleRetainedExactTarget() async throws {
             let controller = makeController()
             defer { controller.teardown() }
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
@@ -121,19 +121,16 @@ extension WebKitSerializedTests {
                     foregroundWorkAdmission: foregroundWorkAdmission
                 ) == .committed(delivery: .deferred)
             )
-            let selectionTask = Task { @MainActor in
-                try await controller.requestReviewTargetAndWaitForSurfaceReceipt(
-                    source: BridgeProductNavigationReviewSource(
-                        generation: initialPackage.reviewGeneration.rawValue,
-                        metadataSourceId: initialPackage.query.queryId,
-                        packageId: initialPackage.packageId
-                    ),
-                    target: BridgeProductNavigationReviewTarget(
-                        reviewItemId: initialPackage.orderedItemIds.first
-                    )
+            try await controller.requestReviewTargetAndPublish(
+                source: BridgeProductNavigationReviewSource(
+                    generation: initialPackage.reviewGeneration.rawValue,
+                    metadataSourceId: initialPackage.query.queryId,
+                    packageId: initialPackage.packageId
+                ),
+                target: BridgeProductNavigationReviewTarget(
+                    reviewItemId: initialPackage.orderedItemIds.first
                 )
-            }
-            _ = try await requirePendingSurfaceSelectionRequest(controller)
+            )
             let successorPackage = productActiveViewerSuccessorReviewPackage(from: initialPackage)
 
             #expect(
@@ -145,10 +142,6 @@ extension WebKitSerializedTests {
                 ) == .committed(delivery: .deferred)
             )
 
-            await #expect(throws: BridgePaneSurfaceSelectionAwaitError.sourceInvalidated) {
-                try await selectionTask.value
-            }
-            #expect(controller.surfaceSelectionReceiptWaiters.isEmpty)
             #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface == nil)
         }
 
@@ -474,110 +467,6 @@ extension WebKitSerializedTests {
             )
         }
 
-        @Test("exact navigation waits for the matching active-viewer receipt")
-        func exactNavigationWaitsForMatchingActiveViewerReceipt() async throws {
-            let controller = makeController()
-            defer { controller.teardown() }
-            let productAdmission = try #require(controller.productAdmissionGate.acquire())
-            let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
-            let selectionTask = Task { @MainActor in
-                try await controller.requestReviewTargetAndWaitForSurfaceReceipt(
-                    source: BridgeProductNavigationReviewSource(
-                        generation: 3,
-                        metadataSourceId: "review-query-1",
-                        packageId: "review-package-1"
-                    ),
-                    target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-1")
-                )
-            }
-            let request = try await requirePendingSurfaceSelectionRequest(controller)
-
-            #expect(controller.surfaceSelectionReceiptWaiters[request.requestId] != nil)
-            let wrongWorkerCorrelation = try BridgeProductControlCorrelation(
-                paneSessionId: bootstrap.paneSessionId,
-                requestId: "wrong-worker-active-viewer-receipt",
-                requestSequence: 1,
-                workerInstanceId: "wrong-worker-instance"
-            )
-            await controller.handleCommittedProductActiveViewerModeUpdate(
-                sessionId: "product-session",
-                sequence: 1,
-                mode: .review,
-                activeSource: nil,
-                productAdmission: productAdmission,
-                nativeSelectionRequestId: request.requestId,
-                productCorrelation: wrongWorkerCorrelation
-            )
-            #expect(controller.surfaceSelectionReceiptWaiters[request.requestId] != nil)
-
-            let matchingCorrelation = try BridgeProductControlCorrelation(
-                paneSessionId: bootstrap.paneSessionId,
-                requestId: "matching-active-viewer-receipt",
-                requestSequence: 2,
-                workerInstanceId: bootstrap.workerInstanceId
-            )
-            await controller.handleCommittedProductActiveViewerModeUpdate(
-                sessionId: "product-session",
-                sequence: 2,
-                mode: .review,
-                activeSource: nil,
-                productAdmission: productAdmission,
-                nativeSelectionRequestId: request.requestId,
-                productCorrelation: matchingCorrelation
-            )
-
-            try await selectionTask.value
-            #expect(controller.surfaceSelectionReceiptWaiters[request.requestId] == nil)
-        }
-
-        @Test("teardown terminates an exact-navigation waiter before transition drain")
-        func teardownTerminatesExactNavigationWaiterBeforeTransitionDrain() async throws {
-            let controller = makeController()
-            let selectionTask = Task { @MainActor in
-                try await controller.requestReviewTargetAndWaitForSurfaceReceipt(
-                    source: BridgeProductNavigationReviewSource(
-                        generation: 3,
-                        metadataSourceId: "review-query-1",
-                        packageId: "review-package-1"
-                    ),
-                    target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-1")
-                )
-            }
-            _ = try await requirePendingSurfaceSelectionRequest(controller)
-
-            let teardownTask = controller.teardown()
-
-            await #expect(throws: BridgePaneSurfaceSelectionAwaitError.controllerTeardown) {
-                try await selectionTask.value
-            }
-            #expect(await teardownTask.value)
-        }
-
-        @Test("a pre-cancelled exact-navigation caller leaves no waiter")
-        func preCancelledExactNavigationCallerLeavesNoWaiter() async throws {
-            let controller = makeController()
-            defer { controller.teardown() }
-            let cancellationGate = SurfaceSelectionCancellationGate()
-            let selectionTask = Task { @MainActor in
-                await cancellationGate.wait()
-                try await controller.requestReviewTargetAndWaitForSurfaceReceipt(
-                    source: BridgeProductNavigationReviewSource(
-                        generation: 3,
-                        metadataSourceId: "review-query-1",
-                        packageId: "review-package-1"
-                    ),
-                    target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-1")
-                )
-            }
-            selectionTask.cancel()
-            await cancellationGate.open()
-
-            await #expect(throws: BridgePaneSurfaceSelectionAwaitError.callerCancelled) {
-                try await selectionTask.value
-            }
-            #expect(controller.surfaceSelectionReceiptWaiters.isEmpty)
-        }
-
         private func makeController() -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
@@ -590,49 +479,12 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func requirePendingSurfaceSelectionRequest(
-            _ controller: BridgePaneController
-        ) async throws -> BridgePaneSurfaceSelectionRequest {
-            for _ in 0..<1000 {
-                if let request = controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest,
-                    controller.surfaceSelectionReceiptWaiters[request.requestId] != nil
-                {
-                    return request
-                }
-                await Task.yield()
-            }
-            return try #require(
-                controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest
-            )
-        }
-
     }
 }
 
 private enum ProductActiveViewerReviewPublicationHarnessError: Error {
     case reviewSubscriptionRejected
     case workerSessionRejected
-}
-
-private actor SurfaceSelectionCancellationGate {
-    private var isOpen = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        guard !isOpen else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func open() {
-        isOpen = true
-        let pendingWaiters = waiters
-        waiters.removeAll()
-        for waiter in pendingWaiters {
-            waiter.resume()
-        }
-    }
 }
 
 @MainActor

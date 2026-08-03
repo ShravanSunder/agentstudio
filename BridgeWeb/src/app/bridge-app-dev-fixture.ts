@@ -48,10 +48,6 @@ export const bridgeAppDevFixtureScenarioSchema = z.enum([
 
 export type BridgeAppDevFixtureScenario = z.infer<typeof bridgeAppDevFixtureScenarioSchema>;
 
-export const bridgeAppDevFixtureWorkersModeSchema = z.enum(['on', 'off']);
-
-export type BridgeAppDevFixtureWorkersMode = z.infer<typeof bridgeAppDevFixtureWorkersModeSchema>;
-
 export const bridgeAppDevViewerModeSchema = z.enum(['file', 'review']);
 
 export type BridgeAppDevViewerMode = z.infer<typeof bridgeAppDevViewerModeSchema>;
@@ -67,7 +63,6 @@ export const bridgeAppDevFixtureOptionsSchema = z
 		latencyProfile: bridgeAppDevFixtureLatencyProfileSchema,
 		navigationIntent: bridgeProductDevNavigationIntentSchema,
 		scenario: bridgeAppDevFixtureScenarioSchema,
-		workersEnabled: z.boolean(),
 	})
 	.strict();
 
@@ -90,7 +85,6 @@ export function parseBridgeAppDevFixtureOptions(
 			fixtureClass,
 			searchParams,
 		}),
-		workersEnabled: parseWorkersEnabled(searchParams.get('workers') ?? 'on'),
 	});
 
 	if (!parsed.success) {
@@ -262,14 +256,6 @@ export function reviewPackageForBridgeAppDevFixtureScenario(props: {
 			),
 		],
 	};
-}
-
-function parseWorkersEnabled(workersMode: string): boolean {
-	const parsed = bridgeAppDevFixtureWorkersModeSchema.safeParse(workersMode);
-	if (!parsed.success) {
-		throw new Error(`Invalid BridgeWeb dev fixture query: workers=${workersMode}`);
-	}
-	return parsed.data === 'on';
 }
 
 function parseOptionalFileVersion(rawValue: string | null): BridgeAppDevFileVersion | null {

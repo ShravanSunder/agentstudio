@@ -475,8 +475,66 @@ extension WebKitSerializedTests {
             }
         }
 
-        @Test("IPC telemetry snapshot reports package status without exposing samples")
-        func ipcTelemetrySnapshot_reportsPackageStatusWithoutExposingSamples() async throws {
+        @Test("IPC Review selection preserves package-unavailable validation")
+        func ipcReviewSelection_preservesPackageUnavailableValidation() async {
+            let controller = makeIPCForegroundController()
+            defer { controller.teardown() }
+
+            await #expect(throws: BridgeIPCProjectionError(reason: .packageUnavailable)) {
+                _ = try await controller.selectReviewItemForIPC(
+                    itemId: "item-source",
+                    correlationId: nil
+                )
+            }
+        }
+
+        @Test("IPC Review selection preserves item-not-found validation")
+        func ipcReviewSelection_preservesItemNotFoundValidation() async throws {
+            let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100,
+                            oldContentHash: bridgeSHA256ContentHash("old"),
+                            newContentHash: bridgeSHA256ContentHash("new")
+                        )
+                    ]
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                appRootURL: testBridgeAppRootURL(),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(worktreeId: worktreeId)
+                ),
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
+            )
+            defer { controller.teardown() }
+            _ = try await controller.refreshReviewForIPC(correlationId: nil)
+
+            await #expect(throws: BridgeIPCProjectionError(reason: .itemNotFound)) {
+                _ = try await controller.selectReviewItemForIPC(
+                    itemId: "missing-item",
+                    correlationId: nil
+                )
+            }
+        }
+
+        @Test("IPC Review selection completes after accepted native publication without active-viewer receipt")
+        func ipcReviewSelection_completesAfterNativePublicationWithoutActiveViewerReceipt() async throws {
             let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
@@ -517,7 +575,19 @@ extension WebKitSerializedTests {
                     correlationId: nil
                 )
             }
-            let request = try await requirePendingIPCReviewSelection(controller)
+            await Task.yield()
+            let publicationTransition = try #require(controller.surfaceSelectionTransitionTail)
+
+            _ = await publicationTransition.value
+            selectionTask.cancel()
+            let result = try await selectionTask.value
+
+            #expect(result.itemId == "item-source")
+            #expect(result.selected)
+            #expect(controller.selectedReviewItemId == "item-source")
+            let request = try #require(
+                controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest
+            )
             guard case .activateReviewTarget(_, _, let source, let target) = request.navigationCommand
             else {
                 Issue.record("Expected exact Review navigation command")
@@ -528,12 +598,53 @@ extension WebKitSerializedTests {
             #expect(source.generation == committedPackage.reviewGeneration.rawValue)
             #expect(source.packageId == committedPackage.packageId)
             #expect(target.reviewItemId == "item-source")
-            #expect(controller.selectedReviewItemId == nil)
 
-            try await acknowledgePendingIPCReviewSelection(request, in: controller)
-            let selectionResult = try await selectionTask.value
-            #expect(selectionResult.itemId == "item-source")
-            #expect(controller.selectedReviewItemId == "item-source")
+            let productProvider = try #require(controller.productSchemeProvider)
+            await productProvider.closeAndDrain()
+            await #expect(throws: CancellationError.self) {
+                _ = try await controller.selectReviewItemForIPC(
+                    itemId: "item-source",
+                    correlationId: nil
+                )
+            }
+        }
+
+        @Test("IPC telemetry snapshot reports package status without exposing samples")
+        func ipcTelemetrySnapshot_reportsPackageStatusWithoutExposingSamples() async throws {
+            let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100,
+                            oldContentHash: bridgeSHA256ContentHash("old"),
+                            newContentHash: bridgeSHA256ContentHash("new")
+                        )
+                    ]
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                appRootURL: testBridgeAppRootURL(),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(worktreeId: worktreeId)
+                ),
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground
+            )
+            defer { controller.teardown() }
+            _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
             let snapshot = try await controller.telemetrySnapshotForIPC()
 
@@ -552,44 +663,6 @@ private func makeIPCForegroundController() -> BridgePaneController {
         state: BridgePaneState(panelKind: .diffViewer, source: nil),
         appRootURL: testBridgeAppRootURL(),
         initialPaneActivity: .foreground
-    )
-}
-
-@MainActor
-private func requirePendingIPCReviewSelection(
-    _ controller: BridgePaneController
-) async throws -> BridgePaneSurfaceSelectionRequest {
-    for _ in 0..<1000 {
-        if let request = controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest,
-            controller.surfaceSelectionReceiptWaiters[request.requestId] != nil
-        {
-            return request
-        }
-        await Task.yield()
-    }
-    return try #require(controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest)
-}
-
-@MainActor
-private func acknowledgePendingIPCReviewSelection(
-    _ request: BridgePaneSurfaceSelectionRequest,
-    in controller: BridgePaneController
-) async throws {
-    let productAdmission = try #require(controller.productAdmissionGate.acquire())
-    let correlation = try BridgeProductControlCorrelation(
-        paneSessionId: request.paneSessionId,
-        requestId: "ipc-review-selection-receipt",
-        requestSequence: 1,
-        workerInstanceId: request.workerInstanceId
-    )
-    await controller.handleCommittedProductActiveViewerModeUpdate(
-        sessionId: "ipc-review-selection-session",
-        sequence: 1,
-        mode: .review,
-        activeSource: nil,
-        productAdmission: productAdmission,
-        nativeSelectionRequestId: request.requestId,
-        productCorrelation: correlation
     )
 }
 

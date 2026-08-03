@@ -68,13 +68,12 @@ async function openSubscription(
 		);
 	}
 	session.subscriptionsById.set(subscription.subscriptionId, subscription);
-	void publishBridgeProductDevNavigationIfReady(session)
-		.then(async (): Promise<void> => {
-			await publishInitialSubscription(session, subscription);
-		})
-		.catch((): void => {
-			closeMetadataWriterAfterFailure(session);
-		});
+	void publishInitialSubscription(session, subscription).catch((): void => {
+		closeMetadataWriterAfterFailure(session);
+	});
+	void publishBridgeProductDevNavigationIfReady(session).catch((): void => {
+		closeMetadataWriterAfterFailure(session);
+	});
 	return bridgeProductControlResponseSchema.parse({
 		...bridgeProductDevControlIdentity(request),
 		interestRevision: 0,

@@ -260,6 +260,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		null;
 	let currentFileMetadataSelectedPathResolved: boolean | undefined;
 	let productController: BridgeCommWorkerProductController | null = null;
+	let ensureFileSourceOnDemand: (() => void) | undefined;
 
 	const drainPreparation: BridgeCommWorkerPreparationDrain = async () => {
 		drainScheduled = false;
@@ -424,6 +425,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			? {}
 			: {
 					requestFileDisplayResync: () => {
+						ensureFileSourceOnDemand?.();
 						const workerDerivationEpoch = activeFileWorkerDerivationEpoch;
 						return workerDerivationEpoch === null
 							? [buildBridgeWorkerFileMetadataFailureHealthEvent()]
@@ -607,18 +609,20 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			productTransport,
 		});
 		productController = installedProductController;
+		ensureFileSourceOnDemand = (): void => {
+			void installedProductController.ensureFileSource().catch((): void => {
+				port.postMessage(
+					buildBridgeWorkerFileMetadataFailureHealthEvent(
+						bridgeProductMetadataStreamHealthDiagnostic(productTransport),
+					),
+				);
+			});
+		};
 		try {
 			installedProductController.ensureReviewMetadata();
 		} catch {
 			// The typed failure publication above keeps the runtime alive for repair/resubscription.
 		}
-		void installedProductController.ensureFileSource().catch((): void => {
-			port.postMessage(
-				buildBridgeWorkerFileMetadataFailureHealthEvent(
-					bridgeProductMetadataStreamHealthDiagnostic(productTransport),
-				),
-			);
-		});
 		updateFileMetadataDemand = (demand): void => {
 			void installedProductController.updateFileMetadataDemand(demand).catch((): void => {});
 		};
@@ -659,6 +663,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				reviewDemandScheduling.resume();
 			}
 			publishUpdatingChrome();
+			if (activeViewerMode === 'file') ensureFileSourceOnDemand?.();
 		}
 		if (
 			parsedMessage.data.command === 'renderDisposition' &&

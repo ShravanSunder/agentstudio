@@ -192,7 +192,7 @@ extension WebKitSerializedTests {
 
             // Act: the command is admitted while no worker is active.
             #expect(controller.requestViewerSurface(.review))
-            await controller.surfaceSelectionTransitionTail?.value
+            _ = await controller.surfaceSelectionTransitionTail?.value
             let queuedSnapshot = controller.surfaceSelectionAuthority.diagnosticSnapshot
 
             await controller.enqueueProductSessionBootstrapRequest(
@@ -232,50 +232,6 @@ extension WebKitSerializedTests {
                 controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest
                     == replacementRequest
             )
-            #expect(await controller.teardown().value)
-        }
-
-        @Test("worker replacement terminates an exact-navigation waiter retained before binding")
-        func workerReplacementTerminatesExactNavigationWaiterRetainedBeforeBinding() async throws {
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
-                ),
-                appRootURL: testBridgeAppRootURL(),
-                initialPaneActivity: .foreground,
-                productSessionBootstrapSink: { _, _, _, _, _ in }
-            )
-            controller.hasPublishedProductSessionBootstrap = true
-            #expect(await controller.productSessionOwner.retire(reason: .workerReplacement) == .retired)
-            #expect(await controller.productSessionOwner.activeBootstrap() == nil)
-            let selectionTask = Task { @MainActor in
-                try await controller.requestReviewTargetAndWaitForSurfaceReceipt(
-                    source: BridgeProductNavigationReviewSource(
-                        generation: 3,
-                        metadataSourceId: "review-query-1",
-                        packageId: "review-package-1"
-                    ),
-                    target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-1")
-                )
-            }
-            for _ in 0..<1000 {
-                if !controller.surfaceSelectionReceiptWaiters.isEmpty { break }
-                await Task.yield()
-            }
-            #expect(!controller.surfaceSelectionReceiptWaiters.isEmpty)
-            await controller.surfaceSelectionTransitionTail?.value
-            #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest == nil)
-
-            await controller.enqueueProductSessionBootstrapRequest(
-                requestId: "replacement-after-retained-exact-navigation",
-                reason: .workerReplacement
-            )
-
-            await #expect(throws: BridgePaneSurfaceSelectionAwaitError.workerReplaced) {
-                try await selectionTask.value
-            }
             #expect(await controller.teardown().value)
         }
 

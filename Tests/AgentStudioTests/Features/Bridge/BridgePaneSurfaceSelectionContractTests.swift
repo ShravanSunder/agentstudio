@@ -68,6 +68,55 @@ struct BridgePaneSurfaceSelectionContractTests {
         }
     }
 
+    @Test("navigation target paths preserve the product display-path byte and Unicode-scalar contract")
+    func navigationTargetPathsPreserveProductDisplayPathContract() throws {
+        // Arrange
+        let maximumMultibytePath = String(repeating: "é", count: 2048)
+        let oversizedMultibytePath = "\(maximumMultibytePath)a"
+        let maximumFileTarget = BridgeProductNavigationFileTarget(
+            path: maximumMultibytePath,
+            version: .current
+        )
+        let maximumReviewTarget = BridgeProductNavigationReviewTarget(
+            path: maximumMultibytePath,
+            reviewItemId: "review-item-1",
+            version: .head
+        )
+        let oversizedFileTarget = BridgeProductNavigationFileTarget(
+            path: oversizedMultibytePath,
+            version: .current
+        )
+        let oversizedReviewTarget = BridgeProductNavigationReviewTarget(
+            path: oversizedMultibytePath,
+            reviewItemId: "review-item-1",
+            version: .head
+        )
+        let invalidUnicodeFileTarget =
+            #"{"path":"\uD800","targetKind":"file","version":"current"}"#
+        let invalidUnicodeReviewTarget =
+            #"{"path":"\uD800","reviewItemId":"review-item-1","targetKind":"review","version":"head"}"#
+
+        // Act / Assert
+        #expect(maximumMultibytePath.utf8.count == 4096)
+        #expect(oversizedMultibytePath.utf8.count == 4097)
+        _ = try JSONEncoder().encode(maximumFileTarget)
+        _ = try JSONEncoder().encode(maximumReviewTarget)
+        #expect(throws: (any Error).self) { try JSONEncoder().encode(oversizedFileTarget) }
+        #expect(throws: (any Error).self) { try JSONEncoder().encode(oversizedReviewTarget) }
+        #expect(throws: (any Error).self) {
+            try BridgeProductStrictJSON.decode(
+                BridgeProductNavigationFileTarget.self,
+                from: Data(invalidUnicodeFileTarget.utf8)
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try BridgeProductStrictJSON.decode(
+                BridgeProductNavigationReviewTarget.self,
+                from: Data(invalidUnicodeReviewTarget.utf8)
+            )
+        }
+    }
+
     @Test("pane surface-selection metadata enforces the closed navigation command matrix")
     func paneSurfaceSelectionMetadataEnforcesClosedNavigationCommandMatrix() throws {
         let mutations: [(inout [String: Any]) -> Void] = [
@@ -415,7 +464,7 @@ struct BridgePaneSurfaceSelectionContractTests {
         )
         let target = BridgeProductNavigationReviewTarget(reviewItemId: "review-item-1")
 
-        let retention = authority.retainReviewTarget(source: source, target: target)
+        authority.retainReviewTarget(source: source, target: target)
         let request = try #require(
             try authority.bindRetainedIntent(
                 paneSessionId: "pane-session-1",
@@ -423,7 +472,6 @@ struct BridgePaneSurfaceSelectionContractTests {
             )
         )
 
-        #expect(request.requestId == retention.commandId)
         guard
             case .activateReviewTarget(let commandId, let revision, let boundSource, let boundTarget) =
                 request.navigationCommand
@@ -431,7 +479,7 @@ struct BridgePaneSurfaceSelectionContractTests {
             Issue.record("Expected exact Review navigation command")
             return
         }
-        #expect(commandId == retention.commandId)
+        #expect(commandId == request.requestId)
         #expect(revision == 1)
         #expect(boundSource == source)
         #expect(boundTarget == target)
@@ -448,7 +496,7 @@ struct BridgePaneSurfaceSelectionContractTests {
             )
         )
 
-        #expect(authority.invalidateCurrentBinding() == staleRequest.requestId)
+        authority.invalidateCurrentBinding()
         #expect(
             authority.admitReceipt(
                 nativeSelectionRequestId: staleRequest.requestId,

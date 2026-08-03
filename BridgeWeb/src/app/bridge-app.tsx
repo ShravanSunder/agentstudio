@@ -699,6 +699,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	}, [activeViewerMode, props.codeViewWorkerFactory]);
 	const rememberedFileNavigationCommand = navigationAdmissionState.targetCommands.file;
 	const rememberedReviewNavigationCommand = navigationAdmissionState.targetCommands.review;
+	const requiresFileNavigationSourceDiscovery =
+		navigationAdmissionState.pendingCommand?.surface === 'file';
 
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerMode}>
@@ -717,6 +719,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						controlTarget={target}
 						onActiveSourceChange={reportFileActiveSource}
 						onNavigationSourceChange={reportFileNavigationSource}
+						requiresNavigationSourceDiscovery={requiresFileNavigationSourceDiscovery}
 						telemetryRecorder={telemetryRecorder}
 						viewerHeaderControls={
 							<BridgeViewerContextSwitcher

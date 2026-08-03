@@ -557,7 +557,7 @@ describe('Bridge comm worker entry', () => {
 			requestId: 'mark-viewed-product-chain',
 			status: 'ready',
 		});
-		expect(fetchSpy).toHaveBeenCalledTimes(4);
+		expect(fetchSpy).toHaveBeenCalledTimes(3);
 		expect(observedMetadataStreamRequests).toEqual([
 			expect.objectContaining({
 				kind: 'metadataStream.open',
@@ -568,14 +568,9 @@ describe('Bridge comm worker entry', () => {
 		expect(observedBodies).toEqual([
 			expect.objectContaining({ kind: 'workerSession.open', requestSequence: 1 }),
 			expect.objectContaining({
-				call: { method: 'file.source.current', request: {} },
-				kind: 'product.call',
-				requestSequence: 2,
-			}),
-			expect.objectContaining({
 				call: { method: 'review.markFileViewed', request: { itemId: 'item-1' } },
 				kind: 'product.call',
-				requestSequence: 3,
+				requestSequence: 2,
 			}),
 		]);
 

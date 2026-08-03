@@ -110,6 +110,12 @@ while Vite binds the source id actually accepted from its development backend.
 It is not the native Review protocol stream identity, publication identifier,
 or UI-only comparison identifier.
 
+Every exact File or Review path must satisfy the existing Bridge product
+display-path contract: non-empty Unicode scalar text no longer than 4,096
+UTF-8 bytes. The TypeScript bootstrap and navigation schemas and the Swift
+navigation encoder/decoder must reject an over-limit path before any producer
+retains, binds, or publishes the command.
+
 An admitted exact target remains eligible only while its bound source remains
 accepted. Source replacement must revoke stale pending and remembered targets
 before they can be restored or applied. A surface-only command may still
@@ -118,6 +124,11 @@ different source. Replaying one binding is idempotent; rebinding the same
 logical intent to a newly accepted source is a new eligible application and
 must not be suppressed as an old replay. This change does not add a second
 acknowledgement or new target-completion policy.
+
+The Vite subscription-open path must enqueue `subscription.accepted` sequence
+zero before returning `subscription.openAccepted`, so a later interest update
+cannot enqueue sequence one first. Navigation uses the same serialized writer
+and preserves its existing one-frame-observed-before-next pacing.
 
 Basis: U3, U4, U6.
 
@@ -200,7 +211,7 @@ This specification does not authorize:
 | --- | --- |
 | V1 — structural enforcement | Shared product sources have no environment checks, development route imports, or direct Vite navigation props. |
 | V2 — request executor and admission behavior | Both endpoint bindings only map and perform requests. Shared admission defaults to twelve for packaged Bridge and uses the explicitly supplied four for Vite. With four Vite content bodies held open and another content request waiting, metadata plus observation/control traffic still progresses; hidden Review pauses the waiter before `fetch`; abort and response EOF/error/cancel release exactly once; final waiter and lease residue is zero. |
-| V3 — navigation integration | Vite and packaged producers, including packaged IPC exact-Review selection, send the same strict navigation command through a real comm worker; `README.md` opens through that path; mismatched and superseded source bindings are rejected before active-surface or target state changes; source rotation revokes stale remembered/pending targets; one binding applies once while a newer valid rebind can apply once. |
+| V3 — navigation integration | Vite and packaged producers, including packaged IPC exact-Review selection, send the same strict navigation command through a real comm worker; `README.md` opens through that path; 4,096-byte paths are accepted and 4,097-byte paths are rejected before retention in TypeScript and Swift; `subscription.accepted` sequence zero cannot be overtaken by sequence one; mismatched and superseded source bindings are rejected before active-surface or target state changes; source rotation revokes stale remembered/pending targets; one binding applies once while a newer valid rebind can apply once. |
 | V4 — Vite browser journey | The real Vite dev server, real comm worker, and shared React product complete Files, Review, and exact-file navigation while HMR remains available. |
 | V5 — packaged runtime journey | The packaged debug app drives the same command through Swift, the comm worker, and WKWebView without a development substitute. |
 | V6 — cutover inspection | No compatibility path, second store, backend extraction, or PR 2 server work is present. |
@@ -211,6 +222,6 @@ This specification does not authorize:
 | --- | --- | --- | --- | --- | --- |
 | U1, U4 | P1: frontend behavior can diverge by environment | O1: one environment-blind runtime | R1, R4 | construction is the only environment boundary | V1, V4, V5 |
 | U2, U6 | P2: request selection is compiled into shared transport code | O2: explicit replaceable request boundary | R2 | equivalent command/stream/content behavior | V2, V4, V5 |
-| U3 | P3: Vite and packaged IPC can bypass worker navigation | O3: one typed navigation ingress | R3 | surface plus optional exact target; strict decode and shared ordering | V3, V4, V5 |
+| U3, U6 | P3: Vite and packaged IPC can bypass worker navigation | O3: one typed, bounded navigation ingress | R3 | surface plus optional exact target; strict path/source admission; subscription ordering | V3, V4, V5 |
 | U5 | P4: parity could damage the fast frontend loop | O4: representative HMR development | R5 | HMR reconstructs the same binding | V4 |
 | U7 | P5: backend consolidation would expand this change | O5: bounded frontend-only cutover | R6 | current backends retained | V6 |

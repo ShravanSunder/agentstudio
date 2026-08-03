@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Server } from 'node:http';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -7,6 +8,8 @@ import {
 	type BridgeProductDevNavigationIntent,
 	bridgeProductDevNavigationIntentSchema,
 } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
+import type { BridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
+import { encodeBridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-interest-state-codec.js';
 import {
 	closeServer,
 	controlRequest,
@@ -95,6 +98,15 @@ describe('Bridge product dev pane carrier', () => {
 
 		// Act
 		await openReviewSubscription(started.baseURL, firstAuthority);
+		const firstAcceptedFrame = await firstStream.nextFrame();
+		expect(firstAcceptedFrame).toMatchObject({
+			kind: 'subscription.accepted',
+			subscriptionId: 'navigation-review-subscription',
+			subscriptionSequence: 0,
+		});
+		expect(
+			await postMetadataObservation(started.baseURL, firstAcceptedFrame, firstAuthority.capability),
+		).toBe(204);
 		const firstNavigationFrame = await firstStream.nextFrame();
 
 		// Assert
@@ -135,6 +147,19 @@ describe('Bridge product dev pane carrier', () => {
 		const replacementStream = await openMetadataStream(started.baseURL, replacementAuthority);
 		await observeInitialMetadataFrames(started.baseURL, replacementStream, replacementAuthority);
 		await openReviewSubscription(started.baseURL, replacementAuthority);
+		const replacementAcceptedFrame = await replacementStream.nextFrame();
+		expect(replacementAcceptedFrame).toMatchObject({
+			kind: 'subscription.accepted',
+			subscriptionId: 'navigation-review-subscription',
+			subscriptionSequence: 0,
+		});
+		expect(
+			await postMetadataObservation(
+				started.baseURL,
+				replacementAcceptedFrame,
+				replacementAuthority.capability,
+			),
+		).toBe(204);
 		const replacementNavigationFrame = await replacementStream.nextFrame();
 
 		// Assert
@@ -460,6 +485,112 @@ describe('Bridge product dev pane carrier', () => {
 			subscriptions: 0,
 			waiters: 0,
 		});
+	});
+
+	test('enqueues subscription acceptance before navigation and a raced update', async () => {
+		// Arrange
+		const started = await startCarrierServer({
+			navigationIntent: {
+				commandId: 'dev:test:review:raced-target',
+				commandKind: 'activateTarget',
+				surface: 'review',
+				target: { reviewItemId: 'review-item-1', targetKind: 'review' },
+			},
+		});
+		carrier = started.carrier;
+		server = started.server;
+		const { authority, baseURL } = started;
+		await openWorkerSession(baseURL, authority);
+		const stream = await openMetadataStream(baseURL, authority);
+		await observeInitialMetadataFrames(baseURL, stream, authority);
+		const subscriptionId = 'raced-review-subscription';
+		const opened = await postControl(
+			baseURL,
+			controlRequest(
+				authority,
+				{
+					kind: 'subscription.open',
+					subscription: { subscriptionKind: 'review.metadata' },
+					subscriptionId,
+					workerDerivationEpoch: 1,
+				},
+				2,
+			),
+			authority.capability,
+		);
+		if (opened.kind !== 'subscription.openAccepted') {
+			throw new Error('Expected the raced Review subscription to open.');
+		}
+		const observationBlockedFrame = await stream.nextFrame();
+		const targetInterestState = {
+			interests: [{ itemIds: ['review-item-1'], lane: 'foreground' }],
+			subscriptionKind: 'review.metadata',
+		} as const satisfies BridgeProductSubscriptionInterestState;
+		const targetInterestSha256 = createHash('sha256')
+			.update(encodeBridgeProductSubscriptionInterestState(targetInterestState))
+			.digest('hex');
+
+		// Act: the first physical frame remains unobserved while the next control request commits.
+		const updated = await postControl(
+			baseURL,
+			controlRequest(
+				authority,
+				{
+					baseInterestRevision: 0,
+					baseInterestSha256: opened.interestSha256,
+					batchCount: 1,
+					batchIndex: 0,
+					delta: {
+						add: [{ itemId: 'review-item-1', lane: 'foreground' }],
+						removeItemIds: [],
+						subscriptionKind: 'review.metadata',
+					},
+					kind: 'subscription.updateBatch',
+					subscriptionId,
+					subscriptionKind: 'review.metadata',
+					targetInterestRevision: 1,
+					targetInterestSha256,
+					totalDeltaItemCount: 1,
+					updateId: 'raced-review-update',
+					workerDerivationEpoch: 1,
+				},
+				3,
+			),
+			authority.capability,
+		);
+
+		// Assert
+		expect(updated.kind).toBe('subscription.updateBatchAccepted');
+		expect(carrier.snapshot().waiters).toBe(1);
+		expect(
+			await postMetadataObservation(baseURL, observationBlockedFrame, authority.capability),
+		).toBe(204);
+		const firstSubscriptionFrame =
+			observationBlockedFrame.kind === 'subscription.accepted'
+				? observationBlockedFrame
+				: await stream.nextFrame();
+		expect(firstSubscriptionFrame).toMatchObject({
+			kind: 'subscription.accepted',
+			subscriptionId,
+			subscriptionSequence: 0,
+		});
+		const navigationFrame = await stream.nextFrame();
+		expect(navigationFrame).toMatchObject({
+			kind: 'pane.surfaceSelectionRequested',
+			navigationCommand: { surface: 'review' },
+			streamSequence: firstSubscriptionFrame.streamSequence + 1,
+		});
+		expect(carrier.snapshot().waiters).toBe(1);
+		expect(await postMetadataObservation(baseURL, navigationFrame, authority.capability)).toBe(204);
+		const committedFrame = await stream.nextFrame();
+		expect(committedFrame).toMatchObject({
+			kind: 'subscription.interestsCommitted',
+			streamSequence: navigationFrame.streamSequence + 1,
+			subscriptionId,
+			subscriptionSequence: 1,
+		});
+		expect(await postMetadataObservation(baseURL, committedFrame, authority.capability)).toBe(204);
+		await stream.close();
 	});
 
 	test('authenticates before parsing and returns bounded generic errors', async () => {

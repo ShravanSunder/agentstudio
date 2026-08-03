@@ -37,6 +37,7 @@ export interface BridgeFileViewerModeProps {
 	readonly onNavigationSourceChange: (
 		source: Extract<BridgeAppNavigationSource, { readonly sourceKind: 'file' }> | null,
 	) => void;
+	readonly requiresNavigationSourceDiscovery: boolean;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly viewerHeaderControls: ReactElement;
 }
@@ -100,7 +101,11 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	return (
 		<BridgeFileViewerSurfaceClientProvider surfaceClient={props.fileViewClient}>
 			{!props.isActive && !hasActivatedFileViewerShell ? (
-				<BridgeFileViewerHeadlessController onDisplaySourceChange={reportNavigationDisplaySource} />
+				!props.requiresNavigationSourceDiscovery ? null : (
+					<BridgeFileViewerHeadlessController
+						onDisplaySourceChange={reportNavigationDisplaySource}
+					/>
+				)
 			) : (
 				<BridgeFileViewerApp
 					{...props.fileViewerProps}

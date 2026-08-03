@@ -40,13 +40,15 @@ describe('Bridge file viewer mode re-open on switch', () => {
 	});
 
 	afterEach(async () => {
-		await settleBridgeFileViewerBrowserUpdates();
+		if (document.querySelector('[data-testid="bridge-file-viewer-shell"]') !== null) {
+			await settleBridgeFileViewerBrowserUpdates();
+		}
 		await actUpdate(cleanup);
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 	});
 
-	test('reuses the pane-owned File source warmed by a Review-first route', async () => {
+	test('keeps Files inert until first activation on a Review-first route', async () => {
 		let sourceDiscoveryCount = 0;
 		let metadataSubscriptionOpenCount = 0;
 		const productSession: BridgeFileViewerBrowserTestProductSession = {
@@ -64,8 +66,11 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		const handshake = installBridgeReadyHandshake();
 
 		await renderFileProductApp('review', productSession);
-		expect(await pollWithinActUntilEqual(() => sourceDiscoveryCount, 1)).toBe(1);
-		expect(await pollWithinActUntilEqual(() => metadataSubscriptionOpenCount, 1)).toBe(1);
+		await actUpdate(async (): Promise<void> => {
+			await Promise.resolve();
+		});
+		expect(sourceDiscoveryCount).toBe(0);
+		expect(metadataSubscriptionOpenCount).toBe(0);
 
 		await clickContext('file');
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
@@ -169,6 +174,7 @@ async function renderFileProductApp(
 	autoOpenInitialFile = false,
 ): Promise<Awaited<ReturnType<typeof render>>> {
 	const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
+		activateFileViewerOnInstall: false,
 		productSessionRef: { current: productSession },
 	});
 	return await render(

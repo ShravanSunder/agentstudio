@@ -34,6 +34,8 @@ packaged entry composition                 Vite entry composition
 The design adds no controller, store, recovery coordinator, persistence owner,
 or backend. It replaces implicit route substitution and direct Vite navigation
 with explicit construction dependencies and one product navigation protocol.
+That protocol reuses the existing 4,096-byte display-path validator and
+preserves subscription sequence-zero admission.
 
 The shared worker registrar is side-effect-free. The packaged worker asset and
 Vite module-worker source are thin executable wrappers that each call that
@@ -195,6 +197,13 @@ The target carries only target-specific facts such as path, version, or Review
 item id. Review comparison ids that have no cross-runtime product authority
 are removed rather than normalized differently by Vite and Swift.
 
+Every optional File or Review path reuses the existing product display-path
+validator in both languages: non-empty Unicode scalar text up to 4,096 UTF-8
+bytes. Vite bootstrap parsing rejects an invalid intent before a pending
+session retains it. The shared TypeScript navigation schema and Swift
+encoder/decoder enforce the same boundary before either producer can bind or
+publish a command. No producer-side filtering system is added.
+
 Schema refinement enforces the complete intrinsic matrix before the command
 leaves the worker:
 
@@ -231,6 +240,13 @@ The command is explicit bootstrap data because a worker-originated HTTP
 request's referrer cannot reliably identify the owning page URL or preserve its
 query. The carrier therefore must not infer navigation from request headers.
 
+When a Vite subscription opens, the existing metadata writer first receives
+`subscription.accepted` sequence zero before the control response permits a
+concurrent interest update to enqueue sequence one. Navigation then uses the
+same serialized writer and its existing one-frame-observed-before-next pacing.
+There is no commit barrier, observation bypass, second queue, or metadata
+coordinator.
+
 The Vite product entry keeps only query inputs that the current development
 carrier can represent as real product behavior: surface, optional exact target,
 and development backend context. Legacy query switches that disable required
@@ -264,14 +280,23 @@ superseded binding cannot be handed to a target owner. No new store is needed:
 the remembered command and accepted-source facts remain `BridgeApp` state, and
 the existing target owners retain their local applied-key memory.
 
-The existing active-viewer update remains a surface-readiness receipt
-correlated to the navigation request; it does not claim that an exact target
-finished rendering. The IPC selection result may settle after the shared
-command reaches the same delivery/surface-readiness boundary that replaced its
-direct page event; it does not gain a target-render completion meaning.
+The existing active-viewer update remains part of the existing surface
+selection lifecycle; exact-Review IPC does not repurpose it as an IPC
+completion receipt. After the existing package and item validation,
+`selectReviewItemForIPC` awaits only native binding and publication of the
+typed command into the current product session, then returns the same
+`selected: true` result as the former page-event dispatch. It does not wait for
+React application or target rendering. Existing `packageUnavailable` and
+`itemNotFound` results remain unchanged, and publication failure continues
+through the existing generic IPC failure path. No new public failure reason,
+deadline, continuation waiter, target-completion receipt, or second
+acknowledgement is added.
+
 Exact-target application remains owned by the existing Files/Review navigation
-controllers; PR 1 adds no target-completion receipt or second acknowledgement
-protocol.
+controllers. An inactive File surface remains inert unless a pending exact
+File command needs its accepted source fact; only that pending-command case may
+start the existing headless source reporter, and clearing the pending command
+returns the inactive surface to its prior inert lifecycle.
 
 Navigation delivery uses the existing pane/worker binding lifecycle:
 
@@ -282,7 +307,7 @@ Navigation delivery uses the existing pane/worker binding lifecycle:
 | delivered | metadata stream and comm worker | strict frame and revision decode | same command identity is idempotent; stale frame revisions cannot reach React |
 | admitted | `BridgeApp` | surface-only commands need no source; exact-target source must match the complete accepted File or Review tuple | pending commands wait for the source fact; mismatches cannot change surface or target state |
 | revoked | `BridgeApp` | accepted source tuple changes or a newer binding supersedes the command | remove stale child input and remembered target before restoration/application; no stale target mutation |
-| applied | `BridgeApp` and the active Files/Review navigation owner | activate the surface, then apply one command-id + binding-revision + source-tuple key through existing policy | same key is idempotent; a newer truthful rebind may apply once; surface readiness may settle native delivery while target rendering remains frontend-owned |
+| applied | `BridgeApp` and the active Files/Review navigation owner | activate the surface, then apply one command-id + binding-revision + source-tuple key through existing policy | same key is idempotent; a newer truthful rebind may apply once; target rendering remains frontend-owned |
 
 ## Call-path delta
 
@@ -336,9 +361,10 @@ proposed packaged exact Review target
   IPC selectReviewItemForIPC
     -> [changed] Swift selection authority validates committed publication
     -> shared exact-target navigation frame
+    <- native bind/publication accepted: unchanged selected=true result
     -> comm worker -> BridgeApp source/binding admission
     -> existing Review target owner
-    <- shared delivery/surface-readiness boundary; render completion unchanged
+    <- render completion remains outside IPC result meaning
 
 proposed Vite producer detail
   Vite query parser -> product-session bootstrap request(surface + target?)
@@ -412,6 +438,11 @@ own target availability and selection within the admitted source; they do not
 become source authorities. This preserves target behavior without adding a new
 atomicity or receipt contract.
 
+Vite subscription open preserves the existing enqueue-order invariant:
+`subscription.accepted` sequence zero is enqueued before the accepted control
+response permits an update to publish sequence one. Navigation enters the same
+writer afterward and does not bypass its existing per-frame observation gate.
+
 HMR may dispose and reconstruct the Vite entry. It creates a new runtime and
 executor rather than preserving executor state. A replacement bootstrap
 re-sends the same deterministic logical intent. An unchanged source binding
@@ -446,7 +477,11 @@ The cutover is a hard replacement:
 7. Dev-only worker-disable and frontend-only fixture/delivery branches are
    removed from the product entry; Vite always constructs the platform worker
    factories required by the shared product.
-8. Direct navigation props/events and environment-selected frontend paths are
+8. File and Review paths hard-cut to the existing 4,096-byte display-path
+   validator in Vite bootstrap, shared TypeScript navigation, and Swift.
+9. Vite subscription opening enqueues `subscription.accepted` before returning
+   open acceptance, then publishes navigation through the same observed writer.
+10. Direct navigation props/events and environment-selected frontend paths are
    removed.
 
 There is no phase in which both navigation paths or both implicit and explicit
@@ -458,7 +493,7 @@ transport selection are accepted.
 | --- | --- | --- |
 | R1 | shared runtime constructed by both entries | shared behavior tests plus real Vite and packaged journeys |
 | R2 | required simple `BridgeProductRequestExecutor`; packaged and HTTP endpoint bindings; one shared admission owner with default twelve and Vite-supplied four | executor contract proof that no queue/lifecycle exists inside either function; shared admission proof for packaged twelve and Vite four; hidden-waiter pause/resume, abort/release, and real metadata/control progress under saturated Vite content demand |
-| R3 | discriminated navigation schema, complete producer source binding for exact targets, metadata frame, comm-worker frame admission, accepted navigation-source facts, `BridgeApp` admission/revocation and source-bound application key, existing target owners, hard-cut packaged IPC Review producer | real-worker integration for Files, Review, `README.md`, pending source, mismatch, source rotation before application, stale revision, same-binding replay, newer valid rebind, and packaged IPC command journey with no direct page event |
+| R3 | discriminated navigation schema with the existing 4,096-byte display-path boundary, complete producer source binding for exact targets, ordered Vite metadata admission, comm-worker frame admission, accepted navigation-source facts, `BridgeApp` admission/revocation and source-bound application key, existing target owners, and hard-cut packaged IPC Review producer | 4,096/4,097 boundary proof before retention in TypeScript and Swift; deterministic subscription sequence-zero-before-one proof with existing observation pacing; inactive File lifecycle proof with and without a pending exact target; real-worker integration for Files, Review, `README.md`, pending source, mismatch, source rotation before application, stale revision, same-binding replay, newer valid rebind, and packaged IPC command journey whose selected/error vocabulary is unchanged and has no direct page event |
 | R4 | entry-only imports and forbidden dependency rules | static source/import enforcement and build graph inspection |
 | R5 | Vite entry/HMR reconstructs the same runtime | live Vite browser journey across an HMR update |
 | R6 | hard-cut source inspection; unchanged backend authorities | final diff plus packaged native-authority journey |

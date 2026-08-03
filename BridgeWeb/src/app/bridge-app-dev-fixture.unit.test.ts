@@ -10,7 +10,7 @@ import {
 } from './bridge-app-dev-fixture.js';
 
 describe('bridge app dev fixture options', () => {
-	test('defaults to the large fixture with worker-backed rendering enabled', () => {
+	test('defaults to the large fixture without exposing a worker-mode option', () => {
 		const options = parseBridgeAppDevFixtureOptions(new URLSearchParams());
 
 		expect(options).toEqual({
@@ -23,14 +23,13 @@ describe('bridge app dev fixture options', () => {
 				surface: 'review',
 			},
 			scenario: 'default',
-			workersEnabled: true,
 		});
 	});
 
 	test('parses typed query parameters without widening to arbitrary values', () => {
 		const options = parseBridgeAppDevFixtureOptions(
 			new URLSearchParams(
-				'fixture=medium-agentstudio&delivery=streaming-append&latency=slowBounded&workers=off&scenario=markdown',
+				'fixture=medium-agentstudio&delivery=streaming-append&latency=slowBounded&scenario=markdown',
 			),
 		);
 
@@ -44,7 +43,6 @@ describe('bridge app dev fixture options', () => {
 				surface: 'review',
 			},
 			scenario: 'markdown',
-			workersEnabled: false,
 		});
 	});
 
@@ -56,7 +54,7 @@ describe('bridge app dev fixture options', () => {
 
 	test('allows named worktree scenarios without treating them as mocked fixture scenarios', () => {
 		const options = parseBridgeAppDevFixtureOptions(
-			new URLSearchParams('fixture=worktree&scenario=current-worktree&workers=on'),
+			new URLSearchParams('fixture=worktree&scenario=current-worktree'),
 		);
 
 		expect(options).toEqual({
@@ -69,13 +67,12 @@ describe('bridge app dev fixture options', () => {
 				surface: 'file',
 			},
 			scenario: 'default',
-			workersEnabled: true,
 		});
 	});
 
 	test('maps worktree review dev URLs to review context instead of the file viewer', () => {
 		const options = parseBridgeAppDevFixtureOptions(
-			new URLSearchParams('fixture=worktree&viewer=review&scenario=current-worktree&workers=on'),
+			new URLSearchParams('fixture=worktree&viewer=review&scenario=current-worktree'),
 		);
 
 		expect(options.navigationIntent).toEqual({
@@ -150,7 +147,6 @@ describe('bridge app dev fixture options', () => {
 					surface: 'review',
 				},
 				scenario: 'scroll',
-				workersEnabled: true,
 			}),
 		).not.toThrow();
 	});

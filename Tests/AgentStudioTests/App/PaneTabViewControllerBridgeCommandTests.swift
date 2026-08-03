@@ -643,7 +643,7 @@ private func requireSurfaceSelection(
     from controller: BridgePaneController,
     because description: String
 ) async throws -> BridgePaneSurfaceSelectionRequest {
-    await controller.surfaceSelectionTransitionTail?.value
+    _ = await controller.surfaceSelectionTransitionTail?.value
     let currentRequest = controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest
     return try #require(
         currentRequest?.surface == surface ? currentRequest : nil,
@@ -656,7 +656,7 @@ private func requireAnySurfaceSelection(
     from controller: BridgePaneController,
     because description: String
 ) async throws -> BridgePaneSurfaceSelectionRequest {
-    await controller.surfaceSelectionTransitionTail?.value
+    _ = await controller.surfaceSelectionTransitionTail?.value
     return try #require(
         controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest,
         Comment(rawValue: description)

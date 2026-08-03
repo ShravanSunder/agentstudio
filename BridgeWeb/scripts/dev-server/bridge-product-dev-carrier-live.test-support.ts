@@ -14,6 +14,7 @@ import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE,
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
 	decodeBridgeProductDevBootstrapDelivery,
+	type BridgeProductDevBootstrapRequest,
 } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import { BridgeProductMetadataFrameDecoder } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
 import {
@@ -151,7 +152,14 @@ export class LiveProductClient {
 
 	static async connect(baseURL: string): Promise<LiveProductClient> {
 		const response = await fetch(`${baseURL}${BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE}`, {
-			body: JSON.stringify({ reason: 'initial' }),
+			body: JSON.stringify({
+				navigationIntent: {
+					commandId: 'vite-live-file-context',
+					commandKind: 'activateContext',
+					surface: 'file',
+				},
+				reason: 'initial',
+			} satisfies BridgeProductDevBootstrapRequest),
 			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
 			method: 'POST',
 		});

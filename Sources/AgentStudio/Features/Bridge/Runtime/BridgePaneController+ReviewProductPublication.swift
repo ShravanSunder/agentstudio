@@ -121,16 +121,12 @@ extension BridgePaneController {
     private func invalidateRetainedReviewTargetIfSourceChanged(
         to committedPackage: BridgeReviewPackage
     ) {
-        let invalidatedCommandId = surfaceSelectionAuthority.invalidateRetainedReviewTarget(
+        surfaceSelectionAuthority.invalidateRetainedReviewTarget(
             ifSourceDoesNotMatch: BridgeProductNavigationReviewSource(
                 generation: committedPackage.reviewGeneration.rawValue,
                 metadataSourceId: committedPackage.query.queryId,
                 packageId: committedPackage.packageId
             )
-        )
-        terminateSurfaceSelectionWaiter(
-            commandId: invalidatedCommandId,
-            error: .sourceInvalidated
         )
     }
 }

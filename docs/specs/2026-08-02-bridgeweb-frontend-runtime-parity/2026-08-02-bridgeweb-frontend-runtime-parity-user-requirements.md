@@ -63,6 +63,11 @@ mechanism. A Vite query that asks to open `README.md` must not pass an initial
 navigation prop directly to React; the Vite development carrier must publish
 the same typed navigation command that packaged Swift would publish.
 
+Exact File and Review paths use the existing Bridge product display-path
+contract: non-empty Unicode scalar text up to 4,096 UTF-8 bytes. An over-limit
+path is rejected before it can be retained as navigation intent, published as
+metadata, or displayed.
+
 ### U4 — Environment blindness after construction
 
 Priority: Must, assigned by the product owner.
@@ -99,6 +104,11 @@ frontend must not reduce packaged limits or otherwise weaken packaged behavior
 to accommodate the Vite development carrier; Vite must exercise the packaged
 frontend policy even when its browser transport physically queues work
 differently to preserve metadata and control progress.
+
+Navigation metadata must preserve the existing subscription sequence
+contract. `subscription.accepted` sequence zero must precede any interest
+update at sequence one, and adding navigation must preserve the metadata
+writer's existing per-frame observation pacing.
 
 ### U7 — Keep backend consolidation separate
 
@@ -142,6 +152,9 @@ Missing behavior:
 
 - one explicit construction-time transport boundary;
 - one shared navigation ingress carrying surface plus optional exact target;
+- strict admission of navigation paths through the existing 4,096-byte
+  display-path contract;
+- preservation of subscription-accepted-before-update metadata ordering;
 - removal of direct Vite-to-React navigation and runtime environment branches;
   and
 - parity proof that fails if either environment bypasses the shared path.

@@ -51,11 +51,6 @@ enum BridgePaneSurfaceSelectionIntent: Equatable, Sendable {
     }
 }
 
-struct BridgePaneSurfaceSelectionRetention: Equatable, Sendable {
-    let commandId: String
-    let supersededCommandId: String?
-}
-
 enum BridgePaneSurfaceSelectionReceiptRejection: Equatable, Sendable {
     case staleRequest
     case wrongMode
@@ -92,20 +87,16 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         )
     }
 
-    @discardableResult
-    mutating func retainIntent(surface: BridgeProductSurface) -> BridgePaneSurfaceSelectionRetention {
-        if case .context(let commandId, let retainedSurface) = retainedIntent,
+    mutating func retainIntent(surface: BridgeProductSurface) {
+        if case .context(_, let retainedSurface) = retainedIntent,
             retainedSurface == surface
         {
             if currentRequest == nil, lastAcceptedRequest == nil {
                 needsDelivery = true
             }
-            return BridgePaneSurfaceSelectionRetention(
-                commandId: commandId,
-                supersededCommandId: nil
-            )
+            return
         }
-        return replaceRetainedIntent(
+        replaceRetainedIntent(
             .context(
                 commandId: UUIDv7.generate().uuidString,
                 surface: surface
@@ -116,7 +107,7 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
     mutating func retainReviewTarget(
         source: BridgeProductNavigationReviewSource,
         target: BridgeProductNavigationReviewTarget
-    ) -> BridgePaneSurfaceSelectionRetention {
+    ) {
         replaceRetainedIntent(
             .reviewTarget(
                 commandId: UUIDv7.generate().uuidString,
@@ -158,36 +149,28 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         return request
     }
 
-    mutating func invalidateCurrentBinding() -> String? {
-        let awaitingCommandId = retainedIntent?.commandId
+    mutating func invalidateCurrentBinding() {
         currentRequest = nil
         lastAcceptedRequest = nil
         needsDelivery = retainedIntent != nil
-        return awaitingCommandId
     }
 
     mutating func invalidateRetainedReviewTarget(
         ifSourceDoesNotMatch source: BridgeProductNavigationReviewSource
-    ) -> String? {
-        guard case .reviewTarget(let commandId, let retainedSource, _) = retainedIntent,
+    ) {
+        guard case .reviewTarget(_, let retainedSource, _) = retainedIntent,
             retainedSource != source
         else {
-            return nil
+            return
         }
-        _ = invalidate()
-        return commandId
+        invalidate()
     }
 
-    mutating func invalidate() -> [String] {
-        let commandIds = Set(
-            [currentRequest?.requestId, lastAcceptedRequest?.requestId, retainedIntent?.commandId]
-                .compactMap { $0 }
-        )
+    mutating func invalidate() {
         currentRequest = nil
         retainedIntent = nil
         lastAcceptedRequest = nil
         needsDelivery = false
-        return commandIds.sorted()
     }
 
     mutating func admitReceipt(
@@ -239,16 +222,11 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
 
     private mutating func replaceRetainedIntent(
         _ intent: BridgePaneSurfaceSelectionIntent
-    ) -> BridgePaneSurfaceSelectionRetention {
-        let supersededCommandId = retainedIntent?.commandId
+    ) {
         retainedIntent = intent
         currentRequest = nil
         lastAcceptedRequest = nil
         needsDelivery = true
-        return BridgePaneSurfaceSelectionRetention(
-            commandId: intent.commandId,
-            supersededCommandId: supersededCommandId
-        )
     }
 
     private func receiptMatches(

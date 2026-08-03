@@ -399,7 +399,7 @@ actor BridgePaneProductMetadataCoordinator {
     func publishPaneSurfaceSelectionRequest(
         _ request: BridgePaneSurfaceSelectionRequest,
         productAdmission: BridgeProductAdmissionContext
-    ) async {
+    ) async -> Bool {
         guard !isClosed,
             productAdmission.withValidAdmission({
                 if let latestPaneSurfaceSelectionRequest,
@@ -411,9 +411,10 @@ actor BridgePaneProductMetadataCoordinator {
                 return true
             }) == true
         else {
-            return
+            return false
         }
         await enqueueLatestPaneSurfaceSelectionRequestIfPossible()
+        return true
     }
 
     func replayPaneSurfaceSelectionRequest() async {

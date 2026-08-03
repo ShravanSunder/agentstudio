@@ -17,6 +17,7 @@ import {
 	BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
 	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductOpaqueReferenceSchema,
@@ -79,7 +80,7 @@ const bridgeProductNavigationReviewSourceSchema = z
 
 const bridgeProductNavigationFileTargetSchema = z
 	.object({
-		path: z.string().min(1),
+		path: bridgeProductDisplayPathSchema,
 		targetKind: z.literal('file'),
 		version: z.enum(['base', 'head', 'current']),
 	})
@@ -87,7 +88,7 @@ const bridgeProductNavigationFileTargetSchema = z
 
 const bridgeProductNavigationReviewTargetSchema = z
 	.object({
-		path: z.string().min(1).optional(),
+		path: bridgeProductDisplayPathSchema.optional(),
 		reviewItemId: bridgeProductIdentifierSchema.optional(),
 		targetKind: z.literal('review'),
 		version: z.enum(['base', 'head', 'current']).optional(),

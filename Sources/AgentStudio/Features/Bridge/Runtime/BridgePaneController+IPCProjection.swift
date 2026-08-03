@@ -206,7 +206,7 @@ extension BridgePaneController {
             throw BridgeIPCProjectionError(reason: .itemNotFound)
         }
 
-        try await requestReviewTargetAndWaitForSurfaceReceipt(
+        try await requestReviewTargetAndPublish(
             source: BridgeProductNavigationReviewSource(
                 generation: package.reviewGeneration.rawValue,
                 metadataSourceId: package.query.queryId,
