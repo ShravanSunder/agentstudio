@@ -83,6 +83,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			<BridgeReviewViewerMode
 				isActive={false}
 				onActiveSourceChange={onActiveSourceChange}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={viewerHeaderControls}
@@ -108,6 +109,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				<BridgeReviewViewerMode
 					isActive={false}
 					onActiveSourceChange={onActiveSourceChange}
+					onNavigationSourceChange={vi.fn()}
 					reviewClient={harness.reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={viewerHeaderControls}
@@ -129,6 +131,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			<BridgeReviewViewerMode
 				isActive
 				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
 				viewerHeaderControls={<div />}
@@ -146,7 +149,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					{
 						operation: 'upsert',
 						payload: {
+							metadataSourceId: 'review-source-browser-test',
 							metadataWindowIdentity: 'review-window-empty',
+							packageId: 'review-package-browser-test',
 							reviewGeneration: 1,
 							status: 'ready',
 							summary: {
@@ -311,6 +316,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			<BridgeReviewViewerMode
 				isActive={false}
 				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
 				viewerHeaderControls={<div />}
@@ -412,6 +418,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				codeViewWorkerPoolEnabled={false}
 				isActive={true}
 				onActiveSourceChange={onActiveSourceChange}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={<div />}
@@ -524,6 +531,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					codeViewWorkerPoolEnabled={false}
 					isActive={false}
 					onActiveSourceChange={onActiveSourceChange}
+					onNavigationSourceChange={vi.fn()}
 					reviewClient={reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={<div />}

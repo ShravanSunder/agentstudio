@@ -315,6 +315,11 @@ extension BridgePaneController {
         )
         let installation: BridgeProductSessionInstallation
         if hasPublishedProductSessionBootstrap {
+            let invalidatedCommandId = surfaceSelectionAuthority.invalidateCurrentBinding()
+            terminateSurfaceSelectionWaiter(
+                commandId: invalidatedCommandId,
+                error: reason == .workerReplacement ? .workerReplaced : .sessionInvalidated
+            )
             do {
                 let candidate = try await productSessionOwner.prepareCandidate(
                     productAdmission: productAdmission

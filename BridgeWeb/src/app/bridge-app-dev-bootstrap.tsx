@@ -27,7 +27,9 @@ if (rootElement !== null) {
 	const telemetryHost = installBridgeAppDevTelemetryHost({
 		scenario: telemetryScenario,
 	});
-	const productSessionHost = installBridgeAppDevProductSessionHost();
+	const productSessionHost = installBridgeAppDevProductSessionHost({
+		navigationIntent: options.navigationIntent,
+	});
 	const workerFactory = options.workersEnabled
 		? createBridgePierrePortableBlobWorkerFactory()
 		: null;
@@ -50,7 +52,6 @@ if (rootElement !== null) {
 		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled={options.workersEnabled}
 			markdownWorkerClient={markdownWorkerClient}
-			navigationCommand={options.navigationCommand}
 			paneRuntimeFactory={(): ReturnType<typeof createBridgePaneRuntime> =>
 				createBridgePaneRuntime({
 					sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },

@@ -107,7 +107,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	);
 	const isActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
-	const appliedNavigationCommandIdRef = useRef<string | null>(null);
+	const appliedNavigationApplicationKeyRef = useRef<string | null>(null);
 	const controlProbeSequenceRef = useRef(0);
 	const { rootSnapshot, viewerActions, viewerStore } = useBridgeFileViewerStoreBindings();
 	const { filterMode, search } = rootSnapshot;
@@ -232,14 +232,15 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			return;
 		}
 		const navigationPath = bridgeFileViewerNavigationPath(navigationCommand);
+		const navigationApplicationKey = bridgeFileViewerNavigationApplicationKey(navigationCommand);
 		if (
 			navigationPath !== null &&
 			navigationCommand !== undefined &&
-			appliedNavigationCommandIdRef.current !== navigationCommand.commandId
+			appliedNavigationApplicationKeyRef.current !== navigationApplicationKey
 		) {
 			const row = displayModel.treeRowByPath.get(navigationPath);
 			if (row?.fileId !== null && row?.fileId !== undefined && !row.isDirectory) {
-				appliedNavigationCommandIdRef.current = navigationCommand.commandId;
+				appliedNavigationApplicationKeyRef.current = navigationApplicationKey;
 				selectFile({ fileId: row.fileId, path: row.path }, 'programmatic');
 			}
 			return;
@@ -343,8 +344,17 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 function bridgeFileViewerNavigationPath(
 	navigationCommand: BridgeFileViewerAppProps['navigationCommand'],
 ): string | null {
-	if (navigationCommand?.context !== 'files' || navigationCommand.target?.targetKind !== 'file') {
-		return null;
-	}
-	return navigationCommand.target.fileRef.path;
+	return navigationCommand?.target.path ?? null;
+}
+
+function bridgeFileViewerNavigationApplicationKey(
+	navigationCommand: BridgeFileViewerAppProps['navigationCommand'],
+): string | null {
+	if (navigationCommand === undefined) return null;
+	return [
+		navigationCommand.commandId,
+		navigationCommand.bindingRevision,
+		navigationCommand.source.sourceId,
+		navigationCommand.source.subscriptionGeneration,
+	].join('\u0000');
 }

@@ -1,22 +1,26 @@
-import { createHash } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES } from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
 import {
-	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
-	BRIDGE_PRODUCT_WIRE_VERSION,
-} from '../../src/core/comm-worker/bridge-product-contract-primitives.js';
-import { BridgeProductMetadataFrameDecoder } from '../../src/core/comm-worker/bridge-product-metadata-frame-codec.js';
-import { bridgeProductReviewMetadataEventSchema } from '../../src/core/comm-worker/bridge-product-review-metadata-contracts.js';
+	type BridgeProductDevNavigationIntent,
+	bridgeProductDevNavigationIntentSchema,
+} from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import {
-	bridgeProductControlRequestSchema,
-	bridgeProductControlResponseSchema,
-	bridgeProductMetadataStreamRequestSchema,
-	type BridgeProductControlRequest,
-	type BridgeProductControlResponse,
-	type BridgeProductMetadataFrame,
-} from '../../src/core/comm-worker/bridge-product-session-contracts.js';
+	closeServer,
+	controlRequest,
+	fakeFileProvider,
+	fakeReviewAdapter,
+	observeInitialMetadataFrames,
+	openMetadataStream,
+	openReviewSubscription,
+	openWorkerSession,
+	postControl,
+	postMetadataObservation,
+	productHeaders,
+	startCarrierServer,
+} from './bridge-product-dev-carrier-stream.test-support.js';
 import {
 	createBridgeProductDevCarrier,
 	type BridgeProductDevCarrier,
@@ -29,19 +33,18 @@ import {
 	type TestProductAuthority,
 } from './bridge-product-dev-carrier.test-support.js';
 import type { BridgeProductDevReviewAdapterPort } from './bridge-product-dev-review-adapter.js';
-import { worktreeFileProtocolFrameSchema } from './bridge-worktree-dev-file-fixture-contracts.js';
-import type {
-	WorktreeFileDescriptor,
-	WorktreeFileSurfaceSourceIdentity,
-} from './bridge-worktree-dev-file-fixture-contracts.js';
-import type { BridgeWorktreeDevProvider } from './bridge-worktree-dev-provider.js';
 
 const unregisteredAuthority = {
 	capability: Buffer.alloc(32, 7).toString('base64url'),
 	paneSessionId: 'unregistered-pane-session',
 	workerInstanceId: 'unregistered-worker-instance',
 } satisfies TestProductAuthority;
-const sourceCursor = 'cursor-1';
+const defaultNavigationIntent = bridgeProductDevNavigationIntentSchema.parse({
+	commandId: 'dev:test:file:target',
+	commandKind: 'activateTarget',
+	surface: 'file',
+	target: { path: 'src/app.ts', targetKind: 'file', version: 'current' },
+});
 
 describe('Bridge product dev pane carrier', () => {
 	let server: Server | null = null;
@@ -63,12 +66,92 @@ describe('Bridge product dev pane carrier', () => {
 		});
 
 		// Act
-		const delivery = carrier.issueBootstrap({ reason: 'initial' });
+		const delivery = carrier.issueBootstrap({
+			navigationIntent: defaultNavigationIntent,
+			reason: 'initial',
+		});
 
 		// Assert
 		expect(delivery.bootstrap.policy.maximumContentBytes).toBe(
 			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
 		);
+	});
+
+	test('binds Review target intent from the accepted source and truthfully rebinds replacement', async () => {
+		// Arrange
+		const navigationIntent = {
+			commandId: 'dev:test:review:target',
+			commandKind: 'activateTarget',
+			surface: 'review',
+			target: { reviewItemId: 'review-item-1', targetKind: 'review' },
+		} as const satisfies BridgeProductDevNavigationIntent;
+		const started = await startCarrierServer({ navigationIntent });
+		carrier = started.carrier;
+		server = started.server;
+		const firstAuthority = started.authority;
+		await openWorkerSession(started.baseURL, firstAuthority);
+		const firstStream = await openMetadataStream(started.baseURL, firstAuthority);
+		await observeInitialMetadataFrames(started.baseURL, firstStream, firstAuthority);
+
+		// Act
+		await openReviewSubscription(started.baseURL, firstAuthority);
+		const firstNavigationFrame = await firstStream.nextFrame();
+
+		// Assert
+		expect(firstNavigationFrame).toMatchObject({
+			kind: 'pane.surfaceSelectionRequested',
+			navigationCommand: {
+				bindingRevision: 1,
+				commandId: navigationIntent.commandId,
+				commandKind: 'activateTarget',
+				source: {
+					generation: 1,
+					metadataSourceId: 'review-source-1',
+					packageId: 'review-package-1',
+					sourceKind: 'review',
+				},
+				surface: 'review',
+				target: navigationIntent.target,
+			},
+		});
+		expect(
+			await postMetadataObservation(
+				started.baseURL,
+				firstNavigationFrame,
+				firstAuthority.capability,
+			),
+		).toBe(204);
+		await firstStream.close();
+
+		// Act: worker replacement retains command identity but rebinds the new authority revision.
+		const replacementAuthority = authorityForDelivery(
+			carrier.issueBootstrap({
+				navigationIntent,
+				paneSessionId: firstAuthority.paneSessionId,
+				reason: 'workerReplacement',
+			}),
+		);
+		await openWorkerSession(started.baseURL, replacementAuthority);
+		const replacementStream = await openMetadataStream(started.baseURL, replacementAuthority);
+		await observeInitialMetadataFrames(started.baseURL, replacementStream, replacementAuthority);
+		await openReviewSubscription(started.baseURL, replacementAuthority);
+		const replacementNavigationFrame = await replacementStream.nextFrame();
+
+		// Assert
+		expect(replacementNavigationFrame).toMatchObject({
+			kind: 'pane.surfaceSelectionRequested',
+			navigationCommand: {
+				bindingRevision: 2,
+				commandId: navigationIntent.commandId,
+				source: {
+					generation: 1,
+					metadataSourceId: 'review-source-1',
+					packageId: 'review-package-1',
+					sourceKind: 'review',
+				},
+			},
+		});
+		await replacementStream.close();
 	});
 
 	test('accepts only the current Review publication receipt without opening additional product work', async () => {
@@ -441,11 +524,14 @@ describe('Bridge product dev pane carrier', () => {
 			'application/json; charset=utf-8',
 			'Application/JSON',
 		] as const;
-		let authority = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
+		let authority = authorityForDelivery(
+			carrier.issueBootstrap({ navigationIntent: defaultNavigationIntent, reason: 'initial' }),
+		);
 
 		for (const contentType of rejectedMediaTypes) {
 			authority = authorityForDelivery(
 				carrier.issueBootstrap({
+					navigationIntent: defaultNavigationIntent,
 					paneSessionId: authority.paneSessionId,
 					reason: 'workerReplacement',
 				}),
@@ -486,7 +572,9 @@ describe('Bridge product dev pane carrier', () => {
 			getFileProvider,
 			getReviewSourceConfig,
 		});
-		const authority = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
+		const authority = authorityForDelivery(
+			carrier.issueBootstrap({ navigationIntent: defaultNavigationIntent, reason: 'initial' }),
+		);
 		const opened = await dispatchCommandToCarrier({
 			authority,
 			body: JSON.stringify(
@@ -576,9 +664,12 @@ describe('Bridge product dev pane carrier', () => {
 			getFileProvider: async () => fakeFileProvider(),
 			getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
 		});
-		const pendingAuthority = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
+		const pendingAuthority = authorityForDelivery(
+			carrier.issueBootstrap({ navigationIntent: defaultNavigationIntent, reason: 'initial' }),
+		);
 		const replacementAuthority = authorityForDelivery(
 			carrier.issueBootstrap({
+				navigationIntent: defaultNavigationIntent,
 				paneSessionId: pendingAuthority.paneSessionId,
 				reason: 'workerReplacement',
 			}),
@@ -601,6 +692,7 @@ describe('Bridge product dev pane carrier', () => {
 		});
 		const activeReplacementAuthority = authorityForDelivery(
 			carrier.issueBootstrap({
+				navigationIntent: defaultNavigationIntent,
 				paneSessionId: replacementAuthority.paneSessionId,
 				reason: 'workerReplacement',
 			}),
@@ -645,8 +737,12 @@ describe('Bridge product dev pane carrier', () => {
 			getFileProvider: async () => fakeFileProvider(),
 			getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
 		});
-		const firstPane = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
-		const secondPane = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
+		const firstPane = authorityForDelivery(
+			carrier.issueBootstrap({ navigationIntent: defaultNavigationIntent, reason: 'initial' }),
+		);
+		const secondPane = authorityForDelivery(
+			carrier.issueBootstrap({ navigationIntent: defaultNavigationIntent, reason: 'initial' }),
+		);
 		const pendingSnapshot = carrier.snapshot();
 
 		const firstPaneOpenBody = JSON.stringify(
@@ -669,6 +765,7 @@ describe('Bridge product dev pane carrier', () => {
 		// Act
 		const firstPaneReplacement = authorityForDelivery(
 			carrier.issueBootstrap({
+				navigationIntent: defaultNavigationIntent,
 				paneSessionId: firstPane.paneSessionId,
 				reason: 'workerReplacement',
 			}),
@@ -706,281 +803,3 @@ describe('Bridge product dev pane carrier', () => {
 		expect(carrier.snapshot()).toMatchObject({ pendingSessions: 0, sessions: 2 });
 	});
 });
-
-async function startCarrierServer(props?: {
-	readonly createReviewAdapter?: () => BridgeProductDevReviewAdapterPort;
-	readonly getFileProvider?: () => Promise<BridgeWorktreeDevProvider>;
-	readonly getReviewSourceConfig?: () => Promise<{
-		readonly baseRef: string;
-		readonly worktreeRoot: string;
-	}>;
-}): Promise<{
-	readonly authority: TestProductAuthority;
-	readonly baseURL: string;
-	readonly carrier: BridgeProductDevCarrier;
-	readonly server: Server;
-}> {
-	const carrier = createBridgeProductDevCarrier({
-		createReviewAdapter:
-			props?.createReviewAdapter ?? ((): BridgeProductDevReviewAdapterPort => fakeReviewAdapter()),
-		getFileProvider: props?.getFileProvider ?? (async () => fakeFileProvider()),
-		getReviewSourceConfig:
-			props?.getReviewSourceConfig ?? (async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' })),
-	});
-	const authority = authorityForDelivery(carrier.issueBootstrap({ reason: 'initial' }));
-	const server = createServer((request, response): void => {
-		switch (request.url) {
-			case '/command':
-				void carrier.handleCommandRequest({ request, response });
-				return;
-			case '/stream':
-				void carrier.handleStreamRequest({ request, response });
-				return;
-			case '/content':
-				void carrier.handleContentRequest({ request, response });
-				return;
-			case undefined:
-			default:
-				response.statusCode = 404;
-				response.end();
-		}
-	});
-	return { authority, baseURL: await listen(server), carrier, server };
-}
-
-function fakeReviewAdapter(): BridgeProductDevReviewAdapterPort {
-	return {
-		loadContent: async () => null,
-		loadSource: async () => ({
-			cursor: 'review-cursor-1',
-			events: [
-				bridgeProductReviewMetadataEventSchema.parse({
-					eventKind: 'review.sourceAccepted',
-					generation: 1,
-					packageId: 'review-package-1',
-					publicationId: '00000000-0000-7000-8000-000000000011',
-					revision: 1,
-					sourceIdentity: 'review-source-1',
-				}),
-			],
-			generation: 1,
-			packageId: 'review-package-1',
-			publicationId: '00000000-0000-7000-8000-000000000011',
-			revision: 1,
-			sourceIdentity: 'review-source-1',
-		}),
-	};
-}
-
-function fakeFileProvider(): BridgeWorktreeDevProvider {
-	const source = legacySource();
-	return {
-		loadWorktreeFileContent: async () => 'alpha\nbeta\n',
-		loadWorktreeFileDescriptor: async (request) => {
-			const frame = worktreeFileProtocolFrameSchema.parse({
-				descriptor: legacyDescriptor(request.path),
-				frameKind: 'worktree.fileDescriptor',
-				generation: 1,
-				kind: 'delta',
-				sequence: 2,
-				streamId: 'worktree-file:dev-pane',
-			});
-			if (frame.frameKind !== 'worktree.fileDescriptor') throw new Error('Invalid fake frame.');
-			return frame;
-		},
-		loadWorktreeFileSurface: async () => ({
-			frames: [
-				worktreeFileProtocolFrameSchema.parse({
-					frameKind: 'worktree.snapshot',
-					generation: 1,
-					kind: 'snapshot',
-					metadataLineage: { lane: 'foreground', loadedBy: 'startup_window' },
-					sequence: 0,
-					source,
-					streamId: 'worktree-file:dev-pane',
-					treeRows: [
-						{
-							changeStatus: 'modified',
-							depth: 1,
-							fileId: 'dev-file-id-1',
-							fileClass: 'source',
-							isDirectory: false,
-							lineCount: 2,
-							name: 'app.ts',
-							parentPath: 'src',
-							path: 'src/app.ts',
-							rowId: 'row:src/app.ts',
-							sizeBytes: 11,
-						},
-					],
-					treeSizeFacts: { extentKind: 'exactPathCount', pathCount: 1, rowHeightPixels: 24 },
-				}),
-			],
-			provenance: {
-				baseRef: 'HEAD',
-				scenarioName: 'current-worktree',
-				worktreeRootToken: 'root-token',
-			},
-			source,
-			treeSizeFacts: { extentKind: 'exactPathCount', pathCount: 1, rowHeightPixels: 24 },
-		}),
-	};
-}
-
-class MetadataStreamClient {
-	readonly #decoder = new BridgeProductMetadataFrameDecoder();
-	readonly #pendingFrames: BridgeProductMetadataFrame[] = [];
-	readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
-
-	constructor(reader: ReadableStreamDefaultReader<Uint8Array>) {
-		this.#reader = reader;
-	}
-
-	async nextFrame(): Promise<BridgeProductMetadataFrame> {
-		while (this.#pendingFrames.length === 0) {
-			// oxlint-disable-next-line no-await-in-loop -- Network chunks are consumed in protocol order.
-			const chunk = await this.#reader.read();
-			if (chunk.done) throw new Error('Metadata stream ended early.');
-			this.#pendingFrames.push(...this.#decoder.push(chunk.value));
-		}
-		const frame = this.#pendingFrames.shift();
-		if (frame === undefined) throw new Error('Metadata frame queue was unexpectedly empty.');
-		return frame;
-	}
-
-	async close(): Promise<void> {
-		await this.#reader.cancel();
-	}
-}
-
-async function openMetadataStream(
-	baseURL: string,
-	authority: TestProductAuthority,
-): Promise<MetadataStreamClient> {
-	const response = await fetch(`${baseURL}/stream`, {
-		body: JSON.stringify(
-			bridgeProductMetadataStreamRequestSchema.parse({
-				kind: 'metadataStream.open',
-				metadataStreamId: 'metadata-stream-1',
-				paneSessionId: authority.paneSessionId,
-				resumeFromStreamSequence: null,
-				wireVersion: 2,
-				workerInstanceId: authority.workerInstanceId,
-			}),
-		),
-		headers: productHeaders(authority.capability),
-		method: 'POST',
-	});
-	expect(response.status).toBe(200);
-	if (response.body === null) throw new Error('Expected metadata body.');
-	return new MetadataStreamClient(response.body.getReader());
-}
-
-async function postMetadataObservation(
-	baseURL: string,
-	frame: Pick<
-		BridgeProductMetadataFrame,
-		'metadataStreamId' | 'paneSessionId' | 'streamSequence' | 'wireVersion' | 'workerInstanceId'
-	>,
-	capability: string,
-): Promise<number> {
-	const response = await fetch(`${baseURL}/command`, {
-		body: JSON.stringify({
-			kind: 'stream.frameObserved',
-			metadataStreamId: frame.metadataStreamId,
-			paneSessionId: frame.paneSessionId,
-			streamKind: 'metadata',
-			streamSequence: frame.streamSequence,
-			wireVersion: frame.wireVersion,
-			workerInstanceId: frame.workerInstanceId,
-		}),
-		headers: productHeaders(capability),
-		method: 'POST',
-	});
-	const responseBody = await response.text();
-	if (response.status === 204) expect(responseBody).toBe('');
-	return response.status;
-}
-
-function legacySource(): WorktreeFileSurfaceSourceIdentity {
-	return {
-		repoId: 'legacy-repo',
-		rootRevisionToken: 'revision-1',
-		sourceCursor,
-		sourceId: 'source-1',
-		subscriptionGeneration: 1,
-		worktreeId: 'legacy-worktree',
-	};
-}
-
-function legacyDescriptor(path: string): WorktreeFileDescriptor {
-	const descriptorId = 'dev-file-descriptor-1';
-	return {
-		contentHandle: descriptorId,
-		contentHash: `sha256:${createHash('sha256').update('alpha\nbeta\n').digest('hex')}`,
-		fileExtension: 'ts',
-		fileId: 'dev-file-id-1',
-		isBinary: false,
-		unavailableReason: null,
-		language: 'typescript',
-		lineCount: 2,
-		path,
-		sizeBytes: 11,
-		sourceIdentity: legacySource(),
-		virtualizedExtentKind: 'exactLineCount',
-	};
-}
-
-function controlRequest(
-	authority: Pick<TestProductAuthority, 'paneSessionId' | 'workerInstanceId'>,
-	request: Readonly<Record<string, unknown>>,
-	requestSequence: number,
-): BridgeProductControlRequest {
-	return bridgeProductControlRequestSchema.parse({
-		paneSessionId: authority.paneSessionId,
-		requestId: `request-${requestSequence}`,
-		requestSequence,
-		wireVersion: BRIDGE_PRODUCT_WIRE_VERSION,
-		workerInstanceId: authority.workerInstanceId,
-		...request,
-	});
-}
-
-async function postControl(
-	baseURL: string,
-	request: BridgeProductControlRequest,
-	capability: string,
-): Promise<BridgeProductControlResponse> {
-	const response = await fetch(`${baseURL}/command`, {
-		body: JSON.stringify(request),
-		headers: productHeaders(capability),
-		method: 'POST',
-	});
-	const text = await response.text();
-	expect(response.status, text).toBe(200);
-	return bridgeProductControlResponseSchema.parse(JSON.parse(text) as unknown);
-}
-
-function productHeaders(productCapability: string): HeadersInit {
-	return {
-		'Content-Type': 'application/json',
-		'X-AgentStudio-Bridge-Product-Capability': productCapability,
-	};
-}
-
-async function listen(server: Server): Promise<string> {
-	await new Promise<void>((resolve): void => {
-		server.listen(0, '127.0.0.1', resolve);
-	});
-	const address = server.address();
-	if (address === null || typeof address === 'string') throw new Error('Expected TCP address.');
-	return `http://127.0.0.1:${address.port}`;
-}
-
-async function closeServer(server: Server | null): Promise<void> {
-	if (server === null) return;
-	server.closeAllConnections();
-	await new Promise<void>((resolve): void => {
-		server?.close((): void => resolve());
-	});
-}

@@ -1,3 +1,5 @@
+import { expect } from 'vitest';
+
 import type { BridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
 	BridgeWorkerFileDisplayPatchEvent,
@@ -10,6 +12,17 @@ import type {
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { parseBridgeCodeViewDiffForBrowserTest } from '../review-viewer/code-view/bridge-code-view-browser-test-diff.js';
 import { reviewWitnessTreeRows } from '../review-viewer/test-support/bridge-viewer-browser-recovery-tree-fixture.js';
+import { actWait } from './bridge-app-browser-test-actions.js';
+
+export interface SurfacePositionOwners {
+	readonly codeScrollOwner: HTMLElement;
+	readonly treeScrollOwner: HTMLElement;
+}
+
+export interface SurfacePositionSnapshot {
+	readonly codeScrollTop: number;
+	readonly treeScrollTop: number;
+}
 
 export const bridgePanePositionFileItemId = 'position-file-001';
 export const bridgePanePositionFilePath = 'Sources/PositionFile001.swift';
@@ -27,6 +40,115 @@ export function installBridgePanePositionFixtures(props: {
 }): void {
 	installFilePositionFixture(props.fileRenderStore);
 	installReviewPositionFixture(props.reviewRenderStore);
+}
+
+export async function waitForScrollableSurfaceOwners(props: {
+	readonly host: HTMLElement;
+	readonly surface: 'file' | 'review';
+	readonly remainingFrames?: number;
+}): Promise<SurfacePositionOwners> {
+	const remainingFrames = props.remainingFrames ?? 180;
+	const treeScrollOwner = treeScrollOwnerWithinHost(props.host);
+	const codeScrollOwner = props.host.querySelector('.bridge-code-view-scroll-owner');
+	if (
+		treeScrollOwner instanceof HTMLElement &&
+		codeScrollOwner instanceof HTMLElement &&
+		treeScrollOwner.scrollHeight > treeScrollOwner.clientHeight &&
+		codeScrollOwner.scrollHeight > codeScrollOwner.clientHeight
+	) {
+		return { codeScrollOwner, treeScrollOwner };
+	}
+	if (remainingFrames <= 0) {
+		throw new Error(
+			`Expected scrollable ${props.surface} owners; tree=${treeScrollOwner?.scrollHeight ?? 'missing'}/${treeScrollOwner?.clientHeight ?? 'missing'} code=${codeScrollOwner instanceof HTMLElement ? `${codeScrollOwner.scrollHeight}/${codeScrollOwner.clientHeight}` : 'missing'}.`,
+		);
+	}
+	await advanceAnimationFrame();
+	return await waitForScrollableSurfaceOwners({
+		...props,
+		remainingFrames: remainingFrames - 1,
+	});
+}
+
+export async function establishSemanticSurfacePosition(
+	owners: SurfacePositionOwners,
+): Promise<SurfacePositionSnapshot> {
+	await actWait(async (): Promise<void> => {
+		setUserScrollPosition(owners.treeScrollOwner, 0.37);
+		setUserScrollPosition(owners.codeScrollOwner, 0.43);
+		await Promise.resolve();
+	});
+	await waitForStableNonzeroScrollPosition(owners.treeScrollOwner);
+	await waitForStableNonzeroScrollPosition(owners.codeScrollOwner);
+	return surfacePositionSnapshot(owners);
+}
+
+export async function assertSurfacePositionRetained(props: {
+	readonly expected: SurfacePositionSnapshot;
+	readonly owners: SurfacePositionOwners;
+	readonly surface: 'file' | 'review';
+}): Promise<void> {
+	await waitForStableNonzeroScrollPosition(props.owners.treeScrollOwner);
+	await waitForStableNonzeroScrollPosition(props.owners.codeScrollOwner);
+	const actual = surfacePositionSnapshot(props.owners);
+	expect(actual.treeScrollTop, `${props.surface} tree position`).toBeGreaterThan(0);
+	expect(actual.codeScrollTop, `${props.surface} code position`).toBeGreaterThan(0);
+	expect(
+		Math.abs(actual.codeScrollTop - props.expected.codeScrollTop),
+		`${props.surface} code pixel position ${JSON.stringify({ actual, expected: props.expected })}`,
+	).toBeLessThanOrEqual(1);
+	expect(
+		Math.abs(actual.treeScrollTop - props.expected.treeScrollTop),
+		`${props.surface} tree pixel position ${JSON.stringify({ actual, expected: props.expected })}`,
+	).toBeLessThanOrEqual(1);
+}
+
+export function advanceAnimationFrame(): Promise<void> {
+	return actWait(
+		() =>
+			new Promise<void>((resolve): void => {
+				requestAnimationFrame((): void => resolve());
+			}),
+	);
+}
+
+function treeScrollOwnerWithinHost(host: HTMLElement): HTMLElement | null {
+	const treeContainer = host.querySelector('file-tree-container');
+	const scrollOwner = treeContainer?.shadowRoot?.querySelector(
+		'[data-file-tree-virtualized-scroll="true"]',
+	);
+	return scrollOwner instanceof HTMLElement ? scrollOwner : null;
+}
+
+function setUserScrollPosition(scrollOwner: HTMLElement, progress: number): void {
+	const maximumScrollTop = scrollOwner.scrollHeight - scrollOwner.clientHeight;
+	const nextScrollTop = Math.max(1, Math.floor(maximumScrollTop * progress));
+	scrollOwner.dispatchEvent(
+		new WheelEvent('wheel', { bubbles: true, deltaY: nextScrollTop, view: window }),
+	);
+	scrollOwner.scrollTop = nextScrollTop;
+	scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+}
+
+async function waitForStableNonzeroScrollPosition(
+	scrollOwner: HTMLElement,
+	remainingFrames = 60,
+	previousScrollTop: number | null = null,
+): Promise<void> {
+	const currentScrollTop = scrollOwner.scrollTop;
+	if (currentScrollTop > 0 && previousScrollTop === currentScrollTop) return;
+	if (remainingFrames <= 0) {
+		throw new Error(`Expected a stable nonzero scroll position; observed ${currentScrollTop}.`);
+	}
+	await advanceAnimationFrame();
+	await waitForStableNonzeroScrollPosition(scrollOwner, remainingFrames - 1, currentScrollTop);
+}
+
+function surfacePositionSnapshot(owners: SurfacePositionOwners): SurfacePositionSnapshot {
+	return {
+		codeScrollTop: owners.codeScrollOwner.scrollTop,
+		treeScrollTop: owners.treeScrollOwner.scrollTop,
+	};
 }
 
 function installFilePositionFixture(renderStore: BridgeMainRenderSnapshotStore): void {
@@ -207,7 +329,9 @@ function makeReviewDisplayEvent(
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'position-review-source',
 					metadataWindowIdentity: reviewMetadataWindowIdentity,
+					packageId: 'position-review-package',
 					reviewGeneration: 1,
 					status: 'ready',
 					summary: {

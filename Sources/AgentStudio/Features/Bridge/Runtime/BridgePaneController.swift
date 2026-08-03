@@ -61,6 +61,7 @@ package final class BridgePaneController {
     var productPresentationTransitionGeneration: UInt64 = 0
     var productPresentationTransitionTail: Task<Void, Never>?
     var surfaceSelectionTransitionTail: Task<Void, Never>?
+    var surfaceSelectionReceiptWaiters: [String: CheckedContinuation<Void, any Error>] = [:]
     var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
     var surfaceSelectionAuthority = BridgePaneSurfaceSelectionAuthority()
@@ -358,6 +359,8 @@ package final class BridgePaneController {
             isTeardownStarted = true
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
+            _ = surfaceSelectionAuthority.invalidate()
+            terminateAllSurfaceSelectionWaiters(error: .controllerTeardown)
             let reviewPublicationCloseDrain = reviewPublicationCoordinator.close()
             let reviewRefreshTask = activeReviewRefreshTask
             reviewRefreshTask?.cancel()

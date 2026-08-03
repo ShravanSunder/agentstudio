@@ -364,7 +364,13 @@ describe('BridgeFileViewerApp sustained deep scrolling', () => {
 		'keeps the real Vite module-worker File route painted through sustained deep scrolling',
 		async () => {
 			disposeRouteHandshake = installBridgeReadyHandshake().dispose;
-			routeProductSessionHost = installBridgeAppDevProductSessionHost();
+			routeProductSessionHost = installBridgeAppDevProductSessionHost({
+				navigationIntent: {
+					commandId: 'dev:test:file',
+					commandKind: 'activateContext',
+					surface: 'file',
+				},
+			});
 			routePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
 
 			await render(

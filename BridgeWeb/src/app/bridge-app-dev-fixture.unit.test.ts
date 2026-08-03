@@ -17,15 +17,10 @@ describe('bridge app dev fixture options', () => {
 			deliveryMode: 'full-load',
 			fixtureClass: 'large-diffshub',
 			latencyProfile: 'zero',
-			navigationCommand: {
+			navigationIntent: {
 				commandId: 'dev:fixture:large-diffshub:review',
-				commandKind: 'initialize',
-				context: 'review',
-				restoreMemory: true,
-				source: {
-					sourceId: 'large-diffshub',
-					sourceKind: 'fixture',
-				},
+				commandKind: 'activateContext',
+				surface: 'review',
 			},
 			scenario: 'default',
 			workersEnabled: true,
@@ -43,15 +38,10 @@ describe('bridge app dev fixture options', () => {
 			deliveryMode: 'streaming-append',
 			fixtureClass: 'medium-agentstudio',
 			latencyProfile: 'slowBounded',
-			navigationCommand: {
+			navigationIntent: {
 				commandId: 'dev:fixture:medium-agentstudio:review',
-				commandKind: 'initialize',
-				context: 'review',
-				restoreMemory: true,
-				source: {
-					sourceId: 'medium-agentstudio',
-					sourceKind: 'fixture',
-				},
+				commandKind: 'activateContext',
+				surface: 'review',
 			},
 			scenario: 'markdown',
 			workersEnabled: false,
@@ -73,15 +63,10 @@ describe('bridge app dev fixture options', () => {
 			deliveryMode: 'full-load',
 			fixtureClass: 'worktree',
 			latencyProfile: 'zero',
-			navigationCommand: {
+			navigationIntent: {
 				commandId: 'dev:worktree:files',
-				commandKind: 'initialize',
-				context: 'files',
-				restoreMemory: true,
-				source: {
-					sourceId: 'dev-worktree-source',
-					sourceKind: 'worktree',
-				},
+				commandKind: 'activateContext',
+				surface: 'file',
 			},
 			scenario: 'default',
 			workersEnabled: true,
@@ -93,16 +78,10 @@ describe('bridge app dev fixture options', () => {
 			new URLSearchParams('fixture=worktree&viewer=review&scenario=current-worktree&workers=on'),
 		);
 
-		expect(options.navigationCommand).toEqual({
+		expect(options.navigationIntent).toEqual({
 			commandId: 'dev:worktree:review',
-			commandKind: 'initialize',
-			context: 'review',
-			restoreMemory: true,
-			source: {
-				comparisonId: 'dev-current-worktree-comparison',
-				sourceId: 'dev-current-worktree-review',
-				sourceKind: 'reviewComparison',
-			},
+			commandKind: 'activateContext',
+			surface: 'review',
 		});
 	});
 
@@ -113,23 +92,13 @@ describe('bridge app dev fixture options', () => {
 			),
 		);
 
-		expect(options.navigationCommand).toEqual({
-			commandId: 'dev:worktree:review:file:BridgeWeb/src/app/bridge-app.tsx:current',
-			commandKind: 'initialize',
-			context: 'review',
-			restoreMemory: true,
-			source: {
-				comparisonId: 'dev-current-worktree-comparison',
-				sourceId: 'dev-current-worktree-review',
-				sourceKind: 'reviewComparison',
-			},
+		expect(options.navigationIntent).toEqual({
+			commandId: 'dev:worktree:review:target',
+			commandKind: 'activateTarget',
+			surface: 'review',
 			target: {
-				comparisonId: 'dev-current-worktree-comparison',
-				fileRef: {
-					path: 'BridgeWeb/src/app/bridge-app.tsx',
-					sourceId: 'dev-current-worktree-review',
-				},
-				targetKind: 'file',
+				path: 'BridgeWeb/src/app/bridge-app.tsx',
+				targetKind: 'review',
 				version: 'current',
 			},
 		});
@@ -142,25 +111,14 @@ describe('bridge app dev fixture options', () => {
 			),
 		);
 
-		expect(options.navigationCommand).toEqual({
-			commandId:
-				'dev:worktree:review:file:BridgeWeb/src/app/bridge-app.tsx:current:item:worktree-review-123',
-			commandKind: 'initialize',
-			context: 'review',
-			restoreMemory: true,
-			source: {
-				comparisonId: 'dev-current-worktree-comparison',
-				sourceId: 'dev-current-worktree-review',
-				sourceKind: 'reviewComparison',
-			},
+		expect(options.navigationIntent).toEqual({
+			commandId: 'dev:worktree:review:target',
+			commandKind: 'activateTarget',
+			surface: 'review',
 			target: {
-				comparisonId: 'dev-current-worktree-comparison',
-				fileRef: {
-					path: 'BridgeWeb/src/app/bridge-app.tsx',
-					sourceId: 'dev-current-worktree-review',
-				},
+				path: 'BridgeWeb/src/app/bridge-app.tsx',
 				reviewItemId: 'worktree-review-123',
-				targetKind: 'file',
+				targetKind: 'review',
 				version: 'current',
 			},
 		});
@@ -186,15 +144,10 @@ describe('bridge app dev fixture options', () => {
 				deliveryMode: 'full-load',
 				fixtureClass: 'small-mixed',
 				latencyProfile: 'small',
-				navigationCommand: {
+				navigationIntent: {
 					commandId: 'dev:fixture:small-mixed:review',
-					commandKind: 'initialize',
-					context: 'review',
-					restoreMemory: true,
-					source: {
-						sourceId: 'small-mixed',
-						sourceKind: 'fixture',
-					},
+					commandKind: 'activateContext',
+					surface: 'review',
 				},
 				scenario: 'scroll',
 				workersEnabled: true,

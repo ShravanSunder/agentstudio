@@ -403,7 +403,7 @@ actor BridgePaneProductMetadataCoordinator {
         guard !isClosed,
             productAdmission.withValidAdmission({
                 if let latestPaneSurfaceSelectionRequest,
-                    request.selectionRevision <= latestPaneSurfaceSelectionRequest.selectionRevision
+                    request.bindingRevision <= latestPaneSurfaceSelectionRequest.bindingRevision
                 {
                     return false
                 }

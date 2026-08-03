@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactEle
 
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
+import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
@@ -16,6 +17,10 @@ import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bri
 import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
+import {
+	bridgeAppReviewNavigationSourceForDisplaySlice,
+	type BridgeAppNavigationSource,
+} from './bridge-app-navigation-admission.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
 import { bridgeReviewPresentationSnapshotForDisplay } from './bridge-app-review-presentation-adapter.js';
 import {
@@ -28,7 +33,6 @@ import {
 	BridgeReviewViewerShellBoundary,
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
-import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
@@ -45,8 +49,14 @@ export interface BridgeReviewViewerModeProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly isActive: boolean;
-	readonly navigationCommand?: BridgeViewerNavigationCommand;
+	readonly navigationCommand?: Extract<
+		BridgeProductNavigationCommand,
+		{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+	>;
 	readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
+	readonly onNavigationSourceChange: (
+		source: Extract<BridgeAppNavigationSource, { readonly sourceKind: 'review' }> | null,
+	) => void;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly target?: EventTarget;
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
@@ -68,6 +78,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		isActive,
 		navigationCommand,
 		onActiveSourceChange,
+		onNavigationSourceChange,
 		reviewClient,
 		target = document,
 		telemetryRecorderRef,
@@ -182,6 +193,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		// Active-surface mode is still sent through the pane client; do not fabricate a stream id.
 		onActiveSourceChange(null);
 	}, [onActiveSourceChange]);
+	useEffect((): void => {
+		onNavigationSourceChange(bridgeAppReviewNavigationSourceForDisplaySlice(reviewSourceSlice));
+	}, [onNavigationSourceChange, reviewSourceSlice]);
 	useEffect((): void => {
 		const wasActive = wasReviewViewportActiveRef.current;
 		wasReviewViewportActiveRef.current = isActive;

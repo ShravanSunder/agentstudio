@@ -77,6 +77,7 @@ extension BridgePaneController {
         guard case .committed(let committedPublication) = commitResult else {
             return .rejected
         }
+        invalidateRetainedReviewTargetIfSourceChanged(to: committedPublication.package)
 
         // Native B is already committed. A closed admission may suppress this
         // rebuildable index update, but cannot turn the commit into rejection.
@@ -115,5 +116,21 @@ extension BridgePaneController {
             productAdmission: productAdmission
         )
         return .committed(delivery: deliveryDisposition)
+    }
+
+    private func invalidateRetainedReviewTargetIfSourceChanged(
+        to committedPackage: BridgeReviewPackage
+    ) {
+        let invalidatedCommandId = surfaceSelectionAuthority.invalidateRetainedReviewTarget(
+            ifSourceDoesNotMatch: BridgeProductNavigationReviewSource(
+                generation: committedPackage.reviewGeneration.rawValue,
+                metadataSourceId: committedPackage.query.queryId,
+                packageId: committedPackage.packageId
+            )
+        )
+        terminateSurfaceSelectionWaiter(
+            commandId: invalidatedCommandId,
+            error: .sourceInvalidated
+        )
     }
 }

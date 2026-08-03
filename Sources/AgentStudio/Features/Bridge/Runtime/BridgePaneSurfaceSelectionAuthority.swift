@@ -2,11 +2,58 @@ import AgentStudioInfrastructure
 import Foundation
 
 struct BridgePaneSurfaceSelectionRequest: Equatable, Sendable {
-    let requestId: String
-    let selectionRevision: Int
-    let surface: BridgeProductSurface
+    let navigationCommand: BridgeProductNavigationCommand
     let paneSessionId: String
     let workerInstanceId: String
+
+    var requestId: String { navigationCommand.commandId }
+    var bindingRevision: Int { navigationCommand.bindingRevision }
+    var surface: BridgeProductSurface { navigationCommand.surface }
+}
+
+enum BridgePaneSurfaceSelectionIntent: Equatable, Sendable {
+    case context(commandId: String, surface: BridgeProductSurface)
+    case reviewTarget(
+        commandId: String,
+        source: BridgeProductNavigationReviewSource,
+        target: BridgeProductNavigationReviewTarget
+    )
+
+    var commandId: String {
+        switch self {
+        case .context(let commandId, _), .reviewTarget(let commandId, _, _): commandId
+        }
+    }
+
+    var surface: BridgeProductSurface {
+        switch self {
+        case .context(_, let surface): surface
+        case .reviewTarget: .review
+        }
+    }
+
+    func bind(revision: Int) -> BridgeProductNavigationCommand {
+        switch self {
+        case .context(let commandId, let surface):
+            .activateContext(
+                commandId: commandId,
+                bindingRevision: revision,
+                surface: surface
+            )
+        case .reviewTarget(let commandId, let source, let target):
+            .activateReviewTarget(
+                commandId: commandId,
+                bindingRevision: revision,
+                source: source,
+                target: target
+            )
+        }
+    }
+}
+
+struct BridgePaneSurfaceSelectionRetention: Equatable, Sendable {
+    let commandId: String
+    let supersededCommandId: String?
 }
 
 enum BridgePaneSurfaceSelectionReceiptRejection: Equatable, Sendable {
@@ -31,39 +78,61 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
     }
 
     private var currentRequest: BridgePaneSurfaceSelectionRequest?
-    private var desiredSurface: BridgeProductSurface?
+    private var retainedIntent: BridgePaneSurfaceSelectionIntent?
     private var lastAcceptedRequest: BridgePaneSurfaceSelectionRequest?
     private var needsDelivery = false
-    private var nextSelectionRevision = 0
+    private var nextBindingRevision = 0
 
     var diagnosticSnapshot: DiagnosticSnapshot {
         DiagnosticSnapshot(
             currentRequest: currentRequest,
-            desiredSurface: desiredSurface,
+            desiredSurface: retainedIntent?.surface,
             lastAcceptedRequest: lastAcceptedRequest,
             needsDelivery: needsDelivery
         )
     }
 
-    mutating func retainIntent(surface: BridgeProductSurface) {
-        if desiredSurface == surface {
-            if currentRequest == nil {
+    @discardableResult
+    mutating func retainIntent(surface: BridgeProductSurface) -> BridgePaneSurfaceSelectionRetention {
+        if case .context(let commandId, let retainedSurface) = retainedIntent,
+            retainedSurface == surface
+        {
+            if currentRequest == nil, lastAcceptedRequest == nil {
                 needsDelivery = true
             }
-            return
+            return BridgePaneSurfaceSelectionRetention(
+                commandId: commandId,
+                supersededCommandId: nil
+            )
         }
-        desiredSurface = surface
-        currentRequest = nil
-        needsDelivery = true
+        return replaceRetainedIntent(
+            .context(
+                commandId: UUIDv7.generate().uuidString,
+                surface: surface
+            )
+        )
+    }
+
+    mutating func retainReviewTarget(
+        source: BridgeProductNavigationReviewSource,
+        target: BridgeProductNavigationReviewTarget
+    ) -> BridgePaneSurfaceSelectionRetention {
+        replaceRetainedIntent(
+            .reviewTarget(
+                commandId: UUIDv7.generate().uuidString,
+                source: source,
+                target: target
+            )
+        )
     }
 
     mutating func bindRetainedIntent(
         paneSessionId: String,
         workerInstanceId: String
     ) throws -> BridgePaneSurfaceSelectionRequest? {
-        guard let desiredSurface else { return nil }
+        guard let retainedIntent else { return nil }
         if let currentRequest,
-            currentRequest.surface == desiredSurface,
+            currentRequest.navigationCommand.commandId == retainedIntent.commandId,
             currentRequest.paneSessionId == paneSessionId,
             currentRequest.workerInstanceId == workerInstanceId
         {
@@ -71,24 +140,54 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         }
         let acceptedBindingChanged =
             lastAcceptedRequest.map {
-                $0.surface == desiredSurface
+                $0.navigationCommand.commandId == retainedIntent.commandId
                     && ($0.paneSessionId != paneSessionId
                         || $0.workerInstanceId != workerInstanceId)
             } ?? false
         guard needsDelivery || currentRequest != nil || acceptedBindingChanged else { return nil }
         try BridgeProductContractDecoding.validateIdentifier(paneSessionId, codingPath: [])
         try BridgeProductContractDecoding.validateIdentifier(workerInstanceId, codingPath: [])
-        nextSelectionRevision += 1
+        nextBindingRevision += 1
         let request = BridgePaneSurfaceSelectionRequest(
-            requestId: UUIDv7.generate().uuidString,
-            selectionRevision: nextSelectionRevision,
-            surface: desiredSurface,
+            navigationCommand: retainedIntent.bind(revision: nextBindingRevision),
             paneSessionId: paneSessionId,
             workerInstanceId: workerInstanceId
         )
         currentRequest = request
         needsDelivery = false
         return request
+    }
+
+    mutating func invalidateCurrentBinding() -> String? {
+        let awaitingCommandId = retainedIntent?.commandId
+        currentRequest = nil
+        lastAcceptedRequest = nil
+        needsDelivery = retainedIntent != nil
+        return awaitingCommandId
+    }
+
+    mutating func invalidateRetainedReviewTarget(
+        ifSourceDoesNotMatch source: BridgeProductNavigationReviewSource
+    ) -> String? {
+        guard case .reviewTarget(let commandId, let retainedSource, _) = retainedIntent,
+            retainedSource != source
+        else {
+            return nil
+        }
+        _ = invalidate()
+        return commandId
+    }
+
+    mutating func invalidate() -> [String] {
+        let commandIds = Set(
+            [currentRequest?.requestId, lastAcceptedRequest?.requestId, retainedIntent?.commandId]
+                .compactMap { $0 }
+        )
+        currentRequest = nil
+        retainedIntent = nil
+        lastAcceptedRequest = nil
+        needsDelivery = false
+        return commandIds.sorted()
     }
 
     mutating func admitReceipt(
@@ -136,6 +235,20 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         lastAcceptedRequest = currentRequest
         needsDelivery = false
         return .accepted
+    }
+
+    private mutating func replaceRetainedIntent(
+        _ intent: BridgePaneSurfaceSelectionIntent
+    ) -> BridgePaneSurfaceSelectionRetention {
+        let supersededCommandId = retainedIntent?.commandId
+        retainedIntent = intent
+        currentRequest = nil
+        lastAcceptedRequest = nil
+        needsDelivery = true
+        return BridgePaneSurfaceSelectionRetention(
+            commandId: intent.commandId,
+            supersededCommandId: supersededCommandId
+        )
     }
 
     private func receiptMatches(

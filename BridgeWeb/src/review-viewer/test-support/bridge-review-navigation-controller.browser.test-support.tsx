@@ -5,14 +5,19 @@ import {
 	type BridgeReviewNavigationSelectionSource,
 	type BridgeReviewNavigationTarget,
 } from '../../app/bridge-app-review-navigation-controller.js';
-import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
+import type { BridgeProductNavigationCommand } from '../../core/comm-worker/bridge-product-session-contracts.js';
+
+type BridgeReviewTargetNavigationCommand = Extract<
+	BridgeProductNavigationCommand,
+	{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+>;
 
 export function ReviewNavigationControllerProbe(props: {
 	readonly events: string[];
 }): ReactElement {
 	const [catalogRevision, setCatalogRevision] = useState(1);
-	const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(() =>
-		reviewNavigationCommand('command-two', 'item-two'),
+	const [navigationCommand, setNavigationCommand] = useState<BridgeReviewTargetNavigationCommand>(
+		() => reviewNavigationCommand('command-two', 'item-two'),
 	);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 	const [orderedItemIds, setOrderedItemIds] = useState<readonly string[]>(['item-one', 'item-two']);
@@ -70,17 +75,21 @@ export function ReviewNavigationControllerProbe(props: {
 export function reviewNavigationCommand(
 	commandId: string,
 	reviewItemId: string,
-): BridgeViewerNavigationCommand {
+): BridgeReviewTargetNavigationCommand {
 	return {
+		bindingRevision: 1,
 		commandId,
 		commandKind: 'activateTarget',
-		context: 'review',
-		restoreMemory: false,
-		source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
+		source: {
+			generation: 1,
+			metadataSourceId: 'review-fixture',
+			packageId: 'review-package',
+			sourceKind: 'review',
+		},
+		surface: 'review',
 		target: {
-			comparisonId: 'review-comparison',
 			reviewItemId,
-			targetKind: 'diff',
+			targetKind: 'review',
 		},
 	};
 }

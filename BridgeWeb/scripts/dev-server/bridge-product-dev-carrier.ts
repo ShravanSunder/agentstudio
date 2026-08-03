@@ -64,8 +64,10 @@ import {
 	bridgeProductDevRequestMatchesSession,
 	isBridgeProductDevExactRetry,
 	openBridgeProductDevMetadataWriter,
+	publishBridgeProductDevNavigationIfReady,
 	reconcileBridgeProductDevSession,
 	retireBridgeProductDevSession,
+	type BridgeProductDevNavigationBinding,
 	type BridgeProductDevSession,
 } from './bridge-product-dev-session.js';
 import { handleBridgeProductDevSubscriptionControl } from './bridge-product-dev-subscription-handler.js';
@@ -105,7 +107,13 @@ export class BridgeProductDevCarrier {
 	readonly #getFileProvider: BridgeProductDevCarrierProps['getFileProvider'];
 	readonly #getReviewSourceConfig: BridgeProductDevCarrierProps['getReviewSourceConfig'];
 	readonly #createReviewAdapter: NonNullable<BridgeProductDevCarrierProps['createReviewAdapter']>;
-	readonly #pendingBootstrapsByCapability = new Map<string, BridgeProductSessionBootstrap>();
+	readonly #pendingBootstrapsByCapability = new Map<
+		string,
+		{
+			readonly bootstrap: BridgeProductSessionBootstrap;
+			readonly navigationBinding: BridgeProductDevNavigationBinding;
+		}
+	>();
 	readonly #sessionsByCapability = new Map<string, BridgeProductDevSession>();
 	#workerSequence = 0;
 
@@ -197,6 +205,7 @@ export class BridgeProductDevCarrier {
 				nativeActivity: 'foreground',
 				refreshingLanes: [],
 			});
+			await publishBridgeProductDevNavigationIfReady(session);
 		} catch (error: unknown) {
 			this.#handleStreamingError(props.response, error);
 		}
@@ -286,9 +295,18 @@ export class BridgeProductDevCarrier {
 		this.#workerSequence = (this.#workerSequence + 1) % Number.MAX_SAFE_INTEGER;
 		const paneSessionId =
 			request.reason === 'initial' ? `vite-dev-pane-${randomUUID()}` : request.paneSessionId;
+		const previousNavigationBinding =
+			request.reason === 'workerReplacement' ? this.#navigationBindingForPane(paneSessionId) : null;
 		if (request.reason === 'workerReplacement') {
 			if (!this.#hasPaneAuthority(paneSessionId)) {
 				throw new Error('Bridge product dev replacement pane is not registered.');
+			}
+			if (
+				previousNavigationBinding === null ||
+				JSON.stringify(previousNavigationBinding.intent) !==
+					JSON.stringify(request.navigationIntent)
+			) {
+				throw new Error('Bridge product dev replacement navigation intent changed.');
 			}
 			this.#retirePaneAuthorities(paneSessionId);
 		}
@@ -308,7 +326,14 @@ export class BridgeProductDevCarrier {
 		});
 		const capabilityBytes = randomBytes(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH);
 		const capability = capabilityBytes.toString('base64url');
-		this.#pendingBootstrapsByCapability.set(capability, bootstrap);
+		this.#pendingBootstrapsByCapability.set(capability, {
+			bootstrap,
+			navigationBinding: {
+				bindingRevision: (previousNavigationBinding?.bindingRevision ?? 0) + 1,
+				intent: request.navigationIntent,
+				navigationCommandEnqueued: false,
+			},
+		});
 		return {
 			bootstrap,
 			productCapability: Uint8Array.from(capabilityBytes).buffer,
@@ -360,9 +385,9 @@ export class BridgeProductDevCarrier {
 			pendingBootstrap === undefined ||
 			props.request.kind !== 'workerSession.open' ||
 			props.request.requestSequence !== 1 ||
-			props.request.paneSessionId !== pendingBootstrap.paneSessionId ||
-			props.request.workerInstanceId !== pendingBootstrap.workerInstanceId ||
-			props.request.wireVersion !== pendingBootstrap.wireVersion
+			props.request.paneSessionId !== pendingBootstrap.bootstrap.paneSessionId ||
+			props.request.workerInstanceId !== pendingBootstrap.bootstrap.workerInstanceId ||
+			props.request.wireVersion !== pendingBootstrap.bootstrap.wireVersion
 		) {
 			writeBridgeProductDevError(props.props.response, 401, 'Unauthorized');
 			return;
@@ -398,6 +423,7 @@ export class BridgeProductDevCarrier {
 				return reviewAdapterPromise;
 			},
 			metadataWriter: null,
+			navigationBinding: pendingBootstrap.navigationBinding,
 			paneSessionId: props.request.paneSessionId,
 			pendingControl: Promise.resolve(),
 			resyncResumeFromStreamSequence: null,
@@ -511,8 +537,8 @@ export class BridgeProductDevCarrier {
 	}
 
 	#retirePaneAuthorities(paneSessionId: string): void {
-		for (const [capability, bootstrap] of this.#pendingBootstrapsByCapability) {
-			if (bootstrap.paneSessionId === paneSessionId) {
+		for (const [capability, pendingBootstrap] of this.#pendingBootstrapsByCapability) {
+			if (pendingBootstrap.bootstrap.paneSessionId === paneSessionId) {
 				this.#pendingBootstrapsByCapability.delete(capability);
 			}
 		}
@@ -531,13 +557,25 @@ export class BridgeProductDevCarrier {
 	}
 
 	#hasPaneAuthority(paneSessionId: string): boolean {
-		for (const bootstrap of this.#pendingBootstrapsByCapability.values()) {
-			if (bootstrap.paneSessionId === paneSessionId) return true;
+		for (const pendingBootstrap of this.#pendingBootstrapsByCapability.values()) {
+			if (pendingBootstrap.bootstrap.paneSessionId === paneSessionId) return true;
 		}
 		for (const session of this.#sessionsByCapability.values()) {
 			if (session.paneSessionId === paneSessionId) return true;
 		}
 		return false;
+	}
+
+	#navigationBindingForPane(paneSessionId: string): BridgeProductDevNavigationBinding | null {
+		for (const pendingBootstrap of this.#pendingBootstrapsByCapability.values()) {
+			if (pendingBootstrap.bootstrap.paneSessionId === paneSessionId) {
+				return pendingBootstrap.navigationBinding;
+			}
+		}
+		for (const session of this.#sessionsByCapability.values()) {
+			if (session.paneSessionId === paneSessionId) return session.navigationBinding;
+		}
+		return null;
 	}
 
 	#authenticatedSession(request: IncomingMessage): BridgeProductDevSession | null {

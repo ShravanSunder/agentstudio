@@ -12,7 +12,7 @@ import {
 	commitBridgeReviewPresentationSelection,
 	scheduleReviewMarkFileViewedCommand,
 } from '../app/bridge-app-review-selection-controller.js';
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
+import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 
 const recoveredReviewSourcePaths = [
 	'../app/bridge-app-review-navigation-controller.ts',
@@ -110,11 +110,19 @@ describe('Review viewer S1a recovery source structure', () => {
 			'../app/bridge-app-review-navigation-controller.ts',
 		);
 
-		expect(navigationSource).toContain('appliedNavigationCommandIdRef');
+		expect(navigationSource).toContain('appliedNavigationApplicationKeyRef');
 		expect(navigationSource).toContain('resolveBridgeReviewNavigationTarget');
 		expect(navigationSource).toContain('onTargetOutsideAcceptedProjection');
 		expect(navigationSource).toContain('orderedItemIds[0]');
 		expect(navigationSource).not.toContain('BridgeReviewPackage');
+	});
+
+	test('has no direct page-event path for Review selection', () => {
+		const controlListenerSource = readOptionalSource(
+			'../app/use-bridge-review-control-event-listeners.ts',
+		);
+
+		expect(controlListenerSource).not.toContain('__bridge_select_review_item');
 	});
 
 	test('resolves explicit Review navigation only inside the accepted projection', () => {
@@ -316,17 +324,26 @@ function sourceBetween(source: string, startToken: string, endToken: string): st
 	return startIndex < 0 || endIndex < 0 ? '' : source.slice(startIndex, endIndex);
 }
 
-function reviewNavigationCommand(reviewItemId: string): BridgeViewerNavigationCommand {
+function reviewNavigationCommand(
+	reviewItemId: string,
+): Extract<
+	BridgeProductNavigationCommand,
+	{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+> {
 	return {
+		bindingRevision: 1,
 		commandId: 'review-navigation-command',
 		commandKind: 'activateTarget',
-		context: 'review',
-		restoreMemory: false,
-		source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
+		source: {
+			generation: 1,
+			metadataSourceId: 'review-fixture',
+			packageId: 'review-package',
+			sourceKind: 'review',
+		},
+		surface: 'review',
 		target: {
-			comparisonId: 'review-comparison',
 			reviewItemId,
-			targetKind: 'diff',
+			targetKind: 'review',
 		},
 	};
 }

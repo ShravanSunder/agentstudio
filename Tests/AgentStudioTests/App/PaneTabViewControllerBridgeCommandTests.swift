@@ -87,7 +87,7 @@ extension WebKitSerializedTests {
                 let attendanceAfterReuse = try #require(
                     harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id)
                 )
-                #expect(initialSelection.selectionRevision < fileSelection.selectionRevision)
+                #expect(initialSelection.bindingRevision < fileSelection.bindingRevision)
                 #expect(attendanceAfterReuse == initialAttendanceOrdinal + 1)
                 #expect(harness.store.paneAtom.panes.count == paneCountWithDistractor)
                 #expect(harness.store.tabLayoutAtom.tabs.count == tabCountWithDistractor)
@@ -306,7 +306,9 @@ extension WebKitSerializedTests {
                             return false
                         }
                         return snapshot.currentRequest == nil
-                            && acceptedRequest.requestId != reviewRequestBeforeReload.requestId
+                            && acceptedRequest.requestId == reviewRequestBeforeReload.requestId
+                            && acceptedRequest.bindingRevision
+                                > reviewRequestBeforeReload.bindingRevision
                             && acceptedRequest.surface == .review
                             && acceptedRequest.paneSessionId == activeBootstrap.paneSessionId
                             && acceptedRequest.workerInstanceId == activeBootstrap.workerInstanceId

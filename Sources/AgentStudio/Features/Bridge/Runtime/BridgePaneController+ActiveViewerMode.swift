@@ -78,6 +78,7 @@ extension BridgePaneController {
             surfaceSelectionReceiptDisposition == .accepted
                 || surfaceSelectionReceiptDisposition == .idempotentReplay
         {
+            resolveSurfaceSelectionWaiter(commandId: nativeSelectionRequestId)
             await productSchemeProvider?.settlePaneSurfaceSelectionRequest(
                 requestId: nativeSelectionRequestId,
                 productAdmission: productAdmission
