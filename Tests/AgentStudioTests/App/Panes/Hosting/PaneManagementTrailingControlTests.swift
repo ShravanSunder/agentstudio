@@ -135,15 +135,14 @@ struct PaneManagementTrailingControlTests {
         )
 
         atom(\.managementLayer).activate()
-        for _ in 0..<20 {
-            await Task.yield()
+        await eventually(
+            "management identity should render after activating management mode"
+        ) {
             hostingView.layoutSubtreeIfNeeded()
-            if findAccessibilityView(
+            return findAccessibilityView(
                 in: hostingView,
                 identifier: "paneManagement.identityStrip"
-            ) != nil {
-                break
-            }
+            ) != nil
         }
 
         let identityView = try #require(
