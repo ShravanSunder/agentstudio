@@ -95,6 +95,40 @@ struct BridgePaneSurfaceSelectionContractTests {
             #"{"path":"\uD800","targetKind":"file","version":"current"}"#
         let invalidUnicodeReviewTarget =
             #"{"path":"\uD800","reviewItemId":"review-item-1","targetKind":"review","version":"head"}"#
+        let maximumFileTargetData = try JSONSerialization.data(
+            withJSONObject: [
+                "path": maximumMultibytePath,
+                "targetKind": "file",
+                "version": "current",
+            ],
+            options: [.sortedKeys]
+        )
+        let oversizedFileTargetData = try JSONSerialization.data(
+            withJSONObject: [
+                "path": oversizedMultibytePath,
+                "targetKind": "file",
+                "version": "current",
+            ],
+            options: [.sortedKeys]
+        )
+        let maximumReviewTargetData = try JSONSerialization.data(
+            withJSONObject: [
+                "path": maximumMultibytePath,
+                "reviewItemId": "review-item-1",
+                "targetKind": "review",
+                "version": "head",
+            ],
+            options: [.sortedKeys]
+        )
+        let oversizedReviewTargetData = try JSONSerialization.data(
+            withJSONObject: [
+                "path": oversizedMultibytePath,
+                "reviewItemId": "review-item-1",
+                "targetKind": "review",
+                "version": "head",
+            ],
+            options: [.sortedKeys]
+        )
 
         // Act / Assert
         #expect(maximumMultibytePath.utf8.count == 4096)
@@ -103,6 +137,26 @@ struct BridgePaneSurfaceSelectionContractTests {
         _ = try JSONEncoder().encode(maximumReviewTarget)
         #expect(throws: (any Error).self) { try JSONEncoder().encode(oversizedFileTarget) }
         #expect(throws: (any Error).self) { try JSONEncoder().encode(oversizedReviewTarget) }
+        _ = try BridgeProductStrictJSON.decode(
+            BridgeProductNavigationFileTarget.self,
+            from: maximumFileTargetData
+        )
+        _ = try BridgeProductStrictJSON.decode(
+            BridgeProductNavigationReviewTarget.self,
+            from: maximumReviewTargetData
+        )
+        #expect(throws: (any Error).self) {
+            try BridgeProductStrictJSON.decode(
+                BridgeProductNavigationFileTarget.self,
+                from: oversizedFileTargetData
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try BridgeProductStrictJSON.decode(
+                BridgeProductNavigationReviewTarget.self,
+                from: oversizedReviewTargetData
+            )
+        }
         #expect(throws: (any Error).self) {
             try BridgeProductStrictJSON.decode(
                 BridgeProductNavigationFileTarget.self,
@@ -114,6 +168,24 @@ struct BridgePaneSurfaceSelectionContractTests {
                 BridgeProductNavigationReviewTarget.self,
                 from: Data(invalidUnicodeReviewTarget.utf8)
             )
+        }
+    }
+
+    @Test("Review navigation target rejects explicit null optional members")
+    func reviewNavigationTargetRejectsExplicitNullOptionalMembers() {
+        let targetsWithExplicitNull = [
+            #"{"path":null,"reviewItemId":"review-item-1","targetKind":"review"}"#,
+            #"{"path":"README.md","reviewItemId":null,"targetKind":"review","version":"head"}"#,
+            #"{"reviewItemId":"review-item-1","targetKind":"review","version":null}"#,
+        ]
+
+        for targetJSON in targetsWithExplicitNull {
+            #expect(throws: (any Error).self) {
+                try BridgeProductStrictJSON.decode(
+                    BridgeProductNavigationReviewTarget.self,
+                    from: Data(targetJSON.utf8)
+                )
+            }
         }
     }
 

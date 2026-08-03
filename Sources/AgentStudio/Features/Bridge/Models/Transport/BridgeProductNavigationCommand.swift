@@ -224,6 +224,14 @@ struct BridgeProductNavigationReviewTarget: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        for key in [CodingKeys.path, .reviewItemId, .version] where container.contains(key) {
+            if try container.decodeNil(forKey: key) {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review navigation optional members must be omitted rather than null",
+                    codingPath: decoder.codingPath
+                )
+            }
+        }
         path = try container.decodeIfPresent(String.self, forKey: .path)
         reviewItemId = try container.decodeIfPresent(String.self, forKey: .reviewItemId)
         version = try container.decodeIfPresent(

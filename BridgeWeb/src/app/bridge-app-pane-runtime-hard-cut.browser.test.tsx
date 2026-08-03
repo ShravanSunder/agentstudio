@@ -42,6 +42,7 @@ import {
 	bridgePaneReplacementFileItemId,
 	bridgePaneReplacementFilePath,
 	establishSemanticSurfacePosition,
+	exercisePendingFileTargetSupersession,
 	installBridgePanePositionFixtures,
 	replaceFilePositionFixtureWithTarget,
 	waitForScrollableSurfaceOwners,
@@ -570,6 +571,32 @@ describe('BridgeApp pane runtime hard cut', () => {
 					command.selectedItemId === bridgePaneReplacementFileItemId,
 			),
 		).toBe(false);
+	});
+
+	test('revokes an unresolved File target when a newer binding waits for another source', async () => {
+		// Arrange
+		await actWait(async (): Promise<void> => {
+			await render(<BridgeAppProtocolRouter protocol="review" />);
+			await Promise.resolve();
+		});
+
+		// Act
+		const result = await exercisePendingFileTargetSupersession({
+			fileRenderStore: requireRenderStore('fileView'),
+			hasSelectedReplacementTarget: (): boolean =>
+				paneRuntimeObservation.surfaceCommands.some(
+					({ command, surface }): boolean =>
+						surface === 'fileView' &&
+						command.command === 'select' &&
+						command.selectedItemId === bridgePaneReplacementFileItemId,
+				),
+			publishTarget: publishNativeFileTargetSelectionRequest,
+			reviewRenderStore: requireRenderStore('review'),
+		});
+
+		// Assert
+		expect(result.beforeSupersession).toBe(false);
+		expect(result.afterSupersession).toBe(false);
 	});
 
 	test('retains real File and Review tree and code positions across native surface requests', async () => {

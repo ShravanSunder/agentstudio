@@ -134,6 +134,31 @@ describe('BridgeApp navigation admission', () => {
 		expect(admitted.targetCommands.review).toEqual(successorCommand);
 	});
 
+	test('newer pending exact target immediately revokes the superseded same-surface target', () => {
+		const oldSource = { ...reviewSource, generation: 6, packageId: 'review-package-old' };
+		const oldTarget = {
+			...reviewCommand({ bindingRevision: 7, commandId: 'review-old-target' }),
+			source: oldSource,
+		};
+		const withOldTarget = applyBridgeAppNavigationCommand(
+			reportBridgeAppAcceptedNavigationSource(
+				createBridgeAppNavigationAdmissionState('review'),
+				oldSource,
+			),
+			oldTarget,
+		);
+		const successorCommand = reviewCommand({
+			bindingRevision: 8,
+			commandId: 'review-successor-target',
+		});
+
+		const pending = applyBridgeAppNavigationCommand(withOldTarget, successorCommand);
+
+		expect(pending.pendingCommand).toEqual(successorCommand);
+		expect(pending.targetCommands.review).toBeUndefined();
+		expect(bridgeAppRememberedNavigationTargetIsEligible(pending, oldTarget)).toBe(false);
+	});
+
 	test('revokes File targets on either source field rotation', () => {
 		for (const rotatedSource of [
 			{ ...fileSource, sourceId: 'file-source-2' },

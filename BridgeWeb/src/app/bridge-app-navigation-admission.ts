@@ -75,11 +75,13 @@ export function applyBridgeAppNavigationCommand(
 		};
 	}
 	const acceptedSource = state.acceptedSources[command.surface];
-	if (acceptedSource === null) {
-		return { ...state, ...nextIdentity, pendingCommand: command };
-	}
-	if (!bridgeAppNavigationSourcesEqual(acceptedSource, command.source)) {
-		return { ...state, ...nextIdentity, pendingCommand: command };
+	if (acceptedSource === null || !bridgeAppNavigationSourcesEqual(acceptedSource, command.source)) {
+		return {
+			...state,
+			...nextIdentity,
+			pendingCommand: command,
+			targetCommands: { ...state.targetCommands, [command.surface]: undefined },
+		};
 	}
 	return {
 		...state,

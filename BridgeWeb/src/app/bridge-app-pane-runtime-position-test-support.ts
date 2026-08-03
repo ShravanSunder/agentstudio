@@ -57,51 +57,7 @@ export function replaceFilePositionFixtureWithTarget(
 				payload: { sourceGeneration: 2, sourceId: 'replacement-file-source' },
 				slice: 'fileTree',
 			},
-			{
-				operation: 'batch',
-				payload: {
-					operations: [
-						{
-							operation: 'upsert',
-							row: {
-								changeStatus: 'modified',
-								depth: 1,
-								fileClass: 'source',
-								fileId: bridgePaneReplacementFileItemId,
-								isDirectory: false,
-								lineCount: 1,
-								name: 'ReplacementOnly.swift',
-								parentPath: 'Sources',
-								path: bridgePaneReplacementFilePath,
-								projectionIndex: 0,
-								rowId: 'replacement-file-row-001',
-								sizeBytes: 32,
-							},
-						},
-					],
-				},
-				slice: 'fileTree',
-			},
-			{
-				itemId: bridgePaneReplacementFileItemId,
-				operation: 'upsert',
-				payload: {
-					availability: { kind: 'available' },
-					displayPath: bridgePaneReplacementFilePath,
-					endsMidLine: false,
-					endsWithNewline: true,
-					extent: { kind: 'exactLineCount', lineCount: 1 },
-					fileExtension: 'swift',
-					language: 'swift',
-					payloadByteCount: 32,
-					payloadLineCount: 1,
-					rowId: 'replacement-file-row-001',
-					sizeBytes: 32,
-					totalLineCount: 1,
-					truncationKind: 'none',
-				},
-				slice: 'fileItem',
-			},
+			...replacementFileTargetPatches(0),
 		],
 		projectionRevision: 2,
 		sequence: 2,
@@ -109,6 +65,116 @@ export function replaceFilePositionFixtureWithTarget(
 		transferDescriptors: [],
 		wireVersion: 1,
 	});
+}
+
+export function addReplacementFileTargetToCurrentSource(
+	renderStore: BridgeMainRenderSnapshotStore,
+): void {
+	renderStore.applyFileDisplayPatchEvent({
+		direction: 'serverWorkerToMain',
+		epoch: 1,
+		kind: 'fileDisplayPatch',
+		patches: replacementFileTargetPatches(fileTreeRowCount),
+		projectionRevision: 2,
+		sequence: 2,
+		surface: 'fileView',
+		transferDescriptors: [],
+		wireVersion: 1,
+	});
+}
+
+export async function exercisePendingFileTargetSupersession(props: {
+	readonly fileRenderStore: BridgeMainRenderSnapshotStore;
+	readonly hasSelectedReplacementTarget: () => boolean;
+	readonly publishTarget: (target: {
+		readonly bindingRevision: number;
+		readonly commandId: string;
+		readonly path: string;
+		readonly sourceId: string;
+		readonly subscriptionGeneration: number;
+	}) => Promise<void>;
+	readonly reviewRenderStore: BridgeMainRenderSnapshotStore;
+}): Promise<{ readonly afterSupersession: boolean; readonly beforeSupersession: boolean }> {
+	await actWait(async (): Promise<void> => {
+		installBridgePanePositionFixtures(props);
+		await Promise.resolve();
+	});
+	await props.publishTarget({
+		bindingRevision: 1,
+		commandId: 'native-file-target-source-a',
+		path: bridgePaneReplacementFilePath,
+		sourceId: 'position-file-source',
+		subscriptionGeneration: 1,
+	});
+	const beforeSupersession = props.hasSelectedReplacementTarget();
+	await props.publishTarget({
+		bindingRevision: 2,
+		commandId: 'native-file-target-source-b',
+		path: bridgePaneReplacementFilePath,
+		sourceId: 'replacement-file-source',
+		subscriptionGeneration: 2,
+	});
+	await actWait(async (): Promise<void> => {
+		addReplacementFileTargetToCurrentSource(props.fileRenderStore);
+		await Promise.resolve();
+	});
+	await advanceAnimationFrame();
+	return {
+		afterSupersession: props.hasSelectedReplacementTarget(),
+		beforeSupersession,
+	};
+}
+
+function replacementFileTargetPatches(
+	projectionIndex: number,
+): BridgeWorkerFileDisplayPatchEvent['patches'] {
+	return [
+		{
+			operation: 'batch',
+			payload: {
+				operations: [
+					{
+						operation: 'upsert',
+						row: {
+							changeStatus: 'modified',
+							depth: 1,
+							fileClass: 'source',
+							fileId: bridgePaneReplacementFileItemId,
+							isDirectory: false,
+							lineCount: 1,
+							name: 'ReplacementOnly.swift',
+							parentPath: 'Sources',
+							path: bridgePaneReplacementFilePath,
+							projectionIndex,
+							rowId: 'replacement-file-row-001',
+							sizeBytes: 32,
+						},
+					},
+				],
+			},
+			slice: 'fileTree',
+		},
+		{
+			itemId: bridgePaneReplacementFileItemId,
+			operation: 'upsert',
+			payload: {
+				availability: { kind: 'available' },
+				displayPath: bridgePaneReplacementFilePath,
+				endsMidLine: false,
+				endsWithNewline: true,
+				extent: { kind: 'exactLineCount', lineCount: 1 },
+				fileExtension: 'swift',
+				language: 'swift',
+				payloadByteCount: 32,
+				payloadLineCount: 1,
+				rowId: 'replacement-file-row-001',
+				sizeBytes: 32,
+				totalLineCount: 1,
+				truncationKind: 'none',
+			},
+			slice: 'fileItem',
+		},
+	];
 }
 
 export async function waitForScrollableSurfaceOwners(props: {
