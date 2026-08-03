@@ -90,7 +90,7 @@ struct RepoScannerSessionTests {
         let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
 
         // Act
-        let validationOutcome = await session.advanceOneQuantum()
+        let validationOutcome = await nextValidationRequest(session)
         guard case .validationRequired(let request) = validationOutcome else {
             Issue.record("expected validation request, got \(validationOutcome)")
             return
@@ -209,7 +209,7 @@ struct RepoScannerSessionTests {
         let fixture = try ScannerSessionFixture(candidateNames: ["alpha"])
         defer { fixture.remove() }
         let session = RepoScanner().makeSession(in: fixture.root, maxDepth: 1)
-        guard case .validationRequired(let request) = await session.advanceOneQuantum() else {
+        guard case .validationRequired(let request) = await nextValidationRequest(session) else {
             Issue.record("expected validation request")
             return
         }

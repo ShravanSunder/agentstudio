@@ -44,22 +44,50 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
+    @Test("CI jobs use descriptive check names")
+    func ciJobsUseDescriptiveCheckNames() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+
+        #expect(workflow.contains("  code-quality:\n    name: Code quality"))
+        #expect(workflow.contains("  bridge-web-validation:\n    name: BridgeWeb validation"))
+        #expect(workflow.contains("  swift-test-suite:\n    name: Swift test suite"))
+        #expect(!workflow.contains("  static:"))
+        #expect(!workflow.contains("  test:"))
+    }
+
+    @Test("CI checkouts do not persist workflow credentials")
+    func ciCheckoutsDoNotPersistWorkflowCredentials() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+
+        for jobName in ["code-quality", "bridge-web-validation", "swift-test-suite"] {
+            let job = try workflowJob(named: jobName, in: workflow)
+            let checkoutStep = try workflowStep(named: "Checkout", in: job)
+
+            #expect(checkoutStep.contains("persist-credentials: false"))
+        }
+    }
+
     @Test("Swift build cache rolls forward per commit within a compatible toolchain")
     func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
-        let cacheStep = try workflowStep(named: "Cache Swift build", in: ciWorkflow)
+        let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: ciWorkflow)
+        let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: ciWorkflow)
 
-        #expect(cacheStep.contains("path: .build-ci"))
+        #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
-            cacheStep.contains(
-                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}"
+            restoreCacheStep.contains(
+                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ hashFiles('Package.swift', 'Package.resolved') }}"
             )
         )
         #expect(
-            cacheStep.contains(
-                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-"
+            restoreCacheStep.contains(
+                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || 'main-' }}"
             )
         )
+        #expect(restoreCacheStep.contains("actions/cache/restore@v4"))
+        #expect(saveCacheStep.contains("path: .build-ci"))
+        #expect(saveCacheStep.contains("actions/cache/save@v4"))
+        #expect(saveCacheStep.contains("steps.swift-build-cache-restore.outputs.cache-primary-key"))
     }
 
     @Test("benchmark workflow uses the canonical CI Swift build directory")
@@ -140,10 +168,11 @@ struct CIFastLaneWorkflowTests {
         #expect(ciWorkflow.contains("path: .build-ci"))
         #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
-        #expect(prebuildStep.contains("run: mise run test:swift:prebuild"))
+        #expect(prebuildStep.contains("run: mise run --skip-deps test:swift:prebuild"))
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
+        #expect(fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run --raw test:swift:fast"))
@@ -177,7 +206,7 @@ struct CIFastLaneWorkflowTests {
         #expect(nonSerializedRunner.contains("--skip E2ESerializedTests"))
         #expect(nonSerializedRunner.contains("--skip ZmxE2ETests"))
         #expect(fastRunner.contains("--parallel"))
-        #expect(!fastRunner.contains("--num-workers"))
+        #expect(fastRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
         #expect(
             fastRunner.contains(
                 "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\""

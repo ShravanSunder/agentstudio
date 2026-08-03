@@ -71,6 +71,12 @@ interface ReviewSelectionProof {
 	readonly paintedPublicationId: string | null;
 }
 
+interface ReviewSelectionBrowserSnapshot {
+	readonly bodyText: string;
+	readonly encodedCorrelations: string;
+	readonly paintedPublicationId: string | null;
+}
+
 interface FileContentScrollProof {
 	readonly finalMarkerPainted: boolean;
 	readonly firstMarkerPainted: boolean;
@@ -796,10 +802,10 @@ async function selectReviewFileAndReadProof(props: {
 		if (!(row instanceof HTMLElement)) throw new Error(`Review file row missing: ${path}`);
 		row.click();
 	}, props.reviewFile.path);
-	await props.page.waitForFunction(
-		(itemId: string): boolean => {
+	const snapshotHandle = await props.page.waitForFunction(
+		(itemId: string): ReviewSelectionBrowserSnapshot | null => {
 			const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
-			if (panel?.getAttribute('data-selected-item-id') !== itemId) return false;
+			if (panel?.getAttribute('data-selected-item-id') !== itemId) return null;
 			for (const host of queryAllOpenShadowRoots(panel, 'diffs-container')) {
 				const marker =
 					host.querySelector('[data-bridge-code-view-item-id]') ??
@@ -819,10 +825,15 @@ async function selectReviewFileAndReadProof(props: {
 							correlation.semanticItemId === itemId,
 					)
 				) {
-					return true;
+					return {
+						bodyText: host.shadowRoot?.textContent ?? host.textContent ?? '',
+						encodedCorrelations:
+							host.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
+						paintedPublicationId: host.getAttribute('data-bridge-painted-publication-id'),
+					};
 				}
 			}
-			return false;
+			return null;
 
 			// oxlint-disable-next-line unicorn/consistent-function-scoping -- Playwright browser evaluation must carry this helper into the page realm.
 			function queryAllOpenShadowRoots(root: Element, selector: string): Element[] {
@@ -842,37 +853,9 @@ async function selectReviewFileAndReadProof(props: {
 		props.reviewFile.itemId,
 		{ timeout: productJourneyTimeoutMilliseconds },
 	);
-	const snapshot = await props.page.evaluate((itemId: string) => {
-		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
-		if (panel === null) throw new Error('Review code panel missing.');
-		for (const host of queryAllOpenShadowRoots(panel, 'diffs-container')) {
-			const marker =
-				host.querySelector('[data-bridge-code-view-item-id]') ??
-				host.shadowRoot?.querySelector('[data-bridge-code-view-item-id]');
-			if (marker?.getAttribute('data-bridge-code-view-item-id') !== itemId) continue;
-			return {
-				bodyText: host.shadowRoot?.textContent ?? host.textContent ?? '',
-				encodedCorrelations: host.getAttribute('data-bridge-painted-source-correlations') ?? '[]',
-				paintedPublicationId: host.getAttribute('data-bridge-painted-publication-id'),
-			};
-		}
-		throw new Error(`Review painted host missing: ${itemId}`);
-
-		// oxlint-disable-next-line unicorn/consistent-function-scoping -- Playwright browser evaluation must carry this helper into the page realm.
-		function queryAllOpenShadowRoots(root: Element, selector: string): Element[] {
-			const matches: Element[] = [];
-			const pending: Array<Element | ShadowRoot> = [root];
-			while (pending.length > 0) {
-				const current = pending.shift();
-				if (current === undefined) break;
-				matches.push(...current.querySelectorAll(selector));
-				for (const descendant of current.querySelectorAll('*')) {
-					if (descendant.shadowRoot !== null) pending.push(descendant.shadowRoot);
-				}
-			}
-			return matches;
-		}
-	}, props.reviewFile.itemId);
+	const snapshot = await snapshotHandle.jsonValue();
+	await snapshotHandle.dispose();
+	if (snapshot === null) throw new Error(`Review painted host missing: ${props.reviewFile.itemId}`);
 	return {
 		bodyText: snapshot.bodyText,
 		paintedCorrelations: decodePaintedSourceCorrelations(snapshot.encodedCorrelations),
