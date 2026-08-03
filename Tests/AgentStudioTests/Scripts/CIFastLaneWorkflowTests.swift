@@ -76,12 +76,17 @@ struct CIFastLaneWorkflowTests {
         #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
             restoreCacheStep.contains(
-                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ hashFiles('Package.swift', 'Package.resolved') }}"
+                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}"
             )
         )
         #expect(
             restoreCacheStep.contains(
-                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || 'main-' }}"
+                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-"
+            )
+        )
+        #expect(
+            !restoreCacheStep.contains(
+                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request'"
             )
         )
         #expect(restoreCacheStep.contains("actions/cache/restore@v4"))

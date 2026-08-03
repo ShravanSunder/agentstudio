@@ -231,9 +231,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build-ci
-          key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          # Cache keys are immutable; include the commit so each PR update can save a fresh build.
+          key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
           restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || 'main-' }}
+            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-
             swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-
 
       - name: Prebuild Swift test bundles
