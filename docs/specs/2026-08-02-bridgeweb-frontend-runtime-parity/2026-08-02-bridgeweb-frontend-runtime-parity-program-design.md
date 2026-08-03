@@ -293,10 +293,11 @@ deadline, continuation waiter, target-completion receipt, or second
 acknowledgement is added.
 
 Exact-target application remains owned by the existing Files/Review navigation
-controllers. An inactive File surface remains inert unless a pending exact
-File command needs its accepted source fact; only that pending-command case may
-start the existing headless source reporter, and clearing the pending command
-returns the inactive surface to its prior inert lifecycle.
+controllers. The comm worker preserves the packaged baseline's canonical eager
+File and Review product subscriptions. A pending exact File command may use the
+existing headless source reporter to expose the already-accepted File source
+fact while the File UI remains inactive; that reporter does not start, stop, or
+otherwise own the product subscription lifecycle.
 
 Navigation delivery uses the existing pane/worker binding lifecycle:
 
@@ -493,7 +494,7 @@ transport selection are accepted.
 | --- | --- | --- |
 | R1 | shared runtime constructed by both entries | shared behavior tests plus real Vite and packaged journeys |
 | R2 | required simple `BridgeProductRequestExecutor`; packaged and HTTP endpoint bindings; one shared admission owner with default twelve and Vite-supplied four | executor contract proof that no queue/lifecycle exists inside either function; shared admission proof for packaged twelve and Vite four; hidden-waiter pause/resume, abort/release, and real metadata/control progress under saturated Vite content demand |
-| R3 | discriminated navigation schema with the existing 4,096-byte display-path boundary, complete producer source binding for exact targets, ordered Vite metadata admission, comm-worker frame admission, accepted navigation-source facts, `BridgeApp` admission/revocation and source-bound application key, existing target owners, and hard-cut packaged IPC Review producer | 4,096/4,097 boundary proof before retention in TypeScript and Swift; deterministic subscription sequence-zero-before-one proof with existing observation pacing; inactive File lifecycle proof with and without a pending exact target; real-worker integration for Files, Review, `README.md`, pending source, mismatch, source rotation before application, stale revision, same-binding replay, newer valid rebind, and packaged IPC command journey whose selected/error vocabulary is unchanged and has no direct page event |
+| R3 | discriminated navigation schema with the existing 4,096-byte display-path boundary, complete producer source binding for exact targets, ordered Vite metadata admission, comm-worker frame admission, accepted navigation-source facts, `BridgeApp` admission/revocation and source-bound application key, existing target owners, and hard-cut packaged IPC Review producer | 4,096/4,097 boundary proof before retention in TypeScript and Swift; deterministic subscription sequence-zero-before-one proof with existing observation pacing; canonical eager File/Review subscription proof plus pending exact-File headless source reporting; real-worker integration for Files, Review, `README.md`, pending source, mismatch, source rotation before application, stale revision, same-binding replay, newer valid rebind, and packaged IPC command journey whose selected/error vocabulary is unchanged and has no direct page event |
 | R4 | entry-only imports and forbidden dependency rules | static source/import enforcement and build graph inspection |
 | R5 | Vite entry/HMR reconstructs the same runtime | live Vite browser journey across an HMR update |
 | R6 | hard-cut source inspection; unchanged backend authorities | final diff plus packaged native-authority journey |

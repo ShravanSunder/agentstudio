@@ -255,9 +255,9 @@ Focused red/green proof:
 - Review metadata-source, Review-generation, or package-id change revokes
   pending and remembered targets;
 - Review publication-id-only change does not revoke a valid target;
-- Review-first startup performs no inactive File render subscription when no
-  exact File command is pending; a pending exact File command may start only
-  the existing headless source reporter needed to resolve that command;
+- Review-first startup preserves the packaged baseline's canonical eager File
+  and Review product subscriptions; a pending exact File command may use only
+  the existing headless source reporter needed to expose its accepted source;
 - identical command/revision/source replay applies once;
 - the same logical intent with a newer binding revision and newly accepted
   source applies once;
