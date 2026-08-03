@@ -123,3 +123,17 @@ struct ManagementPaneIdentityStrip: View {
         }
     }
 }
+
+struct ManagementPaneIdentityOverlay: View {
+    let context: PaneManagementContext
+    let octiconLoader: OcticonLoader
+
+    var body: some View {
+        ManagementPaneIdentityStrip(
+            context: context,
+            octiconLoader: octiconLoader
+        )
+        .frame(maxWidth: .infinity)
+        .background(AppStyles.Shell.PaneChrome.background)
+    }
+}

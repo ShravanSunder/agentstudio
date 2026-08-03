@@ -16,13 +16,23 @@ struct ZoomPresentationContainerGeometryTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("Zoom management identity stays inside the source column")
-    func zoomManagementIdentityStaysInsideSourceColumn() throws {
+    @Test("Zoom management identity spans the full content above the toolbar")
+    func zoomManagementIdentitySpansFullContentAboveToolbar() throws {
         let frames = mountedZoomManagementRegionFrames()
         let identityFrame = try #require(frames["paneManagement.identityStrip"])
+        let sourceFrame = try #require(frames["zoom-source-region-probe"])
         let companionFrame = try #require(frames["zoom-companion-region-probe"])
+        let toolbarFrame = try #require(frames["paneSurfaceToolbar.pane zoom"])
 
-        #expect(identityFrame.maxX <= companionFrame.minX + 0.5)
+        #expect(identityFrame.maxX > companionFrame.minX)
+        #expect(
+            abs(
+                companionFrame.maxX - identityFrame.maxX
+                    - AppStyles.General.Spacing.loose
+            ) < 0.5
+        )
+        #expect(identityFrame.maxY <= toolbarFrame.minY)
+        #expect(abs(sourceFrame.height - companionFrame.height) < 0.5)
     }
 
     private func mountedZoomManagementRegionFrames() -> [String: CGRect] {
@@ -109,6 +119,7 @@ struct ZoomPresentationContainerGeometryTests {
                 "paneManagement.identityStrip",
                 "zoom-source-region-probe",
                 "zoom-companion-region-probe",
+                "paneSurfaceToolbar.pane zoom",
             ].compactMap { identifier in
                 guard let view = findView(in: hostingView, identifier: identifier) else {
                     return nil

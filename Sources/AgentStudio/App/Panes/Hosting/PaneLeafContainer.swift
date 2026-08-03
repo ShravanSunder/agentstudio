@@ -247,18 +247,18 @@ struct PaneLeafContainer: View {
                         // cannot intercept drop updates differently.
                         .allowsHitTesting(!managementLayer.isActive)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if managementLayer.isActive
-                        && managementChromePresentation == .ordinary
-                        && !isDrawerChild
-                        && managementContext.showsIdentityBlock
-                    {
-                        ManagementPaneIdentityStrip(
-                            context: managementContext,
-                            octiconLoader: octiconLoader
-                        )
-                    }
-
+                        .overlay(alignment: .bottom) {
+                            if managementLayer.isActive
+                                && managementChromePresentation == .ordinary
+                                && !isDrawerChild
+                                && managementContext.showsIdentityBlock
+                            {
+                                ManagementPaneIdentityOverlay(
+                                    context: managementContext,
+                                    octiconLoader: octiconLoader
+                                )
+                            }
+                        }
                     if !isDrawerChild && toolbarPresentation.reservesToolbarLayout {
                         PaneSurfaceToolbarHost(
                             anchorPaneId: paneHost.id,
