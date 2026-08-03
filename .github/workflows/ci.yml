@@ -126,7 +126,17 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: brew install swiftlint
 
-      # --- Build BridgeWeb resources for SwiftPM ---
+      # --- Submodule SHAs for cache keys ---
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+
+      # --- Independent BridgeWeb install and vendor cache restores ---
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -140,66 +150,56 @@ jobs:
           cache: pnpm
           cache-dependency-path: BridgeWeb/pnpm-lock.yaml
 
-      - name: Install BridgeWeb dependencies
-        run: pnpm --dir BridgeWeb install --frozen-lockfile
+      - parallel:
+          - name: Install BridgeWeb dependencies
+            id: bridge-web-install
+            run: pnpm --dir BridgeWeb install --frozen-lockfile
 
-      - name: BridgeWeb packaged build
-        run: pnpm --dir BridgeWeb run build
+          - name: Cache Zig compilation
+            id: cache-zig-compilation
+            uses: actions/cache@v4
+            with:
+              path: |
+                ~/.cache/zig
+                vendor/ghostty/.zig-cache
+                vendor/zmx/.zig-cache
+              key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+              restore-keys: |
+                zig-compile-${{ runner.os }}-
 
-      # --- Submodule SHAs for cache keys ---
+          - name: Cache Ghostty artifacts
+            id: cache-ghostty
+            uses: actions/cache@v4
+            with:
+              path: |
+                vendor/ghostty/macos/GhosttyKit.xcframework
+                vendor/ghostty/zig-out/share
+              key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
 
-      - name: Get submodule SHAs
-        id: submodules
-        run: |
-          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
-          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
-          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
-          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+          - name: Cache zmx artifacts
+            id: cache-zmx
+            uses: actions/cache@v4
+            with:
+              path: vendor/zmx/zig-out
+              key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
 
-      # --- Zig compilation cache (speeds up builds on artifact cache miss) ---
+      # --- Build independent BridgeWeb and vendor artifacts ---
 
-      - name: Cache Zig compilation
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/zig
-            vendor/ghostty/.zig-cache
-            vendor/zmx/.zig-cache
-          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
-          restore-keys: |
-            zig-compile-${{ runner.os }}-
+      - parallel:
+          - name: BridgeWeb packaged build
+            run: pnpm --dir BridgeWeb run build
 
-      # --- Cache/build Ghostty ---
+          - name: Build Ghostty XCFramework
+            if: steps.cache-ghostty.outputs.cache-hit != 'true'
+            run: |
+              cd vendor/ghostty
+              zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
 
-      - name: Cache Ghostty artifacts
-        id: cache-ghostty
-        uses: actions/cache@v4
-        with:
-          path: |
-            vendor/ghostty/macos/GhosttyKit.xcframework
-            vendor/ghostty/zig-out/share
-          key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
-
-      - name: Build Ghostty XCFramework
-        if: steps.cache-ghostty.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/ghostty
-          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
-
-      # --- Cache/build zmx ---
-
-      - name: Cache zmx artifacts
-        id: cache-zmx
-        uses: actions/cache@v4
-        with:
-          path: vendor/zmx/zig-out
-          key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
-
-      - name: Build zmx
-        if: steps.cache-zmx.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/zmx
-          zig build -Doptimize=ReleaseFast
+          - name: Build zmx
+            if: steps.cache-zmx.outputs.cache-hit != 'true'
+            run: |
+              cd vendor/zmx
+              zig build -Doptimize=ReleaseFast
 
       # --- Setup resources + build + test (delegated to mise) ---
 
@@ -268,7 +268,7 @@ jobs:
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
           SWIFT_TEST_NUM_WORKERS: "4"
           _XCB_BYPASS: "1"
-        run: mise run --raw test:swift:fast
+        run: mise run --skip-deps --raw test:swift:fast
 
       - name: Test WebKit lane
         env:
@@ -277,7 +277,7 @@ jobs:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
-        run: mise run test:swift:webkit
+        run: mise run --skip-deps test:swift:webkit
 
       - name: Upload test results
         if: always()
