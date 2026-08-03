@@ -87,37 +87,74 @@ struct BridgePaneSurfaceSelectionAuthority: Sendable {
         )
     }
 
-    mutating func retainIntent(surface: BridgeProductSurface) {
-        if case .context(_, let retainedSurface) = retainedIntent,
+    @discardableResult
+    mutating func retainIntent(surface: BridgeProductSurface) -> String {
+        if case .context(let commandId, let retainedSurface) = retainedIntent,
             retainedSurface == surface
         {
             if currentRequest == nil, lastAcceptedRequest == nil {
                 needsDelivery = true
             }
-            return
+            return commandId
         }
+        let commandId = UUIDv7.generate().uuidString
         replaceRetainedIntent(
             .context(
-                commandId: UUIDv7.generate().uuidString,
+                commandId: commandId,
                 surface: surface
             )
         )
+        return commandId
     }
 
+    @discardableResult
     mutating func retainReviewTarget(
         source: BridgeProductNavigationReviewSource,
         target: BridgeProductNavigationReviewTarget
-    ) {
+    ) -> String {
+        let commandId = UUIDv7.generate().uuidString
         replaceRetainedIntent(
             .reviewTarget(
-                commandId: UUIDv7.generate().uuidString,
+                commandId: commandId,
                 source: source,
                 target: target
             )
         )
+        return commandId
     }
 
     mutating func bindRetainedIntent(
+        commandId: String,
+        paneSessionId: String,
+        workerInstanceId: String
+    ) throws -> BridgePaneSurfaceSelectionRequest? {
+        guard retainedIntent?.commandId == commandId else { return nil }
+        return try bindCurrentRetainedIntent(
+            paneSessionId: paneSessionId,
+            workerInstanceId: workerInstanceId
+        )
+    }
+
+    mutating func rebindRetainedIntent(
+        paneSessionId: String,
+        workerInstanceId: String
+    ) throws -> BridgePaneSurfaceSelectionRequest? {
+        try bindCurrentRetainedIntent(
+            paneSessionId: paneSessionId,
+            workerInstanceId: workerInstanceId
+        )
+    }
+
+    mutating func invalidateFailedExactIntent(commandId: String) {
+        guard case .reviewTarget(let retainedCommandId, _, _) = retainedIntent,
+            retainedCommandId == commandId
+        else {
+            return
+        }
+        invalidate()
+    }
+
+    private mutating func bindCurrentRetainedIntent(
         paneSessionId: String,
         workerInstanceId: String
     ) throws -> BridgePaneSurfaceSelectionRequest? {

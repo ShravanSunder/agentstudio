@@ -362,7 +362,7 @@ extension BridgePaneController {
         if surfaceSelectionSnapshot.desiredSurface != nil,
             let productSchemeProvider
         {
-            _ = await bindAndPublishRetainedSurfaceSelection(
+            _ = await rebindAndPublishRetainedSurfaceSelection(
                 productAdmission: productAdmission,
                 productSchemeProvider: productSchemeProvider,
                 bootstrap: installation.bootstrap

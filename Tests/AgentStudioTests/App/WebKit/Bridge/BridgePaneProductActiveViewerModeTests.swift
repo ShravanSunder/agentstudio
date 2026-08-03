@@ -389,7 +389,7 @@ extension WebKitSerializedTests {
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
             controller.surfaceSelectionAuthority.retainIntent(surface: .file)
-            let requestCandidate = try controller.surfaceSelectionAuthority.bindRetainedIntent(
+            let requestCandidate = try controller.surfaceSelectionAuthority.rebindRetainedIntent(
                 paneSessionId: bootstrap.paneSessionId,
                 workerInstanceId: bootstrap.workerInstanceId
             )
@@ -435,7 +435,7 @@ extension WebKitSerializedTests {
                 productAdmission: productAdmission
             )
             controller.surfaceSelectionAuthority.retainIntent(surface: .review)
-            let requestCandidate = try controller.surfaceSelectionAuthority.bindRetainedIntent(
+            let requestCandidate = try controller.surfaceSelectionAuthority.rebindRetainedIntent(
                 paneSessionId: bootstrap.paneSessionId,
                 workerInstanceId: bootstrap.workerInstanceId
             )

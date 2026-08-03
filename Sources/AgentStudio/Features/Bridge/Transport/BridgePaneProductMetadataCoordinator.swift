@@ -413,8 +413,24 @@ actor BridgePaneProductMetadataCoordinator {
         else {
             return false
         }
-        await enqueueLatestPaneSurfaceSelectionRequestIfPossible()
-        return true
+        guard let activeStream else {
+            discardFailedExactPaneSurfaceSelectionRequest(request)
+            return false
+        }
+        do {
+            let result = try await enqueuePaneSurfaceSelectionRequest(
+                request,
+                activeStream: activeStream
+            )
+            guard case .enqueued = result else {
+                discardFailedExactPaneSurfaceSelectionRequest(request)
+                return false
+            }
+            return true
+        } catch {
+            discardFailedExactPaneSurfaceSelectionRequest(request)
+            return false
+        }
     }
 
     func replayPaneSurfaceSelectionRequest() async {
@@ -459,7 +475,25 @@ actor BridgePaneProductMetadataCoordinator {
 
     private func enqueueLatestPaneSurfaceSelectionRequestIfPossible() async {
         guard let activeStream, let request = latestPaneSurfaceSelectionRequest else { return }
-        _ = try? await activeStream.session.enqueueProducerFrame(
+        do {
+            let result = try await enqueuePaneSurfaceSelectionRequest(
+                request,
+                activeStream: activeStream
+            )
+            guard case .enqueued = result else {
+                discardFailedExactPaneSurfaceSelectionRequest(request)
+                return
+            }
+        } catch {
+            discardFailedExactPaneSurfaceSelectionRequest(request)
+        }
+    }
+
+    private func enqueuePaneSurfaceSelectionRequest(
+        _ request: BridgePaneSurfaceSelectionRequest,
+        activeStream: ActiveStream
+    ) async throws -> BridgeProductProducerEnqueueResult {
+        try await activeStream.session.enqueueProducerFrame(
             for: activeStream.lease,
             productAdmission: activeStream.productAdmission,
             build: { streamSequence in
@@ -481,6 +515,18 @@ actor BridgePaneProductMetadataCoordinator {
                 )
             }
         )
+    }
+
+    private func discardFailedExactPaneSurfaceSelectionRequest(
+        _ request: BridgePaneSurfaceSelectionRequest
+    ) {
+        guard latestPaneSurfaceSelectionRequest?.requestId == request.requestId else { return }
+        switch request.navigationCommand {
+        case .activateContext:
+            return
+        case .activateFileTarget, .activateReviewTarget:
+            latestPaneSurfaceSelectionRequest = nil
+        }
     }
 
     private func startSubscriptionOpen(

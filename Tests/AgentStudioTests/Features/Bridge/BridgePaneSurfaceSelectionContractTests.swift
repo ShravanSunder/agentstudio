@@ -307,13 +307,13 @@ struct BridgePaneSurfaceSelectionContractTests {
         // Arrange
         var authority = BridgePaneSurfaceSelectionAuthority()
         authority.retainIntent(surface: .file)
-        let staleRequestCandidate = try authority.bindRetainedIntent(
+        let staleRequestCandidate = try authority.rebindRetainedIntent(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-1"
         )
         let staleRequest = try #require(staleRequestCandidate)
         authority.retainIntent(surface: .review)
-        let currentRequestCandidate = try authority.bindRetainedIntent(
+        let currentRequestCandidate = try authority.rebindRetainedIntent(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-1"
         )
@@ -379,20 +379,20 @@ struct BridgePaneSurfaceSelectionContractTests {
         // Arrange
         var authority = BridgePaneSurfaceSelectionAuthority()
         authority.retainIntent(surface: .review)
-        let workerARequestCandidate = try authority.bindRetainedIntent(
+        let workerARequestCandidate = try authority.rebindRetainedIntent(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-a"
         )
         let workerARequest = try #require(workerARequestCandidate)
         #expect(
-            try authority.bindRetainedIntent(
+            try authority.rebindRetainedIntent(
                 paneSessionId: "pane-session-1",
                 workerInstanceId: "worker-instance-a"
             ) == nil
         )
 
         // Act
-        let workerBRequestCandidate = try authority.bindRetainedIntent(
+        let workerBRequestCandidate = try authority.rebindRetainedIntent(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-b"
         )
@@ -427,7 +427,7 @@ struct BridgePaneSurfaceSelectionContractTests {
         var authority = BridgePaneSurfaceSelectionAuthority()
         authority.retainIntent(surface: .review)
         let workerARequest = try #require(
-            try authority.bindRetainedIntent(
+            try authority.rebindRetainedIntent(
                 paneSessionId: "pane-session-1",
                 workerInstanceId: "worker-instance-a"
             )
@@ -442,7 +442,7 @@ struct BridgePaneSurfaceSelectionContractTests {
         )
 
         // Act
-        let workerBRequest = try authority.bindRetainedIntent(
+        let workerBRequest = try authority.rebindRetainedIntent(
             paneSessionId: "pane-session-1",
             workerInstanceId: "worker-instance-b"
         )
@@ -466,7 +466,7 @@ struct BridgePaneSurfaceSelectionContractTests {
 
         authority.retainReviewTarget(source: source, target: target)
         let request = try #require(
-            try authority.bindRetainedIntent(
+            try authority.rebindRetainedIntent(
                 paneSessionId: "pane-session-1",
                 workerInstanceId: "worker-instance-1"
             )
@@ -490,7 +490,7 @@ struct BridgePaneSurfaceSelectionContractTests {
         var authority = BridgePaneSurfaceSelectionAuthority()
         authority.retainIntent(surface: .review)
         let staleRequest = try #require(
-            try authority.bindRetainedIntent(
+            try authority.rebindRetainedIntent(
                 paneSessionId: "pane-session-1",
                 workerInstanceId: "worker-instance-a"
             )
@@ -506,13 +506,89 @@ struct BridgePaneSurfaceSelectionContractTests {
             ) == .rejected(.staleRequest)
         )
         let reboundRequest = try #require(
-            try authority.bindRetainedIntent(
+            try authority.rebindRetainedIntent(
                 paneSessionId: "pane-session-1",
                 workerInstanceId: "worker-instance-b"
             )
         )
         #expect(reboundRequest.requestId == staleRequest.requestId)
         #expect(reboundRequest.bindingRevision == staleRequest.bindingRevision + 1)
+    }
+
+    @Test("a superseded exact Review command cannot bind the newer retained target")
+    func supersededReviewCommandCannotBindNewerRetainedTarget() throws {
+        // Arrange
+        var authority = BridgePaneSurfaceSelectionAuthority()
+        let source = BridgeProductNavigationReviewSource(
+            generation: 9,
+            metadataSourceId: "review-query-1",
+            packageId: "review-package-1"
+        )
+        let firstCommandId = authority.retainReviewTarget(
+            source: source,
+            target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-a")
+        )
+        let secondCommandId = authority.retainReviewTarget(
+            source: source,
+            target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-b")
+        )
+
+        // Act
+        let supersededRequest = try authority.bindRetainedIntent(
+            commandId: firstCommandId,
+            paneSessionId: "pane-session-1",
+            workerInstanceId: "worker-instance-1"
+        )
+        let currentRequest = try authority.bindRetainedIntent(
+            commandId: secondCommandId,
+            paneSessionId: "pane-session-1",
+            workerInstanceId: "worker-instance-1"
+        )
+
+        // Assert
+        #expect(supersededRequest == nil)
+        let boundRequest = try #require(currentRequest)
+        guard case .activateReviewTarget(_, _, _, let target) = boundRequest.navigationCommand else {
+            Issue.record("Expected the newest exact Review command")
+            return
+        }
+        #expect(target.reviewItemId == "review-item-b")
+    }
+
+    @Test("a superseded exact Review command cannot bind an intervening context intent")
+    func supersededReviewCommandCannotBindInterveningContextIntent() throws {
+        // Arrange
+        var authority = BridgePaneSurfaceSelectionAuthority()
+        let reviewCommandId = authority.retainReviewTarget(
+            source: BridgeProductNavigationReviewSource(
+                generation: 9,
+                metadataSourceId: "review-query-1",
+                packageId: "review-package-1"
+            ),
+            target: BridgeProductNavigationReviewTarget(reviewItemId: "review-item-a")
+        )
+        let contextCommandId = authority.retainIntent(surface: .file)
+
+        // Act
+        let supersededRequest = try authority.bindRetainedIntent(
+            commandId: reviewCommandId,
+            paneSessionId: "pane-session-1",
+            workerInstanceId: "worker-instance-1"
+        )
+        let currentRequest = try authority.bindRetainedIntent(
+            commandId: contextCommandId,
+            paneSessionId: "pane-session-1",
+            workerInstanceId: "worker-instance-1"
+        )
+
+        // Assert
+        #expect(supersededRequest == nil)
+        let boundRequest = try #require(currentRequest)
+        guard case .activateContext(_, _, let surface) = boundRequest.navigationCommand else {
+            Issue.record("Expected the intervening context command")
+            return
+        }
+        #expect(surface == .file)
     }
 
     private func surfaceSelectionFrameObject() -> [String: Any] {

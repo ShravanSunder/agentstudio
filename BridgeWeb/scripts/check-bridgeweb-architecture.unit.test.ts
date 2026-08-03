@@ -101,6 +101,8 @@ describe('BridgeWeb architecture checker', () => {
 					export const execute = import.meta.env.DEV
 						? executeHttpBridgeProductRequest
 						: executeAgentStudioBridgeProductRequest;
+					export const computedImportMetaMode = import.meta['env'].DEV;
+					export const computedProcessMode = process['env'].NODE_ENV;
 					export const call = (props) =>
 						props.executeProductRequest('command', { method: 'GET', headers: {} });
 				`,
@@ -118,6 +120,7 @@ describe('BridgeWeb architecture checker', () => {
 				`,
 				'src/core/comm-worker/bridge-worker-runtime.ts': `
 					export const transportOrigin = globalThis.location.origin;
+					export const computedTransportOrigin = globalThis['location']['origin'];
 				`,
 				'src/file-viewer/file-product-runtime.ts': `
 					export const endpoint = '/__bridge-product/content';
@@ -132,7 +135,7 @@ describe('BridgeWeb architecture checker', () => {
 					(violation): boolean => violation.ruleId === 'product-endpoint-boundary',
 				);
 
-				expect(endpointViolations).toHaveLength(8);
+				expect(endpointViolations).toHaveLength(11);
 				expect(endpointViolations).toEqual(
 					expect.arrayContaining([
 						expect.objectContaining({

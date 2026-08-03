@@ -365,9 +365,15 @@ function checkBridgeProductEndpointBoundary(context: SourceContext, node: ts.Nod
 		return;
 	}
 
-	if (ts.isPropertyAccessExpression(node)) {
-		if (ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node) return;
-		const expressionText = node.getText(context.sourceFile);
+	if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+		if (
+			(ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) &&
+			node.parent.expression === node
+		) {
+			return;
+		}
+		const expressionText = constantStringMemberAccessText(node, context.sourceFile);
+		if (expressionText === null) return;
 		if (
 			/^import\.meta\.env(?:\.|$)/u.test(expressionText) ||
 			/^process\.env(?:\.|$)/u.test(expressionText) ||
@@ -395,6 +401,29 @@ function checkBridgeProductEndpointBoundary(context: SourceContext, node: ts.Nod
 				'shared Bridge product runtime modules must not own packaged or Vite product endpoint strings',
 		});
 	}
+}
+
+function constantStringMemberAccessText(
+	expression: ts.Expression,
+	sourceFile: ts.SourceFile,
+): string | null {
+	if (ts.isIdentifier(expression)) return expression.text;
+	if (ts.isMetaProperty(expression)) return expression.getText(sourceFile);
+
+	if (ts.isPropertyAccessExpression(expression)) {
+		const receiverText = constantStringMemberAccessText(expression.expression, sourceFile);
+		return receiverText === null ? null : `${receiverText}.${expression.name.text}`;
+	}
+
+	if (
+		ts.isElementAccessExpression(expression) &&
+		isStringLiteralLike(expression.argumentExpression)
+	) {
+		const receiverText = constantStringMemberAccessText(expression.expression, sourceFile);
+		return receiverText === null ? null : `${receiverText}.${expression.argumentExpression.text}`;
+	}
+
+	return null;
 }
 
 function isBridgeProductRequestExecutorCall(callExpression: ts.CallExpression): boolean {
