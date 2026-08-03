@@ -7,6 +7,7 @@ import {
 	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
 } from './bridge-comm-worker-runtime-protocol.js';
 import type { BridgeCommWorkerTelemetryRecorder } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	BridgeProductControlMux,
 	BridgeProductSessionAuthorityStore,
@@ -51,6 +52,11 @@ export interface BridgeCommWorkerEntryDependencies {
 	readonly installProductSession: (
 		input: BridgeProductSessionAuthorityInstallInput,
 	) => BridgeCommWorkerInstalledProductSession;
+}
+
+export interface RegisterBridgeCommWorkerEntryProps {
+	readonly executeProductRequest: BridgeProductRequestExecutor;
+	readonly maximumConcurrentContentResponses?: number;
 }
 
 export interface BridgeCommWorkerInstalledProductSession {
@@ -115,7 +121,7 @@ export function bootstrapInertBridgeCommWorkerEntry(scope: BridgeCommWorkerGloba
 
 export function bootstrapBridgeCommWorkerEntry(
 	port: BridgeCommWorkerPort,
-	dependencies: BridgeCommWorkerEntryDependencies = defaultBridgeCommWorkerEntryDependencies(),
+	dependencies: BridgeCommWorkerEntryDependencies,
 ): void {
 	let installedProductPort: MessagePort | null = null;
 	let installedTelemetryProducer: BridgeCommWorkerTelemetryRecorder | null = null;
@@ -188,15 +194,41 @@ export function bootstrapBridgeCommWorkerEntry(
 	port.start?.();
 }
 
-function defaultBridgeCommWorkerEntryDependencies(): BridgeCommWorkerEntryDependencies {
-	const productSessionAuthority = new BridgeProductSessionAuthorityStore();
+export function registerBridgeCommWorkerEntry(
+	scope: BridgeCommWorkerGlobalScope,
+	props: RegisterBridgeCommWorkerEntryProps,
+): void {
+	bootstrapBridgeCommWorkerEntry(
+		createBridgeCommWorkerScopePortAdapter(scope),
+		bridgeCommWorkerEntryDependencies(props),
+	);
+}
+
+function bridgeCommWorkerEntryDependencies(
+	props: RegisterBridgeCommWorkerEntryProps,
+): BridgeCommWorkerEntryDependencies {
+	const productSessionAuthority = new BridgeProductSessionAuthorityStore(
+		props.executeProductRequest,
+	);
 	return {
 		installProductSession: (input): BridgeCommWorkerInstalledProductSession => {
 			const authority = productSessionAuthority.install(input);
-			const controlMux = new BridgeProductControlMux({ authority });
+			const controlMux = new BridgeProductControlMux({
+				authority,
+				executeProductRequest: props.executeProductRequest,
+			});
 			return {
 				open: authority.open,
-				productTransport: createBridgeProductTransport({ authority, controlMux }),
+				productTransport: createBridgeProductTransport({
+					authority,
+					controlMux,
+					executeProductRequest: props.executeProductRequest,
+					...(props.maximumConcurrentContentResponses === undefined
+						? {}
+						: {
+								maximumConcurrentContentResponses: props.maximumConcurrentContentResponses,
+							}),
+				}),
 			};
 		},
 	};
@@ -335,10 +367,4 @@ function buildBridgeWorkerEntryDegradedHealthEvent(props: {
 		status: 'degraded',
 		message: props.message,
 	};
-}
-
-declare const self: BridgeCommWorkerGlobalScope | undefined;
-
-if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
-	bootstrapBridgeCommWorkerEntry(createBridgeCommWorkerScopePortAdapter(self));
 }

@@ -249,7 +249,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			});
 			expect(proof.finalMarkerPainted).toBe(true);
 			expect(
-				proof.workerUrls.some((url): boolean => url.includes('bridge-comm-worker-entry')),
+				proof.workerUrls.some((url): boolean => url.includes('bridge-comm-worker-vite-entry')),
 			).toBe(true);
 			expect(proof.paintedCorrelations).toEqual([
 				expect.objectContaining({

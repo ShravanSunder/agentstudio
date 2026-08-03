@@ -64,7 +64,7 @@ export default defineConfig([
 		...sharedBridgeWebBuildConfig,
 		name: 'bridge-comm-worker',
 		entry: {
-			'bridge-comm-worker': './src/core/comm-worker/bridge-comm-worker-entry.ts',
+			'bridge-comm-worker': './src/core/comm-worker/bridge-comm-worker-packaged-entry.ts',
 		},
 		outputOptions: {
 			codeSplitting: false,

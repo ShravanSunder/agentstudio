@@ -8,15 +8,14 @@ import {
 	type BridgeProductContentKind,
 	type BridgeProductContentRegistry,
 } from './bridge-product-content-contracts.js';
-import {
-	BRIDGE_PRODUCT_CAPABILITY_HEADER_NAME,
-	BRIDGE_PRODUCT_COMMAND_ROUTE,
-	BRIDGE_PRODUCT_CONTENT_ROUTE,
-	BRIDGE_PRODUCT_REQUEST_METHOD,
-	BRIDGE_PRODUCT_STREAM_ROUTE,
-	type BridgeProductRegistryValue,
-	type BridgeProductSurface,
+import type {
+	BridgeProductRegistryValue,
+	BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
+import type {
+	BridgeProductRequestExecutor,
+	BridgeProductRequestRoute,
+} from './bridge-product-request-executor.js';
 import type {
 	BridgeProductControlRequest,
 	BridgeProductMetadataFrame,
@@ -36,20 +35,12 @@ import type {
 } from './bridge-product-transport-contract.js';
 
 declare const productTransport: BridgeProductTransport;
+declare const productRequestExecutor: BridgeProductRequestExecutor;
 declare const abortSignal: AbortSignal;
 declare function acceptControlRequest(request: BridgeProductControlRequest): void;
 declare function acceptMetadataFrame(frame: BridgeProductMetadataFrame): void;
-const requestMethod: 'POST' = BRIDGE_PRODUCT_REQUEST_METHOD;
-const commandRoute: 'agentstudio://rpc/command' = BRIDGE_PRODUCT_COMMAND_ROUTE;
-const contentRoute: 'agentstudio://rpc/content' = BRIDGE_PRODUCT_CONTENT_ROUTE;
-const streamRoute: 'agentstudio://rpc/stream' = BRIDGE_PRODUCT_STREAM_ROUTE;
-const capabilityHeaderName: 'X-AgentStudio-Bridge-Product-Capability' =
-	BRIDGE_PRODUCT_CAPABILITY_HEADER_NAME;
-void requestMethod;
-void commandRoute;
-void contentRoute;
-void streamRoute;
-void capabilityHeaderName;
+const requestRoute: BridgeProductRequestRoute = 'command';
+void productRequestExecutor(requestRoute, { method: 'POST' });
 
 type SyntheticCorrelationRegistry = {
 	readonly first: {
@@ -211,9 +202,8 @@ void bridgeProductSurfaceForSubscriptionKind('review.arbitrary');
 // @ts-expect-error A closed content mapper cannot infer a surface from a string prefix.
 void bridgeProductSurfaceForContentKind('file.arbitrary');
 
-// @ts-expect-error Route inference must retain the exact command URL literal.
-const invalidCommandRoute: 'agentstudio://rpc/content' = BRIDGE_PRODUCT_COMMAND_ROUTE;
-void invalidCommandRoute;
+// @ts-expect-error The executor accepts only the closed product-route identity.
+void productRequestExecutor('arbitrary', { method: 'POST' });
 
 const markViewedResult: Promise<null> = productTransport.call('review.markFileViewed', {
 	itemId: 'review-item-1',

@@ -2,10 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import {
-	BRIDGE_PRODUCT_COMMAND_ROUTE,
-	BRIDGE_PRODUCT_STREAM_ROUTE,
-} from './bridge-product-contract-primitives.js';
+import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
 import type { BridgeProductFileSourceIdentity } from './bridge-product-file-contracts.js';
 import {
 	bridgeProductFrameAcknowledgementRequestSchema,
@@ -463,6 +460,7 @@ function createTransportHarness(
 	const controlMux = new BridgeProductControlMux({
 		authority,
 		createRequestId: sequenceIdentifier('control-request'),
+		executeProductRequest: executeAgentStudioBridgeProductRequest,
 	});
 	return {
 		server,
@@ -470,6 +468,7 @@ function createTransportHarness(
 			authority,
 			controlMux,
 			createIdentifier: purposeIdentifier(),
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 			initialWorkerDerivationEpochs: {
 				file: epochs.fileEpoch ?? 0,
 				review: epochs.reviewEpoch ?? 0,
@@ -493,8 +492,8 @@ class TestProductServer {
 	readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
 		this.requestRoutes.push(url);
-		if (url === BRIDGE_PRODUCT_STREAM_ROUTE) return this.#openMetadataStream(init);
-		if (url === BRIDGE_PRODUCT_COMMAND_ROUTE) {
+		if (url === 'agentstudio://rpc/stream') return this.#openMetadataStream(init);
+		if (url === 'agentstudio://rpc/command') {
 			const body = parseBody(init);
 			return typeof body === 'object' &&
 				body !== null &&

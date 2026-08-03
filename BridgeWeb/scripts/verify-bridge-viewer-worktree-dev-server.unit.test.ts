@@ -489,8 +489,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		const viteConfigSource = await readFile(viteConfigSourceUrl, 'utf8');
 
 		expect(viteConfigSource).toContain('createBridgeProductDevCarrier');
-		expect(viteConfigSource).toContain('BRIDGE_PRODUCT_COMMAND_ROUTE');
-		expect(viteConfigSource).toContain('BRIDGE_PRODUCT_STREAM_ROUTE');
+		expect(viteConfigSource).toContain('BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT');
+		expect(viteConfigSource).toContain('BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT');
 		expect(viteConfigSource).not.toContain('/__bridge-worktree/review-metadata');
 		expect(viteConfigSource).not.toContain('/__bridge-worktree/review-package');
 		expect(viteConfigSource).not.toContain('reviewPackage: packageResult.reviewPackage');

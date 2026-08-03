@@ -13,6 +13,11 @@ const bridgeProductRoutes = new Set([
 	'agentstudio://rpc/stream',
 	'agentstudio://rpc/content',
 ]);
+const bridgeProductEndpointByRoute = new Map([
+	['command', 'agentstudio://rpc/command'],
+	['content', 'agentstudio://rpc/content'],
+	['stream', 'agentstudio://rpc/stream'],
+]);
 
 export interface WorkerSourceSelfContainmentCheck {
 	readonly isSelfContained: true;
@@ -31,7 +36,7 @@ export function validateWorkerSourceSelfContained(
 		'static import/export',
 		'dynamic import(...)',
 		'importScripts(...)',
-		'fetch(...) absent except exact bridge product POST carriers',
+		'fetch(...) absent except exact literal POST carriers or the closed packaged endpoint executor',
 		'new URL(<relative-or-external-literal>)',
 		'new XMLHttpRequest(...)',
 	];
@@ -409,6 +414,7 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 	if (props.workerAssetKind !== bridgeCommWorkerAssetKind) {
 		throwWorkerSelfContainmentError(sourceFile, props.fetchCall, 'fetch(...)');
 	}
+	if (isClosedBridgeProductRequestExecutorFetch(props)) return;
 
 	const route = exactProductRouteValue(props.fetchCall.arguments[0], props.workerSourceAnalysis);
 	if (route === null || !bridgeProductRoutes.has(route)) {
@@ -481,6 +487,161 @@ function validateWorkerFetchCall(props: ValidateWorkerFetchCallProps): void {
 			'product fetch with headers beyond content type and capability',
 		);
 	}
+}
+
+function isClosedBridgeProductRequestExecutorFetch(props: ValidateWorkerFetchCallProps): boolean {
+	const executor = directTopLevelExecutorForFetch(props.fetchCall);
+	if (executor === null || props.fetchCall.arguments.length !== 2) return false;
+	const endpointCall = props.fetchCall.arguments[0];
+	const requestInit = props.fetchCall.arguments[1];
+	if (
+		endpointCall === undefined ||
+		requestInit === undefined ||
+		!ts.isCallExpression(endpointCall) ||
+		endpointCall.arguments.length !== 1 ||
+		!ts.isIdentifier(endpointCall.expression) ||
+		!ts.isIdentifier(requestInit)
+	) {
+		return false;
+	}
+	const endpointRouteArgument = endpointCall.arguments[0];
+	const routeParameter = executor.parameters[0]?.name;
+	const requestInitParameter = executor.parameters[1]?.name;
+	if (
+		executor.parameters.length !== 2 ||
+		endpointRouteArgument === undefined ||
+		!ts.isIdentifier(endpointRouteArgument) ||
+		routeParameter === undefined ||
+		requestInitParameter === undefined ||
+		!ts.isIdentifier(routeParameter) ||
+		!ts.isIdentifier(requestInitParameter) ||
+		!identifiersShareSymbol(
+			endpointRouteArgument,
+			routeParameter,
+			props.workerSourceAnalysis.checker,
+		) ||
+		!identifiersShareSymbol(requestInit, requestInitParameter, props.workerSourceAnalysis.checker)
+	) {
+		return false;
+	}
+	const endpointDeclaration = props.workerSourceAnalysis.checker.getSymbolAtLocation(
+		endpointCall.expression,
+	)?.declarations;
+	return (
+		endpointDeclaration?.length === 1 &&
+		isClosedBridgeProductEndpointMapper(endpointDeclaration[0], props.workerSourceAnalysis.checker)
+	);
+}
+
+type BridgeProductExecutorFunction =
+	| ts.ArrowFunction
+	| ts.FunctionDeclaration
+	| ts.FunctionExpression;
+
+function directTopLevelExecutorForFetch(
+	fetchCall: ts.CallExpression,
+): BridgeProductExecutorFunction | null {
+	let returnedExpression: ts.Expression = fetchCall;
+	if (ts.isAwaitExpression(fetchCall.parent)) returnedExpression = fetchCall.parent;
+	const expressionParent = returnedExpression.parent;
+	if (ts.isArrowFunction(expressionParent) && expressionParent.body === returnedExpression) {
+		return isTopLevelFunction(expressionParent) ? expressionParent : null;
+	}
+	if (!ts.isReturnStatement(expressionParent)) return null;
+	const body = expressionParent.parent;
+	if (!ts.isBlock(body) || body.statements.length !== 1) return null;
+	const callable = body.parent;
+	if (
+		!ts.isArrowFunction(callable) &&
+		!ts.isFunctionDeclaration(callable) &&
+		!ts.isFunctionExpression(callable)
+	) {
+		return null;
+	}
+	return isTopLevelFunction(callable) ? callable : null;
+}
+
+function isTopLevelFunction(callable: BridgeProductExecutorFunction): boolean {
+	if (ts.isFunctionDeclaration(callable)) return ts.isSourceFile(callable.parent);
+	const declaration = callable.parent;
+	return (
+		ts.isVariableDeclaration(declaration) &&
+		ts.isVariableDeclarationList(declaration.parent) &&
+		ts.isVariableStatement(declaration.parent.parent) &&
+		ts.isSourceFile(declaration.parent.parent.parent)
+	);
+}
+
+function identifiersShareSymbol(
+	left: ts.Identifier,
+	right: ts.Identifier,
+	checker: ts.TypeChecker,
+): boolean {
+	const leftSymbol = checker.getSymbolAtLocation(left);
+	return leftSymbol !== undefined && leftSymbol === checker.getSymbolAtLocation(right);
+}
+
+function isClosedBridgeProductEndpointMapper(
+	declaration: ts.Declaration | undefined,
+	checker: ts.TypeChecker,
+): boolean {
+	if (
+		declaration === undefined ||
+		!ts.isFunctionDeclaration(declaration) ||
+		!ts.isSourceFile(declaration.parent) ||
+		declaration.parameters.length !== 1 ||
+		declaration.body === undefined ||
+		declaration.body.statements.length !== 2
+	) {
+		return false;
+	}
+	const routeParameter = declaration.parameters[0]?.name;
+	const switchStatement = declaration.body.statements[0];
+	const unsupportedRouteThrow = declaration.body.statements[1];
+	if (
+		routeParameter === undefined ||
+		switchStatement === undefined ||
+		!ts.isIdentifier(routeParameter) ||
+		!ts.isSwitchStatement(switchStatement) ||
+		!isUnsupportedBridgeProductRouteThrow(unsupportedRouteThrow) ||
+		!ts.isIdentifier(switchStatement.expression) ||
+		!identifiersShareSymbol(switchStatement.expression, routeParameter, checker) ||
+		switchStatement.caseBlock.clauses.length !== bridgeProductEndpointByRoute.size
+	) {
+		return false;
+	}
+	const observedRoutes = new Set<string>();
+	for (const clause of switchStatement.caseBlock.clauses) {
+		if (!ts.isCaseClause(clause) || clause.statements.length !== 1) return false;
+		const route = stringLiteralValue(clause.expression);
+		const returnStatement = clause.statements[0];
+		if (
+			route === null ||
+			returnStatement === undefined ||
+			observedRoutes.has(route) ||
+			!ts.isReturnStatement(returnStatement) ||
+			stringLiteralValue(returnStatement.expression) !== bridgeProductEndpointByRoute.get(route)
+		) {
+			return false;
+		}
+		observedRoutes.add(route);
+	}
+	return observedRoutes.size === bridgeProductEndpointByRoute.size;
+}
+
+function isUnsupportedBridgeProductRouteThrow(statement: ts.Statement | undefined): boolean {
+	if (statement === undefined || !ts.isThrowStatement(statement)) return false;
+	const errorExpression = statement.expression;
+	if (!ts.isNewExpression(errorExpression) && !ts.isCallExpression(errorExpression)) return false;
+	if (
+		!ts.isIdentifier(errorExpression.expression) ||
+		errorExpression.expression.text !== 'Error' ||
+		errorExpression.arguments?.length !== 1
+	)
+		return false;
+	return (
+		stringLiteralValue(errorExpression.arguments[0]) === 'Unsupported Bridge product request route.'
+	);
 }
 
 function exactProductRouteValue(
