@@ -70,36 +70,34 @@ struct CIFastLaneWorkflowTests {
     @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
     func swiftBuildCacheIsContentAddressedAndSkipsExactHitPrebuilds() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let fingerprintStep = try workflowStep(
+            named: "Compute Swift build input fingerprint",
+            in: ciWorkflow
+        )
         let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: ciWorkflow)
         let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: ciWorkflow)
         let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: ciWorkflow)
 
+        let fingerprintStepRange = try #require(ciWorkflow.range(of: fingerprintStep))
+        let restoreCacheStepRange = try #require(ciWorkflow.range(of: restoreCacheStep))
+
+        #expect(fingerprintStep.contains("id: swift-build-inputs"))
+        #expect(fingerprintStep.contains("scripts/swift-build-input-fingerprint.sh"))
+        #expect(fingerprintStep.contains("GITHUB_OUTPUT"))
+        #expect(fingerprintStepRange.lowerBound < restoreCacheStepRange.lowerBound)
         #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
             restoreCacheStep.contains(
-                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-ghostty-${{ steps.submodules.outputs.ghostty_sha }}-zmx-${{ steps.submodules.outputs.zmx_sha }}-${{ hashFiles("
+                "key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}"
             )
         )
-        #expect(restoreCacheStep.contains("'Package.swift'"))
-        #expect(restoreCacheStep.contains("'Package.resolved'"))
-        #expect(restoreCacheStep.contains("'Sources/**/*.swift'"))
-        #expect(restoreCacheStep.contains("'Sources/**/Resources/**'"))
-        #expect(restoreCacheStep.contains("'Tests/**/*.swift'"))
-        #expect(restoreCacheStep.contains("'BridgeWeb/src/**'"))
-        #expect(restoreCacheStep.contains("'BridgeWeb/scripts/**'"))
-        #expect(restoreCacheStep.contains("'BridgeWeb/pnpm-lock.yaml'"))
-        #expect(restoreCacheStep.contains("'BridgeWeb/pnpm-workspace.yaml'"))
-        #expect(restoreCacheStep.contains("'BridgeWeb/tsconfig*.json'"))
-        #expect(restoreCacheStep.contains("'BridgeWeb/components.json'"))
-        #expect(restoreCacheStep.contains("'.mise.toml'"))
-        #expect(
-            !restoreCacheStep.contains(
-                "github.sha"
-            )
-        )
+        #expect(!restoreCacheStep.contains("hashFiles"))
+        #expect(!restoreCacheStep.contains("github.sha"))
+        #expect(!restoreCacheStep.contains("github.ref"))
+        #expect(!restoreCacheStep.contains("github.event.pull_request.number"))
         #expect(
             restoreCacheStep.contains(
-                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-ghostty-${{ steps.submodules.outputs.ghostty_sha }}-zmx-${{ steps.submodules.outputs.zmx_sha }}-"
+                "swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-"
             )
         )
         #expect(restoreCacheStep.contains("actions/cache/restore@v4"))

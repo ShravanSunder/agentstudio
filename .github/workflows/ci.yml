@@ -226,15 +226,21 @@ jobs:
             [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
           fi
 
+      - name: Compute Swift build input fingerprint
+        id: swift-build-inputs
+        run: |
+          fingerprint="$(scripts/swift-build-input-fingerprint.sh)"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
       - name: Restore Swift build cache
         id: swift-build-cache-restore
         uses: actions/cache/restore@v4
         with:
           path: .build-ci
           # The exact key is content-addressed so an exact hit contains compiled bundles for the current inputs.
-          key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-ghostty-${{ steps.submodules.outputs.ghostty_sha }}-zmx-${{ steps.submodules.outputs.zmx_sha }}-${{ hashFiles('Package.swift', 'Package.resolved', 'Sources/**/*.swift', 'Sources/**/Resources/**', 'Tests/**/*.swift', 'BridgeWeb/package.json', 'BridgeWeb/pnpm-lock.yaml', 'BridgeWeb/pnpm-workspace.yaml', 'BridgeWeb/index.html', 'BridgeWeb/src/**', 'BridgeWeb/scripts/**', 'BridgeWeb/*.config.*', 'BridgeWeb/tsconfig*.json', 'BridgeWeb/components.json', '.mise.toml', 'scripts/swift-build-slot.sh', 'scripts/swift-test-helpers.sh', 'scripts/run-swift-test-task.sh', '.github/workflows/ci.yml') }}
+          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
           restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-ghostty-${{ steps.submodules.outputs.ghostty_sha }}-zmx-${{ steps.submodules.outputs.zmx_sha }}-
+            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-
 
       - name: Prebuild Swift test bundles
         if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'
