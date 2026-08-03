@@ -141,7 +141,7 @@ struct ZoomPresentationContainer: View {
                     SplitView(
                         .horizontal,
                         viewerPresentationSplit,
-                        left: { sourceColumnContent },
+                        left: { sourceContent },
                         right: {
                             companionContent
                         },
@@ -155,6 +155,16 @@ struct ZoomPresentationContainer: View {
                             persistSplitRatio(splitRatio)
                         }
                     )
+                    .overlay(alignment: .bottom) {
+                        if atom(\.managementLayer).isActive,
+                            sourceManagementContext.showsIdentityBlock
+                        {
+                            ManagementPaneIdentityOverlay(
+                                context: sourceManagementContext,
+                                octiconLoader: octiconLoader
+                            )
+                        }
+                    }
 
                     parentToolbar
                 }
@@ -185,21 +195,6 @@ struct ZoomPresentationContainer: View {
         }
         .onDisappear {
             viewRegistry.unregisterSurface(surfaceId)
-        }
-    }
-
-    private var sourceColumnContent: some View {
-        VStack(spacing: 0) {
-            sourceContent
-
-            if atom(\.managementLayer).isActive,
-                sourceManagementContext.showsIdentityBlock
-            {
-                ManagementPaneIdentityStrip(
-                    context: sourceManagementContext,
-                    octiconLoader: octiconLoader
-                )
-            }
         }
     }
 

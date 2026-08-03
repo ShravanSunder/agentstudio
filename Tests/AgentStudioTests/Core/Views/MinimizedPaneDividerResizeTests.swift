@@ -12,6 +12,46 @@ struct MinimizedPaneDividerResizeTests {
     private let minimumPaneSize: CGFloat = 50
 
     @Test
+    func hiddenSingleMinimizedPaneProjectsOneDividerBetweenExpandedPanes() throws {
+        let paneIds = PaneIds(count: 3)
+        let layout = Layout.autoTiled(paneIds.values)
+
+        let metrics = metrics(
+            for: layout,
+            minimizedPaneIds: [paneIds[1]],
+            collapsedPaneWidth: 0
+        )
+
+        let divider = try #require(metrics.dividerSegments.only)
+        let updatedLayout = drag(divider: divider, in: layout, translation: 40)
+
+        #expect(divider.dividerId == layout.dividerIds[0])
+        #expect(divider.resizeIntent == .visiblePanePair(leftPaneId: paneIds[0], rightPaneId: paneIds[2]))
+        #expect(width(for: paneIds[1], in: metrics) == 0)
+        #expect(ratio(for: paneIds[0], in: updatedLayout) > ratio(for: paneIds[0], in: layout))
+        #expect(ratio(for: paneIds[2], in: updatedLayout) < ratio(for: paneIds[2], in: layout))
+        #expect(ratio(for: paneIds[1], in: updatedLayout).isApproximately(ratio(for: paneIds[1], in: layout)))
+    }
+
+    @Test
+    func hiddenConsecutiveMinimizedPanesProjectOneDividerBetweenExpandedPanes() throws {
+        let paneIds = PaneIds(count: 4)
+        let layout = Layout.autoTiled(paneIds.values)
+
+        let metrics = metrics(
+            for: layout,
+            minimizedPaneIds: [paneIds[1], paneIds[2]],
+            collapsedPaneWidth: 0
+        )
+
+        let divider = try #require(metrics.dividerSegments.only)
+        #expect(divider.dividerId == layout.dividerIds[0])
+        #expect(divider.resizeIntent == .visiblePanePair(leftPaneId: paneIds[0], rightPaneId: paneIds[3]))
+        #expect(width(for: paneIds[1], in: metrics) == 0)
+        #expect(width(for: paneIds[2], in: metrics) == 0)
+    }
+
+    @Test
     func draggingLeftHandleAroundMinimizedMiddlePaneMovesByPointerDelta() throws {
         let paneIds = PaneIds(count: 3)
         let layout = Layout.autoTiled(paneIds.values)
@@ -220,13 +260,17 @@ struct MinimizedPaneDividerResizeTests {
         }
     }
 
-    private func metrics(for layout: Layout, minimizedPaneIds: Set<UUID>) -> FlatTabStripMetrics {
+    private func metrics(
+        for layout: Layout,
+        minimizedPaneIds: Set<UUID>,
+        collapsedPaneWidth: CGFloat? = nil
+    ) -> FlatTabStripMetrics {
         FlatTabStripMetrics.compute(
             layout: layout,
             in: bounds,
             dividerThickness: dividerThickness,
             minimizedPaneIds: minimizedPaneIds,
-            collapsedPaneWidth: collapsedPaneWidth
+            collapsedPaneWidth: collapsedPaneWidth ?? self.collapsedPaneWidth
         )
     }
 
@@ -262,6 +306,12 @@ struct MinimizedPaneDividerResizeTests {
         subscript(index: Int) -> UUID {
             values[index]
         }
+    }
+}
+
+extension Collection {
+    fileprivate var only: Element? {
+        count == 1 ? first : nil
     }
 }
 

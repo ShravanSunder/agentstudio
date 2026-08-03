@@ -72,11 +72,15 @@ run_non_serialized_swift_tests() {
 
 run_fast_non_webkit_swift_tests() {
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+    local parallel_args=(--parallel)
+    if [ -n "${SWIFT_TEST_NUM_WORKERS:-}" ]; then
+      parallel_args+=(--num-workers "$SWIFT_TEST_NUM_WORKERS")
+    fi
     run_swift_with_timeout \
       "parallel fast non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --parallel \
+      "${parallel_args[@]}" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
       --skip "Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
   else
