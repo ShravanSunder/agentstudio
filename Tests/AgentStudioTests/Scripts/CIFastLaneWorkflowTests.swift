@@ -67,25 +67,60 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
-    @Test("Swift build cache rolls forward per commit within a compatible toolchain")
-    func swiftBuildCacheRollsForwardPerCommitWithinCompatibleToolchain() throws {
+    @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
+    func swiftBuildCacheIsContentAddressedAndSkipsExactHitPrebuilds() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let fingerprintStep = try workflowStep(
+            named: "Compute Swift build input fingerprint",
+            in: ciWorkflow
+        )
         let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: ciWorkflow)
         let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: ciWorkflow)
+        let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: ciWorkflow)
 
+        let fingerprintStepRange = try #require(ciWorkflow.range(of: fingerprintStep))
+        let restoreCacheStepRange = try #require(ciWorkflow.range(of: restoreCacheStep))
+        let bridgeBuildStepRange = try #require(
+            ciWorkflow.range(of: "      - name: BridgeWeb packaged build")
+        )
+        let resourceSetupStepRange = try #require(
+            ciWorkflow.range(of: "      - name: Setup dev resources")
+        )
+
+        #expect(fingerprintStep.contains("id: swift-build-inputs"))
+        #expect(fingerprintStep.contains("scripts/swift-build-input-fingerprint.sh"))
+        #expect(fingerprintStep.contains("xcodebuild -version"))
+        #expect(fingerprintStep.contains("swift --version"))
+        #expect(fingerprintStep.contains("xcrun --sdk macosx --show-sdk-version"))
+        #expect(fingerprintStep.contains("toolchain=$toolchain_fingerprint"))
+        #expect(fingerprintStep.contains("GITHUB_OUTPUT"))
+        #expect(bridgeBuildStepRange.lowerBound < fingerprintStepRange.lowerBound)
+        #expect(resourceSetupStepRange.lowerBound < fingerprintStepRange.lowerBound)
+        #expect(fingerprintStepRange.lowerBound < restoreCacheStepRange.lowerBound)
         #expect(restoreCacheStep.contains("path: .build-ci"))
         #expect(
             restoreCacheStep.contains(
-                "key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || github.sha }}-${{ hashFiles('Package.swift', 'Package.resolved') }}"
+                "key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}"
+            )
+        )
+        #expect(!restoreCacheStep.contains("hashFiles"))
+        #expect(!restoreCacheStep.contains("github.sha"))
+        #expect(!restoreCacheStep.contains("github.ref"))
+        #expect(!restoreCacheStep.contains("github.event.pull_request.number"))
+        #expect(
+            restoreCacheStep.contains(
+                "swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"
             )
         )
         #expect(
             restoreCacheStep.contains(
-                "swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ github.event_name == 'pull_request' && github.ref || 'main-' }}"
+                "restore-keys: |\n            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"
             )
         )
         #expect(restoreCacheStep.contains("actions/cache/restore@v4"))
+        #expect(prebuildStep.contains("if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'"))
         #expect(saveCacheStep.contains("path: .build-ci"))
+        #expect(saveCacheStep.contains("if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'"))
         #expect(saveCacheStep.contains("actions/cache/save@v4"))
         #expect(saveCacheStep.contains("steps.swift-build-cache-restore.outputs.cache-primary-key"))
     }
