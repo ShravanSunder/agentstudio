@@ -18,7 +18,8 @@ struct BridgePaneSurfaceSelectionPublicationTests {
         // Act
         let wasPublished = await coordinator.publishPaneSurfaceSelectionRequest(
             request,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            streamAbsenceDisposition: .reject
         )
         let lease = try await harness.admitMetadataFrames(through: 0)
         await coordinator.install(
@@ -62,7 +63,8 @@ struct BridgePaneSurfaceSelectionPublicationTests {
         // Act
         let wasPublished = await coordinator.publishPaneSurfaceSelectionRequest(
             request,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            streamAbsenceDisposition: .reject
         )
         let frame = try await pullMetadataFrame(from: pump)
 
@@ -97,7 +99,8 @@ struct BridgePaneSurfaceSelectionPublicationTests {
         // Act
         let wasPublished = await coordinator.publishPaneSurfaceSelectionRequest(
             makeSurfaceSelectionRequest(commandId: "selection-rejected"),
-            productAdmission: activeSession.productAdmission.context
+            productAdmission: activeSession.productAdmission.context,
+            streamAbsenceDisposition: .reject
         )
         await coordinator.replayPaneSurfaceSelectionRequest()
 
@@ -130,7 +133,8 @@ struct BridgePaneSurfaceSelectionPublicationTests {
         // Act
         let wasPublished = await coordinator.publishPaneSurfaceSelectionRequest(
             invalidRequest,
-            productAdmission: harness.productAdmission.context
+            productAdmission: harness.productAdmission.context,
+            streamAbsenceDisposition: .reject
         )
         await coordinator.replayPaneSurfaceSelectionRequest()
 

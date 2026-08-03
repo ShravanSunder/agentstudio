@@ -83,7 +83,8 @@ extension BridgePaneController {
             binding: .retainedCommand(commandId),
             productAdmission: productAdmission,
             productSchemeProvider: productSchemeProvider,
-            bootstrap: bootstrap
+            bootstrap: bootstrap,
+            streamAbsenceDisposition: .reject
         )
     }
 
@@ -96,7 +97,8 @@ extension BridgePaneController {
             binding: .currentRetainedIntent,
             productAdmission: productAdmission,
             productSchemeProvider: productSchemeProvider,
-            bootstrap: bootstrap
+            bootstrap: bootstrap,
+            streamAbsenceDisposition: .retainForReplay
         )
     }
 
@@ -104,7 +106,8 @@ extension BridgePaneController {
         binding: BridgePaneSurfaceSelectionBinding,
         productAdmission: BridgeProductAdmissionContext,
         productSchemeProvider: BridgePaneProductSchemeProvider,
-        bootstrap: BridgeProductSessionBootstrap?
+        bootstrap: BridgeProductSessionBootstrap?,
+        streamAbsenceDisposition: BridgePaneSurfaceSelectionStreamAbsenceDisposition
     ) async -> Bool {
         let activeBootstrap: BridgeProductSessionBootstrap
         if let bootstrap {
@@ -139,9 +142,10 @@ extension BridgePaneController {
         guard let request = admittedRequests?.first else { return false }
         let wasPublished = await productSchemeProvider.publishPaneSurfaceSelectionRequest(
             request,
-            productAdmission: productAdmission
+            productAdmission: productAdmission,
+            streamAbsenceDisposition: streamAbsenceDisposition
         )
-        if !wasPublished {
+        if !wasPublished, streamAbsenceDisposition == .reject {
             _ = productAdmission.withValidAdmission {
                 surfaceSelectionAuthority.invalidateFailedExactIntent(
                     commandId: request.requestId

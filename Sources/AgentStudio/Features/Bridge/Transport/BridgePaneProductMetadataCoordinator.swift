@@ -398,7 +398,8 @@ actor BridgePaneProductMetadataCoordinator {
 
     func publishPaneSurfaceSelectionRequest(
         _ request: BridgePaneSurfaceSelectionRequest,
-        productAdmission: BridgeProductAdmissionContext
+        productAdmission: BridgeProductAdmissionContext,
+        streamAbsenceDisposition: BridgePaneSurfaceSelectionStreamAbsenceDisposition
     ) async -> Bool {
         guard !isClosed,
             productAdmission.withValidAdmission({
@@ -414,7 +415,9 @@ actor BridgePaneProductMetadataCoordinator {
             return false
         }
         guard let activeStream else {
-            discardFailedExactPaneSurfaceSelectionRequest(request)
+            if streamAbsenceDisposition == .reject {
+                discardFailedExactPaneSurfaceSelectionRequest(request)
+            }
             return false
         }
         do {

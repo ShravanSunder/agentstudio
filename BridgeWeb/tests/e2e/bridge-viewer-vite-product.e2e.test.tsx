@@ -222,11 +222,10 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			page.on('worker', (worker): void => {
 				workerUrls.push(worker.url());
 			});
-			await page.goto(productFileUrl(server.origin), {
+			await page.goto(productFileUrl(server.origin, oracle.largeFilePath), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await selectFileBySearch({ page, path: oracle.largeFilePath });
 			await waitForSelectedFileReady({ oracle, page });
 			await clearFileSearchAndScrollTreeDeep({ oracle, page });
 			const contentScrollProof = await scrollSelectedFileThroughMarkers({
@@ -291,7 +290,6 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await selectFileBySearch({ page, path: oracle.largeFilePath });
 			await waitForSelectedFileContentReady({ content: mutatedContent, oracle, page });
 			await scrollSelectedFileThroughMarkers({ content: mutatedContent, page });
 			const replacementProof = await readFileDeepScrollProof({
@@ -454,7 +452,8 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly page: Page;
 }): Promise<void> {
-	await props.page.locator('[data-testid="worktree-file-search-input"]').fill('');
+	const searchInput = props.page.locator('[data-testid="worktree-file-search-input"]');
+	if ((await searchInput.count()) > 0) await searchInput.fill('');
 	await props.page.waitForFunction(
 		(targetPath: string): boolean => {
 			const treeHost = document.querySelector(
@@ -901,12 +900,13 @@ function isUnknownRecord(value: unknown): value is Readonly<Record<string, unkno
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function productFileUrl(origin: string): string {
+function productFileUrl(origin: string, path?: string): string {
 	const url = new URL('/', origin);
 	url.searchParams.set('fixture', 'worktree');
 	url.searchParams.set('scenario', 'current-worktree');
 	url.searchParams.set('viewer', 'file');
 	url.searchParams.set('workers', 'on');
+	if (path !== undefined) url.searchParams.set('path', path);
 	return url.toString();
 }
 

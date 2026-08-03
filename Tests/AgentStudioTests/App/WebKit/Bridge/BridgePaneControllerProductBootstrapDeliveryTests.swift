@@ -235,6 +235,108 @@ extension WebKitSerializedTests {
             #expect(await controller.teardown().value)
         }
 
+        @Test("exact Review target replays after the replacement metadata stream opens")
+        func exactReviewTargetReplaysAfterReplacementMetadataStreamOpens() async throws {
+            // Arrange
+            var deliveredInstallations: [BridgeProductSessionInstallation] = []
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                ),
+                appRootURL: testBridgeAppRootURL(),
+                initialPaneActivity: .foreground,
+                productSessionBootstrapSink: { _, _, installation, _, _ in
+                    deliveredInstallations.append(installation)
+                }
+            )
+            let initialInstallation = try #require(
+                await controller.productSessionOwner.activeInstallation
+            )
+            let productProvider = try #require(controller.productSchemeProvider)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let initialMetadataProducer = try await installRefreshAdmissionMetadataProducer(
+                installation: initialInstallation,
+                productProvider: productProvider,
+                productAdmission: productAdmission
+            )
+            let reviewSource = BridgeProductNavigationReviewSource(
+                generation: 1,
+                metadataSourceId: "review-query-replacement",
+                packageId: "review-package-replacement"
+            )
+            let reviewTarget = BridgeProductNavigationReviewTarget(
+                reviewItemId: "review-item-replacement"
+            )
+            try await controller.requestReviewTargetAndPublish(
+                source: reviewSource,
+                target: reviewTarget
+            )
+            let initialRequest = try await consumeBootstrapSurfaceSelectionRequest(
+                producerLease: initialMetadataProducer,
+                installation: initialInstallation,
+                productAdmission: productAdmission
+            )
+            try await closeBridgeProductSessionProducer(
+                initialMetadataProducer,
+                in: initialInstallation.session
+            )
+            controller.hasPublishedProductSessionBootstrap = true
+
+            // Act
+            await controller.enqueueProductSessionBootstrapRequest(
+                requestId: "replacement-with-exact-review-target",
+                reason: .workerReplacement
+            )
+            let replacementInstallation = try #require(deliveredInstallations.last)
+            let replacementMetadataProducer = try await installRefreshAdmissionMetadataProducer(
+                installation: replacementInstallation,
+                productProvider: productProvider,
+                productAdmission: productAdmission
+            )
+            let replacementSnapshot = await replacementInstallation.session.producerSnapshot()
+            let replacementRequest: BridgeProductPaneSurfaceSelectionRequestedFrame?
+            if replacementSnapshot.queuedFrameCount > 0 {
+                replacementRequest = try await consumeBootstrapSurfaceSelectionRequest(
+                    producerLease: replacementMetadataProducer,
+                    installation: replacementInstallation,
+                    productAdmission: productAdmission
+                )
+            } else {
+                replacementRequest = nil
+            }
+
+            // Assert
+            let replayedRequest = try #require(replacementRequest)
+            #expect(
+                replayedRequest.navigationCommand.commandId
+                    == initialRequest.navigationCommand.commandId
+            )
+            #expect(
+                replayedRequest.navigationCommand.bindingRevision
+                    > initialRequest.navigationCommand.bindingRevision
+            )
+            #expect(
+                replayedRequest.frameIdentity.workerInstanceId
+                    == replacementInstallation.bootstrap.workerInstanceId
+            )
+            guard
+                case .activateReviewTarget(_, _, let replayedSource, let replayedTarget) =
+                    replayedRequest.navigationCommand
+            else {
+                Issue.record("Expected the replacement stream to replay the exact Review target")
+                return
+            }
+            #expect(replayedSource == reviewSource)
+            #expect(replayedTarget == reviewTarget)
+            try await closeBridgeProductSessionProducer(
+                replacementMetadataProducer,
+                in: replacementInstallation.session
+            )
+            #expect(await controller.teardown().value)
+        }
+
         @Test("cold Review intake admits nil or current stream and rejects stale stream")
         func coldReviewIntakeAdmitsNilOrCurrentStreamAndRejectsStaleStream() async throws {
             // Arrange
@@ -362,6 +464,36 @@ private func collectStaleBootstrapReply(
             body: Data("{}".utf8)
         )
     )
+}
+
+private enum BootstrapSurfaceSelectionReplayError: Error {
+    case expectedSurfaceSelectionFrame
+}
+
+private func consumeBootstrapSurfaceSelectionRequest(
+    producerLease: BridgeProductProducerLease,
+    installation: BridgeProductSessionInstallation,
+    productAdmission: BridgeProductAdmissionContext
+) async throws -> BridgeProductPaneSurfaceSelectionRequestedFrame {
+    let decoder = try BridgeProductMetadataFrameDecoder()
+    for _ in 0..<8 {
+        guard (await installation.session.producerSnapshot()).queuedFrameCount > 0 else {
+            break
+        }
+        let queuedFrame = try #require(
+            await consumeNextBridgeProductProducerFrame(
+                for: producerLease,
+                from: installation.session,
+                productAdmission: productAdmission
+            )
+        )
+        for frame in try decoder.append(queuedFrame.data) {
+            if case .paneSurfaceSelectionRequested(let request) = frame {
+                return request
+            }
+        }
+    }
+    throw BootstrapSurfaceSelectionReplayError.expectedSurfaceSelectionFrame
 }
 
 private actor BridgeProductBootstrapDeliverySuspension {
