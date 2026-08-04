@@ -68,6 +68,8 @@ const bridgeWorkerReviewDisplayItemSchema = z
 const bridgeWorkerReviewSourceDisplayPayloadSchema = z
 	.object({
 		metadataWindowIdentity: bridgeWorkerReviewSemanticIdentitySchema,
+		metadataSourceId: bridgeProductIdentifierSchema,
+		packageId: bridgeProductIdentifierSchema,
 		reviewGeneration: bridgeProductNonnegativeSequenceSchema,
 		status: z.enum(['loading', 'ready', 'stale']),
 		summary: bridgeProductReviewPackageSummarySchema.nullable(),

@@ -51,7 +51,14 @@ describe('Bridge product dev item-error isolation', () => {
 			getFileProvider: async () => itemFailureProvider(),
 			getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
 		});
-		const delivery = carrier.issueBootstrap({ reason: 'initial' });
+		const delivery = carrier.issueBootstrap({
+			navigationIntent: {
+				commandId: 'dev:test:file',
+				commandKind: 'activateContext',
+				surface: 'file',
+			},
+			reason: 'initial',
+		});
 		const authority = {
 			capability: encodeBridgeProductCapabilityHeader(delivery.productCapability),
 			paneSessionId: delivery.bootstrap.paneSessionId,

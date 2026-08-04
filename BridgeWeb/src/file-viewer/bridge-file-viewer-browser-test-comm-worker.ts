@@ -49,6 +49,7 @@ export async function waitForBridgeFileViewerWorkerMessageDrain(): Promise<void>
 }
 
 export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
+	readonly activateFileViewerOnInstall?: boolean;
 	readonly productSessionRef: {
 		readonly current: BridgeFileViewerBrowserTestProductSession | undefined;
 	};
@@ -224,19 +225,21 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 			});
 			channel.port1.start();
 			channel.port2.start();
-			channel.port1.postMessage(
-				encodeBridgeWorkerActiveViewerModeUpdateCommand({
-					epoch: 1,
-					requestId: 'browser-file-worker-active-viewer-mode',
-					update: {
-						activeSource: null,
-						mode: 'file',
-						nativeSelectionRequestId: null,
-						sequence: 1,
-						sessionId: 'browser-file-worker-session',
-					},
-				}),
-			);
+			if (props.activateFileViewerOnInstall !== false) {
+				channel.port1.postMessage(
+					encodeBridgeWorkerActiveViewerModeUpdateCommand({
+						epoch: 1,
+						requestId: 'browser-file-worker-active-viewer-mode',
+						update: {
+							activeSource: null,
+							mode: 'file',
+							nativeSelectionRequestId: null,
+							sequence: 1,
+							sessionId: 'browser-file-worker-session',
+						},
+					}),
+				);
+			}
 			props.productSessionRef.current?.onWorkerMessagesPublisher?.((messages): void => {
 				dispatcherProps.publishWorkerMessages(messages);
 			});

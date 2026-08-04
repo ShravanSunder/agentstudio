@@ -14,58 +14,162 @@ extension BridgePaneController {
             return false
         }
         guard
-            productAdmission.withValidAdmission({
+            let retainedCommandId = productAdmission.withValidAdmission({
                 surfaceSelectionAuthority.retainIntent(surface: surface)
-                return true
-            }) == true
+            })
         else {
             return false
         }
 
+        _ = enqueueRetainedSurfaceSelectionTransition(
+            commandId: retainedCommandId,
+            productAdmission: productAdmission,
+            productSchemeProvider: productSchemeProvider
+        )
+        return true
+    }
+
+    func requestReviewTargetAndPublish(
+        source: BridgeProductNavigationReviewSource,
+        target: BridgeProductNavigationReviewTarget
+    ) async throws {
+        guard let productSchemeProvider,
+            let productAdmission = productAdmissionGate.acquire(),
+            let retainedCommandId = try productAdmission.withValidAdmission({
+                try surfaceSelectionAuthority.retainReviewTarget(source: source, target: target)
+            })
+        else {
+            throw CancellationError()
+        }
+        let transition = enqueueRetainedSurfaceSelectionTransition(
+            commandId: retainedCommandId,
+            productAdmission: productAdmission,
+            productSchemeProvider: productSchemeProvider
+        )
+        guard await transition.value else {
+            throw CancellationError()
+        }
+    }
+
+    private func enqueueRetainedSurfaceSelectionTransition(
+        commandId: String,
+        productAdmission: BridgeProductAdmissionContext,
+        productSchemeProvider: BridgePaneProductSchemeProvider
+    ) -> Task<Bool, Never> {
+
         let precedingTransition = surfaceSelectionTransitionTail
         let transition = Task { @MainActor [weak self] in
             if let precedingTransition {
-                await precedingTransition.value
+                _ = await precedingTransition.value
             }
-            await self?.bindAndPublishRetainedSurfaceSelection(
+            guard let self else { return false }
+            return await self.bindAndPublishRetainedSurfaceSelection(
+                commandId: commandId,
                 productAdmission: productAdmission,
                 productSchemeProvider: productSchemeProvider
             )
         }
         surfaceSelectionTransitionTail = transition
-        return true
+        return transition
     }
 
     func bindAndPublishRetainedSurfaceSelection(
+        commandId: String,
         productAdmission: BridgeProductAdmissionContext,
         productSchemeProvider: BridgePaneProductSchemeProvider,
         bootstrap: BridgeProductSessionBootstrap? = nil
-    ) async {
+    ) async -> Bool {
+        await bindAndPublishSurfaceSelection(
+            binding: .retainedCommand(commandId),
+            productAdmission: productAdmission,
+            productSchemeProvider: productSchemeProvider,
+            bootstrap: bootstrap,
+            streamAbsenceDisposition: .reject
+        )
+    }
+
+    func enqueueRetainedSurfaceSelectionReplay(
+        commandId: String,
+        productAdmission: BridgeProductAdmissionContext,
+        productSchemeProvider: BridgePaneProductSchemeProvider,
+        bootstrap: BridgeProductSessionBootstrap
+    ) -> Task<Bool, Never> {
+        let precedingTransition = surfaceSelectionTransitionTail
+        let transition = Task { @MainActor [weak self] in
+            if let precedingTransition {
+                _ = await precedingTransition.value
+            }
+            guard let self else { return false }
+            return await self.bindAndPublishSurfaceSelection(
+                binding: .retainedCommand(commandId),
+                productAdmission: productAdmission,
+                productSchemeProvider: productSchemeProvider,
+                bootstrap: bootstrap,
+                streamAbsenceDisposition: .retainForReplay
+            )
+        }
+        surfaceSelectionTransitionTail = transition
+        return transition
+    }
+
+    private func bindAndPublishSurfaceSelection(
+        binding: BridgePaneSurfaceSelectionBinding,
+        productAdmission: BridgeProductAdmissionContext,
+        productSchemeProvider: BridgePaneProductSchemeProvider,
+        bootstrap: BridgeProductSessionBootstrap?,
+        streamAbsenceDisposition: BridgePaneSurfaceSelectionStreamAbsenceDisposition
+    ) async -> Bool {
         let activeBootstrap: BridgeProductSessionBootstrap
         if let bootstrap {
             activeBootstrap = bootstrap
         } else {
-            guard let bootstrap = await productSessionOwner.activeBootstrap() else { return }
+            guard let bootstrap = await productSessionOwner.activeBootstrap() else {
+                if case .retainedCommand(let commandId) = binding {
+                    _ = productAdmission.withValidAdmission {
+                        surfaceSelectionAuthority.invalidateFailedExactIntent(
+                            commandId: commandId
+                        )
+                    }
+                }
+                return false
+            }
             activeBootstrap = bootstrap
         }
         let admittedRequests: [BridgePaneSurfaceSelectionRequest]?
         do {
             admittedRequests = try productAdmission.withValidAdmission {
-                guard
-                    let request = try surfaceSelectionAuthority.bindRetainedIntent(
+                let request: BridgePaneSurfaceSelectionRequest?
+                switch binding {
+                case .retainedCommand(let commandId):
+                    request = try surfaceSelectionAuthority.bindRetainedIntent(
+                        commandId: commandId,
                         paneSessionId: activeBootstrap.paneSessionId,
                         workerInstanceId: activeBootstrap.workerInstanceId
                     )
-                else { return [] }
+                }
+                guard let request else { return [] }
                 return [request]
             }
         } catch {
-            return
+            return false
         }
-        guard let request = admittedRequests?.first else { return }
-        await productSchemeProvider.publishPaneSurfaceSelectionRequest(
+        guard let request = admittedRequests?.first else { return false }
+        let wasPublished = await productSchemeProvider.publishPaneSurfaceSelectionRequest(
             request,
-            productAdmission: productAdmission
+            productAdmission: productAdmission,
+            streamAbsenceDisposition: streamAbsenceDisposition
         )
+        if !wasPublished, streamAbsenceDisposition == .reject {
+            _ = productAdmission.withValidAdmission {
+                surfaceSelectionAuthority.invalidateFailedExactIntent(
+                    commandId: request.requestId
+                )
+            }
+        }
+        return wasPublished
     }
+}
+
+private enum BridgePaneSurfaceSelectionBinding {
+    case retainedCommand(String)
 }

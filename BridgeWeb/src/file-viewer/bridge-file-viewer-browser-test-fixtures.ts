@@ -1,5 +1,5 @@
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { BridgeProductFileSourceIdentity } from '../core/comm-worker/bridge-product-file-contracts.js';
+import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import {
 	bridgeProductFileMetadataEventSchema,
 	type BridgeProductSubscriptionEvent,
@@ -17,6 +17,10 @@ export type FileTreeRow = Extract<
 	FileMetadataEvent,
 	{ readonly eventKind: 'file.treeWindow' }
 >['rows'][number];
+export type FileNavigationCommand = Extract<
+	BridgeProductNavigationCommand,
+	{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
+>;
 
 const startupWindowMetadataLineage = {
 	loadedBy: 'startup_window',
@@ -540,18 +544,18 @@ export function fileTreeRowId(path: string): string {
 	return `row:${path.replaceAll('/', ':').replaceAll(' ', '_')}`;
 }
 
-export function fileNavigationCommandForPath(path: string): BridgeViewerNavigationCommand {
+export function fileNavigationCommandForPath(path: string): FileNavigationCommand {
 	return {
+		bindingRevision: 1,
 		commandId: `test:file:${path}`,
-		commandKind: 'initialize',
-		context: 'files',
-		restoreMemory: true,
-		source: { sourceKind: 'worktree', sourceId: 'source-1' },
-		target: {
-			targetKind: 'file',
-			fileRef: { sourceId: 'source-1', path },
-			version: 'current',
+		commandKind: 'activateTarget',
+		source: {
+			sourceId: 'dev-worktree-source',
+			sourceKind: 'file',
+			subscriptionGeneration: 1,
 		},
+		surface: 'file',
+		target: { path, targetKind: 'file', version: 'current' },
 	};
 }
 

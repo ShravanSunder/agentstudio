@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 
 import type { BridgeProductContentRequest } from '../../src/core/comm-worker/bridge-product-content-contracts.js';
+import type { BridgeProductDevNavigationIntent } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import {
 	assertBridgeProductResyncReconciliationMatchesRequest,
 	bridgeProductMetadataAcceptedStreamSequence,
@@ -9,6 +10,7 @@ import {
 	type BridgeProductControlRequest,
 	type BridgeProductControlResponse,
 	type BridgeProductMetadataStreamRequest,
+	type BridgeProductNavigationCommand,
 } from '../../src/core/comm-worker/bridge-product-session-contracts.js';
 import type { BridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-contracts.js';
 import { encodeBridgeProductSubscriptionInterestState } from '../../src/core/comm-worker/bridge-product-subscription-interest-state-codec.js';
@@ -50,6 +52,12 @@ export type BridgeProductDevSubscription =
 	| BridgeProductDevFileSubscription
 	| BridgeProductDevReviewSubscription;
 
+export interface BridgeProductDevNavigationBinding {
+	readonly bindingRevision: number;
+	readonly intent: BridgeProductDevNavigationIntent;
+	navigationCommandEnqueued: boolean;
+}
+
 export interface BridgeProductDevSession {
 	readonly abortController: AbortController;
 	awaitingResync: boolean;
@@ -63,12 +71,63 @@ export interface BridgeProductDevSession {
 	readonly loadFileAdapter: () => Promise<BridgeProductDevFileAdapter>;
 	readonly loadReviewAdapter: () => Promise<BridgeProductDevReviewAdapterPort>;
 	metadataWriter: BridgeProductDevMetadataWriter | null;
+	readonly navigationBinding: BridgeProductDevNavigationBinding;
 	readonly paneSessionId: string;
 	pendingControl: Promise<void>;
 	resyncResumeFromStreamSequence: number | null;
 	reviewSource: BridgeProductDevReviewSourceSnapshot | null;
 	readonly subscriptionsById: Map<string, BridgeProductDevSubscription>;
 	readonly workerInstanceId: string;
+}
+
+export function publishBridgeProductDevNavigationIfReady(
+	session: BridgeProductDevSession,
+): Promise<void> {
+	if (session.navigationBinding.navigationCommandEnqueued) return Promise.resolve();
+	const command = bridgeProductDevNavigationCommand(session);
+	const metadataWriter = session.metadataWriter;
+	if (command === null || metadataWriter === null || metadataWriter.response.destroyed) {
+		return Promise.resolve();
+	}
+	session.navigationBinding.navigationCommandEnqueued = true;
+	return metadataWriter.writeMetadataFrame({
+		kind: 'pane.surfaceSelectionRequested',
+		navigationCommand: command,
+	});
+}
+
+function bridgeProductDevNavigationCommand(
+	session: BridgeProductDevSession,
+): BridgeProductNavigationCommand | null {
+	const { bindingRevision, intent } = session.navigationBinding;
+	if (intent.commandKind === 'activateContext') return { ...intent, bindingRevision };
+	if (intent.surface === 'file') {
+		const source = session.fileSource?.identity;
+		return source === undefined
+			? null
+			: {
+					...intent,
+					bindingRevision,
+					source: {
+						sourceId: source.sourceId,
+						sourceKind: 'file',
+						subscriptionGeneration: source.subscriptionGeneration,
+					},
+				};
+	}
+	const source = session.reviewSource;
+	return source === null
+		? null
+		: {
+				...intent,
+				bindingRevision,
+				source: {
+					generation: source.generation,
+					metadataSourceId: source.sourceIdentity,
+					packageId: source.packageId,
+					sourceKind: 'review',
+				},
+			};
 }
 
 export function bridgeProductDevRequestMatchesSession(

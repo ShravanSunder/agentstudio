@@ -22,16 +22,10 @@ import {
 import {
 	BridgeProductContentResponseAdmission,
 	BridgeProductContentResponseStartAdmission,
-	bridgeProductMaximumConcurrentContentResponsesForRoute,
 	type BridgeProductContentResponseAdmissionLease,
 } from './bridge-product-content-response-admission.js';
 import { BridgeProductContentStreamDecoder } from './bridge-product-content-stream-decoder.js';
-import {
-	BRIDGE_PRODUCT_COMMAND_ROUTE,
-	BRIDGE_PRODUCT_CONTENT_ROUTE,
-	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-	BRIDGE_PRODUCT_STREAM_ROUTE,
-} from './bridge-product-contract-primitives.js';
+import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
 import {
 	bridgeProductFrameAcknowledgementRejectedStatusSchema,
 	bridgeProductFrameAcknowledgementRequestSchema,
@@ -42,6 +36,7 @@ import {
 	type BridgeProductMetadataStreamDecoderDiagnostics,
 	type BridgeProductMetadataStreamIdentityField,
 } from './bridge-product-metadata-stream-decoder.js';
+import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import type {
 	BridgeProductControlMux,
 	BridgeProductSessionAuthority,
@@ -97,7 +92,9 @@ export interface CreateBridgeProductTransportProps {
 		'call' | 'cancelSubscription' | 'openSubscription' | 'updateSubscriptionBatch'
 	>;
 	readonly createIdentifier?: (purpose: BridgeProductIdentifierPurpose) => string;
+	readonly executeProductRequest: BridgeProductRequestExecutor;
 	readonly initialWorkerDerivationEpochs?: Readonly<Record<BridgeProductSurface, number>>;
+	readonly maximumConcurrentContentResponses?: number;
 }
 
 export interface BridgeProductTransportSession extends BridgeProductTransport {
@@ -171,12 +168,11 @@ export function createBridgeProductTransport(
 
 class BridgeProductTransportSessionImpl implements BridgeProductTransportSession {
 	readonly #authority: BridgeProductSessionAuthority;
-	readonly #contentResponseAdmission = new BridgeProductContentResponseAdmission(
-		bridgeProductMaximumConcurrentContentResponsesForRoute(BRIDGE_PRODUCT_CONTENT_ROUTE),
-	);
+	readonly #contentResponseAdmission: BridgeProductContentResponseAdmission;
 	readonly #controlMux: CreateBridgeProductTransportProps['controlMux'];
 	readonly #createIdentifier: (purpose: BridgeProductIdentifierPurpose) => string;
 	readonly #epochs: Record<BridgeProductSurface, number>;
+	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	#metadataReady: BridgeProductDeferred<void> | null = null;
 	#metadataStreamHealthDiagnostics: BridgeProductMetadataStreamHealthDiagnostics = {
 		acknowledgedFrameCount: 0,
@@ -215,6 +211,10 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#createIdentifier =
 			props.createIdentifier ??
 			((purpose): string => `${purpose}-${globalThis.crypto.randomUUID()}`);
+		this.#executeProductRequest = props.executeProductRequest;
+		this.#contentResponseAdmission = new BridgeProductContentResponseAdmission(
+			props.maximumConcurrentContentResponses,
+		);
 		this.#epochs = {
 			file: props.initialWorkerDerivationEpochs?.file ?? 0,
 			review: props.initialWorkerDerivationEpochs?.review ?? 0,
@@ -356,7 +356,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		}
 		let response: Response;
 		try {
-			response = await fetch(BRIDGE_PRODUCT_STREAM_ROUTE, {
+			response = await this.#executeProductRequest('stream', {
 				body: encodeBridgeProductRequestBody(request),
 				headers: {
 					'Content-Type': 'application/json',
@@ -497,7 +497,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 	): Promise<void> {
 		let response: Response;
 		try {
-			response = await fetch(BRIDGE_PRODUCT_COMMAND_ROUTE, {
+			response = await this.#executeProductRequest('command', {
 				body: encodeBridgeProductRequestBody(request),
 				headers: {
 					'Content-Type': 'application/json',
@@ -648,7 +648,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 				props.abortSignal,
 			);
 			props.abortSignal.throwIfAborted();
-			const response = await fetch(BRIDGE_PRODUCT_CONTENT_ROUTE, {
+			const response = await this.#executeProductRequest('content', {
 				body: encodeBridgeProductRequestBody(props.request),
 				headers: {
 					'Content-Type': 'application/json',

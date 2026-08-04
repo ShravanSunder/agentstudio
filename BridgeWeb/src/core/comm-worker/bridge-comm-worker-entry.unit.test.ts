@@ -7,6 +7,7 @@ import {
 	type BridgeCommWorkerInstalledProductSession,
 	createBridgeCommWorkerScopePortAdapter,
 	postPreparedBridgeCommWorkerMessage,
+	registerBridgeCommWorkerEntry,
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
 import {
@@ -24,6 +25,7 @@ import {
 	createBridgeCommWorkerReviewProductTestSource,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
 import type { BridgeProductReviewContentDescriptor } from './bridge-product-content-contracts.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
@@ -528,7 +530,9 @@ describe('Bridge comm worker entry', () => {
 		const globalPort = createRecordingBridgeCommWorkerPort();
 		const productChannel = new MessageChannel();
 		const productPort = new BridgeWorkerMessagePortRecorder(productChannel.port2);
-		bootstrapBridgeCommWorkerEntry(globalPort.dispatch.port);
+		registerBridgeCommWorkerEntry(globalPort.dispatch.port, {
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
+		});
 		globalPort.dispatch.message(makePaneWorkerInstall(productChannel.port1));
 
 		// Act

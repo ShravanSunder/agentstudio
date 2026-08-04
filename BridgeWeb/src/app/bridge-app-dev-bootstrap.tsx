@@ -27,37 +27,34 @@ if (rootElement !== null) {
 	const telemetryHost = installBridgeAppDevTelemetryHost({
 		scenario: telemetryScenario,
 	});
-	const productSessionHost = installBridgeAppDevProductSessionHost();
-	const workerFactory = options.workersEnabled
-		? createBridgePierrePortableBlobWorkerFactory()
-		: null;
-	const markdownWorkerClient = options.workersEnabled
-		? createBridgeMarkdownRenderWebWorkerClient({
-				workerFactory: createBridgeMarkdownRenderModuleWorkerFactory(),
-			})
-		: null;
+	const productSessionHost = installBridgeAppDevProductSessionHost({
+		navigationIntent: options.navigationIntent,
+	});
+	const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+	const markdownWorkerClient = createBridgeMarkdownRenderWebWorkerClient({
+		workerFactory: createBridgeMarkdownRenderModuleWorkerFactory(),
+	});
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
 			productSessionHost.dispose();
 			telemetryHost.dispose();
-			workerFactory?.revoke();
+			workerFactory.revoke();
 		},
 		{ once: true },
 	);
 
 	createRoot(rootElement).render(
 		<BridgeAppProtocolRouter
-			codeViewWorkerPoolEnabled={options.workersEnabled}
+			codeViewWorkerPoolEnabled
 			markdownWorkerClient={markdownWorkerClient}
-			navigationCommand={options.navigationCommand}
 			paneRuntimeFactory={(): ReturnType<typeof createBridgePaneRuntime> =>
 				createBridgePaneRuntime({
 					sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
 				})
 			}
 			fileViewerProps={{ autoOpenInitialFile: true }}
-			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}
+			codeViewWorkerFactory={workerFactory.workerFactory}
 		/>,
 	);
 }

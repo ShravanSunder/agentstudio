@@ -68,11 +68,11 @@ describe('Bridge Review real-product continuous hydration', () => {
 			// Arrange: use the same production carrier, pane worker, route, and source as the Vite app.
 			await ensureBridgeCodeViewThemeResolved();
 			activeHandshakeDisposer = installBridgeReadyHandshake().dispose;
-			activeProductSessionHost = installBridgeAppDevProductSessionHost();
-			activePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
-			const navigationCommand = parseBridgeAppDevFixtureOptions(
+			const navigationIntent = parseBridgeAppDevFixtureOptions(
 				new URLSearchParams('fixture=worktree&viewer=review'),
-			).navigationCommand;
+			).navigationIntent;
+			activeProductSessionHost = installBridgeAppDevProductSessionHost({ navigationIntent });
+			activePierreWorkerFactory = createBridgePierrePortableBlobWorkerFactory();
 
 			const rendered = await render(
 				<BridgeAppProtocolRouter
@@ -84,7 +84,6 @@ describe('Bridge Review real-product continuous hydration', () => {
 						});
 						return activePaneRuntime;
 					}}
-					navigationCommand={navigationCommand}
 				/>,
 			);
 

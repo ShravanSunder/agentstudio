@@ -564,17 +564,13 @@ extension WebKitSerializedTests {
                 encoding: .utf8
             )
             controller.scheduleReviewPackageReloadForProductResync(reason: .productResync)
+            guard await harness.reviewMetadataSource.waitForReplayFailureState(timeout: .seconds(15)) else {
+                throw TransactionalPublicationTestError.publicationFailureDidNotReopenReview
+            }
             guard
-                await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                    timeout: .seconds(15),
-                    condition: {
-                        let snapshot = await harness.reviewMetadataSource.snapshot()
-                        return snapshot.replayIsBlocked && snapshot.didCorruptFinalWindow
-                    }),
                 let secondPublication = harness.controllerTarget.committedPublication(
                     productAdmission: harness.productAdmission
-                ),
-                secondPublication.publicationId != firstCheckpoint.publication.publicationId
+                ), secondPublication.publicationId != firstCheckpoint.publication.publicationId
             else {
                 throw TransactionalPublicationTestError.publicationFailureDidNotReopenReview
             }

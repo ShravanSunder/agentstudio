@@ -2,17 +2,25 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeActiveViewerSource } from '../core/comm-worker/bridge-product-control-contracts.js';
+import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
 } from '../file-viewer/bridge-file-viewer-app.js';
-import type { BridgeFileViewerDisplaySource } from '../file-viewer/bridge-file-viewer-display-model.js';
-import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
+import {
+	bridgeFileViewerDisplayModelForSnapshot,
+	type BridgeFileViewerDisplaySource,
+} from '../file-viewer/bridge-file-viewer-display-model.js';
+import {
+	BridgeFileViewerSurfaceClientProvider,
+	useBridgeFileViewerRenderSnapshotController,
+} from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
+import { useBridgeFileViewerDisplaySourceReporter } from '../file-viewer/use-bridge-file-viewer-display-source-reporter.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
-import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+import type { BridgeAppNavigationSource } from './bridge-app-navigation-admission.js';
 
 export interface BridgeFileViewerModeProps {
 	readonly controlTarget: EventTarget;
@@ -20,15 +28,28 @@ export interface BridgeFileViewerModeProps {
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly fileViewClient: BridgePaneSurfaceClient;
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
+	readonly isNavigationCommandStillEligible: (
+		command: Extract<
+			BridgeProductNavigationCommand,
+			{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
+		>,
+	) => boolean;
 	readonly isActive: boolean;
-	readonly navigationCommand?: BridgeViewerNavigationCommand;
+	readonly navigationCommand?: Extract<
+		BridgeProductNavigationCommand,
+		{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
+	>;
 	readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
+	readonly onNavigationSourceChange: (
+		source: Extract<BridgeAppNavigationSource, { readonly sourceKind: 'file' }> | null,
+	) => void;
+	readonly requiresNavigationSourceDiscovery: boolean;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly viewerHeaderControls: ReactElement;
 }
 
 export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactElement {
-	const { onActiveSourceChange } = props;
+	const { onActiveSourceChange, onNavigationSourceChange } = props;
 	const [hasActivatedFileViewerShell, setHasActivatedFileViewerShell] = useState(props.isActive);
 	const isActiveRef = useRef(props.isActive);
 	isActiveRef.current = props.isActive;
@@ -53,6 +74,20 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 			setHasActivatedFileViewerShell(true);
 		}
 	}, [props.isActive]);
+	const reportNavigationDisplaySource = useCallback(
+		(source: BridgeFileViewerDisplaySource | null): void => {
+			onNavigationSourceChange(
+				source === null
+					? null
+					: {
+							sourceId: source.sourceId,
+							sourceKind: 'file',
+							subscriptionGeneration: source.generation,
+						},
+			);
+		},
+		[onNavigationSourceChange],
+	);
 	const reportDisplaySource = useCallback(
 		(source: BridgeFileViewerDisplaySource | null): void => {
 			onActiveSourceChange(
@@ -64,37 +99,54 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 							streamId: source.sourceId,
 						},
 			);
+			reportNavigationDisplaySource(source);
 		},
-		[onActiveSourceChange],
+		[onActiveSourceChange, reportNavigationDisplaySource],
 	);
 
-	if (!props.isActive && !hasActivatedFileViewerShell) {
-		return <BridgeFileViewerHeadlessController />;
-	}
 	return (
 		<BridgeFileViewerSurfaceClientProvider surfaceClient={props.fileViewClient}>
-			<BridgeFileViewerApp
-				{...props.fileViewerProps}
-				{...(props.codeViewWorkerFactory === undefined
-					? {}
-					: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-				{...(props.codeViewWorkerPoolEnabled === undefined
-					? {}
-					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-				isActive={props.isActive}
-				controlTarget={props.controlTarget}
-				{...(props.navigationCommand === undefined
-					? {}
-					: { navigationCommand: props.navigationCommand })}
-				onDisplaySourceChange={reportDisplaySource}
-				telemetryRecorder={props.telemetryRecorder}
-				telemetryTraceContext={null}
-				viewerHeaderControls={props.viewerHeaderControls}
-			/>
+			{!props.isActive && !hasActivatedFileViewerShell ? (
+				!props.requiresNavigationSourceDiscovery ? null : (
+					<BridgeFileViewerHeadlessController
+						onDisplaySourceChange={reportNavigationDisplaySource}
+					/>
+				)
+			) : (
+				<BridgeFileViewerApp
+					{...props.fileViewerProps}
+					{...(props.codeViewWorkerFactory === undefined
+						? {}
+						: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+					{...(props.codeViewWorkerPoolEnabled === undefined
+						? {}
+						: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+					isActive={props.isActive}
+					isNavigationCommandStillEligible={props.isNavigationCommandStillEligible}
+					controlTarget={props.controlTarget}
+					{...(props.navigationCommand === undefined
+						? {}
+						: { navigationCommand: props.navigationCommand })}
+					onDisplaySourceChange={reportDisplaySource}
+					telemetryRecorder={props.telemetryRecorder}
+					telemetryTraceContext={null}
+					viewerHeaderControls={props.viewerHeaderControls}
+				/>
+			)}
 		</BridgeFileViewerSurfaceClientProvider>
 	);
 }
 
-function BridgeFileViewerHeadlessController(): ReactElement {
+function BridgeFileViewerHeadlessController(props: {
+	readonly onDisplaySourceChange: (source: BridgeFileViewerDisplaySource | null) => void;
+}): ReactElement {
+	const renderSnapshotController = useBridgeFileViewerRenderSnapshotController({ selection: null });
+	const displayModel = bridgeFileViewerDisplayModelForSnapshot(
+		renderSnapshotController.fileDisplaySnapshot,
+	);
+	useBridgeFileViewerDisplaySourceReporter({
+		onDisplaySourceChange: props.onDisplaySourceChange,
+		source: displayModel.source,
+	});
 	return <div data-testid="bridge-file-viewer-headless-controller" />;
 }

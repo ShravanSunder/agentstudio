@@ -194,32 +194,32 @@ extension BridgePaneController {
         itemId: String,
         correlationId: UUID?
     ) async throws -> IPCBridgeReviewSelectFileResult {
-        guard let package = paneState.diff.packageMetadata else {
+        guard let productAdmission = productAdmissionGate.acquire(),
+            let publication = reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        else {
             throw BridgeIPCProjectionError(reason: .packageUnavailable)
         }
+        let package = publication.package
         guard package.itemsById[itemId] != nil else {
             throw BridgeIPCProjectionError(reason: .itemNotFound)
         }
 
-        try await dispatchReviewItemSelectionToPage(itemId: itemId)
+        try await requestReviewTargetAndPublish(
+            source: BridgeProductNavigationReviewSource(
+                generation: package.reviewGeneration.rawValue,
+                metadataSourceId: package.query.queryId,
+                packageId: package.packageId
+            ),
+            target: BridgeProductNavigationReviewTarget(reviewItemId: itemId)
+        )
         selectedReviewItemId = itemId
         return IPCBridgeReviewSelectFileResult(
             paneId: paneId,
             itemId: itemId,
             selected: true,
             correlationId: correlationId
-        )
-    }
-
-    private func dispatchReviewItemSelectionToPage(itemId: String) async throws {
-        let itemIdLiteral = try javaScriptStringLiteral(itemId)
-        try await page.callJavaScript(
-            """
-            window.dispatchEvent(new CustomEvent('__bridge_select_review_item', {
-              detail: { itemId: \(itemIdLiteral) }
-            }));
-            """,
-            contentWorld: .page
         )
     }
 

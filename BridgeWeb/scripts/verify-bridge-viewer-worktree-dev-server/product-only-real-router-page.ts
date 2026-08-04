@@ -934,7 +934,7 @@ function classifyObservedWorker(url: string, documentGeneration: number): Mutabl
 		closedBeforeJourneyCompletion: false,
 		documentGeneration,
 	};
-	if (url.includes('/src/core/comm-worker/bridge-comm-worker-entry.ts')) {
+	if (url.includes('/src/core/comm-worker/bridge-comm-worker-vite-entry.ts')) {
 		return { ...lifecycle, kind: 'comm-worker', url: safeWorkerUrl(url) };
 	}
 	if (url.startsWith('blob:')) {

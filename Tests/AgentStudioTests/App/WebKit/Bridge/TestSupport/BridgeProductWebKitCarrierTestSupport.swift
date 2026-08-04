@@ -297,6 +297,8 @@ actor BridgeWebKitFailingReviewMetadataSource:
     private var replayIsBlocked = false
     private var replayIsReleased = false
     private var replayRelease: CheckedContinuation<Void, Never>?
+    private var nextReplayFailureStateWaiterID: UInt64 = 0
+    private var replayFailureStateWaiters: [UInt64: CheckedContinuation<Bool, Never>] = [:]
 
     func open(
         subscription: BridgeProductSubscriptionSnapshot,
@@ -365,6 +367,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
             deliveryAttempts.count(where: { $0.publicationId == reservation.publicationId }) == 2
         {
             replayIsBlocked = true
+            resumeReplayFailureStateWaitersIfReady()
             if !replayIsReleased {
                 await withCheckedContinuation { continuation in
                     replayRelease = continuation
@@ -440,7 +443,64 @@ actor BridgeWebKitFailingReviewMetadataSource:
             treeWindow: window.treeWindow
         )
         didCorruptFinalWindow = true
+        resumeReplayFailureStateWaitersIfReady()
         return try await emit(.window(gappedFinalWindow), productAdmission)
+    }
+
+    func waitForReplayFailureState(timeout: Duration) async -> Bool {
+        guard !(replayIsBlocked && didCorruptFinalWindow) else { return true }
+        let waiterID = nextReplayFailureStateWaiterID
+        nextReplayFailureStateWaiterID += 1
+
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return nil }
+                return await self.waitForReplayFailureStateEvent(waiterID: waiterID)
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                    return false
+                } catch {
+                    return nil
+                }
+            }
+
+            let result = await group.next()
+            group.cancelAll()
+            guard let result else { return false }
+            return result ?? false
+        }
+    }
+
+    private func resumeReplayFailureStateWaitersIfReady() {
+        guard replayIsBlocked && didCorruptFinalWindow else { return }
+        let waiters = Array(replayFailureStateWaiters.values)
+        replayFailureStateWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters {
+            waiter.resume(returning: true)
+        }
+    }
+
+    private func waitForReplayFailureStateEvent(waiterID: UInt64) async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if replayIsBlocked && didCorruptFinalWindow {
+                    continuation.resume(returning: true)
+                } else if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    replayFailureStateWaiters[waiterID] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelReplayFailureStateWaiter(waiterID: waiterID) }
+        }
+    }
+
+    private func cancelReplayFailureStateWaiter(waiterID: UInt64) {
+        guard let waiter = replayFailureStateWaiters.removeValue(forKey: waiterID) else { return }
+        waiter.resume(returning: false)
     }
 }
 

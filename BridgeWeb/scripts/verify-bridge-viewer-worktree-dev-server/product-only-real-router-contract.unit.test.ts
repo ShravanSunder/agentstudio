@@ -285,7 +285,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 					closedBeforeJourneyCompletion: false,
 					documentGeneration: 1,
 					kind: 'comm-worker',
-					url: '/src/core/comm-worker/bridge-comm-worker-entry.ts?replacement&type=module',
+					url: '/src/core/comm-worker/bridge-comm-worker-vite-entry.ts?replacement&type=module',
 				},
 			],
 		};
@@ -867,7 +867,7 @@ function makePassingProductOnlyProof(
 				closedBeforeJourneyCompletion: false,
 				documentGeneration: 1,
 				kind: 'comm-worker',
-				url: '/src/core/comm-worker/bridge-comm-worker-entry.ts?worker_file&type=module',
+				url: '/src/core/comm-worker/bridge-comm-worker-vite-entry.ts?worker_file&type=module',
 			},
 		],
 	};

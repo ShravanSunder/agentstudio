@@ -44,7 +44,14 @@ describe('Bridge product dev pane carrier resync', () => {
 			getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
 		});
 		carrier = testCarrier;
-		const delivery = testCarrier.issueBootstrap({ reason: 'initial' });
+		const delivery = testCarrier.issueBootstrap({
+			navigationIntent: {
+				commandId: 'dev:test:file',
+				commandKind: 'activateContext',
+				surface: 'file',
+			},
+			reason: 'initial',
+		});
 		authority = {
 			capability: encodeBridgeProductCapabilityHeader(delivery.productCapability),
 			paneSessionId: delivery.bootstrap.paneSessionId,
