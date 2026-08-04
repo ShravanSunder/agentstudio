@@ -258,6 +258,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await expect.element(searchToggle).toHaveAttribute('aria-pressed', 'false');
 		await expect.element(searchToggle).toHaveAttribute('aria-label', 'Search files');
 		await actClick(requireHTMLElement(searchToggle.element()));
+		await settleBridgeFileViewerBrowserUpdates();
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('');
 	});
 
