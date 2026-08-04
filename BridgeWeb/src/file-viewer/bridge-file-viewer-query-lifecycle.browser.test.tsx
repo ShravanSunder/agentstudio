@@ -22,6 +22,7 @@ import {
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actClick,
+	actFrame,
 	actUpdate,
 	installBridgeFileViewerNoopResizeObserver,
 	settleBridgeFileViewerBrowserUpdates,
@@ -155,9 +156,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		expect(document.activeElement).toBe(searchInput);
 
 		// Act: foreground Escape closes Search without relying on a surface-global handler.
-		await act(async (): Promise<void> => {
-			searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-		});
+		await dispatchFileViewerSearchEscape(searchInput);
 
 		// Assert: focus returns to the still-eligible Files tree and Search can reopen normally.
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
@@ -353,9 +352,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const searchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);
-		await act(async (): Promise<void> => {
-			searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-		});
+		await dispatchFileViewerSearchEscape(searchInput);
 
 		// Assert
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
@@ -382,18 +379,20 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			await renderResult.getByTestId('worktree-file-search-input').fill('AppDelegate');
 		});
 		await settleBridgeFileViewerBrowserUpdates();
-		const eligibleRow = requireHTMLElement(mountedFileTreeRow(focusedPath));
 		const searchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);
-		await act(async (): Promise<void> => {
-			searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-		});
+		await dispatchFileViewerSearchEscape(searchInput);
 
 		// Assert: the owner resolves the current row, not a stale DOM node.
-		await expect.poll(deepActiveElement).toBe(eligibleRow);
+		await expect
+			.poll((): string | undefined =>
+				deepActiveElement()?.getAttribute('data-item-path')?.replace(/\/$/u, ''),
+			)
+			.toBe(focusedPath);
 
 		// Act: exclude the recorded path before closing the next Search.
+		const eligibleRow = requireHTMLElement(mountedFileTreeRow(focusedPath));
 		await actUpdate((): void => eligibleRow.focus());
 		await dispatchFileViewerShortcut({ shiftKey: true });
 		await act(async (): Promise<void> => {
@@ -403,11 +402,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const excludedSearchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);
-		await act(async (): Promise<void> => {
-			excludedSearchInput.dispatchEvent(
-				new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }),
-			);
-		});
+		await dispatchFileViewerSearchEscape(excludedSearchInput);
 
 		// Assert: an ineligible path falls back to the Search trigger.
 		await expect
@@ -546,6 +541,7 @@ async function dispatchFileViewerShortcut(
 			}),
 		);
 	});
+	await actFrame();
 }
 
 async function dispatchFileViewerSearchCommand(props: {
@@ -562,6 +558,13 @@ async function dispatchFileViewerSearchCommand(props: {
 				},
 			}),
 		);
+	});
+	await settleBridgeFileViewerBrowserUpdates();
+}
+
+async function dispatchFileViewerSearchEscape(searchInput: HTMLElement): Promise<void> {
+	await act(async (): Promise<void> => {
+		searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
 	});
 	await settleBridgeFileViewerBrowserUpdates();
 }
