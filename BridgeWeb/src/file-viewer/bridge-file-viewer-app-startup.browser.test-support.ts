@@ -166,4 +166,7 @@ export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Pro
 		}
 		await Promise.resolve();
 	});
+	// Base UI observes the finished transition from an effect, then advances one
+	// frame before committing the popup's mounted-state change.
+	await actFrame();
 }
