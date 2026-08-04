@@ -81,7 +81,7 @@ struct CIFastLaneWorkflowTests {
         let fingerprintStepRange = try #require(ciWorkflow.range(of: fingerprintStep))
         let restoreCacheStepRange = try #require(ciWorkflow.range(of: restoreCacheStep))
         let bridgeBuildStepRange = try #require(
-            ciWorkflow.range(of: "      - name: BridgeWeb packaged build")
+            ciWorkflow.range(of: "          - name: BridgeWeb packaged build")
         )
         let resourceSetupStepRange = try #require(
             ciWorkflow.range(of: "      - name: Setup dev resources")
@@ -123,6 +123,37 @@ struct CIFastLaneWorkflowTests {
         #expect(saveCacheStep.contains("if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'"))
         #expect(saveCacheStep.contains("actions/cache/save@v4"))
         #expect(saveCacheStep.contains("steps.swift-build-cache-restore.outputs.cache-primary-key"))
+    }
+
+    @Test("Swift preparation preserves independent parallel phases")
+    func swiftPreparationPreservesIndependentParallelPhases() throws {
+        let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let restoreParallelBlock = try namedBlock(
+            startingWith: "      - parallel:\n",
+            endingBefore: "\n      - parallel:\n",
+            in: ciWorkflow
+        )
+        let buildParallelBlock = try namedBlock(
+            startingWith: "      - parallel:\n          - name: BridgeWeb packaged build\n",
+            endingBefore: "\n      - name: Copy XCFramework",
+            in: ciWorkflow
+        )
+
+        let restoreParallelRange = try #require(ciWorkflow.range(of: restoreParallelBlock))
+        let buildParallelRange = try #require(ciWorkflow.range(of: buildParallelBlock))
+        let copyResourcesRange = try #require(ciWorkflow.range(of: "      - name: Copy XCFramework"))
+
+        #expect(restoreParallelRange.lowerBound < buildParallelRange.lowerBound)
+        #expect(buildParallelRange.upperBound < copyResourcesRange.lowerBound)
+        #expect(restoreParallelBlock.contains("Install BridgeWeb dependencies"))
+        #expect(restoreParallelBlock.contains("Cache Zig compilation"))
+        #expect(restoreParallelBlock.contains("Cache Ghostty artifacts"))
+        #expect(restoreParallelBlock.contains("Cache zmx artifacts"))
+        #expect(buildParallelBlock.contains("run: pnpm --dir BridgeWeb run build"))
+        #expect(buildParallelBlock.contains("Build Ghostty XCFramework"))
+        #expect(buildParallelBlock.contains("if: steps.cache-ghostty.outputs.cache-hit != 'true'"))
+        #expect(buildParallelBlock.contains("Build zmx"))
+        #expect(buildParallelBlock.contains("if: steps.cache-zmx.outputs.cache-hit != 'true'"))
     }
 
     @Test("benchmark workflow uses the canonical CI Swift build directory")
@@ -210,9 +241,9 @@ struct CIFastLaneWorkflowTests {
         #expect(fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
-        #expect(fastLaneStep.contains("run: mise run --raw test:swift:fast"))
+        #expect(fastLaneStep.contains("run: mise run --skip-deps --raw test:swift:fast"))
         #expect(webKitLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
-        #expect(webKitLaneStep.contains("run: mise run test:swift:webkit"))
+        #expect(webKitLaneStep.contains("run: mise run --skip-deps test:swift:webkit"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(!largeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD"))
         #expect(largeLaneStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
