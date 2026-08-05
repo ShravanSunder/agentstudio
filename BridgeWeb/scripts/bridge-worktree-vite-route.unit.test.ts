@@ -11,22 +11,22 @@ describe('BridgeWeb Vite product route cutover', () => {
 			'server.middlewares.use(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE',
 		);
 		const commandRouteIndex = viteSource.indexOf(
-			'server.middlewares.use(BRIDGE_PRODUCT_COMMAND_ROUTE',
+			'server.middlewares.use(BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT',
 		);
 		const streamRouteIndex = viteSource.indexOf(
-			'server.middlewares.use(BRIDGE_PRODUCT_STREAM_ROUTE',
+			'server.middlewares.use(BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT',
 		);
 		const contentRouteIndex = viteSource.indexOf(
-			'server.middlewares.use(BRIDGE_PRODUCT_CONTENT_ROUTE',
+			'server.middlewares.use(BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT',
 		);
 
 		expect(bootstrapRouteIndex).toBeGreaterThanOrEqual(0);
 		expect(viteSource).toContain(
 			'void productCarrier.handleBootstrapRequest({ request, response })',
 		);
-		expect(viteSource).toContain('server.middlewares.use(BRIDGE_PRODUCT_COMMAND_ROUTE');
-		expect(viteSource).toContain('server.middlewares.use(BRIDGE_PRODUCT_STREAM_ROUTE');
-		expect(viteSource).toContain('server.middlewares.use(BRIDGE_PRODUCT_CONTENT_ROUTE');
+		expect(viteSource).toContain('server.middlewares.use(BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT');
+		expect(viteSource).toContain('server.middlewares.use(BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT');
+		expect(viteSource).toContain('server.middlewares.use(BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT');
 		expect(bootstrapRouteIndex).toBeLessThan(commandRouteIndex);
 		expect(commandRouteIndex).toBeLessThan(streamRouteIndex);
 		expect(streamRouteIndex).toBeLessThan(contentRouteIndex);

@@ -374,15 +374,19 @@ describe('Bridge Review continuous large-document Browser witness', () => {
 		};
 		const harness = await renderBridgeReviewRecoveryWitness(files, {
 			navigationCommand: {
+				bindingRevision: 1,
 				commandId: 'same-identity-selected-loading',
 				commandKind: 'activateTarget',
-				context: 'review',
-				restoreMemory: false,
-				source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
+				source: {
+					generation: 1,
+					metadataSourceId: 'review-recovery-witness-source',
+					packageId: 'review-recovery-witness-package',
+					sourceKind: 'review',
+				},
+				surface: 'review',
 				target: {
-					comparisonId: 'review-comparison',
 					reviewItemId: selectedFile.itemId,
-					targetKind: 'diff',
+					targetKind: 'review',
 				},
 			},
 		});

@@ -467,7 +467,7 @@ export function collectBridgeViewerProductOnlyContractViolations(
 		violations.push({
 			actual: commWorkers,
 			code: 'worker.single-real-pane-comm-worker',
-			expected: 'exactly one real bridge-comm-worker-entry module Worker',
+			expected: 'exactly one real bridge-comm-worker-vite-entry module Worker',
 		});
 	}
 	if (commWorkers.some((worker): boolean => worker.closedBeforeJourneyCompletion)) {

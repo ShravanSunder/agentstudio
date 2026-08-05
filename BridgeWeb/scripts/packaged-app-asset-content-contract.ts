@@ -15,6 +15,8 @@ const devOnlyBridgeWebReferenceFragments: readonly string[] = [
 	'bridge-viewer-mocked-backend',
 	'bridge-viewer/test-support',
 	'review-viewer/test-support',
+	'bridge-comm-worker-vite-entry',
+	'bridge-product-http-request-executor',
 	'bridge-product-dev-routes',
 	'/__bridge-product/',
 ];

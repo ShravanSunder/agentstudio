@@ -57,27 +57,6 @@ export function useBridgeReviewControlEventListeners(
 ): void {
 	useLayoutEffect((): (() => void) => {
 		if (!props.isActive) return (): void => {};
-		const handleSelectReviewItem = (event: Event): void => {
-			const detail = eventDetail(event);
-			if (
-				typeof detail !== 'object' ||
-				detail === null ||
-				!('itemId' in detail) ||
-				typeof detail.itemId !== 'string'
-			) {
-				return;
-			}
-			props.selectReviewItem(detail.itemId);
-		};
-		return installBridgeControlListener({
-			eventName: '__bridge_select_review_item',
-			handler: handleSelectReviewItem,
-			target: props.target,
-		});
-	}, [props]);
-
-	useLayoutEffect((): (() => void) => {
-		if (!props.isActive) return (): void => {};
 		const handleControl = (event: Event): void => {
 			const detail = eventDetail(event);
 			const parsedCommand = bridgeAppControlCommandSchema.safeParse(detail);

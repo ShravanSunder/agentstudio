@@ -2,18 +2,16 @@ import { act, type ReactElement } from 'react';
 import { render } from 'vitest-browser-react';
 
 import { BridgeReviewViewerMode } from '../../app/bridge-app-review-viewer-mode.js';
-import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
 import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import { createBridgeMainRenderSnapshotStore } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeProductNavigationCommand } from '../../core/comm-worker/bridge-product-session-contracts.js';
 import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../../core/comm-worker/bridge-worker-contracts.js';
-import { buildBridgeWorkerPierreRenderJob } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
-import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
@@ -23,14 +21,19 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
-import { parseBridgeCodeViewDiffForBrowserTest } from '../code-view/bridge-code-view-browser-test-diff.js';
 import { BridgeReviewProjectionWitnessRouter } from './bridge-review-projection-witness-router.js';
 import { reviewWitnessTreeRows } from './bridge-viewer-browser-recovery-tree-fixture.js';
 import { visibleTextIncludingOpenShadowRoots } from './bridge-viewer-browser-visible-text.js';
 import {
+	completeReviewContentMessages,
+	completeReviewFileContentMessages,
+} from './bridge-viewer-browser.recovery-witness-content.test-support.js';
+import {
 	advanceBridgeReviewRecoveryWitnessFrames,
 	waitForHydratedReviewCodeViewItem,
 } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
+
+const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
 
 export {
 	advanceBridgeReviewRecoveryWitnessFrames,
@@ -121,7 +124,12 @@ export function makeBridgeReviewRecoveryWitnessFiles(props: {
 
 export async function renderBridgeReviewRecoveryWitness(
 	files: readonly BridgeReviewRecoveryWitnessFile[],
-	props: { readonly navigationCommand?: BridgeViewerNavigationCommand } = {},
+	props: {
+		readonly navigationCommand?: Extract<
+			BridgeProductNavigationCommand,
+			{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+		>;
+	} = {},
 ): Promise<BridgeReviewRecoveryWitnessHarness> {
 	if (files.length === 0) throw new Error('Review recovery witness requires at least one file.');
 	const renderStore = createBridgeMainRenderSnapshotStore();
@@ -173,10 +181,12 @@ export async function renderBridgeReviewRecoveryWitness(
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
 				isActive={isActive}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				{...(props.navigationCommand === undefined
 					? {}
 					: { navigationCommand: props.navigationCommand })}
 				onActiveSourceChange={(): void => {}}
+				onNavigationSourceChange={(): void => {}}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={<div />}
@@ -622,7 +632,9 @@ function reviewDisplayEvent(
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'review-recovery-witness-source',
 					metadataWindowIdentity,
+					packageId: 'review-recovery-witness-package',
 					reviewGeneration: 1,
 					status: 'ready',
 					summary: {
@@ -695,7 +707,9 @@ function reviewDisplayAppendEvent(
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'review-recovery-witness-source',
 					metadataWindowIdentity: 'review-recovery-witness-window-r2',
+					packageId: 'review-recovery-witness-package',
 					reviewGeneration: 1,
 					status: 'ready',
 					summary: {
@@ -793,188 +807,6 @@ function reviewDisplayItem(
 		},
 		metadataWindowIdentity,
 	};
-}
-
-function completeReviewContentMessages(
-	file: BridgeReviewRecoveryWitnessFile,
-	publicationSequence: number,
-): readonly BridgeWorkerServerToMainMessage[] {
-	const baseContents = reviewWitnessFileContents(file, 'BASE');
-	const headContents = reviewWitnessFileContents(file, file.contentMarker);
-	const baseCacheKey = `review-recovery-base-${file.itemId}`;
-	const headCacheKey = `review-recovery-head-${file.itemId}`;
-	const contentCacheKey = `${baseCacheKey}|${headCacheKey}`;
-	const job = buildBridgeWorkerPierreRenderJob({
-		bridgeDemandRank: { lane: 'visible', priority: publicationSequence },
-		budget: { className: 'visible', maxBytes: 512 * 1024, maxWindowLines: 400 },
-		contentCacheKey,
-		contentHash: `review-recovery-content-${file.itemId}`,
-		itemId: file.itemId,
-		language: 'swift',
-		payload: {
-			item: {
-				bridgeMetadata: {
-					cacheKey: contentCacheKey,
-					contentRoles: ['base', 'head'],
-					contentState: 'hydrated',
-					displayPath: file.path,
-					itemId: file.itemId,
-					lineCount: file.lineCount * 2,
-				},
-				fileDiff: parseBridgeCodeViewDiffForBrowserTest(
-					{ cacheKey: baseCacheKey, contents: baseContents, name: file.path },
-					{ cacheKey: headCacheKey, contents: headContents, name: file.path },
-				),
-				id: file.itemId,
-				type: 'diff',
-				version: 1,
-			},
-			kind: 'codeViewDiffItem',
-		},
-		renderKind: 'reviewDiff',
-		...(file.sourceCorrelation === undefined
-			? {}
-			: { sourceCorrelations: [file.sourceCorrelation] }),
-		window: { endLine: file.lineCount, startLine: 1, totalLineCount: file.lineCount },
-	});
-	return [
-		{
-			direction: 'serverWorkerToMain',
-			job,
-			kind: 'reviewPierreRenderJob',
-			publicationSequence,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
-				itemId: job.itemId,
-				publicationSequence,
-				surface: 'review',
-				workerDerivationEpoch: 1,
-			}),
-			surface: 'review',
-			transferDescriptors: [
-				{
-					byteLength: job.payloadByteLength,
-					fieldPath: ['job', 'payload'],
-					messageKind: 'reviewPierreRenderJob',
-					mode: 'clone',
-				},
-			],
-			wireVersion: 1,
-			workerDerivationEpoch: 1,
-		},
-		{
-			direction: 'serverWorkerToMain',
-			kind: 'reviewRenderPatch',
-			patches: [
-				{
-					itemId: file.itemId,
-					operation: 'upsert',
-					payload: { contentCacheKey },
-					slice: 'rowPaint',
-				},
-				{
-					itemId: file.itemId,
-					operation: 'upsert',
-					payload: { state: 'ready' },
-					slice: 'contentAvailability',
-				},
-			],
-			publicationSequence,
-			surface: 'review',
-			transferDescriptors: [],
-			wireVersion: 1,
-			workerDerivationEpoch: 1,
-		},
-	];
-}
-
-function completeReviewFileContentMessages(
-	file: BridgeReviewRecoveryWitnessFile,
-	publicationSequence: number,
-): readonly BridgeWorkerServerToMainMessage[] {
-	const contents = reviewWitnessFileContents(file, file.contentMarker);
-	const contentCacheKey = `review-recovery-file-${file.itemId}`;
-	const job = buildBridgeWorkerPierreRenderJob({
-		bridgeDemandRank: { lane: 'selected', priority: publicationSequence },
-		budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
-		contentCacheKey,
-		contentHash: `review-recovery-file-content-${file.itemId}`,
-		itemId: file.itemId,
-		language: 'swift',
-		payload: {
-			item: {
-				bridgeMetadata: {
-					cacheKey: contentCacheKey,
-					contentRoles: ['head'],
-					contentState: 'hydrated',
-					displayPath: file.path,
-					itemId: file.itemId,
-					lineCount: file.lineCount,
-				},
-				file: { cacheKey: contentCacheKey, contents, lang: 'swift', name: file.path },
-				id: file.itemId,
-				type: 'file',
-				version: 1,
-			},
-			kind: 'codeViewFileItem',
-		},
-		renderKind: 'fileText',
-		window: { endLine: file.lineCount, startLine: 1, totalLineCount: file.lineCount },
-	});
-	return [
-		{
-			direction: 'serverWorkerToMain',
-			job,
-			kind: 'reviewPierreRenderJob',
-			publicationSequence,
-			renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
-				itemId: job.itemId,
-				publicationSequence,
-				surface: 'review',
-				workerDerivationEpoch: 1,
-			}),
-			surface: 'review',
-			transferDescriptors: [
-				{
-					byteLength: job.payloadByteLength,
-					fieldPath: ['job', 'payload'],
-					messageKind: 'reviewPierreRenderJob',
-					mode: 'clone',
-				},
-			],
-			wireVersion: 1,
-			workerDerivationEpoch: 1,
-		},
-		{
-			direction: 'serverWorkerToMain',
-			kind: 'reviewRenderPatch',
-			patches: [
-				{
-					itemId: file.itemId,
-					operation: 'upsert',
-					payload: { contentCacheKey },
-					slice: 'rowPaint',
-				},
-				{
-					itemId: file.itemId,
-					operation: 'upsert',
-					payload: { state: 'ready' },
-					slice: 'contentAvailability',
-				},
-			],
-			publicationSequence,
-			surface: 'review',
-			transferDescriptors: [],
-			wireVersion: 1,
-			workerDerivationEpoch: 1,
-		},
-	];
-}
-
-function reviewWitnessFileContents(file: BridgeReviewRecoveryWitnessFile, marker: string): string {
-	return Array.from({ length: file.lineCount }, (_, lineIndex): string => {
-		const lineNumber = String(lineIndex + 1).padStart(3, '0');
-		return `let recoveryWitness${lineNumber} = "${marker}_LINE_${lineNumber}"`;
-	}).join('\n');
 }
 
 function textIncludingOpenShadowRoots(root: Element | ShadowRoot): string {

@@ -20,26 +20,18 @@ import {
 } from './scripts/dev-server/bridge-worktree-dev-provider.js';
 import { BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE } from './src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import {
-	BRIDGE_PRODUCT_COMMAND_ROUTE,
-	BRIDGE_PRODUCT_CONTENT_ROUTE,
-	BRIDGE_PRODUCT_STREAM_ROUTE,
-} from './src/core/comm-worker/bridge-product-dev-routes.js';
+	BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT,
+	BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT,
+	BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT,
+} from './src/core/comm-worker/bridge-product-http-request-executor.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
-const bridgeProductDevRoutesPath = `${bridgeWebPackageRoot}/src/core/comm-worker/bridge-product-dev-routes.ts`;
-
 export default defineConfig({
 	base: './',
 	resolve: {
-		alias: [
-			{
-				find: './bridge-product-routes.js',
-				replacement: bridgeProductDevRoutesPath,
-			},
-			{ find: '@', replacement: `${bridgeWebPackageRoot}/src` },
-		],
+		alias: [{ find: '@', replacement: `${bridgeWebPackageRoot}/src` }],
 	},
 	plugins: [
 		react(),
@@ -96,13 +88,13 @@ export default defineConfig({
 				server.middlewares.use(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE, (request, response) => {
 					void productCarrier.handleBootstrapRequest({ request, response });
 				});
-				server.middlewares.use(BRIDGE_PRODUCT_COMMAND_ROUTE, (request, response) => {
+				server.middlewares.use(BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT, (request, response) => {
 					void productCarrier.handleCommandRequest({ request, response });
 				});
-				server.middlewares.use(BRIDGE_PRODUCT_STREAM_ROUTE, (request, response) => {
+				server.middlewares.use(BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT, (request, response) => {
 					void productCarrier.handleStreamRequest({ request, response });
 				});
-				server.middlewares.use(BRIDGE_PRODUCT_CONTENT_ROUTE, (request, response) => {
+				server.middlewares.use(BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT, (request, response) => {
 					void productCarrier.handleContentRequest({ request, response });
 				});
 				server.httpServer?.once('close', (): void => productCarrier.dispose());

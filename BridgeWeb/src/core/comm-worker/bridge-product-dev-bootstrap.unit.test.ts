@@ -11,6 +11,7 @@ import {
 	BRIDGE_PRODUCT_WIRE_VERSION,
 } from './bridge-product-contract-primitives.js';
 import {
+	bridgeProductDevBootstrapRequestSchema,
 	decodeBridgeProductDevBootstrapDelivery,
 	encodeBridgeProductDevBootstrapDelivery,
 	type BridgeProductDevBootstrapDelivery,
@@ -18,6 +19,55 @@ import {
 import { bridgeProductSessionBootstrapSchema } from './bridge-product-session-contracts.js';
 
 describe('Bridge product dev bootstrap binary envelope', () => {
+	test('carries one strict source-independent navigation intent on initial and replacement requests', () => {
+		const navigationIntent = {
+			commandId: 'dev:worktree:file:README.md',
+			commandKind: 'activateTarget',
+			surface: 'file',
+			target: { path: 'README.md', targetKind: 'file', version: 'current' },
+		} as const;
+
+		expect(
+			bridgeProductDevBootstrapRequestSchema.parse({ navigationIntent, reason: 'initial' }),
+		).toEqual({ navigationIntent, reason: 'initial' });
+		expect(
+			bridgeProductDevBootstrapRequestSchema.parse({
+				navigationIntent,
+				paneSessionId: 'vite-dev-pane-session',
+				reason: 'workerReplacement',
+			}),
+		).toEqual({
+			navigationIntent,
+			paneSessionId: 'vite-dev-pane-session',
+			reason: 'workerReplacement',
+		});
+		expect(() =>
+			bridgeProductDevBootstrapRequestSchema.parse({
+				navigationIntent: {
+					...navigationIntent,
+					source: { sourceId: 'query-fabricated-source' },
+				},
+				reason: 'initial',
+			}),
+		).toThrow();
+		for (const target of [
+			{ path: 'README.md', targetKind: 'review' },
+			{ reviewItemId: 'review-item-one', targetKind: 'review', version: 'current' },
+		]) {
+			expect(() =>
+				bridgeProductDevBootstrapRequestSchema.parse({
+					navigationIntent: {
+						commandId: 'dev:worktree:review:target',
+						commandKind: 'activateTarget',
+						surface: 'review',
+						target,
+					},
+					reason: 'initial',
+				}),
+			).toThrow();
+		}
+	});
+
 	test('round-trips one versioned delivery, consumes its source, and returns distinct capability storage', () => {
 		// Arrange
 		const delivery = productBootstrapDelivery();

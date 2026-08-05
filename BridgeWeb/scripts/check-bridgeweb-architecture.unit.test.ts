@@ -92,31 +92,117 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
-	test('rejects production imports of the Vite-only Bridge product route module', async () => {
+	test('keeps endpoint adapters and environment detection out of shared product runtime sources', async () => {
 		await withFixtureTree(
 			{
-				'src/core/comm-worker/bad-product-transport.ts': `
-					import { BRIDGE_PRODUCT_COMMAND_ROUTE } from './bridge-product-dev-routes.js';
-					export const route = BRIDGE_PRODUCT_COMMAND_ROUTE;
+				'src/core/comm-worker/bridge-product-transport.ts': `
+					import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
+					import { executeHttpBridgeProductRequest } from './bridge-product-http-request-executor.js';
+					export const execute = import.meta.env.DEV
+						? executeHttpBridgeProductRequest
+						: executeAgentStudioBridgeProductRequest;
+					export const computedImportMetaMode = import.meta['env'].DEV;
+					export const computedProcessMode = process['env'].NODE_ENV;
+					export const call = (props) =>
+						props.executeProductRequest('command', { method: 'GET', headers: {} });
 				`,
-				'src/core/comm-worker/product-route-guard.unit.test.ts': `
-					import { BRIDGE_PRODUCT_COMMAND_ROUTE } from './bridge-product-dev-routes.js';
-					export const route = BRIDGE_PRODUCT_COMMAND_ROUTE;
+				'src/core/comm-worker/bridge-comm-worker-packaged-entry.ts': `
+					import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
+					export const execute = executeAgentStudioBridgeProductRequest;
 				`,
-				'vite.config.ts': `
-					import { BRIDGE_PRODUCT_COMMAND_ROUTE } from './src/core/comm-worker/bridge-product-dev-routes.js';
-					export const route = BRIDGE_PRODUCT_COMMAND_ROUTE;
+				'src/core/comm-worker/bridge-comm-worker-vite-entry.ts': `
+					import { executeHttpBridgeProductRequest } from './bridge-product-http-request-executor.js';
+					export const execute = executeHttpBridgeProductRequest;
+				`,
+				'src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts': `
+					import { executeHttpBridgeProductRequest } from './bridge-product-http-request-executor.js';
+					export const execute = executeHttpBridgeProductRequest;
+				`,
+				'src/core/comm-worker/bridge-worker-runtime.ts': `
+					export const transportOrigin = globalThis.location.origin;
+					export const computedTransportOrigin = globalThis['location']['origin'];
+				`,
+				'src/file-viewer/file-product-runtime.ts': `
+					export const endpoint = '/__bridge-product/content';
+				`,
+				'src/app/bridge-app-file-viewer-mode.tsx': `
+					export const transportOrigin = window.location.origin;
 				`,
 			},
 			async (packageRootPath: string): Promise<void> => {
 				const report = await checkBridgeWebArchitecture({ packageRootPath });
+				const endpointViolations = report.violations.filter(
+					(violation): boolean => violation.ruleId === 'product-endpoint-boundary',
+				);
 
-				expect(report.violations).toEqual([
+				expect(endpointViolations).toHaveLength(11);
+				expect(endpointViolations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-product-transport.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-product-transport.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-product-transport.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-comm-worker-runtime-protocol.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-worker-runtime.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/file-viewer/file-product-runtime.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/app/bridge-app-file-viewer-mode.tsx',
+						}),
+					]),
+				);
+			},
+		);
+	});
+
+	test('covers every comm-worker runtime and qualified fetch while allowing worker script loading', async () => {
+		await withFixtureTree(
+			{
+				'src/core/comm-worker/bridge-pane-runtime-environment.ts': `
+					export const transportOrigin = globalThis.location.origin;
+					export const productEndpoint = '/__bridge-product/content';
+				`,
+				'src/core/comm-worker/bridge-product-runtime-fetches.ts': `
+					export const first = globalThis.fetch('/one');
+					export const second = self['fetch']('/two');
+					export const third = window.fetch('/three');
+				`,
+				'src/core/comm-worker/bridge-pane-comm-worker-session.ts': `
+					export const loadWorkerScript = (workerScriptUrl: string) => fetch(workerScriptUrl);
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+				const endpointViolations = report.violations.filter(
+					(violation): boolean => violation.ruleId === 'product-endpoint-boundary',
+				);
+
+				expect(endpointViolations).toHaveLength(5);
+				expect(endpointViolations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-pane-runtime-environment.ts',
+						}),
+						expect.objectContaining({
+							relativePath: 'src/core/comm-worker/bridge-product-runtime-fetches.ts',
+						}),
+					]),
+				);
+				expect(endpointViolations).not.toContainEqual(
 					expect.objectContaining({
-						ruleId: 'dev-product-route-boundary',
-						relativePath: 'src/core/comm-worker/bad-product-transport.ts',
+						relativePath: 'src/core/comm-worker/bridge-pane-comm-worker-session.ts',
 					}),
-				]);
+				);
 			},
 		);
 	});

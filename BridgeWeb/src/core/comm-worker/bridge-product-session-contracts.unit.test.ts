@@ -30,6 +30,7 @@ import {
 	bridgeProductMetadataAcceptedStreamSequence,
 	bridgeProductMetadataFrameSchema,
 	bridgeProductMetadataStreamRequestSchema,
+	bridgeProductNavigationCommandSchema,
 	bridgeProductSessionBootstrapSchema,
 	encodeBridgeProductCapabilityHeader,
 	postBridgePaneCommWorkerInstall,
@@ -39,6 +40,61 @@ import { bridgeProductSubscriptionInterestStateSchema } from './bridge-product-s
 import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
 
 describe('Bridge product session contracts', () => {
+	test('admits only the intrinsic shared navigation command matrix', () => {
+		const activateContext = {
+			bindingRevision: 4,
+			commandId: 'navigation-context-review',
+			commandKind: 'activateContext',
+			surface: 'review',
+		};
+		const activateFileTarget = {
+			bindingRevision: 5,
+			commandId: 'navigation-file-readme',
+			commandKind: 'activateTarget',
+			source: {
+				sourceId: 'accepted-file-source',
+				sourceKind: 'file',
+				subscriptionGeneration: 9,
+			},
+			surface: 'file',
+			target: { path: 'README.md', targetKind: 'file', version: 'current' },
+		};
+		const activateReviewTarget = {
+			bindingRevision: 6,
+			commandId: 'navigation-review-item',
+			commandKind: 'activateTarget',
+			source: {
+				generation: 11,
+				metadataSourceId: 'accepted-review-source',
+				packageId: 'accepted-review-package',
+				sourceKind: 'review',
+			},
+			surface: 'review',
+			target: { reviewItemId: 'review-item-7', targetKind: 'review' },
+		};
+
+		expect(bridgeProductNavigationCommandSchema.parse(activateContext)).toEqual(activateContext);
+		expect(bridgeProductNavigationCommandSchema.parse(activateFileTarget)).toEqual(
+			activateFileTarget,
+		);
+		expect(bridgeProductNavigationCommandSchema.parse(activateReviewTarget)).toEqual(
+			activateReviewTarget,
+		);
+		for (const malformed of [
+			{ ...activateContext, restoreMemory: true },
+			{ ...activateContext, commandKind: 'initialize' },
+			{ ...activateContext, source: activateReviewTarget.source },
+			{ ...activateFileTarget, source: activateReviewTarget.source },
+			{ ...activateReviewTarget, target: activateFileTarget.target },
+			{
+				...activateReviewTarget,
+				source: { ...activateReviewTarget.source, publicationId: 'not-navigation-identity' },
+			},
+		]) {
+			expect(bridgeProductNavigationCommandSchema.safeParse(malformed).success).toBe(false);
+		}
+	});
+
 	test('dispatches top-level control and metadata envelopes by kind', () => {
 		expect(bridgeProductControlRequestSchema).toBeInstanceOf(z.ZodDiscriminatedUnion);
 		expect(bridgeProductMetadataFrameSchema).toBeInstanceOf(z.ZodDiscriminatedUnion);

@@ -4,6 +4,7 @@ import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
 	decodeBridgeProductDevBootstrapDelivery,
 	type BridgeProductDevBootstrapRequest,
+	type BridgeProductDevNavigationIntent,
 } from '../core/comm-worker/bridge-product-dev-bootstrap.js';
 
 type BridgeAppDevProductSessionTarget = Pick<
@@ -17,11 +18,12 @@ export interface BridgeAppDevProductSessionHost {
 
 export interface BridgeAppDevProductSessionHostProps {
 	readonly fetchBootstrap?: typeof fetch;
+	readonly navigationIntent: BridgeProductDevNavigationIntent;
 	readonly target?: BridgeAppDevProductSessionTarget;
 }
 
 export function installBridgeAppDevProductSessionHost(
-	props: BridgeAppDevProductSessionHostProps = {},
+	props: BridgeAppDevProductSessionHostProps,
 ): BridgeAppDevProductSessionHost {
 	const target = props.target ?? document;
 	const fetchBootstrap = props.fetchBootstrap ?? globalThis.fetch.bind(globalThis);
@@ -35,6 +37,7 @@ export function installBridgeAppDevProductSessionHost(
 		const request = productBootstrapRequest(event.detail);
 		if (request === null) return;
 		const bootstrapRequest = bridgeProductDevBootstrapRequest({
+			navigationIntent: props.navigationIntent,
 			paneSessionId,
 			reason: request.reason,
 		});
@@ -114,13 +117,20 @@ async function fetchRegisteredBootstrap(props: {
 }
 
 function bridgeProductDevBootstrapRequest(props: {
+	readonly navigationIntent: BridgeProductDevNavigationIntent;
 	readonly paneSessionId: string | null;
 	readonly reason: 'initial' | 'workerReplacement';
 }): BridgeProductDevBootstrapRequest | null {
-	if (props.reason === 'initial') return { reason: props.reason };
+	if (props.reason === 'initial') {
+		return { navigationIntent: props.navigationIntent, reason: props.reason };
+	}
 	return props.paneSessionId === null
 		? null
-		: { paneSessionId: props.paneSessionId, reason: props.reason };
+		: {
+				navigationIntent: props.navigationIntent,
+				paneSessionId: props.paneSessionId,
+				reason: props.reason,
+			};
 }
 
 function productBootstrapRequest(detail: unknown): {

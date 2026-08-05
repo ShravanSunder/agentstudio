@@ -363,15 +363,8 @@ extension BridgeProductPaneSurfaceSelectionRequestedFrame {
             name: "streamSequence",
             codingPath: []
         )
-        try BridgeProductContractDecoding.validatePositive(
-            request.selectionRevision,
-            name: "selectionRevision",
-            codingPath: []
-        )
         frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
-        requestId = request.requestId
-        selectionRevision = request.selectionRevision
-        surface = request.surface
+        navigationCommand = request.navigationCommand
     }
 }
 

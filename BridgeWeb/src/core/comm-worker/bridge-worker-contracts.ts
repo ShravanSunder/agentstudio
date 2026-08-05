@@ -5,7 +5,6 @@ import { bridgeProductReviewContentDescriptorSchema } from './bridge-product-con
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
-	bridgeProductPositiveSequenceSchema,
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
@@ -18,6 +17,7 @@ import {
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
 } from './bridge-product-review-primitives.js';
+import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
 import {
 	bridgeProductFileTruncationKindSchema,
 	bridgeProductFileVirtualizedExtentKindSchema,
@@ -830,10 +830,8 @@ export const bridgeWorkerNativeSurfaceSelectionRequestSchema = bridgeWorkerServe
 	.extend({
 		kind: z.literal('nativeSurfaceSelectionRequest'),
 		metadataStreamId: bridgeProductIdentifierSchema,
-		nativeSelectionRequestId: bridgeProductIdentifierSchema,
+		navigationCommand: bridgeProductNavigationCommandSchema,
 		paneSessionId: bridgeProductIdentifierSchema,
-		selectionRevision: bridgeProductPositiveSequenceSchema,
-		surface: bridgeProductSurfaceSchema,
 		workerInstanceId: bridgeProductIdentifierSchema,
 	})
 	.strict();
