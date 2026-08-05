@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -10,6 +11,56 @@ import Testing
 struct PaneTabViewControllerTabContextMenuCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    private final class ObservationInvalidationFlag: @unchecked Sendable {
+        var didFire = false
+    }
+
+    @Test("tab command capability ignores unrelated repository topology changes")
+    func canExecuteTabCommand_doesNotObserveRepositoryTopology() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let invalidation = ObservationInvalidationFlag()
+
+        withObservationTracking {
+            _ = harness.controller.canExecute(
+                .closeTab,
+                target: tab.id,
+                targetType: .tab
+            )
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        let repositoryID = UUID()
+        let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
+        harness.store.repositoryTopologyAtom.replaceTopology(
+            RepositoryTopologyReplacement(
+                repositories: [
+                    Repo(
+                        id: repositoryID,
+                        name: "Unrelated Repository",
+                        repoPath: repositoryPath,
+                        worktrees: [
+                            Worktree(
+                                repoId: repositoryID,
+                                name: "main",
+                                path: repositoryPath,
+                                isMainWorktree: true
+                            )
+                        ]
+                    )
+                ],
+                watchedPaths: [],
+                unavailableRepositoryIDs: []
+            )
+        )
+
+        #expect(!invalidation.didFire)
     }
 
     @Test("targeted Equalize Panes uses the clicked inactive tab")

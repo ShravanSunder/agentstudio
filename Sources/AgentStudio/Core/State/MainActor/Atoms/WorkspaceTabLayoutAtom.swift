@@ -76,6 +76,21 @@ package final class WorkspaceTabLayoutAtom {
         return arrangementAtom.cursorAtom.activePaneId(forArrangement: arrangementID)
     }
 
+    package func containsTab(_ tabID: UUID) -> Bool {
+        arrangementAtom.graphAtom.containsTab(tabID)
+    }
+
+    package func activeArrangementIsSplit(forTab tabID: UUID) -> Bool {
+        guard
+            let arrangementID = arrangementAtom.cursorAtom.activeArrangementId(forTab: tabID),
+            let tabState = arrangementAtom.graphAtom.tabState(tabID),
+            let arrangement = tabState.arrangements.first(where: { $0.id == arrangementID })
+        else {
+            return false
+        }
+        return arrangement.layout.isSplit
+    }
+
     package func appendTab(_ tab: Tab) {
         shellAtom.appendTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex))
         arrangementAtom.appendState(Self.arrangementState(from: tab))
