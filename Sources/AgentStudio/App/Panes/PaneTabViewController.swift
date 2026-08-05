@@ -4010,6 +4010,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             case .splitRight, .splitLeft:
                 return store.tabLayoutAtom.containsTab(target)
                     && store.tabLayoutAtom.activePaneID(forTab: target) != nil
+                    && store.panePresentationAtom.zoomPresentation(forTab: target) == nil
             case .breakUpTab, .equalizePanes:
                 return store.tabLayoutAtom.activeArrangementIsSplit(forTab: target)
             default:

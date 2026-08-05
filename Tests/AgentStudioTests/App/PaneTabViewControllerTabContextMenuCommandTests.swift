@@ -36,7 +36,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
             invalidation.didFire = true
         }
 
-        let repositoryID = UUID()
+        let repositoryID = UUIDv7.generate()
         let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
         harness.store.repositoryTopologyAtom.replaceTopology(
             RepositoryTopologyReplacement(
@@ -61,6 +61,35 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         )
 
         #expect(!invalidation.didFire)
+    }
+
+    @Test("targeted split capability rejects a zoomed tab")
+    func canExecuteSplit_zoomedTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: pane.id,
+            viewerPresentation: .unavailable
+        )
+
+        #expect(
+            !harness.controller.canExecute(
+                .splitRight,
+                target: tab.id,
+                targetType: .tab
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .splitLeft,
+                target: tab.id,
+                targetType: .tab
+            )
+        )
     }
 
     @Test("targeted Equalize Panes uses the clicked inactive tab")
