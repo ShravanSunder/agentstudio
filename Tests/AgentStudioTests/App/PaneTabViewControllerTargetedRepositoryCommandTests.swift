@@ -4,6 +4,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @MainActor
@@ -89,7 +90,7 @@ struct TargetedRepositoryCommandTests {
             )
         }
 
-        let staleTarget = UUID()
+        let staleTarget = UUIDv7.generate()
         #expect(
             !harness.controller.canExecute(
                 .openWorktree,
