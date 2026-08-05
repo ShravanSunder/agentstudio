@@ -36,29 +36,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
             invalidation.didFire = true
         }
 
-        let repositoryID = UUIDv7.generate()
         let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
-        harness.store.repositoryTopologyAtom.replaceTopology(
-            RepositoryTopologyReplacement(
-                repositories: [
-                    Repo(
-                        id: repositoryID,
-                        name: "Unrelated Repository",
-                        repoPath: repositoryPath,
-                        worktrees: [
-                            Worktree(
-                                repoId: repositoryID,
-                                name: "main",
-                                path: repositoryPath,
-                                isMainWorktree: true
-                            )
-                        ]
-                    )
-                ],
-                watchedPaths: [],
-                unavailableRepositoryIDs: []
-            )
-        )
+        _ = harness.store.addRepo(at: repositoryPath)
 
         #expect(!invalidation.didFire)
     }
