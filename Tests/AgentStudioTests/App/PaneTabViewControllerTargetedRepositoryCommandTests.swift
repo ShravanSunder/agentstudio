@@ -8,7 +8,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct PaneTabViewControllerTargetedRepositoryCommandTests {
+struct TargetedRepositoryCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
     }
