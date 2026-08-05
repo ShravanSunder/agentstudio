@@ -59,7 +59,7 @@ extension WebKitSerializedTests {
                         source: .commit(sha: "hidden-restore")
                     )
                 ),
-                metadata: PaneMetadata(title: "Hidden files")
+                metadata: PaneMetadata(title: "Hidden files", facets: .init(cwd: harness.tempDirectory))
             )
             let hiddenTab = Tab(paneId: hiddenBridgePane.id, name: "Hidden")
             harness.store.appendTab(hiddenTab)

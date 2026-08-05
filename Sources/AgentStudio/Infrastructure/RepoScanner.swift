@@ -40,7 +40,7 @@ package struct RepoScanner {
     /// Scanning stops at the first .git boundary (no deeper).
     package static let defaultMaxDepth = 4
 
-    func scan(
+    package func scan(
         in rootURL: URL,
         maxDepth: Int = Self.defaultMaxDepth,
         discoveryProvider: any GitRepositoryDiscoveryProvider = AgentStudioGitRepositoryDiscoveryProvider()

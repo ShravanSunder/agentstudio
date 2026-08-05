@@ -7,10 +7,8 @@ import Testing
 struct WorkspaceCoreRepositoryTopologyReferenceTests {
     @Test("repository topology replace updates retained repo across stable key collision")
     func repositoryTopologyReplaceUpdatesRetainedRepoAcrossStableKeyCollision() throws {
-        let fixture = try makeWorkspaceCoreRepositoryFixture()
-        let repository = fixture.repository
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000115")!
-        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000000504")!
         let retainedRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000217")!
         let removedRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000000218")!
         let retainedWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000314")!
@@ -52,12 +50,6 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 unavailableRepoIds: []
             )
         )
-        try fixture.insertPane(
-            workspaceId: workspaceId,
-            paneId: paneId,
-            sourceRepoId: retainedRepoId,
-            sourceWorktreeId: retainedWorktreeId
-        )
         let reconciledRepo = WorkspaceCoreRepository.RepoRecord(
             id: retainedRepoId,
             name: "reused-key",
@@ -78,11 +70,8 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
             .init(watchedPaths: [], repos: [reconciledRepo], unavailableRepoIds: [])
         )
         let restoredTopology = try repository.fetchRepositoryTopology()
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
 
         #expect(restoredTopology.repos == [reconciledRepo])
-        #expect(paneSource?.repoId == retainedRepoId)
-        #expect(paneSource?.worktreeId == retainedWorktreeId)
     }
 
     @Test("repository topology replace swaps stable keys between retained repos")
@@ -152,8 +141,8 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         #expect(restoredTopology == swappedTopology)
     }
 
-    @Test("two workspace compositions may reference the same global repo and worktree")
-    func twoWorkspaceCompositionsMayReferenceSameGlobalRepoAndWorktree() throws {
+    @Test("two workspace pane CWDs remain independent of shared global topology")
+    func twoWorkspacePaneCWDsRemainIndependentOfSharedGlobalTopology() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000107")!
@@ -204,14 +193,12 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
-            sourceRepoId: repoId,
-            sourceWorktreeId: worktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/source-repo/Sources")
         )
         try fixture.insertPane(
             workspaceId: secondWorkspaceId,
             paneId: secondPaneId,
-            sourceRepoId: repoId,
-            sourceWorktreeId: worktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/source-repo/Sources")
         )
 
         try repository.replaceRepositoryTopology(
@@ -237,17 +224,15 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 unavailableRepoIds: []
             )
         )
-        let firstPaneSource = try fixture.fetchPaneSource(paneId: paneId)
-        let secondPaneSource = try fixture.fetchPaneSource(paneId: secondPaneId)
+        let firstPane = try repository.fetchPaneGraph(workspaceId: workspaceId).panes.single
+        let secondPane = try repository.fetchPaneGraph(workspaceId: secondWorkspaceId).panes.single
 
-        #expect(firstPaneSource?.repoId == repoId)
-        #expect(firstPaneSource?.worktreeId == worktreeId)
-        #expect(secondPaneSource?.repoId == repoId)
-        #expect(secondPaneSource?.worktreeId == worktreeId)
+        #expect(firstPane?.metadata.durableFacets.cwd?.path == "/tmp/agentstudio/source-repo/Sources")
+        #expect(secondPane?.metadata.durableFacets.cwd?.path == "/tmp/agentstudio/source-repo/Sources")
     }
 
-    @Test("worktree reconciliation preserves pane source worktree for retained worktree")
-    func worktreeReconciliationPreservesPaneSourceWorktreeForRetainedWorktree() throws {
+    @Test("worktree reconciliation preserves pane CWD for retained worktree")
+    func worktreeReconciliationPreservesPaneCWDForRetainedWorktree() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000108")!
@@ -296,8 +281,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
-            sourceRepoId: repoId,
-            sourceWorktreeId: retainedWorktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/retained-worktree-old-a/Sources")
         )
 
         try repository.reconcileRepoWorktrees(
@@ -312,14 +296,13 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 )
             ]
         )
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let pane = try repository.fetchPaneGraph(workspaceId: workspaceId).panes.single
 
-        #expect(paneSource?.repoId == repoId)
-        #expect(paneSource?.worktreeId == retainedWorktreeId)
+        #expect(pane?.metadata.durableFacets.cwd?.path == "/tmp/agentstudio/retained-worktree-old-a/Sources")
     }
 
-    @Test("worktree reconciliation nulls only source worktree when referenced worktree is removed")
-    func worktreeReconciliationNullsOnlySourceWorktreeWhenReferencedWorktreeIsRemoved() throws {
+    @Test("worktree reconciliation preserves pane CWD when containing worktree is removed")
+    func worktreeReconciliationPreservesPaneCWDWhenContainingWorktreeIsRemoved() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000116")!
@@ -368,8 +351,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
-            sourceRepoId: repoId,
-            sourceWorktreeId: removedWorktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/remove-worktree-removed/Sources")
         )
 
         try repository.reconcileRepoWorktrees(
@@ -384,14 +366,13 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 )
             ]
         )
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let pane = try repository.fetchPaneGraph(workspaceId: workspaceId).panes.single
 
-        #expect(paneSource?.repoId == repoId)
-        #expect(paneSource?.worktreeId == nil)
+        #expect(pane?.metadata.durableFacets.cwd?.path == "/tmp/agentstudio/remove-worktree-removed/Sources")
     }
 
-    @Test("repository topology replace nulls repo and worktree source when referenced repo is removed")
-    func repositoryTopologyReplaceNullsRepoAndWorktreeSourceWhenReferencedRepoIsRemoved() throws {
+    @Test("repository topology replacement preserves pane CWD when containing repo is removed")
+    func repositoryTopologyReplacementPreservesPaneCWDWhenContainingRepoIsRemoved() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000117")!
@@ -440,8 +421,7 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
-            sourceRepoId: removedRepoId,
-            sourceWorktreeId: removedWorktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/remove-repo-removed/Sources")
         )
 
         try repository.replaceRepositoryTopology(
@@ -459,10 +439,9 @@ struct WorkspaceCoreRepositoryTopologyReferenceTests {
                 unavailableRepoIds: []
             )
         )
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let pane = try repository.fetchPaneGraph(workspaceId: workspaceId).panes.single
 
-        #expect(paneSource?.repoId == nil)
-        #expect(paneSource?.worktreeId == nil)
+        #expect(pane?.metadata.durableFacets.cwd?.path == "/tmp/agentstudio/remove-repo-removed/Sources")
     }
 
 }

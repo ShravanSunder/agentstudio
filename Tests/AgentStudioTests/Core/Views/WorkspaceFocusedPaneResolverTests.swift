@@ -72,15 +72,17 @@ struct WorkspaceFocusedPaneResolverTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let parentRepoId = UUID()
-            let parentWorktreeId = UUID()
+            let parentCWD = URL(filePath: "/tmp/empty-drawer")
+            let parentRepository = store.addRepo(at: parentCWD)
+            let existingParentMainWorktree = parentRepository.worktrees.first(where: \.isMainWorktree)
+            let parentWorktree = try #require(existingParentMainWorktree)
             let parentPane = store.createPane(
-                launchDirectory: URL(filePath: "/tmp/empty-drawer"),
+                launchDirectory: parentCWD,
                 title: "Parent",
                 facets: PaneContextFacets(
-                    repoId: parentRepoId,
-                    worktreeId: parentWorktreeId,
-                    cwd: URL(filePath: "/tmp/empty-drawer")
+                    repoId: parentRepository.id,
+                    worktreeId: parentWorktree.id,
+                    cwd: parentCWD
                 )
             )
             let tab = Tab(paneId: parentPane.id)
@@ -100,8 +102,8 @@ struct WorkspaceFocusedPaneResolverTests {
             #expect(focusedPane.owner == .emptyDrawer(parentPaneId: parentPane.id))
             #expect(focusedPane.activeMainPaneId == parentPane.id)
             #expect(focusedPane.paneId == parentPane.id)
-            #expect(focusedPane.repoId == parentRepoId)
-            #expect(focusedPane.worktreeId == parentWorktreeId)
+            #expect(focusedPane.repoId == parentRepository.id)
+            #expect(focusedPane.worktreeId == parentWorktree.id)
             #expect(focusedPane.contentType == .terminal)
         }
     }
@@ -152,19 +154,21 @@ struct WorkspaceFocusedPaneResolverTests {
             store.setActiveTab(tab.id)
             store.setActivePane(parentPane.id, inTab: tab.id)
 
-            let drawerRepoId = UUID()
-            let drawerWorktreeId = UUID()
+            let drawerCWD = URL(filePath: "/tmp/drawer")
+            let drawerRepository = store.addRepo(at: drawerCWD)
+            let existingDrawerMainWorktree = drawerRepository.worktrees.first(where: \.isMainWorktree)
+            let drawerWorktree = try #require(existingDrawerMainWorktree)
             let drawerPane = try #require(
                 atoms.workspacePane.addDrawerPane(
                     to: parentPane.id,
                     content: .webview(WebviewState(url: URL(string: "https://drawer.example")!)),
                     metadata: PaneMetadata(
-                        launchDirectory: URL(filePath: "/tmp/drawer"),
+                        launchDirectory: drawerCWD,
                         title: "Drawer",
                         facets: PaneContextFacets(
-                            repoId: drawerRepoId,
-                            worktreeId: drawerWorktreeId,
-                            cwd: URL(filePath: "/tmp/drawer")
+                            repoId: drawerRepository.id,
+                            worktreeId: drawerWorktree.id,
+                            cwd: drawerCWD
                         )
                     )
                 )
@@ -185,8 +189,8 @@ struct WorkspaceFocusedPaneResolverTests {
             #expect(focusedPane.owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
             #expect(focusedPane.activeMainPaneId == parentPane.id)
             #expect(focusedPane.paneId == drawerPane.id)
-            #expect(focusedPane.repoId == drawerRepoId)
-            #expect(focusedPane.worktreeId == drawerWorktreeId)
+            #expect(focusedPane.repoId == drawerRepository.id)
+            #expect(focusedPane.worktreeId == drawerWorktree.id)
             #expect(focusedPane.contentType == .webview)
         }
     }

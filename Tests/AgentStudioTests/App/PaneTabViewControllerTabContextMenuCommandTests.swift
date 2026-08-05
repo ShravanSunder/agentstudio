@@ -218,8 +218,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activeDirectory = harness.tempDir.appending(path: "active")
-        let clickedDirectory = harness.tempDir.appending(path: "clicked")
+        let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
+        let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
         let activePane = harness.store.createPane(
             launchDirectory: activeDirectory,
             facets: PaneContextFacets(cwd: activeDirectory)
@@ -253,8 +253,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activeDirectory = harness.tempDir.appending(path: "active")
-        let clickedDirectory = harness.tempDir.appending(path: "clicked")
+        let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
+        let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
         let activePane = harness.store.createPane(
             launchDirectory: activeDirectory,
             facets: PaneContextFacets(cwd: activeDirectory)
@@ -312,7 +312,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         #expect(harness.store.activeTabId == activeTab.id)
     }
 
-    @Test("targeted floating terminal permits nil cwd while splits require an active pane")
+    @Test("targeted context-free terminal uses home CWD while splits require an active pane")
     func canExecuteTabCommands_allMinimizedClickedTab() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -363,8 +363,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let createdTab = try #require(harness.store.tabLayoutAtom.tabs.last)
         let createdPaneId = try #require(createdTab.activePaneId)
         let createdPane = try #require(harness.store.paneAtom.pane(createdPaneId))
-        #expect(createdPane.metadata.launchDirectory == nil)
-        #expect(createdPane.metadata.facets.cwd == nil)
+        #expect(createdPane.metadata.launchDirectory == FileManager.default.homeDirectoryForCurrentUser)
+        #expect(createdPane.metadata.facets.cwd == FileManager.default.homeDirectoryForCurrentUser)
         #expect(harness.store.activeTabId == createdTab.id)
     }
 

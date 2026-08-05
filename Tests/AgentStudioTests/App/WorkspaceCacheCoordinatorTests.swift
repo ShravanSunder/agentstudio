@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @Suite(.serialized)
@@ -16,13 +17,15 @@ final class WorkspaceCacheCoordinatorTests {
     private func makeCoordinator(
         workspaceStore: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        welcomeAtom: WelcomeAtom
+        welcomeAtom: WelcomeAtom,
+        topologyEffectHandler: (any TopologyEffectHandler)? = nil
     ) -> WorkspaceCacheCoordinator {
         WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             welcomeAtom: welcomeAtom,
+            topologyEffectHandler: topologyEffectHandler,
             scopeSyncHandler: { _ in }
         )
     }
@@ -215,10 +218,12 @@ final class WorkspaceCacheCoordinatorTests {
     func topology_worktreeUnregistered_prunesWorktreeCaches() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
+        let effectRecorder = RejectedReconciliationTopologyEffectRecorder()
         let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            welcomeAtom: WelcomeAtom()
+            welcomeAtom: WelcomeAtom(),
+            topologyEffectHandler: effectRecorder
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-unregister-prune")
@@ -247,6 +252,42 @@ final class WorkspaceCacheCoordinatorTests {
 
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
         #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
+        #expect(workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
+        #expect(effectRecorder.deltas.count == 1)
+        #expect(effectRecorder.deltas.single?.removedWorktrees.single?.id == worktreeId)
+    }
+
+    @Test("direct worktree registration forwards its accepted topology delta")
+    func directWorktreeRegistrationForwardsAcceptedTopologyDelta() throws {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let effectRecorder = RejectedReconciliationTopologyEffectRecorder()
+        let coordinator = makeCoordinator(
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: WelcomeAtom(),
+            topologyEffectHandler: effectRecorder
+        )
+        let repoPath = URL(fileURLWithPath: "/tmp/luna-register-delta")
+        let linkedPath = URL(fileURLWithPath: "/tmp/luna-register-delta-linked")
+        let repo = workspaceStore.addRepo(at: repoPath)
+        let linkedWorktreeID = UUIDv7.generate()
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .worktreeRegistered(
+                        worktreeId: linkedWorktreeID,
+                        repoId: repo.id,
+                        rootPath: linkedPath
+                    )
+                )
+            )
+        )
+
+        #expect(try #require(workspaceStore.repositoryTopologyAtom.repo(repo.id)).worktrees.count == 2)
+        #expect(effectRecorder.deltas.count == 1)
+        #expect(effectRecorder.deltas.single?.addedWorktreeIds == [linkedWorktreeID])
     }
 
     @Test

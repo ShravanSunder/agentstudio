@@ -256,6 +256,49 @@ extension WorkspaceMutationCoordinator {
         )
     }
 
+    @discardableResult
+    package func unregisterWorktree(
+        _ worktreeID: UUID,
+        from repositoryID: UUID
+    ) -> RepositoryWorktreeReconciliationResult {
+        guard let repository = repositoryTopologyAtom.repo(repositoryID) else {
+            return .rejected(.repoNotFound(repositoryID))
+        }
+        guard let removedWorktree = repository.worktrees.first(where: { $0.id == worktreeID }) else {
+            return .rejected(.worktreeNotFound(worktreeID))
+        }
+
+        let preparation = prepareWorktreeReconciliation(
+            repositoryID,
+            candidates: repository.worktrees
+                .filter { $0.id != worktreeID }
+                .map(WorktreeReconciliationCandidate.identified),
+            traceID: nil
+        )
+        switch preparation {
+        case .rejected(let rejection):
+            return .rejected(rejection)
+        case .prepared(let prepared):
+            var repositories = repositoryTopologyAtom.repos
+            repositories[prepared.repositoryIndex].worktrees = prepared.mergedWorktrees
+            let unavailableRepositoryIDs =
+                removedWorktree.isMainWorktree
+                ? repositoryTopologyAtom.unavailableRepoIds.union([repositoryID])
+                : repositoryTopologyAtom.unavailableRepoIds
+            switch RepositoryTopologyReplacement.prepare(
+                repositories: repositories,
+                watchedPaths: repositoryTopologyAtom.watchedPaths,
+                unavailableRepositoryIDs: unavailableRepositoryIDs
+            ) {
+            case .prepared(let replacement):
+                repositoryTopologyAtom.replaceTopology(replacement)
+                return .accepted(.init(delta: prepared.delta))
+            case .rejected(let rejection):
+                return .rejected(.topologyRejected(rejection))
+            }
+        }
+    }
+
     private func reassociateRepo(
         _ repositoryID: UUID,
         to newPath: URL,
@@ -273,25 +316,42 @@ extension WorkspaceMutationCoordinator {
         let preparation = prepareWorktreeReconciliation(
             repositoryID,
             candidates: candidates,
+            repositoryPath: normalizedPath,
             traceID: traceID
         )
         switch preparation {
         case .rejected(let rejection):
             return .rejected(.worktreeReconciliation(rejection))
         case .prepared(let prepared):
+            let previousRepository = repositoryTopologyAtom.repos[prepared.repositoryIndex]
+            let previousUnavailableRepositoryIDs = repositoryTopologyAtom.unavailableRepoIds
             var repositories = repositoryTopologyAtom.repos
             repositories[prepared.repositoryIndex].name = normalizedPath.lastPathComponent
             repositories[prepared.repositoryIndex].repoPath = normalizedPath
             repositories[prepared.repositoryIndex].worktrees = prepared.mergedWorktrees
+            let unavailableRepositoryIDs =
+                prepared.hasValidMainWorktree
+                ? previousUnavailableRepositoryIDs.subtracting([repositoryID])
+                : previousUnavailableRepositoryIDs.union([repositoryID])
+            let acceptedDelta = WorktreeTopologyDelta(
+                repoId: prepared.delta.repoId,
+                addedWorktreeIds: prepared.delta.addedWorktreeIds,
+                removedWorktrees: prepared.delta.removedWorktrees,
+                preservedWorktreeIds: prepared.delta.preservedWorktreeIds,
+                didChange: prepared.delta.didChange
+                    || previousRepository.repoPath != normalizedPath
+                    || unavailableRepositoryIDs != previousUnavailableRepositoryIDs,
+                traceId: prepared.delta.traceId
+            )
             applyTopology(
                 repositories: repositories,
                 watchedPaths: repositoryTopologyAtom.watchedPaths,
-                unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds.subtracting([repositoryID])
+                unavailableRepositoryIDs: unavailableRepositoryIDs
             )
             return .accepted(
                 .init(
                     worktreeIds: Set(prepared.mergedWorktrees.map(\.id)),
-                    delta: prepared.delta
+                    delta: acceptedDelta
                 )
             )
         }
@@ -311,22 +371,37 @@ extension WorkspaceMutationCoordinator {
         case .rejected(let rejection):
             return .rejected(rejection)
         case .prepared(let prepared):
-            if prepared.delta.didChange {
+            let previousUnavailableRepositoryIDs = repositoryTopologyAtom.unavailableRepoIds
+            let unavailableRepositoryIDs =
+                prepared.hasValidMainWorktree
+                ? previousUnavailableRepositoryIDs.subtracting([repositoryID])
+                : previousUnavailableRepositoryIDs.union([repositoryID])
+            let acceptedDelta = WorktreeTopologyDelta(
+                repoId: prepared.delta.repoId,
+                addedWorktreeIds: prepared.delta.addedWorktreeIds,
+                removedWorktrees: prepared.delta.removedWorktrees,
+                preservedWorktreeIds: prepared.delta.preservedWorktreeIds,
+                didChange: prepared.delta.didChange
+                    || unavailableRepositoryIDs != previousUnavailableRepositoryIDs,
+                traceId: prepared.delta.traceId
+            )
+            if acceptedDelta.didChange {
                 var repositories = repositoryTopologyAtom.repos
                 repositories[prepared.repositoryIndex].worktrees = prepared.mergedWorktrees
                 applyTopology(
                     repositories: repositories,
                     watchedPaths: repositoryTopologyAtom.watchedPaths,
-                    unavailableRepositoryIDs: repositoryTopologyAtom.unavailableRepoIds
+                    unavailableRepositoryIDs: unavailableRepositoryIDs
                 )
             }
-            return .accepted(.init(delta: prepared.delta))
+            return .accepted(.init(delta: acceptedDelta))
         }
     }
 
     private func prepareWorktreeReconciliation(
         _ repositoryID: UUID,
         candidates: [WorktreeReconciliationCandidate],
+        repositoryPath: URL? = nil,
         traceID: UUID?
     ) -> WorktreeReconciliationPreparation {
         guard let repositoryIndex = repositoryTopologyAtom.repos.firstIndex(where: { $0.id == repositoryID }) else {
@@ -340,50 +415,25 @@ extension WorkspaceMutationCoordinator {
         }
 
         let existingWorktrees = repositoryTopologyAtom.repos[repositoryIndex].worktrees
-        let existingByPath = Dictionary(
-            existingWorktrees.map { ($0.path.standardizedFileURL, $0) },
-            uniquingKeysWith: { first, _ in first }
+        let matchedCandidates = matchCandidatesPreservingExistingWorktreeIdentity(
+            repositoryID: repositoryID,
+            candidates: candidates,
+            existingWorktrees: existingWorktrees
         )
-        let existingMainWorktree = existingWorktrees.first(where: \.isMainWorktree)
-        let existingByName = Dictionary(
-            existingWorktrees.map { ($0.name, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var consumedExistingIDs = Set<UUID>()
-        var preservedWorktreeIDs: [UUID] = []
-
-        let mergedWorktrees = candidates.map { candidate -> Worktree in
-            let matchedWorktree: Worktree?
-            if let pathMatch = existingByPath[candidate.path.standardizedFileURL],
-                !consumedExistingIDs.contains(pathMatch.id)
-            {
-                matchedWorktree = pathMatch
-            } else if candidate.isMainWorktree,
-                let existingMainWorktree,
-                !consumedExistingIDs.contains(existingMainWorktree.id)
-            {
-                matchedWorktree = existingMainWorktree
-            } else if let nameMatch = existingByName[candidate.name],
-                !consumedExistingIDs.contains(nameMatch.id)
-            {
-                matchedWorktree = nameMatch
-            } else {
-                matchedWorktree = nil
-            }
-
-            if let matchedWorktree {
-                consumedExistingIDs.insert(matchedWorktree.id)
-                preservedWorktreeIDs.append(matchedWorktree.id)
-                return Worktree(
-                    id: matchedWorktree.id,
-                    repoId: repositoryID,
-                    name: candidate.name,
-                    path: candidate.path,
-                    isMainWorktree: candidate.isMainWorktree,
-                    note: matchedWorktree.note
-                )
-            }
-            return candidate.makeUnmatchedWorktree(repositoryID: repositoryID)
+        let candidateWorktrees = matchedCandidates.worktrees
+        let preservedWorktreeIDs = matchedCandidates.preservedWorktreeIDs
+        let normalizedRepositoryPath = (repositoryPath ?? repositoryTopologyAtom.repos[repositoryIndex].repoPath)
+            .standardizedFileURL
+        let rootWorktreeIndexes = candidateWorktrees.indices.filter { index in
+            candidateWorktrees[index].path.standardizedFileURL == normalizedRepositoryPath
+        }
+        let hasValidMainWorktree = rootWorktreeIndexes.count == 1
+        let rootWorktreeIndex = rootWorktreeIndexes.first
+        let mergedWorktrees = candidateWorktrees.enumerated().map { index, worktree in
+            guard hasValidMainWorktree else { return worktree }
+            var normalizedWorktree = worktree
+            normalizedWorktree.isMainWorktree = index == rootWorktreeIndex
+            return normalizedWorktree
         }
 
         var seenWorktreeIDs = Set(
@@ -428,8 +478,65 @@ extension WorkspaceMutationCoordinator {
             .init(
                 repositoryIndex: repositoryIndex,
                 mergedWorktrees: mergedWorktrees,
+                hasValidMainWorktree: hasValidMainWorktree,
                 delta: delta
             )
+        )
+    }
+
+    private func matchCandidatesPreservingExistingWorktreeIdentity(
+        repositoryID: UUID,
+        candidates: [WorktreeReconciliationCandidate],
+        existingWorktrees: [Worktree]
+    ) -> MatchedCandidateWorktrees {
+        let existingByPath = Dictionary(
+            existingWorktrees.map { ($0.path.standardizedFileURL, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let existingMainWorktree = existingWorktrees.first(where: \.isMainWorktree)
+        let existingByName = Dictionary(
+            existingWorktrees.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var consumedExistingIDs = Set<UUID>()
+        var preservedWorktreeIDs: [UUID] = []
+
+        let worktrees = candidates.map { candidate -> Worktree in
+            let matchedWorktree: Worktree?
+            if let pathMatch = existingByPath[candidate.path.standardizedFileURL],
+                !consumedExistingIDs.contains(pathMatch.id)
+            {
+                matchedWorktree = pathMatch
+            } else if candidate.isMainWorktree,
+                let existingMainWorktree,
+                !consumedExistingIDs.contains(existingMainWorktree.id)
+            {
+                matchedWorktree = existingMainWorktree
+            } else if let nameMatch = existingByName[candidate.name],
+                !consumedExistingIDs.contains(nameMatch.id)
+            {
+                matchedWorktree = nameMatch
+            } else {
+                matchedWorktree = nil
+            }
+
+            if let matchedWorktree {
+                consumedExistingIDs.insert(matchedWorktree.id)
+                preservedWorktreeIDs.append(matchedWorktree.id)
+                return Worktree(
+                    id: matchedWorktree.id,
+                    repoId: repositoryID,
+                    name: candidate.name,
+                    path: candidate.path,
+                    isMainWorktree: candidate.isMainWorktree,
+                    note: matchedWorktree.note
+                )
+            }
+            return candidate.makeUnmatchedWorktree(repositoryID: repositoryID)
+        }
+        return MatchedCandidateWorktrees(
+            worktrees: worktrees,
+            preservedWorktreeIDs: preservedWorktreeIDs
         )
     }
 
@@ -529,7 +636,13 @@ private enum WorktreeReconciliationCandidate {
 private struct PreparedWorktreeReconciliation {
     let repositoryIndex: Int
     let mergedWorktrees: [Worktree]
+    let hasValidMainWorktree: Bool
     let delta: WorktreeTopologyDelta
+}
+
+private struct MatchedCandidateWorktrees {
+    let worktrees: [Worktree]
+    let preservedWorktreeIDs: [UUID]
 }
 
 private enum WorktreeReconciliationPreparation {

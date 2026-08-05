@@ -104,6 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var oauthService: OAuthService!
     var filesystemPipelineBootTask: Task<Void, Never>?
     var shouldStartRepositoryTopologyAfterWindowPresentation = false
+    var didPassInitialTopologyPersistenceBarrier = false
     var initialTopologySyncTask: Task<Void, Never>?
     var persistenceObservationBootTask: Task<Void, Never>?
     var traceIdentityRefreshTask: Task<Void, Never>?

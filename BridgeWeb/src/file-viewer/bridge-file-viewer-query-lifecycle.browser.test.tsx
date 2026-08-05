@@ -573,6 +573,10 @@ async function dispatchFileViewerMenuKey(key: 'ArrowDown' | 'Enter' | 'Escape'):
 	await act(async (): Promise<void> => {
 		await userEvent.keyboard(`{${key}}`);
 	});
+	// Base UI applies the selected value from an effect after the keyboard
+	// event returns. Commit that effect in an act-scoped frame before polling
+	// the resulting DOM state, so CI load cannot expose an unwrapped update.
+	await actFrame();
 }
 
 async function waitForFileViewerMenuFocus(): Promise<void> {

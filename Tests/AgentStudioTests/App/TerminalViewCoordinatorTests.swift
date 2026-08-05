@@ -142,7 +142,10 @@ extension WebKitSerializedTests {
                 content: .bridgePanel(
                     BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "quick-restore"))
                 ),
-                metadata: PaneMetadata(title: "Bridge Review")
+                metadata: PaneMetadata(
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(cwd: tempDir)
+                )
             )
             harness.store.appendTab(Tab(paneId: pane.id))
             let provider = BridgePaneProductSessionProviderGate()
@@ -233,7 +236,10 @@ extension WebKitSerializedTests {
                 content: .bridgePanel(
                     BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "shutdown"))
                 ),
-                metadata: PaneMetadata(title: "Bridge Review")
+                metadata: PaneMetadata(
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(cwd: tempDir)
+                )
             )
             harness.store.appendTab(Tab(paneId: pane.id))
             _ = try #require(harness.coordinator.createViewForContent(pane: pane))
@@ -258,7 +264,10 @@ extension WebKitSerializedTests {
                 content: .bridgePanel(
                     BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "repair-close"))
                 ),
-                metadata: PaneMetadata(title: "Bridge Review")
+                metadata: PaneMetadata(
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(cwd: tempDir)
+                )
             )
             harness.store.appendTab(Tab(paneId: pane.id))
             _ = try #require(harness.coordinator.createViewForContent(pane: pane))

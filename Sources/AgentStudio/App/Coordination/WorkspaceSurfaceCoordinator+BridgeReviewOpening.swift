@@ -115,10 +115,15 @@ extension WorkspaceSurfaceCoordinator {
         let state = BridgePaneState(panelKind: panelKind, source: context.source)
         var metadata = context.metadata
         metadata.updateTitle(title)
-        let pane = store.paneAtom.createPane(
-            content: .bridgePanel(state),
-            metadata: metadata
-        )
+        guard
+            let pane = store.paneAtom.createPane(
+                content: .bridgePanel(state),
+                metadata: metadata
+            )
+        else {
+            Self.logger.error("\(logName) pane admission failed")
+            return nil
+        }
         viewRegistry.ensureSlot(for: pane.id)
 
         guard createViewForContent(pane: pane) != nil else {
@@ -143,13 +148,21 @@ extension WorkspaceSurfaceCoordinator {
         @discardableResult
         func openBridgeReviewObservabilitySmoke() -> Pane? {
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
-            let pane = store.paneAtom.createPane(
-                content: .bridgePanel(state),
-                metadata: PaneMetadata(
-                    contentType: .diff,
-                    title: "Bridge Observability Smoke"
+            let smokeDirectory = FileManager.default.temporaryDirectory
+            guard
+                let pane = store.paneAtom.createPane(
+                    content: .bridgePanel(state),
+                    metadata: PaneMetadata(
+                        contentType: .diff,
+                        launchDirectory: smokeDirectory,
+                        title: "Bridge Observability Smoke",
+                        facets: PaneContextFacets(cwd: smokeDirectory)
+                    )
                 )
-            )
+            else {
+                Self.logger.error("Bridge observability smoke pane admission failed")
+                return nil
+            }
             bridgeReviewSourceProviderOverridesByPaneId[pane.id] = BridgeObservabilitySmokeReviewSourceProvider()
             viewRegistry.ensureSlot(for: pane.id)
 

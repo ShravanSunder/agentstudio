@@ -43,7 +43,7 @@ struct WorkspaceLookupDerivedTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/workspace-lookup/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
 
             let resolved = atom(\.workspaceLookup).repoAndWorktree(
                 containing: URL(filePath: "/tmp/workspace-lookup/feature-name/Sources/App")
@@ -68,7 +68,7 @@ struct WorkspaceLookupDerivedTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/workspace-lookup-index/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [nestedWorktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [nestedWorktree])
 
             let nestedResolved = atom(\.workspaceLookup).repoAndWorktree(
                 containing: URL(filePath: "/tmp/workspace-lookup-index/feature-name/Sources/App")
@@ -101,7 +101,7 @@ struct WorkspaceLookupDerivedTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/worktree-pane-locations/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
 
             let paneA = store.createPane(
                 launchDirectory: worktree.path,
@@ -166,7 +166,7 @@ struct WorkspaceLookupDerivedTests {
                 name: "feature-b",
                 path: URL(filePath: "/tmp/worktree-pane-location-batch/feature-b")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktreeA, worktreeB])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktreeA, worktreeB])
 
             let paneA = store.createPane(
                 launchDirectory: worktreeA.path,
@@ -225,7 +225,7 @@ struct WorkspaceLookupDerivedTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/workspace-lookup-backgrounded/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
 
             let activePane = store.createPane(
                 launchDirectory: worktree.path,

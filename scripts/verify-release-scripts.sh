@@ -56,6 +56,7 @@ trap cleanup_beta_repos EXIT
 git -C "$beta_repo" init -q
 git -C "$beta_repo" config user.name "AgentStudio Release Tests"
 git -C "$beta_repo" config user.email "release-tests@agentstudio.invalid"
+git -C "$beta_repo" config commit.gpgsign false
 git -C "$beta_repo" commit --allow-empty -q -m "stable 0.0.67"
 git -C "$beta_repo" tag v0.0.67
 git -C "$beta_repo" commit --allow-empty -q -m "stable 0.0.68"
@@ -92,6 +93,7 @@ fi
 git -C "$missing_stable_repo" init -q
 git -C "$missing_stable_repo" config user.name "AgentStudio Release Tests"
 git -C "$missing_stable_repo" config user.email "release-tests@agentstudio.invalid"
+git -C "$missing_stable_repo" config commit.gpgsign false
 git -C "$missing_stable_repo" commit --allow-empty -q -m "candidate without stable tag"
 missing_stable_sha="$(git -C "$missing_stable_repo" rev-parse HEAD)"
 if GIT_DIR="$missing_stable_repo/.git" GIT_WORK_TREE="$missing_stable_repo" \

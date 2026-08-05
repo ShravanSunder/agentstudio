@@ -47,7 +47,8 @@ extension CommandBarDataSourceTests {
     @Test
     func test_commandsScope_navigateDrawerPaneIsTargetable() {
         let store = makeStore()
-        let pane = store.createPane()
+        let drawerCWD = URL(filePath: "/tmp/drawer")
+        let pane = store.createPane(launchDirectory: drawerCWD)
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -69,7 +70,7 @@ extension CommandBarDataSourceTests {
     @Test
     func test_navigateDrawerPane_targetLevel_listsDrawerPanes() {
         let store = makeStore()
-        let pane = store.createPane()
+        let pane = store.createPane(launchDirectory: URL(filePath: "/tmp/drawer"))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -99,7 +100,7 @@ extension CommandBarDataSourceTests {
         #expect(level.id == "level-navigateDrawerPane")
 
         let levelTitles = level.items.map(\.title)
-        #expect(levelTitles.allSatisfy { $0 == "Drawer" })
+        #expect(levelTitles.allSatisfy { $0 == "Terminal — drawer" })
 
         let levelIds = level.items.map(\.id)
         #expect(levelIds.contains("target-drawer-\(drawer1!.id.uuidString)"))

@@ -246,7 +246,7 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         #expect(harness.store.repo(repo.id) != nil)
         #expect(
             harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd
-                == worktree.path.appending(path: "nested"))
+                == worktree.path.appending(path: "nested", directoryHint: .isDirectory))
     }
 
     @Test("insertPane newTerminal falls back to floating context when target cwd does not map to a worktree")
@@ -254,7 +254,10 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
+        let unknownCwd = harness.tempDir.appending(
+            path: "outside-known-repos",
+            directoryHint: .isDirectory
+        )
         try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
         let targetPane = harness.store.createPane(
             launchDirectory: unknownCwd,

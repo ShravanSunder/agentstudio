@@ -37,6 +37,7 @@ struct DerivedActivityNotificationIntegrationTests {
             await eventRecorder.shutdown()
         }
     }
+
     @MainActor
     private final class TerminalRouterBox {
         var router: TerminalActivityRouter?
@@ -60,7 +61,6 @@ struct DerivedActivityNotificationIntegrationTests {
             await latestObservationTask?.value
         }
     }
-
     private final class PaneActivityObservationRecorder {
         private(set) var paneIds: [UUID] = []
 
@@ -772,6 +772,7 @@ extension DerivedActivityNotificationIntegrationTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
+            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             title: "Terminal"
         )
         let pane = Pane(
@@ -872,6 +873,7 @@ extension DerivedActivityNotificationIntegrationTests {
             metadata: PaneMetadata(
                 paneId: paneId,
                 contentType: .terminal,
+                launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                 title: "Terminal"
             )
         )
@@ -899,11 +901,7 @@ extension DerivedActivityNotificationIntegrationTests {
         atom.recordWindowBecameKey(id)
     }
 
-    private func waitForAttendedPane(
-        _ paneId: UUID,
-        in fixture: Fixture,
-        description: String
-    ) async {
+    private func waitForAttendedPane(_ paneId: UUID, in fixture: Fixture, description: String) async {
         await assertEventuallyMain(description) {
             fixture.attendedPane.attendedPaneId == paneId
         }

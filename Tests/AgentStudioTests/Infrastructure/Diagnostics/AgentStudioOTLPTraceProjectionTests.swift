@@ -431,6 +431,55 @@ struct AgentStudioOTLPTraceProjectionTests {
 @Suite
 struct AgentStudioOTLPTraceProjectionSanitizationTests {
 
+    @Test("persistence reasons allow only bounded values and reject sensitive sentinels")
+    func persistenceReasonProjectionUsesExactAllowlist() {
+        let allowedReasons = [
+            "topology_restore_main_role_repaired",
+            "topology_restore_missing_main_degraded",
+            "topology_scan_main_repaired",
+            "topology_boot_normalization_flush_failed",
+            "topology_normalization_rejected",
+            "pane_location_restore_repaired",
+            "pane_location_restore_degraded",
+            "workspace_save_composition_rejected",
+            "workspace_save_bridge_failed",
+            "workspace_save_database_failed",
+            "pane_topology_association_ambiguous",
+        ]
+        let rejectedReasons = [
+            "/Users/private/repository",
+            "019be3be-7c00-7000-8000-000000000099",
+            "SQLite error: database locked",
+            "arbitrary_payload",
+        ]
+
+        for reason in allowedReasons + rejectedReasons {
+            let record = AgentStudioTraceRecord(
+                timeUnixNano: 199,
+                severityText: .info,
+                body: "persistence.reason",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "AgentStudio"],
+                scope: .init(name: "agentstudio.persistence.operation", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.persistence.reason": .string(reason),
+                    "agentstudio.trace.tag": .string("persistence.operation"),
+                ]
+            )
+
+            let projection = AgentStudioOTLPTraceProjection.project(record)
+
+            if allowedReasons.contains(reason) {
+                #expect(projection.attributes["agentstudio.persistence.reason"] == .string(reason))
+            } else {
+                #expect(projection.attributes["agentstudio.persistence.reason"] == nil)
+                #expect(!projection.renderedForCanaryAssertions().contains(reason))
+            }
+        }
+    }
+
     @Test
     func persistenceProjectionDropsPathsWorkspaceIDsAndRawErrors() {
         let workspaceID = UUID(uuidString: "F6ADCB1B-E191-4890-963E-37F4A694B065")!

@@ -55,8 +55,14 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
         store.setActiveTab(tabs[0].id)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        let repeatedCoordinatorCWD = worktree.path.appending(path: "Sources")
-        let sentinelCoordinatorCWD = worktree.path.appending(path: "Tests")
+        let repeatedCoordinatorCWD = URL(
+            filePath: worktree.path.appending(path: "Sources").path,
+            directoryHint: .isDirectory
+        )
+        let sentinelCoordinatorCWD = URL(
+            filePath: worktree.path.appending(path: "Tests").path,
+            directoryHint: .isDirectory
+        )
         let tracedPaneID = try #require(tabs[0].activePaneId)
         for _ in 0..<64 {
             surfaceManager.sendCWDChange(paneId: tracedPaneID, cwd: repeatedCoordinatorCWD)

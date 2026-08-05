@@ -242,7 +242,10 @@ struct GhosttyActionRouterMixedPressureTests {
                 content: .terminal(
                     TerminalState(provider: .zmx, lifetime: .temporary, zmxSessionID: .generateUUIDv7())
                 ),
-                metadata: PaneMetadata(title: "Mixed admission")
+                metadata: PaneMetadata(
+                    launchDirectory: URL(filePath: "/tmp/mixed-admission"),
+                    title: "Mixed admission"
+                )
             )
             workspaceStore.appendTab(Tab(paneId: pane.id))
             workspaceStore.setActiveTab(workspaceStore.tabs[0].id)

@@ -14,9 +14,16 @@ private struct BridgeProductWebKitCarrierApplicationReceipt: Equatable, Sendable
 
 @MainActor
 private final class BridgeProductWebKitCarrierControllerTarget {
+    private struct ApplicationReceiptWaiter {
+        let publicationId: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
     weak var controller: BridgePaneController?
     private(set) var applicationReceipts: [BridgeProductWebKitCarrierApplicationReceipt] = []
     private(set) var reviewContentSource: BridgePaneProductReviewContentSource?
+    private var nextApplicationReceiptWaiterID: UInt64 = 0
+    private var applicationReceiptWaiters: [UInt64: ApplicationReceiptWaiter] = [:]
 
     func install(_ controller: BridgePaneController) {
         self.controller = controller
@@ -70,7 +77,85 @@ private final class BridgeProductWebKitCarrierControllerTarget {
                 publicationId: publicationId
             )
         )
+        resumeApplicationReceiptWaitersIfReady()
         return accepted
+    }
+
+    func waitForAcceptedApplication(
+        publicationId: UUID,
+        timeout: Duration
+    ) async -> Bool {
+        guard !hasAcceptedApplication(for: publicationId) else { return true }
+        let waiterID = nextApplicationReceiptWaiterID
+        nextApplicationReceiptWaiterID += 1
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return nil }
+                return await self.waitForAcceptedApplicationEvent(
+                    publicationId: publicationId,
+                    waiterID: waiterID
+                )
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                    return false
+                } catch {
+                    return nil
+                }
+            }
+            let result = await group.next()
+            group.cancelAll()
+            guard let result else { return false }
+            return result ?? false
+        }
+    }
+
+    private func hasAcceptedApplication(for publicationId: UUID) -> Bool {
+        applicationReceipts.contains {
+            $0.accepted && $0.publicationId == publicationId
+        }
+    }
+
+    private func waitForAcceptedApplicationEvent(
+        publicationId: UUID,
+        waiterID: UInt64
+    ) async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if hasAcceptedApplication(for: publicationId) {
+                    continuation.resume(returning: true)
+                } else if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    applicationReceiptWaiters[waiterID] = ApplicationReceiptWaiter(
+                        publicationId: publicationId,
+                        continuation: continuation
+                    )
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelApplicationReceiptWaiter(waiterID: waiterID)
+            }
+        }
+    }
+
+    private func cancelApplicationReceiptWaiter(waiterID: UInt64) {
+        applicationReceiptWaiters.removeValue(forKey: waiterID)?.continuation.resume(
+            returning: false
+        )
+    }
+
+    private func resumeApplicationReceiptWaitersIfReady() {
+        let readyIDs = applicationReceiptWaiters.compactMap { waiterID, waiter in
+            hasAcceptedApplication(for: waiter.publicationId) ? waiterID : nil
+        }
+        for waiterID in readyIDs {
+            applicationReceiptWaiters.removeValue(forKey: waiterID)?.continuation.resume(
+                returning: true
+            )
+        }
     }
 }
 
@@ -584,14 +669,10 @@ extension WebKitSerializedTests {
             let traceAfterFailure = await harness.traceRecorder.scrubbedTrace()
             await harness.reviewMetadataSource.releaseReplay()
             guard
-                await BridgeProductWebKitCarrierTestSupport.waitUntil(
-                    timeout: .seconds(15),
-                    condition: {
-                        harness.controllerTarget.applicationReceipts.count == 2
-                            && harness.controllerTarget.applicationReceipts.last?.publicationId
-                                == secondPublication.publicationId
-                            && harness.controllerTarget.applicationReceipts.last?.accepted == true
-                    })
+                await harness.controllerTarget.waitForAcceptedApplication(
+                    publicationId: secondPublication.publicationId,
+                    timeout: .seconds(15)
+                )
             else {
                 throw TransactionalPublicationTestError.replayDidNotApply
             }

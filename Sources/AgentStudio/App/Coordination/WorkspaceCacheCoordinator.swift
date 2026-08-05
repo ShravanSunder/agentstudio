@@ -238,16 +238,6 @@ final class WorkspaceCacheCoordinator {
         }
 
         guard case .scanned(let linkedPaths) = linkedWorktrees else {
-            if repositoryTopology.isRepoUnavailable(repoId),
-                let repo = repositoryTopology.repo(repoId)
-            {
-                let reassociation = workspaceStore.mutationCoordinator.reassociateRepo(
-                    repoId,
-                    to: normalizedRepoPath,
-                    discoveredWorktrees: repo.worktrees
-                )
-                guard case .accepted = reassociation else { return nil }
-            }
             if shouldInitializeRepoEnrichment {
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
             }
@@ -436,7 +426,8 @@ final class WorkspaceCacheCoordinator {
                 worktrees: worktrees
             )
             switch reconciliation {
-            case .accepted:
+            case .accepted(let acceptance):
+                topologyEffectHandler?.topologyDidChange(acceptance.delta)
                 refreshTraceIdentity()
             case .rejected(let rejection):
                 Self.logger.error(
@@ -447,20 +438,20 @@ final class WorkspaceCacheCoordinator {
     }
 
     private func handleWorktreeUnregistered(worktreeId: UUID, repoId: UUID) {
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
-        guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else { return }
-        let worktrees = repo.worktrees.filter { $0.id != worktreeId }
-        let reconciliation = workspaceStore.mutationCoordinator.reconcileDiscoveredWorktrees(
-            repo.id,
-            worktrees: worktrees
+        let unregistration = workspaceStore.mutationCoordinator.unregisterWorktree(
+            worktreeId,
+            from: repoId
         )
-        switch reconciliation {
-        case .accepted:
-            repoCache.removeWorktree(worktreeId)
+        switch unregistration {
+        case .accepted(let acceptance):
+            for entry in acceptance.delta.removedWorktrees {
+                repoCache.removeWorktree(entry.id)
+            }
+            topologyEffectHandler?.topologyDidChange(acceptance.delta)
             refreshTraceIdentity()
         case .rejected(let rejection):
             Self.logger.error(
-                "Rejecting worktree unregistration for repoId=\(repo.id.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
+                "Rejecting worktree unregistration for repoId=\(repoId.uuidString, privacy: .public): \(String(describing: rejection), privacy: .public)"
             )
         }
     }
@@ -633,7 +624,11 @@ final class WorkspaceCacheCoordinator {
             discoveredWorktrees: discoveredWorktrees
         )
         switch result {
-        case .accepted:
+        case .accepted(let acceptance):
+            for entry in acceptance.delta.removedWorktrees {
+                repoCache.removeWorktree(entry.id)
+            }
+            topologyEffectHandler?.topologyDidChange(acceptance.delta)
             refreshTraceIdentity()
             return result
         case .rejected:

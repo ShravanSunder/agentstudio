@@ -80,7 +80,13 @@ extension WebKitSerializedTests {
             #expect(entry.paneId == setup.firstPane.id)
             #expect(entry.repoId == setup.repoId)
             #expect(entry.worktreeId == setup.worktree.id)
-            #expect(entry.cwd == setup.worktree.path)
+            #expect(
+                entry.cwd
+                    == URL(
+                        filePath: setup.worktree.path.path,
+                        directoryHint: .isDirectory
+                    )
+            )
 
             await harness.finish()
         }

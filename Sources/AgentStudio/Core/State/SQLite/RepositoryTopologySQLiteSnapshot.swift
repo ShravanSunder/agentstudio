@@ -36,4 +36,5 @@ struct WorkspaceSQLiteSaveBundle: Equatable, Sendable {
 struct WorkspaceCoreLoadSnapshot: Equatable, Sendable {
     let workspace: WorkspaceSQLiteSnapshot
     let repositoryTopology: RepositoryTopologySQLiteSnapshot
+    let persistenceReasons: Set<PaneTopologyPersistenceReason>
 }

@@ -33,6 +33,7 @@ private enum TraceAttributeFixture: Decodable, Equatable {
 struct InboxNotificationRouterTests {
     struct Fixture {
         let bus: EventBus<RuntimeEnvelope>
+        let workspaceStore: WorkspaceStore
         let inboxAtom: InboxNotificationAtom
         let prefsAtom: InboxNotificationPrefsAtom
         let paneAtom: WorkspacePaneAtom
@@ -47,10 +48,11 @@ struct InboxNotificationRouterTests {
 
     func makeFixture(traceRuntime: AgentStudioTraceRuntime? = nil) async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = WorkspaceStore()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
-        let paneAtom = WorkspacePaneAtom()
-        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = workspaceStore.paneAtom
+        let tabLayout = workspaceStore.tabLayoutAtom
         let windowLifecycle = WindowLifecycleAtom()
         let managementLayer = ManagementLayerAtom()
         let attendedPane = AttendedPaneDerived(
@@ -79,6 +81,7 @@ struct InboxNotificationRouterTests {
 
         return Fixture(
             bus: bus,
+            workspaceStore: workspaceStore,
             inboxAtom: inboxAtom,
             prefsAtom: prefsAtom,
             paneAtom: paneAtom,
@@ -111,18 +114,14 @@ struct InboxNotificationRouterTests {
     func addTerminalPane(
         _ paneId: PaneId,
         to fixture: Fixture,
-        repoId: UUID? = nil,
-        worktreeId: UUID? = nil
+        cwd: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> UUID {
-        let facets = PaneContextFacets(
-            repoId: repoId,
-            repoName: repoId.map { "Repo-\($0.uuidString.prefix(4))" },
-            worktreeId: worktreeId,
-            worktreeName: worktreeId.map { "Worktree-\($0.uuidString.prefix(4))" }
-        )
+        let terminalDirectory = URL(filePath: cwd.path, directoryHint: .isDirectory)
+        let facets = PaneContextFacets(cwd: terminalDirectory)
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
+            launchDirectory: terminalDirectory,
             title: "Terminal",
             facets: facets,
             checkoutRef: "main"
@@ -523,12 +522,16 @@ struct InboxNotificationRouterTests {
     }
 
     @Test("approvalRequested and selected security alerts notify")
-    func approvalAndSecurityRouting() async {
+    func approvalAndSecurityRouting() async throws {
         let fixture = await makeFixture()
         let paneId = PaneId.generateUUIDv7()
-        let repoId = UUID()
-        let worktreeId = UUID()
-        _ = addTerminalPane(paneId, to: fixture, repoId: repoId, worktreeId: worktreeId)
+        let repoDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "inbox-notification-router-context-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let repo = fixture.workspaceStore.addRepo(at: repoDirectory)
+        let worktree = try #require(repo.worktrees.first { $0.isMainWorktree })
+        _ = addTerminalPane(paneId, to: fixture, cwd: worktree.path)
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
@@ -566,8 +569,8 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications.count == 2)
         #expect(fixture.inboxAtom.notifications[0].kind == .approvalRequested)
         #expect(fixture.inboxAtom.notifications[1].kind == .securityEvent)
-        #expect(fixture.inboxAtom.notifications[1].repoId == repoId)
-        #expect(fixture.inboxAtom.notifications[1].worktreeId == worktreeId)
+        #expect(fixture.inboxAtom.notifications[1].repoId == repo.id)
+        #expect(fixture.inboxAtom.notifications[1].worktreeId == worktree.id)
         await fixture.router.stop()
         await fixture.tracker.stop()
     }

@@ -201,7 +201,10 @@ struct ZoomPresentationContainerTests {
 
     @Test("Copy Path copies the source terminal's actual CWD")
     func copyPathCopiesSourceTerminalCWD() async throws {
-        let sourceCWD = URL(filePath: "/tmp/agentstudio-pane-toolbar/source-cwd")
+        let sourceCWD = URL(
+            filePath: "/tmp/agentstudio-pane-toolbar/source-cwd",
+            directoryHint: .isDirectory
+        )
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let pane = harness.store.createPane(launchDirectory: sourceCWD)
@@ -481,8 +484,8 @@ extension ZoomPresentationContainerTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/agent-studio/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-            let storedWorktree = store.repos[0].worktrees[0]
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+            let storedWorktree = worktree
             sourcePane = store.createPane(
                 launchDirectory: storedWorktree.path,
                 facets: PaneContextFacets(

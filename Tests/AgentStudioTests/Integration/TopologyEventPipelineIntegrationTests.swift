@@ -160,6 +160,22 @@ struct TopologyEventPipelineIntegrationTests {
             #expect(syncedPaths == Set([clonePath, keepPath]))
             #expect(syncedSnapshot.unregisterLog.contains(removedWorktree.id))
             #expect(syncedSnapshot.registerLog.count >= baselineSnapshot.registerLog.count)
+
+            harness.scanResults.setResults([
+                watchedPath: [
+                    RepoScanner.RepoScanGroup(
+                        clonePath: clonePath,
+                        linkedWorktreePaths: [keepPath, removePath]
+                    )
+                ]
+            ])
+            _ = await harness.refreshWatchedFolders([watchedPath])
+
+            await assertEventuallyMain("re-added path should restore pane residency through current containment") {
+                harness.workspaceStore.pane(pane.id)?.residency == .active
+            }
+            let readdedWorktree = harness.workspaceStore.repos.first?.worktrees.first(where: { $0.path == removePath })
+            #expect(readdedWorktree?.id != removedWorktree.id)
         }
     }
 

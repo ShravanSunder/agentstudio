@@ -93,7 +93,7 @@ struct PaneManagementContextTests {
     }
 
     @Test
-    func targetPath_isNil_whenNeitherCwdNorWorktreeExists() {
+    func contextFreeTerminalUsesHomeFallbackWithoutWorkspaceStatus() {
         withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -106,8 +106,11 @@ struct PaneManagementContextTests {
 
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
 
-            #expect(context.targetPath == nil)
-            #expect(context.identityRows.first(where: { $0.id == "fallback" })?.text == "Floating")
+            let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+            let cwdRow = context.identityRows.first(where: { $0.id == "cwd" })
+            #expect(context.targetPath == homeDirectory)
+            #expect(cwdRow?.text == homeDirectory.path)
+            #expect(cwdRow?.toolTip == homeDirectory.path)
             #expect(context.statusChips == nil)
             #expect(context.showsIdentityBlock == true)
         }
@@ -121,7 +124,7 @@ struct PaneManagementContextTests {
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout)
 
-            let cwd = URL(fileURLWithPath: "/Users/dev/project-dev")
+            let cwd = URL(filePath: "/Users/dev/project-dev", directoryHint: .isDirectory)
             let pane = store.createPane(
                 launchDirectory: cwd,
                 title: "Floating",

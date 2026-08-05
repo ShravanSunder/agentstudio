@@ -22,9 +22,9 @@ struct CommandBarTabDisplayTitleTests {
             name: "feature-name",
             path: URL(filePath: "/tmp/commandbar-placeholder/feature-name")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        guard let storedWorktree = store.repos.first?.worktrees.first else {
-            Issue.record("Expected stored worktree")
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        guard let storedWorktree = store.repo(repo.id)?.worktrees.first(where: { $0.id == worktree.id }) else {
+            Issue.record("Expected linked worktree")
             return
         }
 
