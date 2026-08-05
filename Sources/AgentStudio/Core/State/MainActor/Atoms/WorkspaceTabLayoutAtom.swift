@@ -81,14 +81,81 @@ package final class WorkspaceTabLayoutAtom {
     }
 
     package func activeArrangementIsSplit(forTab tabID: UUID) -> Bool {
-        guard
-            let arrangementID = arrangementAtom.cursorAtom.activeArrangementId(forTab: tabID),
-            let tabState = arrangementAtom.graphAtom.tabState(tabID),
-            let arrangement = tabState.arrangements.first(where: { $0.id == arrangementID })
-        else {
+        activeArrangementGraphState(forTab: tabID)?.layout.isSplit == true
+    }
+
+    package func activeLayoutContainsPane(_ paneID: UUID, inTab tabID: UUID) -> Bool {
+        activeArrangementGraphState(forTab: tabID)?.layout.contains(paneID) == true
+    }
+
+    package func activeLayoutShowsPane(
+        _ paneID: UUID,
+        inTab tabID: UUID,
+        includingMinimized: Bool
+    ) -> Bool {
+        guard let arrangement = activeArrangementGraphState(forTab: tabID) else {
             return false
         }
-        return arrangement.layout.isSplit
+        return arrangement.layout.contains(paneID)
+            && (includingMinimized || !arrangement.minimizedPaneIds.contains(paneID))
+    }
+
+    package func activeLayoutIsMinimized(_ paneID: UUID, inTab tabID: UUID) -> Bool {
+        guard let arrangement = activeArrangementGraphState(forTab: tabID) else {
+            return false
+        }
+        return arrangement.layout.contains(paneID)
+            && arrangement.minimizedPaneIds.contains(paneID)
+    }
+
+    package func activeLayoutVisiblePaneCount(
+        inTab tabID: UUID,
+        includingMinimized: Bool
+    ) -> Int {
+        guard let arrangement = activeArrangementGraphState(forTab: tabID) else {
+            return 0
+        }
+        if includingMinimized {
+            return arrangement.layout.paneIds.count
+        }
+        return arrangement.layout.paneIds.count { !arrangement.minimizedPaneIds.contains($0) }
+    }
+
+    package func activeDrawerLayoutContainsPane(
+        _ paneID: UUID,
+        drawerID: UUID,
+        inTab tabID: UUID
+    ) -> Bool {
+        activeArrangementGraphState(forTab: tabID)?.drawerViews[drawerID]?.layout.contains(paneID) == true
+    }
+
+    package func activeDrawerLayoutIsMinimized(
+        _ paneID: UUID,
+        drawerID: UUID,
+        inTab tabID: UUID
+    ) -> Bool {
+        guard let drawerView = activeArrangementGraphState(forTab: tabID)?.drawerViews[drawerID] else {
+            return false
+        }
+        return drawerView.layout.contains(paneID)
+            && drawerView.minimizedPaneIds.contains(paneID)
+    }
+
+    package func anotherTabHasNonemptyActiveLayout(excludingTabID: UUID) -> Bool {
+        arrangementAtom.graphAtom.tabStates.contains { tabState in
+            tabState.tabId != excludingTabID
+                && activeArrangementGraphState(forTab: tabState.tabId)?.layout.isEmpty == false
+        }
+    }
+
+    private func activeArrangementGraphState(forTab tabID: UUID) -> PaneArrangementGraphState? {
+        guard
+            let arrangementID = arrangementAtom.cursorAtom.activeArrangementId(forTab: tabID),
+            let tabState = arrangementAtom.graphAtom.tabState(tabID)
+        else {
+            return nil
+        }
+        return tabState.arrangements.first(where: { $0.id == arrangementID })
     }
 
     package func appendTab(_ tab: Tab) {

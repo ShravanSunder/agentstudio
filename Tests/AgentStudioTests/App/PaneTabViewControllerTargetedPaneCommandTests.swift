@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -10,6 +11,160 @@ import Testing
 struct PaneTabViewControllerTargetedPaneCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    private final class ObservationInvalidationFlag: @unchecked Sendable {
+        var didFire = false
+    }
+
+    @Test("targeted pane capability ignores unrelated repository topology changes")
+    func canExecutePaneCommand_doesNotObserveRepositoryTopology() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let invalidation = ObservationInvalidationFlag()
+
+        withObservationTracking {
+            _ = harness.controller.canExecute(
+                .closePane,
+                target: pane.id,
+                targetType: .pane
+            )
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
+        _ = harness.store.addRepo(at: repositoryPath)
+
+        #expect(!invalidation.didFire)
+    }
+
+    @Test("targeted main-pane mutations reject Zoom")
+    func targetedMainPaneMutations_zoomedTab_reject() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: pane.id,
+            viewerPresentation: .unavailable
+        )
+
+        #expect(
+            !harness.controller.canExecute(
+                .minimizePane,
+                target: pane.id,
+                targetType: .pane
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .splitRight,
+                target: pane.id,
+                targetType: .pane
+            )
+        )
+    }
+
+    @Test("targeted Extract Pane requires more than one visible pane")
+    func extractPaneToTabCapability_requiresMultipleVisiblePanes() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let sourcePane = harness.store.createPane()
+        let tab = Tab(paneId: sourcePane.id)
+        harness.store.appendTab(tab)
+
+        #expect(
+            !harness.controller.canExecute(
+                .extractPaneToTab,
+                target: sourcePane.id,
+                targetType: .pane
+            )
+        )
+
+        let secondPane = harness.store.createPane()
+        #expect(
+            harness.store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: sourcePane.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+        )
+
+        #expect(
+            harness.controller.canExecute(
+                .extractPaneToTab,
+                target: sourcePane.id,
+                targetType: .pane
+            )
+        )
+    }
+
+    @Test("targeted Detach Drawer Pane accepts only an owned drawer child with a visible parent")
+    func detachDrawerPaneCapability_requiresOwnedChildAndVisibleParent() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let parentPane = harness.store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        #expect(
+            harness.controller.canExecute(
+                .detachDrawerPane,
+                target: drawerPane.id,
+                targetType: .pane
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .detachDrawerPane,
+                target: parentPane.id,
+                targetType: .pane
+            )
+        )
+
+        #expect(harness.store.minimizePane(parentPane.id, inTab: tab.id))
+        #expect(
+            !harness.controller.canExecute(
+                .detachDrawerPane,
+                target: drawerPane.id,
+                targetType: .pane
+            )
+        )
+    }
+
+    @Test("targeted Add Drawer Pane accepts a visible main pane only")
+    func addDrawerPaneCapability_requiresVisibleMainPane() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let parentPane = harness.store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        #expect(
+            harness.controller.canExecute(
+                .addDrawerPane,
+                target: parentPane.id,
+                targetType: .pane
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .addDrawerPane,
+                target: drawerPane.id,
+                targetType: .pane
+            )
+        )
     }
 
     @Test("targeted Expand Pane restores a minimized main pane")

@@ -4018,6 +4018,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
         }
 
+        if let targetedPaneCapability = targetedPaneCommandCapability(
+            command,
+            paneId: target,
+            targetType: targetType
+        ) {
+            return targetedPaneCapability
+        }
+
         if command == .previousArrangement || command == .nextArrangement {
             guard
                 targetType == .tab,
@@ -4047,10 +4055,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if command == .reloadBridgeWebView, targetType == .pane {
             return resolvedBridgeCommandMountView(paneId: target) != nil
-        }
-
-        if command == .movePaneToTab, targetType == .pane {
-            return canMovePaneToAnotherTab(sourcePaneId: target)
         }
 
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
@@ -4104,18 +4108,149 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func canMovePaneToAnotherTab(sourcePaneId: UUID) -> Bool {
-        guard
-            let sourceTabId = store.tabLayoutAtom.tabs.first(where: {
-                $0.activePaneIds.contains(sourcePaneId)
-            })?.id
-        else {
+    private enum TargetedPaneCapabilityTarget {
+        case layout(paneId: UUID, tabId: UUID, drawerId: UUID)
+        case drawerChild(paneId: UUID, parentPaneId: UUID, tabId: UUID, drawerId: UUID)
+
+        var paneId: UUID {
+            switch self {
+            case .layout(let paneId, _, _), .drawerChild(let paneId, _, _, _):
+                return paneId
+            }
+        }
+
+        var tabId: UUID {
+            switch self {
+            case .layout(_, let tabId, _), .drawerChild(_, _, let tabId, _):
+                return tabId
+            }
+        }
+    }
+
+    private func targetedPaneCommandCapability(
+        _ command: AppCommand,
+        paneId: UUID,
+        targetType: SearchItemType
+    ) -> Bool? {
+        switch command {
+        case .minimizePane, .expandPane, .closePane, .splitRight, .detachDrawerPane,
+            .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane:
+            break
+        default:
+            return nil
+        }
+
+        guard targetType == .pane else {
+            return nil
+        }
+        guard let target = targetedPaneCapabilityTarget(paneId: paneId) else {
             return false
         }
 
-        return store.tabLayoutAtom.tabs.contains { tab in
-            tab.id != sourceTabId && (tab.activePaneId != nil || !tab.activePaneIds.isEmpty)
+        switch (command, target) {
+        case (.minimizePane, .layout):
+            return activeLayoutShowsPane(target)
+                && store.panePresentationAtom.zoomPresentation(forTab: target.tabId) == nil
+        case (.minimizePane, .drawerChild(_, _, let tabId, let drawerId)):
+            return drawerParentIsShown(target)
+                && store.tabLayoutAtom.activeDrawerLayoutContainsPane(
+                    target.paneId,
+                    drawerID: drawerId,
+                    inTab: tabId
+                )
+                && !store.tabLayoutAtom.activeDrawerLayoutIsMinimized(
+                    target.paneId,
+                    drawerID: drawerId,
+                    inTab: tabId
+                )
+        case (.expandPane, .layout):
+            return store.tabLayoutAtom.activeLayoutIsMinimized(target.paneId, inTab: target.tabId)
+                && store.panePresentationAtom.zoomPresentation(forTab: target.tabId) == nil
+        case (.expandPane, .drawerChild(_, _, let tabId, let drawerId)):
+            return drawerParentIsShown(target)
+                && store.tabLayoutAtom.activeDrawerLayoutIsMinimized(
+                    target.paneId,
+                    drawerID: drawerId,
+                    inTab: tabId
+                )
+        case (.closePane, _):
+            return true
+        case (.splitRight, .layout):
+            return activeLayoutShowsPane(target)
+                && store.panePresentationAtom.zoomPresentation(forTab: target.tabId) == nil
+        case (.extractPaneToTab, .layout):
+            let includingMinimized = atom(\.managementLayer).isActive
+            return store.tabLayoutAtom.activeLayoutShowsPane(
+                target.paneId,
+                inTab: target.tabId,
+                includingMinimized: includingMinimized
+            )
+                && store.tabLayoutAtom.activeLayoutVisiblePaneCount(
+                    inTab: target.tabId,
+                    includingMinimized: includingMinimized
+                ) > 1
+        case (.movePaneToTab, .layout):
+            return store.tabLayoutAtom.activeLayoutContainsPane(target.paneId, inTab: target.tabId)
+                && store.tabLayoutAtom.anotherTabHasNonemptyActiveLayout(excludingTabID: target.tabId)
+        case (.detachDrawerPane, .drawerChild):
+            return drawerParentIsShown(target)
+        case (.toggleDrawer, .layout):
+            return activeLayoutShowsPane(target)
+        case (.addDrawerPane, .layout):
+            return activeLayoutShowsPane(target)
+        default:
+            return false
         }
+    }
+
+    private func targetedPaneCapabilityTarget(paneId: UUID) -> TargetedPaneCapabilityTarget? {
+        guard let paneState = store.paneAtom.graphAtom.paneState(paneId) else {
+            return nil
+        }
+
+        if let parentPaneId = paneState.parentPaneId {
+            guard
+                let parentPaneState = store.paneAtom.graphAtom.paneState(parentPaneId),
+                parentPaneState.ownsDrawerChild(paneId),
+                let drawerId = parentPaneState.ownedDrawerId,
+                let tabId = store.tabLayoutAtom.tabID(containingPane: parentPaneId)
+            else {
+                return nil
+            }
+            return .drawerChild(
+                paneId: paneId,
+                parentPaneId: parentPaneId,
+                tabId: tabId,
+                drawerId: drawerId
+            )
+        }
+
+        guard
+            let drawerId = paneState.ownedDrawerId,
+            let tabId = store.tabLayoutAtom.tabID(containingPane: paneId)
+        else {
+            return nil
+        }
+        return .layout(paneId: paneId, tabId: tabId, drawerId: drawerId)
+    }
+
+    private func activeLayoutShowsPane(_ target: TargetedPaneCapabilityTarget) -> Bool {
+        store.tabLayoutAtom.activeLayoutShowsPane(
+            target.paneId,
+            inTab: target.tabId,
+            includingMinimized: atom(\.managementLayer).isActive
+        )
+    }
+
+    private func drawerParentIsShown(_ target: TargetedPaneCapabilityTarget) -> Bool {
+        guard case .drawerChild(_, let parentPaneId, let tabId, _) = target else {
+            return false
+        }
+        return store.tabLayoutAtom.activeLayoutShowsPane(
+            parentPaneId,
+            inTab: tabId,
+            includingMinimized: atom(\.managementLayer).isActive
+        )
     }
 
     private func workspacePresentationCommandAvailability(_ command: AppCommand) -> Bool? {
