@@ -786,6 +786,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForMetadataPublisher(() => publishMetadataEvents);
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		const fileButton = await waitForBridgeViewerTreeItemButton(
 			'Sources/AgentStudio/App/AppDelegate.swift',
 		);
