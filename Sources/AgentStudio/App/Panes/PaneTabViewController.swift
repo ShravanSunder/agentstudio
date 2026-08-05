@@ -4003,6 +4003,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if targetType == .tab {
+            switch command {
+            case .renameTab, .closeTab, .saveArrangement, .newFloatingTerminal:
+                return store.tabLayoutAtom.containsTab(target)
+            case .splitRight, .splitLeft:
+                return store.tabLayoutAtom.containsTab(target)
+                    && store.tabLayoutAtom.activePaneID(forTab: target) != nil
+                    && store.panePresentationAtom.zoomPresentation(forTab: target) == nil
+            case .breakUpTab, .equalizePanes:
+                return store.tabLayoutAtom.activeArrangementIsSplit(forTab: target)
+            default:
+                break
+            }
+        }
+
         if command == .previousArrangement || command == .nextArrangement {
             guard
                 targetType == .tab,

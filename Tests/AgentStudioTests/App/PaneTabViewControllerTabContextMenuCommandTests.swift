@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -10,6 +11,64 @@ import Testing
 struct PaneTabViewControllerTabContextMenuCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    private final class ObservationInvalidationFlag: @unchecked Sendable {
+        var didFire = false
+    }
+
+    @Test("tab command capability ignores unrelated repository topology changes")
+    func canExecuteTabCommand_doesNotObserveRepositoryTopology() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let invalidation = ObservationInvalidationFlag()
+
+        withObservationTracking {
+            _ = harness.controller.canExecute(
+                .closeTab,
+                target: tab.id,
+                targetType: .tab
+            )
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
+        _ = harness.store.addRepo(at: repositoryPath)
+
+        #expect(!invalidation.didFire)
+    }
+
+    @Test("targeted split capability rejects a zoomed tab")
+    func canExecuteSplit_zoomedTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: pane.id,
+            viewerPresentation: .unavailable
+        )
+
+        #expect(
+            !harness.controller.canExecute(
+                .splitRight,
+                target: tab.id,
+                targetType: .tab
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .splitLeft,
+                target: tab.id,
+                targetType: .tab
+            )
+        )
     }
 
     @Test("targeted Equalize Panes uses the clicked inactive tab")
