@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -10,6 +11,35 @@ import Testing
 struct PaneTabViewControllerTargetedPaneCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    private final class ObservationInvalidationFlag: @unchecked Sendable {
+        var didFire = false
+    }
+
+    @Test("targeted pane capability ignores unrelated repository topology changes")
+    func canExecutePaneCommand_doesNotObserveRepositoryTopology() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let invalidation = ObservationInvalidationFlag()
+
+        withObservationTracking {
+            _ = harness.controller.canExecute(
+                .closePane,
+                target: pane.id,
+                targetType: .pane
+            )
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
+        _ = harness.store.addRepo(at: repositoryPath)
+
+        #expect(!invalidation.didFire)
     }
 
     @Test("targeted Expand Pane restores a minimized main pane")
