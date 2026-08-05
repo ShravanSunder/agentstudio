@@ -161,9 +161,17 @@ package struct PaneGraphState: Identifiable, Hashable, Sendable {
         metadata.facets.paneContextFacets
     }
 
-    var parentPaneId: UUID? {
+    package var parentPaneId: UUID? {
         if case .drawerChild(let parentPaneId) = kind { return parentPaneId }
         return nil
+    }
+
+    package var ownedDrawerId: UUID? {
+        drawer?.drawerId
+    }
+
+    package func ownsDrawerChild(_ paneId: UUID) -> Bool {
+        drawer?.paneIds.contains(paneId) == true
     }
 
     mutating func withDrawer(_ transform: (inout DrawerGraphState) -> Void) {
