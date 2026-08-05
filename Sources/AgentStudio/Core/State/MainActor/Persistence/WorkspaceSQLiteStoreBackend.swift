@@ -438,6 +438,28 @@ enum WorkspaceSQLiteStateBridge {
         )
     }
 
+    static func paneLocationRestoreReasons(
+        from snapshot: Snapshot
+    ) throws -> Set<PaneTopologyPersistenceReason> {
+        var reasons = Set<PaneTopologyPersistenceReason>()
+        for paneRecord in snapshot.paneGraph.panes {
+            let content = try paneContent(from: paneRecord.content)
+            switch PaneFilesystemLocationPolicy.resolveRestoredCWD(
+                for: content,
+                cwd: paneRecord.metadata.durableFacets.cwd,
+                launchDirectory: paneRecord.metadata.launchDirectory
+            ) {
+            case .valid:
+                break
+            case .repaired:
+                reasons.insert(.paneLocationRestoreRepaired)
+            case .degradedRequired:
+                reasons.insert(.paneLocationRestoreDegraded)
+            }
+        }
+        return reasons
+    }
+
     static func repositoryTopologySnapshot(
         topology: WorkspaceCoreRepository.RepositoryTopologyRecord,
         updatedAt: Date
@@ -502,8 +524,6 @@ enum WorkspaceSQLiteStateBridge {
             note: metadata.note,
             checkoutRef: metadata.checkoutRef,
             durableFacets: .init(
-                repoId: metadata.facets.repoId,
-                worktreeId: metadata.facets.worktreeId,
                 cwd: metadata.facets.cwd
             )
         )
@@ -580,10 +600,29 @@ enum WorkspaceSQLiteStateBridge {
         from record: WorkspaceCoreRepository.PaneRecord,
         cursorState: WorkspaceLocalRepository.CursorStateRecord
     ) throws -> Pane {
-        Pane(
+        let content = try paneContent(from: record.content)
+        let restoredCWD: URL?
+        switch PaneFilesystemLocationPolicy.resolveRestoredCWD(
+            for: content,
+            cwd: record.metadata.durableFacets.cwd,
+            launchDirectory: record.metadata.launchDirectory
+        ) {
+        case .valid(let cwd):
+            restoredCWD = cwd
+        case .repaired(let cwd):
+            restoredCWD = cwd
+        case .degradedRequired:
+            restoredCWD = nil
+        }
+        return Pane(
             id: record.id,
-            content: try paneContent(from: record.content),
-            metadata: paneMetadata(from: record.metadata, paneId: record.id, contentType: record.content.contentType),
+            content: content,
+            metadata: paneMetadata(
+                from: record.metadata,
+                paneId: record.id,
+                contentType: record.content.contentType,
+                cwd: restoredCWD
+            ),
             residency: paneResidency(from: record.residency),
             kind: try paneKind(from: record, cursorState: cursorState)
         )
@@ -607,7 +646,8 @@ enum WorkspaceSQLiteStateBridge {
     private static func paneMetadata(
         from record: WorkspaceCoreRepository.PaneMetadataRecord,
         paneId: UUID,
-        contentType: PaneContentType
+        contentType: PaneContentType,
+        cwd: URL?
     ) -> PaneMetadata {
         .init(
             paneId: PaneId(existingUUID: paneId),
@@ -617,9 +657,7 @@ enum WorkspaceSQLiteStateBridge {
             createdAt: record.createdAt,
             title: record.title,
             facets: .init(
-                repoId: record.durableFacets.repoId,
-                worktreeId: record.durableFacets.worktreeId,
-                cwd: record.durableFacets.cwd
+                cwd: cwd
             ),
             checkoutRef: record.checkoutRef,
             note: record.note,

@@ -2,6 +2,8 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @Suite(.serialized)
@@ -23,8 +25,8 @@ struct AppBootSequenceTests {
                 .startGitProjector,
                 .startForgeActor,
                 .startCacheCoordinator,
-                .triggerInitialTopologySync,
                 .armPersistenceObservation,
+                .triggerInitialTopologySync,
                 .readyForReactiveSidebar,
             ])
     }
@@ -135,8 +137,8 @@ struct AppBootSequenceTests {
         )
     }
 
-    @Test("fatal database preparation flushes its diagnostic before stopping boot")
-    func fatalDatabasePreparationFlushesDiagnosticBeforeStoppingBoot() throws {
+    @Test("topology rejection emits a bounded reason before flushing and stopping boot")
+    func topologyRejectionEmitsBoundedReasonBeforeFlushingAndStoppingBoot() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let workspaceBootSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
@@ -152,9 +154,14 @@ struct AppBootSequenceTests {
             )
         )
         let prepareBody = workspaceBootSource[prepareFunction.lowerBound..<loadFunction.lowerBound]
+        let topologyRejectedBranch = try #require(prepareBody.range(of: "case .topologyRejected:"))
         let flush = try #require(prepareBody.range(of: "try? await traceRuntime.flush()"))
         let fatalStop = try #require(prepareBody.range(of: "preconditionFailure("))
+        let topologyRejectedBody = prepareBody[topologyRejectedBranch.lowerBound..<flush.lowerBound]
 
+        #expect(topologyRejectedBody.contains("await recordPaneTopologyPersistenceReason("))
+        #expect(topologyRejectedBody.contains(".topologyNormalizationRejected"))
+        #expect(topologyRejectedBody.contains("severity: .error"))
         #expect(flush.lowerBound < fatalStop.lowerBound)
     }
 
@@ -296,29 +303,210 @@ struct AppBootSequenceTests {
         #expect(!workspaceBootSource.contains("repositoryTopologyLoadTask"))
     }
 
-    @Test("initial topology trigger starts the persistence observation barrier")
-    func initialTopologyTriggerStartsPersistenceObservationBarrier() throws {
+    @Test("persistence observation passes a real topology flush barrier before deferred repair")
+    func persistenceObservationPrecedesDeferredTopologyRepair() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let workspaceBootSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
             encoding: .utf8
         )
-        let triggerStart = try #require(
-            workspaceBootSource.range(of: "private func bootTriggerInitialTopologySync()")
+        let startObserving = try #require(workspaceBootSource.range(of: "repositoryTopologyStore.startObserving()"))
+        let flush = try #require(workspaceBootSource.range(of: "try await repositoryTopologyStore.flushAsync()"))
+        let barrier = try #require(
+            workspaceBootSource.range(of: "didPassInitialTopologyPersistenceBarrier = true")
         )
-        let deferredLaneStart = try #require(
+        let deferredLane = try #require(
             workspaceBootSource.range(
-                of: "func startDeferredRepositoryTopologyLaneIfRequested()",
-                range: triggerStart.upperBound..<workspaceBootSource.endIndex
+                of: "startDeferredRepositoryTopologyLaneIfRequested()",
+                range: barrier.upperBound..<workspaceBootSource.endIndex
             )
         )
-        let triggerBody = workspaceBootSource[triggerStart.lowerBound..<deferredLaneStart.lowerBound]
 
-        #expect(triggerBody.contains("startDeferredRepositoryTopologyLaneIfRequested()"))
+        #expect(startObserving.lowerBound < flush.lowerBound)
+        #expect(flush.lowerBound < barrier.lowerBound)
+        #expect(barrier.lowerBound < deferredLane.lowerBound)
+        #expect(workspaceBootSource.contains(".topologyBootNormalizationFlushFailed"))
+        #expect(workspaceBootSource.contains("await self.repairUnavailableRepositoriesMissingMain()"))
+        #expect(workspaceBootSource.contains("RepoScanner().scan(in: repository.repoPath, maxDepth: 0)"))
     }
 
-    @Test("termination flushes settings before shutdown completes")
-    func terminationFlushesSettingsBeforeShutdownCompletes() throws {
+    @Test("topology flush failure suppresses repair but preserves independent boot work")
+    func topologyFlushFailureSuppressesRepairButPreservesIndependentBootWork() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let workspaceBootSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift"),
+            encoding: .utf8
+        )
+        let barrierFailure = try #require(
+            workspaceBootSource.range(of: "didPassInitialTopologyPersistenceBarrier = false")
+        )
+        let boundedReason = try #require(
+            workspaceBootSource.range(
+                of: ".topologyBootNormalizationFlushFailed",
+                range: barrierFailure.upperBound..<workspaceBootSource.endIndex
+            )
+        )
+        let cacheObservation = try #require(
+            workspaceBootSource.range(
+                of: "repoCacheStore.startObserving()",
+                range: boundedReason.upperBound..<workspaceBootSource.endIndex
+            )
+        )
+        let cachePrune = try #require(
+            workspaceBootSource.range(
+                of: "if pruneStaleCache(store: store, repoCache: repoCache)",
+                range: cacheObservation.upperBound..<workspaceBootSource.endIndex
+            )
+        )
+
+        #expect(workspaceBootSource.contains("didPassInitialTopologyPersistenceBarrier"))
+        #expect(workspaceBootSource.contains("else { return }"))
+        #expect(barrierFailure.lowerBound < boundedReason.lowerBound)
+        #expect(boundedReason.lowerBound < cacheObservation.lowerBound)
+        #expect(cacheObservation.lowerBound < cachePrune.lowerBound)
+    }
+
+    @Test("exact-root repair preserves existing identities and linked worktrees")
+    func exactRootRepairPreservesExistingTopologyIdentity() throws {
+        // Arrange
+        let repositoryID = UUIDv7.generate()
+        let rootWorktreeID = UUIDv7.generate()
+        let linkedWorktreeID = UUIDv7.generate()
+        let repositoryPath = URL(filePath: "/tmp/agentstudio-boot-repair")
+        let linkedPath = URL(filePath: "/tmp/agentstudio-boot-repair-linked")
+        let repository = Repo(
+            id: repositoryID,
+            name: "agentstudio-boot-repair",
+            repoPath: repositoryPath,
+            worktrees: [
+                Worktree(
+                    id: rootWorktreeID,
+                    repoId: repositoryID,
+                    name: "stale-root-name",
+                    path: repositoryPath,
+                    isMainWorktree: false
+                ),
+                Worktree(
+                    id: linkedWorktreeID,
+                    repoId: repositoryID,
+                    name: "linked",
+                    path: linkedPath,
+                    isMainWorktree: true
+                ),
+            ]
+        )
+        let scan = authoritativeScan(
+            entries: [
+                RepoScanner.ResolvedGitEntry(
+                    path: repositoryPath,
+                    kind: .cloneRoot,
+                    repositoryKey: "boot-repair"
+                )
+            ]
+        )
+
+        // Act
+        let repairedWorktrees = try #require(
+            AppDelegate.repairedWorktrees(for: repository, from: scan)
+        )
+
+        // Assert
+        let repairedRoot = try #require(repairedWorktrees.first(where: { $0.id == rootWorktreeID }))
+        let preservedLinked = try #require(repairedWorktrees.first(where: { $0.id == linkedWorktreeID }))
+        #expect(repairedRoot.path == repositoryPath)
+        #expect(repairedRoot.name == repositoryPath.lastPathComponent)
+        #expect(repairedRoot.isMainWorktree)
+        #expect(preservedLinked.path == linkedPath)
+        #expect(!preservedLinked.isMainWorktree)
+        #expect(
+            AppDelegate.hasValidMainWorktree(
+                Repo(
+                    id: repositoryID,
+                    name: repository.name,
+                    repoPath: repositoryPath,
+                    worktrees: repairedWorktrees
+                )))
+    }
+
+    @Test("exact-root repair creates one UUIDv7 root only from authoritative clone evidence")
+    func exactRootRepairRequiresAuthoritativeCloneEvidence() throws {
+        // Arrange
+        let repositoryID = UUIDv7.generate()
+        let repositoryPath = URL(filePath: "/tmp/agentstudio-boot-repair-new-root")
+        let linkedPath = URL(filePath: "/tmp/agentstudio-boot-repair-new-root-linked")
+        let linkedWorktreeID = UUIDv7.generate()
+        let repository = Repo(
+            id: repositoryID,
+            name: repositoryPath.lastPathComponent,
+            repoPath: repositoryPath,
+            worktrees: [
+                Worktree(
+                    id: linkedWorktreeID,
+                    repoId: repositoryID,
+                    name: "linked",
+                    path: linkedPath,
+                    note: "linked note survives"
+                )
+            ]
+        )
+        let acceptedScan = authoritativeScan(
+            entries: [
+                RepoScanner.ResolvedGitEntry(
+                    path: repositoryPath,
+                    kind: .cloneRoot,
+                    repositoryKey: "new-root"
+                )
+            ]
+        )
+        let mismatchedScan = authoritativeScan(
+            entries: [
+                RepoScanner.ResolvedGitEntry(
+                    path: repositoryPath.appending(path: "nested"),
+                    kind: .cloneRoot,
+                    repositoryKey: "mismatch"
+                )
+            ]
+        )
+        let linkedOnlyScan = authoritativeScan(
+            entries: [
+                RepoScanner.ResolvedGitEntry(
+                    path: repositoryPath,
+                    kind: .linkedWorktree(parentClonePath: linkedPath),
+                    repositoryKey: "linked-only"
+                )
+            ]
+        )
+
+        // Act
+        let repairedWorktrees = try #require(
+            AppDelegate.repairedWorktrees(for: repository, from: acceptedScan)
+        )
+
+        // Assert
+        let createdRoot = try #require(repairedWorktrees.filter(\.isMainWorktree).single)
+        let preservedLinked = try #require(repairedWorktrees.first(where: { $0.id == linkedWorktreeID }))
+        #expect(UUIDv7.isV7(createdRoot.id))
+        #expect(createdRoot.path == repositoryPath)
+        #expect(!preservedLinked.isMainWorktree)
+        #expect(preservedLinked.note == "linked note survives")
+        #expect(AppDelegate.repairedWorktrees(for: repository, from: mismatchedScan) == nil)
+        #expect(AppDelegate.repairedWorktrees(for: repository, from: linkedOnlyScan) == nil)
+        #expect(
+            AppDelegate.repairedWorktrees(
+                for: repository,
+                from: .cancelled(
+                    CancelledRepoScan(
+                        verifiedEntries: [],
+                        counts: emptyRepoScannerEvidenceCounts,
+                        serviceMetrics: .zero
+                    )
+                )
+            ) == nil
+        )
+    }
+
+    @Test("termination checks workspace flush success before shutdown completes")
+    func terminationChecksWorkspaceFlushSuccessBeforeShutdownCompletes() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let terminationSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate+Termination.swift"),
@@ -326,6 +514,31 @@ struct AppBootSequenceTests {
         )
 
         #expect(terminationSource.contains("workspaceSettingsStore.flush(for: store.identityAtom.workspaceId)"))
+        #expect(terminationSource.contains("if !(await store.flushAsync()).succeeded"))
+        #expect(terminationSource.contains("Workspace flush failed at termination"))
+    }
+
+    @Test("scoped pane topology recovery paths contain no traps or force unwraps")
+    func scopedPaneTopologyRecoveryPathsContainNoTrapsOrForceUnwraps() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let relativePaths = [
+            "Sources/AgentStudio/Core/Models/PaneFilesystemLocationPolicy.swift",
+            "Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift",
+            "Sources/AgentStudio/Core/State/MainActor/Coordination/RepositoryTopologyReplacement.swift",
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistenceTransformer.swift",
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend.swift",
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackend+Datastore.swift",
+        ]
+
+        for relativePath in relativePaths {
+            let source = try String(
+                contentsOf: projectRoot.appending(path: relativePath),
+                encoding: .utf8
+            )
+            #expect(!source.contains("preconditionFailure("), "Unexpected trap in \(relativePath)")
+            #expect(!source.contains("fatalError("), "Unexpected fatal error in \(relativePath)")
+            #expect(!source.contains("try!"), "Unexpected forced try in \(relativePath)")
+        }
     }
 
     @Test("inbox notification autosave observes memory, not runtime handoff state")
@@ -389,4 +602,27 @@ struct AppBootSequenceTests {
         return trimmedLine.contains("Task.sleep(for:")
             || trimmedLine.contains(".sleep(for:")
     }
+}
+
+private let emptyRepoScannerEvidenceCounts = RepoScannerEvidenceCounts(
+    directoryVisitCount: 0,
+    directoryTraversalFailureCount: 0,
+    entryMetadataFailureCount: 0,
+    gitCandidateCount: 0,
+    validationSuccessCount: 0,
+    validationAuthoritativeNegativeCount: 0,
+    validationTimeoutCount: 0,
+    validationCancellationCount: 0,
+    validationFailureCount: 0,
+    scannerServiceInvocationCount: 0
+)
+
+private func authoritativeScan(entries: [RepoScanner.ResolvedGitEntry]) -> RepoScannerResult {
+    .completeAuthoritative(
+        CompleteRepoScan(
+            verifiedEntries: entries,
+            counts: emptyRepoScannerEvidenceCounts,
+            serviceMetrics: .zero
+        )
+    )
 }

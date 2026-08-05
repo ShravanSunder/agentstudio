@@ -94,7 +94,10 @@ extension WebKitSerializedTests {
                             source: .commit(sha: "drawer-zoom")
                         )
                     ),
-                    metadata: PaneMetadata(title: "Drawer review")
+                    metadata: PaneMetadata(
+                        title: "Drawer review",
+                        facets: PaneContextFacets(cwd: harness.tempDirectory)
+                    )
                 )
             )
             let drawerId = try #require(

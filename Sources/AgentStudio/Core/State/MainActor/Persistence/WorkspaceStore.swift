@@ -82,6 +82,7 @@ package final class WorkspaceStore {
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
+    private let persistenceReasonReporter: PaneTopologyPersistenceReasonReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var debouncedSaveFailureDamping = DebouncedSaveFailureDamping()
     private var isObservingPersistedState = false
@@ -103,7 +104,8 @@ package final class WorkspaceStore {
         sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
-        recoveryReporter: PersistenceRecoveryReporter? = nil
+        recoveryReporter: PersistenceRecoveryReporter? = nil,
+        persistenceReasonReporter: PaneTopologyPersistenceReasonReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom.shellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom.arrangementAtom
@@ -150,6 +152,7 @@ package final class WorkspaceStore {
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
+        self.persistenceReasonReporter = persistenceReasonReporter
     }
 
     typealias CloseEntry = WorkspaceMutationCoordinator.CloseEntry
@@ -166,6 +169,12 @@ package final class WorkspaceStore {
 
         switch await sqliteDatastore.loadAuthoritativeCoreSnapshot() {
         case .loaded(let snapshot):
+            let restoreReasons = snapshot.persistenceReasons.union(
+                WorkspacePersistenceTransformer.topologyRestoreReasons(snapshot.repositoryTopology)
+            )
+            for reason in restoreReasons {
+                persistenceReasonReporter?(reason)
+            }
             switch await prepareAndApplyAuthoritativeSnapshot(snapshot) {
             case .success(let acceptance):
                 return .loaded(acceptance)
@@ -254,6 +263,7 @@ package final class WorkspaceStore {
                 preparedTopology,
                 repositoryTopologyAtom: repositoryTopologyAtom
             )
+            _ = mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
             isDirty = false
             workspaceStoreLogger.info(
                 "Installed SQLite workspace '\(preparedComposition.identity.workspaceName)' with \(preparedComposition.panes.count) pane(s), \(preparedComposition.tabs.count) tab(s)"
@@ -352,10 +362,27 @@ package final class WorkspaceStore {
             return .persisted
         } catch {
             workspaceStoreLogger.error("Failed to persist workspace: \(String(reflecting: error))")
+            persistenceReasonReporter?(Self.persistenceFailureReason(for: error))
             if shouldReportSaveFailure {
                 reportSaveFailed()
             }
             return .failed(String(describing: error))
+        }
+    }
+
+    package static func persistenceFailureReason(
+        for error: any Error
+    ) -> PaneTopologyPersistenceReason {
+        guard let failure = error as? WorkspaceSQLiteSaveCoordinatorFailure else {
+            return .workspaceSaveDatabaseFailed
+        }
+        switch failure {
+        case .compositionRejected:
+            return .workspaceSaveCompositionRejected
+        case .datastore(let datastoreFailure):
+            return datastoreFailure.kind == .stateBridge
+                ? .workspaceSaveBridgeFailed
+                : .workspaceSaveDatabaseFailed
         }
     }
 

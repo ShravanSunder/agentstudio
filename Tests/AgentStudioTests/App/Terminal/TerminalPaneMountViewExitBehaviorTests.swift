@@ -274,7 +274,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
-        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+        guard
+            let drawerPane = harness.store.addDrawerPane(
+                to: parentPane.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        else {
             Issue.record("Expected drawer pane creation to succeed")
             return
         }

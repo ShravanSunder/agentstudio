@@ -5,6 +5,43 @@ import Testing
 
 @Suite("RepoScanner completeness")
 struct RepoScannerCompletenessTests {
+    @Test("depth-zero scan validates only the exact root as authoritative clone evidence")
+    func depthZeroScanValidatesExactRoot() async throws {
+        // Arrange
+        let scanRoot = FileManager.default.temporaryDirectory
+            .appending(path: "repo-scanner-depth-zero-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: scanRoot.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: scanRoot) }
+        let canonicalRoot = RepoScanner.canonicalURL(scanRoot)
+        let expectedEntry = RepoScanner.ResolvedGitEntry(
+            path: canonicalRoot,
+            kind: .cloneRoot,
+            repositoryKey: "depth-zero-root"
+        )
+        let discoveryProvider = StubGitRepositoryDiscoveryProvider(
+            outcomesByCanonicalPath: [canonicalPath(canonicalRoot): .validated(expectedEntry)]
+        )
+
+        // Act
+        let result = await RepoScanner().scan(
+            in: scanRoot,
+            maxDepth: 0,
+            discoveryProvider: discoveryProvider
+        )
+
+        // Assert
+        guard case .completeAuthoritative(let completeScan) = result else {
+            Issue.record("expected exact-root authoritative scanner evidence, got \(result)")
+            return
+        }
+        #expect(completeScan.verifiedEntries == [expectedEntry])
+        #expect(completeScan.counts.gitCandidateCount == 1)
+        #expect(completeScan.counts.validationSuccessCount == 1)
+    }
+
     @Test("validation failure produces partial evidence while retaining verified positives")
     func validationFailureRetainsVerifiedPositiveWithoutAuthorizingAbsence() async throws {
         // Arrange

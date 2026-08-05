@@ -102,20 +102,11 @@ extension WebKitSerializedTests {
         func zoomCompanionUsesCachedMainWorktreeBranchBaseline() async throws {
             let harness = makeZoomCompanionHarness()
             defer { try? FileManager.default.removeItem(at: harness.root) }
-            let mainWorktree = Worktree(
-                id: harness.worktree.id,
-                repoId: harness.worktree.repoId,
-                name: harness.worktree.name,
-                path: harness.worktree.path,
-                isMainWorktree: true,
-                note: harness.worktree.note
-            )
-            harness.store.reconcileDiscoveredWorktrees(
-                mainWorktree.repoId,
-                worktrees: [mainWorktree]
-            )
             let repo = try #require(
-                harness.store.repositoryTopologyAtom.repo(containing: mainWorktree.id)
+                harness.store.repositoryTopologyAtom.repo(containing: harness.worktree.id)
+            )
+            let mainWorktree = try #require(
+                repo.worktrees.first { $0.isMainWorktree }
             )
             atom(\.repoCache).setWorktreeEnrichment(
                 WorktreeEnrichment(
@@ -252,11 +243,14 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("contextless Zoom source keeps Viewer hidden without borrowing a worktree")
-        func contextlessZoomSourceDoesNotBorrowOnlyRegisteredWorktree() async {
+        @Test("home-fallback Zoom source keeps Viewer hidden without borrowing the only worktree")
+        func homeFallbackZoomSourceDoesNotBorrowOnlyRegisteredWorktree() async throws {
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-            let (_, onlyWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let repository = harness.store.addRepo(
+                at: harness.tempDir.appending(path: "only-repository")
+            )
+            let onlyWorktree = try #require(repository.worktrees.single)
             let sourcePane = harness.store.createPane()
             let sourceTab = Tab(paneId: sourcePane.id)
             harness.store.appendTab(sourceTab)
@@ -269,7 +263,7 @@ extension WebKitSerializedTests {
             )
             #expect(sourcePane.parentPaneId == nil)
             #expect(sourcePane.worktreeId == nil)
-            #expect(sourcePane.metadata.cwd == nil)
+            #expect(sourcePane.metadata.cwd == FileManager.default.homeDirectoryForCurrentUser)
 
             harness.controller.execute(.zoomPane)
 

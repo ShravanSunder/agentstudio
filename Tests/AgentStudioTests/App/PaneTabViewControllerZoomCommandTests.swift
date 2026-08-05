@@ -385,7 +385,11 @@ struct PaneTabViewControllerZoomCommandTests {
         let panes = [
             harness.store.createPane(
                 content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
-                metadata: PaneMetadata(contentType: .diff, title: "Review")
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Review",
+                    facets: PaneContextFacets(cwd: harness.tempDir)
+                )
             ),
             harness.store.createPane(
                 content: .codeViewer(

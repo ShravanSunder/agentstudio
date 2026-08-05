@@ -49,26 +49,18 @@ enum PaneGraphKind: Hashable, Sendable {
 }
 
 struct PaneGraphFacets: Hashable, Sendable {
-    var repoId: UUID?
-    var worktreeId: UUID?
     var cwd: URL?
 
-    init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil) {
-        self.repoId = repoId
-        self.worktreeId = worktreeId
+    init(cwd: URL? = nil) {
         self.cwd = cwd
     }
 
     init(contextFacets: PaneContextFacets) {
-        self.init(
-            repoId: contextFacets.repoId,
-            worktreeId: contextFacets.worktreeId,
-            cwd: contextFacets.cwd
-        )
+        self.init(cwd: contextFacets.cwd)
     }
 
     var paneContextFacets: PaneContextFacets {
-        PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: cwd)
+        PaneContextFacets(cwd: cwd)
     }
 }
 
@@ -309,12 +301,6 @@ package final class WorkspacePaneGraphAtom {
         parentPaneIDByDrawerID[drawerID]
     }
 
-    /// Durable graph membership only. Use `WorkspacePaneDerived` when callers
-    /// need cwd/topology-resolved worktree membership.
-    func paneStates(for worktreeId: UUID) -> [PaneGraphState] {
-        paneStates.values.filter { $0.metadata.facets.worktreeId == worktreeId }
-    }
-
     func replacePaneStates(_ replacement: WorkspacePaneGraphReplacement) {
         paneStates = replacement.paneStates
         parentPaneIDByDrawerID = Dictionary(
@@ -338,17 +324,53 @@ package final class WorkspacePaneGraphAtom {
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> PaneGraphState {
-        createPane(
+        let admittedCWD =
+            [facets.cwd, launchDirectory, FileManager.default.homeDirectoryForCurrentUser]
+            .compactMap { candidate -> URL? in
+                guard case .accepted(let cwd) = PaneFilesystemLocationPolicy.runtimeCWDUpdate(candidate) else {
+                    return nil
+                }
+                return cwd
+            }
+            .first ?? FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        var admittedFacets = facets
+        admittedFacets.cwd = admittedCWD
+        let pane = Pane(
             content: .terminal(
-                TerminalState(
-                    provider: provider,
-                    lifetime: lifetime,
-                    zmxSessionID: zmxSessionID
-                )
+                TerminalState(provider: provider, lifetime: lifetime, zmxSessionID: zmxSessionID)
             ),
-            metadata: PaneMetadata(launchDirectory: launchDirectory, title: title, facets: facets),
+            metadata: PaneMetadata(
+                launchDirectory: admittedCWD,
+                title: title,
+                facets: admittedFacets
+            ),
             residency: residency
         )
+        let state = PaneGraphState(pane: pane)
+        setCanonicalPaneState(state)
+        return state
+    }
+
+    private func admittedMetadata(
+        for content: PaneContent,
+        metadata: PaneMetadata
+    ) -> PaneMetadata? {
+        var admittedMetadata = metadata
+        switch PaneFilesystemLocationPolicy.resolveRestoredCWD(
+            for: content,
+            cwd: metadata.cwd,
+            launchDirectory: metadata.launchDirectory
+        ) {
+        case .valid(let cwd):
+            admittedMetadata.updateCWD(cwd)
+            return admittedMetadata
+        case .repaired(let cwd):
+            admittedMetadata.updateCWD(cwd)
+            return admittedMetadata
+        case .degradedRequired:
+            workspacePaneLogger.warning("pane admission: required content has no trustworthy filesystem location")
+            return nil
+        }
     }
 
     @discardableResult
@@ -356,8 +378,10 @@ package final class WorkspacePaneGraphAtom {
         content: PaneContent,
         metadata: PaneMetadata,
         residency: SessionResidency = .active
-    ) -> PaneGraphState {
-        let pane = Pane(content: content, metadata: metadata, residency: residency)
+    ) -> PaneGraphState? {
+        guard let admittedMetadata = admittedMetadata(for: content, metadata: metadata) else { return nil }
+
+        let pane = Pane(content: content, metadata: admittedMetadata, residency: residency)
         let state = PaneGraphState(pane: pane)
         setCanonicalPaneState(state)
         return state
@@ -411,24 +435,20 @@ package final class WorkspacePaneGraphAtom {
     func updatePaneCWDAndResolvedContext(
         _ paneId: UUID,
         cwd: URL?,
-        resolvedContext: (repo: Repo, worktree: Worktree)?
+        resolvedContext _: (repo: Repo, worktree: Worktree)?
     ) -> PaneCWDContextUpdateResult {
-        guard paneStates[paneId] != nil else {
+        guard let currentState = paneStates[paneId] else {
             workspacePaneLogger.warning("updatePaneCWDAndResolvedContext: pane \(paneId) not found")
             return .paneMissing
         }
-
-        var facets = paneStates[paneId]!.metadata.facets
-        facets.cwd = cwd
-        if let resolvedContext {
-            facets.repoId = resolvedContext.repo.id
-            facets.worktreeId = resolvedContext.worktree.id
-        } else {
-            facets.repoId = nil
-            facets.worktreeId = nil
+        guard case .accepted(let acceptedCWD) = PaneFilesystemLocationPolicy.runtimeCWDUpdate(cwd) else {
+            return .unchanged
         }
 
-        guard facets != paneStates[paneId]!.metadata.facets else {
+        var facets = currentState.metadata.facets
+        facets.cwd = acceptedCWD
+
+        guard facets != currentState.metadata.facets else {
             return .unchanged
         }
 
@@ -479,11 +499,12 @@ package final class WorkspacePaneGraphAtom {
             workspacePaneLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
             return nil
         }
+        guard let admittedMetadata = admittedMetadata(for: content, metadata: metadata) else { return nil }
 
         let drawerPane = Pane(
             id: UUIDv7.generate(),
             content: content,
-            metadata: metadata,
+            metadata: admittedMetadata,
             residency: .active,
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
@@ -550,28 +571,29 @@ package final class WorkspacePaneGraphAtom {
 
     @discardableResult
     func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
-        let affectedPaneIds = paneStates.values
-            .filter { state in
-                guard let worktreeId = state.metadata.facets.worktreeId else { return false }
-                return unavailablePathByWorktreeId[worktreeId] != nil
-            }
-            .map(\.id)
+        let unavailablePaths = unavailablePathByWorktreeId.values.sorted { $0.count > $1.count }
+        let affectedPaneIds = paneStates.values.compactMap { state -> (UUID, String)? in
+            guard let cwd = state.metadata.facets.cwd?.standardizedFileURL.path else { return nil }
+            guard let path = unavailablePaths.first(where: { pathContains($0, cwd: cwd) }) else { return nil }
+            return (state.id, path)
+        }
 
         guard !affectedPaneIds.isEmpty else { return [] }
-        for paneId in affectedPaneIds {
-            guard let worktreeId = paneStates[paneId]?.metadata.facets.worktreeId,
-                let missingPath = unavailablePathByWorktreeId[worktreeId]
-            else { continue }
+        for (paneId, missingPath) in affectedPaneIds {
             guard paneStates[paneId]?.residency.isPendingUndo != true else { continue }
             paneStates[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: missingPath))
         }
-        return affectedPaneIds
+        return affectedPaneIds.map(\.0)
     }
 
     @discardableResult
-    func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
+    func orphanPanesForWorktree(_: UUID, path: String) -> [UUID] {
+        let normalizedPath = URL(filePath: path).standardizedFileURL.path
         let affectedPaneIds = paneStates.values
-            .filter { $0.metadata.facets.worktreeId == worktreeId }
+            .filter { state in
+                guard let cwd = state.metadata.facets.cwd?.standardizedFileURL.path else { return false }
+                return pathContains(normalizedPath, cwd: cwd)
+            }
             .filter { state in
                 switch state.residency {
                 case .active, .backgrounded:
@@ -591,18 +613,20 @@ package final class WorkspacePaneGraphAtom {
 
     @discardableResult
     func restoreOrphanedPaneResidency(
-        forWorktreeIds worktreeIds: Set<UUID>,
+        forPaneIds paneIds: Set<UUID>,
         activeLayoutPaneIds: Set<UUID>
     ) -> Bool {
         var didRestore = false
-        for paneId in paneStates.keys {
-            guard let worktreeId = paneStates[paneId]?.metadata.facets.worktreeId else { continue }
-            guard worktreeIds.contains(worktreeId) else { continue }
+        for paneId in paneIds {
             guard paneStates[paneId]?.residency.isOrphaned == true else { continue }
             paneStates[paneId]?.residency = activeLayoutPaneIds.contains(paneId) ? .active : .backgrounded
             didRestore = true
         }
         return didRestore
+    }
+
+    private func pathContains(_ root: String, cwd: String) -> Bool {
+        cwd == root || cwd.hasPrefix(root + "/")
     }
 
     @discardableResult

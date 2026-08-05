@@ -51,7 +51,7 @@ final class CollapsedBarLabelPartsTests {
     }
 
     @Test
-    func floatingPaneWithoutCwd_returnsTerminalFallback() {
+    func floatingPaneWithoutExplicitCwd_returnsHomeFolderPart() {
         withTestCoreAtoms(using: coreAtoms) { _ in
             let pane = store.createPane()
 
@@ -59,20 +59,22 @@ final class CollapsedBarLabelPartsTests {
             let parts = derived.collapsedBarLabelParts(for: pane.id)
 
             #expect(parts.count == 1)
-            #expect(parts[0].icon == .system("terminal"))
+            #expect(parts[0].icon == .system("folder"))
+            #expect(parts[0].text == FileManager.default.homeDirectoryForCurrentUser.lastPathComponent)
         }
     }
 
     @Test
-    func worktreeBackedPane_returnsRepoWorktreeAndBranchParts() {
-        withTestCoreAtoms(using: coreAtoms) { _ in
+    func worktreeBackedPane_returnsRepoWorktreeAndBranchParts() throws {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-collapsed-label"))
+            let mainWorktree = try #require(repo.worktrees.single)
             let worktree = makeWorktree(
                 repoId: repo.id,
                 name: "feature-name",
                 path: "/tmp/agent-studio-collapsed-label/feature-name"
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
             atom(\.repoCache).setWorktreeEnrichment(
                 WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/rotated-label")
             )
@@ -114,15 +116,16 @@ final class CollapsedBarLabelPartsTests {
     }
 
     @Test
-    func metadataAssociatedWebview_returnsRepoWorktreeAndBranchParts() {
-        withTestCoreAtoms(using: coreAtoms) { _ in
+    func metadataAssociatedWebview_returnsRepoWorktreeAndBranchParts() throws {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-webview-label"))
+            let mainWorktree = try #require(repo.worktrees.single)
             let worktree = makeWorktree(
                 repoId: repo.id,
                 name: "feature-web",
                 path: "/tmp/agent-studio-webview-label/feature-web"
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
             atom(\.repoCache).setWorktreeEnrichment(
                 WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/webview-context")
             )
@@ -153,15 +156,16 @@ final class CollapsedBarLabelPartsTests {
     }
 
     @Test
-    func cwdResolvedWorkspace_returnsRepoWorktreeAndBranchParts() {
-        withTestCoreAtoms(using: coreAtoms) { _ in
+    func cwdResolvedWorkspace_returnsRepoWorktreeAndBranchParts() throws {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-cwd-label"))
+            let mainWorktree = try #require(repo.worktrees.single)
             let worktree = makeWorktree(
                 repoId: repo.id,
                 name: "cwd-lookup",
                 path: "/tmp/agent-studio-cwd-label/cwd-lookup"
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
             atom(\.repoCache).setWorktreeEnrichment(
                 WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/cwd-fallback")
             )

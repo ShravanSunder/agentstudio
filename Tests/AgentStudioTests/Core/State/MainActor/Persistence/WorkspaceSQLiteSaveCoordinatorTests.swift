@@ -9,6 +9,33 @@ import Testing
 @MainActor
 @Suite("Workspace SQLite save coordinator", .serialized)
 struct WorkspaceSQLiteSaveCoordinatorTests {
+    @Test("workspace save failures map to bounded persistence reasons")
+    func workspaceSaveFailuresMapToBoundedReasons() {
+        let missingTabID = UUIDv7.generate()
+        let compositionFailure = WorkspaceSQLiteSaveCoordinatorFailure.compositionRejected(
+            .activeTabNotFound(missingTabID)
+        )
+        let bridgeFailure = WorkspaceSQLiteSaveCoordinatorFailure.datastore(
+            WorkspaceSQLiteDatastoreFailure(WorkspaceSQLiteStateBridgeError.invalidPayloadJSON)
+        )
+        let databaseFailure = WorkspaceSQLiteSaveCoordinatorFailure.datastore(
+            WorkspaceSQLiteDatastoreFailure(WorkspaceSQLiteDatastoreError.databasesNotPrepared)
+        )
+
+        #expect(
+            WorkspaceStore.persistenceFailureReason(for: compositionFailure)
+                == .workspaceSaveCompositionRejected
+        )
+        #expect(
+            WorkspaceStore.persistenceFailureReason(for: bridgeFailure)
+                == .workspaceSaveBridgeFailed
+        )
+        #expect(
+            WorkspaceStore.persistenceFailureReason(for: databaseFailure)
+                == .workspaceSaveDatabaseFailed
+        )
+    }
+
     @Test("shallow capture prepares the exact current composition off-main")
     func shallowCapturePreparesExactCurrentCompositionOffMain() async throws {
         // Arrange
@@ -52,6 +79,66 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
         }
         #expect(workspace == expected.workspace)
         #expect(await fixture.probe.events.contains(.saveWorkspaceSnapshot))
+    }
+
+    @Test("direct worktree unregistration commits later workspace snapshot")
+    func directWorktreeUnregistrationCommitsLaterWorkspaceSnapshot() async throws {
+        // Arrange
+        let scenario = try await makeDirectWorktreeUnregistrationScenario()
+        try await unregisterLinkedWorktree(in: scenario)
+        let drawerPaneIDs = try addLaterDrawerPanes(in: scenario)
+
+        // Act
+        let saved = try await scenario.fixture.coordinator.save(
+            persistedAt: Date(timeIntervalSince1970: 1_784_000_103)
+        )
+        let reloadDatastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: scenario.fixture.coreRepository,
+            preparedApplicationLocalRepository: scenario.fixture.preparedApplicationLocalRepository
+        )
+        let loadedWorkspace = await reloadDatastore.loadWorkspaceSnapshot()
+
+        // Assert
+        guard case .loaded(let workspace) = loadedWorkspace else {
+            Issue.record("Expected latest workspace snapshot to reload")
+            return
+        }
+        expectEquivalentSavedWorkspace(
+            workspace,
+            saved: saved.workspace,
+            scenario: scenario,
+            drawerPaneIDs: drawerPaneIDs
+        )
+    }
+
+    @Test("scanned worktree removal commits later workspace snapshot")
+    func scannedWorktreeRemovalCommitsLaterWorkspaceSnapshot() async throws {
+        // Arrange
+        let scenario = try await makeDirectWorktreeUnregistrationScenario()
+        try await reconcileScannedWorktreeRemoval(in: scenario)
+        let drawerPaneIDs = try addLaterDrawerPanes(in: scenario)
+
+        // Act
+        let saved = try await scenario.fixture.coordinator.save(
+            persistedAt: Date(timeIntervalSince1970: 1_784_000_104)
+        )
+        let reloadDatastore = try await preparedWorkspaceSQLiteDatastore(
+            coreRepository: scenario.fixture.coreRepository,
+            preparedApplicationLocalRepository: scenario.fixture.preparedApplicationLocalRepository
+        )
+        let loadedWorkspace = await reloadDatastore.loadWorkspaceSnapshot()
+
+        // Assert
+        guard case .loaded(let workspace) = loadedWorkspace else {
+            Issue.record("Expected post-scan workspace snapshot to reload")
+            return
+        }
+        expectEquivalentSavedWorkspace(
+            workspace,
+            saved: saved.workspace,
+            scenario: scenario,
+            drawerPaneIDs: drawerPaneIDs
+        )
     }
 
     @Test("topology changes cannot change captured composition")
@@ -165,7 +252,208 @@ struct WorkspaceSQLiteSaveCoordinatorTests {
 }
 
 @MainActor
+private struct DirectWorktreeUnregistrationScenario {
+    let fixture: WorkspaceSQLiteSaveCoordinatorFixture
+    let repositoryID: UUID
+    let mainWorktreeID: UUID
+    let repositoryPath: URL
+    let paneCWD: URL
+}
+
+@MainActor
+private func makeDirectWorktreeUnregistrationScenario() async throws
+    -> DirectWorktreeUnregistrationScenario
+{
+    let repositoryID = UUIDv7.generate()
+    let mainWorktreeID = UUIDv7.generate()
+    let removedWorktreeID = UUIDv7.generate()
+    let repositoryPath = URL(
+        filePath: "/tmp/agentstudio-save-regression/repository",
+        directoryHint: .isDirectory
+    )
+    let removedWorktreePath = URL(
+        filePath: "/tmp/agentstudio-save-regression/linked",
+        directoryHint: .isDirectory
+    )
+    let paneCWD = URL(
+        filePath: removedWorktreePath.appending(path: "Sources").path,
+        directoryHint: .isDirectory
+    )
+    let topologySnapshot = RepositoryTopologySQLiteSnapshot(
+        repos: [CanonicalRepo(id: repositoryID, name: "save-regression", repoPath: repositoryPath)],
+        worktrees: [
+            CanonicalWorktree(
+                id: mainWorktreeID,
+                repoId: repositoryID,
+                name: "main",
+                path: repositoryPath,
+                isMainWorktree: true
+            ),
+            CanonicalWorktree(
+                id: removedWorktreeID,
+                repoId: repositoryID,
+                name: "linked",
+                path: removedWorktreePath
+            ),
+        ],
+        updatedAt: Date(timeIntervalSince1970: 1_784_000_100)
+    )
+    let fixture = try await makeFixture(
+        launchDirectory: paneCWD,
+        paneFacets: PaneContextFacets(repoId: repositoryID, worktreeId: removedWorktreeID, cwd: paneCWD),
+        topologySnapshot: topologySnapshot
+    )
+    _ = try await fixture.coordinator.save(persistedAt: Date(timeIntervalSince1970: 1_784_000_101))
+    return DirectWorktreeUnregistrationScenario(
+        fixture: fixture,
+        repositoryID: repositoryID,
+        mainWorktreeID: mainWorktreeID,
+        repositoryPath: repositoryPath,
+        paneCWD: paneCWD
+    )
+}
+
+@MainActor
+private func unregisterLinkedWorktree(in scenario: DirectWorktreeUnregistrationScenario) async throws {
+    let fixture = scenario.fixture
+    let mutationCoordinator = WorkspaceMutationCoordinator(
+        repositoryTopologyAtom: fixture.repositoryTopologyAtom,
+        workspacePaneAtom: fixture.workspacePaneAtom,
+        workspaceTabShellAtom: fixture.tabLayoutAtom.shellAtom,
+        workspaceTabArrangementAtom: fixture.tabLayoutAtom.arrangementAtom
+    )
+    guard
+        case .accepted = mutationCoordinator.unregisterWorktree(
+            try #require(
+                fixture.repositoryTopologyAtom.repo(scenario.repositoryID)?.worktrees.first(where: {
+                    $0.id != scenario.mainWorktreeID
+                })?.id
+            ),
+            from: scenario.repositoryID
+        )
+    else {
+        Issue.record("Expected direct linked-worktree unregistration to be accepted")
+        return
+    }
+    let topologyAfterUnregistration =
+        await WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshotOffMain(
+            repositories: fixture.repositoryTopologyAtom.repos,
+            unavailableRepositoryIDs: fixture.repositoryTopologyAtom.unavailableRepoIds,
+            watchedPaths: fixture.repositoryTopologyAtom.watchedPaths,
+            persistedAt: Date(timeIntervalSince1970: 1_784_000_102)
+        )
+    try await fixture.datastore.saveRepositoryTopologySnapshot(topologyAfterUnregistration)
+}
+
+@MainActor
+private func reconcileScannedWorktreeRemoval(in scenario: DirectWorktreeUnregistrationScenario) async throws {
+    let fixture = scenario.fixture
+    let mutationCoordinator = WorkspaceMutationCoordinator(
+        repositoryTopologyAtom: fixture.repositoryTopologyAtom,
+        workspacePaneAtom: fixture.workspacePaneAtom,
+        workspaceTabShellAtom: fixture.tabLayoutAtom.shellAtom,
+        workspaceTabArrangementAtom: fixture.tabLayoutAtom.arrangementAtom
+    )
+    guard
+        case .accepted = mutationCoordinator.reconcileScannedWorktrees(
+            scenario.repositoryID,
+            scannedWorktrees: RepositoryScannedWorktrees(
+                main: RepositoryScannedMainWorktree(
+                    name: "main",
+                    path: scenario.repositoryPath
+                ),
+                linked: []
+            ),
+            traceId: UUIDv7.generate()
+        )
+    else {
+        Issue.record("Expected authoritative scan removal to be accepted")
+        return
+    }
+    let topologyAfterScan =
+        await WorkspacePersistenceTransformer.makeRepositoryTopologySQLiteSnapshotOffMain(
+            repositories: fixture.repositoryTopologyAtom.repos,
+            unavailableRepositoryIDs: fixture.repositoryTopologyAtom.unavailableRepoIds,
+            watchedPaths: fixture.repositoryTopologyAtom.watchedPaths,
+            persistedAt: Date(timeIntervalSince1970: 1_784_000_102)
+        )
+    try await fixture.datastore.saveRepositoryTopologySnapshot(topologyAfterScan)
+}
+
+@MainActor
+private func addLaterDrawerPanes(in scenario: DirectWorktreeUnregistrationScenario) throws -> [UUID] {
+    let fixture = scenario.fixture
+    let makeDrawerPane: (String) -> Pane? = { title in
+        fixture.workspacePaneAtom.addDrawerPane(
+            to: fixture.rootPaneID,
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: scenario.repositoryPath,
+                title: title,
+                facets: PaneContextFacets(cwd: scenario.repositoryPath)
+            )
+        )
+    }
+    let firstDrawerPane = try #require(makeDrawerPane("Later drawer first"))
+    let secondDrawerPane = try #require(makeDrawerPane("Later drawer second"))
+    let drawerID = try #require(fixture.workspacePaneAtom.pane(fixture.rootPaneID)?.drawer?.drawerId)
+    fixture.tabLayoutAtom.arrangementAtom.addDrawerPaneView(
+        drawerId: drawerID,
+        parentPaneId: fixture.rootPaneID,
+        drawerPaneId: firstDrawerPane.id,
+        inTab: fixture.tabID
+    )
+    fixture.tabLayoutAtom.arrangementAtom.addDrawerPaneView(
+        drawerId: drawerID,
+        parentPaneId: fixture.rootPaneID,
+        drawerPaneId: secondDrawerPane.id,
+        inTab: fixture.tabID,
+        targetDrawerPaneId: firstDrawerPane.id
+    )
+    return [firstDrawerPane.id, secondDrawerPane.id]
+}
+
+private func expectEquivalentSavedWorkspace(
+    _ loaded: WorkspaceSQLiteSnapshot,
+    saved: WorkspaceSQLiteSnapshot,
+    scenario: DirectWorktreeUnregistrationScenario,
+    drawerPaneIDs: [UUID]
+) {
+    let savedPanesByID = Dictionary(uniqueKeysWithValues: saved.panes.map { ($0.id, $0) })
+    let loadedPanesByID = Dictionary(uniqueKeysWithValues: loaded.panes.map { ($0.id, $0) })
+    #expect(loadedPanesByID.keys == savedPanesByID.keys)
+    for (paneID, savedPane) in savedPanesByID {
+        guard let loadedPane = loadedPanesByID[paneID] else {
+            Issue.record("Expected pane \(paneID) to survive save and reload")
+            continue
+        }
+        #expect(loadedPane.content == savedPane.content)
+        #expect(loadedPane.metadata.paneId == savedPane.metadata.paneId)
+        #expect(loadedPane.metadata.contentType == savedPane.metadata.contentType)
+        #expect(loadedPane.metadata.launchDirectory == savedPane.metadata.launchDirectory)
+        #expect(loadedPane.metadata.executionBackend == savedPane.metadata.executionBackend)
+        #expect(loadedPane.metadata.title == savedPane.metadata.title)
+        #expect(loadedPane.metadata.facets == savedPane.metadata.facets)
+        #expect(loadedPane.metadata.checkoutRef == savedPane.metadata.checkoutRef)
+        #expect(loadedPane.metadata.note == savedPane.metadata.note)
+        #expect(loadedPane.residency == savedPane.residency)
+        #expect(loadedPane.kind == savedPane.kind)
+    }
+    #expect(loaded.tabs == saved.tabs)
+    #expect(loaded.activeTabId == saved.activeTabId)
+    #expect(loaded.sidebarWidth == saved.sidebarWidth)
+    #expect(loaded.windowFrame == saved.windowFrame)
+    #expect(loaded.panes.count == 3)
+    #expect(loaded.panes.first(where: { $0.id == scenario.fixture.rootPaneID })?.metadata.cwd == scenario.paneCWD)
+    #expect(loaded.panes.first(where: { $0.id == scenario.fixture.rootPaneID })?.drawer?.paneIds == drawerPaneIDs)
+}
+
+@MainActor
 private struct WorkspaceSQLiteSaveCoordinatorFixture {
+    let rootPaneID: UUID
+    let tabID: UUID
     let repositoryTopologyAtom: RepositoryTopologyAtom
     let workspacePaneAtom: WorkspacePaneAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
@@ -177,7 +465,11 @@ private struct WorkspaceSQLiteSaveCoordinatorFixture {
 }
 
 @MainActor
-private func makeFixture() async throws -> WorkspaceSQLiteSaveCoordinatorFixture {
+private func makeFixture(
+    launchDirectory: URL? = nil,
+    paneFacets: PaneContextFacets = .empty,
+    topologySnapshot: RepositoryTopologySQLiteSnapshot? = nil
+) async throws -> WorkspaceSQLiteSaveCoordinatorFixture {
     let workspaceID = UUIDv7.generate()
     let paneID = PaneId.generateUUIDv7().uuid
     let drawerID = UUIDv7.generate()
@@ -193,7 +485,12 @@ private func makeFixture() async throws -> WorkspaceSQLiteSaveCoordinatorFixture
                 zmxSessionID: .generateUUIDv7()
             )
         ),
-        metadata: PaneMetadata(createdAt: createdAt, title: "Exact pane"),
+        metadata: PaneMetadata(
+            launchDirectory: launchDirectory,
+            createdAt: createdAt,
+            title: "Exact pane",
+            facets: paneFacets
+        ),
         kind: .layout(
             drawer: Drawer(
                 drawerId: drawerID,
@@ -220,6 +517,12 @@ private func makeFixture() async throws -> WorkspaceSQLiteSaveCoordinatorFixture
     )
     let windowMemoryAtom = WorkspaceWindowMemoryAtom(sidebarWidth: 312)
     let repositoryTopologyAtom = RepositoryTopologyAtom()
+    if let topologySnapshot {
+        WorkspacePersistenceTransformer.hydrateRepositoryTopology(
+            topologySnapshot,
+            repositoryTopologyAtom: repositoryTopologyAtom
+        )
+    }
     let workspacePaneAtom = WorkspacePaneAtom(repositoryTopologyAtom: repositoryTopologyAtom)
     workspacePaneAtom.addPane(pane)
     let tabLayoutAtom = WorkspaceTabLayoutAtom()
@@ -245,7 +548,12 @@ private func makeFixture() async throws -> WorkspaceSQLiteSaveCoordinatorFixture
         preparedApplicationLocalRepository: preparedApplicationLocalRepository,
         probe: { event in await probe.record(event) }
     )
+    if let topologySnapshot {
+        try await datastore.saveRepositoryTopologySnapshot(topologySnapshot)
+    }
     return WorkspaceSQLiteSaveCoordinatorFixture(
+        rootPaneID: paneID,
+        tabID: tabID,
         repositoryTopologyAtom: repositoryTopologyAtom,
         workspacePaneAtom: workspacePaneAtom,
         tabLayoutAtom: tabLayoutAtom,

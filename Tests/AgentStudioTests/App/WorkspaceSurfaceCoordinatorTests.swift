@@ -281,7 +281,12 @@ struct WorkspaceSurfaceCoordinatorTests {
         let parentPane = makeWebviewPane(store, title: "Parent")
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
-        guard let drawerPane = store.addDrawerPane(to: parentPane.id) else {
+        guard
+            let drawerPane = store.addDrawerPane(
+                to: parentPane.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        else {
             Issue.record("Expected drawer pane creation to succeed")
             return
         }
@@ -299,6 +304,49 @@ struct WorkspaceSurfaceCoordinatorTests {
         let snapshottedPaneIds = Set(snapshot.panes.map(\.id))
         #expect(snapshottedPaneIds.contains(parentPane.id))
         #expect(snapshottedPaneIds.contains(drawerPane.id))
+    }
+
+    @Test("terminal drawer creation from a locationless webview uses the user home directory")
+    func addDrawerPaneFromLocationlessWebviewUsesHomeDirectory() throws {
+        let harness = makeHarnessCoordinator()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let parentPane = makeWebviewPane(harness.store, title: "Locationless")
+        harness.store.appendTab(Tab(paneId: parentPane.id))
+
+        harness.coordinator.execute(.addDrawerPane(parentPaneId: parentPane.id))
+
+        let drawerPaneID = try #require(harness.store.pane(parentPane.id)?.drawer?.paneIds.single)
+        let drawerPane = try #require(harness.store.pane(drawerPaneID))
+        #expect(drawerPane.metadata.cwd == FileManager.default.homeDirectoryForCurrentUser)
+        #expect(drawerPane.metadata.launchDirectory == FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    @Test("terminal drawer insertion from a locationless webview uses the user home directory")
+    func insertDrawerPaneFromLocationlessWebviewUsesHomeDirectory() throws {
+        let harness = makeHarnessCoordinator()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let parentPane = makeWebviewPane(harness.store, title: "Locationless")
+        harness.store.appendTab(Tab(paneId: parentPane.id))
+        let targetPane = try #require(
+            harness.store.paneAtom.addDrawerPane(
+                to: parentPane.id,
+                content: .webview(WebviewState(url: URL(string: "https://example.com/drawer")!)),
+                metadata: PaneMetadata(title: "Target")
+            )
+        )
+
+        harness.coordinator.executeInsertDrawerPane(
+            parentPaneId: parentPane.id,
+            targetDrawerPaneId: targetPane.id,
+            direction: .right,
+            sizingMode: .halveTarget
+        )
+
+        let drawerPaneIDs = try #require(harness.store.pane(parentPane.id)?.drawer?.paneIds)
+        let insertedPaneID = try #require(drawerPaneIDs.first { $0 != targetPane.id })
+        let insertedPane = try #require(harness.store.pane(insertedPaneID))
+        #expect(insertedPane.metadata.cwd == FileManager.default.homeDirectoryForCurrentUser)
+        #expect(insertedPane.metadata.launchDirectory == FileManager.default.homeDirectoryForCurrentUser)
     }
 
     @Test("openWebview creates and activates a new tab")

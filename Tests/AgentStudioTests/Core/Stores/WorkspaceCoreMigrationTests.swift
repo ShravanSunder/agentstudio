@@ -100,6 +100,7 @@ struct WorkspaceCoreMigrationTests {
                 "012_background_active_unowned_layout_panes",
                 "013_globalize_repository_topology",
                 "014_drop_shows_minimized_panes",
+                "015_drop_pane_topology_facets",
             ]
         )
     }
@@ -143,7 +144,10 @@ struct WorkspaceCoreMigrationTests {
             )
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "009_drop_pane_source_binding"
+        )
 
         let columnNames = try databaseQueue.read { database in
             try Row.fetchAll(database, sql: "PRAGMA table_info(pane)")
@@ -586,6 +590,38 @@ struct WorkspaceCoreMigrationTests {
         workspaceId: String,
         paneId: String,
         contentType: String = SQLitePaneContentTypeStorage.storageValue(for: .terminal),
+        parentPaneId: String? = nil
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO pane(
+                    id, workspace_id, content_type, execution_backend,
+                    launch_directory, title, cwd,
+                    residency_kind, kind, parent_pane_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                paneId,
+                workspaceId,
+                contentType,
+                "zmx",
+                "/tmp",
+                "Terminal",
+                "/tmp",
+                "active",
+                parentPaneId == nil ? "leaf" : "drawerChild",
+                parentPaneId,
+                1.0,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertPaneBeforeTopologyFacetDrop(
+        _ database: Database,
+        workspaceId: String,
+        paneId: String,
         facetRepoId: String? = nil,
         facetWorktreeId: String? = nil,
         parentPaneId: String? = nil
@@ -602,7 +638,7 @@ struct WorkspaceCoreMigrationTests {
             arguments: [
                 paneId,
                 workspaceId,
-                contentType,
+                SQLitePaneContentTypeStorage.storageValue(for: .terminal),
                 "zmx",
                 facetRepoId,
                 facetWorktreeId,
@@ -820,7 +856,7 @@ extension WorkspaceCoreMigrationTests {
             fixture.unownedLegacyLeafPaneId,
         ]
         for paneId in topLevelPaneIds {
-            try insertPane(
+            try insertPaneBeforeTopologyFacetDrop(
                 database,
                 workspaceId: workspaceId,
                 paneId: paneId,
@@ -829,7 +865,7 @@ extension WorkspaceCoreMigrationTests {
             )
         }
         for paneId in [fixture.malformedDrawerChildPaneId, fixture.malformedLayoutWithParentPaneId] {
-            try insertPane(
+            try insertPaneBeforeTopologyFacetDrop(
                 database,
                 workspaceId: workspaceId,
                 paneId: paneId,

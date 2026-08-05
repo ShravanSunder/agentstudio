@@ -20,6 +20,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
+            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
             scopeSyncHandler: { _ in }
         )
 
@@ -78,7 +79,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         )
     }
 
-    @Test("re-association preserves UUID links and restores orphaned pane residency")
+    @Test("re-association preserves UUID links but keeps panes outside relocated topology orphaned")
     func relocateRepoPreservesIdentity() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
@@ -86,6 +87,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
+            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
             scopeSyncHandler: { _ in }
         )
 
@@ -136,7 +138,10 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.repos[0].worktrees.count == 1)
         #expect(workspaceStore.repos[0].worktrees[0].id == previousWorktreeId)
         #expect(workspaceStore.repos[0].worktrees[0].path == relocatedPath)
-        #expect(workspaceStore.pane(pane.id)?.residency == .active)
+        #expect(
+            workspaceStore.pane(pane.id)?.residency
+                == .orphaned(reason: .worktreeNotFound(path: oldRepoPath.path))
+        )
     }
 
     @Test("repo rediscovery at same path clears unavailable state and restores orphaned panes")
@@ -147,6 +152,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
+            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
             scopeSyncHandler: { _ in }
         )
 
@@ -177,7 +183,13 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
 
         coordinator.handleTopology(
             SystemEnvelope.test(
-                event: .topology(.repoDiscovered(repoPath: repoPath, parentPath: repoPath.deletingLastPathComponent()))
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([])
+                    )
+                )
             )
         )
 
@@ -185,7 +197,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.pane(pane.id)?.residency == .active)
     }
 
-    @Test("re-association restores non-layout orphaned panes as backgrounded")
+    @Test("same-path re-association restores non-layout orphaned panes as backgrounded")
     func reassociationRestoresBackgroundedResidencyForNonLayoutPanes() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
@@ -193,6 +205,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
+            topologyEffectHandler: RepoMoveRestoringTopologyEffectHandler(workspaceStore: workspaceStore),
             scopeSyncHandler: { _ in }
         )
 
@@ -223,17 +236,16 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         )
         #expect(workspaceStore.pane(pane.id)?.residency.isOrphaned == true)
 
-        let relocatedPath = URL(fileURLWithPath: "/tmp/repo-move-backgrounded-new")
-        let discoveredAtNewPath = Worktree(
+        let rediscoveredWorktree = Worktree(
             repoId: repo.id,
             name: "main",
-            path: relocatedPath,
+            path: oldRepoPath,
             isMainWorktree: true
         )
         let reassociated = coordinator.reassociateRepo(
             repoId: repo.id,
-            to: relocatedPath,
-            discoveredWorktrees: [discoveredAtNewPath]
+            to: oldRepoPath,
+            discoveredWorktrees: [rediscoveredWorktree]
         )
 
         guard case .accepted = reassociated else {
@@ -329,5 +341,18 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         )
 
         #expect(workspaceStore.pane(pane.id)?.residency.isPendingUndo == true)
+    }
+}
+
+@MainActor
+private final class RepoMoveRestoringTopologyEffectHandler: TopologyEffectHandler {
+    private let workspaceStore: WorkspaceStore
+
+    init(workspaceStore: WorkspaceStore) {
+        self.workspaceStore = workspaceStore
+    }
+
+    func topologyDidChange(_: WorktreeTopologyDelta) {
+        _ = workspaceStore.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
     }
 }

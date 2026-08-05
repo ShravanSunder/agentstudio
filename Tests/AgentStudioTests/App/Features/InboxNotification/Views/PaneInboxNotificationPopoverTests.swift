@@ -556,6 +556,7 @@ struct PaneInboxNotificationPopoverTests {
                 metadata: PaneMetadata(
                     paneId: PaneId(existingUUID: parentPaneId),
                     contentType: .terminal,
+                    launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                     title: "Parent"
                 )
             )

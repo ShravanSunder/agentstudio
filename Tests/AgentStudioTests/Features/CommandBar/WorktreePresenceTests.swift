@@ -44,13 +44,17 @@ struct WorktreePresenceTests {
     func test_build_worktreeWithOnePane_returnsSinglePanePresence() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/presence-single"))
+        guard let mainWorktree = store.repos.first?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
         let worktree = Worktree(
             repoId: repo.id,
             name: "feature",
             path: URL(filePath: "/tmp/presence-single/feature")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        guard let storedWorktree = store.repos.first?.worktrees.first else {
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
+        guard let storedWorktree = store.repos.first?.worktrees.first(where: { $0.path == worktree.path }) else {
             Issue.record("Expected stored worktree")
             return
         }

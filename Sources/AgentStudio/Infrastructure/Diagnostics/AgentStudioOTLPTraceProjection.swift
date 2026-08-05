@@ -156,6 +156,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.persistence.phase",
         "agentstudio.persistence.recovery.attempt",
         "agentstudio.persistence.recovery.kind",
+        "agentstudio.persistence.reason",
         "agentstudio.runtime.action_policy",
         "agentstudio.runtime.event",
         "agentstudio.sqlite.database",
@@ -895,6 +896,21 @@ extension AgentStudioOTLPTraceProjection {
             return [
                 "grouping_switch", "surface_switch", "search", "sort_order", "visibility_mode", "collapse_toggle",
                 "data_refresh", "startup_diagnostic",
+            ]
+            .contains(value)
+        case "agentstudio.persistence.reason":
+            return [
+                "topology_restore_main_role_repaired",
+                "topology_restore_missing_main_degraded",
+                "topology_scan_main_repaired",
+                "topology_boot_normalization_flush_failed",
+                "topology_normalization_rejected",
+                "pane_location_restore_repaired",
+                "pane_location_restore_degraded",
+                "workspace_save_composition_rejected",
+                "workspace_save_bridge_failed",
+                "workspace_save_database_failed",
+                "pane_topology_association_ambiguous",
             ]
             .contains(value)
         default:

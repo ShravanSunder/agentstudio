@@ -61,7 +61,7 @@ package final class WorkspacePaneAtom {
     }
 
     package func paneCount(for worktreeId: UUID) -> Int {
-        graphAtom.paneStates(for: worktreeId).count
+        derived.panes(for: worktreeId).count
     }
 
     package func isWorktreeActive(_ worktreeId: UUID) -> Bool {
@@ -103,9 +103,11 @@ package final class WorkspacePaneAtom {
         content: PaneContent,
         metadata: PaneMetadata,
         residency: SessionResidency = .active
-    ) -> Pane {
-        let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency)
-        return pane(state.id)!
+    ) -> Pane? {
+        guard let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency) else {
+            return nil
+        }
+        return pane(state.id)
     }
 
     @discardableResult
@@ -304,7 +306,16 @@ package final class WorkspacePaneAtom {
         forWorktreeIds worktreeIds: Set<UUID>,
         activeLayoutPaneIds: Set<UUID>
     ) -> Bool {
-        graphAtom.restoreOrphanedPaneResidency(forWorktreeIds: worktreeIds, activeLayoutPaneIds: activeLayoutPaneIds)
+        let paneIds = Set<UUID>(
+            panes.values.compactMap { pane in
+                guard let worktreeId = pane.worktreeId, worktreeIds.contains(worktreeId) else { return nil }
+                return pane.id
+            }
+        )
+        return graphAtom.restoreOrphanedPaneResidency(
+            forPaneIds: paneIds,
+            activeLayoutPaneIds: activeLayoutPaneIds
+        )
     }
 
     func snapshotPanes(with ids: [UUID]) -> [Pane] {

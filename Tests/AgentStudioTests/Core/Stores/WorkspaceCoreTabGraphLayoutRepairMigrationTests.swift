@@ -293,15 +293,18 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
         paneId: String,
         parentPaneId: String? = nil
     ) throws {
-        if try paneTableColumnNames(database).contains("source_kind") {
+        let paneColumnNames = try paneTableColumnNames(database)
+        if paneColumnNames.contains("source_kind") {
             try insertLegacySourcePane(
                 database,
                 workspaceId: workspaceId,
                 paneId: paneId,
                 parentPaneId: parentPaneId
             )
-        } else {
+        } else if paneColumnNames.contains("facet_repo_id") {
             try insertFacetPane(database, workspaceId: workspaceId, paneId: paneId, parentPaneId: parentPaneId)
+        } else {
+            try insertCurrentPane(database, workspaceId: workspaceId, paneId: paneId, parentPaneId: parentPaneId)
         }
     }
 
@@ -367,6 +370,38 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
                 "zmx",
                 nil,
                 nil,
+                "/tmp",
+                "Terminal",
+                "/tmp",
+                "active",
+                parentPaneId == nil ? "leaf" : "drawerChild",
+                parentPaneId,
+                1.0,
+                1.0,
+            ]
+        )
+    }
+
+    private func insertCurrentPane(
+        _ database: Database,
+        workspaceId: String,
+        paneId: String,
+        parentPaneId: String?
+    ) throws {
+        try database.execute(
+            sql: """
+                INSERT INTO pane(
+                    id, workspace_id, content_type, execution_backend,
+                    launch_directory, title, cwd, residency_kind, kind,
+                    parent_pane_id, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            arguments: [
+                paneId,
+                workspaceId,
+                SQLitePaneContentTypeStorage.storageValue(for: .terminal),
+                "zmx",
                 "/tmp",
                 "Terminal",
                 "/tmp",

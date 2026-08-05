@@ -10,7 +10,10 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
     func forwardMigrationInstallsGlobalTopologySchema() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "013_globalize_repository_topology"
+        )
 
         let schema = try databaseQueue.read { database in
             try CoreTopologySchemaSnapshot.read(from: database)
@@ -63,7 +66,10 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
     @Test("global topology checks reject invalid stored values")
     func globalTopologyChecksRejectInvalidStoredValues() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "013_globalize_repository_topology"
+        )
 
         try databaseQueue.write { database in
             try database.execute(
@@ -112,7 +118,10 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
             try paneTriggerDefinitions(database, excludingObsoleteTopologyTriggers: true)
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "013_globalize_repository_topology"
+        )
 
         let migrated = try databaseQueue.read { database in
             try MigratedCoreTopologySnapshot.read(from: database)
@@ -167,7 +176,10 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
             )
         }
 
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "013_globalize_repository_topology"
+        )
 
         let legacyTableExists = try databaseQueue.read { database in
             try Bool.fetchOne(
@@ -223,7 +235,10 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
             try fixture.insert(into: database)
             try fixture.insertAdditionalTopologyRows(into: database)
         }
-        try WorkspaceCoreMigrations.migrate(databaseQueue)
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "013_globalize_repository_topology"
+        )
         let topologyBeforeDelete = try databaseQueue.read { database in
             try MigratedCoreTopologySnapshot.read(from: database).topologyValues
         }
@@ -238,8 +253,8 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
         #expect(topologyAfterDelete == topologyBeforeDelete)
     }
 
-    @Test("two workspace panes may reference the same global topology")
-    func twoWorkspacePanesMayReferenceSameGlobalTopology() throws {
+    @Test("two workspace panes persist independently of shared global topology")
+    func twoWorkspacePanesPersistIndependentlyOfSharedGlobalTopology() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceCoreMigrations.migrate(databaseQueue)
 
@@ -258,24 +273,20 @@ struct WorkspaceCoreGlobalTopologyMigrationTests {
                     VALUES ('worktree-one', 'repo-one', 'main', '/repos/one', 'worktree-one', 1)
                     """
             )
-            try insertPane(
+            try insertCurrentPane(
                 id: "pane-one",
                 workspaceID: "workspace-one",
-                repositoryID: "repo-one",
-                worktreeID: "worktree-one",
                 into: database
             )
-            try insertPane(
+            try insertCurrentPane(
                 id: "pane-two",
                 workspaceID: "workspace-two",
-                repositoryID: "repo-one",
-                worktreeID: "worktree-one",
                 into: database
             )
         }
 
         let paneCount = try databaseQueue.read { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pane WHERE facet_repo_id = 'repo-one'")
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM pane WHERE cwd = '/repos/one'")
         }
         #expect(paneCount == 2)
     }
@@ -752,6 +763,24 @@ private func insertPane(
                     'active', 'leaf', 1, 1)
             """,
         arguments: [id, workspaceID, repositoryID, worktreeID]
+    )
+}
+
+private func insertCurrentPane(
+    id: String,
+    workspaceID: String,
+    into database: Database
+) throws {
+    try database.execute(
+        sql: """
+            INSERT INTO pane(
+                id, workspace_id, content_type, execution_backend,
+                launch_directory, title, cwd, residency_kind, kind, created_at, updated_at
+            )
+            VALUES (?, ?, 'terminal', 'zmx', '/repos/one', 'Terminal', '/repos/one',
+                    'active', 'leaf', 1, 1)
+            """,
+        arguments: [id, workspaceID]
     )
 }
 

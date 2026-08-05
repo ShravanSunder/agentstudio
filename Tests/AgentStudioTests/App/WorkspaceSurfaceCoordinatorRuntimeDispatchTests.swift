@@ -390,6 +390,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
         let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
+        let expectedCWD = URL(filePath: "/tmp/updated-cwd", directoryHint: .isDirectory)
 
         fakeRuntime.emit(
             makeRuntimeEnvelope(
@@ -412,17 +413,17 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
                 correlationId: nil,
                 timestamp: ContinuousClock().now,
                 epoch: 0,
-                event: .terminal(.cwdChanged("/tmp/updated-cwd"))
+                event: .terminal(.cwdChanged(expectedCWD.path))
             )
         )
 
         await eventually("runtime metadata updates are reflected in workspace store") {
             store.pane(sourcePane.id)?.metadata.title == "Updated Title"
-                && store.pane(sourcePane.id)?.metadata.cwd == URL(fileURLWithPath: "/tmp/updated-cwd")
+                && store.pane(sourcePane.id)?.metadata.cwd == expectedCWD
         }
 
         #expect(store.pane(sourcePane.id)?.metadata.title == "Updated Title")
-        #expect(store.pane(sourcePane.id)?.metadata.cwd == URL(fileURLWithPath: "/tmp/updated-cwd"))
+        #expect(store.pane(sourcePane.id)?.metadata.cwd == expectedCWD)
 
         try? FileManager.default.removeItem(at: tempDir)
     }
@@ -463,6 +464,10 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
 
         let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: pane.id))
         coordinator.registerRuntime(fakeRuntime)
+        let expectedCWD = URL(
+            filePath: feature.path.appending(path: "Sources").path,
+            directoryHint: .isDirectory
+        )
         fakeRuntime.emit(
             makeRuntimeEnvelope(
                 source: .pane(PaneId(existingUUID: pane.id)),
@@ -472,7 +477,7 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
                 correlationId: nil,
                 timestamp: ContinuousClock().now,
                 epoch: 0,
-                event: .terminal(.cwdChanged(feature.path.appending(path: "Sources").path))
+                event: .terminal(.cwdChanged(expectedCWD.path))
             )
         )
 
@@ -481,12 +486,15 @@ struct WorkspaceSurfaceCoordinatorRuntimeDispatchTests {
         }
 
         let updated = store.pane(pane.id)
-        #expect(updated?.metadata.cwd == feature.path.appending(path: "Sources"))
+        #expect(updated?.metadata.cwd == expectedCWD)
         #expect(updated?.repoId == repo.id)
         #expect(updated?.worktreeId == feature.id)
         #expect(updated?.metadata.worktreeName == "feature")
 
-        #expect(updated?.metadata.launchDirectory == main.path)
+        #expect(
+            updated?.metadata.launchDirectory
+                == URL(filePath: main.path.path, directoryHint: .isDirectory)
+        )
 
         try? FileManager.default.removeItem(at: tempDir)
     }

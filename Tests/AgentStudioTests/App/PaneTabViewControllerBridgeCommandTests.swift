@@ -56,11 +56,13 @@ extension WebKitSerializedTests {
                 let paneCountBeforeReuse = harness.store.paneAtom.panes.count
                 let tabCountBeforeReuse = harness.store.tabLayoutAtom.tabs.count
 
-                let distractorPane = harness.store.paneAtom.createPane(
-                    content: .webview(WebviewState(url: URL(string: "about:blank")!)),
-                    metadata: PaneMetadata(
-                        title: "Distractor",
-                        facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
+                let distractorPane = try #require(
+                    harness.store.paneAtom.createPane(
+                        content: .webview(WebviewState(url: URL(string: "about:blank")!)),
+                        metadata: PaneMetadata(
+                            title: "Distractor",
+                            facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
+                        )
                     )
                 )
                 let distractorTab = Tab(paneId: distractorPane.id, name: "Distractor")
@@ -179,19 +181,21 @@ extension WebKitSerializedTests {
                 let mountedBridgeTab = try #require(
                     harness.store.tabLayoutAtom.tabContaining(paneId: mountedBridgePane.id)
                 )
-                let unmountedBridgePane = harness.store.paneAtom.createPane(
-                    content: .bridgePanel(
-                        BridgePaneState(
-                            panelKind: .fileViewer,
-                            source: .workspace(
-                                rootPath: worktree.path.path,
-                                baseline: .localDefaultBranch(branchName: "main")
+                let unmountedBridgePane = try #require(
+                    harness.store.paneAtom.createPane(
+                        content: .bridgePanel(
+                            BridgePaneState(
+                                panelKind: .fileViewer,
+                                source: .workspace(
+                                    rootPath: worktree.path.path,
+                                    baseline: .localDefaultBranch(branchName: "main")
+                                )
                             )
+                        ),
+                        metadata: PaneMetadata(
+                            title: "Unmounted Bridge",
+                            facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
                         )
-                    ),
-                    metadata: PaneMetadata(
-                        title: "Unmounted Bridge",
-                        facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
                     )
                 )
                 let unmountedBridgeTab = Tab(
