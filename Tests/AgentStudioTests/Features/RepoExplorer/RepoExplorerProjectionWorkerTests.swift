@@ -54,7 +54,7 @@ struct RepoExplorerProjectionWorkerTests {
         let request = RepoExplorerProjectionRequest(
             generation: 3,
             snapshot: snapshot,
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: true,
             trigger: .search
         )
@@ -90,7 +90,7 @@ struct RepoExplorerProjectionWorkerTests {
         let request = RepoExplorerProjectionRequest(
             generation: 4,
             snapshot: snapshot,
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: false,
             trigger: .visibilityMode
         )
@@ -101,7 +101,7 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.snapshot.visibilityMode == .favoritesOnly)
         #expect(result.projection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
         #expect(result.projection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
-        #expect(result.rowIndex.entries.count == 1)
+        #expect(result.rowIndex.entries.count == 2)
     }
 
     @Test("projection checks cancellation periodically within placement work")
@@ -125,7 +125,7 @@ struct RepoExplorerProjectionWorkerTests {
                 )
             ],
             repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId, displayName: "agent-studio")],
-            groupingMode: .pane,
+            groupingMode: .tab,
             query: "",
             paneLocationsByWorktreeId: Dictionary(
                 uniqueKeysWithValues: worktrees.map { worktree in

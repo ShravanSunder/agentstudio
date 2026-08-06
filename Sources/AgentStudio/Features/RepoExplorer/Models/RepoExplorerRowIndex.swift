@@ -12,6 +12,12 @@ struct RepoExplorerResolvedWorktreeContext: Sendable {
     let placementContext: RepoExplorerPlacementContext?
 }
 
+struct RepoExplorerResolvedPaneContext: Sendable {
+    let rowId: String
+    let group: RepoPresentationGroup
+    let destination: RepoExplorerPaneDestination
+}
+
 struct RepoExplorerWorktreeIdentityClaim: Equatable, Sendable {
     let repoId: UUID
     let stableKey: String
@@ -93,10 +99,11 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
 
     private let groupsById: [String: RepoPresentationGroup]
     private let projectedRowsByRowId: [String: RepoExplorerProjectedWorktreeRow]
+    private let projectedPaneRowsByRowId: [String: RepoExplorerProjectedPaneRow]
 
     init(
         projection: RepoExplorerSidebarProjection,
-        expandedGroupIds: Set<String>,
+        collapsedGroupIds: Set<String>,
         isFiltering: Bool
     ) {
         let projectedRowsByGroupId = Self.projectedRowsByGroupId(for: projection)
@@ -108,13 +115,15 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             self.worktreeIds = []
             self.groupsById = [:]
             self.projectedRowsByRowId = [:]
+            self.projectedPaneRowsByRowId = [:]
             return
         }
 
         self.entries = Self.buildListEntries(
             groups: projection.resolvedGroups,
             projectedRowsByGroupId: projectedRowsByGroupId,
-            expandedGroupIds: expandedGroupIds,
+            projectedPaneRowsByGroupId: projection.paneRowsByGroupId,
+            collapsedGroupIds: collapsedGroupIds,
             isFiltering: isFiltering
         )
         self.state = .ready
@@ -123,9 +132,36 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             uniqueKeysWithValues: projectedRowsByGroupId.values.flatMap { rows in
                 rows.map { ($0.rowId, $0) }
             })
-        self.worktreeIds = projectedRowsByGroupId.values.flatMap { rows in
-            rows.map(\.worktree.id)
-        }
+        self.projectedPaneRowsByRowId = Dictionary(
+            uniqueKeysWithValues: projection.paneRowsByGroupId.values.flatMap { rows in
+                rows.map { ($0.rowId, $0) }
+            })
+        self.worktreeIds =
+            projectedRowsByGroupId.values.flatMap { rows in
+                rows.map(\.worktree.id)
+            } + projection.paneRowsByGroupId.values.flatMap { rows in rows.map(\.destination.worktreeId) }
+    }
+
+    func resolvePane(
+        groupId: String,
+        repoId: UUID,
+        paneId: UUID,
+        rowId: String
+    ) -> RepoExplorerResolvedPaneContext? {
+        guard
+            let group = groupsById[groupId],
+            let projectedRow = projectedPaneRowsByRowId[rowId]
+        else { return nil }
+        guard
+            projectedRow.groupId == groupId,
+            projectedRow.repoId == repoId,
+            projectedRow.destination.paneId == paneId
+        else { return nil }
+        return RepoExplorerResolvedPaneContext(
+            rowId: rowId,
+            group: group,
+            destination: projectedRow.destination
+        )
     }
 
     func resolve(
@@ -152,13 +188,14 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
 
     static func buildListEntries(
         groups: [RepoPresentationGroup],
-        expandedGroupIds: Set<String>,
+        collapsedGroupIds: Set<String>,
         isFiltering: Bool
     ) -> [RepoExplorerListEntry] {
         buildListEntries(
             groups: groups,
             projectedRowsByGroupId: projectedRowsByGroupId(for: groups),
-            expandedGroupIds: expandedGroupIds,
+            projectedPaneRowsByGroupId: [:],
+            collapsedGroupIds: collapsedGroupIds,
             isFiltering: isFiltering
         )
     }
@@ -166,7 +203,8 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
     static func buildListEntries(
         groups: [RepoPresentationGroup],
         projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]],
-        expandedGroupIds: Set<String>,
+        projectedPaneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]] = [:],
+        collapsedGroupIds: Set<String>,
         isFiltering: Bool
     ) -> [RepoExplorerListEntry] {
         var entries: [RepoExplorerListEntry] = []
@@ -174,7 +212,7 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         for group in groups {
             entries.append(.resolvedGroupHeader(group))
 
-            let shouldExpandGroup = isFiltering || expandedGroupIds.contains(group.id)
+            let shouldExpandGroup = isFiltering || !collapsedGroupIds.contains(group.id)
             guard shouldExpandGroup else { continue }
 
             for row in projectedRowsByGroupId[group.id] ?? [] {
@@ -183,6 +221,19 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                         groupId: group.id,
                         repoId: row.repo.id,
                         worktreeId: row.worktree.id,
+                        rowId: row.rowId
+                    )
+                )
+            }
+            for row in projectedPaneRowsByGroupId[group.id] ?? [] {
+                entries.append(
+                    .resolvedPaneRow(
+                        groupId: group.id,
+                        identity: RepoExplorerPaneListEntryIdentity(
+                            repoId: row.repoId,
+                            worktreeId: row.destination.worktreeId,
+                            paneId: row.destination.paneId
+                        ),
                         rowId: row.rowId
                     )
                 )
@@ -206,6 +257,9 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
     ) -> [String: [RepoExplorerProjectedWorktreeRow]] {
         if !projection.worktreeRowsByGroupId.isEmpty {
             return projection.worktreeRowsByGroupId
+        }
+        if !projection.paneRowsByGroupId.isEmpty {
+            return [:]
         }
         return projectedRowsByGroupId(for: projection.resolvedGroups)
     }

@@ -146,6 +146,7 @@ struct UIActionPresentationTests {
 
     @Test
     func worktreeTabActionsUseTerminalAndBridgeLabels() {
+        #expect(LocalActionSpec.createNew.actionSpec.label == "Create New")
         #expect(LocalActionSpec.openInCurrentTabMenu.actionSpec.label == "Open in Current Tab")
         #expect(LocalActionSpec.openInNewTabMenu.actionSpec.label == "Open in New Tab")
         #expect(LocalActionSpec.openInEditorMenu.actionSpec.label == "Open in Editor")

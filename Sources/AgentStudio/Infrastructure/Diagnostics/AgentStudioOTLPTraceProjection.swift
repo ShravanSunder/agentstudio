@@ -448,7 +448,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.pane.count",
         "agentstudio.performance.pane_view_restore.tab.count",
         "agentstudio.performance.pane_view_restore.visible_pane.count",
-        "agentstudio.performance.sidebar.expanded_group.count",
+        "agentstudio.performance.sidebar.collapsed_group.count",
         "agentstudio.performance.sidebar.group.count",
         "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",

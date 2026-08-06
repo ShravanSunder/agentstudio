@@ -161,7 +161,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: true,
                 sidebarSurface: .inbox
             ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")]
+            collapsedGroups: [SidebarGroupKey("repo:agent-studio")]
         )
 
         try seedWorkspaceMemoryLanes(
@@ -186,7 +186,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")]
+            collapsedGroups: [SidebarGroupKey("repo:agent-studio")]
         )
         let replacementWindowState = WorkspaceLocalRepository.WindowStateRecord(
             sidebarWidth: 420,
@@ -206,7 +206,7 @@ struct WorkspaceLocalRepositoryTests {
 
         #expect(restoredState.windowState == replacementWindowState)
         #expect(restoredState.sidebarState == initialMemoryState.sidebarState)
-        #expect(restoredState.expandedGroups == initialMemoryState.expandedGroups)
+        #expect(restoredState.collapsedGroups == initialMemoryState.collapsedGroups)
     }
 
     @Test("sidebar state replacement preserves window and groups")
@@ -224,7 +224,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:old")]
+            collapsedGroups: [SidebarGroupKey("repo:old")]
         )
         let replacementSidebarState = WorkspaceLocalRepository.SidebarStateRecord(
             filterText: "new",
@@ -246,11 +246,11 @@ struct WorkspaceLocalRepositoryTests {
 
         #expect(restoredState.windowState == initialMemoryState.windowState)
         #expect(restoredState.sidebarState == replacementSidebarState)
-        #expect(restoredState.expandedGroups == initialMemoryState.expandedGroups)
+        #expect(restoredState.collapsedGroups == initialMemoryState.collapsedGroups)
     }
 
-    @Test("expanded groups replacement preserves window and sidebar")
-    func expandedGroupsReplacementPreservesWindowAndSidebar() throws {
+    @Test("collapsed groups replacement preserves window and sidebar")
+    func collapsedGroupsReplacementPreservesWindowAndSidebar() throws {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000205")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
         let initialMemoryState = WorkspaceLocalRepository.WorkspaceMemoryRecord(
@@ -261,9 +261,9 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:old")]
+            collapsedGroups: [SidebarGroupKey("repo:old")]
         )
-        let replacementExpandedGroups: Set<SidebarGroupKey> = [
+        let replacementCollapsedGroups: Set<SidebarGroupKey> = [
             SidebarGroupKey("repo:new"),
             SidebarGroupKey("worktree:new"),
         ]
@@ -273,15 +273,15 @@ struct WorkspaceLocalRepositoryTests {
             memoryState: initialMemoryState,
             updatedAt: Date(timeIntervalSince1970: 100)
         )
-        try repository.replaceExpandedGroups(
-            replacementExpandedGroups,
+        try repository.replaceCollapsedGroups(
+            replacementCollapsedGroups,
             updatedAt: Date(timeIntervalSince1970: 200)
         )
         let restoredState = try readWorkspaceMemoryLanes(repository)
 
         #expect(restoredState.windowState == initialMemoryState.windowState)
         #expect(restoredState.sidebarState == initialMemoryState.sidebarState)
-        #expect(restoredState.expandedGroups == replacementExpandedGroups)
+        #expect(restoredState.collapsedGroups == replacementCollapsedGroups)
     }
 
     @Test("empty row sets remain empty without marker rows")
@@ -289,12 +289,12 @@ struct WorkspaceLocalRepositoryTests {
         let workspaceId = UUID(uuidString: "10000000-0000-0000-0000-000000000207")!
         let repository = try makeWorkspaceLocalRepositoryFixture(workspaceId: workspaceId).repository
 
-        #expect(try repository.hasExpandedGroupsState() == false)
+        #expect(try repository.hasCollapsedGroupsState() == false)
 
-        try repository.replaceExpandedGroups([], updatedAt: Date(timeIntervalSince1970: 100))
+        try repository.replaceCollapsedGroups([], updatedAt: Date(timeIntervalSince1970: 100))
 
-        #expect(try repository.fetchExpandedGroups().isEmpty)
-        #expect(try repository.hasExpandedGroupsState())
+        #expect(try repository.fetchCollapsedGroups().isEmpty)
+        #expect(try repository.hasCollapsedGroupsState())
     }
 
     @Test("cache state round trips through cache rows")
@@ -370,7 +370,7 @@ struct WorkspaceLocalRepositoryTests {
                 sidebarCollapsed: false,
                 sidebarSurface: .repos
             ),
-            expandedGroups: [SidebarGroupKey("repo:agent-studio")]
+            collapsedGroups: [SidebarGroupKey("repo:agent-studio")]
         )
         try repository.replaceCursorState(
             cursorState: cursorState,
@@ -421,7 +421,7 @@ private func seedWorkspaceMemoryLanes(
 ) throws {
     try repository.replaceWindowState(memoryState.windowState, updatedAt: updatedAt)
     try repository.replaceSidebarState(memoryState.sidebarState, updatedAt: updatedAt)
-    try repository.replaceExpandedGroups(memoryState.expandedGroups, updatedAt: updatedAt)
+    try repository.replaceCollapsedGroups(memoryState.collapsedGroups, updatedAt: updatedAt)
 }
 
 private func readWorkspaceMemoryLanes(
@@ -430,7 +430,7 @@ private func readWorkspaceMemoryLanes(
     .init(
         windowState: try repository.fetchWindowState(),
         sidebarState: try repository.fetchSidebarState(),
-        expandedGroups: try repository.fetchExpandedGroups()
+        collapsedGroups: try repository.fetchCollapsedGroups()
     )
 }
 

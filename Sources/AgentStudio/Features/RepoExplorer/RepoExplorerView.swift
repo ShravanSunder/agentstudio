@@ -28,7 +28,6 @@ package struct RepoExplorerView: View {
     let canSetSortOrder: ((RepoExplorerSortOrder) -> Bool)?
     let onSetVisibilityMode: (RepoExplorerVisibilityMode) -> Void
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
-    let onRefreshWorktrees: () -> Void
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
@@ -51,7 +50,6 @@ package struct RepoExplorerView: View {
         canSetSortOrder: ((RepoExplorerSortOrder) -> Bool)? = nil,
         onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void,
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
-        onRefreshWorktrees: @escaping () -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
@@ -70,7 +68,6 @@ package struct RepoExplorerView: View {
         self.canSetSortOrder = canSetSortOrder
         self.onSetVisibilityMode = onSetVisibilityMode
         self.onSetSortOrder = onSetSortOrder
-        self.onRefreshWorktrees = onRefreshWorktrees
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
@@ -151,7 +148,7 @@ package struct RepoExplorerView: View {
         RepoExplorerProjectionRequest(
             generation: 0,
             snapshot: sidebarSnapshot,
-            expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
+            collapsedGroupIds: Set(sidebarCache.collapsedGroups.map(\.rawValue)),
             isFiltering: isFiltering,
             trigger: initialProjectionTrigger,
             worktreeFactsByWorktreeId: sidebarWorktreeFactsByWorktreeId
@@ -327,6 +324,10 @@ package struct RepoExplorerView: View {
             ForEach(rowIndex.entries) { entry in
                 switch entry {
                 case .resolvedGroupHeader(let group):
+                    let semanticRepo = Self.semanticRepoForHeader(
+                        group,
+                        groupingMode: cachedProjectionResult.snapshot.groupingMode
+                    )
                     SidebarRepoGroupHeader(
                         isCollapsed: !isGroupExpanded(group.id),
                         octiconLoader: octiconLoader,
@@ -343,19 +344,17 @@ package struct RepoExplorerView: View {
                             trailing: 0
                         )
                     )
-                    .contextMenu {
-                        Divider()
-
-                        if let primaryRepo = Self.primaryRepoForGroup(group) {
-                            Button(LocalActionSpec.revealInFinder.actionSpec.label) {
-                                PathActions.revealInFinder(primaryRepo.repoPath)
-                            }
-                        }
-
-                        Button(LocalActionSpec.refreshWorktrees.actionSpec.label) {
-                            onRefreshWorktrees()
-                        }
-                    }
+                    .modifier(
+                        RepoExplorerRepoHeaderContextMenuModifier(
+                            repo: semanticRepo,
+                            panePresentations: panePresentations(
+                                semanticRepo.flatMap {
+                                    currentProjection.paneDestinationsByRepoId[$0.id]
+                                } ?? []
+                            ),
+                            onFocusPane: focusPane
+                        )
+                    )
 
                 case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, let rowId):
                     if let resolvedWorktreeContext = rowIndex.resolve(
@@ -404,6 +403,11 @@ package struct RepoExplorerView: View {
                                 ] ?? .create,
                             isFavorite: isFavorite,
                             commandPresentation: commandPresentation,
+                            panePresentations: panePresentations(
+                                currentProjection.paneDestinationsByWorktreeId[
+                                    resolvedWorktreeContext.worktree.id
+                                ] ?? []
+                            ),
                             onToggleFavorite: {
                                 toggleFavorite(repoId: resolvedWorktreeContext.repo.id)
                             },
@@ -458,7 +462,29 @@ package struct RepoExplorerView: View {
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
-                            }
+                            },
+                            onFocusPane: focusPane
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: 0,
+                                trailing: 0
+                            )
+                        )
+                    }
+
+                case .resolvedPaneRow(let groupId, let identity, let rowId):
+                    if let resolvedPaneContext = rowIndex.resolvePane(
+                        groupId: groupId,
+                        repoId: identity.repoId,
+                        paneId: identity.paneId,
+                        rowId: rowId
+                    ) {
+                        RepoExplorerPaneRow(
+                            label: panePresentation(for: resolvedPaneContext.destination).label,
+                            onFocus: { focusPane(resolvedPaneContext.destination.paneId) }
                         )
                         .listRowInsets(
                             EdgeInsets(
@@ -531,14 +557,14 @@ package struct RepoExplorerView: View {
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
-        isFiltering || sidebarCache.expandedGroups.contains(SidebarGroupKey(groupId))
+        isFiltering || !sidebarCache.collapsedGroups.contains(SidebarGroupKey(groupId))
     }
 
     private func toggleGroupExpansion(_ groupId: String) {
         guard !isFiltering else { return }
 
         let key = SidebarGroupKey(groupId)
-        sidebarCache.setGroupExpanded(key, isExpanded: !sidebarCache.expandedGroups.contains(key))
+        sidebarCache.setGroupExpanded(key, isExpanded: sidebarCache.collapsedGroups.contains(key))
     }
 
     private func toggleFavorite(repoId: UUID) {
@@ -664,7 +690,7 @@ package struct RepoExplorerView: View {
         let generatedRequest = RepoExplorerProjectionRequest(
             generation: projectionGeneration,
             snapshot: request.snapshot,
-            expandedGroupIds: request.expandedGroupIds,
+            collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             trigger: projectionTrigger,
             worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
@@ -713,7 +739,7 @@ package struct RepoExplorerView: View {
         guard
             result.generation == projectionGeneration,
             result.snapshot == cachedProjectionRequest?.snapshot,
-            result.expandedGroupIds == cachedProjectionRequest?.expandedGroupIds,
+            result.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
             result.isFiltering == cachedProjectionRequest?.isFiltering
         else {
             performanceTraceRecorder?.record(
@@ -722,7 +748,7 @@ package struct RepoExplorerView: View {
                     for: RepoExplorerProjectionRequest(
                         generation: result.generation,
                         snapshot: result.snapshot,
-                        expandedGroupIds: result.expandedGroupIds,
+                        collapsedGroupIds: result.collapsedGroupIds,
                         isFiltering: result.isFiltering,
                         trigger: result.trigger
                     ),
@@ -740,7 +766,7 @@ package struct RepoExplorerView: View {
                 for: RepoExplorerProjectionRequest(
                     generation: result.generation,
                     snapshot: result.snapshot,
-                    expandedGroupIds: result.expandedGroupIds,
+                    collapsedGroupIds: result.collapsedGroupIds,
                     isFiltering: result.isFiltering,
                     trigger: result.trigger
                 ),
@@ -760,7 +786,7 @@ package struct RepoExplorerView: View {
                 for: RepoExplorerProjectionRequest(
                     generation: result.generation,
                     snapshot: result.snapshot,
-                    expandedGroupIds: result.expandedGroupIds,
+                    collapsedGroupIds: result.collapsedGroupIds,
                     isFiltering: result.isFiltering,
                     trigger: result.trigger
                 ),
@@ -784,7 +810,7 @@ package struct RepoExplorerView: View {
                 for: RepoExplorerProjectionRequest(
                     generation: result.generation,
                     snapshot: result.snapshot,
-                    expandedGroupIds: result.expandedGroupIds,
+                    collapsedGroupIds: result.collapsedGroupIds,
                     isFiltering: result.isFiltering,
                     trigger: result.trigger
                 ),
@@ -924,10 +950,7 @@ extension RepoExplorerView {
                             )
                         },
                         label: { groupingMode in
-                            presentedGroupingCommand(
-                                for: groupingMode,
-                                in: commandPresentation
-                            ).commandSpec.label
+                            groupingMode.title
                         },
                         onSelect: { candidate in
                             let command = groupingCommand(for: candidate)
@@ -950,43 +973,4 @@ extension RepoExplorerView {
         )
     }
 
-    private struct ProjectionRequestKey: Equatable {
-        let snapshot: RepoExplorerSnapshot
-        let expandedGroupIds: Set<String>
-        let isFiltering: Bool
-        let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
-    }
-
-    private static func projectionRequestKey(
-        for request: RepoExplorerProjectionRequest
-    ) -> ProjectionRequestKey {
-        ProjectionRequestKey(
-            snapshot: request.snapshot,
-            expandedGroupIds: request.expandedGroupIds,
-            isFiltering: request.isFiltering,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
-        )
-    }
-
-    private func sidebarProjectionTraceAttributes(
-        for request: RepoExplorerProjectionRequest,
-        phase: String,
-        extra: [String: AgentStudioTraceValue] = [:]
-    ) -> [String: AgentStudioTraceValue] {
-        var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.performance.sidebar.surface": .string("repo"),
-            "agentstudio.performance.sidebar.phase": .string(phase),
-            "agentstudio.performance.sidebar.trigger": .string(request.trigger.rawValue),
-            "agentstudio.performance.sidebar.query_state": .string(
-                request.snapshot.query.isEmpty ? "empty" : "non_empty"),
-            "agentstudio.performance.sidebar.group_mode": .string(request.snapshot.groupingMode.rawValue),
-            "agentstudio.performance.sidebar.sort_order": .string(request.snapshot.sortOrder.rawValue),
-            "agentstudio.performance.sidebar.repo.count": .int(request.snapshot.repos.count),
-            "agentstudio.performance.sidebar.query_character.count": .int(request.snapshot.query.count),
-            "agentstudio.performance.sidebar.expanded_group.count": .int(request.expandedGroupIds.count),
-            "agentstudio.performance.sidebar.is_filtering": .bool(request.isFiltering),
-        ]
-        attributes.merge(extra) { _, newValue in newValue }
-        return attributes
-    }
 }

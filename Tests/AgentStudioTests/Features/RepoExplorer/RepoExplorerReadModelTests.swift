@@ -9,7 +9,7 @@ struct RepoExplorerReadModelTests {
     @Test("grouping modes are exactly repo pane and tab")
     func groupingModesAreExactlyRepoPaneAndTab() {
         #expect(RepoExplorerGroupingMode.allCases == [.repo, .pane, .tab])
-        #expect(RepoExplorerGroupingMode.allCases.map(\.title) == ["Repo", "Pane", "Tab"])
+        #expect(RepoExplorerGroupingMode.allCases.map(\.title) == ["By Repo", "By Pane", "By Tab"])
         #expect(
             RepoExplorerGroupingMode.allCases.map(\.icon) == [
                 .system(.folder),
@@ -118,10 +118,14 @@ struct RepoExplorerReadModelTests {
         )
 
         #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["alpha-normal", "zeta-favorite"])
-        #expect(paneProjection.resolvedGroups.first?.id == "pane:\(secondPaneId.uuidString)")
-        #expect(paneProjection.resolvedGroups.last?.id == "pane:\(firstPaneId.uuidString)")
-        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
-        #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [normalRepoId])
+        #expect(
+            paneProjection.resolvedGroups.map(\.id) == [
+                "pane-repo:\(normalRepoId.uuidString)",
+                "pane-repo:\(favoriteRepoId.uuidString)",
+            ]
+        )
+        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId])
+        #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [favoriteRepoId])
         #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId, favoriteRepoId])
     }
 
@@ -253,7 +257,7 @@ struct RepoExplorerReadModelTests {
             )
         )
 
-        #expect(matchingProjection.resolvedGroups.map(\.id) == ["pane:\(favoritePaneId.uuidString)"])
+        #expect(matchingProjection.resolvedGroups.map(\.id) == ["pane-repo:\(favoriteRepoId.uuidString)"])
         #expect(matchingProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
         #expect(noMatchProjection.resolvedGroups.isEmpty)
         #expect(noMatchProjection.emptyState == .searchNoResults)
@@ -319,8 +323,8 @@ struct RepoExplorerReadModelTests {
         #expect(noResultsProjection.showsNoResults)
     }
 
-    @Test("row index resolves worktree rows without walking the rendered groups")
-    func rowIndexResolvesWorktreeRows() {
+    @Test("row index expands an unseen group and resolves its worktree rows")
+    func rowIndexExpandsUnseenGroupAndResolvesWorktreeRows() {
         let repoId = UUID()
         let main = worktree(repoId: repoId, name: "main", isMain: true)
         let feature = worktree(repoId: repoId, name: "feature")
@@ -341,11 +345,12 @@ struct RepoExplorerReadModelTests {
 
         let index = RepoExplorerRowIndex(
             projection: projection,
-            expandedGroupIds: [group.id],
+            collapsedGroupIds: [],
             isFiltering: false
         )
 
         #expect(index.entries.count == 3)
+        guard index.entries.count > 1 else { return }
         guard case .resolvedWorktreeRow(let groupId, let indexedRepoId, let worktreeId, let rowId) = index.entries[1]
         else {
             Issue.record("Expected first projected worktree row after group header")
@@ -386,8 +391,8 @@ struct RepoExplorerReadModelTests {
         #expect(projection.resolvedGroups.allSatisfy { $0.repos.count == 1 })
     }
 
-    @Test("pane mode groups active worktrees by pane and leaves inactive last")
-    func paneModeGroupsActiveWorktreesByPaneAndLeavesInactiveLast() {
+    @Test("pane mode groups exact pane leaves by repo and omits inactive worktrees")
+    func paneModeGroupsExactPaneLeavesByRepoAndOmitsInactiveWorktrees() throws {
         let repoId = UUID()
         let activeWorktree = worktree(repoId: repoId, name: "feature")
         let inactiveWorktree = worktree(repoId: repoId, name: "inactive")
@@ -413,9 +418,46 @@ struct RepoExplorerReadModelTests {
             )
         )
 
-        #expect(projection.resolvedGroups.map(\.id) == ["pane:\(paneId.uuidString)", "pane:inactive"])
-        #expect(projection.resolvedGroups.first?.repos.first?.worktrees.map(\.id) == [activeWorktree.id])
-        #expect(projection.resolvedGroups.last?.repos.first?.worktrees.map(\.id) == [inactiveWorktree.id])
+        let expectedGroupId = "pane-repo:\(repoId.uuidString)"
+        #expect(projection.resolvedGroups.map(\.id) == [expectedGroupId])
+        #expect(projection.worktreeRowsByGroupId.isEmpty)
+
+        let paneRow = try #require(projection.paneRowsByGroupId[expectedGroupId]?.first)
+        #expect(paneRow.repoId == repoId)
+        #expect(paneRow.destination.paneId == paneId)
+        #expect(paneRow.destination.worktreeId == activeWorktree.id)
+        #expect(paneRow.destination.worktreeLabel == activeWorktree.name)
+        #expect(paneRow.destination.tabId == tabId)
+        #expect(paneRow.destination.tabIndex == 0)
+        #expect(paneRow.destination.paneIndexInTab == 0)
+        #expect(paneRow.destination.isActiveInTab)
+        #expect(
+            paneRow.destination.label(paneDisplayLabel: "Terminal")
+                == "feature — Terminal — Tab 1, Pane 1 — Active"
+        )
+        #expect(projection.paneDestinationsByWorktreeId[inactiveWorktree.id] == nil)
+
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        #expect(rowIndex.entries.count == 2)
+        guard
+            case .resolvedPaneRow(let groupId, let rowIdentity, let rowId) =
+                rowIndex.entries[1]
+        else {
+            Issue.record("Expected exact pane row after repo header")
+            return
+        }
+        #expect(rowIdentity.worktreeId == activeWorktree.id)
+        let context = rowIndex.resolvePane(
+            groupId: groupId,
+            repoId: rowIdentity.repoId,
+            paneId: rowIdentity.paneId,
+            rowId: rowId
+        )
+        #expect(context?.destination == paneRow.destination)
     }
 
     @Test("tab mode preserves duplicate worktree rows inside one tab")
@@ -456,7 +498,7 @@ struct RepoExplorerReadModelTests {
         #expect(group.id == "tab:\(tabId.uuidString)")
         #expect(group.repos.first?.worktrees.map(\.id) == [duplicateWorktree.id, duplicateWorktree.id])
 
-        let rowIndex = RepoExplorerRowIndex(projection: projection, expandedGroupIds: [group.id], isFiltering: false)
+        let rowIndex = RepoExplorerRowIndex(projection: projection, collapsedGroupIds: [], isFiltering: false)
         let rowIds = rowIndex.entries.compactMap { entry -> String? in
             guard case .resolvedWorktreeRow(_, _, _, let rowId) = entry else { return nil }
             return rowId
@@ -479,8 +521,8 @@ struct RepoExplorerReadModelTests {
         #expect(placementTexts == ["Pane 2 active", "Pane 1"])
     }
 
-    @Test("pane groups follow descending workspace location order instead of repository order")
-    func paneGroupsFollowWorkspaceLocationOrder() {
+    @Test("pane groups preserve repository order independently from pane location order")
+    func paneGroupsPreserveRepositoryOrder() {
         let firstRepoId = UUID()
         let secondRepoId = UUID()
         let laterWorktree = worktree(repoId: firstRepoId, name: "later")
@@ -525,14 +567,14 @@ struct RepoExplorerReadModelTests {
 
         #expect(
             projection.resolvedGroups.map(\.id) == [
-                "pane:\(laterPaneId.uuidString)",
-                "pane:\(earlierPaneId.uuidString)",
+                "pane-repo:\(firstRepoId.uuidString)",
+                "pane-repo:\(secondRepoId.uuidString)",
             ]
         )
     }
 
-    @Test("pane and tab labels preserve stored workspace indices")
-    func paneAndTabLabelsPreserveStoredWorkspaceIndices() throws {
+    @Test("pane destinations and tab headers preserve stored workspace indices")
+    func paneDestinationsAndTabHeadersPreserveStoredWorkspaceIndices() throws {
         let repoId = UUID()
         let worktree = worktree(repoId: repoId, name: "feature")
         let location = WorkspacePaneLocation(
@@ -550,7 +592,8 @@ struct RepoExplorerReadModelTests {
             paneLocationsByWorktreeId: [worktree.id: [location]]
         )
 
-        let paneGroup = try #require(RepoExplorerProjection.project(baseSnapshot).resolvedGroups.first)
+        let paneProjection = RepoExplorerProjection.project(baseSnapshot)
+        let paneDestination = try #require(paneProjection.paneDestinationsByWorktreeId[worktree.id]?.first)
         let tabSnapshot = RepoExplorerSnapshot(
             repos: baseSnapshot.repos,
             repoEnrichmentByRepoId: baseSnapshot.repoEnrichmentSnapshotByRepoId,
@@ -562,8 +605,10 @@ struct RepoExplorerReadModelTests {
         )
         let tabGroup = try #require(RepoExplorerProjection.project(tabSnapshot).resolvedGroups.first)
 
-        #expect(paneGroup.repoTitle == "Pane 4")
-        #expect(paneGroup.organizationName == "Tab 7")
+        #expect(
+            paneDestination.label(paneDisplayLabel: "Terminal")
+                == "feature — Terminal — Tab 7, Pane 4 — Active"
+        )
         #expect(tabGroup.repoTitle == "Tab 7")
     }
 
@@ -612,8 +657,8 @@ struct RepoExplorerReadModelTests {
         )
     }
 
-    @Test("pane and tab rows preserve automatic repo checkout colors")
-    func paneAndTabRowsPreserveAutomaticRepoCheckoutColors() throws {
+    @Test("repo and tab rows preserve checkout colors while pane leaves preserve repo containment")
+    func repoAndTabRowsPreserveColorsAndPaneLeavesPreserveContainment() throws {
         let firstRepoId = UUID()
         let secondRepoId = UUID()
         let firstWorktree = worktree(repoId: firstRepoId, name: "first")
@@ -679,13 +724,16 @@ struct RepoExplorerReadModelTests {
             )
         )
 
-        let paneRow = try #require(paneProjection.worktreeRowsByGroupId["pane:\(paneId.uuidString)"]?.first)
+        let paneRow = try #require(
+            paneProjection.paneRowsByGroupId["pane-repo:\(secondRepoId.uuidString)"]?.first
+        )
         let tabRow = try #require(tabProjection.worktreeRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
         let repoRow = try #require(
             repoProjection.worktreeRowsByGroupId["repo:\(secondRepoId.uuidString)"]?.first
         )
         #expect(repoRow.checkoutColorHex == expectedSecondRepoColor)
-        #expect(paneRow.checkoutColorHex == expectedSecondRepoColor)
+        #expect(paneRow.repoId == secondRepoId)
+        #expect(paneRow.destination.worktreeId == secondWorktree.id)
         #expect(tabRow.checkoutColorHex == expectedSecondRepoColor)
     }
 
