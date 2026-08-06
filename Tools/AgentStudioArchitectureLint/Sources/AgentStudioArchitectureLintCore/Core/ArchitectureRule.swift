@@ -39,7 +39,7 @@ enum ArchitectureRuleRegistry {
         CanonicalAtomMutationRule(),
         SharedComponentsStatelessRule(),
         AtomLibGenericRule(),
-        DerivedValueDeclaredInputsRule(),
+        DerivedAtomDeclaredInputsRule(),
         RepoCacheKeyedReadsRule(),
         WorktreeEnrichmentComparatorRule(),
         StateActorPathRule(),

@@ -55,7 +55,9 @@ product adoption
 
 ### 2. Implement primitive semantics test-first
 
-- Rename symbols and telemetry vocabulary without compatibility aliases.
+- Rename Swift symbols without compatibility aliases. Preserve the existing
+  `entity_map` and `derived_value` telemetry vocabulary so the existing
+  workload and pre-cut performance baseline remain comparable.
 - Add red/green Swift Observation coverage for:
   - missing read then insert;
   - unrelated-key isolation;

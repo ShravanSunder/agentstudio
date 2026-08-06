@@ -4,7 +4,7 @@ import Testing
 
 @testable import AgentStudioCore
 
-private final class RepoCacheEntityMapInvalidationCounter: @unchecked Sendable {
+private final class RepoCacheAtomFamilyInvalidationCounter: @unchecked Sendable {
     var count = 0
     private(set) var didFire = false
 
@@ -15,14 +15,30 @@ private final class RepoCacheEntityMapInvalidationCounter: @unchecked Sendable {
 }
 
 @MainActor
+private func observeWorktreeFacts(
+    in cacheAtom: RepoEnrichmentCacheAtom,
+    worktreeId: UUID,
+    counter: RepoCacheAtomFamilyInvalidationCounter
+) {
+    withObservationTracking {
+        _ = cacheAtom.worktreeFacts(for: worktreeId)
+    } onChange: {
+        MainActor.assumeIsolated {
+            counter.record()
+            observeWorktreeFacts(in: cacheAtom, worktreeId: worktreeId, counter: counter)
+        }
+    }
+}
+
+@MainActor
 @Suite(.serialized)
-struct RepoCacheEntityMapTests {
+struct RepoCacheAtomFamilyTests {
     @Test
     func repoEnrichmentKeyReadInvalidatesOnlyMatchingRepo() {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let watchedRepoId = UUID()
         let unrelatedRepoId = UUID()
-        let invalidationCounter = RepoCacheEntityMapInvalidationCounter()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
         cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: watchedRepoId))
         cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: unrelatedRepoId))
@@ -90,7 +106,7 @@ struct RepoCacheEntityMapTests {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
-        let invalidationCounter = RepoCacheEntityMapInvalidationCounter()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
         cacheAtom.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
@@ -114,7 +130,7 @@ struct RepoCacheEntityMapTests {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
-        let invalidationCounter = RepoCacheEntityMapInvalidationCounter()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
         cacheAtom.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
@@ -136,7 +152,28 @@ struct RepoCacheEntityMapTests {
     }
 
     @Test
-    func staleCacheCleanupPrunesMissingKeySlotsWithoutPruningValidMissingKeys() {
+    func worktreeFactsRetainObservationIdentityAcrossRemovalAndReinsertion() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let worktreeId = UUID()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        cacheAtom.setPullRequestCount(1, for: worktreeId)
+        observeWorktreeFacts(
+            in: cacheAtom,
+            worktreeId: worktreeId,
+            counter: invalidationCounter
+        )
+
+        cacheAtom.removeWorktree(worktreeId)
+        #expect(invalidationCounter.count == 1)
+        #expect(cacheAtom.worktreeFacts(for: worktreeId) == nil)
+
+        cacheAtom.setPullRequestCount(2, for: worktreeId)
+        #expect(invalidationCounter.count == 2)
+        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.pullRequestCount == 2)
+    }
+
+    @Test
+    func missingKeySlotsRemainRetainedForTheCacheOwnerLifetime() {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let validRepoId = UUID()
         let staleRepoId = UUID()
@@ -151,15 +188,9 @@ struct RepoCacheEntityMapTests {
         #expect(cacheAtom.worktreeEnrichmentStorageSlotCount == 2)
         #expect(cacheAtom.pullRequestCountStorageSlotCount == 2)
 
-        let didPrune = cacheAtom.pruneNilSlots(
-            validRepoIds: [validRepoId],
-            validWorktreeIds: [validWorktreeId]
-        )
-
-        #expect(didPrune)
-        #expect(cacheAtom.repoEnrichmentStorageSlotCount == 1)
-        #expect(cacheAtom.worktreeEnrichmentStorageSlotCount == 1)
-        #expect(cacheAtom.pullRequestCountStorageSlotCount == 1)
+        #expect(cacheAtom.repoEnrichmentStorageSlotCount == 2)
+        #expect(cacheAtom.worktreeEnrichmentStorageSlotCount == 2)
+        #expect(cacheAtom.pullRequestCountStorageSlotCount == 2)
 
         cacheAtom.setRepoEnrichment(Self.localRepoEnrichment(repoId: validRepoId, displayName: "agent-studio"))
         cacheAtom.setWorktreeEnrichment(
@@ -206,7 +237,7 @@ struct RepoCacheEntityMapTests {
             branch: "main",
             updatedAt: Date(timeIntervalSince1970: 200)
         )
-        let invalidationCounter = RepoCacheEntityMapInvalidationCounter()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
         cacheAtom.setWorktreeEnrichment(initial)
         let revisionBeforeEqualWrite = cacheAtom.cacheRevision
@@ -238,7 +269,7 @@ struct RepoCacheEntityMapTests {
             displayName: "agent-studio",
             updatedAt: Date(timeIntervalSince1970: 200)
         )
-        let invalidationCounter = RepoCacheEntityMapInvalidationCounter()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
         cacheAtom.setRepoEnrichment(initial)
         let revisionBeforeEqualWrite = cacheAtom.cacheRevision
@@ -259,7 +290,7 @@ struct RepoCacheEntityMapTests {
     @Test
     func sourceMetadataBumpsAggregateRevision() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let invalidationCounter = RepoCacheEntityMapInvalidationCounter()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
 
         withObservationTracking {
