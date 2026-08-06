@@ -13,15 +13,16 @@ package final class RepoEnrichmentCacheAtom {
         let lastRebuiltAt: Date?
     }
 
-    @ObservationIgnored private let repoEnrichmentMap = AtomEntityMap<UUID, RepoEnrichment>(
+    @ObservationIgnored private let repoEnrichmentMap = AtomFamily<UUID, RepoEnrichment>(
         isContentEqual: { lhs, rhs in lhs.hasSameCacheContent(as: rhs) }
     )
-    @ObservationIgnored private let worktreeEnrichmentMap = AtomEntityMap<UUID, WorktreeEnrichment>(
+    @ObservationIgnored private let worktreeEnrichmentMap = AtomFamily<UUID, WorktreeEnrichment>(
         isContentEqual: { lhs, rhs in lhs.hasSameCacheContent(as: rhs) }
     )
-    @ObservationIgnored private let pullRequestCountMap = AtomEntityMap<UUID, Int>(
+    @ObservationIgnored private let pullRequestCountMap = AtomFamily<UUID, Int>(
         isContentEqual: ==
     )
+    @ObservationIgnored private var worktreeFactsNodesByWorktreeId: [UUID: DerivedAtom<RepoWorktreeCacheFacts?>] = [:]
     @ObservationIgnored private let cacheRevisionAtom = AtomRevision()
     @ObservationIgnored private let repoEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let worktreeEnrichmentRevisionAtom = AtomRevision()
@@ -77,15 +78,7 @@ package final class RepoEnrichmentCacheAtom {
     }
 
     func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
-        let enrichment = worktreeEnrichmentMap.value(for: worktreeId)
-        let pullRequestCount = pullRequestCountMap.value(for: worktreeId)
-        if enrichment == nil && pullRequestCount == nil {
-            return nil
-        }
-        return RepoWorktreeCacheFacts(
-            enrichment: enrichment,
-            pullRequestCount: pullRequestCount
-        )
+        worktreeFactsNode(for: worktreeId).value
     }
 
     func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
@@ -192,14 +185,6 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
-    @discardableResult
-    package func pruneNilSlots(validRepoIds: Set<UUID>, validWorktreeIds: Set<UUID>) -> Bool {
-        let prunedRepoSlots = repoEnrichmentMap.pruneNilSlots(excluding: validRepoIds)
-        let prunedWorktreeSlots = worktreeEnrichmentMap.pruneNilSlots(excluding: validWorktreeIds)
-        let prunedPullRequestSlots = pullRequestCountMap.pruneNilSlots(excluding: validWorktreeIds)
-        return prunedRepoSlots > 0 || prunedWorktreeSlots > 0 || prunedPullRequestSlots > 0
-    }
-
     func markRebuilt(sourceRevision: UInt64, at timestamp: Date = Date()) {
         guard self.sourceRevision != sourceRevision || lastRebuiltAt != timestamp else { return }
         mutate { mutation in
@@ -269,6 +254,35 @@ package final class RepoEnrichmentCacheAtom {
         let mutation = AtomMutationContext(aggregateRevision: cacheRevisionAtom)
         apply(mutation)
         mutation.commit()
+    }
+
+    private func worktreeFactsNode(for worktreeId: UUID) -> DerivedAtom<RepoWorktreeCacheFacts?> {
+        if let existingNode = worktreeFactsNodesByWorktreeId[worktreeId] {
+            return existingNode
+        }
+
+        let worktreeEnrichmentMap = worktreeEnrichmentMap
+        let pullRequestCountMap = pullRequestCountMap
+        let node = DerivedAtom<RepoWorktreeCacheFacts?>(
+            inputRevisions: {
+                [
+                    worktreeEnrichmentMap.revision(for: worktreeId),
+                    pullRequestCountMap.revision(for: worktreeId),
+                ]
+            },
+            isContentEqual: ==,
+            compute: {
+                let enrichment = worktreeEnrichmentMap.snapshotValue(for: worktreeId)
+                let pullRequestCount = pullRequestCountMap.snapshotValue(for: worktreeId)
+                guard enrichment != nil || pullRequestCount != nil else { return nil }
+                return RepoWorktreeCacheFacts(
+                    enrichment: enrichment,
+                    pullRequestCount: pullRequestCount
+                )
+            }
+        )
+        worktreeFactsNodesByWorktreeId[worktreeId] = node
+        return node
     }
 
     private static func repoEnrichmentSnapshotsMatch(

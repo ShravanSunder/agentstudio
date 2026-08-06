@@ -1,43 +1,40 @@
-import Observation
-
 @MainActor
-@Observable
-private final class AtomEntitySlot<Value> {
-    private var removalRevision = 0
-    private(set) var value: Value?
+private final class AtomFamilySlot<Value> {
+    private let semanticRevision = AtomRevision()
+    private var value: Value?
 
     init(value: Value? = nil) {
         self.value = value
     }
 
     func readValue() -> Value? {
-        _ = removalRevision
+        _ = semanticRevision.value
         return value
     }
 
-    func setValue(_ newValue: Value?) {
-        guard value != nil || newValue != nil else { return }
-        value = newValue
+    func readRevision() -> Int {
+        semanticRevision.value
     }
 
-    func invalidateBeforeRemoval() {
-        if value == nil {
-            removalRevision += 1
-        } else {
-            value = nil
-        }
+    func acceptValue(_ newValue: Value?) {
+        value = newValue
+        semanticRevision.bump()
     }
 }
 
 @MainActor
-package final class AtomEntityMap<Key: Hashable, Value> {
-    package let membershipRevision = AtomRevision()
+package final class AtomFamily<Key: Hashable, Value> {
+    private let membershipRevisionAtom = AtomRevision()
     private let isContentEqual: (Value, Value) -> Bool
-    private var slots: [Key: AtomEntitySlot<Value>] = [:]
+    private var slots: [Key: AtomFamilySlot<Value>] = [:]
     private var cachedValues: [Key: Value] = [:]
 
     package var storageSlotCount: Int {
         slots.count
+    }
+
+    package var membershipRevision: Int {
+        membershipRevisionAtom.value
     }
 
     package init(isContentEqual: @escaping (Value, Value) -> Bool) {
@@ -55,6 +52,10 @@ package final class AtomEntityMap<Key: Hashable, Value> {
             cacheHit: hadCachedValue
         )
         return value
+    }
+
+    package func revision(for key: Key) -> Int {
+        slot(for: key).readRevision()
     }
 
     package func snapshotValue(for key: Key) -> Value? {
@@ -95,7 +96,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
 
         cachedValues[key] = newValue
         let slot = slot(for: key)
-        slot.setValue(newValue)
+        slot.acceptValue(newValue)
         mutation.recordAcceptedChange()
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
@@ -106,15 +107,13 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         )
 
         if !hadValue {
-            membershipRevision.bump()
+            membershipRevisionAtom.bump()
         }
     }
 
     package func removeValue(for key: Key, mutation: AtomMutationContext) {
         mutation.assertMutable()
         guard cachedValues.removeValue(forKey: key) != nil else {
-            slots[key]?.invalidateBeforeRemoval()
-            slots.removeValue(forKey: key)
             AtomPerformanceTelemetry.shared.recordMutation(
                 kind: "entity_map",
                 operation: "remove_missing",
@@ -124,10 +123,9 @@ package final class AtomEntityMap<Key: Hashable, Value> {
             )
             return
         }
-        slots[key]?.invalidateBeforeRemoval()
-        slots.removeValue(forKey: key)
+        slots[key]?.acceptValue(nil)
         mutation.recordAcceptedChange()
-        membershipRevision.bump()
+        membershipRevisionAtom.bump()
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
             operation: "remove",
@@ -140,17 +138,13 @@ package final class AtomEntityMap<Key: Hashable, Value> {
     package func replaceAll(_ newValues: [Key: Value], mutation: AtomMutationContext) {
         mutation.assertMutable()
         let previousCachedKeys = Set(cachedValues.keys)
-        let previousSlotKeys = Set(slots.keys)
         let newKeys = Set(newValues.keys)
         var hasAcceptedChange = false
 
-        for removedKey in previousSlotKeys.subtracting(newKeys) {
-            let removedCachedValue = cachedValues.removeValue(forKey: removedKey)
-            slots[removedKey]?.invalidateBeforeRemoval()
-            slots.removeValue(forKey: removedKey)
-            if removedCachedValue != nil {
-                hasAcceptedChange = true
-            }
+        for removedKey in previousCachedKeys.subtracting(newKeys) {
+            cachedValues.removeValue(forKey: removedKey)
+            slots[removedKey]?.acceptValue(nil)
+            hasAcceptedChange = true
         }
 
         for (key, newValue) in newValues {
@@ -160,7 +154,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
                 continue
             }
             cachedValues[key] = newValue
-            slot(for: key).setValue(newValue)
+            slot(for: key).acceptValue(newValue)
             hasAcceptedChange = true
         }
 
@@ -168,7 +162,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
             mutation.recordAcceptedChange()
         }
         if previousCachedKeys != newKeys {
-            membershipRevision.bump()
+            membershipRevisionAtom.bump()
         }
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
@@ -181,53 +175,28 @@ package final class AtomEntityMap<Key: Hashable, Value> {
 
     package func removeAll(mutation: AtomMutationContext) {
         mutation.assertMutable()
-        guard !cachedValues.isEmpty || !slots.isEmpty else { return }
-        let hadCachedValues = !cachedValues.isEmpty
-        let keysToRemove = Array(slots.keys)
+        guard !cachedValues.isEmpty else { return }
+        let keysToRemove = Array(cachedValues.keys)
         cachedValues.removeAll()
         for key in keysToRemove {
-            slots[key]?.invalidateBeforeRemoval()
-            slots.removeValue(forKey: key)
+            slots[key]?.acceptValue(nil)
         }
-        if hadCachedValues {
-            mutation.recordAcceptedChange()
-            membershipRevision.bump()
-        }
+        mutation.recordAcceptedChange()
+        membershipRevisionAtom.bump()
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
             operation: "remove_all",
-            acceptedChangeCount: hadCachedValues ? 1 : 0,
+            acceptedChangeCount: 1,
             slotCount: slots.count,
             cachedKeyCount: cachedValues.count
         )
     }
 
-    @discardableResult
-    package func pruneNilSlots(excluding retainedKeys: Set<Key>) -> Int {
-        let keysToPrune = slots.keys.filter { key in
-            cachedValues[key] == nil && !retainedKeys.contains(key)
-        }
-        for key in keysToPrune {
-            slots[key]?.invalidateBeforeRemoval()
-            slots.removeValue(forKey: key)
-        }
-        if !keysToPrune.isEmpty {
-            AtomPerformanceTelemetry.shared.recordMutation(
-                kind: "entity_map",
-                operation: "prune_nil_slots",
-                acceptedChangeCount: 0,
-                slotCount: slots.count,
-                cachedKeyCount: cachedValues.count
-            )
-        }
-        return keysToPrune.count
-    }
-
-    private func slot(for key: Key) -> AtomEntitySlot<Value> {
+    private func slot(for key: Key) -> AtomFamilySlot<Value> {
         if let existingSlot = slots[key] {
             return existingSlot
         }
-        let createdSlot = AtomEntitySlot<Value>(value: cachedValues[key])
+        let createdSlot = AtomFamilySlot<Value>(value: cachedValues[key])
         slots[key] = createdSlot
         return createdSlot
     }

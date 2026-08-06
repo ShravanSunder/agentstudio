@@ -1,6 +1,6 @@
 import AgentStudio
 
-let derived = DerivedValue<Int>(
+let derived = DerivedAtom<Int>(
     inputRevisions: { [0] },
     isContentEqual: ==
 ) {

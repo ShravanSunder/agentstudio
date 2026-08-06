@@ -696,12 +696,6 @@ extension AppDelegate {
             repoCache.removeWorktree(worktreeId)
             didPrune = true
         }
-        if repoCache.enrichmentCacheAtom.pruneNilSlots(
-            validRepoIds: validRepoIds,
-            validWorktreeIds: validWorktreeIds
-        ) {
-            didPrune = true
-        }
         return didPrune
     }
 

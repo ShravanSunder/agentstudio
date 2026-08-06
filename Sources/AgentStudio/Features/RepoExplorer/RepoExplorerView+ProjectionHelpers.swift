@@ -11,6 +11,18 @@ struct RepoExplorerProjectionRequestKey: Equatable {
 }
 
 extension RepoExplorerView {
+    static func worktreeFactsByWorktreeId(
+        for worktreeIds: [UUID],
+        repoCache: RepoCacheAtom
+    ) -> [UUID: RepoWorktreeCacheFacts] {
+        var factsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
+        factsByWorktreeId.reserveCapacity(worktreeIds.count)
+        for worktreeId in worktreeIds {
+            factsByWorktreeId[worktreeId] = repoCache.worktreeFacts(for: worktreeId)
+        }
+        return factsByWorktreeId
+    }
+
     static func projectionRequestKey(
         for request: RepoExplorerProjectionRequest
     ) -> RepoExplorerProjectionRequestKey {
