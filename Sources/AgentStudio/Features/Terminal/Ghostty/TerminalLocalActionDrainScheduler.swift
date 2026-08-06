@@ -2,186 +2,139 @@ import Foundation
 
 typealias TerminalMainActorDrainOperation = @MainActor @Sendable () async -> Void
 
-/// Delays title-only publication while preserving the existing next-turn path
-/// for presentation, activity, and lifecycle work.
+/// Owns one scheduler claim per independent local-action lane.
 final class TerminalLocalActionDrainScheduler: @unchecked Sendable {
-    static let titlePublicationMaximumMilliseconds = 250
-    static let titleAdmissionSlackMilliseconds = 25
-    static let titleDrainAdmissionDelayMilliseconds =
-        titlePublicationMaximumMilliseconds - titleAdmissionSlackMilliseconds
-
     private enum ClaimPhase {
         case titleDeadline(DispatchWorkItem)
         case mainActorAdmission
     }
 
+    private struct ClaimKey: Hashable {
+        let surfaceID: UUID
+        let lane: TerminalLocalActionLane
+    }
+
     private struct DrainClaim {
         let token: UInt64
         var phase: ClaimPhase
-        var followUpSchedule: TerminalLocalDrainSchedule?
+        var followUpRequest: TerminalLocalDrainRequest?
     }
 
     private let lock = NSLock()
     private let schedulingQueue = DispatchQueue(
-        label: "com.agentstudio.terminal-local-action-drain",
-        qos: .userInteractive
-    )
-    private let drain: @MainActor @Sendable (UUID) async -> Void
-    private let scheduleTitleDeadline: @Sendable (DispatchWorkItem) -> Void
+        label: "com.agentstudio.terminal-local-action-drain", qos: .userInteractive)
+    private let drain: @MainActor @Sendable (UUID, TerminalLocalActionLane) async -> Void
+    private let scheduleTitleDeadline: @Sendable (UInt64, DispatchWorkItem) -> Void
     private let enqueueMainActorDrain: @Sendable (@escaping TerminalMainActorDrainOperation) -> Void
     private var nextToken: UInt64 = 0
-    private var drainClaimsBySurfaceID: [UUID: DrainClaim] = [:]
+    private var claims: [ClaimKey: DrainClaim] = [:]
 
     init(
-        drain: @escaping @MainActor @Sendable (UUID) async -> Void,
-        scheduleTitleDeadline: (@Sendable (DispatchWorkItem) -> Void)? = nil,
+        drain: @escaping @MainActor @Sendable (UUID, TerminalLocalActionLane) async -> Void,
+        scheduleTitleDeadline: (@Sendable (UInt64, DispatchWorkItem) -> Void)? = nil,
         enqueueMainActorDrain: (@Sendable (@escaping TerminalMainActorDrainOperation) -> Void)? = nil
     ) {
         self.drain = drain
         self.scheduleTitleDeadline =
-            scheduleTitleDeadline
-            ?? { [schedulingQueue] workItem in
-                schedulingQueue.asyncAfter(
-                    deadline: .now() + .milliseconds(Self.titleDrainAdmissionDelayMilliseconds),
-                    execute: workItem
-                )
+            scheduleTitleDeadline ?? { [schedulingQueue] deadline, workItem in
+                schedulingQueue.asyncAfter(deadline: DispatchTime(uptimeNanoseconds: deadline), execute: workItem)
             }
         self.enqueueMainActorDrain =
-            enqueueMainActorDrain
-            ?? { operation in
-                Task { @MainActor in
-                    await operation()
-                }
+            enqueueMainActorDrain ?? { operation in
+                Task { @MainActor in await operation() }
             }
     }
 
-    func schedule(_ surfaceID: UUID, _ schedule: TerminalLocalDrainSchedule) {
-        switch schedule {
-        case .immediate:
-            scheduleImmediate(for: surfaceID)
-        case .titleWindow:
-            scheduleTitleWindow(for: surfaceID)
+    func schedule(_ surfaceID: UUID, _ request: TerminalLocalDrainRequest) {
+        let key = ClaimKey(surfaceID: surfaceID, lane: request.lane)
+        switch request.lane {
+        case .immediate: scheduleImmediate(key: key)
+        case .title: scheduleTitle(key: key, request: request)
         }
     }
 
-    func scheduleFollowUp(_ surfaceID: UUID, _ schedule: TerminalLocalDrainSchedule) {
-        let shouldScheduleNormally = lock.withLock { () -> Bool in
-            guard var claim = drainClaimsBySurfaceID[surfaceID] else { return true }
-            claim.followUpSchedule = merged(claim.followUpSchedule, schedule)
-            drainClaimsBySurfaceID[surfaceID] = claim
+    func scheduleFollowUp(_ surfaceID: UUID, _ request: TerminalLocalDrainRequest) {
+        let key = ClaimKey(surfaceID: surfaceID, lane: request.lane)
+        let scheduleNormally = lock.withLock { () -> Bool in
+            guard var claim = claims[key] else { return true }
+            claim.followUpRequest = request
+            claims[key] = claim
             return false
         }
-        if shouldScheduleNormally {
-            self.schedule(surfaceID, schedule)
-        }
+        if scheduleNormally { schedule(surfaceID, request) }
     }
 
     func cancel(for surfaceID: UUID) {
         lock.withLock {
-            guard let claim = drainClaimsBySurfaceID.removeValue(forKey: surfaceID) else { return }
-            if case .titleDeadline(let workItem) = claim.phase {
-                workItem.cancel()
+            for key in claims.keys.filter({ $0.surfaceID == surfaceID }) {
+                if case .titleDeadline(let workItem) = claims.removeValue(forKey: key)?.phase { workItem.cancel() }
             }
         }
     }
 
-    var pendingDrainClaimCount: Int {
-        lock.withLock { drainClaimsBySurfaceID.count }
+    func cancelTitle(for surfaceID: UUID) {
+        let key = ClaimKey(surfaceID: surfaceID, lane: .title)
+        lock.withLock {
+            if case .titleDeadline(let workItem) = claims.removeValue(forKey: key)?.phase { workItem.cancel() }
+        }
     }
 
-    private func scheduleTitleWindow(for surfaceID: UUID) {
-        let workItem = lock.withLock { () -> DispatchWorkItem? in
-            guard drainClaimsBySurfaceID[surfaceID] == nil else { return nil }
+    var pendingDrainClaimCount: Int { lock.withLock { claims.count } }
+
+    private func scheduleTitle(key: ClaimKey, request: TerminalLocalDrainRequest) {
+        guard let deadline = request.absoluteDeadlineNanoseconds else {
+            preconditionFailure("Title requests require an absolute deadline")
+        }
+        let item = lock.withLock { () -> DispatchWorkItem? in
+            guard claims[key] == nil else { return nil }
             nextToken &+= 1
             let token = nextToken
-            let workItem = DispatchWorkItem { [weak self] in
-                self?.claimTitleDeadline(for: surfaceID, token: token)
-            }
-            drainClaimsBySurfaceID[surfaceID] = DrainClaim(
-                token: token,
-                phase: .titleDeadline(workItem),
-                followUpSchedule: nil
-            )
-            return workItem
+            let item = DispatchWorkItem { [weak self] in self?.claimTitleDeadline(key: key, token: token) }
+            claims[key] = DrainClaim(token: token, phase: .titleDeadline(item), followUpRequest: nil)
+            return item
         }
-        guard let workItem else { return }
-        scheduleTitleDeadline(workItem)
+        if let item { scheduleTitleDeadline(deadline, item) }
     }
 
-    private func scheduleImmediate(for surfaceID: UUID) {
+    private func scheduleImmediate(key: ClaimKey) {
         let token = lock.withLock { () -> UInt64? in
-            if var claim = drainClaimsBySurfaceID[surfaceID] {
-                switch claim.phase {
-                case .titleDeadline(let workItem):
-                    workItem.cancel()
-                    claim.phase = .mainActorAdmission
-                    drainClaimsBySurfaceID[surfaceID] = claim
-                    return claim.token
-                case .mainActorAdmission:
-                    return nil
-                }
-            }
+            guard claims[key] == nil else { return nil }
             nextToken &+= 1
-            let token = nextToken
-            drainClaimsBySurfaceID[surfaceID] = DrainClaim(
-                token: token,
-                phase: .mainActorAdmission,
-                followUpSchedule: nil
-            )
-            return token
+            claims[key] = DrainClaim(
+                token: nextToken, phase: .mainActorAdmission, followUpRequest: nil)
+            return nextToken
         }
-        guard let token else { return }
-        enqueueClaimedDrain(for: surfaceID, token: token)
+        if let token { enqueueClaimedDrain(key: key, token: token) }
     }
 
-    private func claimTitleDeadline(for surfaceID: UUID, token: UInt64) {
+    private func claimTitleDeadline(key: ClaimKey, token: UInt64) {
         let shouldEnqueue = lock.withLock { () -> Bool in
-            guard var claim = drainClaimsBySurfaceID[surfaceID], claim.token == token else { return false }
-            guard case .titleDeadline = claim.phase else { return false }
+            guard var claim = claims[key], claim.token == token, case .titleDeadline = claim.phase else { return false }
             claim.phase = .mainActorAdmission
-            drainClaimsBySurfaceID[surfaceID] = claim
+            claims[key] = claim
             return true
         }
-        guard shouldEnqueue else { return }
-        enqueueClaimedDrain(for: surfaceID, token: token)
+        if shouldEnqueue { enqueueClaimedDrain(key: key, token: token) }
     }
 
-    private func enqueueClaimedDrain(for surfaceID: UUID, token: UInt64) {
-        // Enqueue after releasing the scheduler lock. The drain may enter the
-        // accumulator, preserving the documented accumulator -> scheduler order.
+    private func enqueueClaimedDrain(key: ClaimKey, token: UInt64) {
         enqueueMainActorDrain { [weak self] in
-            guard let self, self.claimIsCurrent(for: surfaceID, token: token) else { return }
-            await self.drain(surfaceID)
-            self.completeClaim(for: surfaceID, token: token)
+            guard let self, self.claimIsCurrent(key: key, token: token) else { return }
+            await self.drain(key.surfaceID, key.lane)
+            self.completeClaim(key: key, token: token)
         }
     }
 
-    private func claimIsCurrent(for surfaceID: UUID, token: UInt64) -> Bool {
-        lock.withLock {
-            drainClaimsBySurfaceID[surfaceID]?.token == token
-        }
+    private func claimIsCurrent(key: ClaimKey, token: UInt64) -> Bool {
+        lock.withLock { claims[key]?.token == token }
     }
 
-    private func completeClaim(for surfaceID: UUID, token: UInt64) {
-        let followUpSchedule = lock.withLock { () -> TerminalLocalDrainSchedule? in
-            guard let claim = drainClaimsBySurfaceID[surfaceID], claim.token == token else { return nil }
-            drainClaimsBySurfaceID.removeValue(forKey: surfaceID)
-            return claim.followUpSchedule
+    private func completeClaim(key: ClaimKey, token: UInt64) {
+        let followUp = lock.withLock { () -> TerminalLocalDrainRequest? in
+            guard let claim = claims[key], claim.token == token else { return nil }
+            claims.removeValue(forKey: key)
+            return claim.followUpRequest
         }
-        if let followUpSchedule {
-            schedule(surfaceID, followUpSchedule)
-        }
-    }
-
-    private func merged(
-        _ current: TerminalLocalDrainSchedule?,
-        _ requested: TerminalLocalDrainSchedule
-    ) -> TerminalLocalDrainSchedule {
-        switch (current, requested) {
-        case (.immediate, _), (_, .immediate):
-            return .immediate
-        case (.titleWindow, .titleWindow), (nil, .titleWindow):
-            return .titleWindow
-        }
+        if let followUp { schedule(key.surfaceID, followUp) }
     }
 }
