@@ -4,7 +4,6 @@ import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
@@ -16,6 +15,7 @@ import type { FileMetadataInterestUpdate } from './bridge-file-viewer-browser-te
 import { makeFileContent } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	fileNavigationCommandForPath,
+	type FileNavigationCommand,
 	makeFileDescriptorForContent,
 	makeDescriptorReadyMetadataEvents,
 	makeFileMetadataEvents,
@@ -480,7 +480,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		function ControlledFileViewer(): ReactElement {
 			const [navigationCommand, setNavigationCommand] = useState<
-				BridgeViewerNavigationCommand | undefined
+				FileNavigationCommand | undefined
 			>();
 			openSlowFile = (): void => {
 				setNavigationCommand(fileNavigationCommandForPath('src/slow.ts'));
@@ -601,7 +601,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let openSecondFile: (() => void) | null = null;
 
 		function ControlledFileViewer(): ReactElement {
-			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
+			const [navigationCommand, setNavigationCommand] = useState<FileNavigationCommand>(
 				fileNavigationCommandForPath('src/first-retained.ts'),
 			);
 			openSecondFile = (): void => {
@@ -675,7 +675,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let openSecondFile: (() => void) | null = null;
 
 		function ControlledFileViewer(): ReactElement {
-			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
+			const [navigationCommand, setNavigationCommand] = useState<FileNavigationCommand>(
 				fileNavigationCommandForPath('src/first-retained-scroll.ts'),
 			);
 			openSecondFile = (): void => {
@@ -746,7 +746,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		let openSecondFile: (() => void) | null = null;
 
 		function ControlledFileViewer(): ReactElement {
-			const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(
+			const [navigationCommand, setNavigationCommand] = useState<FileNavigationCommand>(
 				fileNavigationCommandForPath('src/first-scrolled.ts'),
 			);
 			openSecondFile = (): void => {

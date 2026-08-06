@@ -32,6 +32,11 @@ describe('Bridge app dev telemetry host', () => {
 		});
 		const productSessionHost = installBridgeAppDevProductSessionHost({
 			fetchBootstrap,
+			navigationIntent: {
+				commandId: 'dev:test:review',
+				commandKind: 'activateContext',
+				surface: 'review',
+			},
 			target,
 		});
 		const host = installBridgeAppDevTelemetryHost({

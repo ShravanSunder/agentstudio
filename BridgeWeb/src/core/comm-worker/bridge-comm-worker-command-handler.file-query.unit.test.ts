@@ -27,10 +27,10 @@ describe('Bridge comm worker File query command handling', () => {
 		});
 		const command = encodeBridgeWorkerFileQueryUpdateCommand({
 			epoch: 9,
-			filterMode: 'unavailable',
+			filterMode: 'source',
 			requestId: 'file-query-1',
 			searchMode: 'regex',
-			searchText: '\\.bin$',
+			searchText: '\\.swift$',
 		});
 
 		expect(handler.handleMessage(command)).toEqual([]);
@@ -75,7 +75,12 @@ describe('Bridge comm worker File query command handling', () => {
 		});
 		const command = encodeBridgeWorkerReviewProjectionUpdateCommand({
 			epoch: 11,
-			query: { fileClassFilter: 'source', gitStatusFilter: 'added' },
+			query: {
+				categoryFilter: 'source',
+				gitStatusFilter: 'added',
+				showBinary: false,
+				showLarge: false,
+			},
 			requestId: 'review-projection-1',
 		});
 
@@ -117,7 +122,12 @@ describe('Bridge comm worker File query command handling', () => {
 		});
 		const command = encodeBridgeWorkerReviewProjectionUpdateCommand({
 			epoch: 12,
-			query: { fileClassFilter: 'all', gitStatusFilter: 'all' },
+			query: {
+				categoryFilter: 'all',
+				gitStatusFilter: 'all',
+				showBinary: false,
+				showLarge: false,
+			},
 			requestId: 'review-projection-failure-1',
 		});
 

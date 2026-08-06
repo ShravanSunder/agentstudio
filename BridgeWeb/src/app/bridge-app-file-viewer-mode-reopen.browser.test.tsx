@@ -19,6 +19,7 @@ import {
 	actWait,
 	installBridgeReadyHandshake,
 	pollWithinActUntilEqual,
+	pollWithinActUntilTruthy,
 } from './bridge-app-browser-test-actions.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
@@ -40,7 +41,9 @@ describe('Bridge file viewer mode re-open on switch', () => {
 	});
 
 	afterEach(async () => {
-		await settleBridgeFileViewerBrowserUpdates();
+		if (document.querySelector('[data-testid="bridge-file-viewer-shell"]') !== null) {
+			await settleBridgeFileViewerBrowserUpdates();
+		}
 		await actUpdate(cleanup);
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
@@ -105,11 +108,70 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		expect(metadataSubscriptionOpenCount).toBe(1);
 		handshake.dispose();
 	});
+
+	test('keeps Files and Review view settings separate across surface switches', async () => {
+		let sourceDiscoveryCount = 0;
+		let metadataSubscriptionOpenCount = 0;
+		const handshake = installBridgeReadyHandshake();
+		await renderFileProductApp(
+			'worktree-file',
+			{
+				currentSource: (): BridgeProductCallResult<'file.source.current'> => {
+					sourceDiscoveryCount += 1;
+					return availableFileSource();
+				},
+				initialMetadataEvents: makeTreeRowsOnlyMetadataEvents(),
+				onMetadataSubscriptionOpen: (): void => {
+					metadataSubscriptionOpenCount += 1;
+				},
+			},
+			true,
+		);
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		expect(
+			await pollWithinActUntilTruthy(
+				() => activeFileShell()?.getAttribute('data-selected-display-path') ?? null,
+			),
+		).not.toBeNull();
+		const initialFileIdentity = fileIdentitySnapshot();
+
+		await openViewSettings('file');
+		await actClick(viewSettingsRow('file', 'Word wrap'));
+		expect(viewSettingsRow('file', 'Word wrap').getAttribute('aria-checked')).toBe('false');
+		expect(fileIdentitySnapshot()).toEqual(initialFileIdentity);
+		expect(sourceDiscoveryCount).toBe(1);
+		expect(metadataSubscriptionOpenCount).toBe(1);
+
+		await clickContext('review');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+		await waitForViewSettingsClosed('file');
+		await openViewSettings('review');
+		expect(viewSettingsRow('review', 'Word wrap').getAttribute('aria-checked')).toBe('true');
+		await actClick(viewSettingsRow('review', 'Line numbers'));
+		expect(viewSettingsRow('review', 'Line numbers').getAttribute('aria-checked')).toBe('false');
+
+		await clickContext('file');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		await waitForViewSettingsClosed('review');
+		await openViewSettings('file');
+		expect(viewSettingsRow('file', 'Word wrap').getAttribute('aria-checked')).toBe('false');
+		expect(viewSettingsRow('file', 'Line numbers').getAttribute('aria-checked')).toBe('true');
+
+		await clickContext('review');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+		await waitForViewSettingsClosed('file');
+		await openViewSettings('review');
+		expect(viewSettingsRow('review', 'Word wrap').getAttribute('aria-checked')).toBe('true');
+		expect(viewSettingsRow('review', 'Line numbers').getAttribute('aria-checked')).toBe('false');
+		await closeViewSettings('review');
+		handshake.dispose();
+	});
 });
 
 async function renderFileProductApp(
 	protocol: 'review' | 'worktree-file',
 	productSession: BridgeFileViewerBrowserTestProductSession,
+	autoOpenInitialFile = false,
 ): Promise<Awaited<ReturnType<typeof render>>> {
 	const paneSessionFactory = createBridgeFileViewerBrowserTestPaneSessionFactory({
 		productSessionRef: { current: productSession },
@@ -117,10 +179,27 @@ async function renderFileProductApp(
 	return await render(
 		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled={false}
+			fileViewerProps={{ autoOpenInitialFile }}
 			paneRuntimeFactory={() => createBridgePaneRuntime({ sessionFactory: paneSessionFactory })}
 			protocol={protocol}
 		/>,
 	);
+}
+
+function activeFileShell(): HTMLElement | null {
+	return document.querySelector<HTMLElement>(
+		'[data-bridge-viewer-mode-active="true"] [data-testid="bridge-file-viewer-shell"]',
+	);
+}
+
+function fileIdentitySnapshot(): Readonly<Record<string, string | null>> {
+	const shell = activeFileShell();
+	if (shell === null) throw new Error('Missing active Files shell');
+	return {
+		generation: shell.getAttribute('data-file-display-generation'),
+		selectedPath: shell.getAttribute('data-selected-display-path'),
+		sourceId: shell.getAttribute('data-file-display-source-id'),
+	};
 }
 
 function availableFileSource(): BridgeProductCallResult<'file.source.current'> {
@@ -153,6 +232,71 @@ async function clickContext(context: 'file' | 'review'): Promise<void> {
 		throw new Error(`Missing bridge-viewer-context-${context} button`);
 	}
 	await actClick(button);
+}
+
+async function openViewSettings(surface: 'file' | 'review'): Promise<void> {
+	const trigger = activeViewSettingsTrigger(surface);
+	await actClick(trigger);
+	expect(
+		await pollWithinActUntilEqual(
+			() =>
+				document.querySelector(`[data-testid="bridge-${surface}-view-settings-content"]`) !== null,
+			true,
+		),
+	).toBe(true);
+	await actWait(async (): Promise<void> => {
+		const content = document.querySelector<HTMLElement>(
+			`[data-testid="bridge-${surface}-view-settings-content"]`,
+		);
+		if (content === null) return;
+		await Promise.all(
+			content.getAnimations().map(async (animation): Promise<void> => {
+				try {
+					await animation.finished;
+				} catch {
+					// A surface switch can cancel the menu transition it supersedes.
+				}
+			}),
+		);
+	});
+}
+
+async function closeViewSettings(surface: 'file' | 'review'): Promise<void> {
+	await actClick(activeViewSettingsTrigger(surface));
+	await waitForViewSettingsClosed(surface);
+}
+
+async function waitForViewSettingsClosed(surface: 'file' | 'review'): Promise<void> {
+	expect(
+		await pollWithinActUntilEqual(
+			() =>
+				document.querySelector(`[data-testid="bridge-${surface}-view-settings-content"]`) === null,
+			true,
+		),
+	).toBe(true);
+	await settleViewerFrames();
+}
+
+function activeViewSettingsTrigger(surface: 'file' | 'review'): HTMLElement {
+	const trigger = document.querySelector<HTMLElement>(
+		`[data-bridge-viewer-mode-active="true"] [data-testid="bridge-${surface}-view-settings-trigger"]`,
+	);
+	if (trigger === null) throw new Error(`Missing active ${surface} View Settings trigger`);
+	return trigger;
+}
+
+function viewSettingsRow(surface: 'file' | 'review', label: string): HTMLElement {
+	const content = document.querySelector<HTMLElement>(
+		`[data-testid="bridge-${surface}-view-settings-content"]`,
+	);
+	if (content === null) throw new Error(`Missing ${surface} View Settings content`);
+	const row = [...content.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]')].find(
+		(candidate): boolean =>
+			candidate.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
+			label,
+	);
+	if (row === undefined) throw new Error(`Missing View Settings row: ${label}`);
+	return row;
 }
 
 async function settleViewerFrames(): Promise<void> {

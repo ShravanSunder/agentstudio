@@ -17,8 +17,15 @@ package final class RepositoryTopologyAtom {
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
     @ObservationIgnored private var repositoryIDsByStableKey: [String: UUID] = [:]
     @ObservationIgnored private var worktreeIDsByStableKey: [String: UUID] = [:]
+    @ObservationIgnored private var worktreePathAmbiguityReporter: (@MainActor () -> Void)?
 
     package init() {}
+
+    package func setWorktreePathAmbiguityReporter(
+        _ reporter: (@MainActor () -> Void)?
+    ) {
+        worktreePathAmbiguityReporter = reporter
+    }
 
     private struct WorktreePathIndexEntry {
         let repoId: UUID
@@ -81,7 +88,7 @@ package final class RepositoryTopologyAtom {
         if repositoriesChanged || watchedPathsChanged {
             rebuildEntityIndexes()
         }
-        if repositoriesChanged {
+        if repositoriesChanged || unavailableRepositoriesChanged {
             scheduleWorktreePathIndexRebuild()
         }
     }
@@ -214,12 +221,16 @@ package final class RepositoryTopologyAtom {
         watchedPathsByID = Dictionary(uniqueKeysWithValues: watchedPaths.map { ($0.id, $0) })
         repositoryIDsByStableKey = Dictionary(uniqueKeysWithValues: repos.map { ($0.stableKey, $0.id) })
         worktreeIDsByStableKey = Dictionary(
-            uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.stableKey, $0.id) }
+            uniqueKeysWithValues: Dictionary(grouping: repos.flatMap(\.worktrees), by: \.stableKey)
+                .compactMap { stableKey, worktrees in
+                    worktrees.count == 1 ? (stableKey, worktrees[0].id) : nil
+                }
         )
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {
         worktreePathIndex = repos.flatMap { repo -> [WorktreePathIndexEntry] in
+            guard !unavailableRepoIds.contains(repo.id) else { return [] }
             let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
             let normalizedWorktrees = repo.worktrees.map { worktree in
                 (worktree: worktree, normalizedPath: worktree.path.standardizedFileURL.path)
@@ -244,6 +255,10 @@ package final class RepositoryTopologyAtom {
         .sorted(by: Self.worktreePathIndexEntryPrecedes)
 
         worktreePathIndexGeneration &+= 1
+        let stableKeyCounts = Dictionary(grouping: repos.flatMap(\.worktrees), by: \.stableKey)
+        if stableKeyCounts.values.contains(where: { $0.count > 1 }) {
+            worktreePathAmbiguityReporter?()
+        }
     }
 
     private static func worktreePathIndexEntryPrecedes(

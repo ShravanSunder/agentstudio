@@ -490,7 +490,12 @@ private struct RuntimeAdapterHarness {
         )
     }
 
-    func createTerminalPane(metadata: PaneMetadata = PaneMetadata(title: "Terminal")) -> Pane {
+    func createTerminalPane(
+        metadata: PaneMetadata = PaneMetadata(
+            launchDirectory: FileManager.default.temporaryDirectory,
+            title: "Terminal"
+        )
+    ) -> Pane {
         let pane = workspaceStore.createPane(
             content: .terminal(
                 TerminalState(provider: .zmx, lifetime: .temporary, zmxSessionID: .generateUUIDv7())

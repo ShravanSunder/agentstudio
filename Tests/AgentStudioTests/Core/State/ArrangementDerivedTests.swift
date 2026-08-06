@@ -120,21 +120,25 @@ final class ArrangementDerivedTests {
                 path: URL(filePath: "/tmp/pane-zoom/agent-studio-feature"),
                 isMainWorktree: false
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let existingMainWorktree = repo.worktrees.first(where: \.isMainWorktree)
+            let mainWorktree = try #require(existingMainWorktree)
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
+            let storedLinkedWorktree = store.worktree(worktree.id)
+            let resolvedWorktree = try #require(storedLinkedWorktree)
             coreAtoms.repoEnrichmentCache.setWorktreeEnrichment(
                 WorktreeEnrichment(
-                    worktreeId: worktree.id,
+                    worktreeId: resolvedWorktree.id,
                     repoId: repo.id,
                     branch: "feature/pane-zoom"
                 )
             )
 
-            let cwd = worktree.path.appending(path: "Sources/App")
+            let cwd = resolvedWorktree.path.appending(path: "Sources/App")
             let pane = store.createPane(
                 launchDirectory: cwd,
                 facets: PaneContextFacets(
                     repoId: repo.id,
-                    worktreeId: worktree.id,
+                    worktreeId: resolvedWorktree.id,
                     cwd: cwd
                 )
             )
@@ -152,7 +156,7 @@ final class ArrangementDerivedTests {
             #expect(mode.label == "Cancel Zoom")
             #expect(
                 sourceIdentity.title
-                    == "\(repo.name) | feature/pane-zoom | \(worktree.path.lastPathComponent)"
+                    == "\(repo.name) | feature/pane-zoom | \(resolvedWorktree.path.lastPathComponent)"
             )
             #expect(sourceIdentity.detail == cwd.path)
             #expect(sourceIdentity.fullPath == cwd.path)

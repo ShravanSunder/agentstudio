@@ -268,4 +268,176 @@ struct IPCContractsTests {
 
         #expect(params.searchMode == .text)
     }
+
+    @Test("bridge file tree search params reject more than 4,096 UTF-16 units")
+    func bridgeFileTreeSearchParamsRejectOversizedUTF16Input() throws {
+        let admittedPayload = try JSONSerialization.data(withJSONObject: [
+            "handle": "pane:1",
+            "searchText": String(repeating: "🧭", count: 2048),
+        ])
+        let rejectedPayload = try JSONSerialization.data(withJSONObject: [
+            "handle": "pane:1",
+            "searchText": String(repeating: "🧭", count: 2048) + "a",
+        ])
+
+        let admitted = try JSONDecoder().decode(
+            IPCBridgeFileTreeSearchParams.self,
+            from: admittedPayload
+        )
+
+        #expect(admitted.searchText.utf16.count == 4096)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(
+                IPCBridgeFileTreeSearchParams.self,
+                from: rejectedPayload
+            )
+        }
+    }
+
+    @Test("bridge file tree filter command encodes one surface-discriminated candidate")
+    func bridgeFileTreeFilterCommandEncodesSurfaceDiscriminatedCandidate() throws {
+        let reviewCommand = IPCBridgePageControlCommand.fileTreeSetFilter(
+            candidate: .review(
+                gitStatusFilter: .modified,
+                categoryFilter: .source,
+                showBinary: true,
+                showLarge: false
+            )
+        )
+        let encoded = try JSONEncoder().encode(reviewCommand)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let filter = try #require(object["filter"] as? [String: Any])
+
+        #expect(object["method"] as? String == "bridge.fileTree.setFilter")
+        #expect(filter["surface"] as? String == "review")
+        #expect(filter["gitStatusFilter"] as? String == "modified")
+        #expect(filter["categoryFilter"] as? String == "source")
+        #expect(filter["showBinary"] as? Bool == true)
+        #expect(filter["showLarge"] as? Bool == false)
+    }
+
+    @Test("bridge file tree filter params reject the legacy combined shape")
+    func bridgeFileTreeFilterParamsRejectLegacyCombinedShape() throws {
+        let legacyPayload = """
+            {
+              "handle": "pane:1",
+              "gitStatusFilter": "modified",
+              "fileClassFilter": "source"
+            }
+            """
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(
+                IPCBridgeFileTreeSetFilterParams.self,
+                from: Data(legacyPayload.utf8)
+            )
+        }
+    }
+
+    @Test("bridge file tree filter params reject undeclared top-level fields")
+    func bridgeFileTreeFilterParamsRejectUndeclaredTopLevelFields() throws {
+        let invalidPayloads = [
+            """
+            {
+              "handle": "pane:1",
+              "candidate": {
+                "surface": "files",
+                "categoryFilter": "source"
+              },
+              "fileClassFilter": "source"
+            }
+            """,
+            """
+            {
+              "handle": "pane:1",
+              "candidate": {
+                "surface": "review",
+                "gitStatusFilter": "modified",
+                "categoryFilter": "source",
+                "showBinary": true,
+                "showLarge": true
+              },
+              "gitStatusFilter": "modified"
+            }
+            """,
+            """
+            {
+              "handle": "pane:1",
+              "candidate": {
+                "surface": "files",
+                "categoryFilter": "source"
+              },
+              "showHidden": true
+            }
+            """,
+        ]
+
+        for invalidPayload in invalidPayloads {
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(
+                    IPCBridgeFileTreeSetFilterParams.self,
+                    from: Data(invalidPayload.utf8)
+                )
+            }
+        }
+    }
+
+    @Test("bridge Files filter candidate rejects Review-only fields")
+    func bridgeFilesFilterCandidateRejectsReviewOnlyFields() throws {
+        let invalidPayload = """
+            {
+              "surface": "files",
+              "categoryFilter": "source",
+              "gitStatusFilter": "modified",
+              "showBinary": true,
+              "showLarge": false
+            }
+            """
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(
+                IPCBridgeFileTreeFilterCandidate.self,
+                from: Data(invalidPayload.utf8)
+            )
+        }
+    }
+
+    @Test("bridge Files filter candidate rejects undeclared fields")
+    func bridgeFilesFilterCandidateRejectsUndeclaredFields() throws {
+        let invalidPayload = """
+            {
+              "surface": "files",
+              "categoryFilter": "source",
+              "showHidden": true
+            }
+            """
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(
+                IPCBridgeFileTreeFilterCandidate.self,
+                from: Data(invalidPayload.utf8)
+            )
+        }
+    }
+
+    @Test("bridge Review filter candidate rejects legacy fields")
+    func bridgeReviewFilterCandidateRejectsLegacyFields() throws {
+        let invalidPayload = """
+            {
+              "surface": "review",
+              "gitStatusFilter": "modified",
+              "categoryFilter": "source",
+              "showBinary": true,
+              "showLarge": false,
+              "fileClassFilter": "source"
+            }
+            """
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(
+                IPCBridgeFileTreeFilterCandidate.self,
+                from: Data(invalidPayload.utf8)
+            )
+        }
+    }
 }

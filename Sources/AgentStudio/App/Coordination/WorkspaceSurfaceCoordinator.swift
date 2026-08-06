@@ -32,6 +32,11 @@ extension SurfaceManager: WorkspaceSurfaceManaging {}
 final class WorkspaceSurfaceCoordinator {
     nonisolated static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceSurfaceCoordinator")
 
+    struct ZoomCompanionContinuity {
+        let surface: BridgeProductSurface
+        let visibility: ZoomViewerVisibility
+    }
+
     struct SwitchArrangementTransitions: Equatable {
         let hiddenPaneIds: Set<UUID>
         let paneIdsToReattach: Set<UUID>
@@ -100,6 +105,7 @@ final class WorkspaceSurfaceCoordinator {
     var bridgePaneActivityOwningWindowId: UUID?
     var bridgePaneActivityObservationGeneration: UInt64 = 0
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
+    var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
 
     var arrangementView: WorkspaceArrangementViewDerived {
         WorkspaceArrangementViewDerived(
@@ -347,6 +353,7 @@ final class WorkspaceSurfaceCoordinator {
                 return
             }
             upsertPaneFilesystemProjectionContext(for: pane)
+            reconcileZoomCompanionAfterCWDChange(sourcePaneId: paneId)
         case .unchanged:
             return
         case .paneMissing:
@@ -692,11 +699,13 @@ final class WorkspaceSurfaceCoordinator {
 extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         applyTopologyRemovals(from: [delta])
+        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
+        _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
@@ -708,7 +717,7 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
 
     private func applyTopologyRemovals(from delta: WorktreeTopologyDelta) {
         for entry in delta.removedWorktrees {
-            let orphanedPaneIds = store.paneAtom.orphanPanesForWorktree(entry.id, path: entry.path.path)
+            let orphanedPaneIds = store.mutationCoordinator.orphanPanesForRemovedWorktreeIfUnmatched(entry)
             for sourcePaneId in orphanedPaneIds {
                 guard
                     let companion = store.panePresentationAtom.zoomCompanion(

@@ -73,7 +73,10 @@ struct ArrangementPanelDisplayStateTests {
 
     @Test
     func activeZoom_isSeparateSelectedModeAndKeepsArrangementCreationAvailable() {
-        let zoomMode = ArrangementPanelZoomMode(label: "Pane Zoom")
+        let zoomMode = ArrangementPanelZoomMode(
+            label: "Pane Zoom",
+            sourcePaneId: UUID()
+        )
         let userLayoutNamedZoom = ArrangementInfo(
             id: UUID(),
             name: "Zoom",
@@ -120,7 +123,10 @@ struct ArrangementPanelDisplayStateTests {
         )
         let activeState = ArrangementPanelDisplayState(
             visiblePanes: [],
-            zoomMode: ArrangementPanelZoomMode(label: "Pane Zoom"),
+            zoomMode: ArrangementPanelZoomMode(
+                label: "Pane Zoom",
+                sourcePaneId: UUID()
+            ),
             arrangements: [selectedLayout]
         )
 

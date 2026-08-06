@@ -9,6 +9,9 @@ package enum RepositoryTopologyIdentityRejection: Error, Equatable, Sendable {
     case duplicateWatchedPathStableKey(String)
     case worktreeRepositoryMissing(worktreeID: UUID, repositoryID: UUID)
     case unavailableRepositoryMissing(UUID)
+    case availableRepositoryMainWorktreeMissing(UUID)
+    case availableRepositoryHasMultipleMainWorktrees(UUID)
+    case availableRepositoryMainWorktreePathMismatch(UUID)
 }
 
 enum RepositoryTopologyReplacementPreparation: Sendable {
@@ -92,6 +95,21 @@ struct RepositoryTopologyReplacement: Sendable {
         }
         if let missingID = unavailableRepositoryIDs.first(where: { !repositoryIDs.contains($0) }) {
             return .unavailableRepositoryMissing(missingID)
+        }
+        for repository in repositories where !unavailableRepositoryIDs.contains(repository.id) {
+            let mainWorktrees = repository.worktrees.filter(\.isMainWorktree)
+            guard !mainWorktrees.isEmpty else {
+                return .availableRepositoryMainWorktreeMissing(repository.id)
+            }
+            guard mainWorktrees.count == 1 else {
+                return .availableRepositoryHasMultipleMainWorktrees(repository.id)
+            }
+            guard let mainWorktree = mainWorktrees.first,
+                mainWorktree.path.standardizedFileURL == repository.repoPath.standardizedFileURL,
+                mainWorktree.stableKey == repository.stableKey
+            else {
+                return .availableRepositoryMainWorktreePathMismatch(repository.id)
+            }
         }
         return nil
     }

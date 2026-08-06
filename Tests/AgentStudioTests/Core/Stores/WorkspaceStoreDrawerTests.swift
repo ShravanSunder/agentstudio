@@ -170,12 +170,18 @@ final class WorkspaceStoreDrawerTests {
     @Test
     func test_addDrawerPane_inheritsParentWorktreeContext() throws {
         let repoPath = URL(filePath: "/tmp/drawer-parent-repo-\(UUID().uuidString)")
-        let worktreePath = repoPath.appending(path: "feature-branch")
+        let worktreePath = URL(
+            filePath: repoPath.appending(path: "feature-branch").path,
+            directoryHint: .isDirectory
+        )
         let repo = store.addRepo(at: repoPath)
         let worktree = Worktree(repoId: repo.id, name: "feature-branch", path: worktreePath)
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
 
-        let inheritedCWD = worktreePath.appending(path: "Sources")
+        let inheritedCWD = URL(
+            filePath: worktreePath.appending(path: "Sources").path,
+            directoryHint: .isDirectory
+        )
         let parent = store.createPane(
             launchDirectory: worktree.path,
             facets: PaneContextFacets(
@@ -200,12 +206,18 @@ final class WorkspaceStoreDrawerTests {
     @Test
     func test_insertDrawerPane_inheritsParentWorktreeContext() throws {
         let repoPath = URL(filePath: "/tmp/drawer-insert-parent-\(UUID().uuidString)")
-        let worktreePath = repoPath.appending(path: "feature-branch")
+        let worktreePath = URL(
+            filePath: repoPath.appending(path: "feature-branch").path,
+            directoryHint: .isDirectory
+        )
         let repo = store.addRepo(at: repoPath)
         let worktree = Worktree(repoId: repo.id, name: "feature-branch", path: worktreePath)
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
 
-        let inheritedCWD = worktreePath.appending(path: "Sources")
+        let inheritedCWD = URL(
+            filePath: worktreePath.appending(path: "Sources").path,
+            directoryHint: .isDirectory
+        )
         let parent = store.createPane(
             launchDirectory: worktree.path,
             facets: PaneContextFacets(

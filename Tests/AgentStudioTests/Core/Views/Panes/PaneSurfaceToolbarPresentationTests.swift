@@ -172,13 +172,46 @@ struct PaneSurfaceToolbarPresentationTests {
         }
     }
 
+    @Test("normal pane and terminal Zoom omit denied actions independently")
+    func paneAndTerminalZoomActionsAreIndependentlyOptional() {
+        let recorder = ToolbarActionRecorder()
+        let viewerAction = makeAction(label: "Viewer", sourcePaneId: recorder.sourcePaneId) {
+            recorder.recordViewer(sourcePaneId: $0)
+        }
+        let zoomAction = makeAction(label: "Pane Zoom", sourcePaneId: recorder.sourcePaneId) {
+            recorder.recordZoom(sourcePaneId: $0)
+        }
+
+        let normalPanePresentation = PaneSurfaceToolbarResolver.resolve(
+            content: paneContentFixtures[0],
+            placement: .normalMainPane,
+            terminalModeActions: TerminalModeToolbarActions(
+                zoomAction: nil,
+                viewerAction: viewerAction
+            )
+        )
+        let terminalZoomPresentation = PaneSurfaceToolbarResolver.resolveZoom(
+            viewerPresentation: .retryable,
+            viewerAction: nil,
+            zoomAction: zoomAction
+        )
+
+        #expect(normalPanePresentation.actions.map(\.state.label) == ["Viewer"])
+        #expect(terminalZoomPresentation.actions.map(\.state.label) == ["Pane Zoom"])
+    }
+
     @Test(
         "Zoom parent owns the only toolbar and derives Viewer selection from presentation state",
         arguments: [
             ZoomParentToolbarTestCase(
                 presentation: ZoomViewerPresentation.unavailable,
-                viewerEnabled: false,
+                viewerEnabled: true,
                 viewerSelected: false
+            ),
+            ZoomParentToolbarTestCase(
+                presentation: ZoomViewerPresentation.unavailableVisible,
+                viewerEnabled: true,
+                viewerSelected: true
             ),
             ZoomParentToolbarTestCase(
                 presentation: ZoomViewerPresentation.retryable,
@@ -228,6 +261,40 @@ struct PaneSurfaceToolbarPresentationTests {
         #expect(presentation.contextActions.map(\.state.label) == ["Pane Zoom", "Viewer"])
     }
 
+    @Test("Zoom parent preserves dispatcher-disabled Viewer and Zoom actions")
+    func zoomParentPreservesDispatcherDisabledActions() {
+        let recorder = ToolbarActionRecorder()
+        let viewerAction = makeAction(
+            label: "Viewer",
+            sourcePaneId: recorder.sourcePaneId,
+            isEnabled: false
+        ) {
+            recorder.recordViewer(sourcePaneId: $0)
+        }
+        let zoomAction = makeAction(
+            label: "Pane Zoom",
+            sourcePaneId: recorder.sourcePaneId,
+            isEnabled: false
+        ) {
+            recorder.recordZoom(sourcePaneId: $0)
+        }
+
+        let presentation = PaneSurfaceToolbarResolver.resolveZoom(
+            viewerPresentation: .retainedVisible(
+                companionPaneId: UUID(uuidString: "00000000-0000-0000-0000-000000000013")!
+            ),
+            viewerAction: viewerAction,
+            zoomAction: zoomAction
+        )
+
+        #expect(presentation.actionStatesForTesting.viewer?.isEnabled == false)
+        #expect(presentation.actionStatesForTesting.viewer?.isSelected == true)
+        #expect(presentation.actionStatesForTesting.zoom?.isEnabled == false)
+        #expect(presentation.actionStatesForTesting.zoom?.isSelected == true)
+        #expect(presentation.actionStatesForTesting.zoom?.selectionEmphasis == .accent)
+        #expect(presentation.actionStatesForTesting.zoom?.visibleLabel == "Zoomed")
+    }
+
     @Test("toolbar resolution preserves callbacks anchored to the original source pane")
     func resolutionPreservesSourceAnchoredCallbacks() {
         let recorder = ToolbarActionRecorder()
@@ -266,9 +333,7 @@ struct PaneSurfaceToolbarPresentationTests {
         let hostingView = NSHostingView(
             rootView: DrawerIconBar(
                 octiconLoader: makeCoreTestOcticonLoader(),
-                isExpanded: false,
-                onAdd: {},
-                onToggleExpand: {},
+                leadingControls: .hidden,
                 trailingActions: nil,
                 paneSurfaceActions: [zoomAction, viewerAction]
             )
@@ -305,6 +370,7 @@ struct PaneSurfaceToolbarPresentationTests {
     private func makeAction(
         label: String,
         sourcePaneId: UUID,
+        isEnabled: Bool = true,
         perform: @MainActor @Sendable @escaping (UUID) -> Void
     ) -> PaneSurfaceToolbarAction {
         PaneSurfaceToolbarAction(
@@ -316,7 +382,7 @@ struct PaneSurfaceToolbarPresentationTests {
                     text: label,
                     shortcutDisplayText: nil
                 ),
-                isEnabled: true,
+                isEnabled: isEnabled,
                 isSelected: false
             ),
             perform: {

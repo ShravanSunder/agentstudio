@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
 import {
 	activeIdentity,
 	candidateIdentity,
@@ -17,6 +18,7 @@ import {
 } from './bridge-comm-worker-review-metadata-transaction.test-support.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	activateBridgeCommWorkerReviewViewerMode,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -752,11 +754,8 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		];
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort({
 			beforePostMessage: (message): void => {
-				if (
-					rejectCandidateDisplay &&
-					message.kind === 'reviewDisplayPatch' &&
-					JSON.stringify(message).includes('source-candidate')
-				) {
+				if (rejectCandidateDisplay && message.kind === 'reviewDisplayPatch') {
+					rejectCandidateDisplay = false;
 					throw new Error('injected critical B display failure');
 				}
 			},
@@ -850,6 +849,16 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 				throw new Error('injected post-commit drain scheduling failure');
 			},
 		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'post-commit-drain-failure');
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				epoch: 1,
+				requestId: 'post-commit-drain-failure-selection',
+				selectedItemId: 'item-a',
+				selectedSource: 'user',
+				surface: 'review',
+			}),
+		);
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Act
@@ -919,6 +928,8 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 					payload: { status: 'stale' },
 					slice: 'reviewSource',
 				},
+				expect.objectContaining({ operation: 'batch', slice: 'reviewItem' }),
+				expect.objectContaining({ operation: 'batch', slice: 'reviewTree' }),
 			],
 		});
 		expect(JSON.stringify(reviewDisplayMessages.at(-1))).toContain('source-active');

@@ -22,6 +22,12 @@ import {
 import { bridgeProductSessionBootstrapSchema } from '../core/comm-worker/bridge-product-session-contracts.js';
 import { installBridgeAppDevProductSessionHost } from './bridge-app-dev-product-session-host.js';
 
+const navigationIntent = {
+	commandId: 'dev:worktree:files',
+	commandKind: 'activateContext',
+	surface: 'file',
+} as const;
+
 describe('Bridge app dev product session host', () => {
 	test('keeps product capability minting out of page JavaScript', async () => {
 		// Arrange
@@ -68,7 +74,11 @@ describe('Bridge app dev product session host', () => {
 					{ once: true },
 				);
 			});
-		const host = installBridgeAppDevProductSessionHost({ fetchBootstrap, target });
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			navigationIntent,
+			target,
+		});
 
 		// Act
 		const firstResponse = waitForResponse();
@@ -103,7 +113,7 @@ describe('Bridge app dev product session host', () => {
 		const secondFetch = fetchBootstrap.mock.calls[1];
 		expect(firstFetch?.[0]).toBe(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE);
 		expect(firstFetch?.[1]).toMatchObject({
-			body: JSON.stringify({ reason: 'initial' }),
+			body: JSON.stringify({ navigationIntent, reason: 'initial' }),
 			cache: 'no-store',
 			credentials: 'same-origin',
 			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
@@ -111,6 +121,7 @@ describe('Bridge app dev product session host', () => {
 		});
 		expect(secondFetch?.[1]).toMatchObject({
 			body: JSON.stringify({
+				navigationIntent,
 				paneSessionId: first.bootstrap.paneSessionId,
 				reason: 'workerReplacement',
 			}),
@@ -141,7 +152,7 @@ describe('Bridge app dev product session host', () => {
 				once: true,
 			});
 		});
-		const host = installBridgeAppDevProductSessionHost({ target });
+		const host = installBridgeAppDevProductSessionHost({ navigationIntent, target });
 
 		try {
 			// Act
@@ -168,7 +179,11 @@ describe('Bridge app dev product session host', () => {
 		target.addEventListener('__bridge_product_session_bootstrap', (): void => {
 			responseCount += 1;
 		});
-		const host = installBridgeAppDevProductSessionHost({ fetchBootstrap, target });
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			navigationIntent,
+			target,
+		});
 
 		// Act
 		target.dispatchEvent(

@@ -53,7 +53,10 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let newCwd = featureWorktree.path.appending(path: "Sources")
+        let newCwd = URL(
+            filePath: featureWorktree.path.appending(path: "Sources").standardizedFileURL.path,
+            directoryHint: .isDirectory
+        )
         surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: newCwd)
 
         await eventually("surface cwd should refresh pane identity") {
@@ -118,7 +121,10 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: performanceTraceRecorder
         )
-        let coordinatorCwd = repo.repoPath.appending(path: "CoordinatorLookup")
+        let coordinatorCwd = URL(
+            filePath: repo.repoPath.appending(path: "CoordinatorLookup").path,
+            directoryHint: .isDirectory
+        )
         surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: coordinatorCwd)
 
         await eventually("surface cwd should pass through coordinator topology lookup") {
@@ -166,7 +172,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         )
         store.appendTab(Tab(paneId: pane.id))
 
-        let outsideKnownWorktrees = URL(filePath: "/tmp/project-dev")
+        let outsideKnownWorktrees = URL(filePath: "/tmp/project-dev", directoryHint: .isDirectory)
         surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: outsideKnownWorktrees)
 
         await eventually("surface cwd outside topology should clear pane worktree identity") {
@@ -222,7 +228,8 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         store.appendTab(Tab(paneId: pane.id))
 
         let rawCwdPath = "/tmp/runtime-cwd-repo-feature/../runtime-cwd-repo-feature/Sources"
-        let expectedCwd = try #require(CWDNormalizer.normalize(rawCwdPath))
+        let normalizedCwd = try #require(CWDNormalizer.normalize(rawCwdPath))
+        let expectedCwd = URL(filePath: normalizedCwd.path, directoryHint: .isDirectory)
         _ = await bus.post(
             RuntimeEnvelopeHarness.paneEnvelope(
                 event: .terminal(.cwdChanged(rawCwdPath)),
@@ -267,7 +274,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             name: "floating-target",
             path: URL(filePath: "/tmp/floating-cwd-repo/floating-target")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
         let pane = store.createPane(
             launchDirectory: URL(filePath: "/tmp/scratch"),
             title: "Scratch Terminal"

@@ -36,7 +36,9 @@ struct UIActionPresentationTests {
             command: .renameArrangement,
             label: "Rename Arrangement",
             icon: .system(.pencil),
-            helpText: "Rename the current arrangement"
+            helpText: "Rename the current arrangement",
+            surfacePolicy: .notPresented,
+            targeting: .contextual
         )
 
         #expect(definition.controlToolTip == "Rename the current arrangement")
@@ -57,7 +59,9 @@ struct UIActionPresentationTests {
             command: .renameArrangement,
             label: "Rename Arrangement",
             icon: .system(.pencil),
-            helpText: "Rename the current arrangement"
+            helpText: "Rename the current arrangement",
+            surfacePolicy: .notPresented,
+            targeting: .contextual
         )
 
         let toolTip = definition.controlToolTip(textOverride: "Rename")
@@ -142,6 +146,7 @@ struct UIActionPresentationTests {
 
     @Test
     func worktreeTabActionsUseTerminalAndBridgeLabels() {
+        #expect(LocalActionSpec.createNew.actionSpec.label == "Create New")
         #expect(LocalActionSpec.openInCurrentTabMenu.actionSpec.label == "Open in Current Tab")
         #expect(LocalActionSpec.openInNewTabMenu.actionSpec.label == "Open in New Tab")
         #expect(LocalActionSpec.openInEditorMenu.actionSpec.label == "Open in Editor")
@@ -152,5 +157,18 @@ struct UIActionPresentationTests {
         #expect(AppCommand.showBridgeFiles.definition.actionSpec.label == "Files")
         #expect(AppCommand.openBridgeReviewInNewTab.definition.actionSpec.label == "Open Review in New Tab")
         #expect(AppCommand.openBridgeFilesInNewTab.definition.actionSpec.label == "Open Files in New Tab")
+    }
+
+    @Test
+    func paneShowArrangementsPreservesPresentationWithoutChangingSharedArrangementMenus() {
+        let paneAction = LocalActionSpec.showArrangements.actionSpec
+        let sharedMenuAction = LocalActionSpec.arrangements.actionSpec
+
+        #expect(paneAction.label == "Show Arrangements")
+        #expect(paneAction.helpText == "Show arrangements for the active tab")
+        #expect(paneAction.icon == .system(.rectangle3Group))
+        #expect(sharedMenuAction.label == "Arrangements")
+        #expect(sharedMenuAction.helpText == "Manage tab arrangements")
+        #expect(sharedMenuAction.icon == .system(.rectangle3Group))
     }
 }

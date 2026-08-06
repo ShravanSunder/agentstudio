@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactElement, ReactNode } from 'react';
+import type { MouseEvent, ReactElement, ReactNode, Ref } from 'react';
 
 import { Button } from '../components/ui/button.js';
 import {
@@ -9,6 +9,7 @@ import { cn } from './class-name.js';
 
 export interface BridgeViewerButtonProps {
 	readonly children: ReactNode;
+	readonly buttonRef?: Ref<HTMLButtonElement>;
 	readonly ariaLabel?: string;
 	readonly ariaPressed?: boolean;
 	readonly className?: string;
@@ -24,6 +25,7 @@ export interface BridgeViewerButtonProps {
 export function BridgeViewerButton(props: BridgeViewerButtonProps): ReactElement {
 	return (
 		<Button
+			ref={props.buttonRef}
 			aria-label={props.ariaLabel}
 			aria-pressed={props.ariaPressed}
 			className={cn(

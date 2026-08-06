@@ -22,6 +22,7 @@ struct FlatTabStripContainer: View {
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
     let visiblePaneIds: [UUID]?
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -33,7 +34,6 @@ struct FlatTabStripContainer: View {
     let appLifecycleStore: AppLifecycleAtom
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let onToggleZoom: (UUID?) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
@@ -86,6 +86,7 @@ struct FlatTabStripContainer: View {
         activePaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
         visiblePaneIds: [UUID]? = nil,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
@@ -97,7 +98,6 @@ struct FlatTabStripContainer: View {
         appLifecycleStore: AppLifecycleAtom,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation
@@ -108,6 +108,7 @@ struct FlatTabStripContainer: View {
         self.activePaneId = activePaneId
         self.minimizedPaneIds = minimizedPaneIds
         self.visiblePaneIds = visiblePaneIds
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
@@ -119,23 +120,19 @@ struct FlatTabStripContainer: View {
         self.appLifecycleStore = appLifecycleStore
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.onToggleZoom = onToggleZoom
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
     }
 
-    private var onSaveArrangement: (() -> Void)? {
-        guard store.tabLayoutAtom.tab(tabId) != nil else { return nil }
-
-        return {
-            guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
-            let arrangementName = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            actionDispatcher.dispatch(
-                .createArrangement(
-                    tabId: tabId,
-                    name: arrangementName
-                )
+    private var commandActionResolver: TargetedCommandControlActionResolver {
+        { command, surface, target, targetType in
+            TargetedCommandControlAction.resolve(
+                command: command,
+                surface: surface,
+                target: target,
+                targetType: targetType,
+                dispatcher: AppCommandDispatcher.shared
             )
         }
     }
@@ -282,9 +279,9 @@ struct FlatTabStripContainer: View {
                             tabId: tabId,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
+                            arrangementInlineRenameState: arrangementInlineRenameState,
+                            commandActionResolver: commandActionResolver,
                             onFocus: { onFocusPane(paneId) },
-                            onSaveArrangement: onSaveArrangement,
-                            onToggleZoom: onToggleZoom,
                             dropTargetCoordinateSpace: "tabContainer",
                             workspaceWindowId: workspaceWindowId
                         )
@@ -306,8 +303,8 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: minimizedPaneIds,
                 ordinalMap: state.mainOrdinalMap,
                 collapsedPaneWidth: state.effectiveCollapsedWidth,
-                onSaveArrangement: onSaveArrangement,
-                onToggleZoom: onToggleZoom,
+                arrangementInlineRenameState: arrangementInlineRenameState,
+                commandActionResolver: commandActionResolver,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,
@@ -344,6 +341,7 @@ struct FlatTabStripContainer: View {
             tabSize: tabSize,
             iconBarFrame: iconBarFrame,
             actionDispatcher: actionDispatcher,
+            arrangementInlineRenameState: arrangementInlineRenameState,
             onPaneFocusTrigger: onPaneFocusTrigger,
             onFocusPane: onFocusPane,
             paneInboxPresentation: paneInboxPresentation,

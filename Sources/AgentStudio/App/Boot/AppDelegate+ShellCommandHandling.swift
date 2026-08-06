@@ -3,6 +3,22 @@ import AgentStudioRepoExplorer
 import Foundation
 
 extension AppDelegate: ShellCommandHandling {
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
+        if request.arguments == .noArguments {
+            return canExecute(request.command)
+        }
+        guard atomStore != nil else { return false }
+        switch (request.command, request.arguments) {
+        case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode),
+            (.setRepoSidebarSortOrder, .repoSidebarSortOrder),
+            (.setInboxRowStateFilter, .inboxRowStateFilter),
+            (.setInboxContentMode, .inboxContentMode):
+            return true
+        default:
+            return false
+        }
+    }
+
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
@@ -43,7 +59,8 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
+            .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
+            .showBridgeReview, .showBridgeFiles,
             .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxRowStateFilter, .setInboxContentMode,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
@@ -145,7 +162,8 @@ extension AppDelegate: ShellCommandHandling {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit,
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .newFloatingTerminal, .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
+            .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
+            .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             return false
         }
@@ -194,7 +212,7 @@ extension AppDelegate: ShellCommandHandling {
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarQuickOpen, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
-            .openWebview, .showViewer, .showBridgeReview, .showBridgeFiles,
+            .openWebview, .reloadBridgeWebView, .showViewer, .showBridgeReview, .showBridgeFiles,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
@@ -203,9 +221,9 @@ extension AppDelegate: ShellCommandHandling {
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
         switch (request.command, request.arguments) {
-        case (.showWorktreeSidebar, nil) where request.executionContext == .headlessIPC:
+        case (.showWorktreeSidebar, .noArguments) where request.executionContext == .headlessIPC:
             return executeHeadlessRepoSidebarCommand()
-        case (.showInboxNotifications, nil) where request.executionContext == .headlessIPC:
+        case (.showInboxNotifications, .noArguments) where request.executionContext == .headlessIPC:
             return executeHeadlessInboxSidebarCommand()
         case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode(let mode)):
             return executeRepoSidebarVisibilityCommand(mode)
@@ -223,9 +241,10 @@ extension AppDelegate: ShellCommandHandling {
             }
             inboxNotificationPrefs.setGlobalInboxContentMode(mode)
             return .applied
-        case (.setRepoSidebarGroupingRepo, nil), (.setRepoSidebarGroupingPane, nil),
-            (.setRepoSidebarGroupingTab, nil), (.setInboxGroupingTab, nil),
-            (.setInboxGroupingRepo, nil), (.setInboxGroupingPane, nil), (.setInboxGroupingNone, nil):
+        case (.setRepoSidebarGroupingRepo, .noArguments), (.setRepoSidebarGroupingPane, .noArguments),
+            (.setRepoSidebarGroupingTab, .noArguments), (.setInboxGroupingTab, .noArguments),
+            (.setInboxGroupingRepo, .noArguments), (.setInboxGroupingPane, .noArguments),
+            (.setInboxGroupingNone, .noArguments):
             return executeSidebarGroupingCommand(request.command)
         default:
             return execute(request.command) ? .applied : .unsupportedCommand

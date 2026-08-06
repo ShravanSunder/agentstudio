@@ -32,113 +32,13 @@ struct ZoomPresentationContainerTests {
         )
     }
 
-    @Test("visible retained companion renders beside its source under one Zoom toolbar")
-    func visibleRetainedCompanionUsesRuntimeSlotsAndParentToolbar() {
-        let fixture = makeFixture()
-        let viewerAction = makeAction(label: "Viewer", fixture: fixture) {
-            fixture.recorder.recordViewer(sourcePaneId: $0)
-        }
-        let zoomAction = makeAction(label: "Pane Zoom", fixture: fixture) {
-            fixture.recorder.recordZoom(sourcePaneId: $0)
-        }
-        let parentToolbar = PaneSurfaceToolbarResolver.resolveZoom(
-            viewerPresentation: .retainedVisible(companionPaneId: fixture.companionPaneId),
-            viewerAction: viewerAction,
-            zoomAction: zoomAction
+    @Test("visible unavailable Viewer renders the watched-worktree boundary message")
+    func visibleUnavailableViewerRendersBoundaryMessage() {
+        let state = mountedSingleTabState(
+            viewerPresentationOverride: .unavailableVisible
         )
 
-        guard
-            let renderState = ZoomPresentationContainer.resolveRenderState(
-                presentation: ZoomPresentation(
-                    sourcePaneId: fixture.sourcePaneId,
-                    viewerPresentation: .retainedVisible(companionPaneId: fixture.companionPaneId),
-                    transientSplitRatio: 0.35
-                ),
-                viewRegistry: fixture.viewRegistry,
-                parentToolbar: parentToolbar
-            )
-        else {
-            Issue.record("Zoom container must resolve registered runtime hosts")
-            return
-        }
-
-        #expect(renderState.layout.paneIds == [fixture.sourcePaneId, fixture.companionPaneId])
-        #expect(renderState.layout.ratios == [0.35, 0.65])
-        #expect(renderState.layout.dividerIds.count == 1)
-        #expect(renderState.children.count == 2)
-        #expect(renderState.isCompanionVisible)
-        #expect(renderState.children.first?.paneId == fixture.sourcePaneId)
-        #expect(renderState.children.last?.paneId == fixture.companionPaneId)
-        #expect(renderState.children.allSatisfy { !$0.toolbarPresentation.reservesToolbarLayout })
-        #expect(renderState.children.first?.paneSlot === fixture.sourcePaneSlot)
-        #expect(renderState.children.last?.paneSlot === fixture.companionPaneSlot)
-        #expect(renderState.children.first?.paneSlot.host === fixture.sourcePaneHost)
-        #expect(renderState.children.last?.paneSlot.host === fixture.companionPaneHost)
-
-        guard case .zoom(let toolbarModel) = renderState.parentToolbar else {
-            Issue.record("Zoom container must own exactly one Zoom toolbar")
-            return
-        }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(toolbarModel.viewerAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.isEnabled)
-        #expect(toolbarModel.zoomAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.visibleLabel == "Zoomed")
-        #expect(fixture.recorder.viewerSourcePaneIds.isEmpty)
-        #expect(fixture.recorder.zoomSourcePaneIds.isEmpty)
-
-        toolbarModel.zoomAction.perform()
-        toolbarModel.viewerAction.perform()
-
-        #expect(fixture.recorder.viewerSourcePaneIds == [fixture.sourcePaneId])
-        #expect(fixture.recorder.zoomSourcePaneIds == [fixture.sourcePaneId])
-    }
-
-    @Test("hidden retained companion stays mounted for geometry animation with unselected Viewer")
-    func hiddenRetainedCompanionStaysMounted() {
-        let fixture = makeFixture()
-        let viewerAction = makeAction(label: "Viewer", fixture: fixture) { _ in }
-        let zoomAction = makeAction(label: "Pane Zoom", fixture: fixture) { _ in }
-        let parentToolbar = PaneSurfaceToolbarResolver.resolveZoom(
-            viewerPresentation: .retainedHidden(companionPaneId: fixture.companionPaneId),
-            viewerAction: viewerAction,
-            zoomAction: zoomAction
-        )
-
-        guard
-            let renderState = ZoomPresentationContainer.resolveRenderState(
-                presentation: ZoomPresentation(
-                    sourcePaneId: fixture.sourcePaneId,
-                    viewerPresentation: .retainedHidden(companionPaneId: fixture.companionPaneId),
-                    transientSplitRatio: 0.35
-                ),
-                viewRegistry: fixture.viewRegistry,
-                parentToolbar: parentToolbar
-            )
-        else {
-            Issue.record("Zoom container must resolve its registered source host")
-            return
-        }
-
-        #expect(renderState.layout.paneIds == [fixture.sourcePaneId, fixture.companionPaneId])
-        #expect(renderState.layout.ratios == [0.35, 0.65])
-        #expect(renderState.layout.dividerIds.count == 1)
-        #expect(renderState.children.count == 2)
-        #expect(!renderState.isCompanionVisible)
-        #expect(renderState.children.first?.paneId == fixture.sourcePaneId)
-        #expect(renderState.children.last?.paneId == fixture.companionPaneId)
-        #expect(renderState.children.first?.paneSlot === fixture.sourcePaneSlot)
-        #expect(renderState.children.last?.paneSlot === fixture.companionPaneSlot)
-        #expect(renderState.children.allSatisfy { !$0.toolbarPresentation.reservesToolbarLayout })
-
-        guard case .zoom(let toolbarModel) = renderState.parentToolbar else {
-            Issue.record("Zoom container must retain its parent Zoom toolbar")
-            return
-        }
-        #expect(toolbarModel.viewerAction.state.isEnabled)
-        #expect(!toolbarModel.viewerAction.state.isSelected)
-        #expect(toolbarModel.zoomAction.state.isEnabled)
-        #expect(toolbarModel.zoomAction.state.isSelected)
+        #expect(state.accessibilityIdentifiers.contains("zoomViewer.unavailable"))
     }
 
     @Test("mounted Zoom container renders optional companion under one parent toolbar")
@@ -164,6 +64,23 @@ struct ZoomPresentationContainerTests {
         #expect(!hiddenIdentifiers.contains("zoom-companion-region-probe"))
         #expect(hiddenIdentifiers.filter { $0 == "paneSurfaceToolbar.viewer" }.count == 1)
         #expect(hiddenIdentifiers.filter { $0 == "paneSurfaceToolbar.zoom" }.count == 1)
+    }
+
+    @Test("mounted Zoom toolbar omits each denied command without hiding the other")
+    func mountedZoomToolbarOmitsDeniedCommandsIndependently() {
+        let zoomOnlyIdentifiers = mountedAccessibilityIdentifiers(
+            companionContent: nil,
+            includesViewerAction: false
+        )
+        #expect(!zoomOnlyIdentifiers.contains("paneSurfaceToolbar.viewer"))
+        #expect(zoomOnlyIdentifiers.filter { $0 == "paneSurfaceToolbar.zoom" }.count == 1)
+
+        let viewerOnlyIdentifiers = mountedAccessibilityIdentifiers(
+            companionContent: nil,
+            includesZoomAction: false
+        )
+        #expect(viewerOnlyIdentifiers.filter { $0 == "paneSurfaceToolbar.viewer" }.count == 1)
+        #expect(!viewerOnlyIdentifiers.contains("paneSurfaceToolbar.zoom"))
     }
 
     @Test("active per-tab Zoom replaces ordinary tab content with one parent toolbar")
@@ -283,50 +200,71 @@ struct ZoomPresentationContainerTests {
     }
 
     @Test("Copy Path copies the source terminal's actual CWD")
-    func copyPathCopiesSourceTerminalCWD() throws {
-        let sourceCWD = URL(filePath: "/tmp/agentstudio-pane-toolbar/source-cwd")
-        let store = WorkspaceStore()
-        let pane = store.createPane(launchDirectory: sourceCWD)
-        let hostingView = NSHostingView(
-            rootView: PaneSurfaceToolbarHost(
-                anchorPaneId: pane.id,
-                locationTargetPaneId: pane.id,
-                drawer: nil,
-                leadingToolbarActions: [],
-                contextToolbarActions: [],
-                store: store,
-                octiconLoader: makeTestOcticonLoader(),
-                editorChooser: makeTestAtomRegistry().editorChooser,
-                paneInboxPresentation: nil,
-                workspaceWindowId: nil,
-                actionDispatcher: makeNoOpPaneActionDispatcher(),
-                onPaneFocusTrigger: { _ in }
-            )
-            .frame(width: 640, height: 44)
+    func copyPathCopiesSourceTerminalCWD() async throws {
+        let sourceCWD = URL(
+            filePath: "/tmp/agentstudio-pane-toolbar/source-cwd",
+            directoryHint: .isDirectory
         )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 640, height: 44),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
-        hostingView.layoutSubtreeIfNeeded()
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane(launchDirectory: sourceCWD)
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
 
-        let copyPathView = try #require(
-            accessibilityPressBridgeView(
-                in: hostingView,
-                identifier: "paneSurfaceToolbar.copyPath"
-            )
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = harness.controller
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let hostingView = NSHostingView(
+                    rootView: PaneSurfaceToolbarHost(
+                        anchorPaneId: pane.id,
+                        locationTargetPaneId: pane.id,
+                        toolbarSurface: .pane,
+                        drawer: nil,
+                        leadingToolbarActions: [],
+                        contextToolbarActions: [],
+                        store: harness.store,
+                        octiconLoader: makeTestOcticonLoader(),
+                        editorChooser: harness.atomRegistry.editorChooser,
+                        paneInboxPresentation: nil,
+                        workspaceWindowId: nil,
+                        actionDispatcher: makeNoOpPaneActionDispatcher(),
+                        onPaneFocusTrigger: { _ in }
+                    )
+                    .frame(width: 640, height: 44)
+                )
+                let window = NSWindow(
+                    contentRect: CGRect(x: 0, y: 0, width: 640, height: 44),
+                    styleMask: [.borderless],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.isReleasedWhenClosed = false
+                window.contentView = hostingView
+                window.makeKeyAndOrderFront(nil)
+                defer {
+                    window.orderOut(nil)
+                    window.close()
+                }
+                hostingView.layoutSubtreeIfNeeded()
+
+                let copyPathView = try #require(
+                    zoomTestAccessibilityPressBridgeView(
+                        in: hostingView,
+                        identifier: "paneSurfaceToolbar.copyPath"
+                    )
+                )
+                #expect(copyPathView.accessibilityPerformPress())
+                #expect(
+                    harness.launchRecorder.copiedPaths.map(\.standardizedFileURL) == [
+                        sourceCWD.standardizedFileURL
+                    ]
+                )
+            }
         )
-        #expect(copyPathView.accessibilityPerformPress())
-        #expect(NSPasteboard.general.string(forType: .string) == sourceCWD.path)
     }
 
     @Test(
@@ -410,6 +348,9 @@ struct ZoomPresentationContainerTests {
 
         action.perform()
 
+        #expect(action.state.label == "Show Arrangements")
+        #expect(action.state.icon == .system(.rectangle3Group))
+        #expect(action.state.tooltip.text == "Show Arrangements (⌘⌥I)")
         #expect(action.state.isEnabled)
         #expect(presentation.pendingRequest?.tabId == sourceTab.id)
         #expect(presentation.pendingRequest?.workspaceWindowId == windowId)
@@ -447,9 +388,13 @@ struct ZoomPresentationContainerTests {
             #expect(!state.accessibilityIdentifiers.contains("paneManagement.movePaneToTab"))
         }
     }
+}
 
+extension ZoomPresentationContainerTests {
     private func mountedAccessibilityIdentifiers(
-        companionContent: AnyView?
+        companionContent: AnyView?,
+        includesViewerAction: Bool = true,
+        includesZoomAction: Bool = true
     ) -> [String] {
         let store = WorkspaceStore()
         let viewRegistry = ViewRegistry()
@@ -469,8 +414,12 @@ struct ZoomPresentationContainerTests {
                 companionContent: companionContent,
                 parentToolbarPresentation: .zoom(
                     ZoomToolbarModel(
-                        viewerAction: makeProbeAction(label: "Viewer"),
-                        zoomAction: makeProbeAction(label: "Pane Zoom")
+                        viewerAction: includesViewerAction
+                            ? makeProbeAction(label: "Viewer")
+                            : nil,
+                        zoomAction: includesZoomAction
+                            ? makeProbeAction(label: "Pane Zoom")
+                            : nil
                     )
                 ),
                 splitRatio: 0.35,
@@ -478,6 +427,7 @@ struct ZoomPresentationContainerTests {
                 octiconLoader: makeTestOcticonLoader(),
                 editorChooser: makeTestAtomRegistry().editorChooser,
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
+                arrangementInlineRenameState: ArrangementInlineRenameState(),
                 onPaneFocusTrigger: { _ in },
                 viewRegistry: viewRegistry,
                 surfaceId: "zoom-container-mount-test",
@@ -503,7 +453,7 @@ struct ZoomPresentationContainerTests {
 
         hostingView.layoutSubtreeIfNeeded()
 
-        return accessibilityIdentifiers(in: hostingView)
+        return zoomTestAccessibilityIdentifiers(in: hostingView)
     }
 
     private func mountedSingleTabAccessibilityIdentifiers(
@@ -520,6 +470,7 @@ struct ZoomPresentationContainerTests {
 
     private func mountedSingleTabState(
         viewerVisible: Bool = false,
+        viewerPresentationOverride: ZoomViewerPresentation? = nil,
         managementActive: Bool = false,
         worktreeBacked: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil
@@ -533,8 +484,8 @@ struct ZoomPresentationContainerTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/agent-studio/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-            let storedWorktree = store.repos[0].worktrees[0]
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+            let storedWorktree = worktree
             sourcePane = store.createPane(
                 launchDirectory: storedWorktree.path,
                 facets: PaneContextFacets(
@@ -564,23 +515,24 @@ struct ZoomPresentationContainerTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
         let companionPaneId = UUID()
+        let viewerPresentation =
+            viewerPresentationOverride
+            ?? (viewerVisible
+                ? .retainedVisible(companionPaneId: companionPaneId)
+                : .unavailable)
         store.panePresentationAtom.enterZoom(
             inTab: tab.id,
             sourcePaneId: sourcePane.id,
-            viewerPresentation: viewerVisible
-                ? .retainedVisible(companionPaneId: companionPaneId)
-                : .unavailable
+            viewerPresentation: viewerPresentation
         )
 
         let viewRegistry = ViewRegistry()
         viewRegistry.register(PaneHostView(paneId: sourcePane.id), for: sourcePane.id)
-        if viewerVisible {
+        if viewerPresentation.companionPaneId != nil {
             viewRegistry.register(PaneHostView(paneId: companionPaneId), for: companionPaneId)
         }
         let zoomToolbarPresentation = PaneSurfaceToolbarResolver.resolveZoom(
-            viewerPresentation: viewerVisible
-                ? .retainedVisible(companionPaneId: companionPaneId)
-                : .unavailable,
+            viewerPresentation: viewerPresentation,
             viewerAction: makeProbeAction(label: "Viewer"),
             zoomAction: makeProbeAction(label: "Pane Zoom"),
             showArrangementsAction: makeProbeAction(label: "Show Arrangements")
@@ -604,6 +556,7 @@ struct ZoomPresentationContainerTests {
                 appLifecycleStore: AppLifecycleAtom(),
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                 actionDispatcher: makeNoOpPaneActionDispatcher(),
+                arrangementInlineRenameState: ArrangementInlineRenameState(),
                 onPaneFocusTrigger: { _ in },
                 onFocusPane: { _ in },
                 paneInboxPresentation: paneInboxPresentation,
@@ -683,7 +636,7 @@ struct ZoomPresentationContainerTests {
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _, _, _ in AnyView(Text("Pane inbox")) },
+            popoverContent: { _, _, _ in AnyView(Text("Pane inbox")) },
             pruneFilterModes: { _ in }
         )
     }
@@ -719,8 +672,8 @@ struct ZoomPresentationContainerTests {
         hostingView.layoutSubtreeIfNeeded()
 
         return MountedToolbarState(
-            accessibilityIdentifiers: accessibilityIdentifiers(in: hostingView),
-            toolbarControlFrames: toolbarControlFrames(in: hostingView)
+            accessibilityIdentifiers: zoomTestAccessibilityIdentifiers(in: hostingView),
+            toolbarControlFrames: zoomTestToolbarControlFrames(in: hostingView)
         )
     }
 
@@ -838,145 +791,4 @@ struct ZoomPresentationContainerTests {
         )
     }
 
-    private func makeFixture() -> ZoomPresentationContainerFixture {
-        let sourcePaneId = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
-        let companionPaneId = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
-        let viewRegistry = ViewRegistry()
-        let sourcePaneHost = PaneHostView(paneId: sourcePaneId)
-        let companionPaneHost = PaneHostView(paneId: companionPaneId)
-        viewRegistry.register(sourcePaneHost, for: sourcePaneId)
-        viewRegistry.register(companionPaneHost, for: companionPaneId)
-
-        return ZoomPresentationContainerFixture(
-            sourcePaneId: sourcePaneId,
-            companionPaneId: companionPaneId,
-            viewRegistry: viewRegistry,
-            sourcePaneSlot: viewRegistry.slot(for: sourcePaneId),
-            companionPaneSlot: viewRegistry.slot(for: companionPaneId),
-            sourcePaneHost: sourcePaneHost,
-            companionPaneHost: companionPaneHost,
-            recorder: ZoomPresentationContainerActionRecorder()
-        )
-    }
-
-    private func makeAction(
-        label: String,
-        fixture: ZoomPresentationContainerFixture,
-        perform: @MainActor @Sendable @escaping (UUID) -> Void
-    ) -> PaneSurfaceToolbarAction {
-        let sourcePaneId = fixture.sourcePaneId
-        return PaneSurfaceToolbarAction(
-            state: PaneSurfaceToolbarAction.State(
-                label: label,
-                accessibilityIdentifier: "paneSurfaceToolbar.\(label == "Pane Zoom" ? "zoom" : label.lowercased())",
-                icon: .system(label == "Viewer" ? .rectangleSplit2x1 : .plusMagnifyingglass),
-                tooltip: ControlTooltipRenderValue(text: label, shortcutDisplayText: nil),
-                isEnabled: true,
-                isSelected: false
-            ),
-            perform: {
-                perform(sourcePaneId)
-            }
-        )
-    }
-}
-
-@MainActor
-private func accessibilityIdentifiers(in root: AnyObject) -> [String] {
-    var identifiers: [String] = []
-    var visited: Set<ObjectIdentifier> = []
-    collectAccessibilityIdentifiers(
-        in: root,
-        identifiers: &identifiers,
-        visited: &visited
-    )
-    return identifiers
-}
-
-@MainActor
-private func collectAccessibilityIdentifiers(
-    in element: AnyObject,
-    identifiers: inout [String],
-    visited: inout Set<ObjectIdentifier>
-) {
-    let objectIdentifier = ObjectIdentifier(element)
-    guard visited.insert(objectIdentifier).inserted else { return }
-
-    let identifierSelector = NSSelectorFromString("accessibilityIdentifier")
-    if element.responds(to: identifierSelector),
-        let identifier = element.perform(identifierSelector)?.takeUnretainedValue() as? String
-    {
-        identifiers.append(identifier)
-    }
-
-    let childrenSelector = NSSelectorFromString("accessibilityChildren")
-    if element.responds(to: childrenSelector),
-        let children = element.perform(childrenSelector)?.takeUnretainedValue() as? [AnyObject]
-    {
-        for child in children {
-            collectAccessibilityIdentifiers(
-                in: child,
-                identifiers: &identifiers,
-                visited: &visited
-            )
-        }
-    }
-
-    for subview in (element as? NSView)?.subviews ?? [] {
-        collectAccessibilityIdentifiers(
-            in: subview,
-            identifiers: &identifiers,
-            visited: &visited
-        )
-    }
-}
-
-@MainActor
-private func accessibilityPressBridgeView(
-    in root: NSView,
-    identifier: String
-) -> AccessibilityPressBridgeView? {
-    if let bridgeView = root as? AccessibilityPressBridgeView,
-        bridgeView.accessibilityIdentifier() == identifier
-    {
-        return bridgeView
-    }
-    for subview in root.subviews {
-        if let bridgeView = accessibilityPressBridgeView(
-            in: subview,
-            identifier: identifier
-        ) {
-            return bridgeView
-        }
-    }
-    return nil
-}
-
-@MainActor
-private func toolbarControlFrames(in root: NSView) -> [String: CGRect] {
-    var frames: [String: CGRect] = [:]
-    collectToolbarControlFrames(in: root, relativeTo: root, frames: &frames)
-    return frames
-}
-
-@MainActor
-private func collectToolbarControlFrames(
-    in view: NSView,
-    relativeTo root: NSView,
-    frames: inout [String: CGRect]
-) {
-    if let bridgeView = view as? AccessibilityPressBridgeView {
-        let identifier = bridgeView.accessibilityIdentifier()
-        if identifier.hasPrefix("paneSurfaceToolbar.") {
-            frames[identifier] = bridgeView.convert(bridgeView.bounds, to: root)
-        }
-    }
-
-    for subview in view.subviews {
-        collectToolbarControlFrames(
-            in: subview,
-            relativeTo: root,
-            frames: &frames
-        )
-    }
 }

@@ -417,6 +417,45 @@ describe('Bridge comm worker File metadata projection', () => {
 		]);
 	});
 
+	test('publishes a class-only File tree correction', () => {
+		const projection = new BridgeCommWorkerFileMetadataProjection();
+		projection.apply({ eventKind: 'file.sourceAccepted', source });
+		projection.apply({
+			eventKind: 'file.treeWindow',
+			finalWindow: true,
+			lineage: { lane: 'visible', loadedBy: 'startup_window' },
+			pathScope: [],
+			rows: [makeFileTreeRow()],
+			source,
+			startIndex: 0,
+			totalRowCount: 1,
+		});
+
+		const result = projection.apply({
+			eventKind: 'file.treeDelta',
+			operations: [
+				{
+					op: 'upsertRows',
+					rows: [{ ...makeFileTreeRow(), fileClass: 'test' }],
+				},
+			],
+			source,
+		});
+
+		expect(result.patches).toContainEqual({
+			operation: 'batch',
+			payload: {
+				operations: [
+					{
+						operation: 'upsert',
+						row: { ...makeFileTreeRow(), fileClass: 'test', projectionIndex: 0 },
+					},
+				],
+			},
+			slice: 'fileTree',
+		});
+	});
+
 	test('keeps projection revisions monotonic across source resets and emits all slice resets', () => {
 		// Arrange
 		const projection = new BridgeCommWorkerFileMetadataProjection();
@@ -472,6 +511,7 @@ describe('Bridge comm worker File metadata projection', () => {
 					changeStatus: null,
 					depth: 0,
 					fileId: null,
+					fileClass: null,
 					isDirectory: true,
 					lineCount: null,
 					name: 'Sources',
@@ -484,6 +524,7 @@ describe('Bridge comm worker File metadata projection', () => {
 					changeStatus: 'modified',
 					depth: 1,
 					fileId: 'file-1',
+					fileClass: 'source',
 					isDirectory: false,
 					lineCount: 3,
 					name: 'File.swift',
@@ -669,6 +710,7 @@ function makeFileTreeRow(): Extract<
 		changeStatus: 'modified',
 		depth: 1,
 		fileId: 'file-1',
+		fileClass: 'source',
 		isDirectory: false,
 		lineCount: 3,
 		name: 'File.swift',

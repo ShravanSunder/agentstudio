@@ -178,6 +178,9 @@ export interface BridgeCommWorkerStore {
 	readonly restoreRollbackSnapshot: (snapshot: BridgeCommWorkerStoreRollbackSnapshot) => void;
 	readonly subscribe: StoreApi<BridgeCommWorkerStoreState>['subscribe'];
 	readonly actions: {
+		readonly clearSelectedFact: (props: {
+			readonly epoch: number;
+		}) => BridgeCommWorkerTouchedResult;
 		readonly applyHoveredFact: (
 			props: ApplyBridgeCommWorkerHoveredFactProps,
 		) => BridgeCommWorkerTouchedResult;
@@ -254,6 +257,29 @@ export function createBridgeCommWorkerStore(
 		},
 		subscribe: store.subscribe,
 		actions: {
+			clearSelectedFact: (fact): BridgeCommWorkerTouchedResult => {
+				const previousState = store.getState();
+				store.setState({
+					...previousState,
+					selectedDemandEnabled: false,
+					selectedEpoch: fact.epoch,
+					selectedId: null,
+					demandByKey: buildDemandByKey({
+						contentMetadataByItemId: previousState.contentMetadataByItemId,
+						hoveredItemId: previousState.hoveredItemId,
+						selectedDemandEpoch: null,
+						selectedId: null,
+						visibleIds: previousState.visibleIds,
+					}),
+				});
+				pendingSlicePatches.push({ operation: 'delete', slice: 'selection' });
+				return {
+					touchedKeys:
+						previousState.selectedId === null
+							? []
+							: ['selectedId', `demand:${previousState.selectedId}`],
+				};
+			},
 			applyHoveredFact: (
 				fact: ApplyBridgeCommWorkerHoveredFactProps,
 			): BridgeCommWorkerTouchedResult => {

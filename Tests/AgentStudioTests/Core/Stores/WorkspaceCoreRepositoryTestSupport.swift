@@ -20,58 +20,38 @@ struct WorkspaceCoreTopologyRepositoryFixture {
     func insertPane(
         workspaceId: UUID,
         paneId: UUID,
-        sourceRepoId: UUID,
-        sourceWorktreeId: UUID
+        cwd: URL
     ) throws {
         try databaseQueue.write { database in
             try database.execute(
                 sql: """
                     INSERT INTO pane(
                         id, workspace_id, content_type, execution_backend,
-                        facet_repo_id, facet_worktree_id, launch_directory, title, cwd,
+                        launch_directory, title, cwd,
                         residency_kind, kind, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 arguments: [
                     paneId.uuidString,
                     workspaceId.uuidString,
                     SQLitePaneContentTypeStorage.storageValue(for: .terminal),
-                    "zmx",
-                    sourceRepoId.uuidString,
-                    sourceWorktreeId.uuidString,
-                    "/tmp",
+                    "local",
+                    cwd.path,
                     "Terminal",
-                    "/tmp",
+                    cwd.path,
                     "active",
                     "leaf",
                     1.0,
                     1.0,
                 ]
             )
-        }
-    }
-
-    func fetchPaneSource(paneId: UUID) throws -> PaneSourceRecord? {
-        try databaseQueue.read { database in
-            guard
-                let row = try Row.fetchOne(
-                    database,
-                    sql: """
-                        SELECT facet_repo_id, facet_worktree_id
-                        FROM pane
-                        WHERE id = ?
-                        """,
-                    arguments: [paneId.uuidString]
-                )
-            else {
-                return nil
-            }
-            let repoIdString: String? = row["facet_repo_id"]
-            let worktreeIdString: String? = row["facet_worktree_id"]
-            return .init(
-                repoId: repoIdString.flatMap(UUID.init(uuidString:)),
-                worktreeId: worktreeIdString.flatMap(UUID.init(uuidString:))
+            try database.execute(
+                sql: """
+                    INSERT INTO pane_content_terminal(pane_id, provider, lifetime, zmx_session_id)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [paneId.uuidString, "zmx", "persistent", "test-\(paneId.uuidString)"]
             )
         }
     }

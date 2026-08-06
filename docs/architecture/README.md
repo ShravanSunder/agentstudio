@@ -113,7 +113,7 @@ Current atom vocabulary:
 
 - **Atoms** own mutable state and synchronous domain operations. Application-global owners include `ActiveWorkspaceSelectionAtom`, `RepositoryTopologyAtom`, `RepoEnrichmentCacheAtom`, and `ApplicationEntityRecencyAtom`. Workspace owners include identity, pane/tab/drawer graph and cursors, and `WorkspaceEntityRecencyAtom`. Window-keyed owners hold frame/sidebar shell and expanded-group memory. Runtime-only owners include focus, transient keyboard surfaces, app/window lifecycle, and session runtime. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers.
 - **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
-- **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspacePaneFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
+- **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspaceFocusedPaneResolver`, `CommandContextDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`. `WorkspaceFocusOwnerAtom` remains the sole mutable workspace-focus owner.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
 
 ## Coordination Planes
@@ -193,8 +193,12 @@ User Action → WorkspaceActionCommand
     → markDirty() → debounced save (500ms)
 
 Command Bar
-  → AppCommandSpec visibility + metadata
-  → AppCommandDispatcher.dispatch()
+  → WorkspaceFocusedPaneResolver → WorkspaceFocusedPane status presentation
+  → CommandContextDerived → CommandContext
+  → AppCommandSpec.shouldPresent(.commandBar, subject) for presence
+  → AppCommandTargeting chooses contextual dispatch or target drill-in
+  → matching AppCommandDispatcher.canDispatch() for enablement
+  → AppCommandDispatcher.dispatch() repeats mode/target-kind preflight
   → WorkspaceCommandHandling (PaneTabViewController)
   → WorkspaceCommandResolver.resolve() → WorkspaceActionCommand
   → WorkspaceCommandResolver.snapshot() → ActionStateSnapshot
@@ -226,7 +230,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
-| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, dense-control tooltip source contract, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Shared command identity, independent exhaustive interactive/IPC projections, typed surfaces and targeting, capability and execution, shortcut routing, and tooltip projection |
 | [AgentStudio App IPC Architecture](agentstudio_ipc_architecture.md) | App-level programmatic control | SwiftPM target split, socket/JSON-RPC foundation, auth, permission grants, protocol ports, CLI/smoke client, and the boundary between app IPC and internal zmx IPC |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module, test, and file-placement boundaries | Compiled SwiftPM graph, package visibility, Core vs Features decision process, import rule, paired tests, executable integration ownership |

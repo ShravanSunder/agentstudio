@@ -253,9 +253,20 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 			scrollOwnerBeforeReplacement.dispatchEvent(new Event('scroll', { bubbles: true }));
 			await Promise.resolve();
 		});
+		const metadataRevisionBeforeReplacement = Number(
+			harness.renderResult.container
+				.querySelector('[data-testid="review-viewer-shell"]')
+				?.getAttribute('data-review-metadata-revision'),
+		);
+		if (
+			!Number.isInteger(metadataRevisionBeforeReplacement) ||
+			metadataRevisionBeforeReplacement < 1
+		) {
+			throw new Error('Hidden-generation Review fixture has no accepted metadata revision.');
+		}
 		const positionBeforeReplacement = await waitForSettledReviewPosition({
 			expectedItemCount: files.length,
-			expectedMetadataRevision: 1,
+			expectedMetadataRevision: metadataRevisionBeforeReplacement,
 			expectedSelectedItemId: selectedFile.itemId,
 			harness,
 			scrollOwner: scrollOwnerBeforeReplacement,
@@ -289,7 +300,7 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 		}
 		const positionAfterReplacement = await waitForSettledReviewPosition({
 			expectedItemCount: files.length,
-			expectedMetadataRevision: 2,
+			expectedMetadataRevision: metadataRevisionBeforeReplacement + 1,
 			expectedSelectedItemId: selectedFile.itemId,
 			harness,
 			scrollOwner: scrollOwnerAfterReplacement,

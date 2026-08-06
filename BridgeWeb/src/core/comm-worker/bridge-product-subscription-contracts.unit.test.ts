@@ -21,6 +21,7 @@ const row = {
 	changeStatus: 'modified',
 	depth: 1,
 	fileId: 'file-1',
+	fileClass: 'source',
 	isDirectory: false,
 	lineCount: 12,
 	name: 'file.ts',
@@ -304,10 +305,31 @@ describe('Bridge product File metadata event contract', () => {
 	});
 
 	test('rejects legacy carrier fields, unknown keys, and missing required-nullable facts', () => {
+		const { fileClass: _fileClass, ...rowWithoutFileClass } = row;
 		for (const invalidEvent of [
 			{ ...descriptorReady, contentHandle: 'legacy-handle' },
 			{ ...descriptorReady, resourceUrl: 'agentstudio://resource/legacy' },
 			{ ...descriptorReady, language: undefined },
+			{
+				eventKind: 'file.treeWindow',
+				finalWindow: true,
+				lineage: { lane: 'foreground', loadedBy: 'startup_window' },
+				pathScope: [],
+				rows: [rowWithoutFileClass],
+				source,
+				startIndex: 0,
+				totalRowCount: 1,
+			},
+			{
+				eventKind: 'file.treeWindow',
+				finalWindow: true,
+				lineage: { lane: 'foreground', loadedBy: 'startup_window' },
+				pathScope: [],
+				rows: [{ ...row, fileClass: 'text' }],
+				source,
+				startIndex: 0,
+				totalRowCount: 1,
+			},
 			{
 				eventKind: 'file.treeWindow',
 				finalWindow: true,

@@ -1,4 +1,7 @@
-import type { BridgeWorkerServerToMainMessage } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerReviewDisplayPatch,
+	BridgeWorkerServerToMainMessage,
+} from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
 
 export interface MakeFetchedReviewContentResourceProps {
@@ -40,6 +43,7 @@ export function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMa
 				payload: { error: 'metadataUnavailable', status: 'failed' },
 				slice: 'reviewSource',
 			},
+			...expectedEmptyReviewProjectionResetPatches(),
 		],
 		projectionRevision: 1,
 		sequence: 2,
@@ -47,6 +51,21 @@ export function expectedReviewMetadataUnavailablePatch(): BridgeWorkerServerToMa
 		transferDescriptors: [],
 		wireVersion: 1,
 	};
+}
+
+export function expectedEmptyReviewProjectionResetPatches(): readonly BridgeWorkerReviewDisplayPatch[] {
+	return [
+		{
+			operation: 'batch',
+			payload: { items: [], operations: [], reset: true, startIndex: 0 },
+			slice: 'reviewItem',
+		},
+		{
+			operation: 'batch',
+			payload: { reset: true, windows: [{ rows: [], startIndex: 0 }] },
+			slice: 'reviewTree',
+		},
+	];
 }
 
 export function expectedReviewPanelChromeReset(): BridgeWorkerServerToMainMessage {

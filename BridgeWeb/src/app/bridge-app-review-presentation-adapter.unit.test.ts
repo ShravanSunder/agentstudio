@@ -116,7 +116,9 @@ describe('Bridge Review presentation adapter', () => {
 		[
 			'loading',
 			{
+				metadataSourceId: 'review-source-loading',
 				metadataWindowIdentity: 'review-window-loading',
+				packageId: 'review-package-loading',
 				reviewGeneration: 1,
 				status: 'loading',
 				summary: null,
@@ -521,7 +523,9 @@ function readyReviewSourceSlice(props: {
 	readonly status: 'ready';
 } {
 	return {
+		metadataSourceId: 'review-source-ready',
 		metadataWindowIdentity: props.metadataWindowIdentity ?? 'review-window-ready',
+		packageId: 'review-package-ready',
 		reviewGeneration: props.reviewGeneration ?? 1,
 		status: 'ready',
 		summary: {

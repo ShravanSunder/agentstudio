@@ -32,7 +32,7 @@ struct WorkspaceLocalMigrationTests {
             "local_drawer_cursor",
             "local_arrangement_drawer_cursor",
             "local_window_state",
-            "local_window_sidebar_expanded_group",
+            "local_window_sidebar_collapsed_group",
             "local_entity_recency",
             "local_workspace_entity_recency",
             "local_notification_inbox_collapsed_group",
@@ -52,8 +52,8 @@ struct WorkspaceLocalMigrationTests {
         #expect(!tableNames.contains("cache_notification_count"))
     }
 
-    @Test("clean local schema has the initial schema and entity recency hard cut")
-    func cleanLocalSchemaHasEntityRecencyHardCutMigration() throws {
+    @Test("clean local schema includes the collapsed sidebar group hard cut")
+    func cleanLocalSchemaIncludesCollapsedSidebarGroupHardCut() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
 
         try WorkspaceLocalMigrations.migrate(databaseQueue)
@@ -68,8 +68,53 @@ struct WorkspaceLocalMigrationTests {
                 == [
                     "001_create_application_local_schema",
                     "002_replace_recent_targets_with_entity_recency",
+                    "003_invert_sidebar_group_memory",
                 ]
         )
+    }
+
+    @Test("sidebar group hard cut resets legacy expanded rows and stores collapsed groups")
+    func sidebarGroupHardCutResetsLegacyExpandedRows() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "002_replace_recent_targets_with_entity_recency"
+        )
+        let windowId = UUIDv7.generate().uuidString
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO local_window_state(
+                        window_id, window_role, sidebar_width, window_frame_json, filter_text,
+                        is_filter_visible, sidebar_collapsed, sidebar_surface, updated_at
+                    ) VALUES (?, 'main', 240, NULL, '', 0, 0, 'repos', 1)
+                    """,
+                arguments: [windowId]
+            )
+            try database.execute(
+                sql: """
+                    INSERT INTO local_window_sidebar_expanded_group(window_id, group_key)
+                    VALUES (?, 'repo:legacy')
+                    """,
+                arguments: [windowId]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "003_invert_sidebar_group_memory"
+        )
+
+        let migratedState = try databaseQueue.read { database in
+            (
+                try database.tableExists("local_window_sidebar_expanded_group"),
+                try database.tableExists("local_window_sidebar_collapsed_group"),
+                try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM local_window_sidebar_collapsed_group") ?? -1
+            )
+        }
+        #expect(!migratedState.0)
+        #expect(migratedState.1)
+        #expect(migratedState.2 == 0)
     }
 
     @Test("entity recency hard cut discards legacy target rows during migration")
@@ -162,7 +207,7 @@ struct WorkspaceLocalMigrationTests {
                 arguments: [windowId]
             )
             try database.execute(
-                sql: "INSERT INTO local_window_sidebar_expanded_group(window_id, group_key) VALUES (?, 'repo:test')",
+                sql: "INSERT INTO local_window_sidebar_collapsed_group(window_id, group_key) VALUES (?, 'repo:test')",
                 arguments: [windowId]
             )
         }
@@ -185,7 +230,7 @@ struct WorkspaceLocalMigrationTests {
             try database.execute(sql: "DELETE FROM local_window_state WHERE window_id = ?", arguments: [windowId])
         }
         let childCount = try databaseQueue.read { database in
-            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM local_window_sidebar_expanded_group") ?? -1
+            try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM local_window_sidebar_collapsed_group") ?? -1
         }
         #expect(childCount == 0)
     }

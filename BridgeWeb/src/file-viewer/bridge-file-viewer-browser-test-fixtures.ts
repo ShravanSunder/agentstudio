@@ -1,5 +1,5 @@
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { BridgeProductFileSourceIdentity } from '../core/comm-worker/bridge-product-file-contracts.js';
+import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import {
 	bridgeProductFileMetadataEventSchema,
 	type BridgeProductSubscriptionEvent,
@@ -17,6 +17,10 @@ export type FileTreeRow = Extract<
 	FileMetadataEvent,
 	{ readonly eventKind: 'file.treeWindow' }
 >['rows'][number];
+export type FileNavigationCommand = Extract<
+	BridgeProductNavigationCommand,
+	{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
+>;
 
 const startupWindowMetadataLineage = {
 	loadedBy: 'startup_window',
@@ -126,7 +130,7 @@ export function makeTreeRowsOnlyMetadataEvents(): readonly FileMetadataEvent[] {
 	];
 }
 
-export function makeMixedAvailabilityTreeMetadataEvents(): readonly FileMetadataEvent[] {
+export function makeMixedFileClassTreeMetadataEvents(): readonly FileMetadataEvent[] {
 	const source = makeSourceIdentity();
 	const textDescriptor = makeFileDescriptor({
 		contentHandle: 'mixed-text-content',
@@ -137,10 +141,19 @@ export function makeMixedAvailabilityTreeMetadataEvents(): readonly FileMetadata
 	const unavailableDescriptor = makeFileDescriptor({
 		contentHandle: 'mixed-unavailable-content',
 		fileId: 'file-mixed-unavailable',
-		path: 'Vendor/BinaryFile.bin',
+		path: 'Vendor/Library.js',
 		sourceIdentity: source,
 		virtualizedExtentKind: 'unavailable',
 	});
+	const classifiedRows: readonly FileTreeRow[] = [
+		...makeClassifiedFileRows('Tests/TextFile.test.ts', 'test'),
+		...makeClassifiedFileRows('Docs/Guide.md', 'docs'),
+		...makeClassifiedFileRows('Config/package.json', 'config'),
+		...makeClassifiedFileRows('Generated/API.generated.swift', 'generated'),
+		...makeClassifiedFileRows('Large/blob.txt', 'large'),
+		...makeClassifiedFileRows('Fixtures/sample.txt', 'fixture'),
+		...makeClassifiedFileRows('Assets/logo.png', 'unknown'),
+	];
 	return [
 		makeSourceAcceptedMetadataEvent(source),
 		parseFileMetadataEvent({
@@ -164,21 +177,45 @@ export function makeMixedAvailabilityTreeMetadataEvents(): readonly FileMetadata
 					path: 'Sources/App',
 				}),
 				makeTreeRowFromDescriptor(textDescriptor),
-				makeTreeRow({
-					depth: 0,
-					isDirectory: true,
-					name: 'Vendor',
-					parentPath: null,
-					path: 'Vendor',
-				}),
-				makeTreeRowFromDescriptor(unavailableDescriptor),
+				...classifiedRows,
+				...makeClassifiedFileRows('Vendor/Library.js', 'vendor').slice(0, 1),
+				{ ...makeTreeRowFromDescriptor(unavailableDescriptor), fileClass: 'vendor' },
 			],
 			source,
 			startIndex: 0,
-			totalRowCount: 5,
+			totalRowCount: 19,
 		}),
 		textDescriptor,
 		unavailableDescriptor,
+	];
+}
+
+function makeClassifiedFileRows(
+	path: string,
+	fileClass: Exclude<FileTreeRow['fileClass'], null>,
+): readonly FileTreeRow[] {
+	const [directoryName, fileName] = path.split('/');
+	if (directoryName === undefined || fileName === undefined) {
+		throw new Error(`Expected one directory and one file in classified fixture path: ${path}`);
+	}
+	return [
+		makeTreeRow({
+			depth: 0,
+			isDirectory: true,
+			name: directoryName,
+			parentPath: null,
+			path: directoryName,
+		}),
+		makeTreeRow({
+			depth: 1,
+			fileClass,
+			fileId: `file-${fileClass}`,
+			isDirectory: false,
+			name: fileName,
+			parentPath: directoryName,
+			path,
+			sizeBytes: fileClass === 'large' ? 1_000_000 : 64,
+		}),
 	];
 }
 
@@ -331,6 +368,7 @@ export function makeTreeRow(props: {
 	readonly changeStatus?: FileTreeRow['changeStatus'];
 	readonly depth: number;
 	readonly fileId?: string;
+	readonly fileClass?: FileTreeRow['fileClass'];
 	readonly isDirectory: boolean;
 	readonly lineCount?: number | null;
 	readonly name: string;
@@ -342,6 +380,7 @@ export function makeTreeRow(props: {
 		changeStatus: props.changeStatus ?? null,
 		depth: props.depth,
 		fileId: props.fileId ?? null,
+		fileClass: props.isDirectory ? null : (props.fileClass ?? 'source'),
 		isDirectory: props.isDirectory,
 		lineCount: props.lineCount ?? null,
 		name: props.name,
@@ -505,18 +544,18 @@ export function fileTreeRowId(path: string): string {
 	return `row:${path.replaceAll('/', ':').replaceAll(' ', '_')}`;
 }
 
-export function fileNavigationCommandForPath(path: string): BridgeViewerNavigationCommand {
+export function fileNavigationCommandForPath(path: string): FileNavigationCommand {
 	return {
+		bindingRevision: 1,
 		commandId: `test:file:${path}`,
-		commandKind: 'initialize',
-		context: 'files',
-		restoreMemory: true,
-		source: { sourceKind: 'worktree', sourceId: 'source-1' },
-		target: {
-			targetKind: 'file',
-			fileRef: { sourceId: 'source-1', path },
-			version: 'current',
+		commandKind: 'activateTarget',
+		source: {
+			sourceId: 'dev-worktree-source',
+			sourceKind: 'file',
+			subscriptionGeneration: 1,
 		},
+		surface: 'file',
+		target: { path, targetKind: 'file', version: 'current' },
 	};
 }
 

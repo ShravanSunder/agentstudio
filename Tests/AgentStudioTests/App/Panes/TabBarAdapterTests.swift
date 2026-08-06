@@ -518,8 +518,11 @@ final class TabBarAdapterTests {
             name: "feature-name",
             path: URL(filePath: "/tmp/agent-studio/feature-name")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
@@ -554,8 +557,11 @@ final class TabBarAdapterTests {
             name: "feature-name",
             path: URL(filePath: "/tmp/adapter-placeholder/feature-name")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )

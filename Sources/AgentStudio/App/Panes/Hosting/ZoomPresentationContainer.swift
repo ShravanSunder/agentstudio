@@ -6,6 +6,12 @@ import AppKit
 import Foundation
 import SwiftUI
 
+typealias ZoomExitAnimationPerformer =
+    @MainActor (
+        _ updates: () -> Void,
+        _ completion: @escaping () -> Void
+    ) -> Void
+
 enum ZoomManagementTitle {
     static func text(
         sourceOrdinal: Int?,
@@ -53,6 +59,7 @@ struct ZoomPresentationContainer: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let workspaceWindowId: UUID?
     let actionDispatcher: PaneActionDispatching
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let onOpenPaneGitHub: (UUID) -> Void
@@ -60,6 +67,7 @@ struct ZoomPresentationContainer: View {
     let viewRegistry: ViewRegistry
     let surfaceId: String
     let renderedPaneIds: Set<UUID>
+    private let performZoomExitAnimation: ZoomExitAnimationPerformer
 
     @State private var splitRatio: CGFloat
     @State private var showsZoomToolbarLabel = false
@@ -88,13 +96,15 @@ struct ZoomPresentationContainer: View {
         paneInboxPresentation: PaneInboxPresentation? = nil,
         workspaceWindowId: UUID? = nil,
         actionDispatcher: PaneActionDispatching,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onFocusPane: @escaping (UUID) -> Void = { _ in },
         onOpenPaneGitHub: @escaping (UUID) -> Void = { _ in },
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         viewRegistry: ViewRegistry,
         surfaceId: String,
-        renderedPaneIds: Set<UUID>
+        renderedPaneIds: Set<UUID>,
+        performZoomExitAnimation: @escaping ZoomExitAnimationPerformer = Self.performLiveZoomExitAnimation
     ) {
         self.tabId = tabId
         self.sourcePaneId = sourcePaneId
@@ -112,6 +122,7 @@ struct ZoomPresentationContainer: View {
         self.paneInboxPresentation = paneInboxPresentation
         self.workspaceWindowId = workspaceWindowId
         self.actionDispatcher = actionDispatcher
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onFocusPane = onFocusPane
         self.onOpenPaneGitHub = onOpenPaneGitHub
@@ -119,6 +130,7 @@ struct ZoomPresentationContainer: View {
         self.viewRegistry = viewRegistry
         self.surfaceId = surfaceId
         self.renderedPaneIds = renderedPaneIds
+        self.performZoomExitAnimation = performZoomExitAnimation
         _splitRatio = State(initialValue: CGFloat(splitRatio))
     }
 
@@ -143,14 +155,15 @@ struct ZoomPresentationContainer: View {
                             persistSplitRatio(splitRatio)
                         }
                     )
-
-                    if atom(\.managementLayer).isActive,
-                        sourceManagementContext.showsIdentityBlock
-                    {
-                        ManagementPaneIdentityStrip(
-                            context: sourceManagementContext,
-                            octiconLoader: octiconLoader
-                        )
+                    .overlay(alignment: .bottom) {
+                        if atom(\.managementLayer).isActive,
+                            sourceManagementContext.showsIdentityBlock
+                        {
+                            ManagementPaneIdentityOverlay(
+                                context: sourceManagementContext,
+                                octiconLoader: octiconLoader
+                            )
+                        }
                     }
 
                     parentToolbar
@@ -208,17 +221,20 @@ struct ZoomPresentationContainer: View {
     @ViewBuilder
     private var parentToolbar: some View {
         if case .zoom(let toolbarModel) = parentToolbarPresentation {
-            let zoomAction = sequencedZoomExitAction(
-                toolbarModel.zoomAction.projectingVisibleLabel(
-                    showsZoomToolbarLabel ? toolbarModel.zoomAction.state.visibleLabel : nil
+            let zoomAction = toolbarModel.zoomAction.map { zoomAction in
+                sequencedZoomExitAction(
+                    zoomAction.projectingVisibleLabel(
+                        showsZoomToolbarLabel ? zoomAction.state.visibleLabel : nil
+                    )
                 )
-            )
+            }
             PaneSurfaceToolbarHost(
                 anchorPaneId: sourcePaneId,
                 locationTargetPaneId: sourcePaneId,
+                toolbarSurface: .terminalZoom,
                 drawer: store.paneAtom.pane(sourcePaneId)?.drawer,
                 leadingToolbarActions: [],
-                contextToolbarActions: [zoomAction, toolbarModel.viewerAction],
+                contextToolbarActions: [zoomAction, toolbarModel.viewerAction].compactMap(\.self),
                 store: store,
                 octiconLoader: octiconLoader,
                 editorChooser: editorChooser,
@@ -253,15 +269,26 @@ struct ZoomPresentationContainer: View {
         guard !isZoomExitPending else { return }
         isZoomExitPending = true
 
+        performZoomExitAnimation(
+            {
+                showsZoomToolbarLabel = false
+            },
+            {
+                performCancel()
+                isZoomExitPending = false
+            })
+    }
+
+    private static func performLiveZoomExitAnimation(
+        updates: () -> Void,
+        completion: @escaping () -> Void
+    ) {
         withAnimation(
             .easeOut(duration: AppStyles.General.Animation.fast),
-            completionCriteria: .logicallyComplete
-        ) {
-            showsZoomToolbarLabel = false
-        } completion: {
-            performCancel()
-            isZoomExitPending = false
-        }
+            completionCriteria: .logicallyComplete,
+            updates,
+            completion: completion
+        )
     }
 
     @ViewBuilder
@@ -288,12 +315,14 @@ struct ZoomPresentationContainer: View {
 
                 VStack {
                     HStack(spacing: AppStyles.General.Spacing.standard) {
-                        managementCircleButton(
-                            action: sequencedZoomExitAction(toolbarModel.zoomAction),
-                            isHovered: zoomHovered,
-                            accessibilityIdentifier: "paneManagement.zoom"
-                        )
-                        .onHover { zoomHovered = $0 }
+                        if let zoomAction = toolbarModel.zoomAction {
+                            managementCircleButton(
+                                action: sequencedZoomExitAction(zoomAction),
+                                isHovered: zoomHovered,
+                                accessibilityIdentifier: "paneManagement.zoom"
+                            )
+                            .onHover { zoomHovered = $0 }
+                        }
 
                         if let showArrangementsAction = toolbarModel.showArrangementsAction {
                             managementCircleButton(
@@ -376,6 +405,7 @@ struct ZoomPresentationContainer: View {
                 tabSize: tabSize,
                 iconBarFrame: iconBarFrame,
                 actionDispatcher: actionDispatcher,
+                arrangementInlineRenameState: arrangementInlineRenameState,
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onFocusPane: onFocusPane,
                 paneInboxPresentation: paneInboxPresentation,
@@ -468,6 +498,9 @@ struct ZoomPresentationContainer: View {
         case .unavailable, .retryable:
             layout = Layout(paneId: presentation.sourcePaneId)
             isCompanionVisible = false
+        case .unavailableVisible:
+            layout = Layout(paneId: presentation.sourcePaneId)
+            isCompanionVisible = true
 
         case .retainedHidden(let companionPaneId), .retainedVisible(let companionPaneId):
             let companionPaneSlot = viewRegistry.slot(for: companionPaneId)

@@ -8,7 +8,7 @@ import type { BridgeWorkerFileDisplayPatch } from './bridge-worker-contracts.js'
 import type { BridgeWorkerFileQuery } from './bridge-worker-file-query-contracts.js';
 
 describe('Bridge comm worker File query projection', () => {
-	test('owns text, regex, availability filtering, and invalid regex errors', () => {
+	test('owns text, regex, native file-class filtering, and invalid regex errors', () => {
 		expect(projectedPaths(resultForQuery(query({ searchText: 'readme' })))).toEqual(['README.md']);
 		expect(projectedPaths(resultForQuery(query({ searchText: 'assets' })))).toEqual([
 			'assets/logo.bin',
@@ -16,10 +16,8 @@ describe('Bridge comm worker File query projection', () => {
 		expect(
 			projectedPaths(resultForQuery(query({ searchMode: 'regex', searchText: '\\.bin$' }))),
 		).toEqual(['assets/logo.bin']);
-		expect(projectedPaths(resultForQuery(query({ filterMode: 'fetchable' })))).toEqual([
-			'README.md',
-		]);
-		expect(projectedPaths(resultForQuery(query({ filterMode: 'unavailable' })))).toEqual([
+		expect(projectedPaths(resultForQuery(query({ filterMode: 'docs' })))).toEqual(['README.md']);
+		expect(projectedPaths(resultForQuery(query({ filterMode: 'unknown' })))).toEqual([
 			'assets/logo.bin',
 		]);
 
@@ -31,32 +29,36 @@ describe('Bridge comm worker File query projection', () => {
 			searchText: '[',
 			totalRowCount: 3,
 		});
-		expect(queryStatus(invalid).searchError).toContain('regular expression');
+		expect(queryStatus(invalid).searchError).toBe('Invalid regex');
 	});
 
-	test('retains query through metadata events and reevaluates only affected rows', () => {
+	test('retains file-class query and reevaluates a class-only row correction', () => {
 		const scheduler = new DeterministicFileQueryScheduler();
 		const projection = makeProjection(scheduler);
 		projection.applyDisplayPatches(baseDisplayPatches());
-		applyQueryAndDrain(
-			projection,
-			scheduler,
-			query({ filterMode: 'fetchable', searchText: 'late' }),
-		);
+		applyQueryAndDrain(projection, scheduler, query({ filterMode: 'source', searchText: 'late' }));
 
 		const rowDelta = projection.applyDisplayPatches([
-			fileTreeBatch([fileTreeRowOperation('row-late', 'file-late', 'late.ts', 3)]),
+			fileTreeBatch([
+				fileTreeRowOperation('row-late', 'file-late', 'late.ts', 3, false, 'unknown'),
+			]),
 		]);
 		expect(rowDelta.evaluatedRowCount).toBe(1);
 		expect(projectedPaths(rowDelta)).toEqual([]);
 
-		const descriptorDelta = projection.applyDisplayPatches([
-			fileItemPatch('file-late', 'late.ts', 'available'),
+		const classCorrection = projection.applyDisplayPatches([
+			fileTreeBatch([fileTreeRowOperation('row-late', 'file-late', 'late.ts', 3, false, 'source')]),
 		]);
-		expect(descriptorDelta.evaluatedRowCount).toBe(1);
-		expect(projectedPaths(descriptorDelta)).toEqual(['late.ts']);
-		expect(queryStatus(descriptorDelta)).toMatchObject({
-			filterMode: 'fetchable',
+		expect(classCorrection.evaluatedRowCount).toBe(1);
+		expect(projectedPaths(classCorrection)).toEqual(['late.ts']);
+		expect(
+			queryStatus({
+				evaluatedRowCount: 0,
+				patches: projection.snapshotDisplayPatches(),
+				queryTransactionId: null,
+			}),
+		).toMatchObject({
+			filterMode: 'source',
 			searchText: 'late',
 			projectedRowCount: 1,
 			totalRowCount: 4,
@@ -358,8 +360,8 @@ function baseDisplayPatches(): readonly BridgeWorkerFileDisplayPatch[] {
 		},
 		fileTreeBatch([
 			fileTreeRowOperation('row-assets', null, 'assets', 0, true),
-			fileTreeRowOperation('row-logo', 'file-logo', 'assets/logo.bin', 1),
-			fileTreeRowOperation('row-readme', 'file-readme', 'README.md', 2),
+			fileTreeRowOperation('row-logo', 'file-logo', 'assets/logo.bin', 1, false, 'unknown'),
+			fileTreeRowOperation('row-readme', 'file-readme', 'README.md', 2, false, 'docs'),
 		]),
 		fileItemPatch('file-logo', 'assets/logo.bin', 'binary'),
 		fileItemPatch('file-readme', 'README.md', 'available'),
@@ -372,6 +374,7 @@ function fileTreeRowOperation(
 	path: string,
 	projectionIndex: number,
 	isDirectory = false,
+	fileClass: Exclude<BridgeWorkerFileQuery['filterMode'], 'all'> = 'source',
 ): FileTreeOperation {
 	const pathSegments = path.split('/');
 	return {
@@ -380,6 +383,7 @@ function fileTreeRowOperation(
 			changeStatus: null,
 			depth: pathSegments.length - 1,
 			fileId,
+			fileClass: isDirectory ? null : fileClass,
 			isDirectory,
 			lineCount: null,
 			name: pathSegments.at(-1) ?? path,

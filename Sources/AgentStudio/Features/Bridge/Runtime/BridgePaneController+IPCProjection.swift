@@ -48,8 +48,11 @@ private struct BridgePageControlProbeSnapshot: Decodable {
     let itemId: String?
     let path: String?
     let treeSearchText: String
-    let gitStatusFilter: String
-    let fileClassFilter: String
+    let filterSurface: IPCBridgeFileTreeFilterSurface
+    let gitStatusFilter: IPCBridgeGitStatusFilter
+    let categoryFilter: IPCBridgeFilterCategory
+    let showBinary: Bool
+    let showLarge: Bool
     let renderMode: BridgePageControlRenderModeSnapshot
     let reason: String?
 }
@@ -191,32 +194,32 @@ extension BridgePaneController {
         itemId: String,
         correlationId: UUID?
     ) async throws -> IPCBridgeReviewSelectFileResult {
-        guard let package = paneState.diff.packageMetadata else {
+        guard let productAdmission = productAdmissionGate.acquire(),
+            let publication = reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        else {
             throw BridgeIPCProjectionError(reason: .packageUnavailable)
         }
+        let package = publication.package
         guard package.itemsById[itemId] != nil else {
             throw BridgeIPCProjectionError(reason: .itemNotFound)
         }
 
-        try await dispatchReviewItemSelectionToPage(itemId: itemId)
+        try await requestReviewTargetAndPublish(
+            source: BridgeProductNavigationReviewSource(
+                generation: package.reviewGeneration.rawValue,
+                metadataSourceId: package.query.queryId,
+                packageId: package.packageId
+            ),
+            target: BridgeProductNavigationReviewTarget(reviewItemId: itemId)
+        )
         selectedReviewItemId = itemId
         return IPCBridgeReviewSelectFileResult(
             paneId: paneId,
             itemId: itemId,
             selected: true,
             correlationId: correlationId
-        )
-    }
-
-    private func dispatchReviewItemSelectionToPage(itemId: String) async throws {
-        let itemIdLiteral = try javaScriptStringLiteral(itemId)
-        try await page.callJavaScript(
-            """
-            window.dispatchEvent(new CustomEvent('__bridge_select_review_item', {
-              detail: { itemId: \(itemIdLiteral) }
-            }));
-            """,
-            contentWorld: .page
         )
     }
 
@@ -241,8 +244,17 @@ extension BridgePaneController {
                 itemId: null,
                 path: null,
                 treeSearchText: '',
+                filterSurface:
+                  \(commandLiteral).method === 'bridge.fileTree.setFilter'
+                    ? \(commandLiteral).filter.surface
+                    : 'review',
                 gitStatusFilter: 'all',
-                fileClassFilter: 'all',
+                categoryFilter:
+                  \(commandLiteral).method === 'bridge.fileTree.setFilter'
+                    ? \(commandLiteral).filter.categoryFilter
+                    : 'all',
+                showBinary: false,
+                showLarge: false,
                 renderMode: { kind: 'codeView' },
                 reason: 'missing_control_probe'
               };
@@ -264,8 +276,11 @@ extension BridgePaneController {
             itemId: snapshot.itemId,
             path: snapshot.path,
             treeSearchText: snapshot.treeSearchText,
+            filterSurface: snapshot.filterSurface,
             gitStatusFilter: snapshot.gitStatusFilter,
-            fileClassFilter: snapshot.fileClassFilter,
+            categoryFilter: snapshot.categoryFilter,
+            showBinary: snapshot.showBinary,
+            showLarge: snapshot.showLarge,
             renderMode: snapshot.renderMode.kind,
             reason: snapshot.reason,
             correlationId: correlationId

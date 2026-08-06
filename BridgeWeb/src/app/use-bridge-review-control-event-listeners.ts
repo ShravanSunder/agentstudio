@@ -3,14 +3,10 @@ import { useLayoutEffect } from 'react';
 
 import type {
 	BridgeFileChangeKind,
-	BridgeFileClass,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import type {
-	BridgeReviewProjectionResult,
-	BridgeReviewSearchMode,
-} from '../review-viewer/models/review-projection-models.js';
+import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import {
 	invalidBridgeAppControlProbeCommand,
 	nextBridgeAppControlProbeSequence,
@@ -18,28 +14,42 @@ import {
 	type BridgeAppControlProbeState,
 } from './bridge-app-control-probe.js';
 import {
+	bridgeAppControlCommandRejectionReason,
 	bridgeAppControlCommandSchema,
 	type BridgeAppControlCommand,
+	type BridgeFileTreeFilterCandidate,
 } from './bridge-app-control.js';
+import type {
+	BridgeViewerSearchAction,
+	BridgeViewerSearchRejectionReason,
+	BridgeViewerSearchState,
+} from './bridge-viewer-search-state.js';
+
+type BridgeReviewFilterCandidate = Extract<
+	BridgeFileTreeFilterCandidate,
+	{ readonly surface: 'review' }
+>;
 
 interface UseBridgeReviewControlEventListenersProps {
 	readonly codeViewControlHandleRef: MutableRefObject<BridgeCodeViewControlHandle | null>;
 	readonly controlProbeSequenceRef: MutableRefObject<number>;
-	readonly fileClassFilter: BridgeFileClass | 'all';
+	readonly categoryFilter: BridgeReviewFilterCandidate['categoryFilter'];
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
 	readonly isActive: boolean;
+	readonly onSearchRejected: (reason: BridgeViewerSearchRejectionReason) => void;
 	readonly projection: BridgeReviewProjectionResult | null;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedItemId: string | null;
 	readonly selectReviewItem: (itemId: string) => boolean;
-	readonly setFileClassFilter: (filter: BridgeFileClass | 'all') => void;
-	readonly setGitStatusFilter: (filter: BridgeFileChangeKind | 'all') => void;
-	readonly setTreeSearchMode: (mode: BridgeReviewSearchMode) => void;
-	readonly setTreeSearchOpen: (isOpen: boolean) => void;
-	readonly setTreeSearchText: (searchText: string) => void;
+	readonly setReviewFilter: (filter: BridgeReviewFilterCandidate) => void;
+	readonly applyTreeSearchActions: (
+		actions: readonly BridgeViewerSearchAction[],
+	) => BridgeViewerSearchRejectionReason | null;
 	readonly target: EventTarget;
-	readonly treeSearchMode: BridgeReviewSearchMode;
-	readonly treeSearchText: string;
+	readonly treeSearchStateRef: MutableRefObject<BridgeViewerSearchState>;
+	readonly treeSearchState: BridgeViewerSearchState;
+	readonly showBinary: boolean;
+	readonly showLarge: boolean;
 }
 
 export function useBridgeReviewControlEventListeners(
@@ -47,42 +57,32 @@ export function useBridgeReviewControlEventListeners(
 ): void {
 	useLayoutEffect((): (() => void) => {
 		if (!props.isActive) return (): void => {};
-		const handleSelectReviewItem = (event: Event): void => {
-			const detail = eventDetail(event);
-			if (
-				typeof detail !== 'object' ||
-				detail === null ||
-				!('itemId' in detail) ||
-				typeof detail.itemId !== 'string'
-			) {
-				return;
-			}
-			props.selectReviewItem(detail.itemId);
-		};
-		return installBridgeControlListener({
-			eventName: '__bridge_select_review_item',
-			handler: handleSelectReviewItem,
-			target: props.target,
-		});
-	}, [props]);
-
-	useLayoutEffect((): (() => void) => {
-		if (!props.isActive) return (): void => {};
 		const handleControl = (event: Event): void => {
-			const parsedCommand = bridgeAppControlCommandSchema.safeParse(eventDetail(event));
+			const detail = eventDetail(event);
+			const parsedCommand = bridgeAppControlCommandSchema.safeParse(detail);
 			const command = parsedCommand.success
 				? parsedCommand.data
 				: invalidBridgeAppControlProbeCommand;
 			const result = parsedCommand.success
 				? applyBridgeReviewControlCommand({ command, props })
-				: { reason: 'invalid_control_command', status: 'rejected' as const };
+				: {
+						reason: bridgeAppControlCommandRejectionReason(detail),
+						status: 'rejected' as const,
+					};
+			if (result.reason === 'search_query_too_long') {
+				props.onSearchRejected(result.reason);
+			}
+			const liveTreeSearchState = props.treeSearchStateRef.current;
 			const probeState: BridgeAppControlProbeState = {
-				fileClassFilter: props.fileClassFilter,
+				categoryFilter: props.categoryFilter,
+				filterSurface: 'review',
 				gitStatusFilter: props.gitStatusFilter,
 				renderMode: { kind: 'codeView' },
 				selectedItemId: props.selectedItemId,
-				treeSearchMode: props.treeSearchMode,
-				treeSearchText: props.treeSearchText,
+				showBinary: props.showBinary,
+				showLarge: props.showLarge,
+				treeSearchMode: { kind: liveTreeSearchState.enteredCriteria.mode },
+				treeSearchText: liveTreeSearchState.enteredCriteria.query,
 				...result.probeStatePatch,
 			};
 			publishBridgeAppControlProbe({
@@ -126,9 +126,15 @@ function applyBridgeReviewControlCommand(props: {
 				: { reason: 'item_not_rendered', status: 'rejected' };
 		}
 		case 'bridge.fileTree.search':
-			controlProps.setTreeSearchOpen(true);
-			controlProps.setTreeSearchText(command.searchText);
-			controlProps.setTreeSearchMode(command.searchMode);
+			const rejectionReason = controlProps.applyTreeSearchActions([
+				{
+					type: 'apply_semantic_criteria',
+					criteria: { mode: command.searchMode.kind, query: command.searchText },
+				},
+			]);
+			if (rejectionReason !== null) {
+				return { reason: rejectionReason, status: 'rejected' };
+			}
 			return {
 				probeStatePatch: {
 					treeSearchMode: command.searchMode,
@@ -138,12 +144,16 @@ function applyBridgeReviewControlCommand(props: {
 				status: 'accepted',
 			};
 		case 'bridge.fileTree.setFilter':
-			controlProps.setGitStatusFilter(command.gitStatusFilter);
-			controlProps.setFileClassFilter(command.fileClassFilter);
+			if (command.filter.surface !== 'review') {
+				return { reason: 'unsupported_surface', status: 'rejected' };
+			}
+			controlProps.setReviewFilter(command.filter);
 			return {
 				probeStatePatch: {
-					fileClassFilter: command.fileClassFilter,
-					gitStatusFilter: command.gitStatusFilter,
+					categoryFilter: command.filter.categoryFilter,
+					gitStatusFilter: command.filter.gitStatusFilter,
+					showBinary: command.filter.showBinary,
+					showLarge: command.filter.showLarge,
 				},
 				reason: null,
 				status: 'accepted',

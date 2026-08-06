@@ -30,6 +30,7 @@ struct RepoExplorerWorktreeRowContent: View {
     let unreadCount: Int
     let showsFavoriteControl: Bool
     var isFavorite = false
+    var favoriteCommandPresentation: RepoExplorerPresentedCommand?
     var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
 
@@ -101,8 +102,10 @@ struct RepoExplorerWorktreeRowContent: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                if showsFavoriteControl {
-                    let favoriteActionSpec = Self.favoriteActionSpec(isFavorite: isFavorite)
+                if showsFavoriteControl,
+                    let favoriteCommandPresentation
+                {
+                    let favoriteActionSpec = favoriteCommandPresentation.commandSpec
                     Button(action: onToggleFavorite) {
                         favoriteActionSpec.icon.swiftUIImage(
                             loader: octiconLoader,
@@ -116,8 +119,9 @@ struct RepoExplorerWorktreeRowContent: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(Self.favoriteAccessibilityLabel(isFavorite: isFavorite))
-                    .help(Self.favoriteHelpText(isFavorite: isFavorite))
+                    .accessibilityLabel(favoriteActionSpec.label)
+                    .controlHelp(favoriteActionSpec.controlTooltipRenderValue())
+                    .disabled(!favoriteCommandPresentation.isEnabled)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -226,6 +230,8 @@ package struct RepoExplorerWorktreeRow: View {
     let unreadCount: Int
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var isFavorite = false
+    let commandPresentation: RepoExplorerWorktreeCommandPresentation
+    var panePresentations: [RepoExplorerPanePresentation] = []
     var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
@@ -235,6 +241,7 @@ package struct RepoExplorerWorktreeRow: View {
     var onOpenReviewInNewTab: () -> Void = {}
     var onOpenFilesInNewTab: () -> Void = {}
     let onOpenInPane: () -> Void
+    var onFocusPane: (UUID) -> Void = { _ in }
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
     @State private var isHovering = false
@@ -251,6 +258,8 @@ package struct RepoExplorerWorktreeRow: View {
         unreadCount: Int,
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
         isFavorite: Bool = false,
+        commandPresentation: RepoExplorerWorktreeCommandPresentation,
+        panePresentations: [RepoExplorerPanePresentation] = [],
         onToggleFavorite: @escaping () -> Void = {},
         onUnreadPillTap: @escaping () -> Void = {},
         onOpen: @escaping () -> Void,
@@ -259,7 +268,8 @@ package struct RepoExplorerWorktreeRow: View {
         onOpenFiles: @escaping () -> Void,
         onOpenReviewInNewTab: @escaping () -> Void = {},
         onOpenFilesInNewTab: @escaping () -> Void = {},
-        onOpenInPane: @escaping () -> Void
+        onOpenInPane: @escaping () -> Void,
+        onFocusPane: @escaping (UUID) -> Void = { _ in }
     ) {
         self.octiconLoader = octiconLoader
         self.worktree = worktree
@@ -272,6 +282,8 @@ package struct RepoExplorerWorktreeRow: View {
         self.unreadCount = unreadCount
         self.bridgeCommandResolution = bridgeCommandResolution
         self.isFavorite = isFavorite
+        self.commandPresentation = commandPresentation
+        self.panePresentations = panePresentations
         self.onToggleFavorite = onToggleFavorite
         self.onUnreadPillTap = onUnreadPillTap
         self.onOpen = onOpen
@@ -281,12 +293,16 @@ package struct RepoExplorerWorktreeRow: View {
         self.onOpenReviewInNewTab = onOpenReviewInNewTab
         self.onOpenFilesInNewTab = onOpenFilesInNewTab
         self.onOpenInPane = onOpenInPane
+        self.onFocusPane = onFocusPane
     }
 
     package var body: some View {
         let favoriteControlVisibility = RepoExplorerFavoriteControlVisibility(
             isMainWorktree: worktree.isMainWorktree
         )
+        let favoriteCommand = isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite
+        let inlineOpenWorktree = commandPresentation.inlineCommand(.openWorktree)
+        let inlineFavorite = commandPresentation.inlineCommand(favoriteCommand)
 
         SidebarRowShell(isHovering: isHovering) {
             RepoExplorerWorktreeRowContent(
@@ -300,69 +316,106 @@ package struct RepoExplorerWorktreeRow: View {
                 unreadCount: unreadCount,
                 showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
                 isFavorite: isFavorite,
+                favoriteCommandPresentation: inlineFavorite,
                 onToggleFavorite: onToggleFavorite,
                 onUnreadPillTap: onUnreadPillTap
             )
         }
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
+            guard inlineOpenWorktree?.isEnabled == true else { return }
             onOpen()
         }
         .contextMenu {
-            Button {
-                onOpen()
+            Menu {
+                if hasCurrentTabCommands {
+                    Menu {
+                        if let openWorktreeInPane = commandPresentation.contextMenuCommand(.openWorktreeInPane) {
+                            Button {
+                                onOpenInPane()
+                            } label: {
+                                menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)
+                            }
+                            .disabled(!openWorktreeInPane.isEnabled)
+                        }
+
+                        if let showBridgeReview = commandPresentation.contextMenuCommand(.showBridgeReview) {
+                            Button {
+                                onReview()
+                            } label: {
+                                menuLabel(actionSpec: showBridgeReview.commandSpec.actionSpec)
+                            }
+                            .disabled(!showBridgeReview.isEnabled)
+                        }
+
+                        if let showBridgeFiles = commandPresentation.contextMenuCommand(.showBridgeFiles) {
+                            Button {
+                                onOpenFiles()
+                            } label: {
+                                menuLabel(actionSpec: showBridgeFiles.commandSpec.actionSpec)
+                            }
+                            .disabled(!showBridgeFiles.isEnabled)
+                        }
+                    } label: {
+                        menuLabel(actionSpec: LocalActionSpec.openInCurrentTabMenu.actionSpec)
+                    }
+                }
+
+                if hasNewTabCommands {
+                    Menu {
+                        if let openNewTerminal = commandPresentation.contextMenuCommand(.openNewTerminalInTab) {
+                            Button {
+                                onOpenNew()
+                            } label: {
+                                menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)
+                            }
+                            .disabled(!openNewTerminal.isEnabled)
+                        }
+
+                        if let openReviewInNewTab =
+                            commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab)
+                        {
+                            Button {
+                                onOpenReviewInNewTab()
+                            } label: {
+                                menuLabel(actionSpec: openReviewInNewTab.commandSpec.actionSpec)
+                            }
+                            .disabled(!openReviewInNewTab.isEnabled)
+                        }
+
+                        if let openFilesInNewTab =
+                            commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab)
+                        {
+                            Button {
+                                onOpenFilesInNewTab()
+                            } label: {
+                                menuLabel(actionSpec: openFilesInNewTab.commandSpec.actionSpec)
+                            }
+                            .disabled(!openFilesInNewTab.isEnabled)
+                        }
+                    } label: {
+                        menuLabel(actionSpec: LocalActionSpec.openInNewTabMenu.actionSpec)
+                    }
+                }
             } label: {
-                menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
+                menuLabel(actionSpec: LocalActionSpec.createNew.actionSpec)
             }
 
-            Menu {
-                Button {
-                    onOpenInPane()
-                } label: {
-                    menuLabel(actionSpec: AppCommand.openWorktreeInPane.definition.actionSpec)
+            if !panePresentations.isEmpty {
+                Menu(LocalActionSpec.goToPane.actionSpec.label) {
+                    RepoExplorerPaneDestinationMenuContent(
+                        presentations: panePresentations,
+                        onFocusPane: onFocusPane
+                    )
                 }
-
-                Button {
-                    onReview()
-                } label: {
-                    menuLabel(actionSpec: AppCommand.showBridgeReview.definition.actionSpec)
-                }
-
-                Button {
-                    onOpenFiles()
-                } label: {
-                    menuLabel(actionSpec: AppCommand.showBridgeFiles.definition.actionSpec)
-                }
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInCurrentTabMenu.actionSpec)
-            }
-
-            Menu {
-                Button {
-                    onOpenNew()
-                } label: {
-                    menuLabel(actionSpec: AppCommand.openNewTerminalInTab.definition.actionSpec)
-                }
-
-                Button {
-                    onOpenReviewInNewTab()
-                } label: {
-                    menuLabel(actionSpec: AppCommand.openBridgeReviewInNewTab.definition.actionSpec)
-                }
-
-                Button {
-                    onOpenFilesInNewTab()
-                } label: {
-                    menuLabel(actionSpec: AppCommand.openBridgeFilesInNewTab.definition.actionSpec)
-                }
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.openInNewTabMenu.actionSpec)
             }
 
             Divider()
 
-            if favoriteControlVisibility.showsContextMenuAction {
-                let favoriteActionSpec = RepoExplorerWorktreeRowContent.favoriteActionSpec(isFavorite: isFavorite)
+            if favoriteControlVisibility.showsContextMenuAction,
+                let favoritePresentation = commandPresentation.contextMenuCommand(favoriteCommand)
+            {
+                let favoriteActionSpec = favoritePresentation.commandSpec
                 Button {
                     onToggleFavorite()
                 } label: {
@@ -371,6 +424,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Text(favoriteActionSpec.label)
                     }
                 }
+                .disabled(!favoritePresentation.isEnabled)
             }
 
             Menu {
@@ -403,6 +457,18 @@ package struct RepoExplorerWorktreeRow: View {
                 menuLabel(actionSpec: LocalActionSpec.copyPath.actionSpec)
             }
         }
+    }
+
+    private var hasCurrentTabCommands: Bool {
+        commandPresentation.contextMenuCommand(.openWorktreeInPane) != nil
+            || commandPresentation.contextMenuCommand(.showBridgeReview) != nil
+            || commandPresentation.contextMenuCommand(.showBridgeFiles) != nil
+    }
+
+    private var hasNewTabCommands: Bool {
+        commandPresentation.contextMenuCommand(.openNewTerminalInTab) != nil
+            || commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab) != nil
+            || commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab) != nil
     }
 
     private func openInCursor() {

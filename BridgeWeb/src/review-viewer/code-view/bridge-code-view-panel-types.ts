@@ -1,4 +1,4 @@
-import type { CodeViewScrollBehavior } from '@pierre/diffs';
+import type { CodeViewOptions, CodeViewScrollBehavior } from '@pierre/diffs';
 
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
@@ -17,6 +17,7 @@ export interface SelectedContentPaintTelemetryStart {
 }
 
 export interface BridgeCodeViewPanelProps {
+	readonly codeViewOptions?: Readonly<CodeViewOptions<undefined>>;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;

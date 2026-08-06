@@ -30,10 +30,8 @@ enum DrawerEditorChooserFactory {
         editorChooser: EditorChooserState,
         paneId: UUID,
         workspaceWindowId: UUID? = nil,
-        canOpenTarget: Bool,
+        commandPresentation: DrawerToolbarCommandPresentation,
         refreshInstalledTargets: @escaping @MainActor () -> [ExternalEditorTarget],
-        onOpenFinder: @escaping () -> Void,
-        onCopyPath: @escaping () -> Void = {},
         onOpenEditor: @escaping (EditorTargetId) -> Void
     ) -> DrawerOverlay.TrailingActions {
         let transientSurfaceKind = TransientKeyboardSurfaceKind.editorChooser(paneId: paneId)
@@ -48,7 +46,9 @@ enum DrawerEditorChooserFactory {
                 )
             }
         return DrawerOverlay.TrailingActions(
-            canOpenTarget: canOpenTarget,
+            openEditorMenuAction: commandPresentation.openEditorMenu,
+            openFinderAction: commandPresentation.openFinder,
+            copyPathAction: commandPresentation.copyPath,
             editorMenuContent: AnyView(
                 DrawerEditorChooserPopoverHost(
                     items: items,
@@ -97,9 +97,7 @@ enum DrawerEditorChooserFactory {
                 targets: editorChooser.availableTargets.isEmpty
                     ? ExternalEditorTarget.curatedOrder
                     : editorChooser.availableTargets
-            ),
-            onOpenFinder: onOpenFinder,
-            onCopyPath: onCopyPath
+            )
         )
     }
 }

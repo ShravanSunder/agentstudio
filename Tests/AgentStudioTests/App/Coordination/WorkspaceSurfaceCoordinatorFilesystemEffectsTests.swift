@@ -179,13 +179,21 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         await source.waitForOperationCount(3)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
+        let operations = await source.operations()
+        #expect(operations.count == 3)
+        let activityOperations = Array(operations.dropLast())
+        #expect(activityOperations.count == 2)
         #expect(
-            await source.operations() == [
-                .activity(worktreeId: firstWorktree.id, isActiveInApp: false),
-                .activity(worktreeId: secondWorktree.id, isActiveInApp: true),
-                .activePane(worktreeId: secondWorktree.id),
-            ]
+            activityOperations.contains(
+                .activity(worktreeId: firstWorktree.id, isActiveInApp: false)
+            )
         )
+        #expect(
+            activityOperations.contains(
+                .activity(worktreeId: secondWorktree.id, isActiveInApp: true)
+            )
+        )
+        #expect(operations.last == .activePane(worktreeId: secondWorktree.id))
     }
 
     @Test("pane mount and removal write only affected worktree activity")

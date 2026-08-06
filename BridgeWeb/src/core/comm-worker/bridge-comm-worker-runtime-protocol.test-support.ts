@@ -106,6 +106,14 @@ export function activateBridgeCommWorkerFileViewerMode(
 	);
 }
 
+export async function activateBridgeCommWorkerFileViewerModeAndFlush(
+	dispatch: { readonly message: (data: unknown) => void },
+	requestLabel: string,
+): Promise<void> {
+	activateBridgeCommWorkerFileViewerMode(dispatch, requestLabel);
+	await flushBridgeWorkerRuntimeContinuations();
+}
+
 export function activateBridgeCommWorkerReviewViewerMode(
 	dispatch: { readonly message: (data: unknown) => void },
 	requestLabel: string,

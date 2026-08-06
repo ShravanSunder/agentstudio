@@ -64,21 +64,17 @@ struct RepoExplorerViewInjectionTests {
     func typedCommandCallbacksPreserveFeatureValues() {
         var visibilityModes: [RepoExplorerVisibilityMode] = []
         var sortOrders: [RepoExplorerSortOrder] = []
-        var refreshCount = 0
         let view = makeRepoExplorerView(
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             onSetVisibilityMode: { visibilityModes.append($0) },
-            onSetSortOrder: { sortOrders.append($0) },
-            onRefreshWorktrees: { refreshCount += 1 }
+            onSetSortOrder: { sortOrders.append($0) }
         )
 
         view.onSetVisibilityMode(.favoritesOnly)
         view.onSetSortOrder(.descending)
-        view.onRefreshWorktrees()
 
         #expect(visibilityModes == [.favoritesOnly])
         #expect(sortOrders == [.descending])
-        #expect(refreshCount == 1)
     }
 
     private func makeRepoExplorerView(
@@ -86,8 +82,7 @@ struct RepoExplorerViewInjectionTests {
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping @MainActor () -> [UUID: UInt64] = { [:] },
         onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void = { _ in },
-        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in },
-        onRefreshWorktrees: @escaping () -> Void = {}
+        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in }
     ) -> RepoExplorerView {
         RepoExplorerView(
             store: store,
@@ -97,7 +92,6 @@ struct RepoExplorerViewInjectionTests {
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
             onSetVisibilityMode: onSetVisibilityMode,
             onSetSortOrder: onSetSortOrder,
-            onRefreshWorktrees: onRefreshWorktrees,
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
             onShowNotificationsForWorktree: { _ in },

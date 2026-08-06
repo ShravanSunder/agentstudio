@@ -13,11 +13,11 @@ struct SingleTabContent: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
-    let onToggleZoom: (UUID?) -> Void
     let notificationCountForWorktree: (UUID) -> Int
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
@@ -33,11 +33,11 @@ struct SingleTabContent: View {
         appLifecycleStore: AppLifecycleAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        arrangementInlineRenameState: ArrangementInlineRenameState,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onFocusPane: @escaping (UUID) -> Void,
         paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        onToggleZoom: @escaping (UUID?) -> Void = { _ in },
         notificationCountForWorktree: @escaping (UUID) -> Int = { _ in 0 },
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation,
@@ -53,11 +53,11 @@ struct SingleTabContent: View {
         self.appLifecycleStore = appLifecycleStore
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onFocusPane = onFocusPane
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
-        self.onToggleZoom = onToggleZoom
         self.notificationCountForWorktree = notificationCountForWorktree
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
@@ -95,6 +95,7 @@ struct SingleTabContent: View {
                         activePaneId: tab.activePaneId,
                         minimizedPaneIds: tab.activeMinimizedPaneIds,
                         visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: tabId),
+                        arrangementInlineRenameState: arrangementInlineRenameState,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
                         onPaneFocusTrigger: onPaneFocusTrigger,
@@ -106,7 +107,6 @@ struct SingleTabContent: View {
                         appLifecycleStore: appLifecycleStore,
                         paneInboxPresentation: paneInboxPresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub,
-                        onToggleZoom: onToggleZoom,
                         notificationCountForWorktree: notificationCountForWorktree,
                         workspaceWindowId: workspaceWindowId,
                         paneSurfaceToolbarPresentation: paneSurfaceToolbarPresentation
@@ -133,21 +133,26 @@ struct SingleTabContent: View {
             parentToolbar: parentToolbar
         ) {
             let ordinalMap = PaneOrdinalMap(orderedPaneIds: tab.layout.paneIds)
-            let isSplit = renderState.children.count > 1
+            let isSplit = renderState.isCompanionVisible
             let sourceContent = zoomChildContent(
                 renderState.children[0],
                 sourcePaneId: presentation.sourcePaneId,
                 isSplit: isSplit,
                 ordinalMap: ordinalMap
             )
-            let companionContent = renderState.children.dropFirst().first.map {
-                zoomChildContent(
-                    $0,
-                    sourcePaneId: presentation.sourcePaneId,
-                    isSplit: isSplit,
-                    ordinalMap: ordinalMap
-                )
-            }
+            let companionContent: AnyView? =
+                if presentation.viewerPresentation == .unavailableVisible {
+                    AnyView(ZoomViewerUnavailableView())
+                } else {
+                    renderState.children.dropFirst().first.map {
+                        zoomChildContent(
+                            $0,
+                            sourcePaneId: presentation.sourcePaneId,
+                            isSplit: isSplit,
+                            ordinalMap: ordinalMap
+                        )
+                    }
+                }
 
             ZoomPresentationContainer(
                 tabId: tabId,
@@ -167,6 +172,7 @@ struct SingleTabContent: View {
                 paneInboxPresentation: paneInboxPresentation,
                 workspaceWindowId: workspaceWindowId,
                 actionDispatcher: actionDispatcher,
+                arrangementInlineRenameState: arrangementInlineRenameState,
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onFocusPane: onFocusPane,
                 onOpenPaneGitHub: onOpenPaneGitHub,

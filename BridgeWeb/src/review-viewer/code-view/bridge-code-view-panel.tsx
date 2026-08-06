@@ -16,6 +16,7 @@ import {
 	runBridgeCodeViewMetadataReconciliationInChunks,
 	type RunBridgeCodeViewMetadataApplyInChunksProps,
 } from './bridge-code-view-metadata-apply.js';
+import { bridgeCodeViewOptions } from './bridge-code-view-options.js';
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	bridgeCodeViewInitialItemsWithMetadataDeltaItems,
@@ -953,6 +954,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 
 	return (
 		<BridgeCodeViewPanelFrame
+			codeViewOptions={props.codeViewOptions ?? bridgeCodeViewOptions}
 			handleCodeViewPostRender={handleCodeViewPostRender}
 			handleCodeViewScroll={handleCodeViewScroll}
 			handleCodeViewUserScrollIntent={handleCodeViewUserScrollIntent}

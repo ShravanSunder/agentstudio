@@ -5,7 +5,6 @@ import { bridgeProductReviewContentDescriptorSchema } from './bridge-product-con
 import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
-	bridgeProductPositiveSequenceSchema,
 	bridgeProductSurfaceSchema,
 	type BridgeProductSurface,
 } from './bridge-product-contract-primitives.js';
@@ -17,8 +16,8 @@ import {
 	bridgeProductReviewContentLineCountsByRoleSchema,
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
-	bridgeProductReviewFileClassSchema,
 } from './bridge-product-review-primitives.js';
+import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
 import {
 	bridgeProductFileTruncationKindSchema,
 	bridgeProductFileVirtualizedExtentKindSchema,
@@ -91,10 +90,18 @@ export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchem
 	.extend({
 		command: z.literal('select'),
 		surface: bridgeWorkerInteractionSurfaceSchema,
-		selectedItemId: z.string().min(1),
-		selectedSource: z.enum(['user', 'keyboard', 'programmatic']),
+		selectedItemId: z.string().min(1).nullable(),
+		selectedSource: z.enum(['user', 'keyboard', 'programmatic']).nullable(),
 	})
-	.strict();
+	.strict()
+	.superRefine((command, context): void => {
+		if ((command.selectedItemId === null) !== (command.selectedSource === null)) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Selection identity and source must both be present or both be null.',
+			});
+		}
+	});
 
 export const bridgeWorkerViewportCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
@@ -177,8 +184,20 @@ export const bridgeWorkerFileQueryUpdateCommandSchema = bridgeWorkerMainToServer
 
 export const bridgeWorkerReviewProjectionQuerySchema = z
 	.object({
-		fileClassFilter: z.union([z.literal('all'), bridgeProductReviewFileClassSchema]),
+		categoryFilter: z.enum([
+			'all',
+			'source',
+			'test',
+			'docs',
+			'config',
+			'generated',
+			'vendor',
+			'fixture',
+			'unknown',
+		]),
 		gitStatusFilter: z.union([z.literal('all'), bridgeProductReviewFileChangeKindSchema]),
+		showBinary: z.boolean(),
+		showLarge: z.boolean(),
 	})
 	.strict();
 
@@ -811,10 +830,8 @@ export const bridgeWorkerNativeSurfaceSelectionRequestSchema = bridgeWorkerServe
 	.extend({
 		kind: z.literal('nativeSurfaceSelectionRequest'),
 		metadataStreamId: bridgeProductIdentifierSchema,
-		nativeSelectionRequestId: bridgeProductIdentifierSchema,
+		navigationCommand: bridgeProductNavigationCommandSchema,
 		paneSessionId: bridgeProductIdentifierSchema,
-		selectionRevision: bridgeProductPositiveSequenceSchema,
-		surface: bridgeProductSurfaceSchema,
 		workerInstanceId: bridgeProductIdentifierSchema,
 	})
 	.strict();

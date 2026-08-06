@@ -1,160 +1,59 @@
 import Foundation
-import GRDB
 import Testing
 
 @testable import AgentStudioCore
 
-/// Characterizes live pane facets at the persistence boundary. Cleared facets
-/// remain nullable, while non-nil repo and worktree identities must resolve
-/// against the authoritative global topology.
-@Suite("WorkspaceCoreRepositoryPaneSourceLatchTests")
+@Suite("WorkspaceCoreRepository pane CWD persistence")
 struct WorkspaceCoreRepositoryPaneSourceLatchTests {
-    private let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-00000000A001")!
-    private let repoId = UUID(uuidString: "00000000-0000-0000-0000-00000000A101")!
-    private let worktreeAId = UUID(uuidString: "00000000-0000-0000-0000-00000000A201")!
-    private let worktreeBId = UUID(uuidString: "00000000-0000-0000-0000-00000000A202")!
-    private let paneId = UUID(uuidString: "00000000-0000-0000-0000-00000000A301")!
-
-    private func makeFixtureWithTopology(
-        worktreeIds: [UUID]
-    ) throws -> WorkspaceCoreTopologyRepositoryFixture {
+    @Test("pane CWD remains saveable after its topology is removed")
+    func paneCWDRemainsSaveableAfterTopologyRemoval() throws {
+        // Arrange
         let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let workspaceID = UUID(uuidString: "00000000-0000-0000-0000-00000000A001")!
+        let paneID = UUID(uuidString: "00000000-0000-0000-0000-00000000A301")!
+        let cwd = URL(
+            filePath: "/tmp/agentstudio/latch-repo/Sources",
+            directoryHint: .isDirectory
+        )
         try fixture.repository.upsertWorkspace(
             .init(
-                id: workspaceId,
-                name: "Latch",
+                id: workspaceID,
+                name: "CWD only",
                 createdAt: Date(timeIntervalSince1970: 100),
                 updatedAt: Date(timeIntervalSince1970: 100)
             )
         )
         try fixture.repository.replaceRepositoryTopology(
-            .init(
-                watchedPaths: [],
-                repos: [
-                    .init(
-                        id: repoId,
-                        name: "repo",
-                        repoPath: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo"),
-                        createdAt: Date(timeIntervalSince1970: 200),
-                        worktrees: worktreeIds.enumerated().map { index, worktreeId in
-                            .init(
-                                id: worktreeId,
-                                repoId: repoId,
-                                name: index == 0 ? "main" : "wt-\(index)",
-                                path: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo-\(index)"),
-                                isMainWorktree: index == 0
-                            )
-                        }
-                    )
-                ],
-                unavailableRepoIds: []
-            )
+            .init(watchedPaths: [], repos: [], unavailableRepoIds: [])
         )
-        return fixture
-    }
-
-    private func makeWorktreeSourcedPane(
-        sourceWorktreeId: UUID,
-        facetWorktreeId: UUID?,
-        residency: WorkspaceCoreRepository.PaneResidencyRecord
-    ) -> WorkspaceCoreRepository.PaneRecord {
-        .init(
-            id: paneId,
-            content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
-            metadata: .init(
-                launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo-0"),
-                executionBackend: .local,
-                createdAt: Date(timeIntervalSince1970: 300),
-                title: "Terminal",
-                durableFacets: .init(
-                    repoId: facetWorktreeId == nil ? nil : repoId,
-                    worktreeId: facetWorktreeId,
-                    cwd: URL(fileURLWithPath: "/tmp/agentstudio/latch-repo-0")
-                )
-            ),
-            residency: residency,
-            placement: .layout,
-            drawer: nil,
-            updatedAt: Date(timeIntervalSince1970: 400)
-        )
-    }
-
-    @Test("orphaned pane whose source worktree left the topology saves with null refs")
-    func orphanedPaneWithRemovedSourceWorktreeSavesWithNullRefs() throws {
-        // Arrange — topology only contains worktree A; pane was born in
-        // worktree B (since removed) and was correctly orphaned by the
-        // runtime, which keeps `source` for later restoration.
-        let fixture = try makeFixtureWithTopology(worktreeIds: [worktreeAId])
         let graph = WorkspaceCoreRepository.PaneGraphRecord(
             panes: [
-                makeWorktreeSourcedPane(
-                    sourceWorktreeId: worktreeBId,
-                    facetWorktreeId: nil,
-                    residency: .orphaned(worktreePath: "/tmp/agentstudio/latch-repo-removed")
+                .init(
+                    id: paneID,
+                    content: .terminal(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    ),
+                    metadata: .init(
+                        launchDirectory: cwd,
+                        executionBackend: .local,
+                        createdAt: Date(timeIntervalSince1970: 300),
+                        title: "Terminal",
+                        durableFacets: .init(cwd: cwd)
+                    ),
+                    residency: .active,
+                    placement: .layout,
+                    drawer: nil,
+                    updatedAt: Date(timeIntervalSince1970: 400)
                 )
             ]
         )
 
         // Act
-        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
+        try fixture.repository.replacePaneGraph(workspaceId: workspaceID, graph: graph)
 
-        // Assert — the dangling worktree binding is tolerated and serialized
-        // as NULL refs, matching the schema's ON DELETE SET NULL intent.
-        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
-        let requiredSource = try #require(storedSource)
-        #expect(requiredSource.repoId == nil)
-        #expect(requiredSource.worktreeId == nil)
-    }
-
-    @Test("roamed pane with live facet pointing at another worktree saves with live refs")
-    func roamedPaneWithFacetWorktreeMismatchSavesWithLiveRefs() throws {
-        // Arrange — both worktrees exist. Pane was born in A; the user cd'd
-        // its terminal into B, so the live facet rewrite
-        // (WorkspacePaneGraphAtom.updatePaneCWDAndResolvedContext) moved
-        // facets.worktreeId to B while frozen `source` still points at A.
-        let fixture = try makeFixtureWithTopology(worktreeIds: [worktreeAId, worktreeBId])
-        let graph = WorkspaceCoreRepository.PaneGraphRecord(
-            panes: [
-                makeWorktreeSourcedPane(
-                    sourceWorktreeId: worktreeAId,
-                    facetWorktreeId: worktreeBId,
-                    residency: .active
-                )
-            ]
-        )
-
-        // Act
-        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
-
-        // Assert — live facets are the persistence truth; creation-time
-        // binding no longer vetoes the save.
-        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
-        let requiredSource = try #require(storedSource)
-        #expect(requiredSource.repoId == repoId)
-        #expect(requiredSource.worktreeId == worktreeBId)
-    }
-
-    @Test("active pane with a dangling worktree facet is rejected")
-    func activePaneWithDanglingWorktreeFacetIsRejected() throws {
-        // Arrange — orphaning can be skipped entirely (no effect handler
-        // registered: WorkspaceCacheCoordinator "pane orphaning skipped").
-        // The pane stays active while its source worktree is gone.
-        let fixture = try makeFixtureWithTopology(worktreeIds: [worktreeAId])
-        let graph = WorkspaceCoreRepository.PaneGraphRecord(
-            panes: [
-                makeWorktreeSourcedPane(
-                    sourceWorktreeId: worktreeBId,
-                    facetWorktreeId: worktreeBId,
-                    residency: .active
-                )
-            ]
-        )
-
-        // Act / Assert — a non-nil durable facet is a strict topology
-        // reference. Persistence must reject it rather than silently erase it.
-        #expect(throws: WorkspaceCoreRepositoryError.worktreeNotFound(worktreeBId)) {
-            try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
-        }
-        #expect(try fixture.fetchPaneSource(paneId: paneId) == nil)
+        // Assert
+        #expect(try fixture.repository.fetchPaneGraph(workspaceId: workspaceID) == graph)
     }
 }

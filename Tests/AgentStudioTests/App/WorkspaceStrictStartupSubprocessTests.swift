@@ -269,14 +269,14 @@ private final class StrictStartupSubprocessFixture {
                 sql: """
                     INSERT INTO pane(
                         id, workspace_id, content_type, execution_backend,
-                        facet_repo_id, facet_worktree_id, launch_directory, title, note,
+                        launch_directory, title, note,
                         cwd, checkout_ref, residency_kind, pending_undo_expires_at,
                         orphan_reason_kind, orphan_worktree_path, kind, parent_pane_id,
                         created_at, updated_at
                     )
                     SELECT
                         ?, workspace_id, content_type, execution_backend,
-                        facet_repo_id, facet_worktree_id, launch_directory, ?, note,
+                        launch_directory, ?, note,
                         cwd, checkout_ref, residency_kind, pending_undo_expires_at,
                         orphan_reason_kind, orphan_worktree_path, 'drawerChild', ?,
                         created_at + 1, updated_at + 1

@@ -10,11 +10,30 @@ Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew insta
 ```bash
 mise run setup                # Prepare or reuse vendored build inputs for this worktree
 mise run build                # Build the Swift app
-mise run test                 # Run tests (Swift 6 `Testing`)
+mise run test                 # Run every routine local test and pull-request gate
+mise run test:swift           # Run the Swift + serialized WebKit test lane
 mise run format               # Auto-format all Swift sources
 mise run lint                 # Lint (swift-format + SwiftLint + AgentStudio architecture lint)
 .build/debug/AgentStudio      # Launch debug build
 ```
+
+Before pushing, opening, or updating a PR, run the complete local PR gate from
+the repository root:
+
+```bash
+mise run test
+```
+
+The aggregate owns Swift lint and architecture lint, the architecture-tool
+package tests, BridgeWeb lint/typecheck/unit/integration/browser/Vite E2E tests,
+the packaged BridgeWeb build, Swift non-serialized, serialized WebKit, and
+general E2E tests, and `git diff --check`. Use `mise run test:<lane>` for focused work, such as
+`mise run test:swift -- --filter "CommandBarState"`,
+`mise run test:bridge-web`, or `mise run test:architecture`. Scope-specific
+manual, packaged, observability, performance, release, or UI proof remains
+additional when the change requires it. Post-merge benchmark/stress tasks and
+the opt-in zmx lifecycle lane are not pull-request gates. Do not claim a branch
+or PR is ready until `mise run test` exits successfully on the current HEAD.
 
 First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
@@ -23,6 +42,11 @@ Agents must use plain `mise run setup` by default. It builds vendors in the prim
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
+
+Identifiers: use the repo's UUIDv7 APIs for newly generated application and test
+identifiers (`UUIDv7.generate()` or the owning type's `generateUUIDv7()` helper).
+Do not substitute `UUID()` merely to avoid importing
+`AgentStudioInfrastructure`; add the owning import instead.
 
 ## Progressive Disclosure For Agents
 
@@ -42,11 +66,12 @@ the question, then inspect current code/tests before making claims.
    or native macOS affordance changes, also read
    [Style Guide](docs/guides/style_guide.md) and
    [App Architecture](docs/architecture/appkit_swiftui_architecture.md).
-3. Testing: climb the proof pyramid. Start with focused Swift tests for the
-   changed code, then `mise run lint`; use `mise run test` for broad repo
-   health when the scope calls for it. Do not call unit tests, mocks, or fake
-   integration coverage a smoke. If a higher proof layer is blocked, report the
-   blocker separately from the passing lower-layer proof.
+3. Testing: climb the proof pyramid. Start with focused `mise run test:<lane>`
+   tasks for the changed code. Before PR readiness, run the complete local PR
+   gate with `mise run test` from the repository root.
+   Do not call unit tests, mocks, or fake integration coverage a smoke. If a
+   higher proof layer is blocked, report the blocker separately from the
+   passing lower-layer proof.
 4. Observability: use the shared Victoria path below. AgentStudio produces
    telemetry; the shared stack owns VictoriaMetrics, VictoriaLogs, and
    VictoriaTraces. Prefer marker-scoped verifiers over screenshots, stale JSONL,
@@ -370,7 +395,28 @@ Search rule of thumb:
 
 ### Command Specs And Execution Owners
 
-Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `AppCommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. Dense toolbar/titlebar/drawer tooltip work must use the typed tooltip source contract in that doc and [Style Guide](docs/guides/style_guide.md), not parallel `.help`, AppKit `toolTip`, or custom hover strings. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
+Before adding or changing a command, read
+[Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use
+`AppCommand` for identity, `AppShortcut` for bindings, and `AppCommandSpec` for
+presentation, typed interactive surfaces, targeting, command-context
+requirements, and command-bar grouping.
+`AppCommand+IPCProjection.swift` independently owns the exhaustive IPC
+exposure, durable-target, privilege, and argument contracts plus public DTO
+projection. Every interactive host requests its exact `AppCommandSurface`; pane
+and terminal-Zoom toolbars are distinct surfaces.
+`shouldPresent` controls presence only. Contextual or targeted `canDispatch`
+plus the execution owner's validators control enablement and execution
+authority, and the dispatcher rejects undeclared invocation modes or target
+kinds before routing. Keyboard routing remains under
+`ActiveKeyboardSurface`/`AppShortcutDispatchPolicy`; IPC remains UI-independent
+with its existing metadata, authorization, privilege, argument, and runtime
+validation gates. Use `LocalActionSpec` only for UI actions without an
+`AppCommand` identity. Dense toolbar/titlebar/drawer tooltip work must use the
+typed tooltip source contract in that doc and
+[Style Guide](docs/guides/style_guide.md), not parallel `.help`, AppKit
+`toolTip`, or custom hover strings. App/window/sidebar shell commands may route
+through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route
+through `PaneTabViewController`.
 
 Command-bar scopes have separate ownership:
 - `>` owns verbs and command execution.
@@ -383,6 +429,9 @@ icons when a sidebar/local action already defines the presentation.
 
 | Component | Owns | Location |
 |-----------|------|----------|
+| `AppCommand` | exhaustive shared command identity plus interactive spec shape and dispatch protocol | `Core/Actions/Commands/AppCommand.swift` |
+| `AppCommand+Catalog` | exhaustive interactive presentation, targeting, shortcut, and command-context catalog | `Core/Actions/Commands/AppCommand+Catalog.swift` |
+| `AppCommand+IPCProjection` | independent exhaustive IPC exposure, durable-target, privilege, and argument contracts plus public DTO projection | `App/Commands/AppCommand+IPCProjection.swift` |
 | `AtomRegistry` | internal App-only root holding one `CoreAtoms` plus explicit concrete Feature roots; never ambient | `Sources/AgentStudio/AtomRegistry.swift` |
 | `CoreAtoms` | concrete Core-only state graph, facades, coordinators, and derived readers | `Core/State/MainActor/Atoms/CoreAtoms.swift` |
 | `CoreAtomScope` | sole ambient product scope, installed from `AtomRegistry.core` and typed only to `CoreAtoms` | `Core/State/MainActor/Atoms/CoreAtomScope.swift` |
@@ -422,8 +471,11 @@ icons when a sidebar/local action already defines the presentation.
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarVisibleWorktreesRuntimeAtom` | runtime-only sidebar visible worktree ids for git enrichment admission | `Core/State/MainActor/Atoms/SidebarVisibleWorktreesRuntimeAtom.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
-| `WorkspaceFocusOwnerAtom` | runtime focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
-| `WorkspacePaneFocusDerived` | shared app-wide pane focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` |
+| `WorkspaceFocusOwnerAtom` | sole mutable requested-focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
+| `WorkspaceFocusedPaneResolver` | stateless normalization of requested focus against active tab, pane, and drawer state | `Core/State/MainActor/Atoms/WorkspaceFocusedPaneResolver.swift` |
+| `WorkspaceFocusedPane` | immutable normalized focus identity/content for status presentation and command-context projection | `Core/State/MainActor/Atoms/WorkspaceFocusedPane.swift` |
+| `CommandContextDerived` | stateless command-policy projection from focused-pane plus workspace/presentation facts | `Core/State/MainActor/Atoms/CommandContextDerived.swift` |
+| `CommandContext` | immutable command-policy facts and satisfied `CommandRequirement` values | `Core/State/MainActor/Atoms/CommandContext.swift` |
 | `ManagementLayerAtom` | management layer active/inactive state | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` |
 | `CommandBarSurfaceAtom` | runtime command-bar keyboard surface scope | `Core/State/MainActor/Atoms/CommandBarSurfaceAtom.swift` |
 | `TransientKeyboardSurfaceAtom` | runtime transient keyboard surface stack | `Core/State/MainActor/Atoms/TransientKeyboardSurfaceAtom.swift` |
@@ -486,7 +538,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
 | [Observability And Traceability](docs/architecture/observability_and_traceability.md) | Trace tags, debug/beta OTLP proof, source-side projection, Victoria proof rules |
-| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / AppCommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | Shared command identity, independent exhaustive interactive/IPC projections, focused-pane and command-context projections, dispatcher preflight, shortcut routing, tooltips, and execution owners |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Architecture Lint Inventory](docs/architecture/architecture_lint_inventory.md) | SwiftLint rule IDs, former shell-script coverage, and blocking/report-only/test/review classifications |
 | [AgentStudio IPC Architecture](docs/architecture/agentstudio_ipc_architecture.md) | App-level programmatic-control contract, AppIPC port, composition, and zmx separation boundaries |
@@ -530,7 +582,8 @@ peekaboo see --app "PID:$PID" --json
 ### Definition of Done
 
 1. All requirements met
-2. All tests pass (`mise run test` — show pass/fail counts)
+2. All applicable tests pass, including the complete local PR gate in Build &
+   Test — show commands, pass/fail counts, and exit codes
 3. Lint passes (`mise run lint` — zero errors)
 4. Code reflects the shared mental model
 5. Evidence provided (exit codes, counts)
@@ -686,7 +739,8 @@ agent-studio/
 │   │   │       ├── Atoms/            # WorkspaceIdentityAtom, WorkspacePaneGraphAtom,
 │   │   │       │                     #   WorkspaceDrawerCursorAtom, WorkspacePaneAtom facade,
 │   │   │       │                     #   WorkspaceSidebarState, ManagementLayerAtom,
-│   │   │       │                     #   WorkspacePaneFocusDerived, KeyboardOwnerDerived, ...
+│   │   │       │                     #   WorkspaceFocusedPaneResolver, CommandContextDerived,
+│   │   │       │                     #   KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
 │   │   ├── RuntimeEventSystem/       # Runtime actors, event bus, SessionRuntime, ZmxBackend
 │   │   ├── Actions/                  # WorkspaceActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator
@@ -802,7 +856,7 @@ built; it does not change target ownership or imply isolated compilation.
 
 **For filtered test runs:** prefer mise (it allocates a slot for you):
 ```bash
-mise run test -- --filter "CommandBarState"
+mise run test:swift -- --filter "CommandBarState"
 ```
 If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
 ```bash

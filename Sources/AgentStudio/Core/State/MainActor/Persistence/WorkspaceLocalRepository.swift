@@ -31,7 +31,7 @@ package struct WorkspaceLocalRepository: Sendable {
     struct WorkspaceMemoryRecord: Equatable, Sendable {
         var windowState: WindowStateRecord?
         var sidebarState: SidebarStateRecord?
-        var expandedGroups: Set<SidebarGroupKey>
+        var collapsedGroups: Set<SidebarGroupKey>
     }
 
     struct CacheStateRecord: Equatable, Sendable {
@@ -299,26 +299,26 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func replaceExpandedGroups(_ expandedGroups: Set<SidebarGroupKey>, updatedAt: Date) throws {
+    func replaceCollapsedGroups(_ collapsedGroups: Set<SidebarGroupKey>, updatedAt: Date) throws {
         try databaseWriter.write { database in
-            try WorkspaceLocalRepositoryStorage.replaceExpandedGroupRows(
+            try WorkspaceLocalRepositoryStorage.replaceCollapsedGroupRows(
                 database,
                 workspaceId: workspaceId,
-                expandedGroups: expandedGroups,
+                collapsedGroups: collapsedGroups,
                 updatedAt: updatedAt
             )
         }
     }
 
-    func fetchExpandedGroups() throws -> Set<SidebarGroupKey> {
+    func fetchCollapsedGroups() throws -> Set<SidebarGroupKey> {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.fetchExpandedGroupRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchCollapsedGroupRows(database, workspaceId: workspaceId)
         }
     }
 
-    func hasExpandedGroupsState() throws -> Bool {
+    func hasCollapsedGroupsState() throws -> Bool {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.hasExpandedGroupStateRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.hasCollapsedGroupStateRows(database, workspaceId: workspaceId)
         }
     }
 

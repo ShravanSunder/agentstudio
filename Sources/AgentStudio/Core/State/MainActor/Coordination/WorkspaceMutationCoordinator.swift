@@ -174,21 +174,51 @@ package final class WorkspaceMutationCoordinator {
     func applyRepoReassociation(
         _ result: RepositoryReassociationResult
     ) -> RepositoryReassociationResult {
-        switch result {
-        case .accepted(let acceptance):
-            _ = restoreOrphanedPaneResidency(forWorktreeIds: acceptance.worktreeIds)
-            return .accepted(acceptance)
-        case .rejected(let rejection):
-            return .rejected(rejection)
-        }
+        result
     }
 
     @discardableResult
-    func restoreOrphanedPaneResidency(forWorktreeIds worktreeIds: Set<UUID>) -> Bool {
-        workspacePaneAtom.restoreOrphanedPaneResidency(
-            forWorktreeIds: worktreeIds,
-            activeLayoutPaneIds: workspaceTab.allPaneIds
-        )
+    package func orphanPanesForRemovedWorktreeIfUnmatched(
+        _ removedWorktree: RemovedWorktreeEntry
+    ) -> [UUID] {
+        let affectedPaneIDs = workspacePaneAtom.panes.values.compactMap { pane -> UUID? in
+            guard pane.residency == .active || pane.residency == .backgrounded else { return nil }
+            guard let cwd = pane.metadata.cwd?.standardizedFileURL else { return nil }
+            guard Self.path(removedWorktree.path, contains: cwd) else { return nil }
+            guard repositoryTopologyAtom.repoAndWorktree(containing: cwd) == nil else { return nil }
+            return pane.id
+        }
+        for paneID in affectedPaneIDs {
+            workspacePaneAtom.setResidency(
+                .orphaned(reason: .worktreeNotFound(path: removedWorktree.path.path)),
+                for: paneID
+            )
+        }
+        return affectedPaneIDs
+    }
+
+    @discardableResult
+    package func restoreOrphanedPaneResidencyForCurrentTopology() -> Bool {
+        let activeLayoutPaneIDs = workspaceTab.allPaneIds
+        let restorablePaneIDs = workspacePaneAtom.panes.values.compactMap { pane -> UUID? in
+            guard pane.residency.isOrphaned else { return nil }
+            guard let cwd = pane.metadata.cwd else { return nil }
+            guard repositoryTopologyAtom.repoAndWorktree(containing: cwd) != nil else { return nil }
+            return pane.id
+        }
+        for paneID in restorablePaneIDs {
+            workspacePaneAtom.setResidency(
+                activeLayoutPaneIDs.contains(paneID) ? .active : .backgrounded,
+                for: paneID
+            )
+        }
+        return !restorablePaneIDs.isEmpty
+    }
+
+    private nonisolated static func path(_ root: URL, contains candidate: URL) -> Bool {
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let candidateComponents = candidate.standardizedFileURL.pathComponents
+        return candidateComponents.starts(with: rootComponents)
     }
 
     package func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {

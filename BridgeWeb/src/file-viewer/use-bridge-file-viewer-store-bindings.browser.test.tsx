@@ -18,14 +18,17 @@ describe('useBridgeFileViewerStoreBindings Browser Mode', () => {
 
 		await act(async () => {
 			const bindings = requireBindings(latestBindings);
-			bindings.viewerActions.setSearchText('Sources');
-			bindings.viewerActions.setFilterMode('fetchable');
+			bindings.viewerActions.transitionSearch({ type: 'change_query', query: 'Sources' });
+			bindings.viewerActions.setFilterMode('source');
 		});
 
 		const bindings = requireBindings(latestBindings);
 		expect(bindings.rootSnapshot).toMatchObject({
-			searchText: 'Sources',
-			filterMode: 'fetchable',
+			search: {
+				enteredCriteria: { query: 'Sources', mode: 'text' },
+				acceptedCriteria: { query: 'Sources', mode: 'text' },
+			},
+			filterMode: 'source',
 		});
 		expect(Object.keys(bindings.viewerStore.getState()).toSorted()).toEqual([
 			'actions',
@@ -49,7 +52,7 @@ function BridgeFileViewerStoreBindingsProbe(
 	return (
 		<div
 			data-filter-mode={bindings.rootSnapshot.filterMode}
-			data-search-text={bindings.rootSnapshot.searchText}
+			data-search-text={bindings.rootSnapshot.search.enteredCriteria.query}
 			data-testid="bridge-file-viewer-store-bindings-probe"
 		/>
 	);

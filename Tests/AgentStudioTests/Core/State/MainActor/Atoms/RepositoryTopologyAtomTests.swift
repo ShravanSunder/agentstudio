@@ -9,13 +9,133 @@ private final class RepositoryTopologyObservationFlag: @unchecked Sendable {
     var didFire = false
 }
 
+enum CWDAssociationExpectedWorktree: String, Sendable {
+    case main
+    case nestedLinked
+    case noMatch
+}
+
+struct CWDAssociationLookupCase: CustomTestStringConvertible, Sendable {
+    static let allCases: [Self] = [
+        .init(
+            name: "exact-root",
+            cwdPath: "/tmp/agentstudio-cwd-association/repo",
+            expectedWorktree: .main
+        ),
+        .init(
+            name: "main-descendant",
+            cwdPath: "/tmp/agentstudio-cwd-association/repo/Sources/Feature",
+            expectedWorktree: .main
+        ),
+        .init(
+            name: "deepest-nested-linked-descendant",
+            cwdPath: "/tmp/agentstudio-cwd-association/repo/worktrees/feature/Sources",
+            expectedWorktree: .nestedLinked
+        ),
+        .init(
+            name: "component-prefix-collision",
+            cwdPath: "/tmp/agentstudio-cwd-association/repo-tools",
+            expectedWorktree: .noMatch
+        ),
+        .init(
+            name: "deleted-unregistered-path",
+            cwdPath: "/tmp/agentstudio-cwd-association/deleted/path",
+            expectedWorktree: .noMatch
+        ),
+    ]
+
+    let name: String
+    let cwdPath: String
+    let expectedWorktree: CWDAssociationExpectedWorktree
+
+    var testDescription: String { name }
+}
+
 @MainActor
 @Suite("RepositoryTopologyAtom")
 struct RepositoryTopologyAtomTests {
-    enum ExistingIdentityMatchKind: Sendable {
-        case path
-        case mainWorktree
-        case name
+    @Test(
+        "CWD association uses deepest component-boundary containment",
+        arguments: CWDAssociationLookupCase.allCases
+    )
+    func cwdAssociationUsesDeepestComponentBoundaryContainment(
+        lookupCase: CWDAssociationLookupCase
+    ) throws {
+        let atom = RepositoryTopologyAtom()
+        let repositoryID = UUIDv7.generate()
+        let mainWorktreeID = UUIDv7.generate()
+        let nestedLinkedWorktreeID = UUIDv7.generate()
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-cwd-association/repo")
+        let nestedLinkedWorktreePath = repositoryPath.appending(path: "worktrees/feature")
+        installTopology(
+            atom: atom,
+            repositories: [
+                Repo(
+                    id: repositoryID,
+                    name: repositoryPath.lastPathComponent,
+                    repoPath: repositoryPath,
+                    worktrees: [
+                        Worktree(
+                            id: mainWorktreeID,
+                            repoId: repositoryID,
+                            name: repositoryPath.lastPathComponent,
+                            path: repositoryPath,
+                            isMainWorktree: true
+                        ),
+                        Worktree(
+                            id: nestedLinkedWorktreeID,
+                            repoId: repositoryID,
+                            name: nestedLinkedWorktreePath.lastPathComponent,
+                            path: nestedLinkedWorktreePath
+                        ),
+                    ]
+                )
+            ]
+        )
+
+        let association = atom.repoAndWorktree(
+            containing: URL(fileURLWithPath: lookupCase.cwdPath)
+        )
+
+        switch lookupCase.expectedWorktree {
+        case .main:
+            #expect(association?.repo.id == repositoryID)
+            #expect(association?.worktree.id == mainWorktreeID)
+        case .nestedLinked:
+            #expect(association?.repo.id == repositoryID)
+            #expect(association?.worktree.id == nestedLinkedWorktreeID)
+        case .noMatch:
+            #expect(association == nil)
+        }
+    }
+
+    @Test("CWD association follows remove and re-registration with fresh identities")
+    func cwdAssociationFollowsRemoveAndReregistrationWithFreshIdentities() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-cwd-reregistration/repo")
+        let paneCWD = repositoryPath.appending(path: "Sources/Feature")
+        let originalRepository = coordinator.addRepo(at: repositoryPath)
+        let originalWorktree = try #require(originalRepository.worktrees.single)
+
+        let originalAssociation = try #require(atom.repoAndWorktree(containing: paneCWD))
+        #expect(originalAssociation.repo.id == originalRepository.id)
+        #expect(originalAssociation.worktree.id == originalWorktree.id)
+
+        coordinator.removeRepo(originalRepository.id)
+
+        #expect(atom.repoAndWorktree(containing: paneCWD) == nil)
+
+        let reregisteredRepository = coordinator.addRepo(at: repositoryPath)
+        let reregisteredWorktree = try #require(reregisteredRepository.worktrees.single)
+        let reregisteredAssociation = try #require(atom.repoAndWorktree(containing: paneCWD))
+
+        #expect(reregisteredRepository.id != originalRepository.id)
+        #expect(reregisteredWorktree.id != originalWorktree.id)
+        #expect(reregisteredAssociation.repo.id == reregisteredRepository.id)
+        #expect(reregisteredAssociation.worktree.id == reregisteredWorktree.id)
+        #expect(reregisteredAssociation.repo.repoPath == repositoryPath.standardizedFileURL)
+        #expect(reregisteredAssociation.worktree.path == repositoryPath.standardizedFileURL)
     }
 
     @Test("stable-key lookups resolve the same live entities as UUID lookups")
@@ -137,7 +257,15 @@ struct RepositoryTopologyAtomTests {
         let repository = Repo(
             id: repositoryID,
             name: "observed-insertion",
-            repoPath: URL(fileURLWithPath: "/tmp/agentstudio-topology-observed-insertion")
+            repoPath: URL(fileURLWithPath: "/tmp/agentstudio-topology-observed-insertion"),
+            worktrees: [
+                Worktree(
+                    repoId: repositoryID,
+                    name: "observed-insertion",
+                    path: URL(fileURLWithPath: "/tmp/agentstudio-topology-observed-insertion"),
+                    isMainWorktree: true
+                )
+            ]
         )
         let invalidation = RepositoryTopologyObservationFlag()
 
@@ -308,6 +436,107 @@ struct RepositoryTopologyAtomTests {
             duplicateWatchedPathRejection
                 == .duplicateWatchedPathStableKey(StableKey.fromPath(watchedPath.path))
         )
+    }
+
+    @Test("sealed topology replacement rejects duplicate roots even when unavailable")
+    func sealedTopologyReplacementRejectsUnavailableDuplicateRoots() {
+        let repositoryID = UUIDv7.generate()
+        let repositoryPath = URL(filePath: "/tmp/agentstudio-degraded-duplicate-root")
+        let duplicateRootWorktrees = [
+            Worktree(
+                id: UUIDv7.generate(),
+                repoId: repositoryID,
+                name: "root-one",
+                path: repositoryPath
+            ),
+            Worktree(
+                id: UUIDv7.generate(),
+                repoId: repositoryID,
+                name: "root-two",
+                path: repositoryPath
+            ),
+        ]
+        let repository = Repo(
+            id: repositoryID,
+            name: repositoryPath.lastPathComponent,
+            repoPath: repositoryPath,
+            worktrees: duplicateRootWorktrees
+        )
+        let preparation = RepositoryTopologyReplacement.prepare(
+            repositories: [repository],
+            watchedPaths: [],
+            unavailableRepositoryIDs: [repositoryID]
+        )
+
+        guard case .rejected(let rejection) = preparation else {
+            Issue.record("expected duplicate stable identity to remain globally rejected")
+            return
+        }
+        #expect(rejection == .duplicateWorktreeStableKey(StableKey.fromPath(repositoryPath)))
+    }
+
+    @Test("sealed topology replacement rejects available repositories without one truthful main worktree")
+    func sealedTopologyReplacementRejectsInvalidAvailableMainWorktree() {
+        let repositoryID = UUIDv7.generate()
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-main-invariant")
+        let rootWorktree = Worktree(
+            id: UUIDv7.generate(),
+            repoId: repositoryID,
+            name: "root",
+            path: repositoryPath,
+            isMainWorktree: false
+        )
+        let linkedWorktree = Worktree(
+            id: UUIDv7.generate(),
+            repoId: repositoryID,
+            name: "linked",
+            path: repositoryPath.appending(path: "linked"),
+            isMainWorktree: false
+        )
+
+        let zeroMainRejection = topologyRejection(
+            repositories: [
+                Repo(
+                    id: repositoryID,
+                    name: "zero-main",
+                    repoPath: repositoryPath,
+                    worktrees: [rootWorktree, linkedWorktree]
+                )
+            ],
+            watchedPaths: []
+        )
+        var multipleMainRoot = rootWorktree
+        multipleMainRoot.isMainWorktree = true
+        var multipleMainLinked = linkedWorktree
+        multipleMainLinked.isMainWorktree = true
+        let multipleMainRejection = topologyRejection(
+            repositories: [
+                Repo(
+                    id: repositoryID,
+                    name: "multiple-main",
+                    repoPath: repositoryPath,
+                    worktrees: [multipleMainRoot, multipleMainLinked]
+                )
+            ],
+            watchedPaths: []
+        )
+        var wrongPathMain = linkedWorktree
+        wrongPathMain.isMainWorktree = true
+        let wrongPathMainRejection = topologyRejection(
+            repositories: [
+                Repo(
+                    id: repositoryID,
+                    name: "wrong-path-main",
+                    repoPath: repositoryPath,
+                    worktrees: [rootWorktree, wrongPathMain]
+                )
+            ],
+            watchedPaths: []
+        )
+
+        #expect(zeroMainRejection == .availableRepositoryMainWorktreeMissing(repositoryID))
+        #expect(multipleMainRejection == .availableRepositoryHasMultipleMainWorktrees(repositoryID))
+        #expect(wrongPathMainRejection == .availableRepositoryMainWorktreePathMismatch(repositoryID))
     }
 
     @Test("worktree reconciliation preserves existing notes for matched worktrees")
@@ -564,239 +793,86 @@ struct RepositoryTopologyAtomTests {
         let repo = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-topology-empty"))
         let existingWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
 
-        let result = coordinator.reconcileDiscoveredWorktrees(
-            repo.id,
-            worktrees: []
-        )
+        let generationBeforeRemoval = atom.worktreePathIndexGeneration
+        let result = coordinator.unregisterWorktree(existingWorktree.id, from: repo.id)
 
         guard case .accepted(let acceptance) = result else {
             Issue.record("expected empty identified reconciliation acceptance")
             return
         }
         #expect(atom.repo(repo.id)?.worktrees.isEmpty == true)
+        #expect(atom.isRepoUnavailable(repo.id))
+        #expect(atom.worktreePathIndexGeneration == generationBeforeRemoval + 1)
         #expect(acceptance.delta.addedWorktreeIds.isEmpty)
         #expect(acceptance.delta.preservedWorktreeIds.isEmpty)
         #expect(acceptance.delta.removedWorktrees == [.init(id: existingWorktree.id, path: existingWorktree.path)])
         #expect(acceptance.delta.didChange)
     }
 
-    @Test("ensure main worktree repairs with UUIDv7 without rewriting persisted identities")
-    func ensureMainWorktreeRepairsEmptyUnavailableRepository() throws {
+    @Test("availability-only changes rebuild the CWD association index")
+    func availabilityOnlyChangesRebuildCWDAssociationIndex() throws {
         let atom = RepositoryTopologyAtom()
         let coordinator = makeTopologyMutationCoordinator(atom: atom)
-        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-ensure-main-repair")
-        let persistedRepositoryID = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
-        let persistedSiblingRepositoryID = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!
-        let persistedSiblingWorktreeID = UUID(uuidString: "10000000-0000-4000-8000-000000000003")!
-        let siblingPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-ensure-main-sibling")
-        installTopology(
-            atom: atom,
-            repositories: [
-                Repo(
-                    id: persistedRepositoryID,
-                    name: repoPath.lastPathComponent,
-                    repoPath: repoPath
-                ),
-                Repo(
-                    id: persistedSiblingRepositoryID,
-                    name: siblingPath.lastPathComponent,
-                    repoPath: siblingPath,
-                    worktrees: [
-                        Worktree(
-                            id: persistedSiblingWorktreeID,
-                            repoId: persistedSiblingRepositoryID,
-                            name: siblingPath.lastPathComponent,
-                            path: siblingPath,
-                            isMainWorktree: true
-                        )
-                    ]
-                ),
-            ]
-        )
-        coordinator.markRepoUnavailable(persistedRepositoryID)
-        let generationBeforeRepair = atom.worktreePathIndexGeneration
-
-        let repairedWorktree = coordinator.ensureMainWorktree(at: repoPath)
-
-        let repairedRepository = try #require(atom.repo(persistedRepositoryID))
-        #expect(repairedRepository.worktrees == [repairedWorktree])
-        #expect(UUIDv7.isV7(repairedWorktree.id))
-        #expect(repairedRepository.id == persistedRepositoryID)
-        #expect(atom.repo(persistedSiblingRepositoryID)?.worktrees.single?.id == persistedSiblingWorktreeID)
-        #expect(repairedWorktree.repoId == persistedRepositoryID)
-        #expect(repairedWorktree.path == repoPath.standardizedFileURL)
-        #expect(repairedWorktree.isMainWorktree)
-        #expect(!atom.isRepoUnavailable(persistedRepositoryID))
-        #expect(atom.worktreePathIndexGeneration == generationBeforeRepair + 1)
-        #expect(atom.repoAndWorktree(containing: repoPath)?.worktree.id == repairedWorktree.id)
-    }
-
-    @Test(
-        "scanned reconciliation preserves identity by path, main-worktree role, and name",
-        arguments: [
-            ExistingIdentityMatchKind.path,
-            ExistingIdentityMatchKind.mainWorktree,
-            ExistingIdentityMatchKind.name,
-        ]
-    )
-    func scannedReconciliationPreservesIdentityByEverySupportedMatch(
-        matchKind: ExistingIdentityMatchKind
-    ) throws {
-        let atom = RepositoryTopologyAtom()
-        let coordinator = makeTopologyMutationCoordinator(atom: atom)
-        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-match")
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-availability-index")
         let repo = coordinator.addRepo(at: repoPath)
-        let existingMainWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
-        let existingNameMatchedWorktree: Worktree
-        let scannedWorktrees: RepositoryScannedWorktrees
-        switch matchKind {
-        case .path:
-            existingNameMatchedWorktree = existingMainWorktree
-            scannedWorktrees = .init(
-                main: .init(name: "renamed", path: repoPath),
-                linked: []
-            )
-        case .mainWorktree:
-            existingNameMatchedWorktree = existingMainWorktree
-            scannedWorktrees = .init(
-                main: .init(
-                    name: "moved-main",
-                    path: URL(fileURLWithPath: "/tmp/agentstudio-topology-moved-main")
-                ),
-                linked: []
-            )
-        case .name:
-            let namedWorktree = Worktree(
-                id: UUIDv7.generate(),
-                repoId: repo.id,
-                name: "name-match",
-                path: URL(fileURLWithPath: "/tmp/agentstudio-topology-original-name-match")
-            )
-            _ = coordinator.reconcileDiscoveredWorktrees(
-                repo.id,
-                worktrees: [existingMainWorktree, namedWorktree]
-            )
-            existingNameMatchedWorktree = namedWorktree
-            scannedWorktrees = .init(
-                main: .init(name: existingMainWorktree.name, path: existingMainWorktree.path),
-                linked: [
-                    .init(
-                        name: namedWorktree.name,
-                        path: URL(fileURLWithPath: "/tmp/agentstudio-topology-name-match")
-                    )
-                ]
-            )
-        }
+        let worktree = try #require(atom.repo(repo.id)?.worktrees.single)
+        let generationBeforeDegradation = atom.worktreePathIndexGeneration
 
-        let result = coordinator.reconcileScannedWorktrees(
+        coordinator.markRepoUnavailable(repo.id)
+
+        #expect(atom.worktreePathIndexGeneration == generationBeforeDegradation + 1)
+        #expect(atom.repoAndWorktree(containing: repoPath) == nil)
+
+        let generationBeforeHealing = atom.worktreePathIndexGeneration
+        let healing = coordinator.reassociateRepo(
             repo.id,
-            scannedWorktrees: scannedWorktrees,
-            traceId: UUIDv7.generate()
+            to: repoPath,
+            discoveredWorktrees: [worktree]
         )
 
-        guard case .accepted(let acceptance) = result else {
-            Issue.record("expected reconciliation acceptance")
+        guard case .accepted = healing else {
+            Issue.record("expected exact-root reassociation acceptance")
             return
         }
-        #expect(atom.worktree(existingNameMatchedWorktree.id)?.id == existingNameMatchedWorktree.id)
-        #expect(acceptance.delta.preservedWorktreeIds.contains(existingNameMatchedWorktree.id))
-        #expect(acceptance.delta.addedWorktreeIds.isEmpty)
-        #expect(acceptance.delta.removedWorktrees.isEmpty)
+        #expect(atom.worktreePathIndexGeneration == generationBeforeHealing + 1)
+        #expect(atom.repoAndWorktree(containing: repoPath)?.worktree.id == worktree.id)
     }
 
-    @Test("scanned reconciliation reports mixed preserved added and removed identities")
-    func scannedReconciliationReportsMixedIdentityDelta() throws {
+    @Test("direct unregistration rejects a missing worktree without changing topology")
+    func directUnregistrationRejectsMissingWorktree() {
         let atom = RepositoryTopologyAtom()
         let coordinator = makeTopologyMutationCoordinator(atom: atom)
-        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-mixed")
-        let preservedPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-preserved")
-        let removedPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-removed")
-        let addedPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-added")
-        let repo = coordinator.addRepo(at: repoPath)
-        let mainWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
-        let preservedWorktree = Worktree(
-            id: UUIDv7.generate(),
-            repoId: repo.id,
-            name: "preserved",
-            path: preservedPath
-        )
-        let removedWorktree = Worktree(
-            id: UUIDv7.generate(),
-            repoId: repo.id,
-            name: "removed",
-            path: removedPath
-        )
-        _ = coordinator.reconcileDiscoveredWorktrees(
-            repo.id,
-            worktrees: [mainWorktree, preservedWorktree, removedWorktree]
-        )
+        let repo = coordinator.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-topology-missing-unregister"))
+        let topologyBeforeRejection = atom.repos
+        let availabilityBeforeRejection = atom.unavailableRepoIds
+        let generationBeforeRejection = atom.worktreePathIndexGeneration
+        let missingWorktreeID = UUIDv7.generate()
 
-        let result = coordinator.reconcileScannedWorktrees(
-            repo.id,
-            scannedWorktrees: .init(
-                main: .init(name: mainWorktree.name, path: mainWorktree.path),
-                linked: [
-                    .init(name: preservedWorktree.name, path: preservedPath),
-                    .init(name: "added", path: addedPath),
-                ]
-            ),
-            traceId: UUIDv7.generate()
-        )
+        let result = coordinator.unregisterWorktree(missingWorktreeID, from: repo.id)
 
-        guard case .accepted(let acceptance) = result else {
-            Issue.record("expected mixed reconciliation acceptance")
-            return
-        }
-        let finalWorktrees = try #require(atom.repo(repo.id)?.worktrees)
-        let addedWorktree = try #require(finalWorktrees.first(where: { $0.path == addedPath }))
-        #expect(acceptance.delta.preservedWorktreeIds == [mainWorktree.id, preservedWorktree.id])
-        #expect(acceptance.delta.addedWorktreeIds == [addedWorktree.id])
-        #expect(acceptance.delta.removedWorktrees == [.init(id: removedWorktree.id, path: removedPath)])
-        #expect(acceptance.delta.didChange)
+        #expect(result == .rejected(.worktreeNotFound(missingWorktreeID)))
+        #expect(atom.repos == topologyBeforeRejection)
+        #expect(atom.unavailableRepoIds == availabilityBeforeRejection)
+        #expect(atom.worktreePathIndexGeneration == generationBeforeRejection)
     }
 
-    @Test("identical scanned reconciliation reports accepted no change")
-    func identicalScannedReconciliationReportsAcceptedNoChange() throws {
-        let atom = RepositoryTopologyAtom()
-        let coordinator = makeTopologyMutationCoordinator(atom: atom)
-        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-identical")
-        let repo = coordinator.addRepo(at: repoPath)
-        let existingWorktree = try #require(atom.repo(repo.id)?.worktrees.single)
-
-        let result = coordinator.reconcileScannedWorktrees(
-            repo.id,
-            scannedWorktrees: .init(
-                main: .init(
-                    name: existingWorktree.name,
-                    path: existingWorktree.path
-                ),
-                linked: []
-            ),
-            traceId: UUIDv7.generate()
-        )
-
-        guard case .accepted(let acceptance) = result else {
-            Issue.record("expected identical reconciliation acceptance")
-            return
-        }
-        #expect(!acceptance.delta.didChange)
-        #expect(acceptance.delta.preservedWorktreeIds == [existingWorktree.id])
-        #expect(acceptance.delta.addedWorktreeIds.isEmpty)
-        #expect(acceptance.delta.removedWorktrees.isEmpty)
-    }
 }
 
 @MainActor
-private func makeTopologyMutationCoordinator(atom: RepositoryTopologyAtom) -> WorkspaceMutationCoordinator {
+func makeTopologyMutationCoordinator(atom: RepositoryTopologyAtom) -> WorkspaceMutationCoordinator {
     CoreAtoms(workspaceRepositoryTopology: atom).workspaceMutationCoordinator
 }
 
 @MainActor
-private func installTopology(atom: RepositoryTopologyAtom, repositories: [Repo]) {
+func installTopology(
+    atom: RepositoryTopologyAtom,
+    repositories: [Repo],
+    unavailableRepositoryIDs: Set<UUID>? = nil
+) {
     switch RepositoryTopologyReplacement.prepare(
         repositories: repositories,
         watchedPaths: atom.watchedPaths,
-        unavailableRepositoryIDs: atom.unavailableRepoIds
+        unavailableRepositoryIDs: unavailableRepositoryIDs ?? atom.unavailableRepoIds
     ) {
     case .prepared(let replacement):
         atom.replaceTopology(replacement)

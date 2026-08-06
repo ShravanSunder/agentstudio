@@ -116,7 +116,7 @@ echo "Formatted all Swift sources"
 description = "Lint Swift sources with swift-format, stock SwiftLint, and AgentStudio architecture lint"
 run = "/bin/bash scripts/lint-swift.sh"
 
-[tasks.bridge-web-check]
+[tasks."test:bridge-web:check"]
 description = "Run BridgeWeb lint, format check, and TypeScript check"
 depends = ["bridge-web-install", "bridge-web-sync-fixtures"]
 dir = "BridgeWeb"
@@ -142,43 +142,37 @@ pnpm install --frozen-lockfile
 description = "Verify BridgeWeb JSON contract fixtures match Swift source fixtures"
 run = "bash scripts/bridge-web-sync-fixtures.sh"
 
-[tasks.bridge-web-test]
-description = "Run all BridgeWeb Vitest unit, integration, and E2E tests"
-depends = ["bridge-web-install"]
-dir = "BridgeWeb"
-run = "pnpm run test"
-
-[tasks.bridge-web-pr-check]
+[tasks."test:bridge-web"]
 description = "Run the complete local BridgeWeb PR gate"
 depends = ["bridge-web-install", "bridge-web-sync-fixtures"]
 dir = "BridgeWeb"
 run = "pnpm run check && pnpm run test"
 
-[tasks.bridge-web-unit-test]
+[tasks."test:bridge-web:unit"]
 description = "Run BridgeWeb Vitest unit tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:unit"
 
-[tasks.bridge-web-integration-test]
+[tasks."test:bridge-web:integration"]
 description = "Run BridgeWeb Vitest Node and Browser Mode integration tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:integration"
 
-[tasks.bridge-web-browser-test]
+[tasks."test:bridge-web:browser"]
 description = "Run BridgeWeb Vitest Browser Mode integration tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:browser"
 
-[tasks.bridge-web-browser-stress-test]
+[tasks."test:bridge-web:stress"]
 description = "Run BridgeWeb scale-bound Browser Mode stress tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
 run = "pnpm run test:browser:stress"
 
-[tasks.bridge-web-e2e-test]
+[tasks."test:bridge-web:e2e"]
 description = "Run BridgeWeb Vitest Vite product E2E tests"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
@@ -199,7 +193,7 @@ fi
 exit "$browser_status"
 """
 
-[tasks.bridge-web-browser-benchmark]
+[tasks."test:bridge-web:benchmark"]
 description = "Run BridgeWeb browser performance proof"
 depends = ["bridge-web-install"]
 dir = "BridgeWeb"
@@ -312,31 +306,52 @@ swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
-description = "Run default test suite; real zmx lifecycle proof stays in test-zmx-e2e"
+description = "Run every routine locally runnable test and pull-request gate"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+mise run lint
+mise run test:architecture
+mise run test:bridge-web
+mise run bridge-web-build
+test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
+SWIFT_TEST_INCLUDE_E2E=1 \
+SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-900}" \
+mise run test:swift
+git diff --check
+"""
+
+[tasks."test:architecture"]
+description = "Run the AgentStudio architecture lint tool package tests"
+run = "swift test --package-path Tools/AgentStudioArchitectureLint"
+
+[tasks."test:swift"]
+description = "Run Swift non-serialized and serialized WebKit tests"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test"
 
-[tasks.test-fast]
+[tasks."test:swift:fast"]
 description = "Run fast lane: fast non-WebKit tests, excluding large script/smoke/integration/benchmark proof"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-fast"
 
-[tasks.test-large]
+[tasks."test:swift:large"]
 description = "Run large non-WebKit script, smoke, and integration tests"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-large"
 
-[tasks.test-prebuild]
+[tasks."test:swift:prebuild"]
 description = "Prebuild Swift test bundles for cached CI test lanes"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-prebuild"
 
-[tasks.test-webkit]
+[tasks."test:swift:webkit"]
 description = "Run real WebKit runtime tests in isolated serial processes with crash retry"
 depends = ["verify-vendors", "bridge-web-build"]
 run = "/bin/bash scripts/run-swift-test-task.sh test-webkit"
 
-[tasks.test-coverage]
+[tasks."test:swift:coverage"]
 description = "Run test suite with code coverage and print coverage JSON path"
 depends = ["verify-vendors", "bridge-web-build"]
 run = """
@@ -383,7 +398,7 @@ if [ -f "$COVERAGE_JSON_PATH" ] && command -v jq >/dev/null 2>&1; then
 fi
 """
 
-[tasks.test-e2e]
+[tasks."test:swift:e2e"]
 description = "Run general E2E serialized tests only; excludes the dedicated zmx lifecycle lane"
 depends = ["verify-vendors", "bridge-web-build"]
 run = """
@@ -397,7 +412,7 @@ swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
-[tasks.test-zmx-e2e]
+[tasks."test:swift:zmx-e2e"]
 description = "Run zmx E2E tests only (opt-in; may stall)"
 depends = ["verify-vendors", "bridge-web-build"]
 run = """
@@ -411,7 +426,7 @@ swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
-[tasks.test-benchmark]
+[tasks."test:swift:benchmark"]
 description = "Run benchmark-only bridge push tests"
 depends = ["build"]
 run = """
@@ -421,9 +436,9 @@ source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 source "${PROJECT_ROOT}/scripts/swift-build-slot.sh"
 BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
+export _XCB_BYPASS=1
 xcb_pipe=$(_xcb_pipe_cmd)
-swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | $xcb_pipe
-swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2>&1 | $xcb_pipe
+swift test --build-path "$BUILD_PATH" --filter "GlobalPreferencesBootstrapPerformanceTests" 2>&1 | $xcb_pipe
 """
 
 [tasks.clean-artifacts]

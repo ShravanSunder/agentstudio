@@ -1,6 +1,48 @@
 import type { CodeViewOptions } from '@pierre/diffs';
 
+import type {
+	BridgeReviewChangeIndicators,
+	BridgeReviewViewSettings,
+} from '../../app/bridge-viewer-view-settings.js';
 import { bridgePierreDarkThemeName } from './bridge-code-view-theme.js';
+
+export type BridgeReviewCodeViewOptions = Readonly<CodeViewOptions<undefined>>;
+
+export function createBridgeReviewViewSettingsDefaults(
+	compatibilityOptions: BridgeReviewCodeViewOptions,
+): Readonly<BridgeReviewViewSettings> {
+	return Object.freeze({
+		changeBackgrounds: compatibilityOptions.disableBackground !== true,
+		changeIndicators: bridgeReviewChangeIndicatorsFromCodeViewOptions(compatibilityOptions),
+		diffLayout: compatibilityOptions.diffStyle ?? 'split',
+		lineNumbers: compatibilityOptions.disableLineNumbers !== true,
+		wordWrap: compatibilityOptions.overflow === 'wrap',
+	});
+}
+
+export function deriveBridgeReviewCodeViewOptions(props: {
+	readonly compatibilityOptions: BridgeReviewCodeViewOptions;
+	readonly viewSettings: BridgeReviewViewSettings;
+}): BridgeReviewCodeViewOptions {
+	return Object.freeze({
+		...props.compatibilityOptions,
+		diffIndicators:
+			props.viewSettings.changeIndicators === 'symbols'
+				? 'classic'
+				: props.viewSettings.changeIndicators,
+		diffStyle: props.viewSettings.diffLayout,
+		disableBackground: !props.viewSettings.changeBackgrounds,
+		disableLineNumbers: !props.viewSettings.lineNumbers,
+		overflow: props.viewSettings.wordWrap ? 'wrap' : 'scroll',
+	});
+}
+
+function bridgeReviewChangeIndicatorsFromCodeViewOptions(
+	compatibilityOptions: BridgeReviewCodeViewOptions,
+): BridgeReviewChangeIndicators {
+	if (compatibilityOptions.diffIndicators === 'classic') return 'symbols';
+	return compatibilityOptions.diffIndicators ?? 'bars';
+}
 
 export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	theme: {

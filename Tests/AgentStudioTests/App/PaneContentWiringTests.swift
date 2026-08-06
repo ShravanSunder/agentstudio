@@ -65,7 +65,11 @@ final class PaneContentWiringTests {
                     zmxSessionID: .generateUUIDv7()
                 )
             ),
-            metadata: PaneMetadata(title: "Term")
+            metadata: PaneMetadata(
+                launchDirectory: URL(filePath: "/tmp/pane-content-wiring-terminal"),
+                title: "Term",
+                facets: PaneContextFacets(cwd: URL(filePath: "/tmp/pane-content-wiring-terminal"))
+            )
         )
 
         #expect(pane.provider == .ghostty)

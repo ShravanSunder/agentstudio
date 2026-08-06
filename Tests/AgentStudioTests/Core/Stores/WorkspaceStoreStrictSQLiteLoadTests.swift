@@ -401,7 +401,10 @@ private struct PersistedAuthoritativeTopologyFixture {
                 )
             ),
             metadata: PaneMetadata(
-                launchDirectory: URL(filePath: "/tmp/strict-sqlite-composition-load"),
+                launchDirectory: URL(
+                    filePath: "/tmp/strict-sqlite-composition-load",
+                    directoryHint: .isDirectory
+                ),
                 createdAt: Date(timeIntervalSince1970: 1_700_100_000),
                 title: "Stored terminal"
             ),

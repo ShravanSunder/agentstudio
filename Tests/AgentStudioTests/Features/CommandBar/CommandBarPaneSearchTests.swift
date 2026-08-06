@@ -21,16 +21,20 @@ struct CommandBarPaneSearchTests {
             name: "pane-shortcuts",
             path: URL(filePath: "/tmp/search-agent-studio.pane-shortcuts")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        guard let storedWorktree = store.repo(repo.id)?.worktrees.first(where: { $0.id == worktree.id }) else {
+            Issue.record("Expected linked worktree")
+            return
+        }
         let pane = store.createPane(
-            launchDirectory: worktree.path,
+            launchDirectory: storedWorktree.path,
             title: "Shell",
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: repo.name,
-                worktreeId: worktree.id,
-                worktreeName: worktree.name,
-                cwd: worktree.path
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
             )
         )
         let tab = Tab(paneId: pane.id, name: "Review Tab")
@@ -58,16 +62,20 @@ struct CommandBarPaneSearchTests {
             name: "filter-worktree",
             path: URL(filePath: "/tmp/filter-repo-name/filter-worktree")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        guard let storedWorktree = store.repo(repo.id)?.worktrees.first(where: { $0.id == worktree.id }) else {
+            Issue.record("Expected linked worktree")
+            return
+        }
         let pane = store.createPane(
-            launchDirectory: worktree.path,
+            launchDirectory: storedWorktree.path,
             title: "Pane Shell",
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: repo.name,
-                worktreeId: worktree.id,
-                worktreeName: worktree.name,
-                cwd: worktree.path
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
             )
         )
         store.appendTab(Tab(paneId: pane.id, name: "Operations"))

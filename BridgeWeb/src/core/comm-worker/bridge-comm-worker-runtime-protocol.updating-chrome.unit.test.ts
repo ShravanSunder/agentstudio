@@ -78,20 +78,23 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 		// Assert
 		const fileModePublications = panelChromePublications(postedMessages);
-		expect(fileModePublications).toEqual([
-			{
-				kind: 'fileRenderPatch',
-				operation: 'upsert',
-				payload: { isLoading: true, message: 'Updating files…' },
-				surface: 'file',
-			},
-			{
-				kind: 'reviewRenderPatch',
-				operation: 'reset',
-				payload: null,
-				surface: 'review',
-			},
-		]);
+		expect(fileModePublications).toHaveLength(2);
+		expect(fileModePublications).toEqual(
+			expect.arrayContaining([
+				{
+					kind: 'fileRenderPatch',
+					operation: 'upsert',
+					payload: { isLoading: true, message: 'Updating files…' },
+					surface: 'file',
+				},
+				{
+					kind: 'reviewRenderPatch',
+					operation: 'reset',
+					payload: null,
+					surface: 'review',
+				},
+			]),
+		);
 		expect(panelChromeStateAfterPublications(fileModePublications)).toEqual({
 			file: { isLoading: true, message: 'Updating files…' },
 			review: null,

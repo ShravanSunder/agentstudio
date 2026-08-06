@@ -5,17 +5,24 @@ import {
 	type BridgeReviewNavigationSelectionSource,
 	type BridgeReviewNavigationTarget,
 } from '../../app/bridge-app-review-navigation-controller.js';
-import type { BridgeViewerNavigationCommand } from '../../app/bridge-viewer-navigation-models.js';
+import type { BridgeProductNavigationCommand } from '../../core/comm-worker/bridge-product-session-contracts.js';
+
+type BridgeReviewTargetNavigationCommand = Extract<
+	BridgeProductNavigationCommand,
+	{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+>;
+const reviewNavigationCommandIsAlwaysEligible = (): boolean => true;
 
 export function ReviewNavigationControllerProbe(props: {
 	readonly events: string[];
+	readonly isNavigationCommandStillEligible?: () => boolean;
 }): ReactElement {
 	const [catalogRevision, setCatalogRevision] = useState(1);
-	const [navigationCommand, setNavigationCommand] = useState<BridgeViewerNavigationCommand>(() =>
-		reviewNavigationCommand('command-two', 'item-two'),
+	const [navigationCommand, setNavigationCommand] = useState<BridgeReviewTargetNavigationCommand>(
+		() => reviewNavigationCommand('command-two', 'item-two'),
 	);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
-	const orderedItemIds = ['item-one', 'item-two'] as const;
+	const [orderedItemIds, setOrderedItemIds] = useState<readonly string[]>(['item-one', 'item-two']);
 	const clearReviewSelection = useCallback((): void => {
 		props.events.push('clear');
 		setSelectedItemId(null);
@@ -34,10 +41,12 @@ export function ReviewNavigationControllerProbe(props: {
 		},
 		[props.events],
 	);
-	useBridgeReviewNavigationController({
+	const navigationControllerProps = {
 		catalogRevision,
 		clearReviewSelection,
 		getReviewItem: (): undefined => undefined,
+		isNavigationCommandStillEligible:
+			props.isNavigationCommandStillEligible ?? reviewNavigationCommandIsAlwaysEligible,
 		isActive: true,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
@@ -45,11 +54,15 @@ export function ReviewNavigationControllerProbe(props: {
 		selectedItemId,
 		selectInitialReviewItem: selectReviewItem,
 		selectReviewItem,
-	});
+	};
+	useBridgeReviewNavigationController(navigationControllerProps);
 	return (
 		<>
 			<button onClick={(): void => setCatalogRevision((revision) => revision + 1)} type="button">
 				Advance Review catalog revision
+			</button>
+			<button onClick={(): void => setOrderedItemIds(['item-one'])} type="button">
+				Filter selected Review item
 			</button>
 			<button
 				onClick={(): void =>
@@ -67,17 +80,21 @@ export function ReviewNavigationControllerProbe(props: {
 export function reviewNavigationCommand(
 	commandId: string,
 	reviewItemId: string,
-): BridgeViewerNavigationCommand {
+): BridgeReviewTargetNavigationCommand {
 	return {
+		bindingRevision: 1,
 		commandId,
 		commandKind: 'activateTarget',
-		context: 'review',
-		restoreMemory: false,
-		source: { sourceId: 'review-fixture', sourceKind: 'fixture' },
+		source: {
+			generation: 1,
+			metadataSourceId: 'review-fixture',
+			packageId: 'review-package',
+			sourceKind: 'review',
+		},
+		surface: 'review',
 		target: {
-			comparisonId: 'review-comparison',
 			reviewItemId,
-			targetKind: 'diff',
+			targetKind: 'review',
 		},
 	};
 }

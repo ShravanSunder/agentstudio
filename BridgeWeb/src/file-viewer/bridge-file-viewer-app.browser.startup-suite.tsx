@@ -261,6 +261,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const clearBox = clearButton.getBoundingClientRect();
 		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(24);
 		expect(Math.round(searchField.getBoundingClientRect().height)).toBe(28);
+		expect(searchField.className).toContain('m-2');
+		expect(searchField.className).not.toContain('mx-2');
+		expect(searchField.className).not.toContain('mb-2');
 		expect(Math.round(regexToggle.getBoundingClientRect().width)).toBe(20);
 		expect(regexToggle.getBoundingClientRect().left).toBeGreaterThan(
 			searchInput.getBoundingClientRect().left,
@@ -394,7 +397,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actFrame();
 	});
 
-	test('does not classify metadata-only rows as text before descriptor metadata arrives', async () => {
+	test('filters metadata-only rows by native file class before descriptor metadata arrives', async () => {
 		await render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
@@ -402,7 +405,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		await waitForFileViewerTreeItemButtonInAct({
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
 		expect(
 			document.querySelector(
 				'[data-worktree-file-path="Sources/AgentStudio/App/AppDelegate.swift"]',
@@ -413,16 +418,19 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				document.querySelector('[data-testid="worktree-file-filter-menu"]'),
 			),
 		);
-		const textFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Text files' });
-		await actClickAndSettleFileViewerMenu(textFilterOption);
-		await waitForFileFilterCount('0/6');
+		const sourceFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Source' });
+		await actClickAndSettleFileViewerMenu(sourceFilterOption);
+		await waitForFileFilterCount('1/6');
+		await waitForFileViewerTreeItemButtonInAct({
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
 
 		expect(
 			document.querySelector(
 				'[data-worktree-file-path="Sources/AgentStudio/App/AppDelegate.swift"]',
 			),
 		).toBeNull();
-		expect(fileFilterCount()).toBe('0/6');
+		expect(fileFilterCount()).toBe('1/6');
 	});
 
 	test('keeps the requested path selected while metadata interest reconciliation retries', async () => {
@@ -778,6 +786,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForMetadataPublisher(() => publishMetadataEvents);
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		const fileButton = await waitForBridgeViewerTreeItemButton(
 			'Sources/AgentStudio/App/AppDelegate.swift',
 		);

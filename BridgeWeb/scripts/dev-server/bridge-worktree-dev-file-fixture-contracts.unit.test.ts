@@ -83,6 +83,7 @@ describe('worktree file protocol models', () => {
 						name: 'View.swift',
 						parentPath: 'Sources/App',
 						depth: 2,
+						fileClass: 'source',
 						isDirectory: false,
 						fileId: 'file-1',
 					},
@@ -118,6 +119,7 @@ describe('worktree file protocol models', () => {
 			name: 'View.swift',
 			parentPath: 'Sources/App',
 			depth: 2,
+			fileClass: 'source',
 			isDirectory: false,
 			fileId: 'file-1',
 		};
@@ -402,6 +404,7 @@ function makeTreeRow(props: MakeTreeRowProps): WorktreeTreeRowMetadata {
 		name,
 		parentPath,
 		depth: props.path.split('/').length - 1,
+		fileClass: 'source',
 		isDirectory: false,
 		fileId: `file:${props.path}`,
 	};

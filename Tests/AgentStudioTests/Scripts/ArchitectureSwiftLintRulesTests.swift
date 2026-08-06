@@ -28,7 +28,7 @@ struct ArchitectureSwiftLintRulesTests {
         #expect(lintScript.contains("run_release_contract=0"))
 
         #expect(ciWorkflow.contains("brew install swift-format swiftlint"))
-        #expect(ciWorkflow.contains("swift test --package-path Tools/AgentStudioArchitectureLint"))
+        #expect(ciWorkflow.contains("mise run test:architecture"))
         #expect(!ciWorkflow.contains(legacyBuildToolName))
         #expect(!ciWorkflow.contains("ripgrep"))
 

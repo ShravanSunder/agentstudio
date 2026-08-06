@@ -121,10 +121,7 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
         let controller = try bridgeController(for: try IPCHandle.parse(params.handle))
         return try await translateAsyncBridgeProjectionError {
             try await controller.applyPageControlForIPC(
-                .fileTreeSetFilter(
-                    gitStatusFilter: params.gitStatusFilter,
-                    fileClassFilter: params.fileClassFilter
-                ),
+                .fileTreeSetFilter(candidate: params.candidate),
                 correlationId: params.correlationId
             )
         }

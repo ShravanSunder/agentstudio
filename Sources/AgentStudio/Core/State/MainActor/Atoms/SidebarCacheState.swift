@@ -1,67 +1,67 @@
 import Foundation
 import Observation
 
-/// Durable sidebar expanded-group memory that can safely default without changing workspace meaning.
+/// Durable sidebar collapsed-group memory. Groups absent from this cache default expanded.
 ///
 /// App-shell composition stays on `WorkspaceSidebarState`; workspace geometry stays on
-/// `WorkspaceWindowMemoryAtom`. Do not add focus, selected surface, collapsed state,
+/// `WorkspaceWindowMemoryAtom`. Do not add focus, selected surface, whole-sidebar collapsed state,
 /// or width here.
 @MainActor
 @Observable
-package final class SidebarExpandedGroupAtom {
-    private(set) var expandedGroups: Set<SidebarGroupKey> = []
+package final class SidebarCollapsedGroupAtom {
+    private(set) var collapsedGroups: Set<SidebarGroupKey> = []
 
     func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
         if isExpanded {
-            expandedGroups.insert(key)
+            collapsedGroups.remove(key)
         } else {
-            expandedGroups.remove(key)
+            collapsedGroups.insert(key)
         }
     }
 
-    func setExpandedGroups(_ groups: Set<SidebarGroupKey>) {
-        expandedGroups = groups
+    func setCollapsedGroups(_ groups: Set<SidebarGroupKey>) {
+        collapsedGroups = groups
     }
 
-    func hydrate(expandedGroups: Set<SidebarGroupKey>) {
-        self.expandedGroups = expandedGroups
+    func hydrate(collapsedGroups: Set<SidebarGroupKey>) {
+        self.collapsedGroups = collapsedGroups
     }
 
     func clear() {
-        expandedGroups.removeAll(keepingCapacity: false)
+        collapsedGroups.removeAll(keepingCapacity: false)
     }
 }
 
 @MainActor
 package final class SidebarCacheState {
-    private let expandedGroupAtom: SidebarExpandedGroupAtom
+    private let collapsedGroupAtom: SidebarCollapsedGroupAtom
 
     // Keep this as a pass-through composition surface. Observation is registered
     // on the child atoms; caching these values here would make SwiftUI and store
     // autosave observers miss direct write-owner mutations.
     init(
-        expandedGroupAtom: SidebarExpandedGroupAtom = .init()
+        collapsedGroupAtom: SidebarCollapsedGroupAtom = .init()
     ) {
-        self.expandedGroupAtom = expandedGroupAtom
+        self.collapsedGroupAtom = collapsedGroupAtom
     }
 
-    package var expandedGroups: Set<SidebarGroupKey> {
-        expandedGroupAtom.expandedGroups
+    package var collapsedGroups: Set<SidebarGroupKey> {
+        collapsedGroupAtom.collapsedGroups
     }
 
     package func setGroupExpanded(_ key: SidebarGroupKey, isExpanded: Bool) {
-        expandedGroupAtom.setGroupExpanded(key, isExpanded: isExpanded)
+        collapsedGroupAtom.setGroupExpanded(key, isExpanded: isExpanded)
     }
 
-    func setExpandedGroups(_ groups: Set<SidebarGroupKey>) {
-        expandedGroupAtom.setExpandedGroups(groups)
+    func setCollapsedGroups(_ groups: Set<SidebarGroupKey>) {
+        collapsedGroupAtom.setCollapsedGroups(groups)
     }
 
-    func hydrate(expandedGroups: Set<SidebarGroupKey>) {
-        expandedGroupAtom.hydrate(expandedGroups: expandedGroups)
+    func hydrate(collapsedGroups: Set<SidebarGroupKey>) {
+        collapsedGroupAtom.hydrate(collapsedGroups: collapsedGroups)
     }
 
     func clear() {
-        expandedGroupAtom.clear()
+        collapsedGroupAtom.clear()
     }
 }

@@ -598,6 +598,8 @@ struct TerminalSurfaceScrollViewTests {
 
     @Test("output growth within sticky buffer requests scroll-to-bottom")
     func outputGrowthWithinStickyBufferRequestsScrollToBottom() {
+        #expect(AppPolicies.WorkspaceFocus.Terminal.stickyBottomBufferPx == 48)
+
         let performer = FakeSurfaceActionPerformer()
         let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
         let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))

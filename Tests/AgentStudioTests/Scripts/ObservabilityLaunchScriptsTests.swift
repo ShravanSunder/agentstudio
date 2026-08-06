@@ -73,8 +73,8 @@ struct ObservabilityLaunchScriptsTests {
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-fast\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-prebuild\""))
         #expect(miseConfig.contains("run = \"/bin/bash scripts/run-swift-test-task.sh test-webkit\""))
-        #expect(miseConfig.contains("[tasks.test-e2e]"))
-        #expect(miseConfig.contains("[tasks.test-zmx-e2e]"))
+        #expect(miseConfig.contains("[tasks.\"test:swift:e2e\"]"))
+        #expect(miseConfig.contains("[tasks.\"test:swift:zmx-e2e\"]"))
         #expect(miseConfig.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\""))
         #expect(wrapperScript.contains("source \"${PROJECT_ROOT}/scripts/swift-build-slot.sh\""))
         #expect(!miseConfig.contains("swift-build-slot.sh\" debug"))
@@ -143,11 +143,11 @@ struct ObservabilityLaunchScriptsTests {
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
         #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
         #expect(!ciWorkflow.contains("SWIFT_TEST_WORKERS"))
-        #expect(ciWorkflow.contains("run: mise run --raw test-fast"))
-        #expect(!ciWorkflow.contains("mise run test-benchmark"))
+        #expect(ciWorkflow.contains("run: mise run --skip-deps --raw test:swift:fast"))
+        #expect(!ciWorkflow.contains("mise run test:swift:benchmark"))
         #expect(
             benchmarkWorkflow.contains(
-                "set -o pipefail\n          mise run test-benchmark 2>&1 | tee benchmark.log"
+                "set -o pipefail\n          mise run test:swift:benchmark 2>&1 | tee benchmark.log"
             )
         )
     }

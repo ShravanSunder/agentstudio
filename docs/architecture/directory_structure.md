@@ -577,8 +577,9 @@ The executable-level `AgentStudioTests` target owns App composition,
 cross-Feature integration, executable resources, WebKit integration, zmx
 integration, and packaged/runtime proof that cannot be expressed by a lower
 module test. This ownership does not replace the existing execution lanes:
-`mise run test-fast`, `mise run test-large`, `mise run test-webkit`,
-`mise run test-e2e`, and `mise run test-zmx-e2e` retain their filter,
+`mise run test:swift:fast`, `mise run test:swift:large`,
+`mise run test:swift:webkit`, `mise run test:swift:e2e`, and
+`mise run test:swift:zmx-e2e` retain their filter,
 serialization, prebuild, timeout, and retry semantics. `swift test --filter`
 selects tests to execute; it does not redefine module ownership or guarantee
 that unrelated same-package test products avoid compilation.

@@ -42,7 +42,7 @@ struct CommandBarDataSourceTests {
             name: "feature-rich",
             path: URL(filePath: "/tmp/command-bar-rich-state/feature-rich")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
 
         let paneA = store.createPane(
             launchDirectory: worktree.path,
@@ -193,6 +193,10 @@ struct CommandBarDataSourceTests {
         #expect(viewerItems.count == 1)
         #expect(viewerItems["cmd-showViewer"]?.title == "Worktree Viewer")
         #expect(viewerItems.values.allSatisfy { !$0.hasChildren })
+        guard case .dispatch(.showViewer) = viewerItems["cmd-showViewer"]?.action else {
+            Issue.record("Expected contextual-preferred Viewer command to dispatch directly")
+            return
+        }
     }
 
     @Test
@@ -301,7 +305,7 @@ struct CommandBarDataSourceTests {
             name: "feature-name",
             path: URL(filePath: "/tmp/agent-studio/feature-name")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
@@ -533,7 +537,7 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
-    func test_everythingScope_terminalPaneFallsBackToPrimaryLabelWithoutBranchOrCwd() {
+    func test_everythingScope_terminalPaneUsesHomeFallbackWithoutRequestedLocation() {
         let store = makeStore()
         let pane = store.createPane(
             title: "Scratch Pad"
@@ -545,7 +549,10 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
-        #expect(paneItem?.title == "Scratch Pad")
+        #expect(
+            paneItem?.title
+                == "Terminal — \(FileManager.default.homeDirectoryForCurrentUser.lastPathComponent)"
+        )
     }
 
     @Test
@@ -572,7 +579,8 @@ struct CommandBarDataSourceTests {
         let pane = store.createPane(
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
             metadata: PaneMetadata(
-                title: "Bridge"
+                title: "Bridge",
+                facets: PaneContextFacets(cwd: URL(filePath: "/tmp/bridge-panel"))
             )
         )
         let tab = Tab(paneId: pane.id)

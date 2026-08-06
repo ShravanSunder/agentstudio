@@ -87,6 +87,7 @@ extension WorkspaceSurfaceCoordinator {
     ) {
         let fallbackCWD =
             store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
+            ?? FileManager.default.homeDirectoryForCurrentUser
 
         guard
             let drawerPane = store.paneAtom.insertDrawerPane(

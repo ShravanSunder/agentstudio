@@ -33,6 +33,7 @@ enum BridgePaneProductFileMetadataEncoding {
             changeStatus: row.changeStatus.flatMap(BridgeProductFileChangeStatus.init(rawValue:)),
             depth: row.depth,
             fileId: row.fileId,
+            fileClass: row.fileClass,
             isDirectory: row.isDirectory,
             lineCount: row.lineCount,
             name: row.name,

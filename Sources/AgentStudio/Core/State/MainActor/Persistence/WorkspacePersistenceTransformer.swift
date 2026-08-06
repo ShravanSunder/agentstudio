@@ -37,14 +37,46 @@ enum WorkspacePersistenceTransformer {
     nonisolated static func prepareRepositoryTopology(
         _ snapshot: RepositoryTopologySQLiteSnapshot
     ) -> RepositoryTopologyReplacementPreparation {
-        RepositoryTopologyReplacement.prepare(
+        let normalizedTopology = normalizeRepositoryMainWorktrees(
             repositories: runtimeRepos(
                 canonicalRepos: snapshot.repos,
                 canonicalWorktrees: snapshot.worktrees
             ),
-            watchedPaths: snapshot.watchedPaths,
             unavailableRepositoryIDs: snapshot.unavailableRepoIds
         )
+        return RepositoryTopologyReplacement.prepare(
+            repositories: normalizedTopology.repositories,
+            watchedPaths: snapshot.watchedPaths,
+            unavailableRepositoryIDs: normalizedTopology.unavailableRepositoryIDs
+        )
+    }
+
+    nonisolated static func topologyRestoreReasons(
+        _ snapshot: RepositoryTopologySQLiteSnapshot
+    ) -> Set<PaneTopologyPersistenceReason> {
+        let worktreesByRepositoryID = Dictionary(grouping: snapshot.worktrees, by: \.repoId)
+        var reasons = Set<PaneTopologyPersistenceReason>()
+        for repository in snapshot.repos {
+            let repositoryWorktrees = worktreesByRepositoryID[repository.id] ?? []
+            let rootWorktrees = repositoryWorktrees.filter {
+                $0.stableKey == repository.stableKey
+            }
+            guard rootWorktrees.count == 1, let rootWorktree = rootWorktrees.first else {
+                reasons.insert(.topologyRestoreMissingMainDegraded)
+                if rootWorktrees.count > 1 {
+                    reasons.insert(.paneTopologyAssociationAmbiguous)
+                }
+                continue
+            }
+            if !rootWorktree.isMainWorktree
+                || repositoryWorktrees.contains(where: {
+                    $0.id != rootWorktree.id && $0.isMainWorktree
+                })
+            {
+                reasons.insert(.topologyRestoreMainRoleRepaired)
+            }
+        }
+        return reasons
     }
 
     static func applyPreparedRepositoryTopology(
@@ -133,18 +165,54 @@ enum WorkspacePersistenceTransformer {
         watchedPaths: [WatchedPath],
         unavailableRepositoryIDs: Set<UUID>
     ) -> RepositoryTopologyReplacement? {
-        switch RepositoryTopologyReplacement.prepare(
+        let normalizedTopology = normalizeRepositoryMainWorktrees(
             repositories: runtimeRepos(
                 canonicalRepos: canonicalRepos,
                 canonicalWorktrees: canonicalWorktrees
             ),
-            watchedPaths: watchedPaths,
             unavailableRepositoryIDs: unavailableRepositoryIDs
+        )
+        switch RepositoryTopologyReplacement.prepare(
+            repositories: normalizedTopology.repositories,
+            watchedPaths: watchedPaths,
+            unavailableRepositoryIDs: normalizedTopology.unavailableRepositoryIDs
         ) {
         case .prepared(let replacement):
             return replacement
         case .rejected:
             return nil
         }
+    }
+
+    private nonisolated static func normalizeRepositoryMainWorktrees(
+        repositories: [Repo],
+        unavailableRepositoryIDs: Set<UUID>
+    ) -> (repositories: [Repo], unavailableRepositoryIDs: Set<UUID>) {
+        var normalizedUnavailableRepositoryIDs = unavailableRepositoryIDs
+        let normalizedRepositories = repositories.map { repository in
+            let rootWorktreeIndexes = repository.worktrees.indices.filter { index in
+                repository.worktrees[index].stableKey == repository.stableKey
+            }
+            guard rootWorktreeIndexes.count == 1, let rootWorktreeIndex = rootWorktreeIndexes.first else {
+                normalizedUnavailableRepositoryIDs.insert(repository.id)
+                guard rootWorktreeIndexes.count > 1 else {
+                    return repository
+                }
+                var normalizedRepository = repository
+                normalizedRepository.worktrees = repository.worktrees.compactMap { worktree in
+                    worktree.stableKey == repository.stableKey ? nil : worktree
+                }
+                return normalizedRepository
+            }
+
+            var normalizedRepository = repository
+            normalizedRepository.worktrees = repository.worktrees.enumerated().map { index, worktree in
+                var normalizedWorktree = worktree
+                normalizedWorktree.isMainWorktree = index == rootWorktreeIndex
+                return normalizedWorktree
+            }
+            return normalizedRepository
+        }
+        return (normalizedRepositories, normalizedUnavailableRepositoryIDs)
     }
 }

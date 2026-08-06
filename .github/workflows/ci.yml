@@ -12,17 +12,15 @@ permissions:
   pull-requests: write
 
 jobs:
-  test:
+  code-quality:
+    name: Code quality
     runs-on: macos-26
-    env:
-      SWIFT_BUILD_DIR: .build-ci
-      XCB_EXTRA_ARGS: "--renderer github-actions"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          persist-credentials: false
 
       - name: Select Xcode 26.3
         uses: maxim-lobanov/setup-xcode@v1
@@ -32,30 +30,43 @@ jobs:
       - name: Setup mise
         uses: jdx/mise-action@v3
 
-      # --- Lint (fast, no build needed) ---
-
       - name: Install lint tools
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
           HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: brew install swift-format swiftlint
 
+      - name: Restore architecture lint build cache
+        id: architecture-cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: Tools/AgentStudioArchitectureLint/.build
+          key: architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-${{ hashFiles('Tools/AgentStudioArchitectureLint/Package.swift', 'Tools/AgentStudioArchitectureLint/Package.resolved') }}
+          restore-keys: |
+            architecture-lint-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-
+
+      - name: AgentStudio architecture lint tool tests
+        run: mise run test:architecture
+
+      - name: Save architecture lint build cache
+        if: steps.architecture-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Tools/AgentStudioArchitectureLint/.build
+          key: ${{ steps.architecture-cache-restore.outputs.cache-primary-key }}
+
       - name: Lint
         run: mise run lint
 
-      - name: AgentStudio architecture lint tool tests
-        run: swift test --package-path Tools/AgentStudioArchitectureLint
+  bridge-web-validation:
+    name: BridgeWeb validation
+    runs-on: macos-26
 
-      - name: Format check (swift-format)
-        run: |
-          swift-format format --in-place --recursive Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests
-          git diff --quiet -- Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests || {
-            echo "Swift formatting changes detected. Run mise run format locally.";
-            git diff -- Sources/ Tests/ Tools/AgentStudioArchitectureLint/Sources Tools/AgentStudioArchitectureLint/Tests;
-            exit 1;
-          }
-
-      # --- BridgeWeb check/build before Swift WebKit lanes ---
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -70,25 +81,50 @@ jobs:
           cache-dependency-path: BridgeWeb/pnpm-lock.yaml
 
       - name: Install BridgeWeb dependencies
-        run: mise run bridge-web-install
+        run: pnpm --dir BridgeWeb install --frozen-lockfile
 
-      - name: BridgeWeb check
-        run: mise run bridge-web-check
+      - name: Verify BridgeWeb fixtures
+        run: bash scripts/bridge-web-sync-fixtures.sh
 
-      - name: BridgeWeb Vitest unit tests
-        run: mise run bridge-web-unit-test
-
-      - name: BridgeWeb Vitest integration tests
-        run: mise run bridge-web-integration-test
-
-      - name: BridgeWeb Vitest E2E tests
-        run: mise run bridge-web-e2e-test
-
-      - name: BridgeWeb packaged build
+      - name: Run BridgeWeb lanes
         run: |
-          mise run bridge-web-build
+          # Keep the CPU-heavy unit lane separate from browser integration/E2E.
+          # They already run concurrently with the code-quality and Swift test jobs; sharing
+          # this runner causes Vitest's per-test timeout to become load-dependent.
+          pnpm --dir BridgeWeb run check
+          pnpm --dir BridgeWeb run test:unit
+          pnpm --dir BridgeWeb run test:integration
+          pnpm --dir BridgeWeb run test:e2e
+          pnpm --dir BridgeWeb run build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
-          ls -la Sources/AgentStudio/Resources/BridgeWeb/app
+
+  swift-test-suite:
+    name: Swift test suite
+    runs-on: macos-26
+    env:
+      SWIFT_BUILD_DIR: .build-ci
+      XCB_EXTRA_ARGS: "--renderer github-actions"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Setup mise
+        uses: jdx/mise-action@v3
+
+      - name: Install lint tools for Swift test contracts
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: brew install swiftlint
 
       # --- Submodule SHAs for cache keys ---
 
@@ -100,50 +136,70 @@ jobs:
           echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
           echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
 
-      # --- Zig compilation cache (speeds up builds on artifact cache miss) ---
+      # --- Independent BridgeWeb install and vendor cache restores ---
 
-      - name: Cache Zig compilation
-        uses: actions/cache@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
         with:
-          path: |
-            ~/.cache/zig
-            vendor/ghostty/.zig-cache
-            vendor/zmx/.zig-cache
-          key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
-          restore-keys: |
-            zig-compile-${{ runner.os }}-
+          version: 11.14.0
 
-      # --- Cache/build Ghostty ---
-
-      - name: Cache Ghostty artifacts
-        id: cache-ghostty
-        uses: actions/cache@v4
+      - name: Setup Node for BridgeWeb
+        uses: actions/setup-node@v4
         with:
-          path: |
-            vendor/ghostty/macos/GhosttyKit.xcframework
-            vendor/ghostty/zig-out/share
-          key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
+          node-version: "26.5.0"
+          cache: pnpm
+          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
 
-      - name: Build Ghostty XCFramework
-        if: steps.cache-ghostty.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/ghostty
-          zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+      - parallel:
+          - name: Install BridgeWeb dependencies
+            id: bridge-web-install
+            run: pnpm --dir BridgeWeb install --frozen-lockfile
 
-      # --- Cache/build zmx ---
+          - name: Cache Zig compilation
+            id: cache-zig-compilation
+            uses: actions/cache@v4
+            with:
+              path: |
+                ~/.cache/zig
+                vendor/ghostty/.zig-cache
+                vendor/zmx/.zig-cache
+              key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+              restore-keys: |
+                zig-compile-${{ runner.os }}-
 
-      - name: Cache zmx artifacts
-        id: cache-zmx
-        uses: actions/cache@v4
-        with:
-          path: vendor/zmx/zig-out
-          key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+          - name: Cache Ghostty artifacts
+            id: cache-ghostty
+            uses: actions/cache@v4
+            with:
+              path: |
+                vendor/ghostty/macos/GhosttyKit.xcframework
+                vendor/ghostty/zig-out/share
+              key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
 
-      - name: Build zmx
-        if: steps.cache-zmx.outputs.cache-hit != 'true'
-        run: |
-          cd vendor/zmx
-          zig build -Doptimize=ReleaseFast
+          - name: Cache zmx artifacts
+            id: cache-zmx
+            uses: actions/cache@v4
+            with:
+              path: vendor/zmx/zig-out
+              key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+
+      # --- Build independent BridgeWeb and vendor artifacts ---
+
+      - parallel:
+          - name: BridgeWeb packaged build
+            run: pnpm --dir BridgeWeb run build
+
+          - name: Build Ghostty XCFramework
+            if: steps.cache-ghostty.outputs.cache-hit != 'true'
+            run: |
+              cd vendor/ghostty
+              zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+
+          - name: Build zmx
+            if: steps.cache-zmx.outputs.cache-hit != 'true'
+            run: |
+              cd vendor/zmx
+              zig build -Doptimize=ReleaseFast
 
       # --- Setup resources + build + test (delegated to mise) ---
 
@@ -170,26 +226,49 @@ jobs:
             [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
           fi
 
-      - name: Cache Swift build
-        uses: actions/cache@v4
+      - name: Compute Swift build input fingerprint
+        id: swift-build-inputs
+        run: |
+          fingerprint="$(scripts/swift-build-input-fingerprint.sh)"
+          toolchain_fingerprint="$({
+            xcodebuild -version 2>&1
+            swift --version 2>&1
+            xcrun --sdk macosx --show-sdk-version 2>&1
+          } | /usr/bin/shasum -a 256 | /usr/bin/awk '{ print $1 }')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$toolchain_fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift build cache
+        id: swift-build-cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: .build-ci
-          key: swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ github.sha }}
+          # The exact key is content-addressed so an exact hit contains compiled bundles for the current inputs.
+          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
           restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-xcode-26.3-debug-${{ hashFiles('Package.swift', 'Package.resolved') }}-
+            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-
 
       - name: Prebuild Swift test bundles
+        if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
-        run: mise run test-prebuild
+        run: mise run --skip-deps test:swift:prebuild
+
+      - name: Save Swift build cache
+        if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build-ci
+          key: ${{ steps.swift-build-cache-restore.outputs.cache-primary-key }}
 
       - name: Test fast lane
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "300"
+          SWIFT_TEST_NUM_WORKERS: "4"
           _XCB_BYPASS: "1"
-        run: mise run --raw test-fast
+        run: mise run --skip-deps --raw test:swift:fast
 
       - name: Test WebKit lane
         env:
@@ -198,7 +277,7 @@ jobs:
           SWIFT_TEST_SKIP_PREBUILD: "1"
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
           XCB_EXTRA_ARGS: "--renderer github-actions"
-        run: mise run test-webkit
+        run: mise run --skip-deps test:swift:webkit
 
       - name: Upload test results
         if: always()

@@ -43,8 +43,9 @@ struct MainWindowControllerInboxToolbarButtonTests {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
         #expect(source.contains("AppCommandDispatcher.shared.definition(for: command)"))
-        #expect(source.contains("AppCommandDispatcher.shared.dispatch(command)"))
-        #expect(source.contains(".help(commandDefinition.controlToolTip)"))
+        #expect(source.contains("presentation.perform()"))
+        #expect(source.contains(".disabled(!presentation.isEnabled)"))
+        #expect(source.contains(".help(presentation.controlToolTip)"))
     }
 
     @Test("top chrome sidebar icons track open active surface")
@@ -70,10 +71,26 @@ struct MainWindowControllerInboxToolbarButtonTests {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
         #expect(source.contains("struct WatchFolderTabBarMenu: View"))
-        #expect(source.contains("AppCommandDispatcher.shared.definition(for: .watchFolder)"))
-        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.watchFolder)"))
+        #expect(source.contains("command: .watchFolder"))
+        #expect(source.contains("presentation.perform()"))
+        #expect(source.contains(".disabled(!presentation.isEnabled)"))
         #expect(source.contains("symbolName: \"folder.badge.plus\""))
         #expect(source.contains("ChromeToolbarButtonLabel("))
+    }
+
+    @Test("worktree sidebar presentation is filtered by app toolbar surface and command context")
+    func worktreeSidebarPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
+        expectAppToolbarPresentationFiltering(for: .showWorktreeSidebar)
+    }
+
+    @Test("inbox presentation is filtered by app toolbar surface and command context")
+    func inboxPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
+        expectAppToolbarPresentationFiltering(for: .showInboxNotifications)
+    }
+
+    @Test("watch folder presentation is filtered by app toolbar surface and command context")
+    func watchFolderPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
+        expectAppToolbarPresentationFiltering(for: .watchFolder)
     }
 
     @Test("bell unread badge text caps at ninety nine plus")
@@ -118,6 +135,88 @@ struct MainWindowControllerInboxToolbarButtonTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
     }
+
+    private func expectAppToolbarPresentationFiltering(for command: AppCommand) {
+        let definition = command.definition
+        let emptyContext = CommandContext.empty
+        let appToolbarPresentation = ShellTabBarCommandPresentation(
+            definition: definition,
+            surface: .toolbar(.app),
+            commandContext: emptyContext
+        )
+
+        #expect(appToolbarPresentation?.command == command)
+        #expect(appToolbarPresentation?.controlToolTip == definition.controlToolTip)
+
+        let commandBarOnlyDefinition = AppCommandSpec(
+            command: command,
+            label: definition.label,
+            icon: definition.icon,
+            helpText: definition.helpText,
+            surfacePolicy: .exposed([.commandBar]),
+            targeting: .contextual
+        )
+        #expect(
+            ShellTabBarCommandPresentation(
+                definition: commandBarOnlyDefinition,
+                surface: .toolbar(.app),
+                commandContext: emptyContext
+            ) == nil
+        )
+
+        let activeTabDefinition = AppCommandSpec(
+            command: command,
+            label: definition.label,
+            icon: definition.icon,
+            helpText: definition.helpText,
+            surfacePolicy: .exposed([.toolbar(.app)]),
+            targeting: .contextual,
+            visibleWhen: [.hasActiveTab]
+        )
+        #expect(
+            ShellTabBarCommandPresentation(
+                definition: activeTabDefinition,
+                surface: .toolbar(.app),
+                commandContext: emptyContext
+            ) == nil
+        )
+        #expect(
+            ShellTabBarCommandPresentation(
+                definition: activeTabDefinition,
+                surface: .toolbar(.app),
+                commandContext: CommandContext(satisfiedRequirements: [.hasActiveTab])
+            )?.command == command
+        )
+    }
+
+    @Test("app toolbar actions expose capability and recheck before dispatch")
+    func appToolbarActionsRecheckCapabilityBeforeDispatch() throws {
+        let dispatcher = RecordingAppToolbarCommandDispatcher()
+        dispatcher.enabledCommands = [.newTab]
+        let presentation = try #require(
+            ShellTabBarCommandPresentation(
+                definition: AppCommand.newTab.definition,
+                surface: .toolbar(.app),
+                commandContext: .empty,
+                dispatcher: dispatcher
+            )
+        )
+
+        #expect(presentation.isEnabled)
+        #expect(dispatcher.capabilityQueries == [.newTab])
+
+        dispatcher.enabledCommands = []
+        presentation.perform()
+
+        #expect(dispatcher.capabilityQueries == [.newTab, .newTab])
+        #expect(dispatcher.dispatchedCommands.isEmpty)
+
+        dispatcher.enabledCommands = [.newTab]
+        presentation.perform()
+
+        #expect(dispatcher.capabilityQueries == [.newTab, .newTab, .newTab])
+        #expect(dispatcher.dispatchedCommands == [.newTab])
+    }
 }
 
 @MainActor
@@ -128,6 +227,38 @@ private struct MainWindowControllerHarness {
     let controller: MainWindowController
     let window: NSWindow
     let tempDir: URL
+}
+
+@MainActor
+private final class RecordingAppToolbarCommandDispatcher: AppCommandDispatching {
+    var enabledCommands: Set<AppCommand> = []
+    private(set) var capabilityQueries: [AppCommand] = []
+    private(set) var dispatchedCommands: [AppCommand] = []
+
+    func dispatch(_ command: AppCommand) {
+        dispatchedCommands.append(command)
+    }
+
+    func dispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+
+    func canDispatch(_ command: AppCommand) -> Bool {
+        capabilityQueries.append(command)
+        return enabledCommands.contains(command)
+    }
+
+    func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        false
+    }
+
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? {
+        nil
+    }
+
+    func dispatchMovePaneToTab(
+        sourcePaneId _: UUID,
+        sourceTabId _: UUID?,
+        targetTabId _: UUID
+    ) {}
 }
 
 @MainActor

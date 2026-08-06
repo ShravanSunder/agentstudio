@@ -23,6 +23,10 @@ private final class FakeInboxAppCommandDispatcher: AppCommandDispatching {
 @MainActor
 @Suite("InboxNotificationSidebarView", .serialized)
 struct InboxNotificationSidebarViewTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     @Test("typed preference callbacks preserve Feature values")
     func typedPreferenceCallbacksPreserveFeatureValues() {
         var rowStateFilters: [InboxNotificationRowStateFilter] = []
@@ -524,6 +528,9 @@ struct InboxNotificationSidebarViewTests {
 @MainActor
 @Suite("InboxNotificationSidebarView source groups", .serialized)
 struct InboxNotificationSidebarViewSourceGroupTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
 
     @Test("inbox group header maps every source kind to a fixed icon slot")
     @MainActor
@@ -713,7 +720,15 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let prefsAtom = InboxNotificationPrefsAtom()
         let repositoryTopologyAtom = RepositoryTopologyAtom()
         let repoCache = RepoCacheAtom()
-        let worktree = Worktree(
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agent-studio")
+        let mainWorktree = Worktree(
+            id: UUIDv7.generate(),
+            repoId: repoId,
+            name: repositoryPath.lastPathComponent,
+            path: repositoryPath,
+            isMainWorktree: true
+        )
+        let linkedWorktree = Worktree(
             id: UUID(),
             repoId: repoId,
             name: "notification-inbox-redesign",
@@ -723,8 +738,8 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let repo = Repo(
             id: repoId,
             name: "agent-studio.notification-inbox-redesign",
-            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
-            worktrees: [worktree]
+            repoPath: repositoryPath,
+            worktrees: [mainWorktree, linkedWorktree]
         )
         replaceTopology(
             in: repositoryTopologyAtom,
@@ -802,7 +817,15 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let prefsAtom = InboxNotificationPrefsAtom()
         let repositoryTopologyAtom = RepositoryTopologyAtom()
         let repoCache = RepoCacheAtom()
-        let worktree = Worktree(
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agent-studio")
+        let mainWorktree = Worktree(
+            id: UUIDv7.generate(),
+            repoId: repoId,
+            name: repositoryPath.lastPathComponent,
+            path: repositoryPath,
+            isMainWorktree: true
+        )
+        let linkedWorktree = Worktree(
             id: UUID(),
             repoId: repoId,
             name: "notification-inbox-redesign",
@@ -812,8 +835,8 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let repo = Repo(
             id: repoId,
             name: "agent-studio.notification-inbox-redesign",
-            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
-            worktrees: [worktree]
+            repoPath: repositoryPath,
+            worktrees: [mainWorktree, linkedWorktree]
         )
         replaceTopology(
             in: repositoryTopologyAtom,
@@ -937,6 +960,10 @@ private struct InboxSidebarRootHarness: View {
             focusedField: $focusedField,
             sections: sections,
             flashingRowIds: [],
+            commandPresentation: InboxSidebarCommandPresentation(commandContext: .empty),
+            commandCapability: InboxSidebarCommandCapability(
+                dispatcher: FakeInboxAppCommandDispatcher()
+            ),
             actions: .init(
                 onEscape: {},
                 onToggleSort: {},

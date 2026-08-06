@@ -53,16 +53,20 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                     id: parentPaneId,
                     content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
                     metadata: .init(
-                        launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo"),
+                        launchDirectory: URL(
+                            filePath: "/tmp/agentstudio/pane-graph-repo",
+                            directoryHint: .isDirectory
+                        ),
                         executionBackend: .docker(image: "swift:latest"),
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Parent",
                         note: "keep this note",
                         checkoutRef: "feature/pane-graph",
                         durableFacets: .init(
-                            repoId: repoId,
-                            worktreeId: worktreeId,
-                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo/Sources")
+                            cwd: URL(
+                                filePath: "/tmp/agentstudio/pane-graph-repo/Sources",
+                                directoryHint: .isDirectory
+                            )
                         )
                     ),
                     residency: .pendingUndo(expiresAt: Date(timeIntervalSince1970: 400)),
@@ -82,7 +86,10 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         createdAt: Date(timeIntervalSince1970: 301),
                         title: "Child Web",
                         durableFacets: .init(
-                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/floating")
+                            cwd: URL(
+                                filePath: "/tmp/agentstudio/floating",
+                                directoryHint: .isDirectory
+                            )
                         )
                     ),
                     residency: .active,
@@ -238,7 +245,10 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000001102")!
         let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000001202")!
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000001310")!
-        let launchDirectory = URL(fileURLWithPath: "/tmp/agentstudio/source-fill")
+        let launchDirectory = URL(
+            filePath: "/tmp/agentstudio/source-fill",
+            directoryHint: .isDirectory
+        )
         try repository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -281,8 +291,6 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Worktree",
                         durableFacets: .init(
-                            repoId: repoId,
-                            worktreeId: worktreeId,
                             cwd: launchDirectory
                         )
                     ),
@@ -307,7 +315,10 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000001103")!
         let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000001203")!
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000001311")!
-        let launchDirectory = URL(fileURLWithPath: "/tmp/agentstudio/source-delete")
+        let launchDirectory = URL(
+            filePath: "/tmp/agentstudio/source-delete",
+            directoryHint: .isDirectory
+        )
         try repository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -350,7 +361,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         executionBackend: .local,
                         createdAt: Date(timeIntervalSince1970: 300),
                         title: "Worktree",
-                        durableFacets: .init(repoId: repoId, worktreeId: worktreeId, cwd: launchDirectory)
+                        durableFacets: .init(cwd: launchDirectory)
                     ),
                     residency: .active,
                     placement: .layout,
@@ -365,8 +376,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         let restoredGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
         #expect(restoredGraph.panes.single?.metadata.launchDirectory == launchDirectory)
-        #expect(restoredGraph.panes.single?.metadata.durableFacets.repoId == nil)
-        #expect(restoredGraph.panes.single?.metadata.durableFacets.worktreeId == nil)
+        #expect(restoredGraph.panes.single?.metadata.durableFacets.cwd == launchDirectory)
     }
 
     private func makeFloatingPane(
@@ -383,7 +393,12 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: title,
-                durableFacets: .init(cwd: URL(fileURLWithPath: "/tmp/agentstudio/floating"))
+                durableFacets: .init(
+                    cwd: URL(
+                        filePath: "/tmp/agentstudio/floating",
+                        directoryHint: .isDirectory
+                    )
+                )
             ),
             residency: residency,
             placement: .layout,

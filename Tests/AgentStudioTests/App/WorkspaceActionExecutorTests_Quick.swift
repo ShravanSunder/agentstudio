@@ -114,7 +114,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -161,7 +163,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -195,7 +199,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -225,7 +231,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -262,7 +270,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return
@@ -301,7 +311,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             let worktree = try #require(
                 store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
                 "Expected main worktree"
@@ -342,7 +354,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             let worktree = try #require(
                 store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
                 "Expected main worktree"
@@ -367,7 +381,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             let worktree = try #require(
                 store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
                 "Expected main worktree"
@@ -396,7 +412,9 @@ extension WebKitSerializedTests {
             let tempDir = harness.tempDir
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
-            let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+            let repo = store.addRepo(
+                at: tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
                 return

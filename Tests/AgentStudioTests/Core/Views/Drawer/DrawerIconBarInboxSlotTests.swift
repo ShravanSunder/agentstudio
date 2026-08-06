@@ -7,19 +7,22 @@ import Testing
 @MainActor
 @Suite("DrawerIconBar inbox slot")
 struct DrawerIconBarInboxSlotTests {
-    @Test("trailing actions carry optional inbox callback and unread badge")
+    @Test("trailing actions carry optional inbox command and unread badge")
     func trailingActionsCarryInboxConfiguration() {
         var didOpenInbox = false
         let actions = makeTrailingActions(
             inboxUnreadCount: 3,
-            onOpenInbox: {
-                didOpenInbox = true
-            }
+            showPaneInboxAction: makeCommandAction(
+                .showPaneInboxNotifications,
+                perform: {
+                    didOpenInbox = true
+                }
+            )
         )
 
         #expect(actions.inboxUnreadBadge?.text == "3")
         #expect(actions.inboxPopoverContent == nil)
-        actions.onOpenInbox?()
+        actions.showPaneInboxAction?.perform()
         #expect(didOpenInbox)
     }
 
@@ -31,40 +34,48 @@ struct DrawerIconBarInboxSlotTests {
 
     @Test("icon bar accepts trailing inbox action configuration")
     func iconBarAcceptsInboxConfiguration() {
-        let actions = makeTrailingActions(inboxUnreadCount: 2, onOpenInbox: {})
+        let actions = makeTrailingActions(
+            inboxUnreadCount: 2,
+            showPaneInboxAction: makeCommandAction(.showPaneInboxNotifications)
+        )
 
         let view = DrawerIconBar(
             octiconLoader: makeCoreTestOcticonLoader(),
-            isExpanded: false,
-            onAdd: {},
-            onToggleExpand: {},
+            leadingControls: .drawer(
+                isExpanded: false,
+                addDrawerPaneAction: makeCommandAction(.addDrawerPane),
+                toggleDrawerAction: makeCommandAction(.toggleDrawer)
+            ),
             trailingActions: actions
         )
 
         _ = view.body
     }
 
-    @Test("empty drawer add tooltip uses empty drawer shortcut")
-    func emptyDrawerAddTooltipUsesEmptyDrawerShortcut() throws {
-        let tooltipValue = EmptyDrawerBar.addTooltipValue()
-        let emptyDrawerShortcut = try #require(AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer))
-
-        #expect(tooltipValue.shortcutDisplayText == ShortcutDisplayText(value: emptyDrawerShortcut.displayString))
-        #expect(tooltipValue.text == "Add Drawer Pane (\(emptyDrawerShortcut.displayString))")
-    }
-
     private func makeTrailingActions(
         inboxUnreadCount: Int,
-        onOpenInbox: (() -> Void)?
+        showPaneInboxAction: TargetedCommandControlAction?
     ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
-            canOpenTarget: true,
+            openEditorMenuAction: makeCommandAction(.openPaneLocationInEditorMenu),
+            openFinderAction: makeCommandAction(.openPaneLocationInFinder),
+            copyPathAction: makeCommandAction(.copyCurrentPanePath),
+            showPaneInboxAction: showPaneInboxAction,
             editorMenuContent: AnyView(EmptyView()),
             editorMenuPresented: .constant(false),
             buttonTitle: "Cursor",
-            onOpenFinder: {},
-            onOpenInbox: onOpenInbox,
             inboxUnreadBadge: PaneInboxUnreadBadge(unreadCount: inboxUnreadCount)
+        )
+    }
+
+    private func makeCommandAction(
+        _ command: AppCommand,
+        perform: @escaping @MainActor () -> Void = {}
+    ) -> TargetedCommandControlAction {
+        TargetedCommandControlAction(
+            commandSpec: command.definition,
+            isEnabled: true,
+            perform: perform
         )
     }
 }

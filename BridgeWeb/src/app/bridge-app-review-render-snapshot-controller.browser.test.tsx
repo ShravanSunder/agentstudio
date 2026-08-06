@@ -27,6 +27,9 @@ import {
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+
+const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
+
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
 		// Arrange
@@ -82,7 +85,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={onActiveSourceChange}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={viewerHeaderControls}
@@ -107,7 +112,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await rendered.rerender(
 				<BridgeReviewViewerMode
 					isActive={false}
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 					onActiveSourceChange={onActiveSourceChange}
+					onNavigationSourceChange={vi.fn()}
 					reviewClient={harness.reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={viewerHeaderControls}
@@ -128,7 +135,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
 				viewerHeaderControls={<div />}
@@ -146,7 +155,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					{
 						operation: 'upsert',
 						payload: {
+							metadataSourceId: 'review-source-browser-test',
 							metadataWindowIdentity: 'review-window-empty',
+							packageId: 'review-package-browser-test',
 							reviewGeneration: 1,
 							status: 'ready',
 							summary: {
@@ -310,7 +321,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
 				viewerHeaderControls={<div />}
@@ -411,7 +424,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
 				isActive={true}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={onActiveSourceChange}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={<div />}
@@ -472,6 +487,50 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const viewportCommandCountBeforeDeactivation = harness.sentCommands.filter(
 			(command) => command.command === 'viewport',
 		).length;
+		const commandCountBeforeViewSettingChange = harness.sentCommands.length;
+		const reviewShellElement = requireHTMLElement(
+			document.querySelector('[data-testid="review-viewer-shell"]'),
+		);
+		const reviewIdentityBeforeViewSettingChange = {
+			generation: reviewShellElement.getAttribute('data-review-metadata-generation'),
+			packageId: reviewShellElement.getAttribute('data-review-metadata-id'),
+			selectedPath: reviewShellElement.getAttribute('data-selected-display-path'),
+		};
+		const codePanelBeforeViewSettingChange = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-code-view-panel"]'),
+		);
+
+		// Act: change Review rendering through the real full-surface gear menu.
+		await act(async (): Promise<void> => {
+			requireHTMLElement(
+				document.querySelector('[data-testid="bridge-review-view-settings-trigger"]'),
+			).click();
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
+			const wordWrapRow = [
+				...document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'),
+			].find(
+				(row): boolean =>
+					row.querySelector('[data-bridge-view-settings-row-label]')?.textContent?.trim() ===
+					'Word wrap',
+			);
+			if (wordWrapRow === undefined) throw new Error('Missing Review Word wrap setting');
+			wordWrapRow.click();
+			await settleRenderedReviewFrame();
+		});
+
+		// Assert: rendering changes without selection, source, session command, or shell replacement.
+		expect(
+			requireHTMLElement(document.querySelector('[data-testid="bridge-code-view-panel"]')),
+		).toBe(codePanelBeforeViewSettingChange);
+		expect({
+			generation: reviewShellElement.getAttribute('data-review-metadata-generation'),
+			packageId: reviewShellElement.getAttribute('data-review-metadata-id'),
+			selectedPath: reviewShellElement.getAttribute('data-selected-display-path'),
+		}).toEqual(reviewIdentityBeforeViewSettingChange);
+		expect(harness.sentCommands).toHaveLength(commandCountBeforeViewSettingChange);
+		await expect.element(codePanel).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
 
 		// Act: retain the recovered shell while Review becomes inactive.
 		await act(async (): Promise<void> => {
@@ -479,7 +538,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				<BridgeReviewViewerMode
 					codeViewWorkerPoolEnabled={false}
 					isActive={false}
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 					onActiveSourceChange={onActiveSourceChange}
+					onNavigationSourceChange={vi.fn()}
 					reviewClient={reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={<div />}

@@ -46,7 +46,7 @@ package struct WorkspacePaneDerived {
     }
 
     private func displayFacets(for durableFacets: PaneContextFacets) -> PaneContextFacets {
-        var facets = PaneGraphFacets(contextFacets: durableFacets).paneContextFacets
+        var facets = PaneContextFacets(cwd: durableFacets.cwd)
         guard let resolvedContext = resolvedWorkspaceContext(for: facets) else {
             return facets
         }
@@ -70,14 +70,6 @@ package struct WorkspacePaneDerived {
         for facets: PaneContextFacets
     ) -> (repo: Repo, worktree: Worktree)? {
         guard let repositoryTopologyAtom else { return nil }
-
-        if let repoId = facets.repoId,
-            let worktreeId = facets.worktreeId,
-            let repo = repositoryTopologyAtom.repo(repoId),
-            let worktree = repositoryTopologyAtom.worktree(worktreeId)
-        {
-            return (repo, worktree)
-        }
 
         return repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd)
     }

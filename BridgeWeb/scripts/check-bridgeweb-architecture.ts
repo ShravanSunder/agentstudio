@@ -19,7 +19,7 @@ type RuleId =
 	| 'worker-boundary'
 	| 'no-raw-file-bodies-in-state'
 	| 'core-imports-app-protocol'
-	| 'dev-product-route-boundary'
+	| 'product-endpoint-boundary'
 	| 'worktree-dev-review-package-scaffolding';
 
 export interface ArchitectureViolation {
@@ -62,6 +62,16 @@ const defaultPackageRootPath = fileURLToPath(new URL('../', import.meta.url));
 const checkedExtensions = new Set(['.ts', '.tsx']);
 const ignoredDirectoryNames = new Set(['node_modules', 'dist', 'coverage', '.vite']);
 const maxSourceFileLineCount = 1000;
+const bridgeProductEndpointAdapterPaths = new Set([
+	'src/core/comm-worker/bridge-product-agent-studio-request-executor.js',
+	'src/core/comm-worker/bridge-product-agent-studio-request-executor.ts',
+	'src/core/comm-worker/bridge-product-http-request-executor.js',
+	'src/core/comm-worker/bridge-product-http-request-executor.ts',
+]);
+const bridgeProductExecutableEntryPaths = new Set([
+	'src/core/comm-worker/bridge-comm-worker-packaged-entry.ts',
+	'src/core/comm-worker/bridge-comm-worker-vite-entry.ts',
+]);
 const allowedPostMessagePaths = new Set([
 	'src/app/diagnostics/bridge-product-stream-webkit-feasibility-probe.ts',
 	'src/app/diagnostics/bridge-product-stream-webkit-feasibility-worker-entry.ts',
@@ -163,6 +173,7 @@ async function checkSourceFile(
 	checkReviewViewerFolderBoundary(context);
 	walkSourceFile(sourceFile, (node: ts.Node): void => {
 		checkImportSource(context, node);
+		checkBridgeProductEndpointBoundary(context, node);
 		checkWorkerUsage(context, node);
 		checkStateEffects(context, node);
 		checkTelemetryEmit(context, node);
@@ -239,18 +250,19 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 
 	const importSource = normalizeImportSpecifier(rawImportSource);
 	checkPierreImportSource(context, node, rawImportSource, importSource);
+	const importTargetPath =
+		resolveImportTargetPath(context.relativePath, importSource) ?? importSource;
 	if (
 		!isTestPath(context.relativePath) &&
 		context.relativePath !== 'vite.config.ts' &&
-		(resolveImportTargetPath(context.relativePath, importSource) ?? importSource).includes(
-			'bridge-product-dev-routes',
-		)
+		!bridgeProductExecutableEntryPaths.has(context.relativePath) &&
+		bridgeProductEndpointAdapterPaths.has(importTargetPath)
 	) {
 		addViolation(context, {
-			ruleId: 'dev-product-route-boundary',
+			ruleId: 'product-endpoint-boundary',
 			node,
 			message:
-				'production modules must not import the Vite-only Bridge product route module; Vite selects it at build time',
+				'shared Bridge product runtime modules must receive the request executor at construction instead of importing an endpoint adapter',
 		});
 	}
 
@@ -319,6 +331,176 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 			message: `review-viewer/shell must not import content loading boundary: ${importSource}`,
 		});
 	}
+}
+
+function checkBridgeProductEndpointBoundary(context: SourceContext, node: ts.Node): void {
+	if (!isSharedBridgeProductRuntimePath(context.relativePath)) return;
+	if (
+		isSharedBridgeProductRequestRuntimePath(context.relativePath) &&
+		ts.isCallExpression(node) &&
+		isBridgeProductRequestExecutorCall(node) &&
+		!isExactBridgeProductRequestExecutorCall(node)
+	) {
+		addViolation(context, {
+			ruleId: 'product-endpoint-boundary',
+			node,
+			message:
+				'Bridge product request executor calls must use a closed route and capability-bound JSON POST request',
+		});
+		return;
+	}
+
+	if (
+		isSharedBridgeProductRequestRuntimePath(context.relativePath) &&
+		ts.isCallExpression(node) &&
+		isDirectFetchCall(node, context.sourceFile)
+	) {
+		addViolation(context, {
+			ruleId: 'product-endpoint-boundary',
+			node,
+			message:
+				'shared Bridge product runtime modules must execute requests through the injected request executor',
+		});
+		return;
+	}
+
+	if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+		if (
+			(ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) &&
+			node.parent.expression === node
+		) {
+			return;
+		}
+		const expressionText = constantStringMemberAccessText(node, context.sourceFile);
+		if (expressionText === null) return;
+		if (
+			/^import\.meta\.env(?:\.|$)/u.test(expressionText) ||
+			/^process\.env(?:\.|$)/u.test(expressionText) ||
+			/^(?:globalThis|self|window)\.location(?:\.|$)/u.test(expressionText) ||
+			/^location\.(?:host|hostname|origin|protocol)$/u.test(expressionText)
+		) {
+			addViolation(context, {
+				ruleId: 'product-endpoint-boundary',
+				node,
+				message:
+					'shared Bridge product runtime modules must not detect the product transport environment',
+			});
+			return;
+		}
+	}
+
+	if (
+		isStringLiteralLike(node) &&
+		(node.text.startsWith('agentstudio://rpc/') || node.text.startsWith('/__bridge-product/'))
+	) {
+		addViolation(context, {
+			ruleId: 'product-endpoint-boundary',
+			node,
+			message:
+				'shared Bridge product runtime modules must not own packaged or Vite product endpoint strings',
+		});
+	}
+}
+
+function isDirectFetchCall(callExpression: ts.CallExpression, sourceFile: ts.SourceFile): boolean {
+	const calleeText = constantStringMemberAccessText(callExpression.expression, sourceFile);
+	return calleeText === 'fetch' || /^(?:globalThis|self|window)\.fetch$/u.test(calleeText ?? '');
+}
+
+function constantStringMemberAccessText(
+	expression: ts.Expression,
+	sourceFile: ts.SourceFile,
+): string | null {
+	if (ts.isIdentifier(expression)) return expression.text;
+	if (ts.isMetaProperty(expression)) return expression.getText(sourceFile);
+
+	if (ts.isPropertyAccessExpression(expression)) {
+		const receiverText = constantStringMemberAccessText(expression.expression, sourceFile);
+		return receiverText === null ? null : `${receiverText}.${expression.name.text}`;
+	}
+
+	if (
+		ts.isElementAccessExpression(expression) &&
+		isStringLiteralLike(expression.argumentExpression)
+	) {
+		const receiverText = constantStringMemberAccessText(expression.expression, sourceFile);
+		return receiverText === null ? null : `${receiverText}.${expression.argumentExpression.text}`;
+	}
+
+	return null;
+}
+
+function isBridgeProductRequestExecutorCall(callExpression: ts.CallExpression): boolean {
+	const callee = callExpression.expression;
+	if (!ts.isPropertyAccessExpression(callee)) return false;
+	return callee.name.text.replace(/^#/u, '') === 'executeProductRequest';
+}
+
+function isExactBridgeProductRequestExecutorCall(callExpression: ts.CallExpression): boolean {
+	if (callExpression.arguments.length !== 2) return false;
+	const route = callExpression.arguments[0];
+	const requestInit = callExpression.arguments[1];
+	if (
+		route === undefined ||
+		requestInit === undefined ||
+		!isStringLiteralLike(route) ||
+		!new Set(['command', 'content', 'stream']).has(route.text) ||
+		!ts.isObjectLiteralExpression(requestInit)
+	) {
+		return false;
+	}
+	const method = objectLiteralProperty(requestInit, 'method');
+	const hasBody = objectLiteralHasProperty(requestInit, 'body');
+	const headers = objectLiteralProperty(requestInit, 'headers');
+	if (
+		method === null ||
+		!isStringLiteralLike(method.initializer) ||
+		method.initializer.text !== 'POST' ||
+		!hasBody ||
+		headers === null ||
+		!ts.isObjectLiteralExpression(headers.initializer)
+	) {
+		return false;
+	}
+	const contentType = objectLiteralProperty(headers.initializer, 'Content-Type');
+	const capability = objectLiteralProperty(
+		headers.initializer,
+		'X-AgentStudio-Bridge-Product-Capability',
+	);
+	return (
+		contentType !== null &&
+		isStringLiteralLike(contentType.initializer) &&
+		contentType.initializer.text === 'application/json' &&
+		capability !== null
+	);
+}
+
+function objectLiteralHasProperty(
+	objectLiteral: ts.ObjectLiteralExpression,
+	propertyName: string,
+): boolean {
+	return objectLiteral.properties.some(
+		(property): boolean =>
+			(ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) &&
+			(ts.isIdentifier(property.name) || isStringLiteralLike(property.name)) &&
+			property.name.text === propertyName,
+	);
+}
+
+function objectLiteralProperty(
+	objectLiteral: ts.ObjectLiteralExpression,
+	propertyName: string,
+): ts.PropertyAssignment | null {
+	for (const property of objectLiteral.properties) {
+		if (!ts.isPropertyAssignment(property)) continue;
+		if (
+			(ts.isIdentifier(property.name) || isStringLiteralLike(property.name)) &&
+			property.name.text === propertyName
+		) {
+			return property;
+		}
+	}
+	return null;
 }
 
 function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
@@ -634,6 +816,33 @@ function resolveImportTargetPath(relativePath: string, importSource: string): st
 
 function isCorePath(relativePath: string): boolean {
 	return isPathInside(relativePath, 'src/core/');
+}
+
+function isSharedBridgeProductRuntimePath(relativePath: string): boolean {
+	if (
+		isTestPath(relativePath) ||
+		relativePath === 'src/core/comm-worker/bridge-product-dev-bootstrap.ts' ||
+		bridgeProductEndpointAdapterPaths.has(relativePath) ||
+		bridgeProductExecutableEntryPaths.has(relativePath)
+	) {
+		return false;
+	}
+	return (
+		isPathInside(relativePath, 'src/core/comm-worker/') ||
+		relativePath === 'src/app/bridge-app.tsx' ||
+		(isPathInside(relativePath, 'src/app/bridge-app-') &&
+			!isPathInside(relativePath, 'src/app/bridge-app-dev-')) ||
+		isPathInside(relativePath, 'src/file-viewer/') ||
+		isPathInside(relativePath, 'src/review-viewer/')
+	);
+}
+
+function isSharedBridgeProductRequestRuntimePath(relativePath: string): boolean {
+	return (
+		isPathInside(relativePath, 'src/core/comm-worker/bridge-comm-worker-') ||
+		isPathInside(relativePath, 'src/core/comm-worker/bridge-worker-') ||
+		isPathInside(relativePath, 'src/core/comm-worker/bridge-product-')
+	);
 }
 
 function isWorktreeDevPath(relativePath: string): boolean {

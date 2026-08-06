@@ -623,6 +623,8 @@ public struct IPCBridgeDiffCollapseFileParams: Codable, Equatable, Sendable {
 }
 
 public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
+    public static let maximumSearchTextUTF16Length = 4096
+
     public let handle: String
     public let searchText: String
     public let searchMode: IPCBridgeReviewSearchMode
@@ -650,29 +652,18 @@ public struct IPCBridgeFileTreeSearchParams: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         handle = try container.decode(String.self, forKey: .handle)
-        searchText = try container.decode(String.self, forKey: .searchText)
+        let decodedSearchText = try container.decode(String.self, forKey: .searchText)
+        guard decodedSearchText.utf16.count <= Self.maximumSearchTextUTF16Length else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .searchText,
+                in: container,
+                debugDescription: "Bridge file tree Search text exceeds the supported length"
+            )
+        }
+        searchText = decodedSearchText
         searchMode =
             try container.decodeIfPresent(IPCBridgeReviewSearchMode.self, forKey: .searchMode) ?? .text
         correlationId = try container.decodeIfPresent(UUID.self, forKey: .correlationId)
-    }
-}
-
-public struct IPCBridgeFileTreeSetFilterParams: Codable, Equatable, Sendable {
-    public let handle: String
-    public let gitStatusFilter: String
-    public let fileClassFilter: String
-    public let correlationId: UUID?
-
-    public init(
-        handle: String,
-        gitStatusFilter: String,
-        fileClassFilter: String,
-        correlationId: UUID? = nil
-    ) {
-        self.handle = handle
-        self.gitStatusFilter = gitStatusFilter
-        self.fileClassFilter = fileClassFilter
-        self.correlationId = correlationId
     }
 }
 
@@ -721,7 +712,7 @@ public enum IPCBridgePageControlCommand: Equatable, Sendable {
     case expandFile(itemId: String)
     case collapseFile(itemId: String)
     case fileTreeSearch(searchText: String, searchMode: IPCBridgeReviewSearchMode = .text)
-    case fileTreeSetFilter(gitStatusFilter: String, fileClassFilter: String)
+    case fileTreeSetFilter(candidate: IPCBridgeFileTreeFilterCandidate)
     case fileTreeRevealPath(path: String)
     case fileViewShowMarkdownPreview(itemId: String?)
 
@@ -751,8 +742,7 @@ extension IPCBridgePageControlCommand: Codable {
         case itemId
         case searchText
         case searchMode
-        case gitStatusFilter
-        case fileClassFilter
+        case filter
         case path
     }
 
@@ -773,8 +763,10 @@ extension IPCBridgePageControlCommand: Codable {
             )
         case "bridge.fileTree.setFilter":
             self = .fileTreeSetFilter(
-                gitStatusFilter: try container.decode(String.self, forKey: .gitStatusFilter),
-                fileClassFilter: try container.decode(String.self, forKey: .fileClassFilter)
+                candidate: try container.decode(
+                    IPCBridgeFileTreeFilterCandidate.self,
+                    forKey: .filter
+                )
             )
         case "bridge.fileTree.revealPath":
             self = .fileTreeRevealPath(path: try container.decode(String.self, forKey: .path))
@@ -804,9 +796,8 @@ extension IPCBridgePageControlCommand: Codable {
         case .fileTreeSearch(let searchText, let searchMode):
             try container.encode(searchText, forKey: .searchText)
             try container.encode(searchMode, forKey: .searchMode)
-        case .fileTreeSetFilter(let gitStatusFilter, let fileClassFilter):
-            try container.encode(gitStatusFilter, forKey: .gitStatusFilter)
-            try container.encode(fileClassFilter, forKey: .fileClassFilter)
+        case .fileTreeSetFilter(let candidate):
+            try container.encode(candidate, forKey: .filter)
         case .fileTreeRevealPath(let path):
             try container.encode(path, forKey: .path)
         case .fileViewShowMarkdownPreview(let itemId):
@@ -822,8 +813,11 @@ public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
     public let itemId: String?
     public let path: String?
     public let treeSearchText: String
-    public let gitStatusFilter: String
-    public let fileClassFilter: String
+    public let filterSurface: IPCBridgeFileTreeFilterSurface
+    public let gitStatusFilter: IPCBridgeGitStatusFilter
+    public let categoryFilter: IPCBridgeFilterCategory
+    public let showBinary: Bool
+    public let showLarge: Bool
     public let renderMode: String
     public let reason: String?
     public let correlationId: UUID?
@@ -835,8 +829,11 @@ public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
         itemId: String?,
         path: String?,
         treeSearchText: String,
-        gitStatusFilter: String,
-        fileClassFilter: String,
+        filterSurface: IPCBridgeFileTreeFilterSurface,
+        gitStatusFilter: IPCBridgeGitStatusFilter,
+        categoryFilter: IPCBridgeFilterCategory,
+        showBinary: Bool,
+        showLarge: Bool,
         renderMode: String,
         reason: String?,
         correlationId: UUID?
@@ -847,8 +844,11 @@ public struct IPCBridgePageControlResult: Codable, Equatable, Sendable {
         self.itemId = itemId
         self.path = path
         self.treeSearchText = treeSearchText
+        self.filterSurface = filterSurface
         self.gitStatusFilter = gitStatusFilter
-        self.fileClassFilter = fileClassFilter
+        self.categoryFilter = categoryFilter
+        self.showBinary = showBinary
+        self.showLarge = showLarge
         self.renderMode = renderMode
         self.reason = reason
         self.correlationId = correlationId

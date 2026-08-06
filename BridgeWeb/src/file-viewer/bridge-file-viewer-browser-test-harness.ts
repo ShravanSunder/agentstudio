@@ -28,6 +28,10 @@ export async function settleBridgeFileViewerBrowserUpdates(): Promise<void> {
 	await actFrame();
 	await actFrame();
 	await waitForBridgeFileViewerWorkerMessageDrain();
+	// The final worker drain can commit the display snapshot that triggers
+	// selection reconciliation in a passive effect. Advance one more act-scoped
+	// frame so that effect's state update is committed before the test asserts.
+	await actFrame();
 }
 
 export async function settleBridgeFileViewerBrowserInteraction(): Promise<void> {

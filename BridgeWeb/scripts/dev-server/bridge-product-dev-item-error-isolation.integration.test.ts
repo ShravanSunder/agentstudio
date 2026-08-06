@@ -51,7 +51,14 @@ describe('Bridge product dev item-error isolation', () => {
 			getFileProvider: async () => itemFailureProvider(),
 			getReviewSourceConfig: async () => ({ baseRef: 'HEAD', worktreeRoot: '/opaque' }),
 		});
-		const delivery = carrier.issueBootstrap({ reason: 'initial' });
+		const delivery = carrier.issueBootstrap({
+			navigationIntent: {
+				commandId: 'dev:test:file',
+				commandKind: 'activateContext',
+				surface: 'file',
+			},
+			reason: 'initial',
+		});
 		const authority = {
 			capability: encodeBridgeProductCapabilityHeader(delivery.productCapability),
 			paneSessionId: delivery.bootstrap.paneSessionId,
@@ -515,6 +522,7 @@ function itemFailureProvider(): BridgeWorktreeDevProvider {
 					treeRows: [healthyPath, failingPath].map((path, index) => ({
 						changeStatus: 'modified',
 						depth: 1,
+						fileClass: 'source',
 						fileId: `dev-file-id-${index + 1}`,
 						isDirectory: false,
 						lineCount: 2,

@@ -1,10 +1,13 @@
 import type { BridgeAppControlCommand, BridgeAppControlProbe } from './bridge-app-control.js';
 
 export interface BridgeAppControlProbeState {
-	readonly fileClassFilter: BridgeAppControlProbe['fileClassFilter'];
+	readonly categoryFilter: BridgeAppControlProbe['categoryFilter'];
+	readonly filterSurface: BridgeAppControlProbe['filterSurface'];
 	readonly gitStatusFilter: BridgeAppControlProbe['gitStatusFilter'];
 	readonly renderMode: BridgeAppControlProbe['renderMode'];
 	readonly selectedItemId: string | null;
+	readonly showBinary: BridgeAppControlProbe['showBinary'];
+	readonly showLarge: BridgeAppControlProbe['showLarge'];
 	readonly treeSearchMode: BridgeAppControlProbe['treeSearchMode'];
 	readonly treeSearchText: string;
 }
@@ -25,8 +28,11 @@ export function publishBridgeAppControlProbe(props: {
 		path: props.command.method === 'bridge.fileTree.revealPath' ? props.command.path : null,
 		treeSearchText: props.state.treeSearchText,
 		treeSearchMode: props.state.treeSearchMode,
+		filterSurface: props.state.filterSurface,
 		gitStatusFilter: props.state.gitStatusFilter,
-		fileClassFilter: props.state.fileClassFilter,
+		categoryFilter: props.state.categoryFilter,
+		showBinary: props.state.showBinary,
+		showLarge: props.state.showLarge,
 		renderMode: props.state.renderMode,
 		reason: props.reason,
 	};

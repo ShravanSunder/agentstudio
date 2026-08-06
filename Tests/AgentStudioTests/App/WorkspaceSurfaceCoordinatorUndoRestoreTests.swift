@@ -413,7 +413,12 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
             sizingMode: .halveTarget
         )
 
-        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+        guard
+            let drawerPane = harness.store.addDrawerPane(
+                to: parentPane.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        else {
             Issue.record("Expected drawer pane creation")
             return
         }

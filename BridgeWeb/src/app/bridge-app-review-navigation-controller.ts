@@ -1,16 +1,24 @@
 import { useEffect, useRef } from 'react';
 
+import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerSelectCommand,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import { recordBridgeReviewSelectionDiagnosticStage } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
-import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
-export type BridgeReviewNavigationSelectionSource = BridgeWorkerSelectCommand['selectedSource'];
+type BridgeReviewNavigationCommand = Extract<
+	BridgeProductNavigationCommand,
+	{ readonly commandKind: 'activateTarget'; readonly surface: 'review' }
+>;
+
+export type BridgeReviewNavigationSelectionSource = NonNullable<
+	BridgeWorkerSelectCommand['selectedSource']
+>;
 
 export interface BridgeReviewNavigationTarget {
 	readonly commandId: string;
+	readonly applicationKey: string;
 	readonly itemId: string | null;
 	readonly path: string | null;
 }
@@ -32,7 +40,8 @@ export interface UseBridgeReviewNavigationControllerProps {
 	readonly clearReviewSelection: () => void;
 	readonly getReviewItem: (itemId: string) => BridgeWorkerReviewDisplayItem | undefined;
 	readonly isActive: boolean;
-	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
+	readonly isNavigationCommandStillEligible: (command: BridgeReviewNavigationCommand) => boolean;
+	readonly navigationCommand: BridgeReviewNavigationCommand | undefined;
 	readonly onTargetOutsideAcceptedProjection: (target: BridgeReviewNavigationTarget) => void;
 	readonly orderedItemIds: readonly string[];
 	readonly selectedItemId: string | null;
@@ -54,6 +63,7 @@ export function useBridgeReviewNavigationController(
 		clearReviewSelection,
 		getReviewItem,
 		isActive,
+		isNavigationCommandStillEligible,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
 		orderedItemIds,
@@ -61,15 +71,17 @@ export function useBridgeReviewNavigationController(
 		selectInitialReviewItem,
 		selectReviewItem,
 	} = props;
-	const appliedNavigationCommandIdRef = useRef<string | null>(null);
+	const appliedNavigationApplicationKeyRef = useRef<string | null>(null);
 	const pendingLocalSelectionItemIdRef = useRef<string | null>(null);
+	const projectionExclusionClearedSelectionRef = useRef(false);
 
 	useEffect((): void => {
 		if (
 			!isActive ||
 			navigationCommand === undefined ||
-			navigationCommand.context !== 'review' ||
-			appliedNavigationCommandIdRef.current === navigationCommand.commandId
+			!isNavigationCommandStillEligible(navigationCommand) ||
+			appliedNavigationApplicationKeyRef.current ===
+				bridgeReviewNavigationApplicationKey(navigationCommand)
 		) {
 			return;
 		}
@@ -86,13 +98,15 @@ export function useBridgeReviewNavigationController(
 			return;
 		}
 		if (selectReviewItem(resolution.itemId, 'programmatic') !== false) {
-			appliedNavigationCommandIdRef.current = navigationCommand.commandId;
+			appliedNavigationApplicationKeyRef.current =
+				bridgeReviewNavigationApplicationKey(navigationCommand);
 			pendingLocalSelectionItemIdRef.current = resolution.itemId;
 		}
 	}, [
 		catalogRevision,
 		getReviewItem,
 		isActive,
+		isNavigationCommandStillEligible,
 		navigationCommand,
 		onTargetOutsideAcceptedProjection,
 		orderedItemIds,
@@ -103,10 +117,18 @@ export function useBridgeReviewNavigationController(
 		if (!isActive) {
 			return;
 		}
-		if (selectedItemId !== null && orderedItemIds.includes(selectedItemId)) {
+		if (selectedItemId !== null) {
+			if (orderedItemIds.includes(selectedItemId)) {
+				pendingLocalSelectionItemIdRef.current = null;
+				projectionExclusionClearedSelectionRef.current = false;
+				return;
+			}
 			pendingLocalSelectionItemIdRef.current = null;
+			projectionExclusionClearedSelectionRef.current = true;
+			clearReviewSelection();
 			return;
 		}
+		if (projectionExclusionClearedSelectionRef.current) return;
 		const pendingLocalSelectionItemId = pendingLocalSelectionItemIdRef.current;
 		if (pendingLocalSelectionItemId !== null) {
 			if (orderedItemIds.includes(pendingLocalSelectionItemId)) {
@@ -115,8 +137,9 @@ export function useBridgeReviewNavigationController(
 			pendingLocalSelectionItemIdRef.current = null;
 		}
 		if (
-			navigationCommand?.context === 'review' &&
-			appliedNavigationCommandIdRef.current !== navigationCommand.commandId &&
+			navigationCommand !== undefined &&
+			appliedNavigationApplicationKeyRef.current !==
+				bridgeReviewNavigationApplicationKey(navigationCommand) &&
 			bridgeReviewNavigationTargetForCommand(navigationCommand) !== null
 		) {
 			return;
@@ -147,7 +170,7 @@ export function useBridgeReviewNavigationController(
 
 export function resolveBridgeReviewNavigationTarget(props: {
 	readonly getReviewItem: (itemId: string) => BridgeWorkerReviewDisplayItem | undefined;
-	readonly navigationCommand: BridgeViewerNavigationCommand;
+	readonly navigationCommand: BridgeReviewNavigationCommand;
 	readonly orderedItemIds: readonly string[];
 }): BridgeReviewNavigationTargetResolution {
 	const target = bridgeReviewNavigationTargetForCommand(props.navigationCommand);
@@ -169,16 +192,25 @@ export function resolveBridgeReviewNavigationTarget(props: {
 }
 
 export function bridgeReviewNavigationTargetForCommand(
-	navigationCommand: BridgeViewerNavigationCommand,
+	navigationCommand: BridgeReviewNavigationCommand,
 ): BridgeReviewNavigationTarget | null {
-	if (navigationCommand.context !== 'review' || navigationCommand.target === undefined) {
-		return null;
-	}
 	const target = navigationCommand.target;
-	const path = target.targetKind === 'file' ? target.fileRef.path : (target.fileRef?.path ?? null);
 	return {
+		applicationKey: bridgeReviewNavigationApplicationKey(navigationCommand),
 		commandId: navigationCommand.commandId,
 		itemId: target.reviewItemId ?? null,
-		path,
+		path: target.path ?? null,
 	};
+}
+
+function bridgeReviewNavigationApplicationKey(
+	navigationCommand: BridgeReviewNavigationCommand,
+): string {
+	return [
+		navigationCommand.commandId,
+		navigationCommand.bindingRevision,
+		navigationCommand.source.metadataSourceId,
+		navigationCommand.source.generation,
+		navigationCommand.source.packageId,
+	].join('\u0000');
 }

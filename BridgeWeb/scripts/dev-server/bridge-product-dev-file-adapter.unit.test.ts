@@ -112,6 +112,7 @@ function fakeFileProvider(text: string): BridgeWorktreeDevProvider {
 							changeStatus: 'modified',
 							depth: 0,
 							fileId: descriptor.fileId,
+							fileClass: 'fixture',
 							isDirectory: false,
 							lineCount: exactLogicalLineCount(sourceBytes),
 							name: 'complete-file.txt',

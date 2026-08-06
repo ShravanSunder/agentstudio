@@ -812,6 +812,7 @@ function makeFileDisplayPatchEvent(): BridgeWorkerFileDisplayPatchEvent {
 								changeStatus: 'modified',
 								depth: 1,
 								fileId: 'file-1',
+								fileClass: 'source',
 								isDirectory: false,
 								lineCount: 12_000,
 								name: 'File.swift',
@@ -871,7 +872,9 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'review-source-package-1',
 					metadataWindowIdentity: 'metadata-window-package-1-r11',
+					packageId: 'package-1',
 					reviewGeneration: 1,
 					status: 'loading',
 					summary: null,

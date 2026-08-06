@@ -7,6 +7,7 @@ import {
 	type BridgeCommWorkerPort,
 } from './bridge-comm-worker-entry.js';
 import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
+import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -46,10 +47,24 @@ function makeTestInstalledProductSession(
 		capabilityHeader: 'test-capability',
 		open,
 	};
-	const controlMux = new BridgeProductControlMux({ authority });
+	const controlMux = new BridgeProductControlMux({
+		authority,
+		executeProductRequest: executeAgentStudioBridgeProductRequest,
+	});
 	return {
 		open,
-		productTransport: createBridgeProductTransport({ authority, controlMux }),
+		productTransport: createBridgeProductTransport({
+			authority,
+			controlMux,
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
+		}),
+	};
+}
+
+function makeTestEntryDependencies(): BridgeCommWorkerEntryDependencies {
+	return {
+		installProductSession: (input): BridgeCommWorkerInstalledProductSession =>
+			makeTestInstalledProductSession(input),
 	};
 }
 
@@ -63,7 +78,7 @@ describe('Bridge comm worker one-shot install lifecycle', () => {
 		const productChannel = new MessageChannel();
 		const addEventListenerSpy = vi.spyOn(productChannel.port1, 'addEventListener');
 		const startSpy = vi.spyOn(productChannel.port1, 'start');
-		bootstrapBridgeCommWorkerEntry(globalScope.port);
+		bootstrapBridgeCommWorkerEntry(globalScope.port, makeTestEntryDependencies());
 
 		globalScope.dispatch(makePaneWorkerInstall(productChannel.port1));
 
@@ -81,7 +96,7 @@ describe('Bridge comm worker one-shot install lifecycle', () => {
 		const duplicateChannel = new MessageChannel();
 		const acceptedPortListenerSpy = vi.spyOn(acceptedChannel.port1, 'addEventListener');
 		const duplicatePortListenerSpy = vi.spyOn(duplicateChannel.port1, 'addEventListener');
-		bootstrapBridgeCommWorkerEntry(globalScope.port);
+		bootstrapBridgeCommWorkerEntry(globalScope.port, makeTestEntryDependencies());
 		globalScope.dispatch(makePaneWorkerInstall(acceptedChannel.port1));
 		globalScope.postedMessages.splice(0, globalScope.postedMessages.length);
 

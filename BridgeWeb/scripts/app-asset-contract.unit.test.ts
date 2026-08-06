@@ -175,6 +175,8 @@ describe('app asset contract', () => {
 			'bridge-app-dev-fixture',
 			'bridge-viewer-mocked-backend',
 			'bridge-viewer/test-support',
+			'bridge-comm-worker-vite-entry',
+			'bridge-product-http-request-executor',
 		]) {
 			expect(() =>
 				validatePackagedAppOutput({
@@ -524,6 +526,68 @@ describe('app asset contract', () => {
 		).toThrow(/self-contained/);
 	});
 
+	test('allows only the closed packaged request executor forwarding shape', () => {
+		const closedEndpointMapper = `
+			function endpointForRoute(route) {
+				switch (route) {
+					case 'command': return 'agentstudio://rpc/command';
+					case 'content': return 'agentstudio://rpc/content';
+					case 'stream': return 'agentstudio://rpc/stream';
+				}
+				throw new Error('Unsupported Bridge product request route.');
+			}
+		`;
+		for (const acceptedEndpointMapper of [
+			closedEndpointMapper,
+			closedEndpointMapper.replace(
+				"throw new Error('Unsupported Bridge product request route.');",
+				"throw Error('Unsupported Bridge product request route.');",
+			),
+		]) {
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'bridge-comm-worker',
+					workerSource: `${acceptedEndpointMapper}
+					const executeProductRequest = (route, requestInit) =>
+						fetch(endpointForRoute(route), requestInit);
+				`,
+				}),
+			).not.toThrow();
+		}
+
+		for (const workerSource of [
+			`${closedEndpointMapper.replace(
+				"throw new Error('Unsupported Bridge product request route.');",
+				'',
+			)}
+				const executeProductRequest = (route, requestInit) =>
+					fetch(endpointForRoute(route), requestInit);
+			`,
+			`${closedEndpointMapper}
+				const executeProductRequest = (route, requestInit) =>
+					fetch(endpointForRoute(requestInit), route);
+			`,
+			`
+				function endpointForRoute(route) {
+					switch (route) {
+						case 'command': return 'agentstudio://rpc/command';
+						case 'content': return 'agentstudio://rpc/content';
+						default: return 'https://example.invalid/product';
+					}
+				}
+				const executeProductRequest = (route, requestInit) =>
+					fetch(endpointForRoute(route), requestInit);
+			`,
+		]) {
+			expect(() =>
+				validateWorkerSourceSelfContained({
+					workerAssetKind: 'bridge-comm-worker',
+					workerSource,
+				}),
+			).toThrow(/self-contained/);
+		}
+	});
+
 	test('rejects every alternate or under-specified comm-worker fetch carrier', () => {
 		const hostileSources = [
 			"fetch('agentstudio://rpc/command', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'X-AgentStudio-Bridge-Product-Capability': capabilityHeader } });",
@@ -651,16 +715,40 @@ describe('app asset contract', () => {
 
 	test('packages the bridge comm worker as a module worker app asset', async () => {
 		const tsdownSource = await readFile(new URL('./../tsdown.config.ts', import.meta.url), 'utf8');
+		const packagedEntrySource = await readFile(
+			new URL('./../src/core/comm-worker/bridge-comm-worker-packaged-entry.ts', import.meta.url),
+			'utf8',
+		);
 		const buildAssetsSource = await readFile(
 			new URL('./build-app-assets.ts', import.meta.url),
 			'utf8',
 		);
 
 		expect(tsdownSource).toContain("name: 'bridge-comm-worker'");
-		expect(tsdownSource).toContain("'./src/core/comm-worker/bridge-comm-worker-entry.ts'");
+		expect(tsdownSource).toContain("'./src/core/comm-worker/bridge-comm-worker-packaged-entry.ts'");
+		expect(packagedEntrySource).toContain('executeAgentStudioBridgeProductRequest');
+		expect(packagedEntrySource).not.toContain('maximumConcurrentContentResponses');
 		expect(buildAssetsSource).toContain("entrypointName: 'bridge-comm-worker'");
 		expect(buildAssetsSource).toContain("kind: 'bridge-comm-worker'");
 		expect(buildAssetsSource).toContain("workerKind: 'moduleWorker'");
+	});
+
+	test('constructs the Vite comm worker from the HTTP entry with capacity four', async () => {
+		const devFactorySource = await readFile(
+			new URL(
+				'./../src/review-viewer/workers/shared-rpc/bridge-comm-worker-dev-factory.ts',
+				import.meta.url,
+			),
+			'utf8',
+		);
+		const viteEntrySource = await readFile(
+			new URL('./../src/core/comm-worker/bridge-comm-worker-vite-entry.ts', import.meta.url),
+			'utf8',
+		);
+
+		expect(devFactorySource).toContain('bridge-comm-worker-vite-entry.ts');
+		expect(viteEntrySource).toContain('executeHttpBridgeProductRequest');
+		expect(viteEntrySource).toContain('maximumConcurrentContentResponses: 4');
 	});
 
 	test('does not package the deleted Review projection worker', async () => {

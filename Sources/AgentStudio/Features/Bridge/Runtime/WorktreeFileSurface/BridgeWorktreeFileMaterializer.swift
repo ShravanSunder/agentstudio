@@ -475,6 +475,7 @@ enum BridgeWorktreeFileMaterializer {
             depth: max(pathComponents.count - 1, 0),
             isDirectory: true,
             fileId: nil,
+            fileClass: nil,
             sizeBytes: nil,
             lineCount: nil,
             changeStatus: nil
@@ -493,6 +494,11 @@ enum BridgeWorktreeFileMaterializer {
             depth: max(pathComponents.count - 1, 0),
             isDirectory: false,
             fileId: String(fileId),
+            fileClass: BridgeReviewFileClassifier.classify(
+                path: relativePath,
+                isBinary: false,
+                sizeBytes: sizeBytes
+            ),
             sizeBytes: sizeBytes,
             lineCount: nil,
             changeStatus: nil

@@ -10,18 +10,32 @@ enum CommandBarWorktreeActionResolver {
     static func resolve(
         presence: WorktreePresence,
         modifier: EnterModifier,
-        canOpenInCurrentTab: Bool
+        canOpenInCurrentTab: Bool,
+        targetedSpecResolver: CommandBarTargetedSpecResolver =
+            CommandBarCommandPresentation.catalogTargetedSpecResolver
     ) -> CommandBarWorktreeActionResolution {
+        let placement: CommandBarWorktreeTerminalPlacement
         switch modifier {
         case .command:
-            return .dispatch(command: .openNewTerminalInTab, target: presence.worktreeId, targetType: .worktree)
+            placement = .newTab
         case .option:
-            if canOpenInCurrentTab {
-                return .dispatch(command: .openWorktreeInPane, target: presence.worktreeId, targetType: .worktree)
-            }
-            return .showActionsMenu
+            guard canOpenInCurrentTab else { return .showActionsMenu }
+            placement = .currentTabPane
         case .plain:
             return .showActionsMenu
         }
+        guard
+            let commandSpec = CommandBarCommandPresentation.targetedWorktreeTerminalSpec(
+                for: placement,
+                targetedSpecResolver: targetedSpecResolver
+            )
+        else {
+            return .showActionsMenu
+        }
+        return .dispatch(
+            command: commandSpec.command,
+            target: presence.worktreeId,
+            targetType: .worktree
+        )
     }
 }

@@ -1,141 +1,149 @@
-import { FolderIcon } from 'lucide-react';
-import type { ReactElement, ReactNode } from 'react';
+import type { ReactElement } from 'react';
 
+import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
 import {
-	BridgeViewerFilterTrigger,
-	BridgeViewerFilterClearItem,
-	BridgeViewerFilterMenuHeader,
-	BridgeViewerFilterOptionRow,
-	bridgeViewerFilterMenuSurfaceClassName,
+	bridgeViewerFileCategoryOptions,
+	type BridgeViewerFileCategory,
+} from '../../app/bridge-viewer-file-class-options.js';
+import {
+	BridgeViewerFacetGroup,
+	BridgeViewerFacetMenu,
+	BridgeViewerFacetToggleRow,
+	type BridgeViewerFacetMenuOption,
 } from '../../app/bridge-viewer-filter-menu.js';
-import { cn } from '../../app/class-name.js';
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuSeparator,
-} from '../../components/ui/dropdown-menu.js';
-import type {
-	BridgeFileChangeKind,
-	BridgeFileClass,
-} from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeFileChangeKind } from '../../foundation/review-package/bridge-review-package.js';
 
-export interface BridgeReviewFacetMenuOption<TValue extends string> {
-	readonly value: TValue;
-	readonly label: string;
-	readonly description: string;
-	readonly icon?: ReactNode;
-}
+type BridgeReviewFilterCandidate = Extract<
+	BridgeFileTreeFilterCandidate,
+	{ readonly surface: 'review' }
+>;
 
 export interface BridgeReviewFacetMenuProps {
+	readonly categoryFilter: BridgeViewerFileCategory | 'all';
 	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
-	readonly fileClassFilter: BridgeFileClass | 'all';
-	readonly gitStatusOptions: readonly BridgeReviewFacetMenuOption<BridgeFileChangeKind | 'all'>[];
-	readonly fileClassOptions: readonly BridgeReviewFacetMenuOption<BridgeFileClass | 'all'>[];
-	readonly onGitStatusFilterChange: (status: BridgeFileChangeKind | 'all') => void;
-	readonly onFileClassFilterChange: (fileClass: BridgeFileClass | 'all') => void;
+	readonly gitStatusOptions: readonly BridgeViewerFacetMenuOption<BridgeFileChangeKind | 'all'>[];
+	readonly onFilterChange: (filter: BridgeReviewFilterCandidate) => void;
+	readonly onOpenChange: (open: boolean) => void;
+	readonly open: boolean;
+	readonly showBinary: boolean;
+	readonly showLarge: boolean;
 }
 
 export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactElement {
 	const hasActiveGitFilter = props.gitStatusFilter !== 'all';
-	const hasActiveFileClassFilter = props.fileClassFilter !== 'all';
-	const hasActiveFacet = hasActiveGitFilter || hasActiveFileClassFilter;
+	const hasActiveCategoryFilter = props.categoryFilter !== 'all';
+	const hasActiveFacet =
+		hasActiveGitFilter || hasActiveCategoryFilter || props.showBinary || props.showLarge;
 
 	return (
-		<DropdownMenu>
-			<BridgeViewerFilterTrigger
-				activeIndicatorTestId="bridge-review-facet-active-indicator"
-				hasActiveFilter={hasActiveFacet}
-				label="Filter review files"
-				selectedLabel="Review filters"
-				testId="bridge-review-facet-menu-control"
-				triggerGlyphTestId="bridge-review-facet-trigger-glyph"
-			/>
-			<DropdownMenuContent
-				align="end"
-				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-[min(520px,calc(100vw-32px))]')}
-				data-testid="bridge-review-facet-popover"
-				sideOffset={6}
-			>
-				<BridgeViewerFilterMenuHeader
-					description="Refine the file set without changing the review mode"
-					testId="bridge-review-facet-popover-header"
-					title="Filter review files"
+		<BridgeViewerFacetMenu
+			clearDisabled={!hasActiveFacet}
+			clearLabel="Clear filters"
+			clearTestId="bridge-review-facet-clear"
+			contentClassName="w-[min(520px,calc(100vw-32px))]"
+			contentTestId="bridge-review-facet-popover"
+			description="Refine the file set without changing the review mode"
+			hasActiveFilter={hasActiveFacet}
+			headerTestId="bridge-review-facet-popover-header"
+			label="Filter review files"
+			onClear={() =>
+				props.onFilterChange({
+					categoryFilter: 'all',
+					gitStatusFilter: 'all',
+					showBinary: false,
+					showLarge: false,
+					surface: 'review',
+				})
+			}
+			onOpenChange={props.onOpenChange}
+			open={props.open}
+			selectedLabel="Review filters"
+			testId="bridge-review-facet-menu-control"
+			title="Filter review files"
+			triggerActiveIndicatorTestId="bridge-review-facet-active-indicator"
+			triggerGlyphTestId="bridge-review-facet-trigger-glyph"
+		>
+			<div className="grid gap-2 sm:grid-cols-2" data-testid="bridge-review-facet-columns">
+				<BridgeViewerFacetGroup
+					activeValue={props.gitStatusFilter}
+					defaultValue="all"
+					label="Git status"
+					onChange={(gitStatusFilter) =>
+						props.onFilterChange({
+							categoryFilter: props.categoryFilter,
+							gitStatusFilter,
+							showBinary: props.showBinary,
+							showLarge: props.showLarge,
+							surface: 'review',
+						})
+					}
+					optionBadgeTestId="bridge-review-facet-option-badge"
+					optionLabelTestId="bridge-review-facet-option-label"
+					optionTestId="bridge-review-facet-option"
+					options={props.gitStatusOptions}
+					testId="bridge-review-facet-group"
 				/>
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				<div className="grid gap-2 sm:grid-cols-2" data-testid="bridge-review-facet-columns">
-					<BridgeReviewFacetGroup
-						activeValue={props.gitStatusFilter}
-						defaultValue="all"
-						label="Git status"
-						onChange={props.onGitStatusFilterChange}
-						options={props.gitStatusOptions}
-					/>
-					<BridgeReviewFacetGroup
-						activeValue={props.fileClassFilter}
-						defaultValue="all"
-						label="File type"
-						onChange={props.onFileClassFilterChange}
-						options={props.fileClassOptions}
-					/>
-				</div>
-				<DropdownMenuSeparator className="my-1 bg-[var(--bridge-border-subtle)]" />
-				<BridgeViewerFilterClearItem
-					disabled={!hasActiveFacet}
-					label="Clear filters"
-					onClear={() => {
-						props.onGitStatusFilterChange('all');
-						props.onFileClassFilterChange('all');
-					}}
-					testId="bridge-review-facet-clear"
+				<BridgeViewerFacetGroup
+					activeValue={props.categoryFilter}
+					defaultValue="all"
+					label="File category"
+					onChange={(categoryFilter) =>
+						props.onFilterChange({
+							categoryFilter,
+							gitStatusFilter: props.gitStatusFilter,
+							showBinary: props.showBinary,
+							showLarge: props.showLarge,
+							surface: 'review',
+						})
+					}
+					optionBadgeTestId="bridge-review-facet-option-badge"
+					optionLabelTestId="bridge-review-facet-option-label"
+					optionTestId="bridge-review-facet-option"
+					options={bridgeViewerFileCategoryOptions}
+					testId="bridge-review-facet-group"
 				/>
-			</DropdownMenuContent>
-		</DropdownMenu>
-	);
-}
-
-function BridgeReviewFacetGroup<TValue extends string>(props: {
-	readonly activeValue: TValue;
-	readonly defaultValue: TValue;
-	readonly label: string;
-	readonly options: readonly BridgeReviewFacetMenuOption<TValue>[];
-	readonly onChange: (value: TValue) => void;
-}): ReactElement {
-	const visibleOptions = props.options.filter(
-		(option: BridgeReviewFacetMenuOption<TValue>): boolean => option.value !== props.defaultValue,
-	);
-
-	return (
-		<section aria-label={props.label} data-testid="bridge-review-facet-group">
-			<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
-				{props.label}
-			</p>
-			<div className="space-y-0.5">
-				{visibleOptions.map(
-					(option: BridgeReviewFacetMenuOption<TValue>): ReactElement => (
-						<BridgeViewerFilterOptionRow
-							checked={option.value === props.activeValue}
-							icon={option.icon ?? option.label.slice(0, 1)}
-							key={option.value}
-							label={option.label}
-							onSelect={() => props.onChange(option.value)}
-							optionBadgeTestId="bridge-review-facet-option-badge"
-							optionLabelTestId="bridge-review-facet-option-label"
-							optionTestId="bridge-review-facet-option"
-							value={option.value}
+				<section
+					aria-label="Visibility"
+					className="sm:col-span-2"
+					data-testid="bridge-review-facet-visibility-group"
+				>
+					<p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
+						Visibility
+					</p>
+					<div className="grid gap-0.5 sm:grid-cols-2">
+						<BridgeViewerFacetToggleRow
+							checked={props.showBinary}
+							description="Include binary files"
+							label="Binary"
+							onCheckedChange={(showBinary) =>
+								props.onFilterChange({
+									categoryFilter: props.categoryFilter,
+									gitStatusFilter: props.gitStatusFilter,
+									showBinary,
+									showLarge: props.showLarge,
+									surface: 'review',
+								})
+							}
+							testId="bridge-review-facet-show-binary"
 						/>
-					),
-				)}
+						<BridgeViewerFacetToggleRow
+							checked={props.showLarge}
+							description="Include large files"
+							label="Large"
+							onCheckedChange={(showLarge) =>
+								props.onFilterChange({
+									categoryFilter: props.categoryFilter,
+									gitStatusFilter: props.gitStatusFilter,
+									showBinary: props.showBinary,
+									showLarge,
+									surface: 'review',
+								})
+							}
+							testId="bridge-review-facet-show-large"
+						/>
+					</div>
+				</section>
 			</div>
-		</section>
+		</BridgeViewerFacetMenu>
 	);
-}
-
-export function bridgeReviewFileClassIcon(fileClass: BridgeFileClass | 'all'): ReactNode {
-	if (fileClass === 'all') {
-		return '*';
-	}
-	if (fileClass === 'docs') {
-		return <FolderIcon aria-hidden="true" className="size-3.5" />;
-	}
-	return fileClass.slice(0, 1).toUpperCase();
 }

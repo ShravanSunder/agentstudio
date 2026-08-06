@@ -6,10 +6,8 @@ import {
 	type BridgeProductCallResult,
 	type BridgeProductCallResultWire,
 } from './bridge-product-call-contracts.js';
-import {
-	BRIDGE_PRODUCT_COMMAND_ROUTE,
-	BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES,
-} from './bridge-product-contract-primitives.js';
+import { BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES } from './bridge-product-contract-primitives.js';
+import type { BridgeProductRequestExecutor } from './bridge-product-request-executor.js';
 import {
 	bridgeProductControlRequestSchema,
 	bridgeProductControlResponseSchema,
@@ -40,6 +38,7 @@ export interface BridgeProductSessionAuthority {
 export interface BridgeProductControlMuxProps {
 	readonly authority: BridgeProductSessionAuthority;
 	readonly createRequestId?: () => string;
+	readonly executeProductRequest: BridgeProductRequestExecutor;
 }
 
 type BridgeProductControlResponseForKind<
@@ -97,12 +96,14 @@ interface BridgeProductControlAdmissionProps<TResult> {
 export class BridgeProductControlMux {
 	readonly #authority: BridgeProductSessionAuthority;
 	readonly #createRequestId: () => string;
+	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	#nextRequestSequence = 2;
 	#pendingAdmission: Promise<void> = Promise.resolve();
 
 	constructor(props: BridgeProductControlMuxProps) {
 		this.#authority = props.authority;
 		this.#createRequestId = props.createRequestId ?? ((): string => crypto.randomUUID());
+		this.#executeProductRequest = props.executeProductRequest;
 	}
 
 	call<TCallKind extends BridgeProductCallKind>(props: {
@@ -282,6 +283,7 @@ export class BridgeProductControlMux {
 			});
 			const response = await postBridgeProductControlRequestWithExactRetry({
 				capabilityHeader: this.#authority.capabilityHeader,
+				executeProductRequest: this.#executeProductRequest,
 				request,
 				...(props.signal === undefined ? {} : { signal: props.signal }),
 			});
@@ -310,6 +312,7 @@ export class BridgeProductControlMux {
 
 async function postBridgeProductControlRequestWithExactRetry(props: {
 	readonly capabilityHeader: string;
+	readonly executeProductRequest: BridgeProductRequestExecutor;
 	readonly request: ReturnType<typeof bridgeProductControlRequestSchema.parse>;
 	readonly signal?: AbortSignal;
 }): Promise<ReturnType<typeof bridgeProductControlResponseSchema.parse>> {
@@ -324,7 +327,12 @@ async function postBridgeProductControlRequestWithExactRetry(props: {
 }
 
 export class BridgeProductSessionAuthorityStore {
+	readonly #executeProductRequest: BridgeProductRequestExecutor;
 	#installedAuthority: BridgeProductSessionAuthority | null = null;
+
+	constructor(executeProductRequest: BridgeProductRequestExecutor) {
+		this.#executeProductRequest = executeProductRequest;
+	}
 
 	readonly install = (
 		input: BridgeProductSessionAuthorityInstallInput,
@@ -345,6 +353,7 @@ export class BridgeProductSessionAuthorityStore {
 		});
 		const open = postBridgeProductControlRequestWithExactRetry({
 			capabilityHeader,
+			executeProductRequest: this.#executeProductRequest,
 			request,
 		}).then((response): void => {
 			if (response.kind !== 'workerSession.accepted') {
@@ -379,6 +388,7 @@ export class BridgeProductSessionAuthorityStore {
 
 async function postBridgeProductControlRequest(props: {
 	readonly capabilityHeader: string;
+	readonly executeProductRequest: BridgeProductRequestExecutor;
 	readonly request: ReturnType<typeof bridgeProductControlRequestSchema.parse>;
 	readonly signal?: AbortSignal;
 }): Promise<ReturnType<typeof bridgeProductControlResponseSchema.parse>> {
@@ -386,7 +396,7 @@ async function postBridgeProductControlRequest(props: {
 	if (body.byteLength > BRIDGE_PRODUCT_MAXIMUM_REQUEST_BODY_BYTES) {
 		throw new Error('Bridge product control request exceeds the encoded body limit.');
 	}
-	const response = await fetch(BRIDGE_PRODUCT_COMMAND_ROUTE, {
+	const response = await props.executeProductRequest('command', {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',

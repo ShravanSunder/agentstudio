@@ -15,6 +15,7 @@ import {
 	bridgeProductDevInterestState,
 	bridgeProductDevRequestError,
 	emptyBridgeProductDevInterestState,
+	publishBridgeProductDevNavigationIfReady,
 	type BridgeProductDevFileSubscription,
 	type BridgeProductDevReviewSubscription,
 	type BridgeProductDevSession,
@@ -68,6 +69,9 @@ async function openSubscription(
 	}
 	session.subscriptionsById.set(subscription.subscriptionId, subscription);
 	void publishInitialSubscription(session, subscription).catch((): void => {
+		closeMetadataWriterAfterFailure(session);
+	});
+	void publishBridgeProductDevNavigationIfReady(session).catch((): void => {
 		closeMetadataWriterAfterFailure(session);
 	});
 	return bridgeProductControlResponseSchema.parse({

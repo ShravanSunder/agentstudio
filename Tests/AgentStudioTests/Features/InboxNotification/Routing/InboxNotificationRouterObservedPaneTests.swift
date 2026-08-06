@@ -694,6 +694,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
+            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             title: "Terminal"
         )
         let pane = Pane(

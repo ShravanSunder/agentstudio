@@ -24,14 +24,14 @@ struct BridgeProductWebKitSurfaceSelectionState: Decodable, Equatable, Sendable 
 struct BridgeProductWebKitSurfaceSelectionReceipt: Equatable, Sendable {
     let paneSessionId: String
     let requestId: String
-    let selectionRevision: Int
+    let bindingRevision: Int
     let surface: BridgeProductSurface
     let workerInstanceId: String
 
     init(_ request: BridgePaneSurfaceSelectionRequest) {
         paneSessionId = request.paneSessionId
         requestId = request.requestId
-        selectionRevision = request.selectionRevision
+        bindingRevision = request.bindingRevision
         surface = request.surface
         workerInstanceId = request.workerInstanceId
     }
@@ -127,9 +127,9 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
         #expect(proof.receipts.allSatisfy { !$0.requestId.isEmpty })
         #expect(Set(proof.receipts.map(\.paneSessionId)).count == 1)
         #expect(proof.receipts.allSatisfy { !$0.paneSessionId.isEmpty })
-        let selectionRevisions = proof.receipts.map(\.selectionRevision)
+        let bindingRevisions = proof.receipts.map(\.bindingRevision)
         #expect(
-            zip(selectionRevisions, selectionRevisions.dropFirst()).allSatisfy {
+            zip(bindingRevisions, bindingRevisions.dropFirst()).allSatisfy {
                 $0.0 < $0.1
             }
         )
@@ -192,7 +192,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
     ) async throws -> BridgeProductWebKitSurfaceSelectionReceipt {
         let previousRevision =
             controller.surfaceSelectionAuthority.diagnosticSnapshot.lastAcceptedRequest?
-            .selectionRevision ?? 0
+            .bindingRevision ?? 0
         guard controller.requestViewerSurface(surface) else {
             throw JourneyError.conditionFailed("native \(surface) request was not admitted")
         }
@@ -206,7 +206,7 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
             acceptedRequest = lastAcceptedRequest
             return snapshot.currentRequest == nil
                 && lastAcceptedRequest.surface == surface
-                && lastAcceptedRequest.selectionRevision > previousRevision
+                && lastAcceptedRequest.bindingRevision > previousRevision
         }
         guard accepted, let acceptedRequest else {
             let snapshot = controller.surfaceSelectionAuthority.diagnosticSnapshot

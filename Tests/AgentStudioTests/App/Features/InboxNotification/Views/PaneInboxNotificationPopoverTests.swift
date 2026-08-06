@@ -13,6 +13,53 @@ import Testing
 @MainActor
 @Suite("PaneInboxNotificationPopover", .serialized)
 struct PaneInboxNotificationPopoverTests {
+    @Test("pane clear presentation targets its physical pane independently of global context")
+    func paneClearPresentationTargetsItsPhysicalPaneIndependentlyOfGlobalContext() {
+        let paneId = UUID()
+        let dispatcher = PaneInboxCommandDispatcherProbe()
+
+        let presentation = PaneInboxClearCommandPresentation.resolve(
+            targetPaneId: paneId,
+            dispatcher: dispatcher
+        )
+
+        #expect(presentation?.spec.command == .clearPaneInboxNotifications)
+        #expect(
+            dispatcher.capabilityQueries == [
+                PaneInboxCommandQuery(
+                    command: .clearPaneInboxNotifications,
+                    target: paneId,
+                    targetType: .pane
+                )
+            ])
+    }
+
+    @Test("pane clear presentation stays present but disabled and rechecks capability")
+    func paneClearPresentationStaysPresentButDisabledAndRechecksCapability() throws {
+        let paneId = UUID()
+        let dispatcher = PaneInboxCommandDispatcherProbe(targetedCapability: false)
+        let expectedQuery = PaneInboxCommandQuery(
+            command: .clearPaneInboxNotifications,
+            target: paneId,
+            targetType: .pane
+        )
+
+        let presentation = try #require(
+            PaneInboxClearCommandPresentation.resolve(
+                targetPaneId: paneId,
+                dispatcher: dispatcher
+            )
+        )
+
+        #expect(!presentation.isEnabled)
+        #expect(dispatcher.capabilityQueries == [expectedQuery])
+
+        presentation.perform()
+
+        #expect(dispatcher.capabilityQueries == [expectedQuery, expectedQuery])
+        #expect(dispatcher.dispatchedTargets.isEmpty)
+    }
+
     @Test("popover filters to pane-scope notifications not dismissed from pane inbox")
     func popoverFiltersRelevantNotifications() {
         let parentPaneId = UUID()
@@ -211,13 +258,15 @@ struct PaneInboxNotificationPopoverTests {
             inboxAtom: inboxAtom,
             prefsAtom: prefsAtom,
             presentationAtom: presentationAtom,
+            commandDispatcher: PaneInboxCommandDispatcherProbe(),
             onActivate: { _ in },
             onFocusPane: { _ in },
-            onClear: {},
             onClose: { didClose = true }
         )
 
-        _ = popover.body
+        withTestCoreAtoms { _ in
+            _ = popover.body
+        }
         popover.onClose()
 
         #expect(didClose)
@@ -225,68 +274,42 @@ struct PaneInboxNotificationPopoverTests {
         #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == false)
     }
 
-    @Test("mounted pane inbox clear button clears through local window scoped closure")
-    func mountedPaneInboxClearButtonClearsThroughLocalWindowScopedClosure() async throws {
-        let parentPaneId = UUID()
-        let notification = makeNotification(paneId: parentPaneId, title: "Clearable")
-        let inboxAtom = InboxNotificationAtom()
-        let commandHandler = PaneInboxCommandHandlerProbe()
-        let prefsAtom = InboxNotificationPrefsAtom()
-        let presentationAtom = PaneInboxPresentationAtom()
-        inboxAtom.append(notification)
-        prefsAtom.setPaneInboxContentMode(.all)
-        var didClearLocally = false
+    @Test("mounted pane inbox clear button dispatches the exact targeted pane command")
+    func mountedPaneInboxClearButtonDispatchesExactTargetedPaneCommand() throws {
+        let commandDispatcher = PaneInboxCommandDispatcherProbe()
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                AppCommandDispatcher.shared.handler = commandHandler
-                AppCommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                try withTestCoreAtoms { _ in
-                    let hostingView = NSHostingView(
-                        rootView: PaneInboxNotificationPopover(
-                            parentPaneId: parentPaneId,
-                            octiconLoader: makeInboxNotificationTestOcticonLoader(),
-                            workspaceWindowId: nil,
-                            paneIds: [parentPaneId],
-                            inboxAtom: inboxAtom,
-                            prefsAtom: prefsAtom,
-                            presentationAtom: presentationAtom,
-                            onActivate: { _ in },
-                            onFocusPane: { _ in },
-                            onClear: {
-                                didClearLocally = true
-                                inboxAtom.clearPaneInbox(paneIds: [parentPaneId])
-                            },
-                            onClose: {}
-                        )
-                        .frame(width: 360, height: 240)
-                    )
-                    let window = NSWindow(
-                        contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
-                        styleMask: [.titled, .closable],
-                        backing: .buffered,
-                        defer: false
-                    )
-                    window.contentView = hostingView
-                    window.makeKeyAndOrderFront(nil)
-                    defer { window.orderOut(nil) }
-                    hostingView.layoutSubtreeIfNeeded()
+        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, parentPaneId in
+            let expectedQuery = PaneInboxCommandQuery(
+                command: .clearPaneInboxNotifications,
+                target: parentPaneId,
+                targetType: .pane
+            )
 
-                    let clearButton = try #require(
-                        findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
-                    )
+            #expect(clearButton.isAccessibilityEnabled())
+            pressAccessibleElement(clearButton)
 
-                    pressAccessibleElement(clearButton)
+            #expect(commandDispatcher.capabilityQueries == [expectedQuery, expectedQuery])
+            #expect(commandDispatcher.dispatchedTargets == [expectedQuery])
+        }
+    }
 
-                    #expect(didClearLocally)
-                    #expect(commandHandler.executedTargets.isEmpty)
-                    #expect(inboxAtom.notifications.first?.isRead == true)
-                    #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
-                }
-            }
-        )
+    @Test("mounted pane inbox clear button stays present but disabled when targeted capability denies")
+    func mountedPaneInboxClearButtonStaysPresentButDisabled() throws {
+        let commandDispatcher = PaneInboxCommandDispatcherProbe(targetedCapability: false)
+
+        try withMountedClearButton(commandDispatcher: commandDispatcher) { clearButton, parentPaneId in
+            let expectedQuery = PaneInboxCommandQuery(
+                command: .clearPaneInboxNotifications,
+                target: parentPaneId,
+                targetType: .pane
+            )
+
+            #expect(!clearButton.isAccessibilityEnabled())
+            pressAccessibleElement(clearButton)
+
+            #expect(commandDispatcher.capabilityQueries == [expectedQuery])
+            #expect(commandDispatcher.dispatchedTargets.isEmpty)
+        }
     }
 
     @Test("mounted pane inbox row activation focuses through local window scoped closure")
@@ -319,9 +342,9 @@ struct PaneInboxNotificationPopoverTests {
                             inboxAtom: inboxAtom,
                             prefsAtom: prefsAtom,
                             presentationAtom: presentationAtom,
+                            commandDispatcher: PaneInboxCommandDispatcherProbe(),
                             onActivate: { activatedNotificationIds.append($0.id) },
                             onFocusPane: { locallyFocusedPaneIds.append($0) },
-                            onClear: {},
                             onClose: { didClose = true }
                         )
                         .frame(width: 360, height: 240)
@@ -388,9 +411,9 @@ struct PaneInboxNotificationPopoverTests {
                     inboxAtom: inboxAtom,
                     prefsAtom: prefsAtom,
                     presentationAtom: presentationAtom,
+                    commandDispatcher: PaneInboxCommandDispatcherProbe(),
                     onActivate: { _ in },
                     onFocusPane: { _ in },
-                    onClear: {},
                     onClose: {}
                 )
                 .frame(width: 360, height: 240)
@@ -461,9 +484,9 @@ struct PaneInboxNotificationPopoverTests {
                     inboxAtom: inboxAtom,
                     prefsAtom: prefsAtom,
                     presentationAtom: presentationAtom,
+                    commandDispatcher: PaneInboxCommandDispatcherProbe(),
                     onActivate: { _ in },
                     onFocusPane: { _ in },
-                    onClear: {},
                     onClose: {}
                 )
                 .frame(width: 360, height: 240)
@@ -505,6 +528,76 @@ struct PaneInboxNotificationPopoverTests {
     func paneInboxRowUsesSameMetadataLeadingAlignmentAsGlobalInbox() {
         #expect(PaneInboxNotificationPopover.rowChromePolicy == .sidebarRowShell)
         #expect(InboxRow.metadataLine(text: "Pane").reservesIconColumn == false)
+    }
+
+    private func withMountedClearButton(
+        commandDispatcher: PaneInboxCommandDispatcherProbe,
+        assertions: (AccessibilityPressBridgeView, UUID) -> Void
+    ) throws {
+        let parentPaneId = UUID()
+        let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
+
+        try withTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore(
+                catalogAtom: coreAtoms.workspaceRepositoryTopology,
+                graphAtom: coreAtoms.workspacePane,
+                interactionAtom: coreAtoms.workspaceTabLayout
+            )
+            let parentPane = store.createPane(
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                ),
+                metadata: PaneMetadata(
+                    paneId: PaneId(existingUUID: parentPaneId),
+                    contentType: .terminal,
+                    launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                    title: "Parent"
+                )
+            )
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            coreAtoms.workspaceFocusOwner.focusMainPane(parentPane.id)
+
+            let hostingView = NSHostingView(
+                rootView: PaneInboxNotificationPopover(
+                    parentPaneId: parentPaneId,
+                    octiconLoader: makeInboxNotificationTestOcticonLoader(),
+                    workspaceWindowId: nil,
+                    paneIds: [parentPaneId],
+                    inboxAtom: inboxAtom,
+                    prefsAtom: prefsAtom,
+                    presentationAtom: presentationAtom,
+                    commandDispatcher: commandDispatcher,
+                    onActivate: { _ in },
+                    onFocusPane: { _ in },
+                    onClose: {}
+                )
+                .frame(width: 360, height: 240)
+            )
+            let window = NSWindow(
+                contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            hostingView.layoutSubtreeIfNeeded()
+
+            let clearButton = try #require(
+                findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+                    as? AccessibilityPressBridgeView
+            )
+            assertions(clearButton, parentPaneId)
+        }
     }
 
     private func makeNotification(
@@ -562,6 +655,56 @@ struct PaneInboxNotificationPopoverTests {
             drawerPane.id: drawerPane,
         ]
     }
+}
+
+private struct PaneInboxCommandQuery: Equatable {
+    let command: AppCommand
+    let target: UUID
+    let targetType: SearchItemType
+}
+
+@MainActor
+private final class PaneInboxCommandDispatcherProbe: AppCommandDispatching {
+    private let targetedCapability: Bool
+    private(set) var capabilityQueries: [PaneInboxCommandQuery] = []
+    private(set) var dispatchedTargets: [PaneInboxCommandQuery] = []
+
+    init(targetedCapability: Bool = true) {
+        self.targetedCapability = targetedCapability
+    }
+
+    func dispatch(_: AppCommand) {}
+
+    func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
+        dispatchedTargets.append(
+            PaneInboxCommandQuery(
+                command: command,
+                target: target,
+                targetType: targetType
+            )
+        )
+    }
+
+    func canDispatch(_: AppCommand) -> Bool {
+        false
+    }
+
+    func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        capabilityQueries.append(
+            PaneInboxCommandQuery(
+                command: command,
+                target: target,
+                targetType: targetType
+            )
+        )
+        return targetedCapability
+    }
+
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? {
+        nil
+    }
+
+    func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }
 
 @MainActor

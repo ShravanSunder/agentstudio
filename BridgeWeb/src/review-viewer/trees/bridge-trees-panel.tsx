@@ -373,6 +373,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			aria-label="Review file tree"
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
+			tabIndex={-1}
 			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}
 			onPointerLeave={(): void => publishHoveredReviewItem(null)}
 			onPointerOverCapture={(event): void => {

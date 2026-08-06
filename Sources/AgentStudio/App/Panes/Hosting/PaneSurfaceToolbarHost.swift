@@ -4,9 +4,67 @@ import AgentStudioInfrastructure
 import SwiftUI
 
 @MainActor
+struct DrawerToolbarCommandPresentation {
+    let toggleDrawer: TargetedCommandControlAction?
+    let addDrawerPane: TargetedCommandControlAction?
+    let openEditorMenu: TargetedCommandControlAction?
+    let openFinder: TargetedCommandControlAction?
+    let copyPath: TargetedCommandControlAction?
+    let showPaneInbox: TargetedCommandControlAction?
+
+    static func resolve(
+        anchorPaneId: UUID,
+        locationTargetPaneId: UUID,
+        toolbarSurface: AppCommandToolbarSurface,
+        actionResolver: TargetedCommandControlActionResolver
+    ) -> Self {
+        let commandSurface = AppCommandSurface.toolbar(toolbarSurface)
+        return Self(
+            toggleDrawer: actionResolver(
+                .toggleDrawer,
+                commandSurface,
+                anchorPaneId,
+                .pane
+            ),
+            addDrawerPane: actionResolver(
+                .addDrawerPane,
+                commandSurface,
+                anchorPaneId,
+                .pane
+            ),
+            openEditorMenu: actionResolver(
+                .openPaneLocationInEditorMenu,
+                commandSurface,
+                locationTargetPaneId,
+                .pane
+            ),
+            openFinder: actionResolver(
+                .openPaneLocationInFinder,
+                commandSurface,
+                locationTargetPaneId,
+                .pane
+            ),
+            copyPath: actionResolver(
+                .copyCurrentPanePath,
+                commandSurface,
+                locationTargetPaneId,
+                .pane
+            ),
+            showPaneInbox: actionResolver(
+                .showPaneInboxNotifications,
+                commandSurface,
+                anchorPaneId,
+                .pane
+            )
+        )
+    }
+}
+
+@MainActor
 struct PaneSurfaceToolbarHost: View {
     let anchorPaneId: UUID
     let locationTargetPaneId: UUID
+    let toolbarSurface: AppCommandToolbarSurface
     let drawer: Drawer?
     let leadingToolbarActions: [PaneSurfaceToolbarAction]
     let contextToolbarActions: [PaneSurfaceToolbarAction]
@@ -21,6 +79,20 @@ struct PaneSurfaceToolbarHost: View {
     @State private var paneInboxPopoverOpen = false
 
     var body: some View {
+        let commandPresentation = DrawerToolbarCommandPresentation.resolve(
+            anchorPaneId: anchorPaneId,
+            locationTargetPaneId: locationTargetPaneId,
+            toolbarSurface: toolbarSurface,
+            actionResolver: { command, surface, target, targetType in
+                TargetedCommandControlAction.resolve(
+                    command: command,
+                    surface: surface,
+                    target: target,
+                    targetType: targetType,
+                    dispatcher: AppCommandDispatcher.shared
+                )
+            }
+        )
         let locationContext = PaneManagementContext.project(
             paneId: locationTargetPaneId,
             store: store
@@ -29,17 +101,9 @@ struct PaneSurfaceToolbarHost: View {
             editorChooser: editorChooser,
             paneId: locationTargetPaneId,
             workspaceWindowId: workspaceWindowId,
-            canOpenTarget: locationContext.targetPath != nil,
+            commandPresentation: commandPresentation,
             refreshInstalledTargets: {
                 ExternalEditorTarget.refreshInstalledTargets()
-            },
-            onOpenFinder: {
-                guard let targetPath = locationContext.targetPath else { return }
-                ExternalWorkspaceOpener.openInFinder(targetPath)
-            },
-            onCopyPath: {
-                guard let targetPath = locationContext.targetPath else { return }
-                PathActions.copyPath(targetPath)
             },
             onOpenEditor: { editorId in
                 guard let targetPath = locationContext.targetPath else { return }
@@ -55,19 +119,19 @@ struct PaneSurfaceToolbarHost: View {
                 parentPaneId: paneInboxScope.parentPaneId,
                 paneIds: paneInboxScope.paneIds,
                 baseTrailingActions: trailingActions,
+                showPaneInboxAction: commandPresentation.showPaneInbox,
                 inboxPopoverPresented: $paneInboxPopoverOpen
             ) ?? trailingActions
 
         DrawerOverlay(
-            paneId: anchorPaneId,
             octiconLoader: octiconLoader,
             drawer: drawer,
             isIconBarVisible: true,
+            toggleDrawerAction: commandPresentation.toggleDrawer,
+            addDrawerPaneAction: commandPresentation.addDrawerPane,
             trailingActions: hostedActions,
             paneSurfaceActions: leadingToolbarActions,
-            paneContextActions: contextToolbarActions,
-            action: actionDispatcher.dispatch,
-            onPaneFocusTrigger: onPaneFocusTrigger
+            paneContextActions: contextToolbarActions
         )
         .onAppear {
             consumePendingPaneInboxRequest(in: paneInboxScope)

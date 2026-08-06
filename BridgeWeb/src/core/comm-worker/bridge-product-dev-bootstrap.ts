@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 } from './bridge-product-contract-primitives.js';
 import {
@@ -18,10 +19,79 @@ const bridgeProductDevBootstrapEnvelopeVersion = 1;
 const bridgeProductDevBootstrapEnvelopePrefixBytes = 5;
 const bridgeProductDevMaximumBootstrapMetadataBytes = 4 * 1024;
 
+const bridgeProductDevNavigationContextIntentSchema = z
+	.object({
+		commandId: bridgeProductIdentifierSchema,
+		commandKind: z.literal('activateContext'),
+		surface: z.enum(['file', 'review']),
+	})
+	.strict();
+
+const bridgeProductDevFileNavigationTargetIntentSchema = z
+	.object({
+		commandId: bridgeProductIdentifierSchema,
+		commandKind: z.literal('activateTarget'),
+		surface: z.literal('file'),
+		target: z
+			.object({
+				path: bridgeProductDisplayPathSchema,
+				targetKind: z.literal('file'),
+				version: z.enum(['base', 'head', 'current']),
+			})
+			.strict(),
+	})
+	.strict();
+
+const bridgeProductDevReviewNavigationTargetIntentSchema = z
+	.object({
+		commandId: bridgeProductIdentifierSchema,
+		commandKind: z.literal('activateTarget'),
+		surface: z.literal('review'),
+		target: z
+			.object({
+				path: bridgeProductDisplayPathSchema.optional(),
+				reviewItemId: bridgeProductIdentifierSchema.optional(),
+				targetKind: z.literal('review'),
+				version: z.enum(['base', 'head', 'current']).optional(),
+			})
+			.strict()
+			.superRefine((target, context): void => {
+				if (target.path === undefined && target.reviewItemId === undefined) {
+					context.addIssue({
+						code: 'custom',
+						message: 'Review navigation intent requires a path or Review item identity.',
+					});
+				}
+				if ((target.path === undefined) !== (target.version === undefined)) {
+					context.addIssue({
+						code: 'custom',
+						message: 'Review navigation intent path and version must be supplied together.',
+					});
+				}
+			}),
+	})
+	.strict();
+
+export const bridgeProductDevNavigationIntentSchema = z.union([
+	bridgeProductDevNavigationContextIntentSchema,
+	bridgeProductDevFileNavigationTargetIntentSchema,
+	bridgeProductDevReviewNavigationTargetIntentSchema,
+]);
+
+export type BridgeProductDevNavigationIntent = z.infer<
+	typeof bridgeProductDevNavigationIntentSchema
+>;
+
 export const bridgeProductDevBootstrapRequestSchema = z.discriminatedUnion('reason', [
-	z.object({ reason: z.literal('initial') }).strict(),
 	z
 		.object({
+			navigationIntent: bridgeProductDevNavigationIntentSchema,
+			reason: z.literal('initial'),
+		})
+		.strict(),
+	z
+		.object({
+			navigationIntent: bridgeProductDevNavigationIntentSchema,
 			paneSessionId: bridgeProductIdentifierSchema,
 			reason: z.literal('workerReplacement'),
 		})

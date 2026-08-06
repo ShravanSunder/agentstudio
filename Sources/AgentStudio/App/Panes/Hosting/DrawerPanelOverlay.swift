@@ -159,6 +159,7 @@ struct DrawerPanelOverlay: View {
     let tabSize: CGSize
     let iconBarFrame: CGRect
     let actionDispatcher: PaneActionDispatching
+    let arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onFocusPane: (UUID) -> Void
     let paneInboxPresentation: PaneInboxPresentation?
@@ -250,6 +251,7 @@ struct DrawerPanelOverlay: View {
                     editorChooser: editorChooser,
                     viewRegistry: viewRegistry,
                     action: actionDispatcher.dispatch,
+                    arrangementInlineRenameState: arrangementInlineRenameState,
                     onResize: { delta in
                         let newRatio = min(
                             DrawerLayout.heightRatioMax,

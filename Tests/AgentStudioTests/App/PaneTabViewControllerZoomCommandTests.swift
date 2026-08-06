@@ -13,8 +13,8 @@ struct PaneTabViewControllerZoomCommandTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("tab-scoped Zoom enters Zoom on the target tab's active durable pane")
-    func tabScopedZoomUsesTargetTabActivePane() throws {
+    @Test("targeted Zoom enters Zoom on the target tab's active durable pane")
+    func targetedZoomUsesTargetTabActivePane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let sourcePane = harness.store.createPane()
@@ -35,7 +35,7 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.setActivePane(targetActivePane.id, inTab: targetTab.id)
         harness.store.setActiveTab(sourceTab.id)
 
-        harness.controller.executeTabContextMenuCommand(.zoomPane, tabId: targetTab.id)
+        harness.controller.execute(.zoomPane, target: targetActivePane.id, targetType: .pane)
 
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id) == nil)
         #expect(
@@ -102,6 +102,34 @@ struct PaneTabViewControllerZoomCommandTests {
         #expect(harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id) == nil)
         #expect(harness.store.tab(tab.id)?.activeArrangementId == durableArrangementId)
         #expect(harness.store.tab(tab.id)?.activePaneId == durableActivePaneId)
+    }
+
+    @Test("Worktree Viewer outside watched worktrees enters Zoom and toggles its unavailable surface")
+    func worktreeViewerShowsUnavailableSurfaceOutsideWatchedWorktrees() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let sourcePane = harness.store.createPane(
+            launchDirectory: harness.tempDir.appending(path: "unwatched")
+        )
+        let tab = Tab(paneId: sourcePane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(sourcePane.id, inTab: tab.id)
+
+        #expect(harness.controller.canExecute(.showViewer))
+        harness.controller.execute(.showViewer)
+
+        #expect(
+            harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
+                .viewerPresentation == .unavailableVisible
+        )
+
+        harness.controller.execute(.showViewer)
+
+        #expect(
+            harness.store.panePresentationAtom.zoomPresentation(forTab: tab.id)?
+                .viewerPresentation == .unavailable
+        )
     }
 
     @Test("Zoom reattaches a minimized terminal source without expanding its durable arrangement")
@@ -357,7 +385,11 @@ struct PaneTabViewControllerZoomCommandTests {
         let panes = [
             harness.store.createPane(
                 content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
-                metadata: PaneMetadata(contentType: .diff, title: "Review")
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Review",
+                    facets: PaneContextFacets(cwd: harness.tempDir)
+                )
             ),
             harness.store.createPane(
                 content: .codeViewer(

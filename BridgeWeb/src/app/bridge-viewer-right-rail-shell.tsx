@@ -15,6 +15,7 @@ export interface BridgeViewerRightRailShellProps {
 	readonly bodyElement?: 'div' | 'section';
 	readonly bodyOnClick?: MouseEventHandler<HTMLElement>;
 	readonly bodyTestId: string;
+	readonly bodyTabIndex?: number;
 	readonly border: 'opaque' | 'subtle';
 	readonly className?: string;
 	readonly headerTestId?: string;
@@ -59,6 +60,7 @@ export function BridgeViewerRightRailShell(props: BridgeViewerRightRailShellProp
 				{...props.bodyDataAttributes}
 				data-testid={props.bodyTestId}
 				onClick={props.bodyOnClick}
+				tabIndex={props.bodyTabIndex}
 			>
 				{props.body}
 			</BodyElement>

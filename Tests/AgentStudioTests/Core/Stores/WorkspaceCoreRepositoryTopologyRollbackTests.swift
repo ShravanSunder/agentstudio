@@ -54,19 +54,21 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
-            sourceRepoId: originalRepoId,
-            sourceWorktreeId: originalWorktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/rollback-original/Sources")
         )
 
         #expect(throws: WorkspaceCoreRepositoryError.repoNotFound(missingRepoId)) {
             try repository.setUnavailableRepoIds([originalRepoId, missingRepoId])
         }
         let restoredTopology = try repository.fetchRepositoryTopology()
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let paneGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
         #expect(restoredTopology == originalTopology)
-        #expect(paneSource?.repoId == originalRepoId)
-        #expect(paneSource?.worktreeId == originalWorktreeId)
+        expectPane(
+            paneId,
+            hasCWDPath: "/tmp/agentstudio/rollback-original/Sources",
+            in: paneGraph
+        )
     }
 
     @Test("worktree reconciliation rolls back after existing worktree reparenting")
@@ -80,6 +82,7 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
         let retainedWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000319")!
         let removedWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000320")!
         let foreignWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000321")!
+        let paneCWD = URL(fileURLWithPath: "/tmp/agentstudio/worktree-rollback-removed/Sources")
         try repository.upsertWorkspace(
             .init(
                 id: workspaceId,
@@ -132,12 +135,7 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
             unavailableRepoIds: []
         )
         try repository.replaceRepositoryTopology(originalTopology)
-        try fixture.insertPane(
-            workspaceId: workspaceId,
-            paneId: paneId,
-            sourceRepoId: targetRepoId,
-            sourceWorktreeId: removedWorktreeId
-        )
+        try fixture.insertPane(workspaceId: workspaceId, paneId: paneId, cwd: paneCWD)
 
         #expect(
             throws: WorkspaceCoreRepositoryError.worktreeRepoMismatch(
@@ -167,10 +165,22 @@ struct WorkspaceCoreRepositoryTopologyRollbackTests {
             )
         }
         let restoredTopology = try repository.fetchRepositoryTopology()
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let paneGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
         #expect(restoredTopology == originalTopology)
-        #expect(paneSource?.repoId == targetRepoId)
-        #expect(paneSource?.worktreeId == removedWorktreeId)
+        expectPane(
+            paneId,
+            hasCWDPath: paneCWD.path,
+            in: paneGraph
+        )
+    }
+
+    private func expectPane(
+        _ paneId: UUID,
+        hasCWDPath expectedCWDPath: String,
+        in paneGraph: WorkspaceCoreRepository.PaneGraphRecord
+    ) {
+        #expect(paneGraph.panes.single?.id == paneId)
+        #expect(paneGraph.panes.single?.metadata.durableFacets.cwd?.path == expectedCWDPath)
     }
 }

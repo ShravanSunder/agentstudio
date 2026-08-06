@@ -3,7 +3,6 @@ import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { useCallback, useLayoutEffect, useMemo, useRef, type ReactElement } from 'react';
 
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
-import { bridgeCodeViewOptions } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import {
 	observeBridgeCodeViewRenderFulfillment,
 	reconcileBridgeCodeViewRenderFulfillment,
@@ -14,34 +13,12 @@ import {
 	type BridgeFileViewerCodePanelState,
 	type BridgeFileViewerSelectedCodeViewItem,
 } from './bridge-file-viewer-code-view-items.js';
-
-const bridgeFileViewerCodeViewOptions: CodeViewOptions<undefined> = {
-	...bridgeCodeViewOptions,
-	disableFileHeader: true,
-	itemMetrics: {
-		paddingBottom: 0,
-		paddingTop: 0,
-		spacing: 0,
-	},
-	layout: {
-		gap: bridgeCodeViewOptions.layout?.gap ?? 1,
-		paddingTop: bridgeCodeViewOptions.layout?.paddingTop ?? 0,
-		paddingBottom: 0,
-	},
-	stickyHeaders: false,
-	unsafeCSS: `
-		${bridgeCodeViewOptions.unsafeCSS ?? ''}
-
-		[data-file] [data-code] {
-			padding-bottom: 0;
-			padding-top: 0;
-		}
-	`,
-};
+import { bridgeFileViewerCodeViewOptions } from './bridge-file-viewer-code-view-options.js';
 
 export type { BridgeFileViewerCodePanelState, BridgeFileViewerSelectedCodeViewItem };
 
 export interface BridgeFileViewerCodePanelProps {
+	readonly codeViewOptions?: Readonly<CodeViewOptions<undefined>>;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly openFileState: BridgeFileViewerCodePanelState;
@@ -107,8 +84,11 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		[props.renderFulfillmentCoordinator, props.selectedCodeViewItem],
 	);
 	const codeViewOptions = useMemo<CodeViewOptions<undefined>>(
-		() => ({ ...bridgeFileViewerCodeViewOptions, onPostRender: handleCodeViewPostRender }),
-		[handleCodeViewPostRender],
+		() => ({
+			...(props.codeViewOptions ?? bridgeFileViewerCodeViewOptions),
+			onPostRender: handleCodeViewPostRender,
+		}),
+		[handleCodeViewPostRender, props.codeViewOptions],
 	);
 	const clearPendingSameFileScrollRestore = useCallback((): void => {
 		pendingSameFileScrollRestoreRef.current = null;

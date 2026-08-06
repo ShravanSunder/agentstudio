@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { expectedEmptyReviewProjectionResetPatches } from './bridge-comm-worker-entry.test-support.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
@@ -230,6 +231,7 @@ describe('Bridge comm worker Review product runtime', () => {
 					payload: { error: 'metadataUnavailable', status: 'failed' },
 					slice: 'reviewSource',
 				},
+				...expectedEmptyReviewProjectionResetPatches(),
 			],
 			surface: 'review',
 		});

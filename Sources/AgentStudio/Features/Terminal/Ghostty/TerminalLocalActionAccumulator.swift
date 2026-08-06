@@ -17,6 +17,22 @@ enum TerminalLocalAccumulatorAction: Sendable, Equatable {
 enum TerminalSearchLifecycleState: Sendable, Equatable {
     case active(query: String?, epoch: UInt64)
     case inactive(lastEndedEpoch: UInt64)
+
+    var epoch: UInt64 {
+        switch self {
+        case .active(_, let epoch):
+            epoch
+        case .inactive(let lastEndedEpoch):
+            lastEndedEpoch
+        }
+    }
+
+    var isActive: Bool {
+        if case .active = self {
+            return true
+        }
+        return false
+    }
 }
 
 struct TerminalSearchLifecycleSummary: Sendable, Equatable {
@@ -253,6 +269,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     private let scheduleFollowUpDrain: @Sendable (UUID, TerminalLocalDrainSchedule) -> Void
     private let cancelScheduledTitleDrain: @Sendable (UUID) -> Void
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
+    private var searchEpochWatermarksBySurfaceID: [UUID: UInt64] = [:]
 
     init(
         scheduleDrain: @escaping @Sendable (UUID, TerminalLocalDrainSchedule) -> Void,
@@ -267,7 +284,13 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     @discardableResult
     func offer(_ action: TerminalLocalAccumulatorAction, for surfaceID: UUID) -> TerminalLocalAccumulatorOfferResult {
         lock.withLock { () -> TerminalLocalAccumulatorOfferResult in
-            var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+            var state =
+                statesBySurfaceID[surfaceID]
+                ?? SurfaceState(
+                    search: SearchLifecycleState(
+                        epoch: searchEpochWatermarksBySurfaceID[surfaceID] ?? 0
+                    )
+                )
             let offeredAtNanoseconds = DispatchTime.now().uptimeNanoseconds
             if state.pending.firstOfferedAtNanoseconds == nil {
                 state.pending.firstOfferedAtNanoseconds = offeredAtNanoseconds
@@ -283,6 +306,9 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 state.pending.titleMetrics.offeredCount += 1
             }
             let mutationResult = apply(action, to: &state)
+            if state.search.epoch > 0 {
+                searchEpochWatermarksBySurfaceID[surfaceID] = state.search.epoch
+            }
             guard mutationResult != .rejectedInactiveSearch else {
                 if state.pending.hasWork || state.phase != .idle || state.search.isActive {
                     statesBySurfaceID[surfaceID] = state
@@ -416,6 +442,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         defaultActivityContext: TerminalActivityProjectionContext?
     ) -> TerminalActivityAggregateInput? {
         lock.withLock {
+            searchEpochWatermarksBySurfaceID.removeValue(forKey: surfaceID)
             guard let state = statesBySurfaceID.removeValue(forKey: surfaceID),
                 let aggregate = state.pending.activity,
                 let latestState = state.pending.presentation.scrollbarState,
@@ -453,8 +480,9 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     }
 
     func removeSurface(_ surfaceID: UUID) {
-        _ = lock.withLock {
+        lock.withLock {
             statesBySurfaceID.removeValue(forKey: surfaceID)
+            searchEpochWatermarksBySurfaceID.removeValue(forKey: surfaceID)
         }
     }
 

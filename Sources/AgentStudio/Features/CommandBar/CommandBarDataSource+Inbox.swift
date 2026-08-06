@@ -9,7 +9,10 @@ private let commandBarInboxLogger = Logger(
 
 @MainActor
 extension CommandBarDataSource {
-    static func inboxItems(commands: InboxNotificationCommands?) -> [CommandBarItem] {
+    static func inboxItems(
+        commands: InboxNotificationCommands?,
+        commandContext: CommandContext
+    ) -> [CommandBarItem] {
         guard let commands else {
             commandBarInboxLogger.error("Inbox commands unavailable in CommandBar; check boot ordering")
             return []
@@ -17,11 +20,7 @@ extension CommandBarDataSource {
 
         let actions = commands.actions
         let snapshot = commands.snapshot()
-        let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
-        let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
-        let clearAllInboxSpec = AppCommand.clearAllInboxNotifications.definition
-        var items: [CommandBarItem] = []
-        items.append(
+        var items: [CommandBarItem] = [
             CommandBarItem(
                 id: "inbox.markAllAsRead",
                 title: "Mark all as read",
@@ -31,60 +30,60 @@ extension CommandBarDataSource {
                 keywords: ["inbox", "notification", "read"],
                 action: inboxCommandAction(actions.markAllAsRead)
             )
-        )
-        items.append(
-            CommandBarItem(
-                id: "inbox.clearReadHistory",
-                title: clearReadInboxSpec.label,
-                icon: clearReadInboxSpec.icon,
-                group: Group.inboxCommands,
-                groupPriority: Priority.commands,
-                keywords: ["inbox", "notification", "clear"],
-                action: .dispatch(.clearReadInboxNotifications),
-                command: .clearReadInboxNotifications
-            )
-        )
-        items.append(
-            CommandBarItem(
-                id: "inbox.clearAll",
-                title: clearAllInboxSpec.label,
-                icon: clearAllInboxSpec.icon,
-                group: Group.inboxCommands,
-                groupPriority: Priority.commands,
-                keywords: ["inbox", "notification", "clear", "delete"],
-                action: .dispatch(.clearAllInboxNotifications),
-                command: .clearAllInboxNotifications
-            )
-        )
-
-        for grouping in InboxNotificationGrouping.allCases {
-            let groupingSpec = inboxGroupingCommand(for: grouping).definition
+        ]
+        if let clearReadInboxSpec = CommandBarCommandPresentation.contextualSpec(
+            for: .clearReadInboxNotifications,
+            commandContext: commandContext
+        ) {
             items.append(
                 CommandBarItem(
-                    id: "inbox.grouping.\(grouping.rawValue)",
-                    title: groupingSpec.label,
-                    icon: groupingSpec.icon,
+                    id: "inbox.clearReadHistory",
+                    title: clearReadInboxSpec.label,
+                    icon: clearReadInboxSpec.icon,
                     group: Group.inboxCommands,
                     groupPriority: Priority.commands,
-                    keywords: ["inbox", "notification", "group", grouping.rawValue],
-                    action: .dispatch(groupingSpec.command),
-                    command: groupingSpec.command
+                    keywords: ["inbox", "notification", "clear"],
+                    action: .dispatch(.clearReadInboxNotifications),
+                    command: .clearReadInboxNotifications
+                )
+            )
+        }
+        if let clearAllInboxSpec = CommandBarCommandPresentation.contextualSpec(
+            for: .clearAllInboxNotifications,
+            commandContext: commandContext
+        ) {
+            items.append(
+                CommandBarItem(
+                    id: "inbox.clearAll",
+                    title: clearAllInboxSpec.label,
+                    icon: clearAllInboxSpec.icon,
+                    group: Group.inboxCommands,
+                    groupPriority: Priority.commands,
+                    keywords: ["inbox", "notification", "clear", "delete"],
+                    action: .dispatch(.clearAllInboxNotifications),
+                    command: .clearAllInboxNotifications
                 )
             )
         }
 
-        items.append(
-            CommandBarItem(
-                id: "inbox.toggleSort",
-                title: toggleSortSpec.label,
-                icon: toggleSortSpec.icon,
-                group: Group.inboxCommands,
-                groupPriority: Priority.commands,
-                keywords: ["inbox", "notification", "sort"],
-                action: .dispatch(.toggleInboxNotificationSort),
-                command: .toggleInboxNotificationSort
-            )
-        )
+        items.append(contentsOf: inboxGroupingItems(commandContext: commandContext))
+
+        if let toggleSortSpec = CommandBarCommandPresentation.contextualSpec(
+            for: .toggleInboxNotificationSort,
+            commandContext: commandContext
+        ) {
+            items.append(
+                CommandBarItem(
+                    id: "inbox.toggleSort",
+                    title: toggleSortSpec.label,
+                    icon: toggleSortSpec.icon,
+                    group: Group.inboxCommands,
+                    groupPriority: Priority.commands,
+                    keywords: ["inbox", "notification", "sort"],
+                    action: .dispatch(.toggleInboxNotificationSort),
+                    command: .toggleInboxNotificationSort
+                ))
+        }
         items.append(
             CommandBarItem(
                 id: "inbox.toggleBell",
@@ -108,6 +107,31 @@ extension CommandBarDataSource {
             )
         )
         return items
+    }
+
+    private static func inboxGroupingItems(
+        commandContext: CommandContext
+    ) -> [CommandBarItem] {
+        InboxNotificationGrouping.allCases.compactMap { grouping in
+            guard
+                let groupingSpec = CommandBarCommandPresentation.contextualSpec(
+                    for: inboxGroupingCommand(for: grouping),
+                    commandContext: commandContext
+                )
+            else {
+                return nil
+            }
+            return CommandBarItem(
+                id: "inbox.grouping.\(grouping.rawValue)",
+                title: groupingSpec.label,
+                icon: groupingSpec.icon,
+                group: Group.inboxCommands,
+                groupPriority: Priority.commands,
+                keywords: ["inbox", "notification", "group", grouping.rawValue],
+                action: .dispatch(groupingSpec.command),
+                command: groupingSpec.command
+            )
+        }
     }
 
     private static func inboxCommandAction(

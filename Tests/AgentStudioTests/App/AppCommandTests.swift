@@ -55,6 +55,7 @@ final class MockAppCommandRouter: ShellCommandHandling {
     var handledRequests: [AppCommandExecutionRequest] = []
     var appCommands: Set<AppCommand> = []
     var requestCommands: Set<AppCommand>?
+    var requestCapabilityCommands: Set<AppCommand> = []
     var parameterlessCanExecuteResult: Bool?
 
     func canExecute(_ command: AppCommand) -> Bool {
@@ -65,6 +66,10 @@ final class MockAppCommandRouter: ShellCommandHandling {
         _ = target
         _ = targetType
         return canExecute(command)
+    }
+
+    func canExecute(_ request: AppCommandExecutionRequest) -> Bool {
+        requestCapabilityCommands.contains(request.command)
     }
 
     func execute(_ command: AppCommand) -> Bool {
@@ -117,6 +122,22 @@ final class AppCommandTests {
 
         // Assert
         #expect(rawValues.count == uniqueValues.count)
+    }
+
+    @Test
+    func launcherCommandsExposeInlineControlSurface() {
+        #expect(
+            AppCommand.showCommandBarEverything.definition.surfacePolicy
+                .exposes(.inlineControl)
+        )
+        #expect(
+            AppCommand.showCommandBarRepos.definition.surfacePolicy
+                .exposes(.inlineControl)
+        )
+        #expect(
+            AppCommand.watchFolder.definition.surfacePolicy
+                .exposes(.inlineControl)
+        )
     }
 
     // MARK: - SearchItemType
@@ -191,7 +212,9 @@ final class AppCommandTests {
             command: .closeTab,
             label: "Close Tab",
             icon: .system(.xmark),
-            helpText: "Close the active tab"
+            helpText: "Close the active tab",
+            surfacePolicy: .exposed([.commandBar]),
+            targeting: .contextual
         )
 
         // Assert
@@ -200,12 +223,13 @@ final class AppCommandTests {
         #expect(def.helpText == "Close the active tab")
         #expect(def.keyBinding == nil)
         #expect(def.icon == .system(.xmark))
-        #expect(def.appliesTo.isEmpty)
+        #expect(def.surfacePolicy == .exposed([.commandBar]))
+        #expect(def.surfacePolicy.exposes(.commandBar))
+        #expect(def.targeting == .contextual)
         #expect(!(def.requiresManagementLayer))
         #expect(def.visibleWhen.isEmpty)
         #expect(def.commandBarGroupName == "Commands")
         #expect(def.commandBarGroupPriority == 8)
-        #expect(!def.isHiddenInCommandBar)
     }
 
     @Test
@@ -217,7 +241,8 @@ final class AppCommandTests {
             label: "Close Window",
             icon: .system(.xmark),
             helpText: "Close the active window",
-            appliesTo: [.tab],
+            surfacePolicy: .exposed([.mainMenu]),
+            targeting: .contextual,
             requiresManagementLayer: false
         )
 
@@ -226,7 +251,8 @@ final class AppCommandTests {
         #expect(def.keyBinding != nil)
         #expect(def.icon == .system(.xmark))
         #expect(def.helpText == "Close the active window")
-        #expect(def.appliesTo.contains(SearchItemType.tab))
+        #expect(def.surfacePolicy == .exposed([.mainMenu]))
+        #expect(def.targeting == .contextual)
         #expect(!def.requiresManagementLayer)
     }
 
@@ -241,7 +267,14 @@ final class AppCommandTests {
 
         #expect(zoomPane.label == "Pane Zoom")
         #expect(zoomPane.helpText == "Zoom the active pane")
-        #expect(zoomPane.appliesTo == [.pane])
+        #expect(
+            zoomPane.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom), .inlineControl])
+        )
+        #expect(
+            zoomPane.targeting
+                == .contextualAndTargeted([.pane], preferredInvocation: .contextual)
+        )
         #expect(!zoomPane.visibleWhen.contains(.hasMultiplePanes))
         #expect(zoomPane.icon == canonicalZoomSymbol.map(CommandIcon.system))
         #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
@@ -277,7 +310,14 @@ final class AppCommandTests {
         let viewer = try #require(viewerDefinitions.first)
         #expect(viewerDefinitions.count == 1)
         #expect(viewer.command == .showViewer)
-        #expect(viewer.appliesTo.isEmpty)
+        #expect(
+            viewer.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.terminalZoom)])
+        )
+        #expect(
+            viewer.targeting
+                == .contextualAndTargeted([.pane], preferredInvocation: .contextual)
+        )
         #expect(viewer.visibleWhen == [.supportsTerminalZoom])
     }
 
@@ -301,7 +341,9 @@ final class AppCommandTests {
     @Test
     func test_toggleSidebar_isVisibleInCommandBar() {
         let definition = AppCommandDispatcher.shared.definition(for: .toggleSidebar)
-        #expect(!definition.isHiddenInCommandBar)
+        #expect(definition.surfacePolicy.exposes(.commandBar))
+        #expect(definition.surfacePolicy == .exposed([.commandBar]))
+        #expect(definition.targeting == .contextual)
     }
 
     @Test
@@ -347,7 +389,15 @@ final class AppCommandTests {
         let commandNames = tabCommands.map(\.command)
         #expect(commandNames.contains(.closeTab))
         #expect(commandNames.contains(.breakUpTab))
+        #expect(commandNames.contains(.movePaneToTab))
         #expect(commandNames.contains(.equalizePanes))
+        #expect(
+            AppCommand.equalizePanes.definition.targeting
+                == .contextualAndTargeted(
+                    [.tab],
+                    preferredInvocation: .contextual
+                )
+        )
     }
 
     @MainActor
@@ -459,38 +509,66 @@ final class AppCommandTests {
         let worktreeSidebar = AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar)
 
         #expect(sidebarInbox.shortcut == .showInboxNotifications)
-        #expect(!sidebarInbox.isHiddenInCommandBar)
+        #expect(sidebarInbox.surfacePolicy.exposes(.commandBar))
+        #expect(sidebarInbox.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))
+        #expect(sidebarInbox.targeting == .contextual)
         #expect(toggleInboxSort.label == "Toggle Inbox Sort Order")
         #expect(toggleInboxSort.shortcut == nil)
         #expect(toggleInboxSort.icon == .system(.arrowUpArrowDown))
         #expect(toggleInboxSort.commandBarGroupName == "Inbox")
         #expect(toggleInboxSort.commandBarGroupPriority != sidebarInbox.commandBarGroupPriority)
-        #expect(!toggleInboxSort.isHiddenInCommandBar)
+        #expect(toggleInboxSort.surfacePolicy.exposes(.commandBar))
+        #expect(toggleInboxSort.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(toggleInboxSort.targeting == .contextual)
         #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
         #expect(clearReadInbox.shortcut == nil)
         #expect(clearReadInbox.icon == .system(.deleteLeft))
         #expect(clearReadInbox.commandBarGroupName == "Inbox")
         #expect(clearReadInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
-        #expect(!clearReadInbox.isHiddenInCommandBar)
+        #expect(clearReadInbox.surfacePolicy.exposes(.commandBar))
+        #expect(clearReadInbox.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(clearReadInbox.targeting == .contextual)
         #expect(clearAllInbox.label == "Clear All Inbox Notifications")
         #expect(clearAllInbox.shortcut == nil)
         #expect(clearAllInbox.icon == .system(.deleteLeft))
         #expect(clearAllInbox.commandBarGroupName == "Inbox")
         #expect(clearAllInbox.commandBarGroupPriority == toggleInboxSort.commandBarGroupPriority)
-        #expect(!clearAllInbox.isHiddenInCommandBar)
+        #expect(clearAllInbox.surfacePolicy.exposes(.commandBar))
+        #expect(clearAllInbox.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(clearAllInbox.targeting == .contextual)
         #expect(paneInbox.shortcut == .showPaneInboxNotifications)
-        #expect(paneInbox.appliesTo == [.pane])
+        #expect(paneInbox.surfacePolicy.exposes(.commandBar))
+        #expect(
+            paneInbox.surfacePolicy
+                == .exposed([.commandBar, .toolbar(.pane), .toolbar(.terminalZoom)])
+        )
+        #expect(
+            paneInbox.targeting
+                == .contextualAndTargeted(
+                    [.pane, .floatingTerminal],
+                    preferredInvocation: .contextual
+                )
+        )
         #expect(paneInbox.visibleWhen == [.hasActivePane])
         #expect(paneInbox.commandBarGroupName == "Pane")
-        #expect(!paneInbox.isHiddenInCommandBar)
         #expect(clearPaneInbox.label == "Clear Pane Inbox")
         #expect(clearPaneInbox.shortcut == nil)
         #expect(clearPaneInbox.icon == .system(.deleteLeft))
         #expect(clearPaneInbox.helpText.contains("Clear notifications"))
         #expect(clearPaneInbox.commandBarGroupName == "Pane")
         #expect(clearPaneInbox.commandBarGroupPriority == paneInbox.commandBarGroupPriority)
+        #expect(clearPaneInbox.surfacePolicy == .exposed([.commandBar, .inlineControl]))
+        #expect(
+            clearPaneInbox.targeting
+                == .contextualAndTargeted(
+                    [.pane, .floatingTerminal],
+                    preferredInvocation: .contextual
+                )
+        )
         #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
-        #expect(!worktreeSidebar.isHiddenInCommandBar)
+        #expect(worktreeSidebar.surfacePolicy.exposes(.commandBar))
+        #expect(worktreeSidebar.surfacePolicy == .exposed([.commandBar, .toolbar(.app)]))
+        #expect(worktreeSidebar.targeting == .contextual)
     }
 
     @MainActor
@@ -532,6 +610,7 @@ final class AppCommandTests {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
         appRouter.requestCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCapabilityCommands = [.setRepoSidebarVisibilityMode]
         appRouter.parameterlessCanExecuteResult = false
         let request = AppCommandExecutionRequest(
             command: .setRepoSidebarVisibilityMode,
@@ -773,6 +852,38 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_dispatcher_dispatchMovePaneToTab_rechecksExactSourcePaneCapability() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let dispatcher = AppCommandDispatcher.shared
+            let handler = MockCommandHandler()
+            handler.canExecuteResult = true
+            handler.targetedCanExecuteResult = false
+            atom(\.managementLayer).deactivate()
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    dispatcher.handler = handler
+                    dispatcher.appCommandRouter = nil
+                },
+                body: {
+                    atom(\.managementLayer).toggle()
+                    defer { atom(\.managementLayer).deactivate() }
+
+                    dispatcher.dispatchMovePaneToTab(
+                        sourcePaneId: UUID(),
+                        sourceTabId: UUID(),
+                        targetTabId: UUID()
+                    )
+
+                    #expect(handler.movePaneRequests.isEmpty)
+                }
+            )
+        }
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() async throws {
         // Arrange
         let dispatcher = AppCommandDispatcher.shared
@@ -814,7 +925,8 @@ final class AppCommandTests {
 
         // Assert
         #expect(def.requiresManagementLayer)
-        #expect(def.appliesTo.contains(.pane))
+        #expect(def.surfacePolicy == .exposed([.commandBar, .contextMenu, .inlineControl]))
+        #expect(def.targeting == .targeted([.pane, .tab]))
     }
 
     @MainActor
@@ -855,10 +967,11 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_managementRequiredCommand_allowedWhenActive() async throws {
+    func test_dispatcher_managementRequiredCommands_useAcceptedInvocationWhenActive() async throws {
         try await withAsyncTestCoreAtoms { _ in
             let dispatcher = AppCommandDispatcher.shared
             let handler = MockCommandHandler()
+            let paneId = UUID()
             atom(\.managementLayer).deactivate()
 
             try await withIsolatedCommandDispatcher(
@@ -871,7 +984,14 @@ final class AppCommandTests {
                     defer { atom(\.managementLayer).deactivate() }
 
                     #expect(dispatcher.canDispatch(.closePane))
-                    #expect(dispatcher.canDispatch(.movePaneToTab))
+                    #expect(!dispatcher.canDispatch(.movePaneToTab))
+                    #expect(
+                        dispatcher.canDispatch(
+                            .movePaneToTab,
+                            target: paneId,
+                            targetType: .pane
+                        )
+                    )
                 }
             )
         }

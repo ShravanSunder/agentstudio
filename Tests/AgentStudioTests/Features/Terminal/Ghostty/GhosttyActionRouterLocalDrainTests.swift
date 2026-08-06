@@ -62,7 +62,13 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
-            mountedHostResolver: mountedHostResolver
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: mountedHostResolver,
+                runtimeRegistry: RuntimeRegistry(),
+                fallbackRuntimeRegistry: nil,
+                activityContext: { _ in nil },
+                submitActivityInput: { _ in }
+            )
         )
 
         Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
@@ -96,26 +102,11 @@ extension GhosttyActionRouterTests {
         let runtimeRegistry = RuntimeRegistry()
         _ = runtimeRegistry.register(runtime)
         let activityRecorder = TerminalActivityInputRecorder()
-        let activityBindingID = UUIDv7.generate()
-        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
 
         #expect(RuntimeRegistry.shared.runtime(for: paneID) == nil)
-        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
-        Ghostty.ActionRouter.bindTerminalActivityInput(
-            id: activityBindingID,
-            context: { requestedPaneID in
-                #expect(requestedPaneID == paneUUID)
-                return projectionContext
-            },
-            sink: { input in
-                activityRecorder.record(input)
-            }
-        )
         defer {
             Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
             Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
-            Ghostty.ActionRouter.unbindTerminalActivityInput(id: activityBindingID)
-            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
         }
 
         #expect(
@@ -129,7 +120,18 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
-            mountedHostResolver: mountedHostResolver
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: mountedHostResolver,
+                runtimeRegistry: runtimeRegistry,
+                fallbackRuntimeRegistry: nil,
+                activityContext: { requestedPaneID in
+                    #expect(requestedPaneID == paneUUID)
+                    return projectionContext
+                },
+                submitActivityInput: { input in
+                    activityRecorder.record(input)
+                }
+            )
         )
 
         #expect(host.hostScrollbarState == scrollbarState)
@@ -168,12 +170,9 @@ extension GhosttyActionRouterTests {
                 requestedID == surfaceID ? paneUUID : nil
             }
         )
-        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
-        Ghostty.ActionRouter.setRuntimeRegistry(RuntimeRegistry())
         defer {
             Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
             Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
-            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
         }
         #expect(RuntimeRegistry.shared.runtime(for: paneID) == nil)
 
@@ -191,7 +190,13 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
-            mountedHostResolver: mountedHostResolver
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: mountedHostResolver,
+                runtimeRegistry: RuntimeRegistry(),
+                fallbackRuntimeRegistry: nil,
+                activityContext: { _ in nil },
+                submitActivityInput: { _ in }
+            )
         )
         Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
 
@@ -200,7 +205,13 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
-            mountedHostResolver: mountedHostResolver
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: mountedHostResolver,
+                runtimeRegistry: RuntimeRegistry(),
+                fallbackRuntimeRegistry: nil,
+                activityContext: { _ in nil },
+                submitActivityInput: { _ in }
+            )
         )
         Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
 
@@ -241,31 +252,27 @@ extension GhosttyActionRouterTests {
             }
         )
         let activityRecorder = TerminalActivityInputRecorder()
-        let activityBindingID = UUIDv7.generate()
-        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
-        Ghostty.ActionRouter.setRuntimeRegistry(RuntimeRegistry())
-        Ghostty.ActionRouter.bindTerminalActivityInput(
-            id: activityBindingID,
-            context: { requestedPaneID in
-                #expect(requestedPaneID == paneUUID)
-                return projectionContext
-            },
-            sink: { input in
-                activityRecorder.record(input)
-            }
-        )
         defer {
             Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
             Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
-            Ghostty.ActionRouter.unbindTerminalActivityInput(id: activityBindingID)
-            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
         }
         #expect(RuntimeRegistry.shared.runtime(for: paneID) == nil)
         offerScrollbarState(scrollbarState, surfaceID: surfaceID)
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
-            mountedHostResolver: mountedHostResolver
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: mountedHostResolver,
+                runtimeRegistry: RuntimeRegistry(),
+                fallbackRuntimeRegistry: nil,
+                activityContext: { requestedPaneID in
+                    #expect(requestedPaneID == paneUUID)
+                    return projectionContext
+                },
+                submitActivityInput: { input in
+                    activityRecorder.record(input)
+                }
+            )
         )
         Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
         try await performanceRecorder.drain()

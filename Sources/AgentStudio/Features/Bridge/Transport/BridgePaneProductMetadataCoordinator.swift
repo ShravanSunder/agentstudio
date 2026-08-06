@@ -398,12 +398,13 @@ actor BridgePaneProductMetadataCoordinator {
 
     func publishPaneSurfaceSelectionRequest(
         _ request: BridgePaneSurfaceSelectionRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async {
+        productAdmission: BridgeProductAdmissionContext,
+        streamAbsenceDisposition: BridgePaneSurfaceSelectionStreamAbsenceDisposition
+    ) async -> Bool {
         guard !isClosed,
             productAdmission.withValidAdmission({
                 if let latestPaneSurfaceSelectionRequest,
-                    request.selectionRevision <= latestPaneSurfaceSelectionRequest.selectionRevision
+                    request.bindingRevision <= latestPaneSurfaceSelectionRequest.bindingRevision
                 {
                     return false
                 }
@@ -411,9 +412,28 @@ actor BridgePaneProductMetadataCoordinator {
                 return true
             }) == true
         else {
-            return
+            return false
         }
-        await enqueueLatestPaneSurfaceSelectionRequestIfPossible()
+        guard let activeStream else {
+            if streamAbsenceDisposition == .reject {
+                discardFailedExactPaneSurfaceSelectionRequest(request)
+            }
+            return false
+        }
+        do {
+            let result = try await enqueuePaneSurfaceSelectionRequest(
+                request,
+                activeStream: activeStream
+            )
+            guard case .enqueued = result else {
+                discardFailedExactPaneSurfaceSelectionRequest(request)
+                return false
+            }
+            return true
+        } catch {
+            discardFailedExactPaneSurfaceSelectionRequest(request)
+            return false
+        }
     }
 
     func replayPaneSurfaceSelectionRequest() async {
@@ -458,7 +478,25 @@ actor BridgePaneProductMetadataCoordinator {
 
     private func enqueueLatestPaneSurfaceSelectionRequestIfPossible() async {
         guard let activeStream, let request = latestPaneSurfaceSelectionRequest else { return }
-        _ = try? await activeStream.session.enqueueProducerFrame(
+        do {
+            let result = try await enqueuePaneSurfaceSelectionRequest(
+                request,
+                activeStream: activeStream
+            )
+            guard case .enqueued = result else {
+                discardFailedExactPaneSurfaceSelectionRequest(request)
+                return
+            }
+        } catch {
+            discardFailedExactPaneSurfaceSelectionRequest(request)
+        }
+    }
+
+    private func enqueuePaneSurfaceSelectionRequest(
+        _ request: BridgePaneSurfaceSelectionRequest,
+        activeStream: ActiveStream
+    ) async throws -> BridgeProductProducerEnqueueResult {
+        try await activeStream.session.enqueueProducerFrame(
             for: activeStream.lease,
             productAdmission: activeStream.productAdmission,
             build: { streamSequence in
@@ -480,6 +518,18 @@ actor BridgePaneProductMetadataCoordinator {
                 )
             }
         )
+    }
+
+    private func discardFailedExactPaneSurfaceSelectionRequest(
+        _ request: BridgePaneSurfaceSelectionRequest
+    ) {
+        guard latestPaneSurfaceSelectionRequest?.requestId == request.requestId else { return }
+        switch request.navigationCommand {
+        case .activateContext:
+            return
+        case .activateFileTarget, .activateReviewTarget:
+            latestPaneSurfaceSelectionRequest = nil
+        }
     }
 
     private func startSubscriptionOpen(
