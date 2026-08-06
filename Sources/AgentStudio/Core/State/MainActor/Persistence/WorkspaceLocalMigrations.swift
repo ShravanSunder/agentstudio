@@ -55,6 +55,22 @@ package enum WorkspaceLocalMigrations {
                     """
             )
         }
+        migrator.registerMigration("003_invert_sidebar_group_memory") { database in
+            guard try database.tableExists("local_window_sidebar_expanded_group") else { return }
+
+            // Expanded rows cannot encode which absent groups were explicitly collapsed.
+            // Reset this local presentation cache during the hard cut so every group starts open.
+            try database.execute(sql: "DROP TABLE local_window_sidebar_expanded_group")
+            try database.execute(
+                sql: """
+                    CREATE TABLE local_window_sidebar_collapsed_group (
+                        window_id TEXT NOT NULL REFERENCES local_window_state(window_id) ON DELETE CASCADE,
+                        group_key TEXT NOT NULL,
+                        PRIMARY KEY (window_id, group_key)
+                    )
+                    """
+            )
+        }
         return migrator
     }
 

@@ -20,7 +20,7 @@ package final class CoreAtoms {
     package let applicationEntityRecency: ApplicationEntityRecencyAtom
     package let workspaceEntityRecency: WorkspaceEntityRecencyAtom
     package let repoCache: RepoCacheAtom
-    package let sidebarExpandedGroup: SidebarExpandedGroupAtom
+    package let sidebarCollapsedGroup: SidebarCollapsedGroupAtom
     package let sidebarCache: SidebarCacheState
     package let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     package let workspaceSidebarMemory: WorkspaceSidebarMemoryAtom
@@ -53,7 +53,7 @@ package final class CoreAtoms {
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
         applicationEntityRecency: ApplicationEntityRecencyAtom = .init(),
         workspaceEntityRecency: WorkspaceEntityRecencyAtom = .init(),
-        sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
+        sidebarCollapsedGroup: SidebarCollapsedGroupAtom = .init(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
         workspaceSidebarMemory: WorkspaceSidebarMemoryAtom = .init(),
         sidebarFocusRuntime: SidebarFocusRuntimeAtom = .init(),
@@ -115,9 +115,9 @@ package final class CoreAtoms {
         self.applicationEntityRecency = applicationEntityRecency
         self.workspaceEntityRecency = workspaceEntityRecency
         self.repoCache = RepoCacheAtom(enrichmentCacheAtom: repoEnrichmentCache)
-        self.sidebarExpandedGroup = sidebarExpandedGroup
+        self.sidebarCollapsedGroup = sidebarCollapsedGroup
         self.sidebarCache = SidebarCacheState(
-            expandedGroupAtom: sidebarExpandedGroup
+            collapsedGroupAtom: sidebarCollapsedGroup
         )
         self.arrangementPanelPresentation = arrangementPanelPresentation
         self.workspaceSidebarMemory = workspaceSidebarMemory

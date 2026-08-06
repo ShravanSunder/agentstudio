@@ -6,7 +6,7 @@ import Foundation
 struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let generation: Int
     let snapshot: RepoExplorerSnapshot
-    let expandedGroupIds: Set<String>
+    let collapsedGroupIds: Set<String>
     let isFiltering: Bool
     let trigger: AppPolicies.SidebarProjection.Trigger
     let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
@@ -14,14 +14,14 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     init(
         generation: Int,
         snapshot: RepoExplorerSnapshot,
-        expandedGroupIds: Set<String>,
+        collapsedGroupIds: Set<String>,
         isFiltering: Bool,
         trigger: AppPolicies.SidebarProjection.Trigger,
         worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
     ) {
         self.generation = generation
         self.snapshot = snapshot
-        self.expandedGroupIds = expandedGroupIds
+        self.collapsedGroupIds = collapsedGroupIds
         self.isFiltering = isFiltering
         self.trigger = trigger
         self.worktreeFactsByWorktreeId = worktreeFactsByWorktreeId
@@ -31,7 +31,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
 struct RepoExplorerProjectionResult: Equatable, Sendable {
     let generation: Int
     let snapshot: RepoExplorerSnapshot
-    let expandedGroupIds: Set<String>
+    let collapsedGroupIds: Set<String>
     let isFiltering: Bool
     let trigger: AppPolicies.SidebarProjection.Trigger
     let projection: RepoExplorerSidebarProjection
@@ -58,13 +58,13 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
         return Self(
             generation: 0,
             snapshot: snapshot,
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: false,
             trigger: .startupDiagnostic,
             projection: projection,
             rowIndex: RepoExplorerRowIndex(
                 projection: projection,
-                expandedGroupIds: [],
+                collapsedGroupIds: [],
                 isFiltering: false
             ),
             workerDuration: .zero,
@@ -94,7 +94,7 @@ actor RepoExplorerProjectionWorker {
             let rowIndexStart = clock.now
             let rowIndex = RepoExplorerRowIndex(
                 projection: projection,
-                expandedGroupIds: request.expandedGroupIds,
+                collapsedGroupIds: request.collapsedGroupIds,
                 isFiltering: request.isFiltering
             )
             let rowIndexDuration = rowIndexStart.duration(to: clock.now)
@@ -113,7 +113,7 @@ actor RepoExplorerProjectionWorker {
             return RepoExplorerProjectionResult(
                 generation: request.generation,
                 snapshot: request.snapshot,
-                expandedGroupIds: request.expandedGroupIds,
+                collapsedGroupIds: request.collapsedGroupIds,
                 isFiltering: request.isFiltering,
                 trigger: request.trigger,
                 projection: projection,

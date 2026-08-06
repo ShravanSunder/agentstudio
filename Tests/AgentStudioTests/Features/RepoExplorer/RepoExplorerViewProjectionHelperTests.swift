@@ -29,8 +29,53 @@ private final class BridgeAttendanceSnapshotReadRecorder {
 }
 
 @MainActor
+private final class PaneFocusRecordingDispatcher: AppCommandDispatching {
+    private(set) var command: AppCommand?
+    private(set) var target: UUID?
+    private(set) var targetType: SearchItemType?
+
+    func dispatch(_: AppCommand) {}
+
+    func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
+        self.command = command
+        self.target = target
+        self.targetType = targetType
+    }
+
+    func canDispatch(_: AppCommand) -> Bool { true }
+    func canDispatch(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool { true }
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? { nil }
+    func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+}
+
+@MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("pane navigation dispatches exact focusPane target")
+    func paneNavigationDispatchesExactFocusTarget() {
+        let dispatcher = PaneFocusRecordingDispatcher()
+        let paneId = UUIDv7.generate()
+        let view = RepoExplorerView(
+            store: WorkspaceStore(startsObserving: false),
+            octiconLoader: makeRepoExplorerTestOcticonLoader(),
+            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+            bridgeAttendanceSnapshot: { [:] },
+            commandDispatcher: dispatcher,
+            onSetVisibilityMode: { _ in },
+            onSetSortOrder: { _ in },
+            onRefocusActivePane: {},
+            onSidebarVisibleWorktreesChanged: {},
+            onShowNotificationsForWorktree: { _ in },
+            unreadCount: { _ in 0 }
+        )
+
+        view.focusPane(paneId)
+
+        #expect(dispatcher.command == .focusPane)
+        #expect(dispatcher.target == paneId)
+        #expect(dispatcher.targetType == .pane)
+    }
+
     @Test("Bridge attendance snapshot is read once and deterministically populates pane candidates")
     func bridgeAttendanceSnapshotIsReadOncePerProjection() throws {
         // Arrange
@@ -53,7 +98,6 @@ struct RepoExplorerViewProjectionHelperTests {
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
             onSetVisibilityMode: { _ in },
             onSetSortOrder: { _ in },
-            onRefreshWorktrees: {},
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
             onShowNotificationsForWorktree: { _ in },
@@ -127,8 +171,8 @@ struct RepoExplorerViewProjectionHelperTests {
         }
     }
 
-    @Test("source group icon uses semantic pane and tab colors outside repo grouping")
-    func sourceGroupIconUsesSemanticPaneAndTabColorsOutsideRepoGrouping() {
+    @Test("source group icon uses repo semantics for By Pane and tab semantics for By Tab")
+    func sourceGroupIconUsesPerspectiveHeaderSemantics() {
         let group = RepoPresentationGroup(
             id: "pane:active",
             repoTitle: "Pane 1",
@@ -136,7 +180,7 @@ struct RepoExplorerViewProjectionHelperTests {
             repos: []
         )
 
-        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .pane) == .paneGroup)
+        #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .pane) == .repo)
         #expect(RepoExplorerView.sourceGroupIcon(for: group, groupingMode: .tab) == .tabGroup)
     }
 
@@ -149,7 +193,7 @@ struct RepoExplorerViewProjectionHelperTests {
             repos: []
         )
 
-        #expect(RepoExplorerView.groupIcon(for: group, projectionGroupingMode: .pane) == .paneGroup)
+        #expect(RepoExplorerView.groupIcon(for: group, projectionGroupingMode: .pane) == .repo)
         #expect(RepoExplorerView.groupIcon(for: group, projectionGroupingMode: .tab) == .tabGroup)
     }
 
@@ -177,7 +221,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 sortOrder: .ascending,
                 query: ""
             ),
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: false,
             trigger: .startupDiagnostic
         )
@@ -189,7 +233,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 sortOrder: .descending,
                 query: ""
             ),
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: false,
             trigger: .startupDiagnostic
         )
@@ -206,7 +250,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 repoEnrichmentByRepoId: [:],
                 query: ""
             ),
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: false,
             trigger: .startupDiagnostic
         )
@@ -217,7 +261,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 repoEnrichmentByRepoId: [:],
                 query: "agent-studio"
             ),
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: true,
             trigger: .startupDiagnostic
         )

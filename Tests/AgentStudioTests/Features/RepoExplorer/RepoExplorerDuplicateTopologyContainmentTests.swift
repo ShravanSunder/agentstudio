@@ -47,7 +47,7 @@ struct RepoExplorerDuplicateTopologyContainmentTests {
         )
         let rowIndex = RepoExplorerRowIndex(
             projection: projection,
-            expandedGroupIds: [group.id],
+            collapsedGroupIds: [group.id],
             isFiltering: true
         )
 
@@ -135,7 +135,7 @@ struct RepoExplorerDuplicateTopologyContainmentTests {
         )
         let rowIndex = RepoExplorerRowIndex(
             projection: projection,
-            expandedGroupIds: [],
+            collapsedGroupIds: [],
             isFiltering: true
         )
 

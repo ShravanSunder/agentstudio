@@ -47,9 +47,9 @@ package final class SidebarCacheStore {
         debouncedSaveTask = nil
         activeWorkspaceId = workspaceId
         switch await sqliteDatastore.loadSidebarState(workspaceContextId: workspaceId) {
-        case .loaded(let expandedGroups):
+        case .loaded(let collapsedGroups):
             isRestoringState = true
-            atom.setExpandedGroups(expandedGroups)
+            atom.setCollapsedGroups(collapsedGroups)
             isRestoringState = false
         case .unavailable(let failure):
             isRestoringState = false
@@ -76,7 +76,7 @@ package final class SidebarCacheStore {
         guard !isObservingCacheState else { return }
         isObservingCacheState = true
         withObservationTracking {
-            _ = atom.expandedGroups
+            _ = atom.collapsedGroups
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // SidebarCacheState is @MainActor; this traps if that ownership changes.
@@ -110,7 +110,7 @@ package final class SidebarCacheStore {
     private func persistNow(for workspaceId: UUID) async throws {
         do {
             try await sqliteDatastore.saveSidebarState(
-                expandedGroups: atom.expandedGroups,
+                collapsedGroups: atom.collapsedGroups,
                 workspaceContextId: workspaceId
             )
         } catch {
