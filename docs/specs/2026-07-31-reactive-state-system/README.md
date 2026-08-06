@@ -52,32 +52,27 @@ Victoria/comparator, and SQLite test systems. None creates a parallel system.
 | U8 | Authority-specific atomic save and stale-completion admission | Existing Core/App stores and authority-specific repositories | Real GRDB rollback, overlap, crash/reopen, and relaunch suites |
 | U9 | Narrow independently provable adoption | Each linked slice; no family-wide runtime coordinator | Slice inventory through the existing lint, test, debug, and performance systems |
 
-## First Slices and Dependencies
+## Current Two-PR Atom Scope
 
-The first slices are intentionally separable:
+The current implementation scope is exactly two pull requests:
 
 ```text
-Standalone measurement prerequisite ──┐
-                                      ├──> Tab Bar performance acceptance
-Tab Bar eager-materialization slice ──┘
+PR 1  AtomFamily + lazy DerivedAtom
+      └── Repo Explorer keyed worktree-facts admission
+
+PR 2  eager/off-main EagerDerivedAtom
+      └── Tab Bar projection and current-result publication
 ```
 
-The measurement prerequisite is a small independent proof-system correction,
-not another reactive-state implementation slice. Tab Bar correctness work may
-proceed without it, but RS-24–RS-26 performance acceptance cannot pass until
-the prerequisite can prove complete, non-perturbing, end-to-end evidence.
+PR 1 does not depend on eager materialization or persistence changes. PR 2
+depends on the cancellation-only eager primitive and current Core/Feature
+source contracts, not on the SQLite design or deferred pane/tab family
+migrations. The measurement correction described by the off-main design is a
+PR 2 proof prerequisite, not a third reactive-state implementation PR.
 
-1. `AtomFamily` hard rename plus retained worktree-facts `DerivedAtom` and Repo
-   Explorer keyed admission. It does not depend on eager materialization or
-   persistence changes.
-2. Tab Bar total `EagerDerivedAtom` and one `TabBarProjection` authority. It
-   depends on the cancellation-only eager primitive and current Core/Feature
-   source contracts, not on a speculative fallible branch, the SQLite design,
-   or deferred pane/tab family migrations.
-3. Combined workspace-settings transaction. It is persistence-only and does
-   not depend on either reactive runtime slice.
-4. `WorkspaceStore` lane-aware Core/local drain. It follows the settings slice
-   operationally but is a separate ownership cut with separate proof.
+The SQLite program design remains a separate future design surface. Combined
+settings and lane-aware Core/local persistence are not part of either current
+atom PR.
 
 Deferred pane, tab, topology, session, terminal-activity, Repo Explorer-worker,
 Inbox-worker, and Command Bar migrations require their own measured or

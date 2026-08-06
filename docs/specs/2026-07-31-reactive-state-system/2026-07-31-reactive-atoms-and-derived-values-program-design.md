@@ -92,10 +92,23 @@ pull-request counts in `RepoEnrichmentCacheAtom`.
 
 ### 3.2 Current derived readers
 
-Ten product `*Derived` structs compute on access. `CoreAtoms` returns most of
-them through computed properties, so those readers do not retain cache identity.
-They can correctly register Swift Observation reads, but they do not declare a
-cache lifetime, output equality, or execution mode.
+`CoreAtoms` exposes ten product `*Derived` types plus one
+`WorkspaceFocusedPaneResolver`: eleven read-model accessors in total. Most are
+computed properties, so reconstructing the lightweight reader does not retain a
+cache identity. That does not mean all eleven should become cached nodes.
+
+| Current reader | Target mode in this design | Reason |
+|---|---|---|
+| `PaneDisplayDerived`, `TabDisplayDerived`, `ArrangementDerived` | Stateless on-demand product policy; selected reusable policy functions also become pure inputs to the separate Tab Bar projector | They project one selected pane/tab/arrangement context. The off-main slice moves fleet work without creating lazy caches for every caller. |
+| `WorkspaceFocusedPaneResolver`, `CommandContextDerived`, `WorkspaceArrangementViewDerived` | Intentionally uncached on-demand resolver | They answer current focus/command/view questions from caller-supplied or active-workspace state. A retained cache adds identity and invalidation cost without a proven hot reusable output. |
+| `AttendedPaneDerived` | Retained ordinary read model, not a `DerivedAtom` | `CoreAtoms` already retains it as one lazy property; its O(1) current-attention read needs stable wiring but no output cache or revision. |
+| `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspaceLookupDerived` | Deferred aggregate-reader debt | They reconstruct pane/tab collections or indexes. Current uncached behavior is preserved until the separately scoped pane/tab family migrations can declare keyed and coherent aggregate revisions; they are not treated as compliant hot snapshot APIs. |
+| `DynamicViewDerived` | Pure explicit-input batch projector | It has no ambient state read and already receives complete snapshots explicitly. Its callers, not a retained lazy node, own when that cold or off-main projection runs. |
+
+The first retained cached production adoption remains the worktree-facts
+`DerivedAtom` family selected below. New or changed reusable readers still pass
+RS-07 classification; this table is an inventory, not a permanent exemption
+from measured evidence.
 
 `DerivedValue` already demonstrates revision-keyed lazy caching, but it has no
 production construction and is not currently a usable Core-facing package
@@ -205,6 +218,11 @@ making a key-B change invalidate A.
 Physical slot cleanup occurs only when the owning family is released after
 product observation has ended. The primitive does not count observers, defer
 pruning, or schedule callbacks to decide whether a slot is safe to detach.
+
+Removing a key that is already absent is a semantic no-op. It retains the
+existing missing/tombstoned slot identity and changes no value, membership,
+per-key revision, aggregate revision, or observation callback. A later insert
+uses that same slot and produces the one required wake.
 
 The family separately exposes:
 
@@ -459,6 +477,7 @@ coordinates slots directly.
 | Equal source write | No slot or aggregate revision change |
 | Missing key read | Retain an empty observable slot for the live family lifetime |
 | Key removal | Invalidate and tombstone the retained slot, update membership, and reuse that slot on reinsertion |
+| Redundant removal of an absent key | Preserve the missing/tombstoned slot and every revision; publish no wake |
 | Boot stale-cache cleanup | Remove stale cached values through existing product mutations and preserve the explicit persistence flush; do not delete nil family slots |
 | Derived computation throws or is partial | Not supported by lazy `DerivedAtom`; the product computation must be total over accepted source state |
 | Downstream reads an upstream derived revision | Public revision access materializes the upstream value first; the raw backing revision is inaccessible |
@@ -555,6 +574,10 @@ callback, then insert the same key and observe a second wake on the retained
 slot. The product harness must include an unrelated-key control; call-count
 reduction without that control is insufficient.
 
+The same harness observes a missing key, redundantly removes it, and proves no
+callback or revision change before insertion produces exactly one wake on the
+retained slot.
+
 The repo-cache boot harness must prove both sides of the cut: stale cached
 repo/worktree values are still removed and explicitly flushed, while missing-key
 family slots are not physically deleted. Existing tests whose asserted contract
@@ -588,7 +611,7 @@ inventory framework.
 | Swift Observation and Swift 6.2 compiler | Xcode 26.3 / Swift 6.2.4 applicability established by governing research | Platform observation and isolation boundary |
 
 Scoped completeness covers the generic primitives, all current product
-constructions, all ten product derived readers, representative hot consumers,
+constructions, all eleven current Core read-model accessors, representative hot consumers,
 architecture rules, semantic tests, and existing workload telemetry. Numeric
 runtime severity remains deliberately unclaimed until the frozen workload runs.
 

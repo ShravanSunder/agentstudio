@@ -197,6 +197,7 @@ EagerDerivedAtom<
     isValueEqual: @Sendable (Value, Value) -> Bool,
     project: @Sendable (Request) throws(CancellationError) -> Value
   )
+  nonisolated sourceDidInvalidate()
   admit(request)
   stop()
   value: Value?
@@ -207,6 +208,12 @@ EagerDerivedAtom<
 The node uses one fixed user-interaction execution priority rather than
 exposing scheduling policy. Product code cannot configure queues, retries, or
 parallelism through this interface.
+
+`sourceDidInvalidate()` is the one synchronous bridge from a leading-edge
+Observation callback. It advances a small lock-protected revocation epoch and
+is safe to call before the callback schedules post-mutation MainActor capture.
+It neither captures product state nor starts work. This closes the interval in
+which source state has changed but the successor request cannot yet be built.
 
 ### 6.1 Admission
 
@@ -222,12 +229,18 @@ has no failure-policy argument or failed state.
 
 The owning actor compares only the compact identity, never the
 variable-cardinality request or output. Submitting an equal request is a no-op
-while that request is running or current. Submitting a newer request:
+while that request and its revocation epoch are still running or current. After
+`sourceDidInvalidate()`, the next admission is a successor even if a product
+mistakenly reuses its compact identity. Submitting a successor:
 
 1. advances the generation;
 2. marks any previous output as non-current for the new request;
 3. cancels the retained prior task;
 4. retains one replacement task.
+
+Admission associates the request with the current revocation epoch. A source
+invalidation after admission makes that association stale immediately, even
+before a successor reaches `admit(request)`.
 
 ### 6.2 Execution
 
@@ -261,6 +274,7 @@ Completion returns to the owning actor. The node publishes only if:
 
 - the task was not cancelled;
 - its generation and semantic/freshness request identity are still current;
+- its admitted revocation epoch still matches the current source epoch;
 - the result is complete;
 - the off-main semantic comparison reports that the result differs.
 
@@ -281,8 +295,13 @@ stateDiagram-v2
     [*] --> Idle
     Idle --> Running: admit request N
     Running --> Running: admit request N+1 / cancel N
+    Running --> Invalidated: sourceDidInvalidate / revoke N
     Running --> Current: N completes current and unequal
     Running --> Current: N completes current and equal / preserve output revision
+    Current --> Invalidated: sourceDidInvalidate / preserve renderable value
+    Invalidated --> Invalidated: sourceDidInvalidate or stale completion / revoke or discard
+    Invalidated --> Running: admit successor
+    Invalidated --> Stopped: owner stop
     Current --> Running: admit successor
     Running --> Stopped: owner stop / cancel retained task
     Current --> Stopped: owner stop
@@ -389,16 +408,19 @@ and does not reconstruct `TabBarItem` values. Any request-building step whose
 work grows through the input fleet is moved into the projector unless it is the
 unavoidable bounded capture of a stored collection reference.
 
-`TabBarProjectionGeneration` is the compact freshness identity for this slice.
-The adapter advances it once for the initial admission and once for each
+`TabBarProjectionGeneration` is the compact admitted-request identity for this
+slice. The adapter advances it once for the initial admission and once for each
 coalesced `withObservationTracking` callback before capturing the newest source
-facts. Source owners already suppress equal writes; the adapter does not hash
-or structurally compare fleet snapshots on `MainActor`. Several source
-publications that arrive before callback handling produce one new capture of
-the latest state and one generation. Re-admitting the same captured generation
-is a no-op. This identity is owned entirely by the first Tab Bar slice and does
-not require the deferred pane/tab family migrations or new source-owner
-revisions.
+facts. The same callback first calls `sourceDidInvalidate()` synchronously,
+then schedules the post-mutation MainActor capture required by Observation's
+leading-edge semantics. Source owners already suppress equal writes; the
+adapter does not hash or structurally compare fleet snapshots on `MainActor`.
+Several source publications that arrive before callback handling revoke the
+old request immediately but produce one new capture of the latest state and
+one generation. Re-admitting the same captured generation is a no-op. The
+generation plus the node-owned revocation epoch are bounded freshness
+bookkeeping for the first Tab Bar slice; they do not require deferred pane/tab
+family migrations or new source-owner revisions.
 
 The adapter starts the first admission during construction and registers one
 observation of the node's materialized output. `PaneTabViewController`
@@ -422,11 +444,12 @@ sequenceDiagram
     participant Worker as Tab bar projector
     participant UI as CustomTabBar
 
-    Sources->>Adapter: push relevant invalidation
-    Adapter->>Adapter: capture Sendable request N
+    Adapter->>Adapter: capture initial Sendable request N
     Adapter->>Node: admit N
     Node-->>Worker: detached projection N
-    Sources->>Adapter: newer invalidation
+    Sources->>Adapter: push relevant leading-edge invalidation
+    Adapter->>Node: sourceDidInvalidate() synchronously
+    Adapter->>Adapter: post-mutation capture N+1
     Adapter->>Node: admit N+1 and cancel N
     Worker-->>Node: completion N
     Node-->>Node: reject stale N
@@ -517,7 +540,8 @@ task framework.
 
 | Interleaving | Required result |
 |---|---|
-| N completes before N+1 is admitted | N may publish; N+1 later marks it non-current |
+| Source changes after N admission but before N+1 admission | The synchronous revocation epoch rejects N; the prior accepted value may remain renderable but is not current |
+| N completes before any source invalidation | N may publish |
 | N+1 admitted before N completes | N completion is discarded regardless of cancellation cooperation |
 | N completes current and equal to the prior output | N becomes the current request identity; output revision and output-only observation remain unchanged |
 | Cancellation arrives during a long loop | Projector detects it at a bounded checkpoint and exits |
@@ -525,8 +549,9 @@ task framework.
 | Owner shuts down with work running | Retained task is cancelled and no later completion publishes |
 | Telemetry exporter blocks or fails | State lifecycle continues unchanged; telemetry is dropped/fail-open |
 
-The generation comparison on the owning actor is the final correctness guard.
-Cancellation is a resource optimization, not the stale-result guarantee.
+Generation/request identity and the synchronously advanced revocation epoch are
+the final correctness guards. Cancellation is a resource optimization, not the
+stale-result guarantee.
 
 For the first product slice, `PaneTabViewController.shutdown()` calls
 `TabBarAdapter.stop()`, which idempotently stops the retained node before the
@@ -653,7 +678,7 @@ not a permanent runtime compatibility branch.
 | Obligation | Structural realization | Failure/degradation |
 |---|---|---|
 | Responsiveness | Variable-cardinality projector and output equality run in internally detached task | Previous projection remains renderable while a successor runs |
-| Freshness | MainActor generation and request-identity admission | Cancellation failure cannot publish stale output |
+| Freshness | MainActor generation/request admission plus synchronous source-revocation epoch | Source change rejects old work even before deferred successor capture; cancellation failure cannot publish stale output |
 | Reliability | One retained task, bounded output, explicit irreversible shutdown | Tab Bar has no failure branch beyond cancellation or shutdown; fallible adoption is deferred |
 | Target readiness | Generic node owns no product type; App owns cross-feature composition | No reverse target edge or ambient registry |
 | Privacy | Allowlisted aggregate telemetry only | Exporter failure is fail-open |
@@ -666,7 +691,7 @@ not a permanent runtime compatibility branch.
 |---|---|---|
 | RS-09–RS-10 | Admission, retained task, request freshness, output revision | Deterministic latest-wins, equal-result currentness, equality, and push-admission tests |
 | RS-11–RS-12 | Sendable request/result and internally detached projector | Compiler harness plus source/behavior proof that variable work is outside `MainActor` |
-| RS-13–RS-14 | Generation admission and owner shutdown | Controlled cancellation, stale completion, overlap, and cleanup tests without wall-clock sleeps |
+| RS-13–RS-14 | Generation admission, synchronous source revocation, and owner shutdown | Controlled cancellation, pre-successor stale completion, overlap, and cleanup tests without wall-clock sleeps |
 | RS-21–RS-23 | Narrow generic interface and product-owned request/projector | Architecture rules and target-build proof |
 | RS-24–RS-26 | Standalone measurement prerequisite plus trace events and controlled Tab Bar workload | Lazy disabled-path attributes, trace-queue completeness, phase and interaction-to-visible boundaries, provenance equality, independent continuity oracle, distributions, and frozen regression boundary |
 | RS-27–RS-28 | Real adapter and isolated debug app | Unit/integration/runtime pyramid plus launch, tab navigation, typing, scrolling, animation, and state-change proof |
@@ -674,6 +699,12 @@ not a permanent runtime compatibility branch.
 The cancellation harness uses explicit gates or continuations to hold N,
 admit N+1, and release completions in either order. It never sleeps for an
 assumed scheduler interval.
+
+A separate leading-edge harness holds N, mutates one observed source, confirms
+the callback revokes N while successor capture is still gated, then releases N
+before admitting N+1. N must not publish or become current. Releasing the gate
+admits N+1 from post-mutation state, and only N+1 may become current. This proof
+uses callbacks and continuations, not scheduler timing.
 
 The native gate uses the existing authenticated debug IPC path for semantic
 Tab Bar actions and independent state read-back, plus the existing native UI

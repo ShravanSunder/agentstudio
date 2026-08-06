@@ -345,7 +345,7 @@ authorized Requirements.
 ## Evidence Basis
 
 Current implementation evidence was refreshed against `origin/main` commit
-`3c2ff9c22888e0ec77dd0b20ab447d7864a26c85`. Governing boundaries remain:
+`f7a01132f9ac5d02981e00856750936f80acb61f`. Governing boundaries remain:
 
 - [Atom and persistence boundaries](../../architecture/atom_persistence_boundaries.md)
 - [Performance evidence boundaries](../2026-07-10-agentstudio-performance-boundaries/agentstudio-performance-boundaries.md)
