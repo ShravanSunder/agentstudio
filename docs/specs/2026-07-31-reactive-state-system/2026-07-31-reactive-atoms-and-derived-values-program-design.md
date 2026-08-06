@@ -1,12 +1,10 @@
 # Reactive Atoms and Derived Values — Program Design
 
-Artifact type: program design — structural How
-Target classification: general-domain
-Governing specification:
+Governing Requirements:
 [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md)
-Governing specification SHA-256:
-`1aee657052b6e475767215bf613765c5056465f4920b0e178e5e0fb008809a39`
-Source version: `50d0b0ac360af8b1fe2f62a56e35b5cd2cd8e515`
+
+Governing Specification:
+[Reactive State System Specification](2026-07-31-reactive-state-system-specification.md)
 
 ## 1. Decision Summary
 
@@ -69,7 +67,7 @@ for membership, ordering, and cross-entity invariants.
 | Keep collection-backed atoms and uncached readers | No migration | Broad invalidation and repeated reconstruction remain implicit | Rejected for selected hot surfaces |
 | Make every property an independent atom | Maximum theoretical precision | Explodes mutation, lifecycle, and invariant coordination | Rejected |
 | Replace Swift Observation with a new graph runtime | One framework could own all semantics | Large migration, new runtime authority, target risk | Rejected |
-| Use entity-sized source families plus retained derived nodes | Precise keyed reads with coherent owners and explicit computation | Owners must expose semantic revisions and prune keyed nodes | Selected |
+| Use entity-sized source families plus retained derived nodes | Precise keyed reads with coherent owners and explicit computation | Owners must expose semantic revisions and retain tombstoned keyed identities for the owner's lifetime | Selected |
 
 The choice should be revisited only if measurement shows an entity-sized slot is
 still too broad for a specific independently hot fact. That evidence would
@@ -121,13 +119,24 @@ RepoExplorer observed request construction
 The target replaces this with explicit relevant-key reads; unrelated keys do
 not re-admit the projection.
 
+### 3.4 Current-to-target call-path delta
+
+| Status | Entrypoint-to-effect edge | State/result behavior | Evidence or obligation |
+|---|---|---|---|
+| Intentionally unchanged | Repo Explorer observed request admission -> existing projection worker -> result/error admission | The Feature retains its current replaceable worker lifecycle and visible projection contract. | Current `RepoExplorerView` worker path; RS-28 |
+| Removed | `projectionRequest` -> `worktreeFactsSnapshot()` -> whole-map snapshot filtering | A cold snapshot no longer masquerades as the observed source for a hot request. | Current `RepoExplorerView.swift`; RS-04–RS-06 |
+| Intentionally unchanged | Boot `pruneStaleCache` -> `removeRepo` / `removeWorktree` -> explicit repo-cache persistence flush | Stale enrichment values for topology entities that no longer exist are still removed and durably flushed. | Current `AppDelegate+WorkspaceBoot.swift`; U3, RS-28 |
+| Removed | Boot `pruneStaleCache` -> product `pruneNilSlots` -> generic family-slot deletion | Boot cleanup no longer detaches missing-key observation identities; tombstoned slots remain until family release. | Current `AppDelegate+WorkspaceBoot.swift`, `RepoCacheAtom.swift`, and `AtomEntityMap.swift`; RS-05, RS-08 |
+| Added | Relevant worktree ID -> retained worktree-facts `DerivedAtom` -> keyed family slots | Missing, changed, and removed relevant keys invalidate only their consumers; downstream-only reads materialize upstream state first. | Current `RepoCacheAtom.swift` and `AtomEntityMap.swift`; RS-05, RS-08 |
+| Changed | Any later broad wake -> request refresh becomes relevant-key or membership invalidation -> request refresh | Unrelated enrichment changes no longer admit a new projection; current worker result/error handling is preserved. | C1, C2, V2, V3 |
+
 ## 4. Target Components and Ownership
 
 | Component | Kind | Owns | Does not own |
 |---|---|---|---|
 | Concrete product group such as `CoreAtoms` | Organizational concept embodied by a product type | Named atom and derived-node composition | Observation, cache, or task semantics |
 | Product source atom | Concrete product type | One canonical mutable value or coherent aggregate and its named mutations | Cross-feature registry lookup |
-| `AtomFamily<Key, Value>` | Generic Infrastructure primitive | Stable keyed source slots, per-key revision, membership revision, equality gating, pruning | Product meaning, ordering policy, persistence |
+| `AtomFamily<Key, Value>` | Generic Infrastructure primitive | Stable keyed source slots, per-key revision, membership revision, equality gating, tombstoning | Product meaning, ordering policy, persistence |
 | Product aggregate owner | Concrete Core or Feature type | Membership, ordering, indexes, and cross-key invariants | Per-property atom explosion |
 | `DerivedAtom<Value>` | Generic Infrastructure primitive | Stable lazy cache, declared revision tuple, output revision, output equality | Source mutation, off-main work, retries |
 | Product derived family | Product-owned keyed collection of retained `DerivedAtom` nodes | Key-specific computation identity and lifecycle | Canonical source values |
@@ -138,8 +147,9 @@ state; no runtime behavior follows from that label.
 
 A product derived family initially remains an owner-held keyed collection of
 `DerivedAtom` nodes. A generic `DerivedAtomFamily` is extracted only if a
-second product use demonstrates the same creation, pruning, and missing-key
-lifecycle. This avoids adding an abstraction merely to complete a naming grid.
+second product use demonstrates the same creation, retained-identity, and
+missing-key lifecycle. This avoids adding an abstraction merely to complete a
+naming grid.
 
 ## 5. Dependency Direction
 
@@ -174,8 +184,8 @@ Feature registry or resolver.
 
 ### 6.1 Identity and observation
 
-For a given live family and key, the family retains one stable slot while that
-key is observed or stored. The slot owns:
+For a given live family and key, the first read or write creates one stable
+slot that the family retains for the rest of its own lifetime. The slot owns:
 
 - optional current value;
 - semantic value revision;
@@ -185,11 +195,16 @@ key is observed or stored. The slot owns:
 slot so later insertion wakes the reader. Changing key B does not wake a
 key-A-only reader.
 
-Per-key revisions never repeat across removal and recreation during one family
-lifetime. The family may allocate revision numbers from a family-local
-monotonic sequence, but consumers observe only the selected slot's revision.
-This lets key A receive a new revision after remove/reinsert without making a
-key-B change invalidate A.
+Removal tombstones the existing slot; reinsertion reuses that same identity.
+Per-key revisions therefore advance monotonically on one retained slot during
+the family lifetime. The family may allocate revision numbers from a
+family-local monotonic sequence, but consumers observe only the selected slot's
+revision. This lets key A receive a new revision after remove/reinsert without
+making a key-B change invalidate A.
+
+Physical slot cleanup occurs only when the owning family is released after
+product observation has ended. The primitive does not count observers, defer
+pruning, or schedule callbacks to decide whether a slot is safe to detach.
 
 The family separately exposes:
 
@@ -225,8 +240,9 @@ sequenceDiagram
 ```
 
 An equal write changes neither the slot revision nor the owner aggregate
-revision. Removal invalidates the old slot before pruning it. A multi-key
-mutation updates every affected slot before committing the aggregate revision.
+revision. Removal invalidates and tombstones the retained slot without
+detaching it. A multi-key mutation updates every affected slot before committing
+the aggregate revision.
 
 `AtomMutationContext` batches the owner's semantic completion revision. It does
 not batch Swift Observation notifications from individual stored slots, and
@@ -278,7 +294,7 @@ DerivedAtom<Value>
     compute: @MainActor () -> Value
   )
   value: Value
-  revision: Int
+  revision: Int  // materializes this node before returning output revision
 ```
 
 `AtomFamily<Key, Value>` supplies `value(for:)`, `revision(for:)`, membership
@@ -290,6 +306,11 @@ The computation may read only the values represented by the declared revision
 tuple. Static tooling rejects ambient `atom(...)`, `CoreAtomScope`, or hidden
 same-file wrapper reads in the computation closure where syntax can establish
 them. Product observation tests prove semantic dependency completeness.
+
+Retained derived dependencies form an explicit acyclic graph. Product owners
+construct those edges; the primitive does not discover dependencies or add a
+runtime cycle detector. A cycle is a product composition violation covered by
+the selected graph's construction and behavior tests.
 
 ```mermaid
 stateDiagram-v2
@@ -303,7 +324,8 @@ stateDiagram-v2
 
 The read algorithm is:
 
-1. read the declared input revision tuple, registering Observation;
+1. read the declared input revision tuple, registering Observation; a derived
+   input's public revision accessor materializes that input first;
 2. return the cache if the tuple matches;
 3. compute once if the tuple differs;
 4. replace the cache;
@@ -311,9 +333,14 @@ The read algorithm is:
    semantically.
 
 The unmaterialized node and first successful materialization use output
-revision zero. A derived node that depends on another derived node reads the
-upstream value before reading its output revision, ensuring the upstream cache
-has admitted the current source tuple.
+revision zero. The backing output-revision atom is private. The public
+`revision` accessor first reads `value`, then returns the backing revision. A
+derived node therefore declares an upstream node through
+`inputRevisions: { [upstream.revision] }`; callers cannot observe the upstream
+revision without first admitting its current source tuple. The downstream
+compute may then read `upstream.value` as a cache hit. If the upstream semantic
+output is equal, its revision remains stable and the downstream cache may be
+reused; if unequal, the revision advances and the downstream recomputes.
 
 `value` reads its declared input revisions inside the caller's Swift
 Observation tracking scope. A relevant input revision therefore wakes a direct
@@ -390,17 +417,17 @@ worktree-facts derived family:
 - a missing worktree still declares the relevant family-slot revisions and
   computes `nil`, so later hydration or insertion wakes the consumer;
 - hydration uses the ordinary family mutations and revision path;
-- removal invalidates the source slot and lets the retained derived node
-  recompute to `nil` before any pruning decision;
-- cache pruning may remove an internal node only after the worktree is absent
-  from product membership and the owner has published the corresponding
-  removal/aggregate invalidation; reinsertion creates a new internal node while
-  the family's non-repeating key revision prevents stale reuse;
+- removal invalidates and tombstones the source slot while retaining both that
+  slot and the per-key derived node;
+- the retained derived node recomputes to `nil`, and reinsertion reuses the same
+  source-slot and derived-node identities so a synchronously re-registered
+  observer remains attached;
 - owner shutdown clears the internal node collection after product observation
   has stopped.
 
-Callers never retain a derived node directly, so pruning cannot strand a
-consumer on a detached cache identity.
+Callers never retain a derived node directly. The owner retains it across
+removal and reinsertion and releases the collection only when the owner itself
+shuts down after observation has ended.
 
 ## 10. Coherent Pane and Tab Mutations
 
@@ -430,9 +457,12 @@ coordinates slots directly.
 | Condition | Owner response |
 |---|---|
 | Equal source write | No slot or aggregate revision change |
-| Missing key read | Retain empty observable slot until insertion or explicit safe pruning |
-| Key removal | Invalidate old slot, update membership, then prune |
+| Missing key read | Retain an empty observable slot for the live family lifetime |
+| Key removal | Invalidate and tombstone the retained slot, update membership, and reuse that slot on reinsertion |
+| Boot stale-cache cleanup | Remove stale cached values through existing product mutations and preserve the explicit persistence flush; do not delete nil family slots |
 | Derived computation throws or is partial | Not supported by lazy `DerivedAtom`; the product computation must be total over accepted source state |
+| Downstream reads an upstream derived revision | Public revision access materializes the upstream value first; the raw backing revision is inaccessible |
+| Derived dependency cycle | Product composition violation; reject the selected graph in construction/behavior proof rather than adding runtime dependency discovery |
 | Undeclared source dependency | Contract failure detected through static rules where possible and positive/negative observation tests |
 | Derived node recreated on every read | Architecture violation; product composition must retain stable identity |
 | Snapshot used in hot observed path | Architecture violation unless paired with an explicit observed aggregate revision and classified eager/cold boundary |
@@ -451,6 +481,13 @@ The cutover is hard at each migrated surface:
 4. Old broad or unobserved accessors are removed when their slice inventory
    reaches zero.
 
+For the repo-cache slice, the hard cut also removes the generic
+`pruneNilSlots` API, its product wrapper, and the boot call to that wrapper.
+Boot still removes stale cached repo/worktree values through `removeRepo` and
+`removeWorktree`, and still explicitly flushes those accepted value changes.
+This separates compatibility-critical cache cleanup from the obsolete physical
+slot-deletion mechanism.
+
 There is no runtime dual authority. During a slice, a compatibility snapshot
 may remain as a cold read over the new canonical family for persistence or
 serialization, but it is never a second store and never a hot observation API.
@@ -464,6 +501,8 @@ The first reactive slice is:
 - hard-rename the three existing repo-cache families;
 - establish slot revisions and the retained lazy-derived contract;
 - retain worktree-facts derived nodes by worktree ID;
+- remove generic and product nil-slot pruning while preserving boot stale-value
+  cleanup and its persistence flush;
 - make Repo Explorer request admission read only relevant keyed facts;
 - preserve the cold full snapshots for persistence and explicitly classified
   bulk capture.
@@ -505,14 +544,22 @@ changing its ownership or execution model before a controlled workload does.
 |---|---|---|
 | RS-01–RS-03 | Product owner mutation and aggregate commit | Access-control/static enforcement plus coherent Observation tests |
 | RS-04–RS-06 | Family slot, membership revision, cold snapshot boundary | Unit and product observation tests for relevant, unrelated, missing, removal, membership, and snapshot cases |
-| RS-07–RS-10 | Retained `DerivedAtom` value and output revision | Cache-hit, one-recompute, equality, chaining, and push-invalidation tests |
+| RS-07–RS-10 | Retained `DerivedAtom` value and materializing output revision | Cache-hit, one-recompute, equality, downstream-only chained reads, and push-invalidation tests |
 | RS-21–RS-23 | Infrastructure/Core boundary and architecture rules | Architecture-lint fixtures and executable compile-negative harness where compiler rejection is claimed |
 | RS-24–RS-26 | Existing atom/derived telemetry and watched-folder workload | Provenance-matched distributions, continuity oracle, and frozen interaction budgets |
 | RS-27–RS-28 | Slice inventory and isolated debug app | Unit/integration/runtime pyramid plus behavior-preserving interaction proof |
 
 The primitive harness must prove key isolation and nil-then-insert wakeup using
-real Swift Observation. The product harness must include an unrelated-key
-control; call-count reduction without that control is insufficient.
+real Swift Observation. It must also synchronously re-register from a removal
+callback, then insert the same key and observe a second wake on the retained
+slot. The product harness must include an unrelated-key control; call-count
+reduction without that control is insufficient.
+
+The repo-cache boot harness must prove both sides of the cut: stale cached
+repo/worktree values are still removed and explicitly flushed, while missing-key
+family slots are not physically deleted. Existing tests whose asserted contract
+is slot-count reduction are replaced by retained-identity tests; they are not
+kept as compatibility requirements.
 
 The coherent-mutation harness observes only a representative owner's aggregate
 commit revision, synchronously re-registers, and reads the named cold graph
@@ -528,14 +575,15 @@ inventory framework.
 
 | Source | Identity | Authority and applicability |
 |---|---|---|
-| Governing requirements | SHA-256 `1aee657052b6e475767215bf613765c5056465f4920b0e178e5e0fb008809a39` | Normative Why/What for the complete design |
-| Current repository | Git `50d0b0ac360af8b1fe2f62a56e35b5cd2cd8e515` | Exact current implementation and test baseline |
-| Reactive-state research ledger | SHA-256 `b6613ec2e0dbea5d1c04a04455587a8eeed47e129669c7278b152f8fcd6a9935` | Exact-HEAD observational inventory |
+| Governing Requirements | [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md) | Normative Why and authorized boundary |
+| Governing Specification | [Reactive State System Specification](2026-07-31-reactive-state-system-specification.md) | Normative observable source, derivation, proof, and scope obligations |
+| Current repository | Git `f7a01132f9ac5d02981e00856750936f80acb61f` (`origin/main`) | Current implementation and test evidence baseline |
 | [`Infrastructure/AtomLib/AtomEntityMap.swift`](../../../Sources/AgentStudio/Infrastructure/AtomLib/AtomEntityMap.swift) | Current source at repository identity above | Current keyed-slot semantics |
 | [`Infrastructure/AtomLib/DerivedValue.swift`](../../../Sources/AgentStudio/Infrastructure/AtomLib/DerivedValue.swift) | Current source at repository identity above | Current unused lazy-cache semantics |
 | [`Core/State/MainActor/Atoms/RepoCacheAtom.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/RepoCacheAtom.swift) | Current source at repository identity above | Existing product family owner and worktree-facts composition |
 | [`Core/State/MainActor/Atoms/CoreAtoms.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/CoreAtoms.swift) | Current source at repository identity above | Current concrete atom group and reconstructed derived readers |
 | [`Features/RepoExplorer/RepoExplorerView.swift`](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift) | Current source at repository identity above | Current cold-snapshot admission path |
+| [`App/Boot/AppDelegate+WorkspaceBoot.swift`](../../../Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift) | Current source at repository identity above | Boot stale-value cleanup, obsolete nil-slot pruning edge, and explicit persistence flush |
 | AtomLib and repo-cache observation tests | Current tests at repository identity above | Existing semantic proof floor |
 | Swift Observation and Swift 6.2 compiler | Xcode 26.3 / Swift 6.2.4 applicability established by governing research | Platform observation and isolation boundary |
 
@@ -550,6 +598,10 @@ runtime severity remains deliberately unclaimed until the frozen workload runs.
   bulk work. They are debt only if a hot consumer continues to use them.
 - A generic `DerivedAtomFamily` is deferred until repeated product lifecycle
   code proves the abstraction.
+- Tombstoned source slots and per-key derived nodes accumulate until their
+  owning family or product owner shuts down. Revisit this only if controlled
+  measurement shows family-lifetime key churn makes the retained memory
+  material.
 - Some bounded `*Derived` readers remain ordinary uncached readers. They
   migrate only when reuse, cost, or consumer-boundary semantics require a
   first-class node.
@@ -566,6 +618,7 @@ This design does not:
 - move every property into its own atom;
 - convert every collection into a family;
 - make lazy derivations asynchronous;
+- add observer counting, deferred slot pruning, or callback scheduling;
 - persist derived caches;
 - split SwiftPM targets;
 - claim a performance improvement before controlled proof.

@@ -1,12 +1,10 @@
 # SQLite Authority and Update Boundaries — Program Design
 
-Artifact type: program design — structural How
-Target classification: general-domain
-Governing specification:
+Governing Requirements:
 [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md)
-Governing specification SHA-256:
-`1aee657052b6e475767215bf613765c5056465f4920b0e178e5e0fb008809a39`
-Source version: `50d0b0ac360af8b1fe2f62a56e35b5cd2cd8e515`
+
+Governing Specification:
+[Reactive State System Specification](2026-07-31-reactive-state-system-specification.md)
 
 ## 1. Decision Summary
 
@@ -139,6 +137,20 @@ that an older capture cannot clear or overwrite a newer semantic generation.
 No lost-save defect is asserted here; the revision admission contract and its
 focused interleaving proof are missing.
 
+### 3.5 Current-to-target persistence call-path delta
+
+| Status | Entrypoint-to-effect edge | State/result/error behavior | Evidence or obligation |
+|---|---|---|---|
+| Removed | Composition observation -> `WorkspaceStore` transaction A and topology observation -> `RepositoryTopologyStore` transaction B | One semantic Core mutation can no longer be split across independently owned save lifecycles. | Current boot/store paths; RS-17, RS-20 |
+| Added | Composition/topology mutation -> `WorkspaceStore` lane revisions -> selected-lane batch -> one Core repository transaction | Only captured lanes are written; a genuine cross-lane mutation commits both or neither. | C4, RS-17–RS-20 |
+| Changed | Boolean dirty completion -> per-lane captured/current revision admission | Older completion clears only a still-current captured lane; newer state remains dirty. | Current `WorkspaceStore.isDirty`; RS-18 |
+| Removed | One settings API -> three repository writes -> three transactions | A failed second or third write can no longer leave a durable prefix behind one failed result. | Current datastore/local repository path; RS-17 |
+| Added | One settings snapshot -> one combined repository write/read transaction | Write failure rolls back all settings lanes; reads share one generation while malformed rows still default lane-locally. | C4, RS-17, RS-19 |
+| Intentionally unchanged | Workspace switch -> cancel unadmitted settings debounce -> begin new restore | An already-admitted old-workspace save remains retained to completion under its captured identity but cannot hydrate or clear the new workspace. | Current `WorkspaceSettingsStore` and workspace-switch test; RS-14, RS-18, RS-28 |
+| Changed | Boot starts and force-flushes `RepositoryTopologyStore` before advancing the topology barrier -> boot marks the `WorkspaceStore` topology lane normalization-pending and advances the same barrier only after that lane commits | Hydrated/repaired topology is persisted even without a later user mutation; failure retains the pending lane and blocks the deferred topology lane as today. | Current `completeBootPersistenceObservation()`; RS-20, RS-28 |
+| Changed | Termination separately flushes `RepositoryTopologyStore` and later calls Boolean-like `WorkspaceStore.flushAsync()` -> one termination drain returns authority-separated Core/local outcomes | Callers can distinguish Core failure, Core success/local failure, local-only failure, and full success. | Current `AppDelegate+Termination.swift`; C4, RS-17–RS-20 |
+| Intentionally unchanged | Core commit -> independent local-continuation commit | Core success plus local failure remains explicit partial success; no distributed transaction is introduced. | RS-17, RS-20 and persistence authority boundary |
+
 ## 4. Authority Model
 
 | State class | Live authority | SQLite authority | Transaction boundary | Failure/default behavior |
@@ -169,6 +181,8 @@ or path selection.
   drain lane;
 - debounce, flush, and shutdown lifecycle;
 - completion admission per captured lane;
+- boot-normalization, ordinary autosave, manual, and termination drain entry
+  semantics plus their authority-separated result;
 - the existing App-owned pre-persist synchronization hook before manual or
   termination capture.
 
@@ -298,6 +312,14 @@ newer live Webview state into canonical atoms; mutations it accepts advance
 their normal lane revisions. Flush must not skip this hook merely because the
 store was clean before synchronization.
 
+After authoritative Core hydration and topology repair, `WorkspaceStore`
+records the current topology revision as normalization-pending. This state
+selects a topology-only capture even when no user mutation has occurred. App
+boot starts observation, invokes the boot-normalization drain, and advances the
+existing topology persistence barrier only after that captured topology lane
+commits. Failure leaves the lane normalization-pending and retains the current
+barrier failure behavior; the deferred topology-dependent lane does not start.
+
 ### 7.2 Commit
 
 The Core repository applies the captured lane set in one GRDB transaction:
@@ -364,6 +386,40 @@ Debounce does not create parallel preparation tasks for the store.
 This is one owner-local lane-aware drain lifecycle, not a completion-receipt or
 replay system.
 
+### 7.4 Drain entrypoints and caller-visible result
+
+`WorkspaceStore` exposes the same owner-local drain through four reasons rather
+than four persistence implementations:
+
+| Drain reason | Admission rule | Caller behavior |
+|---|---|---|
+| Boot topology normalization | Force-capture the normalization-pending topology revision; do not imply composition or local work | App advances the existing topology barrier only when the returned Core outcome committed topology |
+| Ordinary autosave | Capture the currently dirty Core lanes and independently dirty local continuation; no work is a no-op | Store schedules the next dirty revision after completion and reports failures through the existing recovery path |
+| Manual flush | Run the pre-persist hook, then drain through the then-current selected revisions | Caller receives the complete authority-separated outcome |
+| Termination flush | Run the pre-persist hook, join in-flight work, then drain through the then-current selected revisions | App logs each failed authority and never treats Core success/local failure as full success |
+
+The result is one value with two authority fields, not a ledger:
+
+```text
+WorkspaceStoreDrainOutcome
+  core:
+    notRequested
+    committed(lanes: composition | topology | both)
+    failed(lanes, classifiedReason)
+  localContinuation:
+    notRequested
+    committed
+    failed(classifiedReason)
+    deferredAfterCoreFailure
+```
+
+Valid combinations include no work, Core-only success/failure, local-only
+success/failure, Core-plus-local success, Core success plus local failure, and
+Core failure with local deferred. Full success means every requested authority
+committed. The result carries bounded classified failure meaning, not raw
+database payloads. Repository methods still return their existing typed errors;
+`WorkspaceStore` performs the authority classification.
+
 ## 8. Workspace Settings Contract
 
 ### 8.1 Combined payload
@@ -412,9 +468,13 @@ settings change. Completion for revision N marks settings clean only if no
 newer revision exists. A newer mutation schedules the current revision after N
 completes.
 
-Workspace switching cancels pending debounce, joins or invalidates the prior
-workspace save lifecycle, and never admits completion under a different
-workspace ID.
+Workspace switching cancels a pending debounce before it admits a save,
+preserving the current behavior that an unadmitted workspace-A change is not
+written merely because workspace B begins restore. A workspace-A save already
+admitted to the datastore remains retained to terminal completion under its
+captured workspace ID and revision. Its completion may affect only A's rows and
+cannot clear, suppress, or hydrate B. Switching does not wait for that admitted
+save before beginning B restore.
 
 Restore admission is likewise bound to `(workspaceID, restoreGeneration)`.
 Starting restore B advances the generation before its work begins. Restore A
@@ -518,9 +578,13 @@ substitute for semantic revision or transaction scope.
 The Core cutover is one ownership change:
 
 - `WorkspaceStore` begins observing topology as a separate Core dirty lane;
+- post-hydration topology is marked normalization-pending and the existing boot
+  barrier is satisfied only by its committed topology outcome;
 - Core save capture and repository replacement include only selected lanes;
 - `RepositoryTopologyStore` autosave construction and boot requirement are
   removed in the same cut;
+- App termination removes its separate topology flush and consumes the one
+  authority-separated `WorkspaceStore` termination outcome;
 - no process runs both persistence owners.
 
 The SQLite schema need not change because the transaction groups existing Core
@@ -593,6 +657,18 @@ and proves only the affected lane remains dirty until N+1 commits. A
 composition-only, topology-only, local-only, and genuinely combined case are
 required. It does not use wall-clock sleep.
 
+The boot harness hydrates topology that requires normalization without a later
+user mutation, starts persistence observation, and proves the existing barrier
+advances only after the target topology lane commits. Its failure case proves
+the lane remains normalization-pending and the deferred topology-dependent lane
+does not start.
+
+The termination/manual harness exercises every requested-authority outcome:
+Core failure, Core-only success, local-only success/failure, Core-plus-local
+success, and Core success plus local failure. It proves callers never collapse
+a partial result into full success and that the old separate topology flush is
+absent.
+
 The Core transaction harness proves:
 
 - a composition-only batch does not touch topology;
@@ -610,6 +686,11 @@ The restore harness gates restore A, starts restore B, releases A first, and
 proves A cannot hydrate any lane after B owns the current
 `(workspaceID, restoreGeneration)`. It uses continuations rather than sleeps.
 
+The workspace-switch save harness preserves the existing pending-debounce
+cancellation case. A second continuation-gated case admits save A, begins
+workspace-B restore, completes A, and proves A affects only A's rows and cannot
+hydrate or clear B; B then saves and both workspace-scoped rows are inspected.
+
 The termination harness begins from a clean store, changes only a registered
 live Webview, invokes manual/termination flush, and proves the pre-persist hook
 creates and persists the new composition revision. A second overlap case proves
@@ -623,9 +704,9 @@ user-visible state through the real app path.
 
 | Source | Identity | Authority and applicability |
 |---|---|---|
-| Governing requirements | SHA-256 `1aee657052b6e475767215bf613765c5056465f4920b0e178e5e0fb008809a39` | Normative authority, consistency, failure, and proof obligations |
-| Current repository | Git `50d0b0ac360af8b1fe2f62a56e35b5cd2cd8e515` | Exact current implementation and test baseline |
-| Reactive-state research ledger | SHA-256 `b6613ec2e0dbea5d1c04a04455587a8eeed47e129669c7278b152f8fcd6a9935` | Exact-HEAD transaction and save-lifecycle inventory |
+| Governing Requirements | [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md) | Normative Why and authorized boundary |
+| Governing Specification | [Reactive State System Specification](2026-07-31-reactive-state-system-specification.md) | Normative persistence authority, consistency, failure, and proof obligations |
+| Current repository | Git `f7a01132f9ac5d02981e00856750936f80acb61f` (`origin/main`) | Current implementation and test evidence baseline |
 | [`WorkspaceStore.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift) | Current source at repository identity above | Current composition load/save owner that already retains topology |
 | [`RepositoryTopologyStore.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/RepositoryTopologyStore.swift) | Current source at repository identity above | Current second Core autosave owner to remove |
 | [`WorkspaceSQLiteSaveCoordinator.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteSaveCoordinator.swift) | Current source at repository identity above | Current capture/off-main preparation boundary |

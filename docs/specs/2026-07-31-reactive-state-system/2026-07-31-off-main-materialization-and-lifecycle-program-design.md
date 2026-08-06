@@ -1,12 +1,10 @@
 # Off-Main Materialization and Lifecycle — Program Design
 
-Artifact type: program design — structural How
-Target classification: general-domain
-Governing specification:
+Governing Requirements:
 [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md)
-Governing specification SHA-256:
-`1aee657052b6e475767215bf613765c5056465f4920b0e178e5e0fb008809a39`
-Source version: `50d0b0ac360af8b1fe2f62a56e35b5cd2cd8e515`
+
+Governing Specification:
+[Reactive State System Specification](2026-07-31-reactive-state-system-specification.md)
 
 ## 1. Decision Summary
 
@@ -32,9 +30,12 @@ Product code remains responsible for:
 - declaring which source reads form the request;
 - constructing an immutable `Sendable` request plus a compact bounded identity;
 - implementing pure cancellable projection logic;
-- choosing clear-versus-explicitly-stale failure behavior;
 - defining the semantic output comparator;
 - selecting telemetry through the existing trace tags.
+
+The selected primitive is total apart from cooperative cancellation. A future
+fallible product migration must return to Program Design with its product-owned
+failure policy before the generic contract gains failed or stale-result states.
 
 One-shot preparation remains structured work owned by its caller and does not
 use the latest-wins primitive.
@@ -127,6 +128,17 @@ Workspace restore uses structured `async let` preparation and one atomic
 MainActor admission. No newer request supersedes it. It must remain separate
 from the replaceable latest-wins model.
 
+### 3.5 Current-to-target Tab Bar call-path delta
+
+| Status | Entrypoint-to-effect edge | State/result/error behavior | Evidence or obligation |
+|---|---|---|---|
+| Removed | Observed source change -> `TabBarAdapter.refresh()` -> map every tab on `MainActor` -> unconditional `tabs` assignment | Variable-cardinality reconstruction and output equality leave the interaction actor. | Current `TabBarAdapter.swift`; RS-09, RS-12 |
+| Added | Observed source change -> bounded `Sendable` request capture -> retained `EagerDerivedAtom` -> detached product projector | One successor replaces one retained task; cancellation is cooperative resource control. | C3, RS-09–RS-12 |
+| Added | Projector completion -> generation/request-identity admission -> equality-gated materialized output | Superseded completion is discarded; equal current completion advances request identity without changing output revision. | C3, RS-09, RS-13 |
+| Changed | Adapter-owned `tabs` and `activeTabId` stores -> one forwarded `TabBarProjection` | Items and active identity publish coherently from one materialized owner; total projection has no product failure branch beyond cancellation/shutdown. | RS-03, RS-14, RS-28 |
+| Intentionally unchanged | Controller constructs one `CustomTabBar` and one typed `DraggableTabBarHostingView` | Before first current output, the existing view observes an absent projection and presents no authoritative tab items or active selection; normal Observation publication updates the same host. | Current `PaneTabViewController.makeTabBarHostingView()`; RS-14, RS-28 |
+| Intentionally unchanged | Materialized output -> `CustomTabBar`; overflow and drag/drop geometry remain adapter-owned | Existing UI interaction and bounded geometry work stay on `MainActor`. | Current `CustomTabBar`/adapter boundary; RS-28 |
+
 ## 4. Target Components and Ownership
 
 | Component | Owner | Responsibility |
@@ -135,7 +147,6 @@ from the replaceable latest-wins model.
 | Product request | Product module | Carry only `Sendable` source facts plus a compact bounded semantic or freshness identity |
 | `EagerDerivedAtom<Request, RequestIdentity, Value>` | Generic Infrastructure primitive, instantiated and retained by product owner | Own current generation, retained task, output cache/revision, cancellation, and freshness admission |
 | Product projector | Product module, nonisolated pure computation | Transform a request into a result with cooperative cancellation |
-| Product failure policy | Product surface owner | Choose clear output or retain explicitly stale prior output |
 | Observable publication | Materialized node on owning actor | Publish only current, semantically changed bounded output |
 | Product UI adapter/view | App or Feature | Observe already materialized output and own ephemeral UI state only |
 
@@ -181,21 +192,15 @@ EagerDerivedAtom<
   RequestIdentity: Equatable & Sendable,
   Value: Sendable
 >
-  initTotal(
+  init(
     requestIdentity: @Sendable (Request) -> RequestIdentity,
     isValueEqual: @Sendable (Value, Value) -> Bool,
     project: @Sendable (Request) throws(CancellationError) -> Value
   )
-  initFallible(
-    failurePolicy: clear | retainExplicitlyStale,
-    requestIdentity: @Sendable (Request) -> RequestIdentity,
-    isValueEqual: @Sendable (Value, Value) -> Bool,
-    project: @Sendable (Request) throws -> Value
-  )
   admit(request)
   stop()
   value: Value?
-  freshness: idle | running | current | stale | failed | stopped
+  freshness: idle | running | current | stopped
   revision: Int
 ```
 
@@ -210,19 +215,14 @@ The product owner submits:
 - an immutable request;
 - a compact fixed-cardinality semantic or freshness identity;
 - a `@Sendable` CPU projection closure over that request;
-- semantic output equality;
-- for a fallible projector only, the surface's preselected failure policy.
+- semantic output equality.
 
-`initTotal` accepts only cooperative `CancellationError` as an early exit and
-has no failure-policy argument or failed state. `initFallible` requires the
-authority-owned policy. Tab Bar uses `initTotal`; it cannot accidentally encode
-an unreachable clear-versus-stale decision merely to satisfy construction.
+The projector accepts only cooperative `CancellationError` as an early exit and
+has no failure-policy argument or failed state.
 
 The owning actor compares only the compact identity, never the
 variable-cardinality request or output. Submitting an equal request is a no-op
-only while that request is running or current. The same identity is admissible
-again after failure so product-owned retry is not accidentally suppressed.
-Submitting a newer request:
+while that request is running or current. Submitting a newer request:
 
 1. advances the generation;
 2. marks any previous output as non-current for the new request;
@@ -283,15 +283,9 @@ stateDiagram-v2
     Running --> Running: admit request N+1 / cancel N
     Running --> Current: N completes current and unequal
     Running --> Current: N completes current and equal / preserve output revision
-    Running --> StaleAvailable: current request fails / retain-stale policy
-    Running --> EmptyFailed: current request fails / clear policy
     Current --> Running: admit successor
-    StaleAvailable --> Running: admit successor
-    EmptyFailed --> Running: retry same or newer request
     Running --> Stopped: owner stop / cancel retained task
     Current --> Stopped: owner stop
-    StaleAvailable --> Stopped: owner stop
-    EmptyFailed --> Stopped: owner stop
 ```
 
 The state records the request identity associated with every retained output.
@@ -305,28 +299,19 @@ future admissions, and prevents every later completion from publishing.
 Successor admission owns ordinary task cancellation; there is no public
 reusable `cancel()` operation whose terminal meaning callers must guess.
 
-## 8. Failure Policy
+## 8. Total Projection Boundary
 
-Every migrated product surface chooses one of these policies before
-implementation:
-
-| Policy | While successor runs | If current successor fails without replacement | Appropriate when |
-|---|---|---|---|
-| Clear | No current output for new request | Remain empty/failed | Old output would be actively misleading or unsafe |
-| Retain explicitly stale | Previous output remains tagged with its original request | Remain renderable but non-current, with failure state | Temporary blanking is worse and old content is safe as visibly/internal stale |
-
-The first Tab Bar projector is total over an accepted
-`TabBarProjectionRequest`; its only early exit is cooperative cancellation.
+The Tab Bar projector is total over an accepted `TabBarProjectionRequest`; its
+only early exit is cooperative cancellation.
 Existing tolerant title, arrangement, and active-tab fallbacks are part of that
-total projector. Tab Bar therefore makes no clear-versus-retain-stale failure
-selection in this slice.
+total projector.
 
 While a successor runs, the node keeps the previous `TabBarProjection`
 renderable with its original request identity so navigation does not blank.
 That is successor continuity required by RS-28, not a policy for retaining a
-failed result. If a future genuinely fallible Tab Bar source is introduced, the
-surface owner must obtain and document a product failure decision rather than
-silently choosing one in this generic design.
+failed result. A future genuinely fallible surface must obtain a product failure
+decision and a focused Program Design before the generic primitive gains a
+fallible constructor or failed/stale lifecycle states.
 
 Repo Explorer and Inbox retain their current product behavior until separately
 migrated. Their current output/request-key relationship must be made explicit
@@ -334,7 +319,33 @@ before adopting the generic node.
 
 ## 9. Target Tab Bar Flow
 
-### 9.1 Request capture
+### 9.1 Title semantics remain unchanged
+
+The first Tab Bar slice changes where display projection runs. It does not
+change title authority, precedence, events, or durability. The pure Core
+projector and the current actor-bound readers must produce the same title for
+the same captured facts:
+
+1. accepted terminal `.titleChanged` and `.tabTitleChanged` events continue to
+   update runtime metadata, remain available to replay, and satisfy the current
+   IPC title-change wait behavior;
+2. a normalized user-defined tab name continues to override pane runtime
+   titles;
+3. a worktree-backed pane continues to use its repository/worktree label ahead
+   of terminal metadata;
+4. a pane without either override continues to use its trimmed runtime title
+   or the existing `Terminal` fallback; and
+5. pane-title metadata continues through the current workspace-persistence
+   behavior.
+
+This slice does not decide whether runtime titles should remain durable pane
+metadata or whether inactive-arrangement ownership should change. Either change
+would alter observable compatibility and persistence behavior and therefore
+requires a separate Requirements and Specification decision before Program
+Design. Title parity is a hard cutover gate, not an invitation to preserve two
+projection implementations.
+
+### 9.2 Request capture
 
 `TabBarAdapter` remains the App-owned bridge and ephemeral UI owner. Its
 source-observation closure captures a `TabBarProjectionRequest` containing:
@@ -346,6 +357,32 @@ source-observation closure captures a `TabBarProjectionRequest` containing:
 - zoom presentation facts;
 - a Feature-owned immutable Inbox attention-fact snapshot;
 - one adapter-owned monotonic `TabBarProjectionGeneration`.
+
+The request crosses ownership through three concrete product interfaces:
+
+```text
+CoreTabBarProjectionRequest: Sendable
+  captured tab, pane, arrangement, topology, enrichment, and zoom facts
+
+CoreTabBarProjector.project(CoreTabBarProjectionRequest)
+  -> CoreTabBarProjection: Sendable
+     tab identity, titles, arrangement labels/badges, pane visibility,
+     minimized count, zoom facts, and active-tab identity
+
+InboxAttentionProjector.project(
+  InboxAttentionFactSnapshot,
+  groups: [OpaqueGroupID: Set<PaneID>]
+) -> [OpaqueGroupID: InboxAttentionLane]
+```
+
+Core owns the title, pane-display, arrangement, and zoom policies currently
+reached through `TabDisplayDerived`, `PaneDisplayDerived`, and
+`ArrangementDerived`. Their reusable policy operations become pure
+`nonisolated` functions over the captured Core request; existing MainActor
+readers may call the same functions for other surfaces. App does not copy those
+rules. Inbox owns attention eligibility and precedence behind its snapshot and
+pure projector. App owns only capture, opaque tab grouping, mapping Inbox lanes
+to `TabNotificationDotColor`, and assembly of the final `TabBarProjection`.
 
 MainActor capture reads stored value collections using copy-on-write snapshots
 and does not reconstruct `TabBarItem` values. Any request-building step whose
@@ -363,16 +400,19 @@ is a no-op. This identity is owned entirely by the first Tab Bar slice and does
 not require the deferred pane/tab family migrations or new source-owner
 revisions.
 
-The adapter starts the first admission during construction, but
-`CustomTabBar` is installed as a projection consumer only after the first
-current `TabBarProjection` exists. The rest of window composition need not
-wait, and no empty array is presented as authoritative tab state. Because the
-projector is total, first materialization ends only in current output,
-supersession by a newer admission, or owner shutdown. This preserves one
-projection path and does not reintroduce synchronous fleet reconstruction as a
-bootstrap fallback.
+The adapter starts the first admission during construction and registers one
+observation of the node's materialized output. `PaneTabViewController`
+keeps the current one-time construction of `CustomTabBar` and its typed
+`DraggableTabBarHostingView`. Before first current output, the adapter exposes
+an absent renderable projection, and the existing view presents no authoritative
+tab items or active selection. Normal Observation publication updates that same
+host when current output arrives; no callback, root replacement, type erasure,
+or second hosting boundary is introduced. The rest of window composition need
+not wait. Because the projector is total, first materialization ends only in
+current output, supersession by a newer admission, or owner shutdown. There is
+no synchronous fleet-reconstruction bootstrap fallback.
 
-### 9.2 Projection and publication
+### 9.3 Projection and publication
 
 ```mermaid
 sequenceDiagram
@@ -411,12 +451,13 @@ Publication therefore changes items and active identity together. Overflow
 calculation and ephemeral drag/drop state remain on `MainActor` because they
 depend on current view geometry and are bounded.
 
-### 9.3 Notification facts
+### 9.4 Notification facts
 
 App injects the concrete Inbox atom into the Tab Bar capture boundary. Capture
-reads one Feature-owned immutable `InboxAttentionFactSnapshot`; it does not call
-a per-tab MainActor color provider and App does not interpret notification
-policy.
+calls one Feature-owned `captureAttentionFacts()` operation that reads the
+current notification owner and returns an immutable Sendable
+`InboxAttentionFactSnapshot`; it does not call a per-tab MainActor color
+provider and App does not interpret notification policy.
 
 Inbox owns a pure `Sendable` `InboxAttentionProjector`. It accepts the fact
 snapshot plus App-supplied opaque group IDs and pane-ID sets, then applies the
@@ -437,7 +478,8 @@ introduced.
 Repo Explorer and Inbox already meet most lifecycle obligations through local
 code. They remain authoritative during the first materialization slice.
 
-They adopt the generic node later only if:
+They return to Program Design before any later adoption. The generic node gains
+fallible behavior only if:
 
 - behavior and failure policy are frozen;
 - the generic contract removes more lifecycle code than it introduces;
@@ -477,7 +519,7 @@ task framework.
 |---|---|
 | N completes before N+1 is admitted | N may publish; N+1 later marks it non-current |
 | N+1 admitted before N completes | N completion is discarded regardless of cancellation cooperation |
-| N completes equal to current output | Output revision and output-only observation remain unchanged |
+| N completes current and equal to the prior output | N becomes the current request identity; output revision and output-only observation remain unchanged |
 | Cancellation arrives during a long loop | Projector detects it at a bounded checkpoint and exits |
 | Projector ignores cancellation and completes | Generation admission still rejects stale output |
 | Owner shuts down with work running | Retained task is cancelled and no later completion publishes |
@@ -512,9 +554,7 @@ body, or error payload is exported. Attributes are allowlisted and bounded.
 
 The node admits at most one retained running task per product instance.
 Rapid input changes cancel and replace rather than queue an unbounded backlog.
-No retry occurs without a product-owned admission. An equal identity after
-failure is a valid retry; equal identities remain no-ops only while running or
-current.
+Equal identities remain no-ops while running or current.
 
 ## 14. First Migration Slice and Workload
 
@@ -523,9 +563,33 @@ Tab Bar is the first eager-materialization slice because:
 - the current callback performs fleet reconstruction on `MainActor`;
 - the output is already a compact value array;
 - the adapter already owns observation and UI publication;
-- existing `performance.tabbar.refresh` telemetry and the debug workload
-  provide a measurement seam;
+- existing `performance.tabbar.refresh` telemetry provides a direct-work
+  baseline, but not an end-to-end visible-latency seam;
 - it composes App, Core, and Feature facts without moving their ownership.
+
+The current measurement boundary is insufficient for RS-24–RS-26 acceptance:
+`performance.tabbar.refresh` ends after adapter refresh work rather than after
+visible presentation or focused-input readiness; hot telemetry attributes can
+construct rich values before an enabled-tag rejection; and the bounded trace
+queue does not report dropped records or a high-water mark. A matched
+distribution from those records can therefore omit pressure or measure the
+wrong boundary.
+
+One standalone measurement prerequisite must land before Tab Bar performance
+acceptance:
+
+```text
+Lazy hot attributes; disabled tags do no rich work ─────────┐
+Trace-queue drop and high-water accounting ─────────────────┤
+Capture, worker, and publication durations ─────────────────┼──> Tab Bar
+Interaction to visible/current-result boundary ─────────────┤    acceptance
+Source, executable, workload, and event provenance ─────────┘
+```
+
+This prerequisite extends the existing trace queue, Victoria workload, and
+comparator. It is not a new telemetry framework and is not a reactive-state
+migration slice. Correctness implementation may proceed before it, but no
+performance acceptance or improvement claim may pass without it.
 
 Before candidate results exist, the slice freezes:
 
@@ -540,7 +604,8 @@ Before candidate results exist, the slice freezes:
 - tab, pane, repo, and worktree cardinality;
 - event-continuity and final rendered-state oracles.
 
-The event hard cut preserves an exact comparison mapping:
+After the measurement prerequisite exists, the event hard cut preserves an
+exact comparison mapping:
 
 - the existing `performance.tabbar.refresh` baseline event maps to one
   terminal record for every candidate request admission, including
@@ -589,7 +654,7 @@ not a permanent runtime compatibility branch.
 |---|---|---|
 | Responsiveness | Variable-cardinality projector and output equality run in internally detached task | Previous projection remains renderable while a successor runs |
 | Freshness | MainActor generation and request-identity admission | Cancellation failure cannot publish stale output |
-| Reliability | One retained task, bounded output, explicit irreversible shutdown | Failed generic results follow a separately authority-owned product policy; Tab Bar projection is total |
+| Reliability | One retained task, bounded output, explicit irreversible shutdown | Tab Bar has no failure branch beyond cancellation or shutdown; fallible adoption is deferred |
 | Target readiness | Generic node owns no product type; App owns cross-feature composition | No reverse target edge or ambient registry |
 | Privacy | Allowlisted aggregate telemetry only | Exporter failure is fail-open |
 | Operability | Existing performance trace tags and debug identity | Missing event continuity invalidates comparison |
@@ -599,11 +664,11 @@ not a permanent runtime compatibility branch.
 
 | Requirement set | Structural seam | Proof class |
 |---|---|---|
-| RS-09–RS-10 | Admission, retained task, output revision | Deterministic latest-wins, equality, and push-admission tests |
+| RS-09–RS-10 | Admission, retained task, request freshness, output revision | Deterministic latest-wins, equal-result currentness, equality, and push-admission tests |
 | RS-11–RS-12 | Sendable request/result and internally detached projector | Compiler harness plus source/behavior proof that variable work is outside `MainActor` |
 | RS-13–RS-14 | Generation admission and owner shutdown | Controlled cancellation, stale completion, overlap, and cleanup tests without wall-clock sleeps |
 | RS-21–RS-23 | Narrow generic interface and product-owned request/projector | Architecture rules and target-build proof |
-| RS-24–RS-26 | Trace events and controlled Tab Bar workload | Provenance equality, independent continuity oracle, distributions, and frozen regression boundary |
+| RS-24–RS-26 | Standalone measurement prerequisite plus trace events and controlled Tab Bar workload | Lazy disabled-path attributes, trace-queue completeness, phase and interaction-to-visible boundaries, provenance equality, independent continuity oracle, distributions, and frozen regression boundary |
 | RS-27–RS-28 | Real adapter and isolated debug app | Unit/integration/runtime pyramid plus launch, tab navigation, typing, scrolling, animation, and state-change proof |
 
 The cancellation harness uses explicit gates or continuations to hold N,
@@ -617,6 +682,22 @@ inspection path for rendered interaction evidence. It sets
 `direct_executable` fallback is telemetry-only and cannot satisfy native
 interaction or visible-performance acceptance.
 
+Core projection parity feeds identical captured facts through the current
+`TabDisplayDerived`, `PaneDisplayDerived`, and `ArrangementDerived` policies and
+the pure Core projector, then compares every title, arrangement label/badge,
+pane visibility, minimized count, zoom fact, and active-tab result. A
+first-materialization integration gate holds the projector and proves the one
+existing host/view presents no authoritative tab items or active selection,
+then releases one current result and observes that same host render it.
+Shutdown before release must suppress every later result without replacing the
+host or resetting its view state.
+
+Title parity additionally covers runtime and tab-title events, custom-tab-name
+precedence, worktree-label precedence, empty-title fallback, IPC/replay
+behavior, and save/relaunch behavior. It proves compatibility through the one
+new projector; it does not retain the synchronous fleet projector as a second
+authority.
+
 Inbox projection parity tests feed identical immutable facts and pane groups to
 the current `attentionLane(forPaneIds:)` behavior and the new pure projector.
 They cover every lane, dismissed/non-contributing facts, mixed groups, and
@@ -626,15 +707,17 @@ precedence before the current per-tab MainActor provider is removed.
 
 | Source | Identity | Authority and applicability |
 |---|---|---|
-| Governing requirements | SHA-256 `1aee657052b6e475767215bf613765c5056465f4920b0e178e5e0fb008809a39` | Normative execution, lifecycle, proof, and scope obligations |
-| Current repository | Git `50d0b0ac360af8b1fe2f62a56e35b5cd2cd8e515` | Exact current implementation and workload baseline |
-| Reactive-state research ledger | SHA-256 `b6613ec2e0dbea5d1c04a04455587a8eeed47e129669c7278b152f8fcd6a9935` | Exact-HEAD concurrency and hot-path inventory |
+| Governing Requirements | [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md) | Normative Why and authorized boundary |
+| Governing Specification | [Reactive State System Specification](2026-07-31-reactive-state-system-specification.md) | Normative eager execution, lifecycle, proof, and scope obligations |
+| Current repository | Git `f7a01132f9ac5d02981e00856750936f80acb61f` (`origin/main`) | Current implementation and workload evidence baseline |
 | [`RepoExplorerProjectionWorker.swift`](../../../Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjectionWorker.swift) and [`RepoExplorerView.swift`](../../../Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift) | Current source at repository identity above | Existing correct replaceable worker pattern and source-capture boundary |
 | [`InboxNotificationListProjectionWorker.swift`](../../../Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationListProjectionWorker.swift) and Inbox sidebar view | Current source at repository identity above | Existing second replaceable worker pattern |
 | [`TabBarAdapter.swift`](../../../Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift) | Current source at repository identity above | Selected variable-cardinality MainActor path |
+| [`TabDisplayDerived.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/TabDisplayDerived.swift), [`WorkspacePaneGraphAtom.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift), [`TerminalRuntime.swift`](../../../Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift), and [`AgentStudioIPCRuntimeAdapter.swift`](../../../Sources/AgentStudio/App/IPCComposition/AgentStudioIPCRuntimeAdapter.swift) | Current source at repository identity above | Title authority, precedence, replay, IPC, and compatibility behavior preserved by the first Tab Bar slice |
 | [`InboxNotificationAtom.swift`](../../../Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationAtom.swift) | Current source at repository identity above | Feature-owned contribution and attention-lane policy preserved behind the pure projection seam |
 | [`WorkspaceSQLiteSaveCoordinator.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteSaveCoordinator.swift) and restore preparation | Current source at repository identity above | Existing one-shot `@concurrent`/structured counterexample |
 | [`AgentStudioPerformanceTraceRecorder.swift`](../../../Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioPerformanceTraceRecorder.swift) and existing workload scripts | Current source at repository identity above | Existing telemetry and controlled debug proof seams |
+| [MainActor runtime pressure investigation](https://github.com/ShravanSunder/agentstudio/blob/aa0a1de06963089a7ec449f6a382dac89dac46cd/docs/wip/debugging/2026-08-05-mainactor-runtime-pressure.md) | Git `aa0a1de06963089a7ec449f6a382dac89dac46cd` observational report over release `0.0.72` | Measurement-boundary defects and ranked MainActor paths; observational, not normative |
 | SE-0461, SE-0466, and SE-0430 | Accepted Swift proposals applicable to Swift 6.2.4 | Executor isolation and checked-transfer feasibility |
 
 Scoped completeness covers all production `Task.detached` and `@concurrent`
@@ -659,6 +742,7 @@ debug/performance harness. Exact runtime improvement remains unclaimed.
 This design does not:
 
 - create a scheduler, task pool, job queue, retry system, or actor framework;
+- prebuild a fallible eager API before a selected fallible product migration;
 - make `Task.detached` itself the correctness guarantee;
 - run SQLite, filesystem I/O, or network work through the materialized node;
 - discover dependencies ambiently;
