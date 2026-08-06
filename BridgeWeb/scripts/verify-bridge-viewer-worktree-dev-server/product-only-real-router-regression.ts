@@ -6,8 +6,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { resolveBridgeWorktreeDevProviderConfig } from '../dev-server/bridge-worktree-dev-provider/config.ts';
-import { loadBridgeWorktreeDevMetadataSnapshot } from '../dev-server/bridge-worktree-dev-provider/metadata.ts';
+import { startOwnedBridgeDevelopmentServer } from '../dev-server/bridge-development-server-process.ts';
+import { bridgeReviewItemIdOracle } from './bridge-review-item-id-oracle.ts';
 import {
 	bridgeProductStartupFixtureIdentities,
 	collectBridgeViewerProductOnlyContractViolations,
@@ -94,9 +94,21 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 	let journeyFailure: BridgeViewerProductOnlyJourneyFailureCheckpoint | null = null;
 	let serverProof: BridgeViewerViteServerStartProof | null = null;
 	let server: BridgeViewerOwnedViteServer | null = null;
+	let bridgeDevelopmentServer: Awaited<
+		ReturnType<typeof startOwnedBridgeDevelopmentServer>
+	> | null = null;
 	try {
-		const expectedReviewItemIds = await readExpectedReviewItemIds();
-		server = await BridgeViewerOwnedViteServer.start();
+		const reviewBase = 'HEAD';
+		const expectedReviewItemIds = await readExpectedReviewItemIds({
+			reviewBase,
+			worktreeRoot: repoRootPath,
+		});
+		bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
+			baseRef: reviewBase,
+			repoRootPath,
+			worktreeRoot: repoRootPath,
+		});
+		server = await BridgeViewerOwnedViteServer.start(bridgeDevelopmentServer.origin);
 		serverProof = server.startProof;
 		journey = await runBridgeViewerProductOnlyJourney({
 			baseUrl: server.startProof.origin,
@@ -106,7 +118,20 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 		journeyFailure = bridgeViewerProductOnlyJourneyFailureFromError(error);
 		harnessFailure = boundedErrorMessage(error);
 	} finally {
-		if (server !== null) cleanup = await server.stop();
+		const viteCleanup = server === null ? null : await server.stop();
+		const backendCleanup =
+			bridgeDevelopmentServer === null ? null : await bridgeDevelopmentServer.stop();
+		if (viteCleanup !== null) {
+			cleanup = {
+				...viteCleanup,
+				forcedTerminationRequired:
+					viteCleanup.forcedTerminationRequired ||
+					(backendCleanup?.forcedTerminationRequired ?? false),
+				ownedProcessAliveAfterStop:
+					viteCleanup.ownedProcessAliveAfterStop ||
+					(backendCleanup?.ownedProcessAliveAfterStop ?? false),
+			};
+		}
 	}
 
 	const violations =
@@ -163,21 +188,88 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 	if (violations.length > 0) process.exitCode = 1;
 }
 
-async function readExpectedReviewItemIds(): Promise<readonly string[]> {
-	const config = await resolveBridgeWorktreeDevProviderConfig({
-		env: process.env,
-		packageRoot: bridgeWebRootPath,
-		requestUrl: '/?fixture=worktree&scenario=current-worktree&viewer=review&workers=on',
-	});
-	const snapshot = await loadBridgeWorktreeDevMetadataSnapshot(config);
-	const orderedItemIds = snapshot.changedFiles.map(
-		(changedFile): string =>
-			`review-item-${createHash('sha256').update(changedFile.path).digest('hex').slice(0, 32)}`,
+async function readExpectedReviewItemIds(props: {
+	readonly reviewBase: string;
+	readonly worktreeRoot: string;
+}): Promise<readonly string[]> {
+	const [trackedChanges, untrackedPaths] = await Promise.all([
+		gitStdoutAt(props.worktreeRoot, [
+			'diff',
+			'--name-status',
+			'-z',
+			'--find-renames',
+			props.reviewBase,
+			'--',
+		]),
+		gitStdoutAt(props.worktreeRoot, ['ls-files', '--others', '--exclude-standard', '-z']),
+	]);
+	const changedPaths = parseGitNameStatus(trackedChanges);
+	for (const path of untrackedPaths
+		.split('\0')
+		.filter((candidate): boolean => candidate.length > 0)) {
+		if (!changedPaths.some((candidate): boolean => candidate.path === path)) {
+			changedPaths.push({ path, previousPath: null });
+		}
+	}
+	const orderedItemIds = await Promise.all(
+		changedPaths
+			.toSorted((left, right): number => left.path.localeCompare(right.path))
+			.map(
+				async (changedPath): Promise<string> =>
+					bridgeReviewItemIdOracle({
+						newContentHash: await gitObjectHashOrNull(props.worktreeRoot, changedPath.path),
+						oldContentHash: await gitRevisionObjectHashOrNull(
+							props.worktreeRoot,
+							props.reviewBase,
+							changedPath.previousPath ?? changedPath.path,
+						),
+						path: changedPath.path,
+						previousPath: changedPath.previousPath,
+					}),
+			),
 	);
 	if (orderedItemIds.length === 0) {
 		throw new Error('Review metadata oracle returned no changed-file item ids.');
 	}
 	return orderedItemIds;
+}
+
+function parseGitNameStatus(encodedChanges: string): Array<{
+	readonly path: string;
+	readonly previousPath: string | null;
+}> {
+	const fields = encodedChanges.split('\0');
+	const changes: Array<{ readonly path: string; readonly previousPath: string | null }> = [];
+	for (let fieldIndex = 0; fieldIndex < fields.length; ) {
+		const status = fields[fieldIndex++];
+		if (status === undefined || status.length === 0) break;
+		const firstPath = fields[fieldIndex++];
+		if (firstPath === undefined || firstPath.length === 0) {
+			throw new Error(`Malformed Git name-status entry for ${status}.`);
+		}
+		if (status.startsWith('R') || status.startsWith('C')) {
+			const path = fields[fieldIndex++];
+			if (path === undefined || path.length === 0) {
+				throw new Error(`Malformed Git rename entry for ${status}.`);
+			}
+			changes.push({ path, previousPath: firstPath });
+		} else {
+			changes.push({ path: firstPath, previousPath: null });
+		}
+	}
+	return changes;
+}
+
+async function gitObjectHashOrNull(cwd: string, relativePath: string): Promise<string | null> {
+	return await gitStdoutAtOrNull(cwd, ['hash-object', '--', relativePath]);
+}
+
+async function gitRevisionObjectHashOrNull(
+	cwd: string,
+	revision: string,
+	relativePath: string,
+): Promise<string | null> {
+	return await gitStdoutAtOrNull(cwd, ['rev-parse', `${revision}:${relativePath}`]);
 }
 
 export function bridgeViewerProductOnlyRegressionPhase(
@@ -213,7 +305,7 @@ class BridgeViewerOwnedViteServer {
 		this.startProof = props.startProof;
 	}
 
-	static async start(): Promise<BridgeViewerOwnedViteServer> {
+	static async start(bridgeDevelopmentServerOrigin: string): Promise<BridgeViewerOwnedViteServer> {
 		await access(viteCLIPath);
 		const port = await reserveLoopbackPort();
 		const child = spawn(
@@ -221,7 +313,10 @@ class BridgeViewerOwnedViteServer {
 			[viteCLIPath, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
 			{
 				cwd: bridgeWebRootPath,
-				env: { ...process.env },
+				env: {
+					...process.env,
+					BRIDGE_WEB_DEV_BACKEND_ORIGIN: bridgeDevelopmentServerOrigin,
+				},
 				stdio: ['pipe', 'pipe', 'pipe'],
 			},
 		);
@@ -374,12 +469,27 @@ async function hashUntrackedFiles(relativePaths: readonly string[]): Promise<str
 }
 
 async function gitStdout(arguments_: readonly string[]): Promise<string> {
+	return await gitStdoutAt(repoRootPath, arguments_);
+}
+
+async function gitStdoutAt(cwd: string, arguments_: readonly string[]): Promise<string> {
 	const { stdout } = await execFileAsync('git', arguments_, {
-		cwd: repoRootPath,
+		cwd,
 		encoding: 'utf8',
 		maxBuffer: maximumGitDiffBytes,
 	});
 	return stdout;
+}
+
+async function gitStdoutAtOrNull(
+	cwd: string,
+	arguments_: readonly string[],
+): Promise<string | null> {
+	try {
+		return (await gitStdoutAt(cwd, arguments_)).trim() || null;
+	} catch {
+		return null;
+	}
 }
 
 async function writeRegressionArtifact(

@@ -69,6 +69,7 @@ export interface BridgeAppProps {
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
+	readonly paneRuntime?: BridgePaneRuntime;
 	readonly paneRuntimeFactory?: () => BridgePaneRuntime;
 	readonly telemetryWorkerFactory?: () => Promise<BridgeTelemetryWorkerLike>;
 	readonly viewerMode?: 'file' | 'review';
@@ -96,6 +97,7 @@ interface BridgePendingNativeSurfaceSelection {
 type BridgeActiveViewerSources = Record<BridgeViewerMode, BridgeActiveViewerSource | null>;
 
 interface BridgePaneRuntimeHost {
+	readonly disposeWithComponent: boolean;
 	readonly fileViewClient: BridgePaneSurfaceClient;
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly runtime: BridgePaneRuntime;
@@ -103,9 +105,10 @@ interface BridgePaneRuntimeHost {
 
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const paneRuntimeHostRef = useRef<BridgePaneRuntimeHost | null>(null);
-	paneRuntimeHostRef.current ??= createBridgePaneRuntimeHost(
-		props.paneRuntimeFactory ?? createDefaultBridgePaneRuntime,
-	);
+	paneRuntimeHostRef.current ??= createBridgePaneRuntimeHost({
+		externallyOwnedRuntime: props.paneRuntime ?? null,
+		runtimeFactory: props.paneRuntimeFactory ?? createDefaultBridgePaneRuntime,
+	});
 	const paneRuntimeHost = paneRuntimeHostRef.current;
 	const incomingViewerMode = props.viewerMode;
 	const [navigationAdmissionState, setNavigationAdmissionState] =
@@ -432,7 +435,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				resolversByRequestId: requestResolvers,
 			});
 			settledResults.clear();
-			paneRuntimeHost.runtime.dispose();
+			if (paneRuntimeHost.disposeWithComponent) {
+				paneRuntimeHost.runtime.dispose();
+			}
 		};
 	}, [paneRuntimeHost, publishActiveViewerModeWorkerMessages]);
 	const sendActiveViewerModeWorkerUpdate = useCallback(
@@ -790,18 +795,23 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	);
 }
 
-function createBridgePaneRuntimeHost(
-	runtimeFactory: () => BridgePaneRuntime,
-): BridgePaneRuntimeHost {
-	const runtime = runtimeFactory();
+function createBridgePaneRuntimeHost(props: {
+	readonly externallyOwnedRuntime: BridgePaneRuntime | null;
+	readonly runtimeFactory: () => BridgePaneRuntime;
+}): BridgePaneRuntimeHost {
+	const runtime = props.externallyOwnedRuntime ?? props.runtimeFactory();
+	const disposeWithComponent = props.externallyOwnedRuntime === null;
 	try {
 		return {
+			disposeWithComponent,
 			fileViewClient: runtime.surfaceClient('fileView'),
 			reviewClient: runtime.surfaceClient('review'),
 			runtime,
 		};
 	} catch (error: unknown) {
-		runtime.dispose();
+		if (disposeWithComponent) {
+			runtime.dispose();
+		}
 		throw error;
 	}
 }

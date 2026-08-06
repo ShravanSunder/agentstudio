@@ -3,11 +3,19 @@ import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import {
+	startOwnedBridgeDevelopmentServer,
+	type OwnedBridgeDevelopmentServer,
+} from '../dev-server/bridge-development-server-process.js';
+
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
+const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
 const worktreeDataTestTimeoutMilliseconds = 15_000;
 
 describe('Bridge viewer typed product File worktree data', () => {
+	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
 	let viteServer: ViteDevServer | null = null;
+	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 	const initialDevServerUrl = process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'];
 
 	afterEach(async (): Promise<void> => {
@@ -19,12 +27,25 @@ describe('Bridge viewer typed product File worktree data', () => {
 		vi.resetModules();
 		await viteServer?.close();
 		viteServer = null;
+		await bridgeDevelopmentServer?.stop();
+		bridgeDevelopmentServer = null;
+		if (initialBackendOrigin === undefined) {
+			delete process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
+		} else {
+			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = initialBackendOrigin;
+		}
 	});
 
 	test(
 		'opens typed File data and drains every verifier-owned metadata stream',
 		async () => {
 			// Arrange
+			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
+				baseRef: 'HEAD',
+				repoRootPath,
+				worktreeRoot: repoRootPath,
+			});
+			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = bridgeDevelopmentServer.origin;
 			let observedMetadataStreamCloseCount = 0;
 			let resolveMetadataStreamsClosed: (() => void) | null = null;
 			const metadataStreamsClosed = new Promise<void>((resolve): void => {
@@ -69,7 +90,7 @@ describe('Bridge viewer typed product File worktree data', () => {
 			const secondSurface = await worktreeData.fetchWorktreeSurface();
 			const descriptor = await worktreeData.fetchFetchableWorktreeFileDescriptorForPath({
 				path: 'README.md',
-				surface,
+				surface: secondSurface,
 			});
 			const content = await worktreeData.fetchWorktreeFileContent(descriptor);
 			await worktreeData.closeAllWorktreeFileSurfaces();

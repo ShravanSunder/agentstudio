@@ -258,7 +258,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			).toBe(true);
 			expect(proof.paintedCorrelations).toEqual([
 				expect.objectContaining({
-					descriptorId: expect.stringMatching(/^dev-file-/u),
+					descriptorId: expect.stringMatching(/^file-content-[0-9a-f]{32}$/u),
 					disposition: 'painted',
 					itemId: proof.renderedItemId,
 					observedSha256: oracle.largeFileSha256,
@@ -326,7 +326,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					expectedSha256: mutatedContent.sha256,
 				}),
 			);
-			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).not.toBe(
+			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
 				readFileDescriptorRootRevisionToken(initialRequest?.descriptor),
 			);
 		} finally {

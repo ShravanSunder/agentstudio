@@ -435,20 +435,16 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
-	test('reports Worktree dev Review-package scaffolding', async () => {
+	test('reports a TypeScript development server that reintroduces live product authority', async () => {
 		await withFixtureTree(
 			{
-				'scripts/dev-server/bridge-worktree-dev-provider.ts': `
+				'scripts/dev-server/rogue-live-product-provider.ts': `
 					import type { BridgeReviewPackage } from '../../src/foundation/review-package/bridge-review-package.js';
-					export interface BridgeWorktreeDevProvider {
+					export interface RogueLiveProductProvider {
 						readonly loadReviewPackage: () => Promise<BridgeReviewPackage>;
 						readonly loadContent: () => Promise<string>;
 					}
-					export const reviewContentEndpoint = '/__bridge-worktree/content/';
-				`,
-				'src/app/bridge-app-dev-bootstrap.tsx': `
-					const worktreePackageEndpoint = '/__bridge-worktree/package';
-					export const value = worktreePackageEndpoint;
+					export const reviewContentEndpoint = '/__bridge-product/content';
 				`,
 			},
 			async (packageRootPath: string): Promise<void> => {
@@ -457,12 +453,8 @@ describe('BridgeWeb architecture checker', () => {
 				expect(report.ok).toBe(false);
 				expect(report.violations).toEqual([
 					expect.objectContaining({
-						ruleId: 'worktree-dev-review-package-scaffolding',
-						relativePath: 'scripts/dev-server/bridge-worktree-dev-provider.ts',
-					}),
-					expect.objectContaining({
-						ruleId: 'worktree-dev-review-package-scaffolding',
-						relativePath: 'src/app/bridge-app-dev-bootstrap.tsx',
+						ruleId: 'no-typescript-live-product-authority',
+						relativePath: 'scripts/dev-server/rogue-live-product-provider.ts',
 					}),
 				]);
 			},

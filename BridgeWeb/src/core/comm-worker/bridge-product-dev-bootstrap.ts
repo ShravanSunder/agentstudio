@@ -12,6 +12,7 @@ import {
 import { parseBridgeProductStrictJSON } from './bridge-product-strict-json.js';
 
 export const BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE = '/__bridge-product/bootstrap' as const;
+export const BRIDGE_PRODUCT_DEV_HEALTH_ROUTE = '/__bridge-product/health' as const;
 export const BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE = 'application/json' as const;
 export const BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE = 'application/octet-stream' as const;
 

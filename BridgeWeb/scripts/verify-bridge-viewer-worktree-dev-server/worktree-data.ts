@@ -39,6 +39,7 @@ const productFileSessionByDescriptor = new WeakMap<
 const liveProductFileSurfaces = new Set<WorktreeFileSurface>();
 
 export async function fetchWorktreeSurface(): Promise<WorktreeFileSurface> {
+	await closeAllWorktreeFileSurfaces();
 	const session = new BridgeVerifierProductFileSession({
 		baseUrl: new URL(worktreeDevServerUrl).origin,
 		scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),

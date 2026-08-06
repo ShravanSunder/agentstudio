@@ -2,6 +2,7 @@ import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE,
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE,
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
+	BRIDGE_PRODUCT_DEV_HEALTH_ROUTE,
 	decodeBridgeProductDevBootstrapDelivery,
 	type BridgeProductDevBootstrapRequest,
 	type BridgeProductDevNavigationIntent,
@@ -18,19 +19,88 @@ export interface BridgeAppDevProductSessionHost {
 
 export interface BridgeAppDevProductSessionHostProps {
 	readonly fetchBootstrap?: typeof fetch;
+	readonly fetchHealth?: typeof fetch;
 	readonly navigationIntent: BridgeProductDevNavigationIntent;
+	readonly reloadPage?: () => void;
 	readonly target?: BridgeAppDevProductSessionTarget;
+	readonly waitForHealthProbe?: (signal: AbortSignal) => Promise<void>;
 }
+
+type InitialBootstrapOutcome = 'failed' | 'pending' | 'succeeded';
+
+class BridgeDevelopmentBootstrapTransportUnavailableError extends Error {}
+
+const bridgeDevelopmentBackendUnavailableMessage = 'Bridge development backend unavailable';
+const bridgeDevelopmentHealthProbeIntervalMilliseconds = 250;
 
 export function installBridgeAppDevProductSessionHost(
 	props: BridgeAppDevProductSessionHostProps,
 ): BridgeAppDevProductSessionHost {
 	const target = props.target ?? document;
 	const fetchBootstrap = props.fetchBootstrap ?? globalThis.fetch.bind(globalThis);
+	const fetchHealth = props.fetchHealth ?? globalThis.fetch.bind(globalThis);
+	const reloadPage = props.reloadPage ?? ((): void => globalThis.location.reload());
+	const waitForHealthProbe = props.waitForHealthProbe ?? defaultHealthProbeWait;
 	let activeRequestController: AbortController | null = null;
+	let healthProbeController: AbortController | null = null;
+	let initialBootstrapOutcome: InitialBootstrapOutcome = 'pending';
 	let isInstalled = true;
 	let paneSessionId: string | null = null;
 	let requestSequence = 0;
+	const acknowledgedReadyRequestIds = new Set<string>();
+	const pendingReadyRequestIds = new Set<string>();
+
+	const acknowledgeReadyRequest = (requestId: string): void => {
+		if (!isInstalled || acknowledgedReadyRequestIds.has(requestId)) return;
+		acknowledgedReadyRequestIds.add(requestId);
+		pendingReadyRequestIds.delete(requestId);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready_ack', {
+				detail:
+					initialBootstrapOutcome === 'succeeded'
+						? { jsonrpc: '2.0', id: requestId, result: null }
+						: {
+								jsonrpc: '2.0',
+								id: requestId,
+								error: {
+									code: -32_000,
+									message: bridgeDevelopmentBackendUnavailableMessage,
+								},
+							},
+			}),
+		);
+	};
+
+	const acknowledgePendingReadyRequestsIfResolved = (): void => {
+		if (!isInstalled || initialBootstrapOutcome === 'pending') return;
+		for (const requestId of pendingReadyRequestIds) {
+			acknowledgeReadyRequest(requestId);
+		}
+	};
+
+	const startHealthProbing = (): void => {
+		if (!isInstalled || healthProbeController !== null) return;
+		const controller = new AbortController();
+		healthProbeController = controller;
+		void probeUntilBridgeDevelopmentBackendIsHealthy({
+			fetchHealth,
+			reloadPage: (): void => {
+				if (!isInstalled || healthProbeController !== controller) return;
+				healthProbeController = null;
+				reloadPage();
+			},
+			signal: controller.signal,
+			waitForHealthProbe,
+		});
+	};
+
+	const handleReadyRequest = (event: Event): void => {
+		if (!isInstalled || !('detail' in event)) return;
+		const requestId = readyRequestIdentifier(event.detail);
+		if (requestId === null || acknowledgedReadyRequestIds.has(requestId)) return;
+		pendingReadyRequestIds.add(requestId);
+		acknowledgePendingReadyRequestsIfResolved();
+	};
 
 	const handleBootstrapRequest = (event: Event): void => {
 		if (!isInstalled || !('detail' in event)) return;
@@ -42,6 +112,11 @@ export function installBridgeAppDevProductSessionHost(
 			reason: request.reason,
 		});
 		if (bootstrapRequest === null) return;
+		if (request.reason === 'initial') {
+			initialBootstrapOutcome = 'pending';
+			healthProbeController?.abort();
+			healthProbeController = null;
+		}
 		requestSequence += 1;
 		const issuedRequestSequence = requestSequence;
 		activeRequestController?.abort();
@@ -68,9 +143,23 @@ export function installBridgeAppDevProductSessionHost(
 							},
 						}),
 					);
+					if (request.reason === 'initial') {
+						initialBootstrapOutcome = 'succeeded';
+						acknowledgePendingReadyRequestsIfResolved();
+					}
 				},
-				(): void => {
-					// The pane-session bootstrap timeout owns visible failure and replacement.
+				(error: unknown): void => {
+					if (
+						isInstalled &&
+						issuedRequestSequence === requestSequence &&
+						request.reason === 'initial'
+					) {
+						initialBootstrapOutcome = 'failed';
+						acknowledgePendingReadyRequestsIfResolved();
+						if (error instanceof BridgeDevelopmentBootstrapTransportUnavailableError) {
+							startHealthProbing();
+						}
+					}
 				},
 			)
 			.finally((): void => {
@@ -78,6 +167,7 @@ export function installBridgeAppDevProductSessionHost(
 			});
 	};
 
+	target.addEventListener('__bridge_ready', handleReadyRequest);
 	target.addEventListener('__bridge_product_session_bootstrap_request', handleBootstrapRequest);
 	return {
 		dispose: (): void => {
@@ -86,6 +176,9 @@ export function installBridgeAppDevProductSessionHost(
 			requestSequence += 1;
 			activeRequestController?.abort();
 			activeRequestController = null;
+			healthProbeController?.abort();
+			healthProbeController = null;
+			target.removeEventListener('__bridge_ready', handleReadyRequest);
 			target.removeEventListener(
 				'__bridge_product_session_bootstrap_request',
 				handleBootstrapRequest,
@@ -94,19 +187,95 @@ export function installBridgeAppDevProductSessionHost(
 	};
 }
 
+async function probeUntilBridgeDevelopmentBackendIsHealthy(props: {
+	readonly fetchHealth: typeof fetch;
+	readonly reloadPage: () => void;
+	readonly signal: AbortSignal;
+	readonly waitForHealthProbe: (signal: AbortSignal) => Promise<void>;
+}): Promise<void> {
+	while (!props.signal.aborted) {
+		// oxlint-disable-next-line no-await-in-loop -- Recovery probes must stay sequential so only one request can decide to reload.
+		await props.waitForHealthProbe(props.signal);
+		if (props.signal.aborted) return;
+		try {
+			// oxlint-disable-next-line no-await-in-loop -- A later probe starts only after this request has resolved or failed.
+			const response = await props.fetchHealth(BRIDGE_PRODUCT_DEV_HEALTH_ROUTE, {
+				cache: 'no-store',
+				credentials: 'same-origin',
+				method: 'GET',
+				signal: props.signal,
+			});
+			// oxlint-disable-next-line no-await-in-loop -- Release this response before evaluating or scheduling another probe.
+			await response.body?.cancel();
+			if (response.status === 204) {
+				props.reloadPage();
+				return;
+			}
+		} catch {
+			if (props.signal.aborted) return;
+		}
+	}
+}
+
+function defaultHealthProbeWait(signal: AbortSignal): Promise<void> {
+	return new Promise<void>((resolve): void => {
+		if (signal.aborted) {
+			resolve();
+			return;
+		}
+		const timeout = globalThis.setTimeout(
+			resolve,
+			bridgeDevelopmentHealthProbeIntervalMilliseconds,
+		);
+		signal.addEventListener(
+			'abort',
+			(): void => {
+				globalThis.clearTimeout(timeout);
+				resolve();
+			},
+			{ once: true },
+		);
+	});
+}
+
+function readyRequestIdentifier(detail: unknown): string | null {
+	if (
+		typeof detail !== 'object' ||
+		detail === null ||
+		!('requestId' in detail) ||
+		typeof detail.requestId !== 'string' ||
+		detail.requestId.length === 0
+	) {
+		return null;
+	}
+	return detail.requestId;
+}
+
 async function fetchRegisteredBootstrap(props: {
 	readonly fetchBootstrap: typeof fetch;
 	readonly request: BridgeProductDevBootstrapRequest;
 	readonly signal: AbortSignal;
 }): Promise<ReturnType<typeof decodeBridgeProductDevBootstrapDelivery>> {
-	const response = await props.fetchBootstrap(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE, {
-		body: JSON.stringify(props.request),
-		cache: 'no-store',
-		credentials: 'same-origin',
-		headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
-		method: 'POST',
-		signal: props.signal,
-	});
+	let response: Response;
+	try {
+		response = await props.fetchBootstrap(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE, {
+			body: JSON.stringify(props.request),
+			cache: 'no-store',
+			credentials: 'same-origin',
+			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE },
+			method: 'POST',
+			signal: props.signal,
+		});
+	} catch {
+		throw new BridgeDevelopmentBootstrapTransportUnavailableError(
+			'Bridge product development backend is unavailable.',
+		);
+	}
+	if (await isViteProxyUpstreamUnavailableResponse(response)) {
+		throw new BridgeDevelopmentBootstrapTransportUnavailableError(
+			'Bridge product development backend is unavailable.',
+		);
+	}
 	if (
 		!response.ok ||
 		response.headers.get('content-type') !== BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE
@@ -114,6 +283,13 @@ async function fetchRegisteredBootstrap(props: {
 		throw new Error('Bridge product dev bootstrap request was rejected.');
 	}
 	return decodeBridgeProductDevBootstrapDelivery(await response.arrayBuffer());
+}
+
+async function isViteProxyUpstreamUnavailableResponse(response: Response): Promise<boolean> {
+	if (response.status !== 502 || response.headers.get('content-type') !== 'text/plain') {
+		return false;
+	}
+	return (await response.arrayBuffer()).byteLength === 0;
 }
 
 function bridgeProductDevBootstrapRequest(props: {

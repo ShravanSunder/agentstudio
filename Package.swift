@@ -8,6 +8,10 @@ let package = Package(
     ],
     products: [
         .executable(name: "AgentStudio", targets: ["AgentStudio"]),
+        .executable(
+            name: "agentstudio-bridge-dev-server",
+            targets: ["AgentStudioBridgeDevelopmentServer"]
+        ),
         .executable(name: "agentstudio-ipc", targets: ["AgentStudioIPCClient"]),
         .executable(name: "agentstudio-pane-agent", targets: ["AgentStudioPaneAgent"]),
     ],
@@ -18,6 +22,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-metrics.git", from: "2.10.0"),
         .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
         .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.10.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.10.0"),
         .package(
             url: "https://github.com/ShravanSunder/agentstudio-git.git",
@@ -258,6 +263,18 @@ let package = Package(
             ]
         ),
         .executableTarget(
+            name: "AgentStudioBridgeDevelopmentServer",
+            dependencies: [
+                "AgentStudioBridge",
+                .product(name: "Hummingbird", package: "hummingbird"),
+                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+            ],
+            path: "Sources/AgentStudioBridgeDevelopmentServer",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
             name: "AgentStudioIPCClient",
             dependencies: [
                 "AgentStudioIPCClientCore"
@@ -283,6 +300,18 @@ let package = Package(
                 "AgentStudioCore"
             ],
             path: "Tests/AgentStudioTests/TestSupport",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .testTarget(
+            name: "AgentStudioBridgeDevelopmentServerTests",
+            dependencies: [
+                "AgentStudioBridgeDevelopmentServer",
+                "AgentStudioTestSupport",
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
+            path: "Tests/AgentStudioBridgeDevelopmentServerTests",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]

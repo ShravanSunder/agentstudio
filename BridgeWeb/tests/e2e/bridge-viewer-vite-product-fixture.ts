@@ -7,8 +7,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import { startOwnedBridgeDevelopmentServer } from '../../scripts/dev-server/bridge-development-server-process.ts';
+import { bridgeReviewItemIdOracle } from '../../scripts/verify-bridge-viewer-worktree-dev-server/bridge-review-item-id-oracle.ts';
+
 const execFileAsync = promisify(execFile);
 const bridgeWebRootPath = new URL('../../', import.meta.url).pathname;
+const repoRootPath = new URL('../../..', import.meta.url).pathname;
 const viteCLIPath = join(bridgeWebRootPath, 'node_modules/vite/bin/vite.js');
 const serverStartupTimeoutMilliseconds = 30_000;
 const serverShutdownTimeoutMilliseconds = 10_000;
@@ -162,7 +166,12 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 				return {
 					base: reviewRoleOracle('base', baseBody),
 					head: reviewRoleOracle('head', headBody),
-					itemId: `review-item-${sha256(path).slice(0, 32)}`,
+					itemId: bridgeReviewItemIdOracle({
+						newContentHash: gitBlobHash(headBody),
+						oldContentHash: gitBlobHash(baseBody),
+						path,
+						previousPath: null,
+					}),
 					path,
 				};
 			}),
@@ -223,6 +232,14 @@ export async function startBridgeViewerOwnedViteProductServer(
 ): Promise<BridgeViewerOwnedViteProductServer> {
 	const port = await reserveLoopbackPort();
 	const telemetryReceiver = await startBridgeViewerOwnedTelemetryReceiver();
+	const bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
+		baseRef: oracle.baseRef,
+		repoRootPath,
+		worktreeRoot: oracle.worktreeRoot,
+	}).catch(async (error: unknown): Promise<never> => {
+		await telemetryReceiver.stop();
+		throw error;
+	});
 	const child = spawn(
 		process.execPath,
 		[viteCLIPath, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
@@ -230,11 +247,9 @@ export async function startBridgeViewerOwnedViteProductServer(
 			cwd: bridgeWebRootPath,
 			env: {
 				...process.env,
-				BRIDGE_WEB_DEV_BASE: oracle.baseRef,
-				BRIDGE_WEB_DEV_SCENARIO: 'current-worktree',
+				BRIDGE_WEB_DEV_BACKEND_ORIGIN: bridgeDevelopmentServer.origin,
 				BRIDGE_WEB_DEV_TELEMETRY_OTLP_LOGS_URL: `${telemetryReceiver.origin}/v1/logs`,
 				BRIDGE_WEB_DEV_TELEMETRY_OTLP_METRICS_URL: `${telemetryReceiver.origin}/v1/metrics`,
-				BRIDGE_WEB_DEV_WORKTREE: oracle.worktreeRoot,
 			},
 			stdio: ['pipe', 'pipe', 'pipe'],
 		},
@@ -282,6 +297,7 @@ export async function startBridgeViewerOwnedViteProductServer(
 			});
 		} finally {
 			await telemetryReceiver.stop();
+			await bridgeDevelopmentServer.stop();
 		}
 	}
 	const origin = `http://127.0.0.1:${port}`;
@@ -290,7 +306,15 @@ export async function startBridgeViewerOwnedViteProductServer(
 		pid: child.pid ?? 0,
 		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
 			try {
-				return await stopOwnedViteServer({ child, exitPromise });
+				const viteCleanup = await stopOwnedViteServer({ child, exitPromise });
+				const backendCleanup = await bridgeDevelopmentServer.stop();
+				return {
+					...viteCleanup,
+					forcedTerminationRequired:
+						viteCleanup.forcedTerminationRequired || backendCleanup.forcedTerminationRequired,
+					ownedProcessAliveAfterStop:
+						viteCleanup.ownedProcessAliveAfterStop || backendCleanup.ownedProcessAliveAfterStop,
+				};
 			} finally {
 				await telemetryReceiver.stop();
 			}
@@ -352,6 +376,14 @@ function reviewRoleOracle(
 	body: string,
 ): BridgeViewerViteProductReviewRoleOracle {
 	return { body, byteLength: Buffer.byteLength(body), role, sha256: sha256(body) };
+}
+
+function gitBlobHash(content: string): string {
+	const contentBytes = Buffer.from(content);
+	return createHash('sha1')
+		.update(`blob ${contentBytes.byteLength}\0`)
+		.update(contentBytes)
+		.digest('hex');
 }
 
 async function runFixtureGit(cwd: string, arguments_: readonly string[]): Promise<string> {
