@@ -106,13 +106,14 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains("createNew"))
     }
 
-    @Test("pane row icon matches sidebar pane metadata scale")
-    func paneRowIconMatchesSidebarPaneMetadataScale() throws {
+    @Test("pane row uses the compact square split icon")
+    func paneRowUsesCompactSquareSplitIcon() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
         )
 
+        #expect(source.contains("Image(systemName: \"square.split.2x1\")"))
         #expect(
             source.contains(
                 ".font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))"
