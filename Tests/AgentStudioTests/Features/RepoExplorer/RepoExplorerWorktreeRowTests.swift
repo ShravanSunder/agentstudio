@@ -106,6 +106,20 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains("createNew"))
     }
 
+    @Test("pane row icon matches sidebar pane metadata scale")
+    func paneRowIconMatchesSidebarPaneMetadataScale() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            source.contains(
+                ".font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))"
+            )
+        )
+    }
+
     @Test("repo explorer remains inbox-feature agnostic")
     func repoExplorerDoesNotReferenceInboxFeatureTypes() throws {
         let source = try String(
