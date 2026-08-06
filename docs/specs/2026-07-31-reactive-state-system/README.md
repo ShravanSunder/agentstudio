@@ -5,6 +5,25 @@ reactive-state work. Read Requirements for the authorized need, Specification
 for the observable contract, then only the linked slice design that owns the
 internal implementation question.
 
+## Current Implementation Authorization
+
+The current goal is authorized to implement exactly two pull requests:
+
+```text
+PR 1  AtomFamily + lazy DerivedAtom
+      └── Repo Explorer keyed worktree-facts admission
+
+PR 2  total cancellation-only eager/off-main EagerDerivedAtom
+      └── Tab Bar projection and current-result publication
+```
+
+For this goal, the Requirements and Specification govern only through the
+PR-specific obligations realized by the two active Program Designs below.
+Their broader future-system context does not authorize implementation.
+RS-15–RS-20, every persistence implementation, and deferred pane, tab,
+topology, session, terminal-activity, Feature-worker, and Command Bar
+migrations are outside this goal.
+
 ## Entry Point
 
 [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md)
@@ -15,17 +34,16 @@ boundary, and non-goals.
 is the authoritative What: problems, outcomes, normative requirements
 RS-01–RS-28, observable contracts, failure behavior, and proof obligations.
 
-## Structural Slices
+## Active Program Designs
 
-| Program Design | Primary ownership | Read when deciding internal How |
+| Program Design | Governing subset for this goal | Read when deciding internal How |
 |---|---|---|
-| [Reactive Atoms and Derived Values](2026-07-31-reactive-atoms-and-derived-values-program-design.md) | RS-01–RS-08, RS-10, and atom-specific RS-21–RS-23 realization | Source ownership, `AtomFamily`, lazy `DerivedAtom`, keyed observation, coherent aggregate reads, or Repo Explorer's first reactive slice |
-| [Off-Main Materialization and Lifecycle](2026-07-31-off-main-materialization-and-lifecycle-program-design.md) | RS-09–RS-14 and eager/performance RS-24–RS-28 realization | `EagerDerivedAtom`, checked transfer, latest-wins lifecycle, Tab Bar projection, native interaction proof, or performance continuity |
-| [SQLite Authority and Update Boundaries](2026-07-31-sqlite-authority-and-update-boundaries-program-design.md) | RS-15–RS-20 and persistence-specific RS-24–RS-28 realization | Core/local authority, dirty lanes, settings transactions, restore freshness, rollback/crash proof, or upgrade/relaunch behavior |
+| [Reactive Atoms and Derived Values](2026-07-31-reactive-atoms-and-derived-values-program-design.md) | RS-01–RS-08, RS-10, and slice-specific RS-21–RS-28 only as realized by its PR 1 boundary | Source ownership, `AtomFamily`, lazy `DerivedAtom`, keyed observation, or Repo Explorer's keyed worktree-facts admission |
+| [Off-Main Materialization and Lifecycle](2026-07-31-off-main-materialization-and-lifecycle-program-design.md) | RS-03, RS-09–RS-14, and slice-specific RS-21–RS-28 only as realized by its PR 2 boundary | `EagerDerivedAtom`, checked transfer, latest-wins lifecycle, Tab Bar projection/current-result publication, or its required proof |
 
-RS-21–RS-28 are cross-cutting. Each design owns only the guardrail,
+RS-21–RS-28 are cross-cutting. Each active design owns only the guardrail,
 observability, and proof realization for its slice; none introduces a parallel
-lint, telemetry, benchmark, debug-launch, or SQLite test framework.
+lint, telemetry, benchmark, debug-launch, or test framework.
 
 ## System Map
 
@@ -35,10 +53,9 @@ Requirements — authoritative Why
        -> Program Design
             -> Reactive atoms — source and lazy graph HOW
             -> Off-main materialization — replaceable CPU projection HOW
-            -> SQLite boundaries — authority-specific durability HOW
 
-Every Program Design extends the existing ArchitectureLint, debug IPC/UI,
-Victoria/comparator, and SQLite test systems. None creates a parallel system.
+Both active Program Designs extend the existing ArchitectureLint, debug IPC/UI,
+Victoria/comparator, and test systems. Neither creates a parallel system.
 ```
 
 ## Integrated Ownership and Proof
@@ -46,23 +63,12 @@ Victoria/comparator, and SQLite test systems. None creates a parallel system.
 | Accepted need | Observable contract | Structural owner | Existing proof system extended |
 |---|---|---|---|
 | U1, U2, U4 | Key isolation, coherent mutation, current lazy/eager output | Core/Feature product owners over Infrastructure atom primitives; App only where cross-Feature composition is required | Swift Observation behavior suites and ArchitectureLint |
-| U3 | Compatibility across each hard cut | The product owner of the selected source, projection, or persistence lane | Isolated debug interaction plus supported-data save/reload and relaunch |
+| U3 | Compatibility across each hard cut | The product owner of the selected source or projection | Isolated debug interaction plus supported-state inspection and relaunch |
 | U5 | Checked off-main replaceable computation | Product capture/projector plus retained `EagerDerivedAtom` lifecycle | Compiler-negative transfer proof and deterministic overlap/cancellation tests |
 | U6, U7 | Honest enforcement and provenance-bound evidence | Existing ArchitectureLint, trace tags, Victoria workload, and comparator owners | Static, semantic, runtime, and matched-distribution gates at their actual boundaries |
-| U8 | Authority-specific atomic save and stale-completion admission | Existing Core/App stores and authority-specific repositories | Real GRDB rollback, overlap, crash/reopen, and relaunch suites |
 | U9 | Narrow independently provable adoption | Each linked slice; no family-wide runtime coordinator | Slice inventory through the existing lint, test, debug, and performance systems |
 
-## Current Two-PR Atom Scope
-
-The current implementation scope is exactly two pull requests:
-
-```text
-PR 1  AtomFamily + lazy DerivedAtom
-      └── Repo Explorer keyed worktree-facts admission
-
-PR 2  eager/off-main EagerDerivedAtom
-      └── Tab Bar projection and current-result publication
-```
+## Pull-Request Boundary
 
 PR 1 does not depend on eager materialization or persistence changes. PR 2
 depends on the cancellation-only eager primitive and current Core/Feature
@@ -70,14 +76,14 @@ source contracts, not on the SQLite design or deferred pane/tab family
 migrations. The measurement correction described by the off-main design is a
 PR 2 proof prerequisite, not a third reactive-state implementation PR.
 
-The SQLite program design remains a separate future design surface. Combined
-settings and lane-aware Core/local persistence are not part of either current
-atom PR.
+No third implementation slice may be added to this goal. Additional reactive or
+persistence work requires separate scope authorization after these two PRs.
 
-Deferred pane, tab, topology, session, terminal-activity, Repo Explorer-worker,
-Inbox-worker, and Command Bar migrations require their own measured or
-correctness-proven slices. This family does not authorize a whole-state-system
-rewrite.
+## Deferred Follow-Up
+
+The [SQLite authority design](follow-ups/2026-07-31-sqlite-authority-and-update-boundaries-program-design.md)
+is retained only as follow-up design context. It is not a governing input,
+dependency, task source, or proof obligation for PR 1 or PR 2.
 
 ## Shared Proof Boundaries
 
@@ -86,8 +92,7 @@ rewrite.
 | Source/derived declaration and target direction | Existing `Tools/AgentStudioArchitectureLint`; add the required executable compile-negative driver because the current excluded fixtures alone are not proof |
 | Semantic observation | Swift Testing suites using real Swift Observation |
 | Native behavior | Worktree-isolated LaunchServices debug app, authenticated debug IPC, and native UI inspection |
-| Performance | Existing Victoria workload summaries and provenance-enforcing comparator, after the standalone measurement prerequisite makes hot attributes lazy, reports trace-queue completeness, and adds interaction-to-visible/current-result boundaries |
-| SQLite rollback/crash/restore | Current file-backed GRDB suites and disposable subprocess/probe pattern |
+| Performance | Existing Victoria workload summaries and provenance-enforcing comparator, after the PR 2 measurement corrections make hot attributes lazy, report trace-queue completeness, and add interaction-to-visible/current-result boundaries |
 | Telemetry safety | Existing OTLP allowlist and fail-open suites |
 
 Program designs define seams and obligations. A later implementation plan owns

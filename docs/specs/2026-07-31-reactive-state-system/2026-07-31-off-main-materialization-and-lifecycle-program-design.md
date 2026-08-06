@@ -6,6 +6,32 @@ Governing Requirements:
 Governing Specification:
 [Reactive State System Specification](2026-07-31-reactive-state-system-specification.md)
 
+## Implementation Boundary
+
+This document governs PR 2 only:
+
+```text
+total cancellation-only eager/off-main EagerDerivedAtom
+  └── Tab Bar projection and current-result publication
+```
+
+In scope are the total cancellation-only eager primitive, synchronous source
+revocation, immutable Tab Bar request capture, pure Core/Inbox projection
+policies, off-main fleet reconstruction and equality, current-result admission,
+the existing one-time typed host, explicit shutdown, and the smallest
+static/semantic/native/performance proof required by this slice.
+
+This PR does not migrate Repo Explorer or Inbox workers, add a fallible eager
+branch, change pane-title or persistence authority, implement pane/tab source
+families, change Command Bar, split targets, or add a scheduler, worker pool,
+retry system, second projection path, or parallel proof framework.
+
+Later sections retain family-wide lifecycle and measurement context. For this
+goal, descriptions of existing workers, one-shot preparation, future fallible
+adopters, Command Bar, or unrelated infrastructure are non-governing. Only
+measurement corrections required to prove this Tab Bar slice may change, and
+they remain part of PR 2 rather than a separate implementation slice.
+
 ## 1. Decision Summary
 
 AgentStudio will use one narrow reusable lifecycle for replaceable,
@@ -600,8 +626,8 @@ queue does not report dropped records or a high-water mark. A matched
 distribution from those records can therefore omit pressure or measure the
 wrong boundary.
 
-One standalone measurement prerequisite must land before Tab Bar performance
-acceptance:
+Within PR 2, the following measurement corrections must land before Tab Bar
+performance acceptance:
 
 ```text
 Lazy hot attributes; disabled tags do no rich work ─────────┐
@@ -611,10 +637,10 @@ Interaction to visible/current-result boundary ───────────
 Source, executable, workload, and event provenance ─────────┘
 ```
 
-This prerequisite extends the existing trace queue, Victoria workload, and
-comparator. It is not a new telemetry framework and is not a reactive-state
-migration slice. Correctness implementation may proceed before it, but no
-performance acceptance or improvement claim may pass without it.
+This proof work extends the existing trace queue, Victoria workload, and
+comparator. It is not a new telemetry framework or a third implementation
+slice. Correctness implementation may proceed before it, but no performance
+acceptance or improvement claim may pass without it.
 
 Before candidate results exist, the slice freezes:
 
@@ -629,7 +655,7 @@ Before candidate results exist, the slice freezes:
 - tab, pane, repo, and worktree cardinality;
 - event-continuity and final rendered-state oracles.
 
-After the measurement prerequisite exists, the event hard cut preserves an
+After these measurement corrections exist, the event hard cut preserves an
 exact comparison mapping:
 
 - the existing `performance.tabbar.refresh` baseline event maps to one
@@ -693,7 +719,7 @@ not a permanent runtime compatibility branch.
 | RS-11–RS-12 | Sendable request/result and internally detached projector | Compiler harness plus source/behavior proof that variable work is outside `MainActor` |
 | RS-13–RS-14 | Generation admission, synchronous source revocation, and owner shutdown | Controlled cancellation, pre-successor stale completion, overlap, and cleanup tests without wall-clock sleeps |
 | RS-21–RS-23 | Narrow generic interface and product-owned request/projector | Architecture rules and target-build proof |
-| RS-24–RS-26 | Standalone measurement prerequisite plus trace events and controlled Tab Bar workload | Lazy disabled-path attributes, trace-queue completeness, phase and interaction-to-visible boundaries, provenance equality, independent continuity oracle, distributions, and frozen regression boundary |
+| RS-24–RS-26 | PR 2 measurement corrections plus trace events and controlled Tab Bar workload | Lazy disabled-path attributes, trace-queue completeness, phase and interaction-to-visible boundaries, provenance equality, independent continuity oracle, distributions, and frozen regression boundary |
 | RS-27–RS-28 | Real adapter and isolated debug app | Unit/integration/runtime pyramid plus launch, tab navigation, typing, scrolling, animation, and state-change proof |
 
 The cancellation harness uses explicit gates or continuations to hold N,

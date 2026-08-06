@@ -6,6 +6,32 @@ Governing Requirements:
 Governing Specification:
 [Reactive State System Specification](2026-07-31-reactive-state-system-specification.md)
 
+## Implementation Boundary
+
+This document governs PR 1 only:
+
+```text
+AtomFamily + lazy DerivedAtom
+  └── Repo Explorer keyed worktree-facts admission
+```
+
+In scope are the hard primitive renames, stable/tombstoned keyed slots,
+revision-keyed lazy caching, the retained worktree-facts derived nodes, removal
+of nil-slot pruning while preserving stale-value cleanup, Repo Explorer's keyed
+request admission, and the smallest static/semantic/runtime/performance proof
+required by this slice.
+
+This PR does not implement `EagerDerivedAtom`, Tab Bar materialization,
+persistence changes, other source-family migrations, Repo Explorer or Inbox
+worker migrations, a generic `DerivedAtomFamily`, Command Bar work, target
+splitting, or a new reactive, benchmark, telemetry, debug, lint, or test
+framework.
+
+Later sections retain family-wide design context. For this goal, descriptions
+of pane, tab, topology, session, terminal-activity, Inbox, or Command Bar
+surfaces are non-governing and create no implementation task or proof
+obligation. This PR 1 boundary controls if later context is broader.
+
 ## 1. Decision Summary
 
 AgentStudio keeps Swift Observation and its bottom-up product atom graph.

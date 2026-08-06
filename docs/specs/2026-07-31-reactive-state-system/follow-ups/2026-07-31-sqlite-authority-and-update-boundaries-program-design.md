@@ -1,10 +1,16 @@
 # SQLite Authority and Update Boundaries — Program Design
 
 Governing Requirements:
-[Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md)
+[Reactive State System Requirements](../2026-07-31-reactive-state-system-requirements.md)
 
 Governing Specification:
-[Reactive State System Specification](2026-07-31-reactive-state-system-specification.md)
+[Reactive State System Specification](../2026-07-31-reactive-state-system-specification.md)
+
+## Follow-Up Boundary
+
+This document is retained for a separately authorized persistence follow-up. It
+is not a governing input, dependency, task source, or proof obligation for the
+two active atom pull requests in the parent [Program Design](../README.md).
 
 ## 1. Decision Summary
 
@@ -704,16 +710,16 @@ user-visible state through the real app path.
 
 | Source | Identity | Authority and applicability |
 |---|---|---|
-| Governing Requirements | [Reactive State System Requirements](2026-07-31-reactive-state-system-requirements.md) | Normative Why and authorized boundary |
-| Governing Specification | [Reactive State System Specification](2026-07-31-reactive-state-system-specification.md) | Normative persistence authority, consistency, failure, and proof obligations |
+| Governing Requirements | [Reactive State System Requirements](../2026-07-31-reactive-state-system-requirements.md) | Normative Why and authorized boundary |
+| Governing Specification | [Reactive State System Specification](../2026-07-31-reactive-state-system-specification.md) | Normative persistence authority, consistency, failure, and proof obligations |
 | Current repository | Git `f7a01132f9ac5d02981e00856750936f80acb61f` (`origin/main`) | Current implementation and test evidence baseline |
-| [`WorkspaceStore.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift) | Current source at repository identity above | Current composition load/save owner that already retains topology |
-| [`RepositoryTopologyStore.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/RepositoryTopologyStore.swift) | Current source at repository identity above | Current second Core autosave owner to remove |
-| [`WorkspaceSQLiteSaveCoordinator.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteSaveCoordinator.swift) | Current source at repository identity above | Current capture/off-main preparation boundary |
-| [`WorkspaceSQLiteDatastore.swift`](../../../Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift) | Current source at repository identity above | Current serialized workspace save and three-step settings call |
-| [`WorkspaceCoreRepository.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository.swift) and topology extension | Current source at repository identity above | Existing separate Core transaction methods and one-read restore |
-| [`WorkspaceLocalRepository.swift`](../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceLocalRepository.swift) and storage helpers | Current source at repository identity above | Existing settings row functions and per-lane transactions |
-| [`WorkspaceSettingsStore.swift`](../../../Sources/AgentStudio/App/Coordination/WorkspaceSettingsStore.swift) | Current source at repository identity above | Current logical settings save/hydration owner |
+| [`WorkspaceStore.swift`](../../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift) | Current source at repository identity above | Current composition load/save owner that already retains topology |
+| [`RepositoryTopologyStore.swift`](../../../../Sources/AgentStudio/Core/State/MainActor/Persistence/RepositoryTopologyStore.swift) | Current source at repository identity above | Current second Core autosave owner to remove |
+| [`WorkspaceSQLiteSaveCoordinator.swift`](../../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceSQLiteSaveCoordinator.swift) | Current source at repository identity above | Current capture/off-main preparation boundary |
+| [`WorkspaceSQLiteDatastore.swift`](../../../../Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore.swift) | Current source at repository identity above | Current serialized workspace save and three-step settings call |
+| [`WorkspaceCoreRepository.swift`](../../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceCoreRepository.swift) and topology extension | Current source at repository identity above | Existing separate Core transaction methods and one-read restore |
+| [`WorkspaceLocalRepository.swift`](../../../../Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceLocalRepository.swift) and storage helpers | Current source at repository identity above | Existing settings row functions and per-lane transactions |
+| [`WorkspaceSettingsStore.swift`](../../../../Sources/AgentStudio/App/Coordination/WorkspaceSettingsStore.swift) | Current source at repository identity above | Current logical settings save/hydration owner |
 | Current GRDB persistence suites | Current tests at repository identity above | Existing rollback, restore, strict-read, corruption, and save/reload floor |
 
 Scoped completeness covers Core composition, topology, local continuation,
