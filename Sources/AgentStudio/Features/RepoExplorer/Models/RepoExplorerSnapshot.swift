@@ -11,11 +11,11 @@ package enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, 
     var title: String {
         switch self {
         case .repo:
-            return "Repo"
+            return "By Repo"
         case .pane:
-            return "Pane"
+            return "By Pane"
         case .tab:
-            return "Tab"
+            return "By Tab"
         }
     }
 

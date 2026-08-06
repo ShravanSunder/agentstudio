@@ -118,9 +118,6 @@ struct SidebarSurfaceHost: View {
                         )
                     )
                 },
-                onRefreshWorktrees: {
-                    AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
-                },
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onShowNotificationsForWorktree: { worktree in

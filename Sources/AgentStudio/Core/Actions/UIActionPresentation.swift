@@ -78,6 +78,7 @@ package enum LocalActionSpec {
     case quickOpen
     case commandPalette
     case goToPane
+    case createNew
     case openInCurrentTabMenu
     case openInNewTabMenu
     case openInEditorMenu
@@ -136,6 +137,8 @@ package enum LocalActionSpec {
                 label: "Command Palette", helpText: "Show the command palette", icon: .system(.command))
         case .goToPane:
             return ActionSpec(label: "Go to Pane", helpText: "Show the pane picker", icon: .system(.terminal))
+        case .createNew:
+            return ActionSpec(label: "Create New", helpText: "Choose what to create", icon: .system(.plus))
         case .openInCurrentTabMenu:
             return ActionSpec(
                 label: "Open in Current Tab", helpText: "Choose what to open in the current tab",

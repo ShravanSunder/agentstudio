@@ -519,14 +519,14 @@ package actor WorkspaceSQLiteDatastore {
     func loadSidebarState(workspaceContextId: UUID) async -> LocalSidebarLoadResult {
         do {
             let repository = try preparedLocalRepository(workspaceId: workspaceContextId)
-            return .loaded(try repository.fetchExpandedGroups())
+            return .loaded(try repository.fetchCollapsedGroups())
         } catch {
             return .unavailable(.init(error))
         }
     }
 
     func saveSidebarState(
-        expandedGroups: Set<SidebarGroupKey>,
+        collapsedGroups: Set<SidebarGroupKey>,
         workspaceContextId: UUID
     ) async throws {
         await traceRecorder.recordOperation(
@@ -539,7 +539,7 @@ package actor WorkspaceSQLiteDatastore {
         )
         let repository = try preparedLocalRepository(workspaceId: workspaceContextId)
         do {
-            try repository.replaceExpandedGroups(expandedGroups, updatedAt: Date())
+            try repository.replaceCollapsedGroups(collapsedGroups, updatedAt: Date())
             await traceRecorder.recordOperation(
                 .sidebarSave,
                 phase: .writeLocal,

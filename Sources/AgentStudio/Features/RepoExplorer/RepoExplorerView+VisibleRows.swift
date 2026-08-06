@@ -195,8 +195,14 @@ enum RepoExplorerVisibleRows {
         guard lowerBound < upperBound else { return [] }
 
         return entries[lowerBound..<upperBound].reduce(into: Set<UUID>()) { result, entry in
-            guard case .resolvedWorktreeRow(_, _, let worktreeId, _) = entry else { return }
-            result.insert(worktreeId)
+            switch entry {
+            case .resolvedWorktreeRow(_, _, let worktreeId, _):
+                result.insert(worktreeId)
+            case .resolvedPaneRow(_, let identity, _):
+                result.insert(identity.worktreeId)
+            case .resolvedGroupHeader, .topologyFault:
+                break
+            }
         }
     }
 

@@ -1,0 +1,105 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import Foundation
+import Testing
+
+@testable import AgentStudioRepoExplorer
+
+@MainActor
+private final class VisibleWorktreeCallbackRecorder {
+    private(set) var callCount = 0
+
+    func record() {
+        callCount += 1
+    }
+}
+
+@MainActor
+@Suite("RepoExplorer visible rows")
+struct RepoExplorerVisibleRowsTests {
+    @Test("visible row range maps worktree and pane leaves to owning worktrees")
+    func visibleRowRangeMapsWorktreeAndPaneLeaves() {
+        let firstRepoId = UUIDv7.generate()
+        let secondRepoId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let group = RepoPresentationGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: []
+        )
+        let entries: [RepoExplorerListEntry] = [
+            .resolvedGroupHeader(group),
+            .resolvedWorktreeRow(
+                groupId: group.id,
+                repoId: firstRepoId,
+                worktreeId: firstWorktreeId,
+                rowId: "first"
+            ),
+            .resolvedWorktreeRow(
+                groupId: group.id,
+                repoId: secondRepoId,
+                worktreeId: secondWorktreeId,
+                rowId: "second"
+            ),
+            .resolvedPaneRow(
+                groupId: group.id,
+                identity: RepoExplorerPaneListEntryIdentity(
+                    repoId: secondRepoId,
+                    worktreeId: secondWorktreeId,
+                    paneId: UUIDv7.generate()
+                ),
+                rowId: "pane"
+            ),
+        ]
+
+        #expect(
+            RepoExplorerVisibleRows.worktreeIds(
+                in: entries,
+                rowRange: NSRange(location: 0, length: 2)
+            ) == [firstWorktreeId]
+        )
+        #expect(
+            RepoExplorerVisibleRows.worktreeIds(
+                in: entries,
+                rowRange: NSRange(location: 2, length: 2)
+            ) == [secondWorktreeId]
+        )
+        #expect(
+            RepoExplorerVisibleRows.worktreeIds(
+                in: entries,
+                rowRange: NSRange(location: 3, length: 1)
+            ) == [secondWorktreeId]
+        )
+        #expect(
+            RepoExplorerVisibleRows.worktreeIds(
+                in: entries,
+                rowRange: NSRange(location: NSNotFound, length: 0)
+            ).isEmpty
+        )
+    }
+
+    @Test("visible worktree publication replaces atom state and invokes callback")
+    func visibleWorktreePublicationReplacesAtomStateAndInvokesCallback() {
+        let atom = SidebarVisibleWorktreesRuntimeAtom()
+        let recorder = VisibleWorktreeCallbackRecorder()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        atom.setVisibleWorktreeIds([firstWorktreeId])
+
+        RepoExplorerVisibleRows.publish(
+            [secondWorktreeId],
+            into: atom,
+            onChange: recorder.record
+        )
+
+        #expect(atom.visibleWorktreeIds == [secondWorktreeId])
+        #expect(recorder.callCount == 1)
+
+        RepoExplorerVisibleRows.publish([], into: atom, onChange: recorder.record)
+
+        #expect(atom.visibleWorktreeIds.isEmpty)
+        #expect(recorder.callCount == 2)
+    }
+}

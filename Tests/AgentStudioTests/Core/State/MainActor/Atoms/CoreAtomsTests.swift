@@ -23,7 +23,7 @@ struct CoreAtomsTests {
         let repoEnrichmentCache = RepoEnrichmentCacheAtom()
         let applicationEntityRecency = ApplicationEntityRecencyAtom()
         let workspaceEntityRecency = WorkspaceEntityRecencyAtom()
-        let sidebarExpandedGroup = SidebarExpandedGroupAtom()
+        let sidebarCollapsedGroup = SidebarCollapsedGroupAtom()
         let arrangementPanelPresentation = ArrangementPanelPresentationAtom()
         let workspaceSidebarMemory = WorkspaceSidebarMemoryAtom()
         let sidebarFocusRuntime = SidebarFocusRuntimeAtom()
@@ -50,7 +50,7 @@ struct CoreAtomsTests {
             repoEnrichmentCache: repoEnrichmentCache,
             applicationEntityRecency: applicationEntityRecency,
             workspaceEntityRecency: workspaceEntityRecency,
-            sidebarExpandedGroup: sidebarExpandedGroup,
+            sidebarCollapsedGroup: sidebarCollapsedGroup,
             arrangementPanelPresentation: arrangementPanelPresentation,
             workspaceSidebarMemory: workspaceSidebarMemory,
             sidebarFocusRuntime: sidebarFocusRuntime,
@@ -77,7 +77,7 @@ struct CoreAtomsTests {
         #expect(coreAtoms.repoEnrichmentCache === repoEnrichmentCache)
         #expect(coreAtoms.applicationEntityRecency === applicationEntityRecency)
         #expect(coreAtoms.workspaceEntityRecency === workspaceEntityRecency)
-        #expect(coreAtoms.sidebarExpandedGroup === sidebarExpandedGroup)
+        #expect(coreAtoms.sidebarCollapsedGroup === sidebarCollapsedGroup)
         #expect(coreAtoms.arrangementPanelPresentation === arrangementPanelPresentation)
         #expect(coreAtoms.workspaceSidebarMemory === workspaceSidebarMemory)
         #expect(coreAtoms.sidebarFocusRuntime === sidebarFocusRuntime)
@@ -106,8 +106,8 @@ struct CoreAtomsTests {
         #expect(coreAtoms.repoCache.enrichmentCacheAtom === coreAtoms.repoEnrichmentCache)
 
         let sidebarGroup = SidebarGroupKey("repo:core-atoms")
-        coreAtoms.sidebarExpandedGroup.setGroupExpanded(sidebarGroup, isExpanded: true)
-        #expect(coreAtoms.sidebarCache.expandedGroups.contains(sidebarGroup))
+        coreAtoms.sidebarCollapsedGroup.setGroupExpanded(sidebarGroup, isExpanded: false)
+        #expect(coreAtoms.sidebarCache.collapsedGroups.contains(sidebarGroup))
 
         coreAtoms.workspaceSidebarMemory.setSidebarSurface(.inbox)
         coreAtoms.sidebarFocusRuntime.setSidebarHasFocus(true)
