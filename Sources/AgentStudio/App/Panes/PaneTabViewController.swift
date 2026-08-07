@@ -4026,6 +4026,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return targetedPaneCapability
         }
 
+        if let targetedRepositoryCapability = targetedRepositoryCommandCapability(
+            command,
+            target: target,
+            targetType: targetType
+        ) {
+            return targetedRepositoryCapability
+        }
+
         if command == .previousArrangement || command == .nextArrangement {
             guard
                 targetType == .tab,
@@ -4105,6 +4113,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return !arrangementTarget.arrangement.isDefault
         default:
             return false
+        }
+    }
+
+    private func targetedRepositoryCommandCapability(
+        _ command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> Bool? {
+        switch (command, targetType) {
+        case (.addRepoFavorite, .repo), (.removeRepoFavorite, .repo):
+            return store.repositoryTopologyAtom.repo(target) != nil
+        case (.openWorktree, .worktree),
+            (.openWorktreeInPane, .worktree),
+            (.openNewTerminalInTab, .worktree):
+            return store.repositoryTopologyAtom.worktree(target) != nil
+        default:
+            return nil
         }
     }
 
