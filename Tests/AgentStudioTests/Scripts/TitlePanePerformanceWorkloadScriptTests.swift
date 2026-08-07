@@ -6,6 +6,25 @@ import Testing
 
 @Suite("Title and pane performance workload verifier")
 struct TitlePanePerformanceWorkloadScriptTests {
+    @Test("uses the system Python-compatible Victoria timestamp parser")
+    func systemPythonCompatibleVictoriaTimestampParser() async throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        let result = try await DefaultProcessExecutor(timeout: 10).execute(
+            command: "/usr/bin/python3",
+            args: [
+                "-c",
+                "import datetime, sys; print(datetime.datetime.strptime(sys.argv[1], '%Y-%m-%dT%H:%M:%S.%f%z').microsecond)",
+                "2026-08-07T13:07:54.00921+00:00",
+            ],
+            cwd: URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+            environment: nil
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "9210")
+        #expect(source.contains("parsed = datetime.datetime.strptime(timestamp, \"%Y-%m-%dT%H:%M:%S.%f%z\")"))
+    }
+
     @Test("combined verifier keeps one authenticated marker-scoped runtime path")
     func combinedRuntimeContractAndSyntax() async throws {
         let syntax = try await DefaultProcessExecutor(timeout: 10).execute(

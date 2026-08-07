@@ -298,7 +298,8 @@ def wait_for_startup_diagnostic_completion(timeout=20):
     raise RuntimeError("timed out waiting for startup diagnostic completion")
 def record_time_ns(record):
     timestamp = str(record.get("_time", "")).replace("Z", "+00:00")
-    return int(datetime.datetime.fromisoformat(timestamp).timestamp() * 1_000_000_000)
+    parsed = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f%z")
+    return int(parsed.timestamp() * 1_000_000_000)
 request("auth.login", {"token":token})
 request("command.execute", {"commandId":"showWorktreeSidebar","targetHandle":None,"arguments":{}})
 pane = wait_for_terminal_pane()
