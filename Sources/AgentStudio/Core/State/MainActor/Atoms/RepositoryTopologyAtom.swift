@@ -49,7 +49,11 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
     package func repoAndWorktree(
         containing cwd: URL?
     ) -> (repo: Repo, worktree: Worktree)? {
-        try! repoAndWorktree(containing: cwd, cancellationCheck: {})
+        do {
+            return try repoAndWorktree(containing: cwd, cancellationCheck: {})
+        } catch {
+            return nil
+        }
     }
 }
 

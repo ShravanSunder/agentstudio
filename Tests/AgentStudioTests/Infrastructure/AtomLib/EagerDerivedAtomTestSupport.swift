@@ -1,4 +1,5 @@
 import Dispatch
+import Foundation
 import Observation
 import Synchronization
 import Testing
@@ -6,23 +7,47 @@ import Testing
 @testable import AgentStudioInfrastructure
 
 final class EagerDerivedAtomTestSignal: Sendable {
-    private static let maximumYieldCount = 10_000
-    private let isSignaled = Mutex(false)
+    private struct State {
+        var isSignaled = false
+        var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    }
+
+    private let state = Mutex(State())
 
     func signal() {
-        isSignaled.withLock { isSignaled in
-            isSignaled = true
+        let waiters = state.withLock { state -> [CheckedContinuation<Bool, Never>] in
+            guard !state.isSignaled else { return [] }
+            state.isSignaled = true
+            let waiters = Array(state.waiters.values)
+            state.waiters.removeAll()
+            return waiters
+        }
+        for waiter in waiters {
+            waiter.resume(returning: true)
         }
     }
 
     func wait() async -> Bool {
-        for _ in 0..<Self.maximumYieldCount {
-            if isSignaled.withLock({ $0 }) {
-                return true
+        let waiterID = UUIDv7.generate()
+        return await withCheckedContinuation { continuation in
+            let shouldResumeImmediately = state.withLock { state in
+                if state.isSignaled {
+                    return true
+                }
+                state.waiters[waiterID] = continuation
+                return false
             }
-            await Task.yield()
+            if shouldResumeImmediately {
+                continuation.resume(returning: true)
+                return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) { [weak self] in
+                let timedOutContinuation = self?.state.withLock { state in
+                    state.waiters.removeValue(forKey: waiterID)
+                }
+                timedOutContinuation?.resume(returning: false)
+            }
         }
-        return isSignaled.withLock { $0 }
     }
 }
 
@@ -124,20 +149,44 @@ typealias EagerDerivedAtomTestNode = EagerDerivedAtom<
 >
 
 final class EagerDerivedAtomCompletionRecorder: Sendable {
-    private let completions = Mutex<[EagerDerivedAtomTestNode.ProjectionCompletion]>([])
+    private struct State {
+        var completions: [EagerDerivedAtomTestNode.ProjectionCompletion] = []
+        var waiters:
+            [(
+                expected: EagerDerivedAtomTestNode.ProjectionCompletion,
+                signal: EagerDerivedAtomTestSignal
+            )] = []
+    }
+
+    private let state = Mutex(State())
 
     func record(_ completion: EagerDerivedAtomTestNode.ProjectionCompletion) {
-        completions.withLock { $0.append(completion) }
+        let readySignals = state.withLock { state -> [EagerDerivedAtomTestSignal] in
+            state.completions.append(completion)
+            var readySignals: [EagerDerivedAtomTestSignal] = []
+            state.waiters.removeAll { waiter in
+                guard waiter.expected == completion else { return false }
+                readySignals.append(waiter.signal)
+                return true
+            }
+            return readySignals
+        }
+        for signal in readySignals {
+            signal.signal()
+        }
     }
 
     func wait(for expectedCompletion: EagerDerivedAtomTestNode.ProjectionCompletion) async -> Bool {
-        for _ in 0..<10_000 {
-            if completions.withLock({ $0.contains(expectedCompletion) }) {
-                return true
+        let signal = state.withLock { state -> EagerDerivedAtomTestSignal? in
+            guard !state.completions.contains(expectedCompletion) else {
+                return nil
             }
-            await Task.yield()
+            let signal = EagerDerivedAtomTestSignal()
+            state.waiters.append((expectedCompletion, signal))
+            return signal
         }
-        return completions.withLock { $0.contains(expectedCompletion) }
+        guard let signal else { return true }
+        return await signal.wait()
     }
 }
 
