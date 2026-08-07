@@ -227,7 +227,7 @@ EagerDerivedAtom<
   admit(request)
   stop()
   value: Value?
-  freshness: idle | running | current | stopped
+  freshness: idle | running(RequestIdentity) | invalidated(RequestIdentity) | current(RequestIdentity) | stopped
   revision: Int
 ```
 
@@ -392,8 +392,12 @@ projection implementations.
 
 ### 9.2 Request capture
 
-`TabBarAdapter` remains the App-owned bridge and ephemeral UI owner. Its
-source-observation closure captures a `TabBarProjectionRequest` containing:
+`TabBarAdapter` is the window-scoped App bridge, materialization owner, and
+ephemeral UI owner. The App window factory constructs one adapter for each
+`MainWindowController` from process-owned Core, Feature, and action
+dependencies; it does not retain one observing adapter across controller
+replacement. The adapter's source-observation closure captures a
+`TabBarProjectionRequest` containing:
 
 - tab shells, tab graph, arrangement cursors, and active-tab identity;
 - pane graph and drawer facts required for display;
@@ -579,12 +583,19 @@ Generation/request identity and the synchronously advanced revocation epoch are
 the final correctness guards. Cancellation is a resource optimization, not the
 stale-result guarantee.
 
-For the first product slice, `PaneTabViewController.shutdown()` calls
-`TabBarAdapter.stop()`, which idempotently stops the retained node before the
-controller releases its tab-bar consumer. Adapter deinitialization performs the
-same stop defensively, but deinitialization is not the primary lifecycle
-trigger. Workspace/controller replacement uses that same explicit shutdown
-path. A stopped node rejects every later admission.
+For the first product slice, window close, controller replacement, and
+application termination invoke `MainWindowController.shutdown()`. It calls
+`MainSplitViewController.shutdown()` -> `PaneTabViewController.shutdown()` ->
+`TabBarAdapter.stop()` before releasing the host. That idempotently stops the
+retained node and rejects every later admission. Adapter deinitialization
+performs the same stop defensively, but deinitialization is not the primary
+lifecycle trigger.
+
+Canonical Core and Feature state survives window replacement. The stopped
+adapter's materialized cache and transient drag, overflow, and geometry state
+do not. Reopening constructs a fresh adapter and node through the App window
+factory and starts a fresh first admission. A headless process does not retain
+or run a process-owned Tab Bar adapter observation.
 
 ## 13. Telemetry and Capacity
 
