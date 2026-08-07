@@ -4,6 +4,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 private final class TabBarPublicationCounter: @unchecked Sendable {
@@ -11,6 +12,25 @@ private final class TabBarPublicationCounter: @unchecked Sendable {
 
     func record() {
         publicationCount += 1
+    }
+}
+
+@MainActor
+private final class TabBarNotificationDotDerivationRecorder {
+    private var derivationCountByPaneID: [UUID: Int] = [:]
+
+    func record(paneIDs: [UUID]) {
+        for paneID in paneIDs {
+            derivationCountByPaneID[paneID, default: 0] += 1
+        }
+    }
+
+    func reset() {
+        derivationCountByPaneID.removeAll()
+    }
+
+    func derivationCount(for paneID: UUID) -> Int {
+        derivationCountByPaneID[paneID, default: 0]
     }
 }
 
@@ -37,7 +57,9 @@ final class TabBarAdapterTests {
         repoCache = nil
     }
 
-    private func resetFixture() {
+    private func resetFixture(
+        notificationDotDerivationRecorder: TabBarNotificationDotDerivationRecorder? = nil
+    ) {
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -51,12 +73,10 @@ final class TabBarAdapterTests {
             store: store,
             repoCache: repoCache,
             notificationDotColorProvider: { paneIds in
-                AppDelegate.tabNotificationDotColor(
+                notificationDotDerivationRecorder?.record(paneIDs: paneIds)
+                return AppDelegate.tabNotificationDotColor(
                     for: notificationAtom.attentionLane(forPaneIds: paneIds)
                 )
-            },
-            observeNotificationDotInputs: {
-                _ = notificationAtom.notifications
             }
         )
     }
@@ -293,6 +313,71 @@ final class TabBarAdapterTests {
         let secondTab = try #require(adapter.tabs[safe: 1], "Expected two derived tabs to exist")
         #expect(firstTab.id == tab1.id)
         #expect(secondTab.id == tab2.id)
+    }
+
+    @Test("notification mutation rederives only the tab containing its pane")
+    func notificationMutationRederivesOnlyOwningTab() async throws {
+        let derivationRecorder = TabBarNotificationDotDerivationRecorder()
+        resetFixture(notificationDotDerivationRecorder: derivationRecorder)
+        let paneA = store.createPane(title: "Pane A")
+        let paneB = store.createPane(title: "Pane B")
+        let tabA = Tab(paneId: paneA.id)
+        let tabB = Tab(paneId: paneB.id)
+        store.appendTab(tabA)
+        store.appendTab(tabB)
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.count == 2)
+        derivationRecorder.reset()
+
+        inboxAtom.append(
+            InboxNotification(
+                id: UUIDv7.generate(),
+                timestamp: Date(timeIntervalSince1970: 100),
+                kind: .approvalRequested,
+                title: "Approval requested",
+                body: nil,
+                source: .pane(.init(paneId: paneA.id)),
+                claimKey: .init(
+                    paneId: paneA.id,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: nil
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        await waitForAdapterRefresh()
+
+        #expect(derivationRecorder.derivationCount(for: paneA.id) == 1)
+        #expect(derivationRecorder.derivationCount(for: paneB.id) == 0)
+        #expect(adapter.tabs.first { $0.id == tabA.id }?.notificationDotColor == .red)
+        #expect(adapter.tabs.first { $0.id == tabB.id }?.notificationDotColor == nil)
+
+        derivationRecorder.reset()
+        inboxAtom.append(
+            InboxNotification(
+                id: UUIDv7.generate(),
+                timestamp: Date(timeIntervalSince1970: 101),
+                kind: .approvalRequested,
+                title: "Another approval requested",
+                body: nil,
+                source: .pane(.init(paneId: paneA.id)),
+                claimKey: .init(
+                    paneId: paneA.id,
+                    lane: .actionNeeded,
+                    semantic: .approvalRequested,
+                    sessionId: nil
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+        await waitForAdapterRefresh()
+
+        #expect(derivationRecorder.derivationCount(for: paneA.id) == 0)
+        #expect(derivationRecorder.derivationCount(for: paneB.id) == 0)
+        #expect(adapter.tabs.first { $0.id == tabA.id }?.notificationDotColor == .red)
     }
 
     @Test("pane title mutation updates only its dependent cached tab item")

@@ -84,7 +84,6 @@ final class TabBarAdapter {
     private let repoCache: RepoCacheAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let notificationDotColorProvider: @MainActor ([UUID]) -> TabNotificationDotColor?
-    private let observeNotificationDotInputs: @MainActor () -> Void
     private var isObservingManagementLayer = false
     private var isObservingTabCollection = false
     private var isReconcilingTabObservers = false
@@ -96,14 +95,12 @@ final class TabBarAdapter {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        notificationDotColorProvider: @escaping @MainActor ([UUID]) -> TabNotificationDotColor? = { _ in nil },
-        observeNotificationDotInputs: @escaping @MainActor () -> Void = {}
+        notificationDotColorProvider: @escaping @MainActor ([UUID]) -> TabNotificationDotColor? = { _ in nil }
     ) {
         self.store = store
         self.repoCache = repoCache
         self.performanceTraceRecorder = performanceTraceRecorder
         self.notificationDotColorProvider = notificationDotColorProvider
-        self.observeNotificationDotInputs = observeNotificationDotInputs
         observe()
     }
 
@@ -228,7 +225,6 @@ final class TabBarAdapter {
         let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
         let zoomMode = arrangementDerived.zoomMode(for: tab.id)
         let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
-        observeNotificationDotInputs()
         let notificationDotColor = notificationDotColorProvider(Array(tab.allPaneIds))
         let zoomManagementTitle = zoomPresentation.flatMap { presentation in
             ZoomManagementTitle.text(
@@ -275,36 +271,6 @@ final class TabBarAdapter {
                 "agentstudio.performance.tabbar.pane.count": .int(tabs.reduce(0) { $0 + $1.panes.count }),
             ]
         )
-    }
-
-    private func paneDisplayTitle(for paneId: UUID) -> String {
-        guard let pane = store.paneAtom.pane(paneId) else {
-            return "Terminal"
-        }
-
-        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
-
-        if let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let repo = store.repositoryTopologyAtom.repo(repoId),
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-        {
-            let repoName = pane.metadata.repoName ?? repo.name
-            let branchName = atom(\.paneDisplay).resolvedBranchName(
-                worktree: worktree,
-                enrichment: repoCache.worktreeEnrichment(for: worktree.id)
-            )
-            return "\(repoName) | \(branchName) | \(worktree.path.lastPathComponent)"
-        }
-
-        if let cwdFolderName = pane.metadata.cwd?.lastPathComponent,
-            !cwdFolderName.isEmpty
-        {
-            return cwdFolderName
-        }
-
-        return defaultLabel
     }
 
     private func updateOverflow() {

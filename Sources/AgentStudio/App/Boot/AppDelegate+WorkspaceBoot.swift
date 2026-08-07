@@ -379,9 +379,6 @@ extension AppDelegate {
                 Self.tabNotificationDotColor(
                     for: inboxNotification.attentionLane(forPaneIds: paneIds)
                 )
-            },
-            observeNotificationDotInputs: {
-                _ = inboxNotification.notifications
             }
         )
         commandBarController = CommandBarPanelController(
