@@ -187,6 +187,7 @@ DATA_DIR="$(decode_state AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
 IPC_RUNTIME_FILE="$DATA_DIR/ipc/runtime.json"
 IPC_DEBUG_TOKEN_FILE="$DATA_DIR/ipc/debug-token"
 IPC_READINESS_ATTEMPTS=80
+METRIC_EXPORT_ATTEMPTS=45
 ipc_readiness_attempt=0
 while [ "$ipc_readiness_attempt" -lt "$IPC_READINESS_ATTEMPTS" ]; do
   if [ -s "$IPC_DEBUG_TOKEN_FILE" ] \
@@ -405,7 +406,7 @@ drain_event='event="performance.terminal.accumulator_drain"'
 deadline_query='agentstudio_performance_event_elapsed_ms_max{'"$marker"','"$drain_event"',drain_class="title_deadline"}'
 immediate_query='agentstudio_performance_events_total{'"$marker"','"$drain_event"',drain_class="immediate"}'
 barrier_query='agentstudio_performance_events_total{'"$marker"','"$drain_event"',drain_class="exact_barrier"}'
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "$METRIC_EXPORT_ATTEMPTS"); do
   deadline_ms="$(query_value "$deadline_query")"
   immediate_count="$(query_value "$immediate_query")"
   barrier_count="$(query_value "$barrier_query")"
