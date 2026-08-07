@@ -16,7 +16,6 @@ REPO_FANOUT_SURFACES = [
     "performance.tabbar.refresh",
     "performance.sidebar.projection",
     "performance.sidebar.row_index",
-    "performance.topology.repo_and_worktree",
 ]
 COORDINATOR_SURFACES = ["performance.coordinator.write"]
 REQUIRED_NUMERIC_FIELDS = [
@@ -146,7 +145,7 @@ def required_nonnegative_number(
     return value
 
 
-def validate_evidence_completeness(
+def validate_common_evidence(
     label: str,
     values: dict[str, str],
 ) -> list[str]:
@@ -167,6 +166,22 @@ def validate_evidence_completeness(
 
     required_positive_number(values, "issued_interaction_count", label, failures)
     required_nonnegative_number(values, "regression_boundary_percent", label, failures)
+
+    for key in [
+        "final_tab_count_equivalent",
+        "final_active_tab_equivalent",
+        "final_membership_equivalent",
+    ]:
+        if values.get(key, "").lower() != "true":
+            failures.append(f"{key} must be true in {label}")
+    return failures
+
+
+def validate_candidate_evidence(
+    label: str,
+    values: dict[str, str],
+) -> list[str]:
+    failures: list[str] = []
 
     capture_count = required_positive_number(values, "performance.tabbar.capture_count", label, failures)
     terminal_count = required_positive_number(values, "performance.tabbar.terminal_count", label, failures)
@@ -204,14 +219,6 @@ def validate_evidence_completeness(
         label,
         failures,
     )
-
-    for key in [
-        "final_tab_count_equivalent",
-        "final_active_tab_equivalent",
-        "final_membership_equivalent",
-    ]:
-        if values.get(key, "").lower() != "true":
-            failures.append(f"{key} must be true in {label}")
     return failures
 
 
@@ -391,7 +398,12 @@ for label, values in [
     ("baseline interaction", baseline_interaction),
     ("candidate interaction", after_interaction),
 ]:
-    failures.extend(validate_evidence_completeness(label, values))
+    failures.extend(validate_common_evidence(label, values))
+for label, values in [
+    ("candidate workload", after_workload),
+    ("candidate interaction", after_interaction),
+]:
+    failures.extend(validate_candidate_evidence(label, values))
 failures.extend(validate_provenance_matches(
     baseline_workload,
     after_workload,

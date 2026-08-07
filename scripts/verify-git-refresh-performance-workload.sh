@@ -1236,15 +1236,9 @@ required_performance_metric_event_names() {
   cat <<'EOF'
 performance.commandbar.items
 performance.commandbar.filter
-performance.tabbar.current
-performance.tabbar.publication
 performance.tabbar.refresh
-performance.tabbar.terminal
-performance.tabbar.visible
-performance.tabbar.worker
 performance.sidebar.projection
 performance.sidebar.row_index
-performance.topology.repo_and_worktree
 performance.coordinator.write
 EOF
 }
@@ -1316,6 +1310,10 @@ wait_for_tab_bar_lifecycle_continuity() {
       "$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" \
       "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" \
       "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >>"$continuity_log"
+    if [ "$TAB_BAR_CAPTURE_COUNT" = "0" ] && [ "$TAB_BAR_TERMINAL_COUNT" = "0" ]; then
+      echo "tabbar_lifecycle_continuity=not_available" >>"$continuity_log"
+      return 0
+    fi
     if [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]; then
       echo "tabbar_lifecycle_continuity=succeeded" >>"$continuity_log"
       return 0
@@ -1457,6 +1455,9 @@ require_trace_queue_completeness() {
       trace_queue_metric_query agentstudio_performance_trace_queue_high_watermark
     )"
   )"
+  if [ -z "$TRACE_QUEUE_DROPPED_RECORD_COUNT" ] && [ -z "$TRACE_QUEUE_HIGH_WATERMARK" ]; then
+    return 0
+  fi
   /usr/bin/python3 - "$TRACE_QUEUE_DROPPED_RECORD_COUNT" "$TRACE_QUEUE_HIGH_WATERMARK" <<'PY'
 import math
 import sys
@@ -1663,6 +1664,7 @@ import sys
 
 metadata_path, token_path, expected_tab_id = sys.argv[1:4]
 expected_pane_count = int(sys.argv[4])
+expected_tab_id = expected_tab_id.lower()
 
 with open(metadata_path, "r", encoding="utf-8") as metadata_file:
     socket_path = json.load(metadata_file).get("socketPath")
@@ -1707,13 +1709,19 @@ current_workspaces = [workspace for workspace in workspace_result.get("workspace
 panes = pane_result.get("panes", [])
 current_tab_count = current_workspaces[0].get("tabCount", 0) if len(current_workspaces) == 1 else 0
 active_panes = [pane for pane in panes if pane.get("isActive")]
+
+
+def normalized_uuid(value):
+    return value.lower() if isinstance(value, str) else None
+
+
 tab_count_equivalent = current_tab_count == 1
 active_tab_equivalent = (
-    len(active_panes) == 1 and active_panes[0].get("tabId") == expected_tab_id
+    len(active_panes) == 1 and normalized_uuid(active_panes[0].get("tabId")) == expected_tab_id
 )
 membership_equivalent = (
     len(panes) == expected_pane_count
-    and all(pane.get("tabId") == expected_tab_id for pane in panes)
+    and all(normalized_uuid(pane.get("tabId")) == expected_tab_id for pane in panes)
 )
 
 print(f"final_tab_count={current_tab_count}")

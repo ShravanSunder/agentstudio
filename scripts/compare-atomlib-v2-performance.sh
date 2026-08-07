@@ -14,7 +14,7 @@ Usage: compare-atomlib-v2-performance.sh \
 
 Enforces the AtomLib v2 performance evidence contract:
   - baseline and candidate artifacts carry matched provenance and completeness;
-  - one terminal Tab Bar outcome exists per admitted capture with no trace-queue loss;
+  - the candidate has one terminal Tab Bar outcome per admitted capture with no trace-queue loss;
   - independent final-state read-back agrees with the fixture;
   - no targeted surface exceeds the regression boundary frozen in the baseline artifacts.
 USAGE

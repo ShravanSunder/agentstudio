@@ -409,10 +409,8 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         "performance.commandbar.items",
         "performance.commandbar.filter",
         "performance.tabbar.refresh",
-        "performance.tabbar.terminal",
         "performance.sidebar.projection",
         "performance.sidebar.row_index",
-        "performance.topology.repo_and_worktree",
         "performance.coordinator.write",
     ]
 

@@ -41,6 +41,51 @@ struct GitRefreshPerformanceComparatorScriptTests {
         #expect(!comparison.contains("threshold met"))
     }
 
+    @Test("performance comparator accepts a legacy baseline without candidate-only proof fields")
+    func performanceComparatorAcceptsLegacyBaselineWithoutCandidateOnlyProofFields() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        var baselineInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        for key in candidateOnlyEvidenceKeys {
+            baselineWorkloadValues.removeValue(forKey: key)
+            baselineInteractionValues.removeValue(forKey: key)
+        }
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: baselineWorkloadValues,
+            afterWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            baselineInteractionValues: baselineInteractionValues,
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
+    @Test("performance comparator does not require terminal-CWD topology evidence")
+    func performanceComparatorDoesNotRequireTerminalCWDTopologyEvidence() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        for key in Array(baselineWorkloadValues.keys)
+        where key.hasPrefix("performance.topology.repo_and_worktree.") {
+            baselineWorkloadValues.removeValue(forKey: key)
+            afterWorkloadValues.removeValue(forKey: key)
+        }
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: baselineWorkloadValues,
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
     @Test("performance comparator fails when coordinator write regresses")
     func performanceComparatorFailsWhenCoordinatorWriteRegresses() throws {
         let fixtureRoot = try temporaryFixtureRoot()
@@ -186,6 +231,31 @@ struct GitRefreshPerformanceComparatorScriptTests {
         #expect(result.exitCode != 0)
         #expect(
             result.stderr.contains("tab bar lifecycle continuity failed in candidate workload: capture=10 terminal=9"))
+    }
+
+    @Test("performance comparator requires lifecycle proof from the candidate")
+    func performanceComparatorRequiresCandidateLifecycleProof() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        afterWorkloadValues.removeValue(forKey: "performance.tabbar.capture_count")
+        afterWorkloadValues.removeValue(forKey: "performance.tabbar.terminal_count")
+        afterWorkloadValues.removeValue(forKey: "performance.tabbar.lifecycle_exact")
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.stderr.contains("missing required metric performance.tabbar.capture_count in candidate workload"))
+        #expect(
+            result.stderr.contains("missing required metric performance.tabbar.terminal_count in candidate workload"))
+        #expect(result.stderr.contains("performance.tabbar.lifecycle_exact must be true in candidate workload"))
     }
 
     @Test("performance comparator rejects duplicate and missing tab bar lifecycle sequences")
@@ -367,6 +437,18 @@ struct GitRefreshPerformanceComparatorScriptTests {
     }
 
     private let comparisonScriptPath = "scripts/compare-atomlib-v2-performance.sh"
+    private let candidateOnlyEvidenceKeys = [
+        "performance.tabbar.capture_count",
+        "performance.tabbar.terminal_count",
+        "performance.tabbar.lifecycle_exact",
+        "performance.tabbar.duplicate_capture_sequence_count",
+        "performance.tabbar.duplicate_terminal_sequence_count",
+        "performance.tabbar.missing_terminal_sequence_count",
+        "performance.tabbar.unexpected_terminal_sequence_count",
+        "performance.tabbar.invalid_terminal_outcome_count",
+        "agentstudio.performance.trace_queue.dropped_record.count",
+        "agentstudio.performance.trace_queue.high_watermark",
+    ]
     private func runScript(
         arguments: [String],
         environment: [String: String] = [:]
