@@ -319,6 +319,7 @@ struct CIFastLaneWorkflowTests {
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
 
         #expect(aggregateFilter.contains("EagerDerivedAtomTests"))
+        #expect(aggregateFilter.contains("TabBarAdapterTests"))
         #expect(aggregateFilter.contains("TabBarAdapterMaterializationTests"))
         #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))

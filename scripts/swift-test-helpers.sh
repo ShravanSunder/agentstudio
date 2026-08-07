@@ -46,6 +46,7 @@ large_serial_non_webkit_filter_pattern() {
 aggregate_serial_non_webkit_filter_pattern() {
   local patterns=(
     EagerDerivedAtomTests
+    TabBarAdapterTests
     TabBarAdapterMaterializationTests
   )
   local IFS="|"
