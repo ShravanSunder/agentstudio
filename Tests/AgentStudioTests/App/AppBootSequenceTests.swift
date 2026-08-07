@@ -267,7 +267,8 @@ struct AppBootSequenceTests {
         let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(
             traceRuntime: AgentStudioTraceRuntime(
                 configuration: AgentStudioTraceConfiguration.from(environment: [
-                    "AGENTSTUDIO_TRACE_TAGS": "off"
+                    "AGENTSTUDIO_TRACE_TAGS": "off",
+                    "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 ])
             )
         )

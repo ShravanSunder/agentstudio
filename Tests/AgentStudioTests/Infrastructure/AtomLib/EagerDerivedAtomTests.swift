@@ -2,6 +2,7 @@ import Testing
 
 @testable import AgentStudioInfrastructure
 
+@Suite(.serialized)
 @MainActor
 struct EagerDerivedAtomTests {
     @Test
