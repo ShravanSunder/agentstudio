@@ -304,6 +304,8 @@ struct AtomEntityMapObservationTests {
         let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: mutation)
         mutation.commit()
+        #expect(map.membershipKeys() == Set(["repo-a"]))
+        #expect(map.snapshot() == ["repo-a": 1])
         try await AtomPerformanceTelemetry.shared.drainForTests()
 
         let outputFileURL = try #require(runtime.outputFileURL)
@@ -313,6 +315,8 @@ struct AtomEntityMapObservationTests {
         #expect(contents.contains("\"agentstudio.trace.tag\":\"atoms\""))
         #expect(contents.contains("\"agentstudio.performance.atom.kind\":\"entity_map\""))
         #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"value\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"membership_keys\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"snapshot\""))
         #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"set\""))
         #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":1"))
     }

@@ -76,6 +76,17 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         return value
     }
 
+    package func membershipKeys() -> Set<Key> {
+        AtomPerformanceTelemetry.shared.recordRead(
+            kind: "entity_map",
+            label: telemetryLabel,
+            operation: "membership_keys",
+            slotCount: slots.count,
+            cachedKeyCount: cachedValues.count
+        )
+        return Set(cachedValues.keys)
+    }
+
     package func snapshot() -> [Key: Value] {
         AtomPerformanceTelemetry.shared.recordRead(
             kind: "entity_map",

@@ -303,7 +303,7 @@ package final class WorkspacePaneGraphAtom {
 
     package var paneIDs: Set<UUID> {
         _ = paneStateMap.membershipRevision.value
-        return Set(paneStateMap.snapshot().keys)
+        return paneStateMap.membershipKeys()
     }
 
     package var paneAcceptedCommitRevision: Int {

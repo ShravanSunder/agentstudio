@@ -45,20 +45,18 @@ final class RepoExplorerCommandPresentationBatch {
     private func refresh(observationID: UUID) {
         guard self.observationID == observationID else { return }
         let nextGeneration = snapshot.generation &+ 1
-        let resolution = withObservationTracking {
+        let requests = withObservationTracking {
             observeApprovedCapabilityFacts()
-            let requests = commandPresentationRequests()
-            let snapshot = dispatcher.repoExplorerCommandPresentationSnapshot(
-                requests: requests,
-                generation: nextGeneration
-            )
-            return (requests: requests, snapshot: snapshot)
+            return commandPresentationRequests()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refresh(observationID: observationID)
             }
         }
-        let nextSnapshot = resolution.snapshot
+        let nextSnapshot = dispatcher.repoExplorerCommandPresentationSnapshot(
+            requests: requests,
+            generation: nextGeneration
+        )
         if snapshot != nextSnapshot {
             let affectedItemCount = Self.affectedItemCount(
                 previous: snapshot.results,
@@ -69,7 +67,7 @@ final class RepoExplorerCommandPresentationBatch {
                 .repoExplorerCommandPresentation,
                 attributes: [
                     "agentstudio.performance.repo_explorer.affected_item.count": .int(affectedItemCount),
-                    "agentstudio.performance.repo_explorer.command_resolution.count": .int(resolution.requests.count),
+                    "agentstudio.performance.repo_explorer.command_resolution.count": .int(requests.count),
                     "agentstudio.performance.repo_explorer.capability_snapshot.count": .int(1),
                 ]
             )

@@ -17,7 +17,7 @@ struct HotPaneSnapshotReadsRule: ArchitectureRule {
 
     func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
         guard hotPathSuffixes.contains(where: context.normalizedPath.hasSuffix) else { return [] }
-        let visitor = BulkPaneSnapshotVisitor()
+        let visitor = BulkPaneReadVisitor()
         visitor.walk(context.sourceFile)
         return visitor.positions.map { position in
             diagnostic(context: context, position: position)
@@ -25,20 +25,24 @@ struct HotPaneSnapshotReadsRule: ArchitectureRule {
     }
 }
 
-private final class BulkPaneSnapshotVisitor: SyntaxVisitor {
+private final class BulkPaneReadVisitor: SyntaxVisitor {
     private(set) var positions: [AbsolutePosition] = []
 
     override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
         super.init(viewMode: viewMode)
     }
 
-    override func visitPost(_ node: MemberAccessExprSyntax) {
-        guard
-            node.declName.baseName.text == "paneSnapshot"
-                || node.declName.baseName.text == "paneStateSnapshot"
-        else {
-            return
-        }
-        positions.append(node.positionAfterSkippingLeadingTrivia)
+    override func visitPost(_ node: FunctionCallExprSyntax) {
+        guard let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self) else { return }
+        let functionName = memberAccess.declName.baseName.text
+        let argumentLabels = node.arguments.map { $0.label?.text }
+        let isProhibitedCall =
+            ((functionName == "paneSnapshot" || functionName == "paneStateSnapshot")
+                && argumentLabels.isEmpty)
+            || (functionName == "panes" && argumentLabels == ["for"])
+            || (functionName == "isWorktreeActive" && argumentLabels == [nil])
+            || (functionName == "orphanedPanes" && argumentLabels == ["excluding"])
+        guard isProhibitedCall else { return }
+        positions.append(memberAccess.positionAfterSkippingLeadingTrivia)
     }
 }
