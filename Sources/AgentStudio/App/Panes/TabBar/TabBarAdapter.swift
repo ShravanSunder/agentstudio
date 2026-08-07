@@ -86,7 +86,11 @@ final class TabBarAdapter {
     private let notificationDotColorProvider: @MainActor ([UUID]) -> TabNotificationDotColor?
     private let observeNotificationDotInputs: @MainActor () -> Void
     private var isObservingManagementLayer = false
-    private var isObservingStore = false
+    private var isObservingTabCollection = false
+    private var isReconcilingTabObservers = false
+    private var nextTabObservationGeneration: UInt64 = 0
+    private var tabObservationGenerationById: [UUID: UInt64] = [:]
+    private var tabItemById: [UUID: TabBarItem] = [:]
 
     init(
         store: WorkspaceStore,
@@ -111,36 +115,85 @@ final class TabBarAdapter {
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
         isManagementLayerActive = atom(\.managementLayer).isActive
-        observeStore()
+        observeTabCollection()
         observeManagementLayer()
-
-        // Initial sync
-        refresh()
     }
 
-    /// Bridge @Observable store → adapter via withObservationTracking.
-    /// Fires once per registration; re-registers after each change.
-    private func observeStore() {
-        guard !isObservingStore else { return }
-        isObservingStore = true
-        withObservationTracking {
-            _ = self.store.tabLayoutAtom.tabs
-            _ = self.store.tabLayoutAtom.activeTabId
-            _ = self.store.paneAtom.panes
-            _ = self.store.panePresentationAtom.zoomPresentationsByTabId
-            for pane in self.store.paneAtom.panes.values {
-                if let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId {
-                    _ = self.repoCache.worktreeEnrichment(for: worktreeId)
-                }
-            }
-            self.observeNotificationDotInputs()
+    private func observeTabCollection() {
+        guard !isObservingTabCollection else { return }
+        isObservingTabCollection = true
+        let tabCollection = withObservationTracking {
+            (
+                tabIds: self.store.tabLayoutAtom.tabs.map(\.id),
+                activeTabId: self.store.tabLayoutAtom.activeTabId
+            )
         } onChange: { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                self.isObservingStore = false
-                self.refresh()
-                self.observeStore()
+                self.isObservingTabCollection = false
+                self.observeTabCollection()
             }
+        }
+        reconcileTabObservers(
+            orderedTabIds: tabCollection.tabIds,
+            activeTabId: tabCollection.activeTabId
+        )
+    }
+
+    private func reconcileTabObservers(orderedTabIds: [UUID], activeTabId: UUID?) {
+        let refreshClock = ContinuousClock()
+        let refreshStart = refreshClock.now
+        isReconcilingTabObservers = true
+        defer {
+            isReconcilingTabObservers = false
+            publishTabsIfChanged(orderedTabIds: orderedTabIds, refreshStart: refreshStart)
+        }
+
+        let retainedTabIds = Set(orderedTabIds)
+        for removedTabId in Array(tabObservationGenerationById.keys)
+        where !retainedTabIds.contains(removedTabId) {
+            tabObservationGenerationById.removeValue(forKey: removedTabId)
+            tabItemById.removeValue(forKey: removedTabId)
+        }
+        for tabId in orderedTabIds where tabObservationGenerationById[tabId] == nil {
+            observeTabItem(tabId)
+        }
+
+        let resolvedActiveTabId = activeTabId ?? orderedTabIds.last
+        if self.activeTabId != resolvedActiveTabId {
+            self.activeTabId = resolvedActiveTabId
+        }
+    }
+
+    private func observeTabItem(_ tabId: UUID) {
+        nextTabObservationGeneration &+= 1
+        let observationGeneration = nextTabObservationGeneration
+        tabObservationGenerationById[tabId] = observationGeneration
+        let refreshClock = ContinuousClock()
+        let refreshStart = refreshClock.now
+        let item = withObservationTracking {
+            self.makeTabBarItem(for: tabId)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                    self.tabObservationGenerationById[tabId] == observationGeneration
+                else { return }
+                self.observeTabItem(tabId)
+            }
+        }
+
+        guard tabObservationGenerationById[tabId] == observationGeneration else { return }
+        if let item {
+            tabItemById[tabId] = item
+        } else {
+            tabObservationGenerationById.removeValue(forKey: tabId)
+            tabItemById.removeValue(forKey: tabId)
+        }
+        if !isReconcilingTabObservers {
+            publishTabsIfChanged(
+                orderedTabIds: store.tabLayoutAtom.tabs.map(\.id),
+                refreshStart: refreshStart
+            )
         }
     }
 
@@ -160,71 +213,65 @@ final class TabBarAdapter {
         }
     }
 
-    private func refresh() {
-        let clock = ContinuousClock()
-        let start = clock.now
-        let tabLayout = store.tabLayoutAtom
-        let storeTabs = tabLayout.tabs
-
-        tabs = storeTabs.map { tab in
-            let displayTitle = atom(\.tabDisplay).displayTitle(
-                for: tab,
-                workspacePane: store.paneAtom,
-                workspaceRepositoryTopology: store.repositoryTopologyAtom,
-                repoCache: repoCache
-            )
-            let dragTitle = displayTitle
-
-            let activeArrangement = tab.activeArrangement
-            let activeArrangementBadgeNumber = Self.activeArrangementBadgeNumber(for: tab)
-
-            let arrangementDerived = atom(\.arrangement)
-            let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
-            let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
-            let zoomMode = arrangementDerived.zoomMode(for: tab.id)
-            let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
-            let notificationDotColor = notificationDotColorProvider(Array(tab.allPaneIds))
-            let zoomManagementTitle = zoomPresentation.flatMap { presentation in
-                ZoomManagementTitle.text(
-                    sourceOrdinal: PaneOrdinalMap(
-                        orderedPaneIds: activeArrangement.layout.paneIds
-                    ).ordinal(forPaneId: presentation.sourcePaneId),
-                    activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement)
-                )
-            }
-
-            return TabBarItem(
-                id: tab.id,
-                title: dragTitle,
-                isSplit: tab.isSplit,
-                displayTitle: displayTitle,
-                activeArrangementName: zoomManagementTitle
-                    ?? Self.activeArrangementDisplayName(for: activeArrangement),
-                activeArrangementBadgeNumber: zoomPresentation == nil ? activeArrangementBadgeNumber : nil,
-                arrangementCount: tab.arrangements.count,
-                colorHex: tab.colorHex,
-                panes: paneInfos,
-                zoomMode: zoomMode,
-                arrangements: arrangementInfos,
-                minimizedCount: tab.activeMinimizedPaneIds.count,
-                notificationDotColor: notificationDotColor
+    private func makeTabBarItem(for tabId: UUID) -> TabBarItem? {
+        guard let tab = store.tabLayoutAtom.tab(tabId) else { return nil }
+        let displayTitle = atom(\.tabDisplay).displayTitle(
+            for: tab,
+            workspacePane: store.paneAtom,
+            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+            repoCache: repoCache
+        )
+        let activeArrangement = tab.activeArrangement
+        let activeArrangementBadgeNumber = Self.activeArrangementBadgeNumber(for: tab)
+        let arrangementDerived = atom(\.arrangement)
+        let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
+        let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
+        let zoomMode = arrangementDerived.zoomMode(for: tab.id)
+        let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
+        observeNotificationDotInputs()
+        let notificationDotColor = notificationDotColorProvider(Array(tab.allPaneIds))
+        let zoomManagementTitle = zoomPresentation.flatMap { presentation in
+            ZoomManagementTitle.text(
+                sourceOrdinal: PaneOrdinalMap(
+                    orderedPaneIds: activeArrangement.layout.paneIds
+                ).ordinal(forPaneId: presentation.sourcePaneId),
+                activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement)
             )
         }
 
-        if let storeActiveTabId = tabLayout.activeTabId {
-            activeTabId = storeActiveTabId
-        } else {
-            // Defensive UI fallback for transient restore/repair windows where tabs
-            // exist but activeTabId has not been recomputed yet.
-            activeTabId = tabs.last?.id
-        }
+        return TabBarItem(
+            id: tab.id,
+            title: displayTitle,
+            isSplit: tab.isSplit,
+            displayTitle: displayTitle,
+            activeArrangementName: zoomManagementTitle
+                ?? Self.activeArrangementDisplayName(for: activeArrangement),
+            activeArrangementBadgeNumber: zoomPresentation == nil ? activeArrangementBadgeNumber : nil,
+            arrangementCount: tab.arrangements.count,
+            colorHex: tab.colorHex,
+            panes: paneInfos,
+            zoomMode: zoomMode,
+            arrangements: arrangementInfos,
+            minimizedCount: tab.activeMinimizedPaneIds.count,
+            notificationDotColor: notificationDotColor
+        )
+    }
+
+    private func publishTabsIfChanged(
+        orderedTabIds: [UUID],
+        refreshStart: ContinuousClock.Instant
+    ) {
+        let nextTabs = orderedTabIds.compactMap { tabItemById[$0] }
+        guard tabs != nextTabs else { return }
+        tabs = nextTabs
         updateOverflow()
+        let clock = ContinuousClock()
         performanceTraceRecorder?.recordDuration(
             .tabBarRefresh,
-            duration: start.duration(to: clock.now),
+            duration: refreshStart.duration(to: clock.now),
             attributes: [
                 "agentstudio.performance.tabbar.tab.count": .int(tabs.count),
-                "agentstudio.performance.tabbar.source_tab.count": .int(storeTabs.count),
+                "agentstudio.performance.tabbar.source_tab.count": .int(orderedTabIds.count),
                 "agentstudio.performance.tabbar.pane.count": .int(tabs.reduce(0) { $0 + $1.panes.count }),
             ]
         )

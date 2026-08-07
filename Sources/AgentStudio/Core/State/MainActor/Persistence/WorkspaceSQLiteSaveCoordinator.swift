@@ -135,7 +135,7 @@ package final class WorkspaceSQLiteSaveCoordinator {
         return WorkspaceSQLiteSaveCapture(
             workspaceID: identityAtom.workspaceId,
             workspaceName: identityAtom.workspaceName,
-            paneStatesByID: workspacePaneAtom.graphAtom.paneStates,
+            paneStatesByID: workspacePaneAtom.graphAtom.paneStateSnapshot(),
             expandedDrawerID: workspacePaneAtom.drawerCursorAtom.expandedDrawerId,
             tabShells: workspaceTabLayoutAtom.shellAtom.tabShells,
             tabGraphStates: arrangementAtom.graphAtom.tabStates,

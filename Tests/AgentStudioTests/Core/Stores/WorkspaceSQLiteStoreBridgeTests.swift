@@ -580,7 +580,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
 
         // Assert
         #expect(reloadedStore.paneAtom.pane(scenario.degradedBridgePaneId) == nil)
-        #expect(reloadedStore.paneAtom.panes.count == scenario.expectedContentAndCWDByPaneId.count - 1)
+        #expect(reloadedStore.paneAtom.graphAtom.paneIDs.count == scenario.expectedContentAndCWDByPaneId.count - 1)
         #expect(postCloseFlush.succeeded)
     }
 
@@ -664,7 +664,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         in store: WorkspaceStore,
         expectedContentAndCWDByPaneId: [UUID: (content: PaneContent, cwd: URL?)]
     ) throws {
-        #expect(store.paneAtom.panes.count == expectedContentAndCWDByPaneId.count)
+        #expect(store.paneAtom.graphAtom.paneIDs.count == expectedContentAndCWDByPaneId.count)
         for (paneId, expected) in expectedContentAndCWDByPaneId {
             let pane = try #require(store.paneAtom.pane(paneId))
             #expect(pane.content == expected.content)

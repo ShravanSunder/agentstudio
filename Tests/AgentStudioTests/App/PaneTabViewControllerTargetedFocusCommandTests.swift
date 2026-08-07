@@ -76,7 +76,7 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         harness.store.setActiveTab(tab.id)
         let stalePaneId = UUIDv7.generate()
         let tabCountBeforeFocus = harness.store.tabs.count
-        let paneCountBeforeFocus = harness.store.paneAtom.panes.count
+        let paneCountBeforeFocus = harness.store.paneAtom.graphAtom.paneIDs.count
 
         #expect(!harness.controller.canExecute(.focusPane, target: stalePaneId, targetType: .pane))
         harness.controller.execute(.focusPane, target: stalePaneId, targetType: .pane)
@@ -84,6 +84,6 @@ struct PaneTabViewControllerTargetedFocusCommandTests {
         #expect(harness.store.activeTabId == tab.id)
         #expect(harness.store.tab(tab.id)?.activePaneId == pane.id)
         #expect(harness.store.tabs.count == tabCountBeforeFocus)
-        #expect(harness.store.paneAtom.panes.count == paneCountBeforeFocus)
+        #expect(harness.store.paneAtom.graphAtom.paneIDs.count == paneCountBeforeFocus)
     }
 }

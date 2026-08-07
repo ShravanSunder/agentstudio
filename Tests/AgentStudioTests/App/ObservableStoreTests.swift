@@ -85,7 +85,7 @@ final class ObservableStoreTests {
         // Arrange
         let flag = ObservationFlag()
         withObservationTracking {
-            _ = store.panes
+            _ = store.paneAtom.graphAtom.paneIDs
         } onChange: {
             flag.fired = true
         }
@@ -100,10 +100,8 @@ final class ObservableStoreTests {
     // MARK: - Drawer Mutation Observability (The Original Bug)
 
     /// This test verifies the exact scenario that motivated the migration.
-    /// Previously, drawer state changes on Pane (a struct in the panes dictionary)
-    /// did NOT propagate through ObservableObject because panes was @Published
-    /// as a dictionary — struct-in-dictionary mutations don't trigger objectWillChange.
-    /// With @Observable, mutating panes[id]?.drawer fires observation correctly.
+    /// Drawer expansion is local cursor state, observed independently from the
+    /// canonical keyed pane value.
     @Test
     func test_observationTracking_firesOnDrawerMutation() {
         // Arrange — create a pane with a drawer
@@ -113,7 +111,7 @@ final class ObservableStoreTests {
 
         let flag = ObservationFlag()
         withObservationTracking {
-            _ = store.panes
+            _ = store.paneAtom.isDrawerExpanded(for: parentPane.id)
         } onChange: {
             flag.fired = true
         }
@@ -121,7 +119,7 @@ final class ObservableStoreTests {
         // Act — toggle drawer (struct-in-dictionary mutation)
         store.toggleDrawer(for: parentPane.id)
 
-        // Assert — this FAILED with ObservableObject, PASSES with @Observable
+        // Assert
         #expect(flag.fired)
         #expect(!(store.pane(parentPane.id)!.drawer!.isExpanded))
     }
@@ -134,7 +132,7 @@ final class ObservableStoreTests {
 
         let flag = ObservationFlag()
         withObservationTracking {
-            _ = store.panes
+            _ = store.paneAtom.graphAtom.paneIDs
         } onChange: {
             flag.fired = true
         }
@@ -325,7 +323,7 @@ final class ObservableStoreTests {
 
         let flag = ObservationFlag()
         withObservationTracking {
-            _ = store.panes
+            _ = store.paneAtom.pane(pane.id)
         } onChange: {
             flag.fired = true
         }
@@ -343,7 +341,7 @@ final class ObservableStoreTests {
         let pane = store.createPane(title: "Unchanged")
         let flag = ObservationFlag()
         withObservationTracking {
-            _ = store.panes
+            _ = store.paneAtom.pane(pane.id)
         } onChange: {
             flag.fired = true
         }

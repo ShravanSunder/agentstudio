@@ -298,7 +298,7 @@ package final class WorkspaceStore {
             _ = identityAtom.createdAt
             _ = windowMemoryAtom.sidebarWidth
             _ = windowMemoryAtom.windowFrame
-            _ = paneGraphAtom.paneStates
+            _ = paneGraphAtom.paneAcceptedCommitRevision
             _ = drawerCursorAtom.expandedDrawerId
             _ = tabShellAtom.tabShells
             _ = tabCursorAtom.activeTabId

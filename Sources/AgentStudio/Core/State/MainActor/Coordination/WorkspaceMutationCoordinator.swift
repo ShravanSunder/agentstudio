@@ -181,7 +181,7 @@ package final class WorkspaceMutationCoordinator {
     package func orphanPanesForRemovedWorktreeIfUnmatched(
         _ removedWorktree: RemovedWorktreeEntry
     ) -> [UUID] {
-        let affectedPaneIDs = workspacePaneAtom.panes.values.compactMap { pane -> UUID? in
+        let affectedPaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
             guard pane.residency == .active || pane.residency == .backgrounded else { return nil }
             guard let cwd = pane.metadata.cwd?.standardizedFileURL else { return nil }
             guard Self.path(removedWorktree.path, contains: cwd) else { return nil }
@@ -200,7 +200,7 @@ package final class WorkspaceMutationCoordinator {
     @discardableResult
     package func restoreOrphanedPaneResidencyForCurrentTopology() -> Bool {
         let activeLayoutPaneIDs = workspaceTab.allPaneIds
-        let restorablePaneIDs = workspacePaneAtom.panes.values.compactMap { pane -> UUID? in
+        let restorablePaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
             guard pane.residency.isOrphaned else { return nil }
             guard let cwd = pane.metadata.cwd else { return nil }
             guard repositoryTopologyAtom.repoAndWorktree(containing: cwd) != nil else { return nil }

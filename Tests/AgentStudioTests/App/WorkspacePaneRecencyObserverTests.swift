@@ -409,10 +409,20 @@ struct WorkspacePaneRecencyObserverTests {
 
             switch scenario {
             case .drawerChild:
-                if var state = atoms.workspacePaneGraph.paneState(paneB.id) {
-                    state.kind = .drawerChild(parentPaneId: paneA.id)
-                    atoms.workspacePaneGraph.setCanonicalPaneState(state)
+                var paneStates = atoms.workspacePaneGraph.paneStateSnapshot()
+                if var parentState = paneStates[paneA.id], var childState = paneStates[paneB.id] {
+                    childState.kind = .drawerChild(parentPaneId: paneA.id)
+                    parentState.withDrawer { drawer in
+                        drawer.paneIds.append(paneB.id)
+                    }
+                    paneStates[parentState.id] = parentState
+                    paneStates[childState.id] = childState
                 }
+                guard case .success(let replacement) = WorkspacePaneGraphReplacement.prepare(paneStates) else {
+                    Issue.record("Expected valid drawer-child pane graph replacement")
+                    return
+                }
+                atoms.workspacePaneGraph.replacePaneStates(replacement)
             case .backgrounded:
                 store.setResidency(.backgrounded, for: paneB.id)
             case .pendingUndo:
@@ -426,7 +436,13 @@ struct WorkspacePaneRecencyObserverTests {
                     for: paneB.id
                 )
             case .unreachable:
-                _ = atoms.workspacePaneGraph.removeCanonicalPaneState(for: paneB.id)
+                var paneStates = atoms.workspacePaneGraph.paneStateSnapshot()
+                paneStates.removeValue(forKey: paneB.id)
+                guard case .success(let replacement) = WorkspacePaneGraphReplacement.prepare(paneStates) else {
+                    Issue.record("Expected valid unreachable pane graph replacement")
+                    return
+                }
+                atoms.workspacePaneGraph.replacePaneStates(replacement)
             case .nonActiveWorkspace:
                 atoms.workspaceEntityRecency.hydrate(
                     workspaceID: UUID(),

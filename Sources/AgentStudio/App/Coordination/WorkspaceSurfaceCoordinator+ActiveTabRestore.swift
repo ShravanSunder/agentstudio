@@ -39,7 +39,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.paneAtom.panes.keys.map { PaneId(existingUUID: $0) },
+            store.paneAtom.graphAtom.paneIDs.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
@@ -56,7 +56,7 @@ extension WorkspaceSurfaceCoordinator {
             duration: restoreStart.duration(to: clock.now),
             attributes: [
                 "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
-                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                 "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIds.count),
                 "agentstudio.performance.pane_view_restore.tab.count": .int(store.tabLayoutAtom.tabs.count),
             ]

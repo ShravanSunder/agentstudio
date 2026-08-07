@@ -33,6 +33,7 @@ package final class AtomPerformanceTelemetry {
 
     func recordRead(
         kind: String,
+        label: String,
         operation: String,
         slotCount: Int? = nil,
         cachedKeyCount: Int? = nil,
@@ -41,6 +42,7 @@ package final class AtomPerformanceTelemetry {
         record(
             .atomRead,
             kind: kind,
+            label: label,
             operation: operation,
             slotCount: slotCount,
             cachedKeyCount: cachedKeyCount,
@@ -50,6 +52,7 @@ package final class AtomPerformanceTelemetry {
 
     func recordMutation(
         kind: String,
+        label: String,
         operation: String,
         acceptedChangeCount: Int,
         slotCount: Int? = nil,
@@ -58,6 +61,7 @@ package final class AtomPerformanceTelemetry {
         record(
             .atomMutation,
             kind: kind,
+            label: label,
             operation: operation,
             acceptedChangeCount: acceptedChangeCount,
             slotCount: slotCount,
@@ -73,6 +77,7 @@ package final class AtomPerformanceTelemetry {
         record(
             .atomDerived,
             kind: "derived_value",
+            label: nil,
             operation: operation,
             inputRevisionCount: inputRevisionCount,
             cacheHit: cacheHit
@@ -82,6 +87,7 @@ package final class AtomPerformanceTelemetry {
     private func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
         kind: String,
+        label: String?,
         operation: String,
         acceptedChangeCount: Int? = nil,
         slotCount: Int? = nil,
@@ -94,6 +100,9 @@ package final class AtomPerformanceTelemetry {
             "agentstudio.performance.atom.kind": .string(kind),
             "agentstudio.performance.atom.operation": .string(operation),
         ]
+        if let label {
+            attributes["agentstudio.performance.atom.label"] = .string(label)
+        }
         if let acceptedChangeCount {
             attributes["agentstudio.performance.atom.accepted_change.count"] = .int(acceptedChangeCount)
         }

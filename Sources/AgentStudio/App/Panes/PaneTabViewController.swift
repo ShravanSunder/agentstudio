@@ -469,7 +469,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .paneTabLayout,
             duration: layoutStart.duration(to: clock.now),
             attributes: [
-                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                 "agentstudio.performance.pane_tab_layout.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 "agentstudio.performance.pane_tab_layout.subview.count": .int(view.subviews.count),
                 "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
@@ -636,9 +636,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func prunePaneInboxPresentationState() {
         guard let paneInboxPresentation else { return }
-        let retainedParentPaneIds = Set(
-            store.paneAtom.panes.values.compactMap { pane in
-                pane.isDrawerChild ? nil : pane.id
+        let paneGraph = store.paneAtom.graphAtom
+        let retainedParentPaneIds = Set<UUID>(
+            paneGraph.paneIDs.compactMap { paneID in
+                guard paneGraph.paneStructuralFacts(paneID)?.isDrawerChild == false else { return nil }
+                return paneID
             }
         )
         paneInboxPresentation.pruneFilterModes(retainedParentPaneIds)
@@ -1042,7 +1044,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+            uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in
                 guard let parentPaneId = pane.parentPaneId else { return nil }
                 return (pane.id, parentPaneId)
             }
@@ -1051,7 +1053,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+            uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in
                 guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
                     return nil
                 }
@@ -1285,7 +1287,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func syncTabContentHosts() {
-        for paneId in store.paneAtom.panes.keys {
+        for paneId in store.paneAtom.graphAtom.paneIDs {
             viewRegistry.ensureSlot(for: paneId)
         }
 
@@ -2747,7 +2749,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 attributes: [
                     "agentstudio.performance.management_layer.command": .string(command.rawValue),
                     "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
-                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                     "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 ]
             )

@@ -6,6 +6,14 @@ import Testing
 @testable import AgentStudioInboxNotification
 @testable import AgentStudioTestSupport
 
+private final class TabBarPublicationCounter: @unchecked Sendable {
+    private(set) var publicationCount = 0
+
+    func record() {
+        publicationCount += 1
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 final class TabBarAdapterTests {
@@ -285,6 +293,72 @@ final class TabBarAdapterTests {
         let secondTab = try #require(adapter.tabs[safe: 1], "Expected two derived tabs to exist")
         #expect(firstTab.id == tab1.id)
         #expect(secondTab.id == tab2.id)
+    }
+
+    @Test("pane title mutation updates only its dependent cached tab item")
+    func paneTitleMutationUpdatesOnlyDependentTabItem() async throws {
+        resetFixture()
+        let paneA = store.createPane(title: "Pane A")
+        let paneB = store.createPane(title: "Pane B")
+        let tabA = Tab(paneId: paneA.id)
+        let tabB = Tab(paneId: paneB.id)
+        store.appendTab(tabA)
+        store.appendTab(tabB)
+        await waitForAdapterRefresh()
+        let tabBBeforeMutation = try #require(adapter.tabs.first { $0.id == tabB.id })
+
+        store.updatePaneTitle(paneA.id, title: "Pane A renamed")
+        await waitForAdapterRefresh()
+
+        #expect(adapter.tabs.first { $0.id == tabA.id }?.displayTitle == "Pane A renamed")
+        #expect(adapter.tabs.first { $0.id == tabB.id } == tabBBeforeMutation)
+    }
+
+    @Test("equal derived item suppresses tabs publication after pane title mutation")
+    func equalDerivedItemSuppressesTabsPublication() async {
+        resetFixture()
+        let pane = store.createPane(title: "Ephemeral")
+        store.updatePaneCWD(pane.id, cwd: URL(filePath: "/tmp/stable-folder"))
+        store.appendTab(Tab(paneId: pane.id, name: "Review Queue"))
+        await waitForAdapterRefresh()
+        let publicationCounter = observeTabsPublication()
+
+        store.updatePaneTitle(pane.id, title: "Another ephemeral title")
+        await waitForAdapterRefresh()
+
+        #expect(publicationCounter.publicationCount == 0)
+    }
+
+    @Test("removed tab invalidates its pane observation before cache removal")
+    func removedTabInvalidatesPaneObservation() async {
+        resetFixture()
+        let pane = store.createPane(title: "Retired")
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        await waitForAdapterRefresh()
+        store.removeTab(tab.id)
+        await waitForAdapterRefresh()
+        let publicationCounter = observeTabsPublication()
+
+        store.updatePaneTitle(pane.id, title: "Must not republish")
+        await waitForAdapterRefresh()
+
+        #expect(publicationCounter.publicationCount == 0)
+    }
+
+    @Test("inserted tab owns one pane observation publication")
+    func insertedTabOwnsOnePaneObservationPublication() async {
+        resetFixture()
+        let pane = store.createPane(title: "Inserted")
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        await waitForAdapterRefresh()
+        let publicationCounter = observeTabsPublication()
+
+        store.updatePaneTitle(pane.id, title: "Inserted renamed")
+        await waitForAdapterRefresh()
+
+        #expect(publicationCounter.publicationCount == 1)
     }
 
     @Test
@@ -820,6 +894,16 @@ final class TabBarAdapterTests {
         for _ in 0..<8 {
             await Task.yield()
         }
+    }
+
+    private func observeTabsPublication() -> TabBarPublicationCounter {
+        let counter = TabBarPublicationCounter()
+        withObservationTracking {
+            _ = adapter.tabs
+        } onChange: {
+            counter.record()
+        }
+        return counter
     }
 }
 

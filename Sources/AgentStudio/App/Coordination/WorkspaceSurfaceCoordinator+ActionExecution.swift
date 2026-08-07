@@ -173,7 +173,7 @@ extension WorkspaceSurfaceCoordinator {
                 duration: actionStart.duration(to: clock.now),
                 attributes: [
                     "agentstudio.performance.pane_action.name": .string(action.performanceTraceName),
-                    "agentstudio.performance.pane_action.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.pane_action.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                     "agentstudio.performance.pane_action.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 ]
             )

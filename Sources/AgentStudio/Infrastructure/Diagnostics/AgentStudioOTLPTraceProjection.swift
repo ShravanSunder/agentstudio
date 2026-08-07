@@ -132,6 +132,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.preferences.global.status",
         "agentstudio.performance.coordinator.phase",
         "agentstudio.performance.atom.kind",
+        "agentstudio.performance.atom.label",
         "agentstudio.performance.atom.operation",
         "agentstudio.performance.git.backoff.reason",
         "agentstudio.performance.git.status_scope",
