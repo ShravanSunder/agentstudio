@@ -239,6 +239,23 @@ struct BridgeDevelopmentProductHostTests {
         #expect(reboundRevision == 8)
     }
 
+    @Test("committing a File publish cannot roll back a reentrant bootstrap revision")
+    func filePublishCommitPreservesReentrantBootstrapRevision() {
+        // Arrange
+        let publishedRequestRevision = 8
+        let revisionAfterReentrantBootstrap = 9
+
+        // Act
+        let committedRevision =
+            BridgeDevelopmentProductHost.navigationBindingRevisionAfterFilePublish(
+                currentBindingRevision: revisionAfterReentrantBootstrap,
+                publishedRequestBindingRevision: publishedRequestRevision
+            )
+
+        // Assert
+        #expect(committedRevision == revisionAfterReentrantBootstrap)
+    }
+
     @Test("rejects a source that is not a Git worktree")
     func rejectsNonGitWorktree() async throws {
         // Arrange

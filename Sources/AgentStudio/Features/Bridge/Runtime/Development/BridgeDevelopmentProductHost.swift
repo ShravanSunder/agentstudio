@@ -323,8 +323,18 @@ package actor BridgeDevelopmentProductHost {
                 streamAbsenceDisposition: .retainForReplay
             )
         else { return }
-        navigationBindingRevision = bindingRevision
+        navigationBindingRevision = Self.navigationBindingRevisionAfterFilePublish(
+            currentBindingRevision: navigationBindingRevision,
+            publishedRequestBindingRevision: bindingRevision
+        )
         publishedFileNavigation = (bindingRevision: bindingRevision, source: source)
+    }
+
+    static func navigationBindingRevisionAfterFilePublish(
+        currentBindingRevision: Int,
+        publishedRequestBindingRevision: Int
+    ) -> Int {
+        max(currentBindingRevision, publishedRequestBindingRevision)
     }
 
     static func nextFileNavigationBindingRevision(
