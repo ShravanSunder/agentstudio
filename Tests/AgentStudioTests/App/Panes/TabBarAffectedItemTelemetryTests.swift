@@ -11,7 +11,7 @@ import Testing
 struct TabBarAffectedItemTelemetryTests {
     @Test("one pane title mutation reports one affected tab bar item")
     func onePaneTitleMutationReportsOneAffectedTabBarItem() async throws {
-        try await withAsyncTestCoreAtoms { _ in
+        try await withAsyncTestCoreAtoms { atoms in
             let traceDirectory = FileManager.default.temporaryDirectory.appending(
                 path: "tabbar-affected-item-trace-\(UUIDv7.generate().uuidString)"
             )
@@ -27,7 +27,11 @@ struct TabBarAffectedItemTelemetryTests {
                 timeUnixNano: { 932 }
             )
             let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
-            let store = WorkspaceStore()
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
             let adapter = TabBarAdapter(
                 store: store,
                 repoCache: RepoCacheAtom(),
@@ -35,37 +39,26 @@ struct TabBarAffectedItemTelemetryTests {
             )
             let firstPane = store.createPane(title: "First")
             let secondPane = store.createPane(title: "Second")
-            store.appendTab(Tab(paneId: firstPane.id))
+            let firstTab = Tab(paneId: firstPane.id)
+            store.appendTab(firstTab)
             store.appendTab(Tab(paneId: secondPane.id))
             await eventually("initial tab items") {
                 adapter.tabs.count == 2
             }
-            try await recorder.drain()
-
-            let outputFileURL = try #require(runtime.outputFileURL)
-            let initialContents = try String(contentsOf: outputFileURL, encoding: .utf8)
-            let initialEventCount =
-                initialContents.components(
-                    separatedBy: "\"body\":\"performance.tabbar.refresh\""
-                ).count - 1
 
             store.paneAtom.updatePaneTitle(firstPane.id, title: "Renamed")
             await eventually("renamed tab item") {
-                adapter.tabs.first(where: { $0.panes.contains { $0.id == firstPane.id } })?.title == "Renamed"
+                adapter.tabs.first(where: { $0.id == firstTab.id })?.title == "Renamed"
             }
             try await recorder.drain()
 
+            let outputFileURL = try #require(runtime.outputFileURL)
             let finalContents = try String(contentsOf: outputFileURL, encoding: .utf8)
-            let finalEventCount =
-                finalContents.components(
-                    separatedBy: "\"body\":\"performance.tabbar.refresh\""
-                ).count - 1
-            #expect(finalEventCount == initialEventCount + 1)
-            let finalLine = try #require(
-                finalContents.split(separator: "\n").last { line in
-                    line.contains("\"body\":\"performance.tabbar.refresh\"")
-                }
-            )
+            let refreshLines = finalContents.split(separator: "\n").filter { line in
+                line.contains("\"body\":\"performance.tabbar.refresh\"")
+            }
+            #expect(refreshLines.count == 2)
+            let finalLine = try #require(refreshLines.last)
             #expect(finalLine.contains("\"agentstudio.performance.tabbar.affected_item.count\":1"))
             _ = adapter
         }
