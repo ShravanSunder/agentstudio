@@ -223,8 +223,35 @@ final class TabBarAdapterMaterializationTests {
         #expect(projectionController.projectedGenerations == [1, 2, 3])
     }
 
-    @Test("stop cancels held projection and permits adapter release")
-    func stopBeforeProjectionReleaseSuppressesOutputAndReleasesAdapter() async {
+    @Test("stop permits adapter and materialized projection release")
+    func stopBeforeProjectionReleaseReleasesAdapterAndMaterializedProjection() async {
+        let projectionGate = TabBarAdapterProjectionGate()
+        defer { projectionGate.release() }
+        let projectionController = TabBarAdapterProjectionController(
+            gatesByGeneration: [1: projectionGate]
+        )
+        let pane = store.createPane(title: "Stopping")
+        store.appendTab(Tab(paneId: pane.id, name: "Stopping"))
+        adapter.stop()
+        adapter = TabBarAdapter(
+            store: store,
+            repoCache: repoCache,
+            inboxAtom: inboxAtom,
+            project: projectionController.project
+        )
+        #expect(await projectionGate.waitUntilStarted(), "Held projection did not start")
+        weak let weakAdapter = adapter
+        weak let weakMaterializedProjection = adapter.materializedProjection
+
+        adapter.stop()
+        adapter = nil
+
+        #expect(weakAdapter == nil)
+        #expect(weakMaterializedProjection == nil)
+    }
+
+    @Test("stop cancels held projection and suppresses output")
+    func stopBeforeProjectionReleaseSuppressesOutput() async {
         let projectionGate = TabBarAdapterProjectionGate()
         defer { projectionGate.release() }
         let projectionController = TabBarAdapterProjectionController(
@@ -242,17 +269,14 @@ final class TabBarAdapterMaterializationTests {
             onProjectionCompletion: completionRecorder.record
         )
         #expect(await projectionGate.waitUntilStarted(), "Held projection did not start")
-        let materializedProjection = adapter.materializedProjection
-        weak let weakAdapter = adapter
+        let retainedMaterializedProjection = adapter.materializedProjection
 
         adapter.stop()
-        adapter = nil
         projectionGate.release()
         #expect(await completionRecorder.wait(for: .cancelled(.init(value: 1))))
 
-        #expect(weakAdapter == nil)
-        #expect(materializedProjection.value == nil)
-        #expect(materializedProjection.freshness == .stopped)
+        #expect(retainedMaterializedProjection.value == nil)
+        #expect(retainedMaterializedProjection.freshness == .stopped)
     }
 }
 

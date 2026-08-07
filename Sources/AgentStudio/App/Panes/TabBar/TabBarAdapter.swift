@@ -130,8 +130,8 @@ final class TabBarAdapter {
                 ),
                 inboxAttentionFacts: inboxAtom.captureAttentionFacts()
             )
-        } onChange: { [weak self, materializedProjection] in
-            materializedProjection.sourceDidInvalidate()
+        } onChange: { [weak self, weak materializedProjection] in
+            materializedProjection?.sourceDidInvalidate()
             Task { @MainActor [weak self] in
                 self?.captureAndAdmitNewestRequest()
             }
