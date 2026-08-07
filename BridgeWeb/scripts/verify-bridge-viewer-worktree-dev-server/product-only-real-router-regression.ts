@@ -148,17 +148,11 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 		} catch (error: unknown) {
 			cleanupFailure = error;
 		}
-		if (cleanupResults.vite !== null) {
-			cleanup = {
-				...cleanupResults.vite,
-				forcedTerminationRequired:
-					cleanupResults.vite.forcedTerminationRequired ||
-					(cleanupResults.backend?.forcedTerminationRequired ?? false),
-				ownedProcessAliveAfterStop:
-					cleanupResults.vite.ownedProcessAliveAfterStop ||
-					(cleanupResults.backend?.ownedProcessAliveAfterStop ?? false),
-			};
-		}
+		cleanup = bridgeViewerCleanupProofAfterOwnedStops({
+			backend: cleanupResults.backend,
+			cleanupBeforeStops: cleanup,
+			vite: cleanupResults.vite,
+		});
 		if (cleanupFailure !== null) {
 			const cleanupFailureMessage = boundedErrorMessage(cleanupFailure);
 			harnessFailure =
@@ -318,6 +312,29 @@ export function bridgeViewerProductOnlyRegressionPhase(
 	return violations.some((violation): boolean => transportRedCodes.has(violation.code))
 		? 'initial-product-transport-red'
 		: 'n2a-transport-green-composition-red';
+}
+
+export function bridgeViewerCleanupProofAfterOwnedStops(props: {
+	readonly backend: OwnedBridgeDevelopmentServerCleanup | null;
+	readonly cleanupBeforeStops: BridgeViewerViteServerCleanupProof;
+	readonly vite: BridgeViewerViteServerCleanupProof | null;
+}): BridgeViewerViteServerCleanupProof {
+	if (props.vite !== null) {
+		return {
+			...props.vite,
+			forcedTerminationRequired:
+				props.vite.forcedTerminationRequired || (props.backend?.forcedTerminationRequired ?? false),
+			ownedProcessAliveAfterStop:
+				props.vite.ownedProcessAliveAfterStop ||
+				(props.backend?.ownedProcessAliveAfterStop ?? false),
+		};
+	}
+	if (props.backend === null) return props.cleanupBeforeStops;
+	return {
+		...props.cleanupBeforeStops,
+		forcedTerminationRequired: props.backend.forcedTerminationRequired,
+		ownedProcessAliveAfterStop: props.backend.ownedProcessAliveAfterStop,
+	};
 }
 
 class BridgeViewerOwnedViteServer {
