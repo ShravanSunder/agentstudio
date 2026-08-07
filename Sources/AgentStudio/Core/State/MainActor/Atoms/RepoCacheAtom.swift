@@ -14,12 +14,15 @@ package final class RepoEnrichmentCacheAtom {
     }
 
     @ObservationIgnored private let repoEnrichmentMap = AtomEntityMap<UUID, RepoEnrichment>(
+        telemetryLabel: "repo_enrichment",
         isContentEqual: { lhs, rhs in lhs.hasSameCacheContent(as: rhs) }
     )
     @ObservationIgnored private let worktreeEnrichmentMap = AtomEntityMap<UUID, WorktreeEnrichment>(
+        telemetryLabel: "worktree_enrichment",
         isContentEqual: { lhs, rhs in lhs.hasSameCacheContent(as: rhs) }
     )
     @ObservationIgnored private let pullRequestCountMap = AtomEntityMap<UUID, Int>(
+        telemetryLabel: "pull_request_count",
         isContentEqual: ==
     )
     @ObservationIgnored private let cacheRevisionAtom = AtomRevision()

@@ -29,7 +29,7 @@ struct WorkspacePreparedCompositionApplierTests {
         #expect(fixture.identityAtom.workspaceId == prepared.identity.workspaceID)
         #expect(fixture.identityAtom.workspaceName == prepared.identity.workspaceName)
         #expect(fixture.windowMemoryAtom.sidebarWidth == prepared.windowMemory.sidebarWidth)
-        #expect(fixture.paneGraphAtom.paneStates == prepared.paneGraph.replacement.paneStates)
+        #expect(fixture.paneGraphAtom.paneStateSnapshot() == prepared.paneGraph.replacement.paneStates)
         #expect(fixture.drawerCursorAtom.expandedDrawerId == prepared.expandedDrawerID)
         #expect(fixture.tabShellAtom.tabShells == prepared.tabShells.shells)
         #expect(fixture.tabCursorAtom.activeTabId == prepared.activeTabID)
@@ -123,7 +123,7 @@ private final class PreparedCompositionApplierFixture {
             workspaceID: identityAtom.workspaceId,
             workspaceName: identityAtom.workspaceName,
             sidebarWidth: windowMemoryAtom.sidebarWidth,
-            paneStates: paneGraphAtom.paneStates,
+            paneStates: paneGraphAtom.paneStateSnapshot(),
             expandedDrawerID: drawerCursorAtom.expandedDrawerId,
             tabShells: tabShellAtom.tabShells,
             activeTabID: tabCursorAtom.activeTabId,

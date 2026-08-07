@@ -32,6 +32,7 @@ private final class AtomEntitySlot<Value> {
 @MainActor
 package final class AtomEntityMap<Key: Hashable, Value> {
     package let membershipRevision = AtomRevision()
+    private let telemetryLabel: String
     private let isContentEqual: (Value, Value) -> Bool
     private var slots: [Key: AtomEntitySlot<Value>] = [:]
     private var cachedValues: [Key: Value] = [:]
@@ -40,7 +41,11 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         slots.count
     }
 
-    package init(isContentEqual: @escaping (Value, Value) -> Bool) {
+    package init(
+        telemetryLabel: String,
+        isContentEqual: @escaping (Value, Value) -> Bool
+    ) {
+        self.telemetryLabel = telemetryLabel
         self.isContentEqual = isContentEqual
     }
 
@@ -49,6 +54,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         let value = slot(for: key).readValue()
         AtomPerformanceTelemetry.shared.recordRead(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "value",
             slotCount: slots.count,
             cachedKeyCount: cachedValues.count,
@@ -61,6 +67,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         let value = cachedValues[key]
         AtomPerformanceTelemetry.shared.recordRead(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "snapshot_value",
             slotCount: slots.count,
             cachedKeyCount: cachedValues.count,
@@ -69,9 +76,21 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         return value
     }
 
+    package func membershipKeys() -> Set<Key> {
+        AtomPerformanceTelemetry.shared.recordRead(
+            kind: "entity_map",
+            label: telemetryLabel,
+            operation: "membership_keys",
+            slotCount: slots.count,
+            cachedKeyCount: cachedValues.count
+        )
+        return Set(cachedValues.keys)
+    }
+
     package func snapshot() -> [Key: Value] {
         AtomPerformanceTelemetry.shared.recordRead(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "snapshot",
             slotCount: slots.count,
             cachedKeyCount: cachedValues.count
@@ -85,6 +104,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         if let existingValue = cachedValues[key], isContentEqual(existingValue, newValue) {
             AtomPerformanceTelemetry.shared.recordMutation(
                 kind: "entity_map",
+                label: telemetryLabel,
                 operation: "set_noop",
                 acceptedChangeCount: 0,
                 slotCount: slots.count,
@@ -99,6 +119,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         mutation.recordAcceptedChange()
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "set",
             acceptedChangeCount: 1,
             slotCount: slots.count,
@@ -117,6 +138,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
             slots.removeValue(forKey: key)
             AtomPerformanceTelemetry.shared.recordMutation(
                 kind: "entity_map",
+                label: telemetryLabel,
                 operation: "remove_missing",
                 acceptedChangeCount: 0,
                 slotCount: slots.count,
@@ -130,6 +152,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         membershipRevision.bump()
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "remove",
             acceptedChangeCount: 1,
             slotCount: slots.count,
@@ -172,6 +195,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         }
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "replace_all",
             acceptedChangeCount: hasAcceptedChange ? 1 : 0,
             slotCount: slots.count,
@@ -195,6 +219,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         }
         AtomPerformanceTelemetry.shared.recordMutation(
             kind: "entity_map",
+            label: telemetryLabel,
             operation: "remove_all",
             acceptedChangeCount: hadCachedValues ? 1 : 0,
             slotCount: slots.count,
@@ -214,6 +239,7 @@ package final class AtomEntityMap<Key: Hashable, Value> {
         if !keysToPrune.isEmpty {
             AtomPerformanceTelemetry.shared.recordMutation(
                 kind: "entity_map",
+                label: telemetryLabel,
                 operation: "prune_nil_slots",
                 acceptedChangeCount: 0,
                 slotCount: slots.count,

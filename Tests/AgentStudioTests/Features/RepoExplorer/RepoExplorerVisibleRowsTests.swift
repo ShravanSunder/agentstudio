@@ -17,8 +17,8 @@ private final class VisibleWorktreeCallbackRecorder {
 @MainActor
 @Suite("RepoExplorer visible rows")
 struct RepoExplorerVisibleRowsTests {
-    @Test("visible row range maps worktree and pane leaves to owning worktrees")
-    func visibleRowRangeMapsWorktreeAndPaneLeaves() {
+    @Test("visible row range includes command-bearing worktree rows but excludes pane leaves")
+    func visibleRowRangeIncludesOnlyCommandBearingWorktreeRows() {
         let firstRepoId = UUIDv7.generate()
         let secondRepoId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
@@ -70,7 +70,7 @@ struct RepoExplorerVisibleRowsTests {
             RepoExplorerVisibleRows.worktreeIds(
                 in: entries,
                 rowRange: NSRange(location: 3, length: 1)
-            ) == [secondWorktreeId]
+            ).isEmpty
         )
         #expect(
             RepoExplorerVisibleRows.worktreeIds(

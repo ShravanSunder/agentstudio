@@ -45,6 +45,7 @@ extension WorkspaceSurfaceCoordinator {
         let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
         let locations = atom(\.workspaceLookup).paneLocations(
             for: resolvedWorktreeId,
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: WorkspaceTabLayoutDerived(
                 shellAtom: store.tabShellAtom,

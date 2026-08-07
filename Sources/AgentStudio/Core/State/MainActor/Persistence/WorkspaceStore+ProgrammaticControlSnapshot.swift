@@ -132,7 +132,7 @@ extension WorkspaceStore {
             orderedPanes.append(pane)
         }
 
-        let remainingPanes = paneAtom.panes.values
+        let remainingPanes = paneAtom.paneSnapshot().values
             .filter { !visitedPaneIds.contains($0.id) }
             .sorted { lhs, rhs in lhs.id.uuidString < rhs.id.uuidString }
 

@@ -6,7 +6,7 @@ import Testing
 actor BackgroundAtomMutator {
     func paneCount() async -> Int {
         await MainActor.run {
-            CoreAtomScope.store.workspacePane.panes.count
+            CoreAtomScope.store.workspacePane.graphAtom.paneIDs.count
         }
     }
 

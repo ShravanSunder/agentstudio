@@ -4,6 +4,7 @@ import AgentStudioCore
 import AgentStudioEditorChooser
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioTerminal
 import AppKit
 import GhosttyKit
@@ -469,7 +470,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .paneTabLayout,
             duration: layoutStart.duration(to: clock.now),
             attributes: [
-                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                 "agentstudio.performance.pane_tab_layout.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 "agentstudio.performance.pane_tab_layout.subview.count": .int(view.subviews.count),
                 "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
@@ -636,9 +637,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func prunePaneInboxPresentationState() {
         guard let paneInboxPresentation else { return }
-        let retainedParentPaneIds = Set(
-            store.paneAtom.panes.values.compactMap { pane in
-                pane.isDrawerChild ? nil : pane.id
+        let paneGraph = store.paneAtom.graphAtom
+        let retainedParentPaneIds = Set<UUID>(
+            paneGraph.paneIDs.compactMap { paneID in
+                guard paneGraph.paneStructuralFacts(paneID)?.isDrawerChild == false else { return nil }
+                return paneID
             }
         )
         paneInboxPresentation.pruneFilterModes(retainedParentPaneIds)
@@ -1042,20 +1045,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard let parentPaneId = pane.parentPaneId else { return nil }
-                return (pane.id, parentPaneId)
+            uniqueKeysWithValues: store.paneAtom.graphAtom.paneIDs.compactMap { paneID in
+                guard let parentPaneID = store.paneAtom.graphAtom.paneStructuralFacts(paneID)?.parentPaneID else {
+                    return nil
+                }
+                return (paneID, parentPaneID)
             }
         )
     }
 
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
+            uniqueKeysWithValues: store.paneAtom.graphAtom.paneIDs.compactMap { paneID in
+                guard
+                    store.paneAtom.graphAtom.paneStructuralFacts(paneID)?.ownedDrawerID != nil,
+                    let drawerView = arrangementView.drawerView(forParent: paneID)
+                else {
                     return nil
                 }
-                return (pane.id, drawerView.layout)
+                return (paneID, drawerView.layout)
             }
         )
     }
@@ -1285,7 +1293,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func syncTabContentHosts() {
-        for paneId in store.paneAtom.panes.keys {
+        for paneId in store.paneAtom.graphAtom.paneIDs {
             viewRegistry.ensureSlot(for: paneId)
         }
 
@@ -2747,7 +2755,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 attributes: [
                     "agentstudio.performance.management_layer.command": .string(command.rawValue),
                     "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
-                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                     "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 ]
             )
@@ -4075,10 +4083,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
 
-        if command == .showBridgeReview || command == .showBridgeFiles
-            || command == .openBridgeReviewInNewTab || command == .openBridgeFilesInNewTab,
-            targetType == .worktree
-        {
+        if Self.isTargetedBridgeCommand(command), targetType == .worktree {
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 
@@ -4105,6 +4110,44 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return !arrangementTarget.arrangement.isDefault
         default:
             return false
+        }
+    }
+
+    func repoExplorerCommandCapabilities(
+        _ requests: Set<RepoExplorerCommandPresentationRequest>
+    ) -> [RepoExplorerCommandPresentationRequest: Bool] {
+        let state = actionStateSnapshot()
+        return Dictionary(
+            uniqueKeysWithValues: requests.map { request in
+                guard let target = request.target, let targetType = request.targetType else {
+                    return (request, false)
+                }
+                if Self.isTargetedBridgeCommand(request.command) {
+                    return (request, targetType == .worktree && state.knownWorktreeIds.contains(target))
+                }
+                guard
+                    let action = targetedAction(
+                        command: request.command,
+                        target: target,
+                        targetType: targetType
+                    )
+                else {
+                    return (request, false)
+                }
+                if case .success = WorkspaceCommandValidator.validate(action, state: state) {
+                    return (request, true)
+                }
+                return (request, false)
+            })
+    }
+
+    private static func isTargetedBridgeCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            true
+        default:
+            false
         }
     }
 

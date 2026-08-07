@@ -773,7 +773,7 @@ func migration015ApplicationSnapshot(
         repositories: store.repositoryTopologyAtom.repos,
         watchedPaths: store.repositoryTopologyAtom.watchedPaths,
         unavailableRepositoryIDs: store.repositoryTopologyAtom.unavailableRepoIds,
-        panes: store.paneAtom.panes.values.sorted { leftPane, rightPane in
+        panes: store.paneAtom.paneSnapshot().values.sorted { leftPane, rightPane in
             leftPane.id.uuidString < rightPane.id.uuidString
         },
         tabs: store.tabLayoutAtom.tabs,
@@ -787,7 +787,7 @@ func assertMigration015ApplicationState(
     fixture: Migration015PreservationFixture
 ) throws {
     #expect(store.identityAtom.workspaceId == fixture.workspaceID)
-    #expect(Set(store.paneAtom.panes.keys) == Set(fixture.paneIDs))
+    #expect(store.paneAtom.graphAtom.paneIDs == Set(fixture.paneIDs))
     #expect(store.tabLayoutAtom.tabs.map(\.id) == fixture.tabIDs)
 
     let repository = try #require(store.repositoryTopologyAtom.repos.single)

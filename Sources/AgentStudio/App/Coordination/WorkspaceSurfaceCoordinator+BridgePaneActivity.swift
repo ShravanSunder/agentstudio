@@ -93,9 +93,12 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func captureBridgePaneActivityInputs() -> [BridgePaneActivityInput] {
-        let bridgePanes = store.paneAtom.panes.values.filter { pane in
-            if case .bridgePanel = pane.content { return true }
-            return false
+        let paneGraph = store.paneAtom.graphAtom
+        let bridgePaneFacts: [PaneStructuralFacts] = paneGraph.paneIDs.compactMap { paneID in
+            guard let paneFacts = paneGraph.paneStructuralFacts(paneID), paneFacts.isBridgeEligible else {
+                return nil
+            }
+            return paneFacts
         }
         let windowPresentationFacts =
             bridgePaneActivityOwningWindowId
@@ -103,16 +106,16 @@ extension WorkspaceSurfaceCoordinator {
             ?? .hidden
         let isApplicationActive = appLifecycleStore.isActive && !appLifecycleStore.isTerminating
 
-        let durableInputs = bridgePanes.map { pane in
-            let workspaceFacts = workspaceActivityFacts(for: pane)
+        let durableInputs = bridgePaneFacts.map { paneFacts in
+            let workspaceFacts = workspaceActivityFacts(for: paneFacts)
             let isControllerInstalled =
-                viewRegistry.allBridgeViews[pane.id] != nil
-                && bridgePaneRetirementTasksByPaneId[pane.id] == nil
+                viewRegistry.allBridgeViews[paneFacts.paneID] != nil
+                && bridgePaneRetirementTasksByPaneId[paneFacts.paneID] == nil
             return BridgePaneActivityInput(
-                paneId: pane.id,
-                resolvedWorktree: resolvedWorktreeContext(for: pane)?.worktree,
+                paneId: paneFacts.paneID,
+                resolvedWorktree: store.repositoryTopologyAtom.repoAndWorktree(containing: paneFacts.cwd)?.worktree,
                 facts: BridgePaneActivityFacts(
-                    residency: pane.residency,
+                    residency: paneFacts.residency,
                     isControllerInstalled: isControllerInstalled,
                     isInActiveTab: workspaceFacts.isInActiveTab,
                     isInActiveArrangement: workspaceFacts.isInActiveArrangement,
@@ -233,7 +236,7 @@ extension WorkspaceSurfaceCoordinator {
         await bridgeGitReadActivityPropagationTask?.value
     }
 
-    private func workspaceActivityFacts(for pane: Pane) -> WorkspaceActivityFacts {
+    private func workspaceActivityFacts(for paneFacts: PaneStructuralFacts) -> WorkspaceActivityFacts {
         guard let activeTab = store.tabLayoutAtom.activeTab else {
             return WorkspaceActivityFacts(
                 isInActiveTab: false,
@@ -244,29 +247,29 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
 
-        let owningLayoutPaneId = pane.parentPaneId ?? pane.id
+        let owningLayoutPaneId = paneFacts.parentPaneID ?? paneFacts.paneID
         let owningTabId = store.tabLayoutAtom.tabContaining(paneId: owningLayoutPaneId)?.id
         let isInActiveTab = owningTabId == activeTab.id
         let isInActiveArrangement =
             isInActiveTab
-            && !pane.isDrawerChild
-            && activeTab.activePaneIds.contains(pane.id)
+            && !paneFacts.isDrawerChild
+            && activeTab.activePaneIds.contains(paneFacts.paneID)
         let sourcePaneId = store.panePresentationAtom.zoomPresentation(forTab: activeTab.id)?.sourcePaneId
 
         var isInExpandedDrawer = false
         var isMinimized = false
-        if let parentPaneId = pane.parentPaneId,
+        if let parentPaneId = paneFacts.parentPaneID,
             isInActiveTab,
             activeTab.activePaneIds.contains(parentPaneId),
-            store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true,
+            store.paneAtom.isDrawerExpanded(for: parentPaneId),
             let drawerView = arrangementView.drawerView(forParent: parentPaneId)
         {
-            isInExpandedDrawer = drawerView.layout.contains(pane.id)
-            isMinimized = drawerView.minimizedPaneIds.contains(pane.id)
-        } else if !pane.isDrawerChild {
-            isMinimized = activeTab.activeMinimizedPaneIds.contains(pane.id)
+            isInExpandedDrawer = drawerView.layout.contains(paneFacts.paneID)
+            isMinimized = drawerView.minimizedPaneIds.contains(paneFacts.paneID)
+        } else if !paneFacts.isDrawerChild {
+            isMinimized = activeTab.activeMinimizedPaneIds.contains(paneFacts.paneID)
         }
-        if sourcePaneId == pane.id {
+        if sourcePaneId == paneFacts.paneID {
             isMinimized = false
         }
 

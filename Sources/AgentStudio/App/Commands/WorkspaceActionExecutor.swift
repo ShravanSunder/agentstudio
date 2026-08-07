@@ -138,7 +138,7 @@ final class WorkspaceActionExecutor {
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+            uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in
                 guard let parentPaneId = pane.parentPaneId else { return nil }
                 return (pane.id, parentPaneId)
             }
@@ -147,7 +147,7 @@ final class WorkspaceActionExecutor {
 
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+            uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in
                 guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
                     return nil
                 }

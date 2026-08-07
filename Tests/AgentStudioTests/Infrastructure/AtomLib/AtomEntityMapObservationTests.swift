@@ -19,7 +19,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func missingKeyReadWakesWhenThatKeyIsInserted() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let missingKeyCounter = AtomEntityMapObservationCounter()
 
         withObservationTracking {
@@ -40,7 +40,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func replaceAllInsertedValueIsReadableThroughKeyedSlot() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
 
         map.replaceAll(["repo-a": 1], mutation: mutation)
@@ -53,7 +53,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func keyedReadersWakeOnlyForTouchedKey() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let keyACounter = AtomEntityMapObservationCounter()
         let keyBCounter = AtomEntityMapObservationCounter()
 
@@ -80,7 +80,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func membershipRevisionWakesOnlyForAddOrRemove() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let membershipCounter = AtomEntityMapObservationCounter()
 
         withObservationTracking {
@@ -126,7 +126,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func topologyExitPrunesRemovedSlotAndAllowsReSubscription() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let removalCounter = AtomEntityMapObservationCounter()
 
         let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
@@ -166,7 +166,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func removingMissingObservedKeyInvalidatesBeforePruningSlot() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let removalCounter = AtomEntityMapObservationCounter()
 
         withObservationTracking {
@@ -187,7 +187,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func replaceAllPrunesRemovedSlots() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: addMutation)
@@ -208,7 +208,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func topologyCleanupPrunesSlotsThatOnlyObservedMissingKeys() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         #expect(map.value(for: "repo-a") == nil)
         #expect(map.value(for: "repo-b") == nil)
@@ -231,7 +231,7 @@ struct AtomEntityMapObservationTests {
 
     @Test
     func pruneNilSlotsInvalidatesObservedMissingKeysBeforeRemovingSlots() {
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let pruneCounter = AtomEntityMapObservationCounter()
 
         withObservationTracking {
@@ -250,7 +250,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func removeAllPrunesAllSlots() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: addMutation)
@@ -268,7 +268,7 @@ struct AtomEntityMapObservationTests {
     @Test
     func removeAllPrunesSlotsThatOnlyObservedMissingKeys() {
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         #expect(map.value(for: "repo-a") == nil)
         #expect(map.storageSlotCount == 1)
@@ -298,12 +298,14 @@ struct AtomEntityMapObservationTests {
         AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
         defer { AtomPerformanceTelemetry.shared.resetForTests() }
         let aggregateRevision = AtomRevision()
-        let map = AtomEntityMap<String, Int>(isContentEqual: ==)
+        let map = AtomEntityMap<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         #expect(map.value(for: "repo-a") == nil)
         let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: mutation)
         mutation.commit()
+        #expect(map.membershipKeys() == Set(["repo-a"]))
+        #expect(map.snapshot() == ["repo-a": 1])
         try await AtomPerformanceTelemetry.shared.drainForTests()
 
         let outputFileURL = try #require(runtime.outputFileURL)
@@ -313,7 +315,53 @@ struct AtomEntityMapObservationTests {
         #expect(contents.contains("\"agentstudio.trace.tag\":\"atoms\""))
         #expect(contents.contains("\"agentstudio.performance.atom.kind\":\"entity_map\""))
         #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"value\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"membership_keys\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"snapshot\""))
         #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"set\""))
         #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":1"))
+    }
+
+    @Test
+    func entityMapsEmitControlledLabelsWithoutKeysOrValues() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atom-entity-map-label-telemetry", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "atom-entity-map-label-telemetry",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 918,
+            timeUnixNano: { 778 }
+        )
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+        let aggregateRevision = AtomRevision()
+        let canonicalMap = AtomEntityMap<String, String>(
+            telemetryLabel: "pane_graph_canonical",
+            isContentEqual: ==
+        )
+        let structuralMap = AtomEntityMap<String, String>(
+            telemetryLabel: "pane_graph_structural",
+            isContentEqual: ==
+        )
+
+        #expect(canonicalMap.value(for: "private-pane-key") == nil)
+        #expect(structuralMap.value(for: "private-structural-key") == nil)
+        let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        canonicalMap.setValue("private-pane-value", for: "private-pane-key", mutation: mutation)
+        structuralMap.setValue("private-structural-value", for: "private-structural-key", mutation: mutation)
+        mutation.commit()
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.performance.atom.label\":\"pane_graph_canonical\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.label\":\"pane_graph_structural\""))
+        #expect(!contents.contains("private-pane-key"))
+        #expect(!contents.contains("private-pane-value"))
+        #expect(!contents.contains("private-structural-key"))
+        #expect(!contents.contains("private-structural-value"))
     }
 }
