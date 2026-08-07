@@ -91,6 +91,18 @@
 - Modify `Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift`
 - Modify `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift` only for the visible-result telemetry hook from Task 6.
 - Modify `Tests/AgentStudioTests/App/Panes/TabBarAdapterTests.swift`
+- Hard-cut the initializer at every current construction site; pass an existing concrete Inbox atom or an explicit fixture atom:
+  - `Sources/AgentStudio/App/Boot/AppDelegate+WorkspaceBoot.swift`
+  - `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift` preview
+  - `Tests/AgentStudioTests/App/ObservableStoreTests.swift`
+  - `Tests/AgentStudioTests/App/PaneTabViewControllerCommandTestSupport.swift`
+  - `Tests/AgentStudioTests/App/PaneTabViewControllerEditorChooserCommandTests.swift`
+  - `Tests/AgentStudioTests/App/PaneTabViewControllerLaunchRestoreTests.swift`
+  - `Tests/AgentStudioTests/App/PaneTabViewControllerTabRetentionTests.swift`
+  - `Tests/AgentStudioTests/App/Terminal/TerminalPaneMountViewExitBehaviorTests.swift`
+  - `Tests/AgentStudioTests/App/Windows/MainSplitViewControllerTestSupport.swift`
+  - `Tests/AgentStudioTests/App/Windows/MainWindowControllerInboxToolbarButtonTests.swift`
+  - `Tests/AgentStudioTests/App/Windows/MainWindowControllerPresentationFactsTests.swift`
 
 **Interface:** `TabBarProjectionGeneration: Equatable & Sendable`; `TabBarProjectionRequest` combining generation, Core request, and Inbox snapshot; `TabBarProjection: Equatable & Sendable { items, activeTabID }`; pure cancellable `TabBarProjector.project(_:)`; adapter initializer receives concrete `InboxNotificationAtom` and retains one `EagerDerivedAtom`.
 
@@ -99,6 +111,7 @@
 - [ ] In `withObservationTracking.onChange`, call `sourceDidInvalidate()` synchronously, coalesce one MainActor post-mutation capture, advance generation once, re-register observation, and admit the newest request.
 - [ ] Forward `tabs` and `activeTabId` from `materializedProjection.value`; observe publication only to update bounded overflow state. Delete stored copies, per-tab notification closures, synchronous `refresh()`, and its bootstrap fallback.
 - [ ] Assemble every `TabBarItem`, Inbox color, and array equality off-main. Keep drag/drop frames, widths, overflow, and management-layer observation on MainActor.
+- [ ] Require a concrete `InboxNotificationAtom` at every constructor call. Do not add a default atom, compatibility initializer, notification closure, or second projection path.
 - [ ] Run `mise run test:swift -- --filter TabBarAdapter` GREEN.
 - [ ] Commit `feat: materialize tab bar projection off main actor`.
 

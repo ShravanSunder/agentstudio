@@ -5,7 +5,7 @@ Task 1: complete (070e14ea2; 11 selected tests, compiler-negative + script proof
 Task 2: complete (465f742bc + d733b4a4b; shared topology/facet policy, direct per-path cancellation regression, 9 selected projector tests, scoped lint/architecture)
 Task 3: complete (56343c9ae; 4 projector + 28 existing atom tests, scoped lint/architecture, approved task review)
 Task 3: minor (deferred): direct regression test for the projector's 256-item cancellation cadence
-Task 4: pending
+Task 4: pending (reversible sequencing correction: hard-cut all internal initializer call sites here; Task 5 retains window ownership/shutdown only)
 Task 5: pending
 Task 6: pending
 Task 7: pending
