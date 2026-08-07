@@ -6,8 +6,8 @@ import Testing
 @Suite(.serialized)
 struct AtomLibCompileFailureScriptTests {
     @Test
-    func compileFailureDriverRejectsNonSendableEagerDerivedAtomRequest() throws {
-        let result = try runAtomLibCompileFailureDriver()
+    func compileFailureDriverRejectsNonSendableEagerDerivedAtomRequest() async throws {
+        let result = try await runAtomLibCompileFailureDriver()
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         #expect(
@@ -16,50 +16,15 @@ struct AtomLibCompileFailureScriptTests {
             ))
     }
 
-    private func runAtomLibCompileFailureDriver() throws -> AtomLibCompileFailureScriptResult {
-        let outputIdentifier = UUIDv7.generate().uuidString
-        let stdoutURL = FileManager.default.temporaryDirectory
-            .appending(path: "atomlib-compile-failure-stdout-\(outputIdentifier).log")
-        let stderrURL = FileManager.default.temporaryDirectory
-            .appending(path: "atomlib-compile-failure-stderr-\(outputIdentifier).log")
-        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-        FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
-        defer {
-            try? FileManager.default.removeItem(at: stdoutURL)
-            try? FileManager.default.removeItem(at: stderrURL)
-        }
-
-        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
-        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
-        defer {
-            try? stdoutHandle.close()
-            try? stderrHandle.close()
-        }
-
-        let process = Process()
-        process.executableURL = URL(filePath: "/bin/bash")
-        process.arguments = ["scripts/verify-atomlib-compile-failures.sh"]
-        process.currentDirectoryURL = URL(
-            filePath: FileManager.default.currentDirectoryPath,
-            directoryHint: .isDirectory
-        )
-        process.environment = ProcessInfo.processInfo.environment
-        process.standardOutput = stdoutHandle
-        process.standardError = stderrHandle
-
-        try process.run()
-        process.waitUntilExit()
-
-        return AtomLibCompileFailureScriptResult(
-            exitCode: process.terminationStatus,
-            stdout: try String(contentsOf: stdoutURL, encoding: .utf8),
-            stderr: try String(contentsOf: stderrURL, encoding: .utf8)
+    private func runAtomLibCompileFailureDriver() async throws -> ProcessResult {
+        try await DefaultProcessExecutor(timeout: 30).execute(
+            command: "/bin/bash",
+            args: ["scripts/verify-atomlib-compile-failures.sh"],
+            cwd: URL(
+                filePath: FileManager.default.currentDirectoryPath,
+                directoryHint: .isDirectory
+            ),
+            environment: nil
         )
     }
-}
-
-private struct AtomLibCompileFailureScriptResult {
-    let exitCode: Int32
-    let stdout: String
-    let stderr: String
 }

@@ -1,180 +1,13 @@
-import Dispatch
-import Observation
-import Synchronization
 import Testing
 
 @testable import AgentStudioInfrastructure
-
-private final class EagerDerivedAtomTestSignal: Sendable {
-    private struct State: Sendable {
-        var isSignaled = false
-        var waiters: [CheckedContinuation<Void, Never>] = []
-    }
-
-    private let state = Mutex(State())
-
-    func signal() {
-        let waiters: [CheckedContinuation<Void, Never>] = state.withLock { state in
-            guard !state.isSignaled else { return [] }
-            state.isSignaled = true
-            let waiters = state.waiters
-            state.waiters.removeAll()
-            return waiters
-        }
-        for waiter in waiters {
-            waiter.resume()
-        }
-    }
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            let shouldResume = state.withLock { state in
-                guard !state.isSignaled else { return true }
-                state.waiters.append(continuation)
-                return false
-            }
-            if shouldResume {
-                continuation.resume()
-            }
-        }
-    }
-}
-
-private final class EagerDerivedAtomProjectionGate: Sendable {
-    private let startedSignal = EagerDerivedAtomTestSignal()
-    private let releaseSemaphore = DispatchSemaphore(value: 0)
-
-    func holdProjection() {
-        startedSignal.signal()
-        releaseSemaphore.wait()
-    }
-
-    func waitUntilStarted() async {
-        await startedSignal.wait()
-    }
-
-    func release() {
-        releaseSemaphore.signal()
-    }
-}
-
-private final class EagerDerivedAtomTestCounter: Sendable {
-    private let countState = Mutex(0)
-
-    var count: Int {
-        countState.withLock { $0 }
-    }
-
-    var isEmpty: Bool {
-        countState.withLock { $0 == 0 }
-    }
-
-    func increment() {
-        countState.withLock { $0 += 1 }
-    }
-}
-
-private final class EagerDerivedAtomTestValue: Sendable {
-    let content: Int
-    private let droppedSignal: EagerDerivedAtomTestSignal?
-
-    init(content: Int, droppedSignal: EagerDerivedAtomTestSignal? = nil) {
-        self.content = content
-        self.droppedSignal = droppedSignal
-    }
-
-    deinit {
-        droppedSignal?.signal()
-    }
-}
-
-private struct EagerDerivedAtomTestRequest: Sendable {
-    let identity: Int
-    let outputContent: Int
-    let gate: EagerDerivedAtomProjectionGate?
-    let projectionCount: EagerDerivedAtomTestCounter
-    let observesCancellation: Bool
-    let cancellationSignal: EagerDerivedAtomTestSignal?
-    let droppedValueSignal: EagerDerivedAtomTestSignal?
-}
-
-private func projectEagerDerivedAtomTestRequest(
-    _ request: EagerDerivedAtomTestRequest
-) throws(CancellationError) -> EagerDerivedAtomTestValue {
-    request.projectionCount.increment()
-    request.gate?.holdProjection()
-    if request.observesCancellation, Task.isCancelled {
-        request.cancellationSignal?.signal()
-        throw CancellationError()
-    }
-    return EagerDerivedAtomTestValue(
-        content: request.outputContent,
-        droppedSignal: request.droppedValueSignal
-    )
-}
-
-private func makeEagerDerivedAtomTestRequest(
-    identity: Int,
-    outputContent: Int,
-    gate: EagerDerivedAtomProjectionGate? = nil,
-    projectionCount: EagerDerivedAtomTestCounter,
-    observesCancellation: Bool = false,
-    cancellationSignal: EagerDerivedAtomTestSignal? = nil,
-    droppedValueSignal: EagerDerivedAtomTestSignal? = nil
-) -> EagerDerivedAtomTestRequest {
-    EagerDerivedAtomTestRequest(
-        identity: identity,
-        outputContent: outputContent,
-        gate: gate,
-        projectionCount: projectionCount,
-        observesCancellation: observesCancellation,
-        cancellationSignal: cancellationSignal,
-        droppedValueSignal: droppedValueSignal
-    )
-}
-
-@MainActor
-private func makeEagerDerivedAtomTestNode() -> EagerDerivedAtom<
-    EagerDerivedAtomTestRequest,
-    Int,
-    EagerDerivedAtomTestValue
-> {
-    EagerDerivedAtom(
-        requestIdentity: \EagerDerivedAtomTestRequest.identity,
-        isValueEqual: { lhs, rhs in lhs.content == rhs.content },
-        project: projectEagerDerivedAtomTestRequest
-    )
-}
-
-@MainActor
-private func observeEagerDerivedAtomValue(
-    _ atom: EagerDerivedAtom<EagerDerivedAtomTestRequest, Int, EagerDerivedAtomTestValue>,
-    onChange: @escaping @Sendable () -> Void
-) {
-    withObservationTracking {
-        _ = atom.value
-    } onChange: {
-        onChange()
-    }
-}
-
-@MainActor
-private func observeEagerDerivedAtomFreshness(
-    _ atom: EagerDerivedAtom<EagerDerivedAtomTestRequest, Int, EagerDerivedAtomTestValue>,
-    onChange: @escaping @Sendable () -> Void
-) {
-    withObservationTracking {
-        _ = atom.freshness
-    } onChange: {
-        onChange()
-    }
-}
 
 @MainActor
 struct EagerDerivedAtomTests {
     @Test
     func initialPublicationStoresValueAndKeepsRevisionZero() async {
         let gate = EagerDerivedAtomProjectionGate()
+        defer { gate.release() }
         let projectionCount = EagerDerivedAtomTestCounter()
         let atom = makeEagerDerivedAtomTestNode()
         let valueChanged = EagerDerivedAtomTestSignal()
@@ -186,14 +19,24 @@ struct EagerDerivedAtomTests {
                 gate: gate,
                 projectionCount: projectionCount
             ))
-        await gate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "initial projection start",
+                wait: { await gate.waitUntilStarted() }
+            )
+        else { return }
         #expect(atom.freshness == .running(1))
         observeEagerDerivedAtomValue(atom) {
             valueChanged.signal()
         }
 
         gate.release()
-        await valueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "initial value publication",
+                wait: { await valueChanged.wait() }
+            )
+        else { return }
 
         #expect(atom.value?.content == 10)
         #expect(atom.freshness == .current(1))
@@ -204,6 +47,7 @@ struct EagerDerivedAtomTests {
     @Test
     func equalCurrentRequestIsANoOp() async {
         let gate = EagerDerivedAtomProjectionGate()
+        defer { gate.release() }
         let projectionCount = EagerDerivedAtomTestCounter()
         let atom = makeEagerDerivedAtomTestNode()
         let request = makeEagerDerivedAtomTestRequest(
@@ -214,7 +58,12 @@ struct EagerDerivedAtomTests {
         )
 
         atom.admit(request)
-        await gate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "equal request projection start",
+                wait: { await gate.waitUntilStarted() }
+            )
+        else { return }
         atom.admit(request)
 
         #expect(atom.freshness == .running(1))
@@ -225,7 +74,12 @@ struct EagerDerivedAtomTests {
             valueChanged.signal()
         }
         gate.release()
-        await valueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "equal request initial publication",
+                wait: { await valueChanged.wait() }
+            )
+        else { return }
 
         atom.admit(request)
         #expect(atom.freshness == .current(1))
@@ -236,6 +90,10 @@ struct EagerDerivedAtomTests {
     func successorCancelsRetainedPredecessor() async {
         let firstGate = EagerDerivedAtomProjectionGate()
         let secondGate = EagerDerivedAtomProjectionGate()
+        defer {
+            firstGate.release()
+            secondGate.release()
+        }
         let cancellationSignal = EagerDerivedAtomTestSignal()
         let projectionCount = EagerDerivedAtomTestCounter()
         let atom = makeEagerDerivedAtomTestNode()
@@ -249,7 +107,12 @@ struct EagerDerivedAtomTests {
                 observesCancellation: true,
                 cancellationSignal: cancellationSignal
             ))
-        await firstGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "predecessor projection start",
+                wait: { await firstGate.waitUntilStarted() }
+            )
+        else { return }
 
         atom.admit(
             makeEagerDerivedAtomTestRequest(
@@ -258,16 +121,31 @@ struct EagerDerivedAtomTests {
                 gate: secondGate,
                 projectionCount: projectionCount
             ))
-        await secondGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "successor projection start",
+                wait: { await secondGate.waitUntilStarted() }
+            )
+        else { return }
         firstGate.release()
-        await cancellationSignal.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "predecessor cancellation",
+                wait: { await cancellationSignal.wait() }
+            )
+        else { return }
 
         let valueChanged = EagerDerivedAtomTestSignal()
         observeEagerDerivedAtomValue(atom) {
             valueChanged.signal()
         }
         secondGate.release()
-        await valueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "successor publication",
+                wait: { await valueChanged.wait() }
+            )
+        else { return }
 
         #expect(atom.value?.content == 20)
         #expect(atom.freshness == .current(2))
@@ -278,19 +156,27 @@ struct EagerDerivedAtomTests {
     func staleCompletionThatIgnoresCancellationCannotPublish() async {
         let firstGate = EagerDerivedAtomProjectionGate()
         let secondGate = EagerDerivedAtomProjectionGate()
-        let staleValueDropped = EagerDerivedAtomTestSignal()
+        defer {
+            firstGate.release()
+            secondGate.release()
+        }
+        let completionRecorder = EagerDerivedAtomCompletionRecorder()
         let projectionCount = EagerDerivedAtomTestCounter()
-        let atom = makeEagerDerivedAtomTestNode()
+        let atom = makeEagerDerivedAtomTestNode(completionRecorder: completionRecorder)
 
         atom.admit(
             makeEagerDerivedAtomTestRequest(
                 identity: 1,
                 outputContent: 10,
                 gate: firstGate,
-                projectionCount: projectionCount,
-                droppedValueSignal: staleValueDropped
+                projectionCount: projectionCount
             ))
-        await firstGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "stale projection start",
+                wait: { await firstGate.waitUntilStarted() }
+            )
+        else { return }
         atom.admit(
             makeEagerDerivedAtomTestRequest(
                 identity: 2,
@@ -298,10 +184,20 @@ struct EagerDerivedAtomTests {
                 gate: secondGate,
                 projectionCount: projectionCount
             ))
-        await secondGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "replacement projection start",
+                wait: { await secondGate.waitUntilStarted() }
+            )
+        else { return }
 
         firstGate.release()
-        await staleValueDropped.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "stale completion admission decision",
+                wait: { await completionRecorder.wait(for: .superseded(1)) }
+            )
+        else { return }
 
         #expect(atom.value == nil)
         #expect(atom.freshness == .running(2))
@@ -312,7 +208,12 @@ struct EagerDerivedAtomTests {
             valueChanged.signal()
         }
         secondGate.release()
-        await valueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "replacement publication",
+                wait: { await valueChanged.wait() }
+            )
+        else { return }
 
         #expect(atom.value?.content == 20)
         #expect(atom.freshness == .current(2))
@@ -322,6 +223,10 @@ struct EagerDerivedAtomTests {
     func equalCurrentCompletionPreservesValueRevisionAndOutputObservation() async {
         let firstGate = EagerDerivedAtomProjectionGate()
         let secondGate = EagerDerivedAtomProjectionGate()
+        defer {
+            firstGate.release()
+            secondGate.release()
+        }
         let projectionCount = EagerDerivedAtomTestCounter()
         let atom = makeEagerDerivedAtomTestNode()
 
@@ -332,13 +237,23 @@ struct EagerDerivedAtomTests {
                 gate: firstGate,
                 projectionCount: projectionCount
             ))
-        await firstGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "first equal-output projection start",
+                wait: { await firstGate.waitUntilStarted() }
+            )
+        else { return }
         let firstValueChanged = EagerDerivedAtomTestSignal()
         observeEagerDerivedAtomValue(atom) {
             firstValueChanged.signal()
         }
         firstGate.release()
-        await firstValueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "first equal-output publication",
+                wait: { await firstValueChanged.wait() }
+            )
+        else { return }
         let firstValue = atom.value
 
         let outputObservationCount = EagerDerivedAtomTestCounter()
@@ -352,7 +267,12 @@ struct EagerDerivedAtomTests {
                 gate: secondGate,
                 projectionCount: projectionCount
             ))
-        await secondGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "second equal-output projection start",
+                wait: { await secondGate.waitUntilStarted() }
+            )
+        else { return }
         #expect(outputObservationCount.isEmpty)
 
         let freshnessChanged = EagerDerivedAtomTestSignal()
@@ -360,7 +280,12 @@ struct EagerDerivedAtomTests {
             freshnessChanged.signal()
         }
         secondGate.release()
-        await freshnessChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "equal-output freshness publication",
+                wait: { await freshnessChanged.wait() }
+            )
+        else { return }
 
         #expect(atom.value === firstValue)
         #expect(atom.freshness == .current(2))
@@ -372,23 +297,36 @@ struct EagerDerivedAtomTests {
     func sourceInvalidationSynchronouslyRevokesWorkBeforeSuccessorAdmission() async {
         let firstGate = EagerDerivedAtomProjectionGate()
         let successorGate = EagerDerivedAtomProjectionGate()
-        let staleValueDropped = EagerDerivedAtomTestSignal()
+        defer {
+            firstGate.release()
+            successorGate.release()
+        }
+        let completionRecorder = EagerDerivedAtomCompletionRecorder()
         let projectionCount = EagerDerivedAtomTestCounter()
-        let atom = makeEagerDerivedAtomTestNode()
+        let atom = makeEagerDerivedAtomTestNode(completionRecorder: completionRecorder)
 
         atom.admit(
             makeEagerDerivedAtomTestRequest(
                 identity: 1,
                 outputContent: 10,
                 gate: firstGate,
-                projectionCount: projectionCount,
-                droppedValueSignal: staleValueDropped
+                projectionCount: projectionCount
             ))
-        await firstGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "invalidated projection start",
+                wait: { await firstGate.waitUntilStarted() }
+            )
+        else { return }
 
         atom.sourceDidInvalidate()
         firstGate.release()
-        await staleValueDropped.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "invalidated completion admission decision",
+                wait: { await completionRecorder.wait(for: .superseded(1)) }
+            )
+        else { return }
 
         #expect(atom.value == nil)
         #expect(atom.freshness != .current(1))
@@ -400,13 +338,23 @@ struct EagerDerivedAtomTests {
                 gate: successorGate,
                 projectionCount: projectionCount
             ))
-        await successorGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "post-invalidation successor start",
+                wait: { await successorGate.waitUntilStarted() }
+            )
+        else { return }
         let valueChanged = EagerDerivedAtomTestSignal()
         observeEagerDerivedAtomValue(atom) {
             valueChanged.signal()
         }
         successorGate.release()
-        await valueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "post-invalidation successor publication",
+                wait: { await valueChanged.wait() }
+            )
+        else { return }
 
         #expect(atom.value?.content == 11)
         #expect(atom.freshness == .current(1))
@@ -417,6 +365,10 @@ struct EagerDerivedAtomTests {
     func repeatedInvalidationKeepsOnlyTheStillStaleAdmissionInvalidated() async {
         let firstGate = EagerDerivedAtomProjectionGate()
         let successorGate = EagerDerivedAtomProjectionGate()
+        defer {
+            firstGate.release()
+            successorGate.release()
+        }
         let projectionCount = EagerDerivedAtomTestCounter()
         let atom = makeEagerDerivedAtomTestNode()
 
@@ -427,13 +379,23 @@ struct EagerDerivedAtomTests {
                 gate: firstGate,
                 projectionCount: projectionCount
             ))
-        await firstGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "repeated-invalidation initial projection start",
+                wait: { await firstGate.waitUntilStarted() }
+            )
+        else { return }
         let firstValueChanged = EagerDerivedAtomTestSignal()
         observeEagerDerivedAtomValue(atom) {
             firstValueChanged.signal()
         }
         firstGate.release()
-        await firstValueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "repeated-invalidation initial publication",
+                wait: { await firstValueChanged.wait() }
+            )
+        else { return }
 
         let invalidated = EagerDerivedAtomTestSignal()
         observeEagerDerivedAtomFreshness(atom) {
@@ -441,7 +403,12 @@ struct EagerDerivedAtomTests {
         }
         atom.sourceDidInvalidate()
         atom.sourceDidInvalidate()
-        await invalidated.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "repeated invalidation freshness",
+                wait: { await invalidated.wait() }
+            )
+        else { return }
         #expect(atom.freshness == .invalidated(1))
 
         atom.admit(
@@ -451,7 +418,12 @@ struct EagerDerivedAtomTests {
                 gate: successorGate,
                 projectionCount: projectionCount
             ))
-        await successorGate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "repeated-invalidation successor start",
+                wait: { await successorGate.waitUntilStarted() }
+            )
+        else { return }
         #expect(atom.freshness == .running(1))
 
         let successorValueChanged = EagerDerivedAtomTestSignal()
@@ -459,7 +431,12 @@ struct EagerDerivedAtomTests {
             successorValueChanged.signal()
         }
         successorGate.release()
-        await successorValueChanged.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "repeated-invalidation successor publication",
+                wait: { await successorValueChanged.wait() }
+            )
+        else { return }
 
         #expect(atom.value?.content == 11)
         #expect(atom.freshness == .current(1))
@@ -469,24 +446,34 @@ struct EagerDerivedAtomTests {
     @Test
     func stopBeforeCompletionPreventsPublication() async {
         let gate = EagerDerivedAtomProjectionGate()
-        let droppedValueSignal = EagerDerivedAtomTestSignal()
+        defer { gate.release() }
+        let completionRecorder = EagerDerivedAtomCompletionRecorder()
         let projectionCount = EagerDerivedAtomTestCounter()
-        let atom = makeEagerDerivedAtomTestNode()
+        let atom = makeEagerDerivedAtomTestNode(completionRecorder: completionRecorder)
 
         atom.admit(
             makeEagerDerivedAtomTestRequest(
                 identity: 1,
                 outputContent: 10,
                 gate: gate,
-                projectionCount: projectionCount,
-                droppedValueSignal: droppedValueSignal
+                projectionCount: projectionCount
             ))
-        await gate.waitUntilStarted()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "stopped projection start",
+                wait: { await gate.waitUntilStarted() }
+            )
+        else { return }
 
         atom.stop()
         #expect(atom.freshness == .stopped)
         gate.release()
-        await droppedValueSignal.wait()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "stopped completion admission decision",
+                wait: { await completionRecorder.wait(for: .cancelled(1)) }
+            )
+        else { return }
 
         #expect(atom.value == nil)
         #expect(atom.freshness == .stopped)
