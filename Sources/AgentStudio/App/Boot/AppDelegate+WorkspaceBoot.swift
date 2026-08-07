@@ -10,21 +10,6 @@ import Observation
 
 @MainActor
 extension AppDelegate {
-    static func tabNotificationDotColor(
-        for lane: InboxNotificationClaimLane?
-    ) -> TabNotificationDotColor? {
-        switch lane {
-        case .actionNeeded:
-            return .red
-        case .safety:
-            return .amber
-        case .settledAgent:
-            return .yellow
-        case .activity, nil:
-            return nil
-        }
-    }
-
     func bootWorkspacePresentationPrerequisites(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
@@ -369,20 +354,12 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
-        let inboxNotification = atomStore.inboxNotification
         startWorkspacePaneRecencyObservation()
         tabBarAdapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            performanceTraceRecorder: performanceTraceRecorder,
-            notificationDotColorProvider: { paneIds in
-                Self.tabNotificationDotColor(
-                    for: inboxNotification.attentionLane(forPaneIds: paneIds)
-                )
-            },
-            observeNotificationDotInputs: {
-                _ = inboxNotification.notifications
-            }
+            inboxAtom: atomStore.inboxNotification,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         commandBarController = CommandBarPanelController(
             store: store,

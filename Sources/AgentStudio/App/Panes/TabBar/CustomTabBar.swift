@@ -946,7 +946,11 @@ struct TabBarEmptyState: View {
                 tabLayoutAtom: atomRegistry.core.workspaceTabLayout,
                 mutationCoordinator: atomRegistry.core.workspaceMutationCoordinator
             )
-            let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
+            let adapter = TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: atomRegistry.inboxNotification
+            )
 
             return VStack(spacing: 0) {
                 CustomTabBar(

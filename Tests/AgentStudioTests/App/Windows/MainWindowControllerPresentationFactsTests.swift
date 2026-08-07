@@ -132,11 +132,15 @@ private func withPresentationFactsWindowHarness<T>(
             runtimeCommandDispatcher: coordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: atoms.core.repoCache),
+            tabBarAdapter: TabBarAdapter(
+                store: store,
+                repoCache: atoms.core.repoCache,
+                inboxAtom: atoms.inboxNotification
+            ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atoms.bridgePaneAttendance,
             editorChooser: atoms.editorChooser,
-            inboxAtom: InboxNotificationAtom(),
+            inboxAtom: atoms.inboxNotification,
             inboxPrefsAtom: InboxNotificationPrefsAtom(),
             inboxSidebarState: InboxSidebarState(),
             paneInboxPresentationState: atoms.paneInboxPresentationState,

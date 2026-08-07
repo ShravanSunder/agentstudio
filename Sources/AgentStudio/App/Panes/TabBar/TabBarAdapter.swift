@@ -1,43 +1,29 @@
 import AgentStudioCore
+import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import Foundation
 import Observation
 
-/// Lightweight display item for the tab bar.
-/// Contains only what the UI needs to render — no live views or split trees.
-struct TabBarItem: Identifiable, Equatable {
-    let id: UUID
-    var title: String
-    var isSplit: Bool
-    var displayTitle: String
-    var activeArrangementName: String?
-    var activeArrangementBadgeNumber: Int?
-    var arrangementCount: Int  // total arrangements (1 = default only)
-    var colorHex: String?
-    var panes: [PaneVisibilityInfo]
-    var zoomMode: ArrangementPanelZoomMode?
-    var arrangements: [ArrangementInfo]
-    var minimizedCount: Int
-    var notificationDotColor: TabNotificationDotColor?
-}
-
-enum TabNotificationDotColor: Equatable {
-    case red
-    case amber
-    case yellow
-}
+typealias TabBarMaterializedProjection = EagerDerivedAtom<
+    TabBarProjectionRequest,
+    TabBarProjectionGeneration,
+    TabBarProjection
+>
 
 /// Derives tab bar display state from the workspace atoms.
-/// Replaces TabBarState as the observable source for CustomTabBar.
-/// Owns only transient UI state (dragging, drop targets).
+/// Owns only the materialized projection and transient MainActor UI state.
 @MainActor
 @Observable
 final class TabBarAdapter {
+    // MARK: - Materialized Projection
 
-    // MARK: - Derived From Workspace Atoms
+    var tabs: [TabBarItem] {
+        materializedProjection.value?.items ?? []
+    }
 
-    private(set) var tabs: [TabBarItem] = []
-    private(set) var activeTabId: UUID?
+    var activeTabId: UUID? {
+        materializedProjection.value?.activeTabID
+    }
 
     // MARK: - Overflow Detection
 
@@ -47,7 +33,7 @@ final class TabBarAdapter {
             updateOverflow()
         }
     }
-    private(set) var isOverflowing: Bool = false
+    private(set) var isOverflowing = false
     var contentWidth: CGFloat = 0 {
         didSet {
             guard oldValue != contentWidth else { return }
@@ -68,7 +54,7 @@ final class TabBarAdapter {
 
     // MARK: - Management Layer
 
-    private(set) var isManagementLayerActive: Bool = false
+    private(set) var isManagementLayerActive = false
 
     // MARK: - Transient UI State
 
@@ -80,184 +66,106 @@ final class TabBarAdapter {
 
     // MARK: - Internals
 
+    let materializedProjection: TabBarMaterializedProjection
+
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
-    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
-    private let notificationDotColorProvider: @MainActor ([UUID]) -> TabNotificationDotColor?
-    private let observeNotificationDotInputs: @MainActor () -> Void
+    private let inboxAtom: InboxNotificationAtom
+    private var projectionGeneration: UInt64 = 0
     private var isObservingManagementLayer = false
-    private var isObservingStore = false
+    private var hasStopped = false
 
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        inboxAtom: InboxNotificationAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        notificationDotColorProvider: @escaping @MainActor ([UUID]) -> TabNotificationDotColor? = { _ in nil },
-        observeNotificationDotInputs: @escaping @MainActor () -> Void = {}
+        project: @escaping @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection =
+            { try TabBarProjector.project($0) },
+        onProjectionCompletion:
+            @escaping @MainActor @Sendable (
+                TabBarMaterializedProjection.ProjectionCompletion
+            ) -> Void = { _ in }
     ) {
         self.store = store
         self.repoCache = repoCache
-        self.performanceTraceRecorder = performanceTraceRecorder
-        self.notificationDotColorProvider = notificationDotColorProvider
-        self.observeNotificationDotInputs = observeNotificationDotInputs
+        self.inboxAtom = inboxAtom
+        self.materializedProjection = TabBarMaterializedProjection(
+            requestIdentity: \.generation,
+            isValueEqual: ==,
+            project: project,
+            onProjectionCompletion: onProjectionCompletion
+        )
+        _ = performanceTraceRecorder
         observe()
+    }
+
+    func stop() {
+        guard !hasStopped else { return }
+        hasStopped = true
+        materializedProjection.stop()
     }
 
     // MARK: - Observation
 
     private func observe() {
-        // Re-derive tabs whenever the store's observed state changes.
-        // withObservationTracking fires once per registration, so we re-register
-        // after each change. Task { @MainActor } satisfies @Sendable and ensures
-        // we read new values (onChange has willSet semantics — old values only).
         isManagementLayerActive = atom(\.managementLayer).isActive
-        observeStore()
+        observeMaterializedProjection()
         observeManagementLayer()
-
-        // Initial sync
-        refresh()
+        captureAndAdmitNewestRequest()
     }
 
-    /// Bridge @Observable store → adapter via withObservationTracking.
-    /// Fires once per registration; re-registers after each change.
-    private func observeStore() {
-        guard !isObservingStore else { return }
-        isObservingStore = true
-        withObservationTracking {
-            _ = self.store.tabLayoutAtom.tabs
-            _ = self.store.tabLayoutAtom.activeTabId
-            _ = self.store.paneAtom.panes
-            _ = self.store.panePresentationAtom.zoomPresentationsByTabId
-            for pane in self.store.paneAtom.panes.values {
-                if let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId {
-                    _ = self.repoCache.worktreeEnrichment(for: worktreeId)
-                }
+    private func captureAndAdmitNewestRequest() {
+        guard !hasStopped else { return }
+
+        projectionGeneration &+= 1
+        let generation = TabBarProjectionGeneration(value: projectionGeneration)
+        let materializedProjection = self.materializedProjection
+        let request = withObservationTracking {
+            TabBarProjectionRequest(
+                generation: generation,
+                coreRequest: CoreTabBarProjectionRequest.capture(
+                    store: store,
+                    repoCache: repoCache
+                ),
+                inboxAttentionFacts: inboxAtom.captureAttentionFacts()
+            )
+        } onChange: { [weak self, materializedProjection] in
+            materializedProjection.sourceDidInvalidate()
+            Task { @MainActor [weak self] in
+                self?.captureAndAdmitNewestRequest()
             }
-            self.observeNotificationDotInputs()
+        }
+        materializedProjection.admit(request)
+    }
+
+    private func observeMaterializedProjection() {
+        guard !hasStopped else { return }
+        let materializedProjection = self.materializedProjection
+        withObservationTracking {
+            _ = materializedProjection.value
         } onChange: { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.isObservingStore = false
-                self.refresh()
-                self.observeStore()
+            Task { @MainActor [weak self] in
+                guard let self, !self.hasStopped else { return }
+                self.updateOverflow()
+                self.observeMaterializedProjection()
             }
         }
     }
 
     private func observeManagementLayer() {
-        guard !isObservingManagementLayer else { return }
+        guard !hasStopped, !isObservingManagementLayer else { return }
         isObservingManagementLayer = true
         withObservationTracking {
-            // Track only reads; writes stay in onChange.
             _ = atom(\.managementLayer).isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.hasStopped else { return }
                 self.isObservingManagementLayer = false
                 self.isManagementLayerActive = atom(\.managementLayer).isActive
                 self.observeManagementLayer()
             }
         }
-    }
-
-    private func refresh() {
-        let clock = ContinuousClock()
-        let start = clock.now
-        let tabLayout = store.tabLayoutAtom
-        let storeTabs = tabLayout.tabs
-
-        tabs = storeTabs.map { tab in
-            let displayTitle = atom(\.tabDisplay).displayTitle(
-                for: tab,
-                workspacePane: store.paneAtom,
-                workspaceRepositoryTopology: store.repositoryTopologyAtom,
-                repoCache: repoCache
-            )
-            let dragTitle = displayTitle
-
-            let activeArrangement = tab.activeArrangement
-            let activeArrangementBadgeNumber = Self.activeArrangementBadgeNumber(for: tab)
-
-            let arrangementDerived = atom(\.arrangement)
-            let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
-            let zoomPresentation = store.panePresentationAtom.zoomPresentation(forTab: tab.id)
-            let zoomMode = arrangementDerived.zoomMode(for: tab.id)
-            let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
-            let notificationDotColor = notificationDotColorProvider(Array(tab.allPaneIds))
-            let zoomManagementTitle = zoomPresentation.flatMap { presentation in
-                ZoomManagementTitle.text(
-                    sourceOrdinal: PaneOrdinalMap(
-                        orderedPaneIds: activeArrangement.layout.paneIds
-                    ).ordinal(forPaneId: presentation.sourcePaneId),
-                    activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement)
-                )
-            }
-
-            return TabBarItem(
-                id: tab.id,
-                title: dragTitle,
-                isSplit: tab.isSplit,
-                displayTitle: displayTitle,
-                activeArrangementName: zoomManagementTitle
-                    ?? Self.activeArrangementDisplayName(for: activeArrangement),
-                activeArrangementBadgeNumber: zoomPresentation == nil ? activeArrangementBadgeNumber : nil,
-                arrangementCount: tab.arrangements.count,
-                colorHex: tab.colorHex,
-                panes: paneInfos,
-                zoomMode: zoomMode,
-                arrangements: arrangementInfos,
-                minimizedCount: tab.activeMinimizedPaneIds.count,
-                notificationDotColor: notificationDotColor
-            )
-        }
-
-        if let storeActiveTabId = tabLayout.activeTabId {
-            activeTabId = storeActiveTabId
-        } else {
-            // Defensive UI fallback for transient restore/repair windows where tabs
-            // exist but activeTabId has not been recomputed yet.
-            activeTabId = tabs.last?.id
-        }
-        updateOverflow()
-        performanceTraceRecorder?.recordDuration(
-            .tabBarRefresh,
-            duration: start.duration(to: clock.now),
-            attributes: [
-                "agentstudio.performance.tabbar.tab.count": .int(tabs.count),
-                "agentstudio.performance.tabbar.source_tab.count": .int(storeTabs.count),
-                "agentstudio.performance.tabbar.pane.count": .int(tabs.reduce(0) { $0 + $1.panes.count }),
-            ]
-        )
-    }
-
-    private func paneDisplayTitle(for paneId: UUID) -> String {
-        guard let pane = store.paneAtom.pane(paneId) else {
-            return "Terminal"
-        }
-
-        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
-
-        if let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let repo = store.repositoryTopologyAtom.repo(repoId),
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-        {
-            let repoName = pane.metadata.repoName ?? repo.name
-            let branchName = atom(\.paneDisplay).resolvedBranchName(
-                worktree: worktree,
-                enrichment: repoCache.worktreeEnrichment(for: worktree.id)
-            )
-            return "\(repoName) | \(branchName) | \(worktree.path.lastPathComponent)"
-        }
-
-        if let cwdFolderName = pane.metadata.cwd?.lastPathComponent,
-            !cwdFolderName.isEmpty
-        {
-            return cwdFolderName
-        }
-
-        return defaultLabel
     }
 
     private func updateOverflow() {
@@ -266,16 +174,11 @@ final class TabBarAdapter {
             return
         }
 
-        // Prefer viewport width (from onScrollGeometryChange or ScrollView measurement),
-        // fall back to availableWidth (outer container).
         let effectiveViewport = viewportWidth > 0 ? viewportWidth : availableWidth
         guard effectiveViewport > 0 else { return }
 
-        // Content-width-based overflow: use actual measured content width when available.
         if contentWidth > 0 {
             if isOverflowing {
-                // Hysteresis: only turn off overflow when content width drops
-                // well below the viewport to prevent oscillation.
                 isOverflowing = contentWidth > (effectiveViewport - Self.hysteresisBuffer)
             } else {
                 isOverflowing = contentWidth > effectiveViewport
@@ -283,24 +186,11 @@ final class TabBarAdapter {
             return
         }
 
-        // Fallback: estimate overflow from tab count when content width isn't measured yet.
         let tabCount = CGFloat(tabs.count)
         let totalMinWidth =
             tabCount * Self.minTabWidth
             + (tabCount - 1) * Self.tabSpacing
             + Self.tabBarPadding
         isOverflowing = totalMinWidth > effectiveViewport
-    }
-
-    private static func activeArrangementBadgeNumber(for tab: Tab) -> Int? {
-        let customArrangements = tab.arrangements.filter { !$0.isDefault }
-        guard let index = customArrangements.firstIndex(where: { $0.id == tab.activeArrangementId }) else {
-            return nil
-        }
-        return index + 1
-    }
-
-    private static func activeArrangementDisplayName(for arrangement: PaneArrangement) -> String {
-        arrangement.isDefault ? "Default" : arrangement.name
     }
 }
