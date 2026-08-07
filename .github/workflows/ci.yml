@@ -209,11 +209,6 @@ jobs:
             cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
           fi
 
-      - name: Test BridgeWeb Swift development backend
-        run: |
-          pnpm --dir BridgeWeb run test:integration:node
-          pnpm --dir BridgeWeb run test:e2e
-
       - name: Setup dev resources
         run: |
           SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
@@ -229,6 +224,11 @@ jobs:
             [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
             [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
           fi
+
+      - name: Test BridgeWeb Swift development backend
+        run: |
+          pnpm --dir BridgeWeb run test:integration:node
+          pnpm --dir BridgeWeb run test:e2e
 
       - name: Compute Swift build input fingerprint
         id: swift-build-inputs

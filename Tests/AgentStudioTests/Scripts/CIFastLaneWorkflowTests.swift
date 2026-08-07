@@ -74,12 +74,14 @@ struct CIFastLaneWorkflowTests {
         let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
         let bridgeWebLaneStep = try workflowStep(named: "Run BridgeWeb lanes", in: bridgeWebJob)
         let copyXCFrameworkStep = try workflowStep(named: "Copy XCFramework", in: swiftJob)
+        let setupDevResourcesStep = try workflowStep(named: "Setup dev resources", in: swiftJob)
         let swiftBackendLaneStep = try workflowStep(
             named: "Test BridgeWeb Swift development backend",
             in: swiftJob
         )
 
         let copyXCFrameworkRange = try #require(swiftJob.range(of: copyXCFrameworkStep))
+        let setupDevResourcesRange = try #require(swiftJob.range(of: setupDevResourcesStep))
         let swiftBackendLaneRange = try #require(swiftJob.range(of: swiftBackendLaneStep))
 
         #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run check"))
@@ -90,6 +92,7 @@ struct CIFastLaneWorkflowTests {
         #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:integration:node"))
         #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
         #expect(copyXCFrameworkRange.upperBound < swiftBackendLaneRange.lowerBound)
+        #expect(setupDevResourcesRange.upperBound < swiftBackendLaneRange.lowerBound)
     }
 
     @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
