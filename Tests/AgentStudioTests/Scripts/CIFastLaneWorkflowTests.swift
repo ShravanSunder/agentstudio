@@ -67,6 +67,31 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
+    @Test("BridgeWeb Swift-backend lanes run only after Swift vendor setup")
+    func bridgeWebSwiftBackendLanesRunOnlyAfterSwiftVendorSetup() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let bridgeWebJob = try workflowJob(named: "bridge-web-validation", in: workflow)
+        let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
+        let bridgeWebLaneStep = try workflowStep(named: "Run BridgeWeb lanes", in: bridgeWebJob)
+        let copyXCFrameworkStep = try workflowStep(named: "Copy XCFramework", in: swiftJob)
+        let swiftBackendLaneStep = try workflowStep(
+            named: "Test BridgeWeb Swift development backend",
+            in: swiftJob
+        )
+
+        let copyXCFrameworkRange = try #require(swiftJob.range(of: copyXCFrameworkStep))
+        let swiftBackendLaneRange = try #require(swiftJob.range(of: swiftBackendLaneStep))
+
+        #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run check"))
+        #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:unit"))
+        #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:browser:integration"))
+        #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:integration\n"))
+        #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
+        #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:integration:node"))
+        #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
+        #expect(copyXCFrameworkRange.upperBound < swiftBackendLaneRange.lowerBound)
+    }
+
     @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
     func swiftBuildCacheIsContentAddressedAndSkipsExactHitPrebuilds() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
