@@ -2,7 +2,7 @@ import Foundation
 
 package enum TerminalAccumulatorDrainClass: String, Equatable, Sendable {
     case immediate
-    case titleWindow = "title_window"
+    case titleDeadline = "title_deadline"
     case exactBarrier = "exact_barrier"
 }
 
@@ -140,6 +140,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneTabLayout = "performance.pane_tab.layout"
         case paneViewRestore = "performance.pane_view.restore"
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
+        case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"
         case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"

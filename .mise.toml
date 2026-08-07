@@ -679,6 +679,10 @@ run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"
 description = "Run AgentStudio sidebar semantic and performance workload proof"
 run = "/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof"
 
+[tasks.verify-title-pane-performance-workload]
+description = "Run one marker-scoped terminal-title and pane-observation proof"
+run = "/bin/bash scripts/verify-title-pane-performance-workload.sh --proof"
+
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"
 run = "/bin/bash \"$HOME/dev/ai-tools/observability/observability-stack\" up"

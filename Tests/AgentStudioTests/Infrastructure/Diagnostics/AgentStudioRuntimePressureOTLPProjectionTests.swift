@@ -17,7 +17,7 @@ struct AgentStudioRuntimePressureOTLPProjectionTests {
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(3.5),
-                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(100),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(80),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
@@ -35,7 +35,7 @@ struct AgentStudioRuntimePressureOTLPProjectionTests {
         #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(3.5))
         #expect(
             projection.attributes["agentstudio.performance.terminal.accumulator.drain.class"]
-                == .string("immediate"))
+                == .string("title_deadline"))
         #expect(
             projection.attributes["agentstudio.performance.terminal.accumulator.offered.count"]
                 == .int(100))

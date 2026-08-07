@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 typealias TerminalMainActorDrainOperation = @MainActor @Sendable () async -> Void
@@ -37,7 +38,14 @@ final class TerminalLocalActionDrainScheduler: @unchecked Sendable {
         self.drain = drain
         self.scheduleTitleDeadline =
             scheduleTitleDeadline ?? { [schedulingQueue] deadline, workItem in
-                schedulingQueue.asyncAfter(deadline: DispatchTime(uptimeNanoseconds: deadline), execute: workItem)
+                schedulingQueue.asyncAfter(
+                    deadline: DispatchTime(
+                        uptimeNanoseconds: Self.titleAdmissionDeadline(
+                            forPublicationDeadline: deadline
+                        )
+                    ),
+                    execute: workItem
+                )
             }
         self.enqueueMainActorDrain =
             enqueueMainActorDrain ?? { operation in
@@ -80,6 +88,11 @@ final class TerminalLocalActionDrainScheduler: @unchecked Sendable {
     }
 
     var pendingDrainClaimCount: Int { lock.withLock { claims.count } }
+
+    static func titleAdmissionDeadline(forPublicationDeadline deadline: UInt64) -> UInt64 {
+        let admissionSlack = AppPolicies.TerminalLocalAction.titleMainActorAdmissionSlackNanoseconds
+        return deadline > admissionSlack ? deadline - admissionSlack : 0
+    }
 
     private func scheduleTitle(key: ClaimKey, request: TerminalLocalDrainRequest) {
         guard let deadline = request.absoluteDeadlineNanoseconds else {

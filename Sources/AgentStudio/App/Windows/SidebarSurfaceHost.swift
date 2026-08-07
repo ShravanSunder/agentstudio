@@ -130,7 +130,8 @@ struct SidebarSurfaceHost: View {
                     store: store,
                     repoExplorerPrefs: repoExplorerSidebarPrefs,
                     visibleWorktrees: atom(\.sidebarVisibleWorktreesRuntime),
-                    dispatcher: .shared
+                    dispatcher: .shared,
+                    performanceTraceRecorder: performanceTraceRecorder
                 )
                 repoCommandPresentationBatch = batch
                 batch.start()

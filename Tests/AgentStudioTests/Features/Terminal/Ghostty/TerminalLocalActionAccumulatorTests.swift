@@ -108,7 +108,7 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(accumulator.offer(.titleChanged("second"), for: surfaceID) == .coalesced)
         #expect(accumulator.offer(.tabTitleChanged("third"), for: surfaceID) == .coalesced)
 
-        #expect(scheduler.recordedSchedules == [.init(surfaceID: surfaceID, schedule: .titleWindow)])
+        #expect(scheduler.recordedSchedules == [.init(surfaceID: surfaceID, schedule: .titleDeadline)])
     }
 
     @Test("presentation activity and search offers request immediate drains")
@@ -152,7 +152,7 @@ struct TerminalLocalActionAccumulatorTests {
 
         #expect(
             scheduler.recordedSchedules == [
-                .init(surfaceID: surfaceID, schedule: .titleWindow),
+                .init(surfaceID: surfaceID, schedule: .titleDeadline),
                 .init(surfaceID: surfaceID, schedule: .immediate),
             ]
         )
@@ -171,7 +171,7 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(
             scheduler.recordedSchedules == [
                 .init(surfaceID: surfaceID, schedule: .immediate),
-                .init(surfaceID: surfaceID, schedule: .titleWindow),
+                .init(surfaceID: surfaceID, schedule: .titleDeadline),
             ]
         )
     }
@@ -202,11 +202,11 @@ struct TerminalLocalActionAccumulatorTests {
 
         #expect(
             scheduler.recordedSchedules == [
-                .init(surfaceID: titleOnlySurfaceID, schedule: .titleWindow),
-                .init(surfaceID: titleOnlySurfaceID, schedule: .titleWindow),
-                .init(surfaceID: mixedSurfaceID, schedule: .titleWindow),
+                .init(surfaceID: titleOnlySurfaceID, schedule: .titleDeadline),
+                .init(surfaceID: titleOnlySurfaceID, schedule: .titleDeadline),
+                .init(surfaceID: mixedSurfaceID, schedule: .titleDeadline),
                 .init(surfaceID: mixedSurfaceID, schedule: .immediate),
-                .init(surfaceID: mixedSurfaceID, schedule: .titleWindow),
+                .init(surfaceID: mixedSurfaceID, schedule: .titleDeadline),
                 .init(surfaceID: nonTitleSurfaceID, schedule: .immediate),
                 .init(surfaceID: nonTitleSurfaceID, schedule: .immediate),
             ]
@@ -351,7 +351,7 @@ struct TerminalLocalActionAccumulatorTests {
         #expect(scheduler.scheduledSurfaceIDs == [surfaceID])
         #expect(accumulator.retainedEntryCount <= TerminalLocalActionAccumulator.maximumRetainedEntriesPerSurface)
         let batch = try #require(accumulator.beginDrain(for: surfaceID, lane: .title))
-        #expect(Ghostty.ActionRouter.terminalAccumulatorDrainClass(for: batch) == .titleWindow)
+        #expect(Ghostty.ActionRouter.terminalAccumulatorDrainClass(for: batch) == .titleDeadline)
         #expect(batch.titleMetadata?.runtimeTitle == .tabTitleChanged("tab-99999"))
         #expect(batch.titleMetadata?.surfaceTitle == "window-99998")
         #expect(batch.metrics.offeredCount == 100_000)
@@ -716,7 +716,7 @@ private struct RecordedDrainRequest: Equatable {
 
 private enum TerminalLocalDrainSchedule: Equatable {
     case immediate
-    case titleWindow
+    case titleDeadline
 }
 
 private final class DrainScheduleRecorder: @unchecked Sendable {
@@ -736,7 +736,7 @@ private final class DrainScheduleRecorder: @unchecked Sendable {
             storage.append(
                 .init(
                     surfaceID: surfaceID,
-                    schedule: request.lane == .immediate ? .immediate : .titleWindow
+                    schedule: request.lane == .immediate ? .immediate : .titleDeadline
                 )
             )
         }
@@ -750,6 +750,15 @@ private struct RecordedDrainSchedule: Equatable {
 
 @Suite("Terminal local action drain scheduler")
 struct TerminalLocalActionDrainSchedulerTests {
+    @Test("default title scheduling reserves one hundred milliseconds for MainActor admission")
+    func defaultTitleSchedulingReservesMainActorAdmissionSlack() {
+        #expect(
+            TerminalLocalActionDrainScheduler.titleAdmissionDeadline(
+                forPublicationDeadline: 1_000_000_007
+            ) == 900_000_007
+        )
+    }
+
     @Test("title deadlines retain the accumulator absolute deadline")
     func titleDeadlineRetainsAccumulatorAbsoluteDeadline() {
         let executor = ControlledLocalDrainSchedulerExecutor()

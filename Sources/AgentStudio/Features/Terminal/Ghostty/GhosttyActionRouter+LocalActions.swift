@@ -385,7 +385,7 @@ extension Ghostty.ActionRouter {
             || batch.presentation.searchUpdate != nil
             || batch.activity != nil
             || batch.searchLifecycle != nil
-        return containsImmediateWork ? .immediate : .titleWindow
+        return containsImmediateWork ? .immediate : .titleDeadline
     }
 
     static func terminalAccumulatorDrainPerformanceSnapshot(

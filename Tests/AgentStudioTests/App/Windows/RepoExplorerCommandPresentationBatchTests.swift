@@ -5,10 +5,73 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("accepted batch records bounded command presentation work")
+    func acceptedBatchRecordsBoundedCommandPresentationWork() async throws {
+        try await withAsyncTestCoreAtoms { _ in
+            let traceDirectory = FileManager.default.temporaryDirectory.appending(
+                path: "repo-command-presentation-trace-\(UUIDv7.generate().uuidString)"
+            )
+            defer { try? FileManager.default.removeItem(at: traceDirectory) }
+            let runtime = AgentStudioTraceRuntime(
+                configuration: AgentStudioTraceConfiguration.from(environment: [
+                    "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                    "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                    "AGENTSTUDIO_TRACE_NAME": "repo-command-presentation-batch",
+                    "AGENTSTUDIO_TRACE_TAGS": "performance",
+                ]),
+                processIdentifier: 931,
+                timeUnixNano: { 931 }
+            )
+            let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+            let store = WorkspaceStore()
+            let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+            visibleWorktrees.setVisibleWorktreeIds([])
+            let expectedResolutionCount = RepoExplorerToolbarCommandPresentation.requests(
+                nextVisibilityMode: .favoritesOnly,
+                nextSortOrder: .default.toggled
+            ).count
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                visibleWorktrees: visibleWorktrees,
+                dispatcher: .shared,
+                performanceTraceRecorder: recorder
+            )
+
+            batch.start()
+            defer { batch.stop() }
+            await eventually("initial command presentation batch") {
+                batch.snapshot.generation == 1
+            }
+            let expectedAffectedItemCount = batch.snapshot.results.count
+            try await recorder.drain()
+
+            let outputFileURL = try #require(runtime.outputFileURL)
+            let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+            #expect(contents.contains("\"body\":\"performance.repo_explorer.command_presentation\""))
+            #expect(
+                contents.contains(
+                    "\"agentstudio.performance.repo_explorer.affected_item.count\":\(expectedAffectedItemCount)"
+                )
+            )
+            #expect(
+                contents.contains(
+                    "\"agentstudio.performance.repo_explorer.command_resolution.count\":\(expectedResolutionCount)"
+                )
+            )
+            #expect(
+                contents.contains(
+                    "\"agentstudio.performance.repo_explorer.capability_snapshot.count\":1"
+                )
+            )
+        }
+    }
+
     @Test("batch resolves targeted requests once and live dispatch can reject a stale enabled result")
     func batchIsAdvisoryAndLiveDispatchRevalidates() async throws {
         let handler = MockCommandHandler()
@@ -51,68 +114,69 @@ struct RepoExplorerCommandPresentationBatchTests {
 
     @Test("capability generation follows structural owners while title-only mutation stays quiet")
     func capabilityGenerationTracksStructuralChangesButNotTitles() async throws {
-        installTestAtomRegistryIfNeeded()
-        atom(\.managementLayer).deactivate()
-        defer { atom(\.managementLayer).deactivate() }
+        await withAsyncTestCoreAtoms { coreAtoms in
+            coreAtoms.managementLayer.deactivate()
+            defer { coreAtoms.managementLayer.deactivate() }
 
-        let store = WorkspaceStore()
-        let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
-        let prefs = RepoExplorerSidebarPrefsAtom()
-        let pane = store.createPane()
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        visibleWorktrees.setVisibleWorktreeIds([])
+            let store = WorkspaceStore()
+            let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+            let prefs = RepoExplorerSidebarPrefsAtom()
+            let pane = store.createPane()
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            visibleWorktrees.setVisibleWorktreeIds([])
 
-        let batch = RepoExplorerCommandPresentationBatch(
-            store: store,
-            repoExplorerPrefs: prefs,
-            visibleWorktrees: visibleWorktrees,
-            dispatcher: .shared
-        )
-        batch.start()
-        defer { batch.stop() }
-
-        await eventually("initial command presentation generation") {
-            batch.snapshot.generation > 0
-        }
-        let initialGeneration = batch.snapshot.generation
-
-        store.paneAtom.updatePaneTitle(pane.id, title: "quiet title")
-        for _ in 0..<20 {
-            await Task.yield()
-        }
-        #expect(batch.snapshot.generation == initialGeneration)
-
-        atom(\.managementLayer).toggle()
-        await eventually("management capability generation") {
-            batch.snapshot.generation > initialGeneration
-        }
-        let managementGeneration = batch.snapshot.generation
-
-        store.panePresentationAtom.enterZoom(
-            inTab: tab.id,
-            sourcePaneId: pane.id,
-            viewerPresentation: .unavailable
-        )
-        await eventually("zoom capability generation") {
-            batch.snapshot.generation > managementGeneration
-        }
-        let zoomGeneration = batch.snapshot.generation
-
-        let secondPane = store.createPane()
-        store.appendTab(Tab(paneId: secondPane.id))
-        await eventually("tab capability generation") {
-            batch.snapshot.generation > zoomGeneration
-        }
-        let tabGeneration = batch.snapshot.generation
-
-        _ = store.addRepo(
-            at: FileManager.default.temporaryDirectory.appending(
-                path: "repo-command-batch-\(UUIDv7.generate().uuidString)"
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: prefs,
+                visibleWorktrees: visibleWorktrees,
+                dispatcher: .shared
             )
-        )
-        await eventually("topology capability generation") {
-            batch.snapshot.generation > tabGeneration
+            batch.start()
+            defer { batch.stop() }
+
+            await eventually("initial command presentation generation") {
+                batch.snapshot.generation > 0
+            }
+            let initialGeneration = batch.snapshot.generation
+
+            store.paneAtom.updatePaneTitle(pane.id, title: "quiet title")
+            for _ in 0..<20 {
+                await Task.yield()
+            }
+            #expect(batch.snapshot.generation == initialGeneration)
+
+            coreAtoms.managementLayer.toggle()
+            await eventually("management capability generation") {
+                batch.snapshot.generation > initialGeneration
+            }
+            let managementGeneration = batch.snapshot.generation
+
+            store.panePresentationAtom.enterZoom(
+                inTab: tab.id,
+                sourcePaneId: pane.id,
+                viewerPresentation: .unavailable
+            )
+            await eventually("zoom capability generation") {
+                batch.snapshot.generation > managementGeneration
+            }
+            let zoomGeneration = batch.snapshot.generation
+
+            let secondPane = store.createPane()
+            store.appendTab(Tab(paneId: secondPane.id))
+            await eventually("tab capability generation") {
+                batch.snapshot.generation > zoomGeneration
+            }
+            let tabGeneration = batch.snapshot.generation
+
+            _ = store.addRepo(
+                at: FileManager.default.temporaryDirectory.appending(
+                    path: "repo-command-batch-\(UUIDv7.generate().uuidString)"
+                )
+            )
+            await eventually("topology capability generation") {
+                batch.snapshot.generation > tabGeneration
+            }
         }
     }
 

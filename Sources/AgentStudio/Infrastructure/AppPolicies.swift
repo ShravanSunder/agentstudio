@@ -116,6 +116,10 @@ package enum AppPolicies {
         package static let maximumConcurrentAdmissions: Int = 4
     }
 
+    package enum TerminalLocalAction {
+        package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
+    }
+
     package enum NonterminalContentMount {
         package static let maximumMountsPerMainActorTurn: Int = 4
     }

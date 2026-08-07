@@ -259,6 +259,7 @@ final class TabBarAdapter {
     ) {
         let nextTabs = orderedTabIds.compactMap { tabItemById[$0] }
         guard tabs != nextTabs else { return }
+        let affectedItemCount = Self.affectedItemCount(previous: tabs, next: nextTabs)
         tabs = nextTabs
         updateOverflow()
         let clock = ContinuousClock()
@@ -269,8 +270,21 @@ final class TabBarAdapter {
                 "agentstudio.performance.tabbar.tab.count": .int(tabs.count),
                 "agentstudio.performance.tabbar.source_tab.count": .int(orderedTabIds.count),
                 "agentstudio.performance.tabbar.pane.count": .int(tabs.reduce(0) { $0 + $1.panes.count }),
+                "agentstudio.performance.tabbar.affected_item.count": .int(affectedItemCount),
             ]
         )
+    }
+
+    private static func affectedItemCount(previous: [TabBarItem], next: [TabBarItem]) -> Int {
+        let previousById = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+        let nextById = Dictionary(uniqueKeysWithValues: next.map { ($0.id, $0) })
+        let previousIndexById = Dictionary(
+            uniqueKeysWithValues: previous.enumerated().map { ($0.element.id, $0.offset) })
+        let nextIndexById = Dictionary(uniqueKeysWithValues: next.enumerated().map { ($0.element.id, $0.offset) })
+        return Set(previousById.keys).union(nextById.keys).count { tabId in
+            previousById[tabId] != nextById[tabId]
+                || previousIndexById[tabId] != nextIndexById[tabId]
+        }
     }
 
     private func updateOverflow() {
