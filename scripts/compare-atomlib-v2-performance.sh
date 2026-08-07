@@ -12,10 +12,11 @@ Usage: compare-atomlib-v2-performance.sh \
   --after-interaction <summary.txt> \
   --output <comparison.txt>
 
-Enforces the AtomLib v2 T9 performance contract:
-  - command-bar interaction improves performance.commandbar.items count or p95 by >=50%;
-  - at least one repo-cache fanout surface improves count or p95 by >=50%;
-  - no targeted surface regresses by more than 10%.
+Enforces the AtomLib v2 performance evidence contract:
+  - baseline and candidate artifacts carry matched provenance and completeness;
+  - one terminal Tab Bar outcome exists per admitted capture with no trace-queue loss;
+  - independent final-state read-back agrees with the fixture;
+  - no targeted surface exceeds the regression boundary frozen in the baseline artifacts.
 USAGE
 }
 

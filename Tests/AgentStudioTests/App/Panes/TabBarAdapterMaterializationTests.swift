@@ -223,6 +223,53 @@ final class TabBarAdapterMaterializationTests {
         #expect(projectionController.projectedGenerations == [1, 2, 3])
     }
 
+    @Test("tab bar telemetry records capture worker terminal and visible lifecycle")
+    func telemetryRecordsCaptureWorkerTerminalAndVisibleLifecycle() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-tabbar-telemetry-tests")
+            .appending(path: UUIDv7.generate().uuidString)
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "tabbar-lifecycle",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 760,
+            sessionID: "tabbar-lifecycle-session",
+            timeUnixNano: { 7600 }
+        )
+        let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let completionRecorder = TabBarAdapterProjectionCompletionRecorder()
+        let pane = store.createPane(title: "Measured")
+        let tab = Tab(paneId: pane.id, name: "Measured")
+        store.appendTab(tab)
+        adapter.stop()
+        adapter = TabBarAdapter(
+            store: store,
+            repoCache: repoCache,
+            inboxAtom: inboxAtom,
+            performanceTraceRecorder: performanceTraceRecorder,
+            onProjectionCompletion: completionRecorder.record
+        )
+        #expect(await completionRecorder.wait(for: .published(.init(value: 1))))
+
+        adapter.visibleProjectionDidRender()
+        try await performanceTraceRecorder.drain()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.refresh\"") == 1)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.worker\"") == 1)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.terminal\"") == 1)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.visible\"") == 1)
+        #expect(contents.contains("\"agentstudio.performance.tabbar.sequence\":1"))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.tab.count\":1"))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.pane.count\":1"))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.terminal.outcome\":\"published\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.active_tab.present\":true"))
+    }
+
     @Test("stop permits adapter and materialized projection release")
     func stopBeforeProjectionReleaseReleasesAdapterAndMaterializedProjection() async {
         let projectionGate = TabBarAdapterProjectionGate()
@@ -277,6 +324,12 @@ final class TabBarAdapterMaterializationTests {
 
         #expect(retainedMaterializedProjection.value == nil)
         #expect(retainedMaterializedProjection.freshness == .stopped)
+    }
+}
+
+extension String {
+    fileprivate func occurrenceCount(of substring: String) -> Int {
+        components(separatedBy: substring).count - 1
     }
 }
 

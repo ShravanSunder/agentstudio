@@ -1,6 +1,11 @@
 import Foundation
 
 package final class AgentStudioTraceEventQueue: @unchecked Sendable {
+    package struct CompletenessSnapshot: Equatable, Sendable {
+        package let droppedRecordCount: Int
+        package let highWaterMark: Int
+    }
+
     private enum TraceRequest: Sendable {
         case record(RecordRequest)
         case flush(UnsafeContinuation<Void, Error>)
@@ -17,13 +22,25 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
     }
 
     private let traceRuntime: AgentStudioTraceRuntime
+    private let bufferLimit: Int
     private let lock = NSLock()
     private var continuation: AsyncStream<TraceRequest>.Continuation?
     private var workerTask: Task<Void, Never>?
     private var isClosed = false
+    private var droppedRecordCount = 0
+    private var highWaterMark = 0
 
-    package init(traceRuntime: AgentStudioTraceRuntime) {
+    package convenience init(traceRuntime: AgentStudioTraceRuntime) {
+        self.init(
+            traceRuntime: traceRuntime,
+            bufferLimit: AppPolicies.Diagnostics.traceEventQueueBufferLimit
+        )
+    }
+
+    package init(traceRuntime: AgentStudioTraceRuntime, bufferLimit: Int) {
+        precondition(bufferLimit > 0)
         self.traceRuntime = traceRuntime
+        self.bufferLimit = bufferLimit
     }
 
     deinit {
@@ -54,25 +71,39 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
             return
         }
         ensureWorkerStartedLocked()
-        let continuation = continuation
+        let yieldResult = continuation?.yield(.record(request))
+        let droppedFlushContinuation = accountForYieldResultLocked(yieldResult)
         lock.unlock()
-        continuation?.yield(.record(request))
+        droppedFlushContinuation?.resume(throwing: CancellationError())
     }
 
     package func flush() async throws {
-        let continuation = openContinuationForFlush()
-        guard let continuation else {
+        guard prepareWorkerForFlush() else {
             try await traceRuntime.flush()
             return
         }
 
         try await withUnsafeThrowingContinuation { (flushContinuation: UnsafeContinuation<Void, Error>) in
-            switch continuation.yield(.flush(flushContinuation)) {
-            case .enqueued:
-                break
-            case .dropped, .terminated:
+            lock.lock()
+            guard !isClosed, let continuation else {
+                lock.unlock()
                 flushContinuation.resume(throwing: CancellationError())
+                return
+            }
+            let yieldResult = continuation.yield(.flush(flushContinuation))
+            let droppedFlushContinuation = accountForYieldResultLocked(yieldResult)
+            let didTerminate: Bool
+            switch yieldResult {
+            case .terminated:
+                didTerminate = true
+            case .enqueued, .dropped:
+                didTerminate = false
             @unknown default:
+                didTerminate = true
+            }
+            lock.unlock()
+            droppedFlushContinuation?.resume(throwing: CancellationError())
+            if didTerminate {
                 flushContinuation.resume(throwing: CancellationError())
             }
         }
@@ -97,6 +128,15 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         workerTask?.cancel()
     }
 
+    package func completenessSnapshot() -> CompletenessSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return CompletenessSnapshot(
+            droppedRecordCount: droppedRecordCount,
+            highWaterMark: highWaterMark
+        )
+    }
+
     private func closeForDrain() -> (
         AsyncStream<TraceRequest>.Continuation?, Task<Void, Never>?
     ) {
@@ -110,32 +150,30 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
         return (continuation, workerTask)
     }
 
-    private func openContinuationForFlush() -> AsyncStream<TraceRequest>.Continuation? {
-        lock.lock()
-        guard !isClosed else {
-            lock.unlock()
-            return nil
-        }
-        ensureWorkerStartedLocked()
-        let continuation = continuation
-        lock.unlock()
-        return continuation
-    }
-
     private func ensureWorkerStartedLocked() {
         guard workerTask == nil else { return }
         let (stream, continuation) = AsyncStream.makeStream(
             of: TraceRequest.self,
-            bufferingPolicy: .bufferingNewest(AppPolicies.Diagnostics.traceEventQueueBufferLimit)
+            bufferingPolicy: .bufferingNewest(bufferLimit)
         )
         self.continuation = continuation
         let traceRuntime = traceRuntime
         // Detached worker avoids inheriting MainActor while trace I/O drains.
         // swiftlint:disable:next no_task_detached
-        workerTask = Task.detached(priority: .utility) {
+        workerTask = Task.detached(priority: .utility) { [weak self] in
             for await request in stream {
                 switch request {
                 case .record(let request):
+                    var attributes = request.attributes
+                    if request.tag == .performance, let completenessSnapshot = self?.completenessSnapshot() {
+                        attributes["agentstudio.performance.trace_queue.dropped_record.count"] = .int(
+                            completenessSnapshot.droppedRecordCount
+                        )
+                        attributes["agentstudio.performance.trace_queue.high_watermark"] = .int(
+                            completenessSnapshot.highWaterMark
+                        )
+                    }
+                    let completeAttributes = attributes
                     await traceRuntime.record(
                         tag: request.tag,
                         body: request.body,
@@ -143,7 +181,7 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
                         spanID: request.spanID,
                         parentSpanID: request.parentSpanID,
                         eventTimeUnixNano: request.eventTimeUnixNano,
-                        attributes: request.attributes
+                        attributes: completeAttributes
                     )
                 case .flush(let continuation):
                     do {
@@ -154,6 +192,38 @@ package final class AgentStudioTraceEventQueue: @unchecked Sendable {
                     }
                 }
             }
+        }
+    }
+
+    private func prepareWorkerForFlush() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isClosed else { return false }
+        ensureWorkerStartedLocked()
+        return true
+    }
+
+    private func accountForYieldResultLocked(
+        _ yieldResult: AsyncStream<TraceRequest>.Continuation.YieldResult?
+    ) -> UnsafeContinuation<Void, Error>? {
+        guard let yieldResult else { return nil }
+        switch yieldResult {
+        case .enqueued(let remainingCapacity):
+            highWaterMark = max(highWaterMark, bufferLimit - remainingCapacity)
+            return nil
+        case .dropped(let droppedRequest):
+            highWaterMark = bufferLimit
+            switch droppedRequest {
+            case .record:
+                droppedRecordCount += 1
+                return nil
+            case .flush(let continuation):
+                return continuation
+            }
+        case .terminated:
+            return nil
+        @unknown default:
+            return nil
         }
     }
 }

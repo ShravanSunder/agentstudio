@@ -149,6 +149,9 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
         case tabBarRefresh = "performance.tabbar.refresh"
+        case tabBarTerminal = "performance.tabbar.terminal"
+        case tabBarVisible = "performance.tabbar.visible"
+        case tabBarWorker = "performance.tabbar.worker"
         case terminalAccumulatorDrain = "performance.terminal.accumulator_drain"
         case terminalCompactApply = "performance.terminal.compact_apply"
         case terminalForceGeometrySync = "performance.terminal.force_geometry_sync"
@@ -215,23 +218,24 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     package func record(
         _ event: Event,
-        attributes: [String: AgentStudioTraceValue] = [:]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:]
     ) {
         guard let traceRuntime, traceRuntime.isEnabled(.performance), let eventQueue else { return }
         eventQueue.record(
             tag: .performance,
             body: event.rawValue,
             eventTimeUnixNano: traceRuntime.timestampUnixNano(),
-            attributes: attributes
+            attributes: attributes()
         )
     }
 
     package func recordDuration(
         _ event: Event,
         duration: Duration,
-        attributes: [String: AgentStudioTraceValue] = [:]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:]
     ) {
-        var mergedAttributes = attributes
+        guard isEnabled else { return }
+        var mergedAttributes = attributes()
         mergedAttributes["agentstudio.performance.elapsed_ms"] = .double(Self.milliseconds(from: duration))
         record(event, attributes: mergedAttributes)
     }
@@ -340,7 +344,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     func measure<T>(
         _ event: Event,
-        attributes: [String: AgentStudioTraceValue] = [:],
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:],
         operation: () throws -> T
     ) rethrows -> T {
         guard isEnabled else {
@@ -353,7 +357,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         recordDuration(
             event,
             duration: start.duration(to: clock.now),
-            attributes: attributes
+            attributes: attributes()
         )
         return result
     }

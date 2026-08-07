@@ -3,12 +3,17 @@ import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import Foundation
 import Observation
+import Synchronization
 
 typealias TabBarMaterializedProjection = EagerDerivedAtom<
     TabBarProjectionRequest,
     TabBarProjectionGeneration,
     TabBarProjection
 >
+
+private struct TabBarProjectionCapture {
+    let request: TabBarProjectionRequest
+}
 
 /// Derives tab bar display state from the workspace atoms.
 /// Owns only the materialized projection and transient MainActor UI state.
@@ -71,6 +76,7 @@ final class TabBarAdapter {
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let inboxAtom: InboxNotificationAtom
+    private let projectionTelemetry: TabBarProjectionTelemetry
     private var projectionGeneration: UInt64 = 0
     private var isObservingManagementLayer = false
     private var hasStopped = false
@@ -87,16 +93,24 @@ final class TabBarAdapter {
                 TabBarMaterializedProjection.ProjectionCompletion
             ) -> Void = { _ in }
     ) {
+        let projectionTelemetry = TabBarProjectionTelemetry(recorder: performanceTraceRecorder)
+        let measuredProject: @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection =
+            { request in
+                try projectionTelemetry.project(request, using: project)
+            }
         self.store = store
         self.repoCache = repoCache
         self.inboxAtom = inboxAtom
+        self.projectionTelemetry = projectionTelemetry
         self.materializedProjection = TabBarMaterializedProjection(
             requestIdentity: \.generation,
             isValueEqual: ==,
-            project: project,
-            onProjectionCompletion: onProjectionCompletion
+            project: measuredProject,
+            onProjectionCompletion: { completion in
+                projectionTelemetry.recordCompletion(completion)
+                onProjectionCompletion(completion)
+            }
         )
-        _ = performanceTraceRecorder
         observe()
     }
 
@@ -108,6 +122,10 @@ final class TabBarAdapter {
 
     isolated deinit {
         stop()
+    }
+
+    func visibleProjectionDidRender() {
+        projectionTelemetry.recordVisibleProjection()
     }
 
     // MARK: - Observation
@@ -125,14 +143,17 @@ final class TabBarAdapter {
         projectionGeneration &+= 1
         let generation = TabBarProjectionGeneration(value: projectionGeneration)
         let materializedProjection = self.materializedProjection
-        let request = withObservationTracking {
-            TabBarProjectionRequest(
-                generation: generation,
-                coreRequest: CoreTabBarProjectionRequest.capture(
-                    store: store,
-                    repoCache: repoCache
-                ),
-                inboxAttentionFacts: inboxAtom.captureAttentionFacts()
+        let captureStartedAt = projectionTelemetry.captureStartedAt()
+        let capture = withObservationTracking {
+            TabBarProjectionCapture(
+                request: TabBarProjectionRequest(
+                    generation: generation,
+                    coreRequest: CoreTabBarProjectionRequest.capture(
+                        store: store,
+                        repoCache: repoCache
+                    ),
+                    inboxAttentionFacts: inboxAtom.captureAttentionFacts()
+                )
             )
         } onChange: { [weak self, weak materializedProjection] in
             materializedProjection?.sourceDidInvalidate()
@@ -140,7 +161,8 @@ final class TabBarAdapter {
                 self?.captureAndAdmitNewestRequest()
             }
         }
-        materializedProjection.admit(request)
+        projectionTelemetry.recordAdmission(capture, startedAt: captureStartedAt)
+        materializedProjection.admit(capture.request)
     }
 
     private func observeMaterializedProjection() {
@@ -196,5 +218,167 @@ final class TabBarAdapter {
             + (tabCount - 1) * Self.tabSpacing
             + Self.tabBarPadding
         isOverflowing = totalMinWidth > effectiveViewport
+    }
+}
+
+private final class TabBarProjectionTelemetry: Sendable {
+    private struct Admission: Sendable {
+        let sequence: UInt64
+        let startedAt: ContinuousClock.Instant
+        var tabCount: Int?
+        var paneCount: Int?
+        var activeTabPresent: Bool?
+    }
+
+    private struct State: Sendable {
+        var admissionsBySequence: [UInt64: Admission] = [:]
+        var pendingVisibleAdmission: Admission?
+    }
+
+    private let recorder: AgentStudioPerformanceTraceRecorder?
+    private let clock = ContinuousClock()
+    private let state = Mutex(State())
+
+    init(recorder: AgentStudioPerformanceTraceRecorder?) {
+        self.recorder = recorder
+    }
+
+    func captureStartedAt() -> ContinuousClock.Instant? {
+        guard recorder?.isEnabled == true else { return nil }
+        return clock.now
+    }
+
+    func recordAdmission(
+        _ capture: TabBarProjectionCapture,
+        startedAt: ContinuousClock.Instant?
+    ) {
+        guard let recorder, recorder.isEnabled, let startedAt else { return }
+        let admission = Admission(
+            sequence: capture.request.generation.value,
+            startedAt: startedAt,
+            tabCount: nil,
+            paneCount: nil,
+            activeTabPresent: nil
+        )
+        state.withLock { state in
+            state.admissionsBySequence[admission.sequence] = admission
+        }
+        recorder.recordDuration(
+            .tabBarRefresh,
+            duration: startedAt.duration(to: clock.now),
+            attributes: Self.attributes(for: admission)
+        )
+    }
+
+    func project(
+        _ request: TabBarProjectionRequest,
+        using projector: @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection
+    ) throws(CancellationError) -> TabBarProjection {
+        guard let recorder, recorder.isEnabled else {
+            return try projector(request)
+        }
+        let startedAt = clock.now
+        defer {
+            if let admission = admission(for: request.generation.value) {
+                recorder.recordDuration(
+                    .tabBarWorker,
+                    duration: startedAt.duration(to: clock.now),
+                    attributes: Self.attributes(for: admission)
+                )
+            }
+        }
+        let projection = try projector(request)
+        state.withLock { state in
+            guard var admission = state.admissionsBySequence[request.generation.value] else { return }
+            admission.tabCount = projection.items.count
+            admission.paneCount = projection.items.reduce(into: 0) { count, item in
+                count += item.panes.count
+            }
+            admission.activeTabPresent = projection.activeTabID != nil
+            state.admissionsBySequence[request.generation.value] = admission
+        }
+        return projection
+    }
+
+    @MainActor
+    func recordCompletion(_ completion: TabBarMaterializedProjection.ProjectionCompletion) {
+        guard let recorder, recorder.isEnabled else { return }
+        let sequence: UInt64
+        let outcome: String
+        let didPublish: Bool
+        switch completion {
+        case .published(let generation):
+            sequence = generation.value
+            outcome = "published"
+            didPublish = true
+        case .equal(let generation):
+            sequence = generation.value
+            outcome = "equal"
+            didPublish = false
+        case .superseded(let generation):
+            sequence = generation.value
+            outcome = "superseded"
+            didPublish = false
+        case .cancelled(let generation):
+            sequence = generation.value
+            outcome = "cancelled"
+            didPublish = false
+        }
+        let admission = state.withLock { state -> Admission? in
+            guard let admission = state.admissionsBySequence.removeValue(forKey: sequence) else {
+                return nil
+            }
+            if didPublish {
+                state.pendingVisibleAdmission = admission
+            }
+            return admission
+        }
+        guard let admission else { return }
+        var attributes = Self.attributes(for: admission)
+        attributes["agentstudio.performance.tabbar.terminal.outcome"] = .string(outcome)
+        recorder.recordDuration(
+            .tabBarTerminal,
+            duration: admission.startedAt.duration(to: clock.now),
+            attributes: attributes
+        )
+    }
+
+    @MainActor
+    func recordVisibleProjection() {
+        guard let recorder, recorder.isEnabled else { return }
+        let admission = state.withLock { state in
+            defer { state.pendingVisibleAdmission = nil }
+            return state.pendingVisibleAdmission
+        }
+        guard let admission else { return }
+        recorder.recordDuration(
+            .tabBarVisible,
+            duration: admission.startedAt.duration(to: clock.now),
+            attributes: Self.attributes(for: admission)
+        )
+    }
+
+    private func admission(for sequence: UInt64) -> Admission? {
+        state.withLock { state in
+            state.admissionsBySequence[sequence]
+        }
+    }
+
+    private static func attributes(
+        for admission: Admission
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.tabbar.sequence": .int(Int(clamping: admission.sequence))
+        ]
+        if let tabCount = admission.tabCount {
+            attributes["agentstudio.performance.tabbar.tab.count"] = .int(tabCount)
+        }
+        if let paneCount = admission.paneCount {
+            attributes["agentstudio.performance.tabbar.pane.count"] = .int(paneCount)
+        }
+        if let activeTabPresent = admission.activeTabPresent {
+            attributes["agentstudio.performance.tabbar.active_tab.present"] = .bool(activeTabPresent)
+        }
+        return attributes
     }
 }
