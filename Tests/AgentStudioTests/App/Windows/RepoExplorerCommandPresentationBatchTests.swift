@@ -115,4 +115,40 @@ struct RepoExplorerCommandPresentationBatchTests {
             batch.snapshot.generation > tabGeneration
         }
     }
+
+    @Test("drawer expansion and collapse advance capability generation")
+    func drawerVisibilityAdvancesCapabilityGeneration() async {
+        installTestAtomRegistryIfNeeded()
+
+        let store = WorkspaceStore()
+        let pane = store.createPane()
+        store.appendTab(Tab(paneId: pane.id))
+        let batch = RepoExplorerCommandPresentationBatch(
+            store: store,
+            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+            visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
+            dispatcher: .shared
+        )
+        batch.start()
+        defer { batch.stop() }
+
+        await eventually("initial drawer capability generation") {
+            batch.snapshot.generation > 0
+        }
+        let collapsedGeneration = batch.snapshot.generation
+        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
+
+        store.toggleDrawer(for: pane.id)
+        await eventually("drawer expansion capability generation") {
+            batch.snapshot.generation > collapsedGeneration
+        }
+        let expandedGeneration = batch.snapshot.generation
+        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == true)
+
+        store.toggleDrawer(for: pane.id)
+        await eventually("drawer collapse capability generation") {
+            batch.snapshot.generation > expandedGeneration
+        }
+        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
+    }
 }

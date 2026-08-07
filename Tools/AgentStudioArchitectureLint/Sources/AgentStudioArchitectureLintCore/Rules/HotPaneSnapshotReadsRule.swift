@@ -6,6 +6,7 @@ struct HotPaneSnapshotReadsRule: ArchitectureRule {
     let message = "Hot tab/sidebar command presentation must use pane membership plus keyed structural reads"
 
     private let hotPathSuffixes = [
+        "/Sources/AgentStudio/App/Panes/PaneTabViewController.swift",
         "/Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift",
         "/Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift",
         "/Sources/AgentStudio/App/Windows/RepoExplorerCommandPresentationBatch.swift",

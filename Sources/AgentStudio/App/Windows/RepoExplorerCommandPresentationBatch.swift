@@ -64,7 +64,10 @@ final class RepoExplorerCommandPresentationBatch {
         _ = atom(\.managementLayer).isActive
         _ = store.repositoryTopologyAtom.repos
         for paneID in store.paneAtom.graphAtom.paneIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
-            _ = store.paneAtom.graphAtom.paneStructuralFacts(paneID)
+            let structuralFacts = store.paneAtom.graphAtom.paneStructuralFacts(paneID)
+            if structuralFacts?.ownedDrawerID != nil {
+                _ = store.paneAtom.isDrawerExpanded(for: paneID)
+            }
         }
     }
 

@@ -4083,10 +4083,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
 
-        if command == .showBridgeReview || command == .showBridgeFiles
-            || command == .openBridgeReviewInNewTab || command == .openBridgeFilesInNewTab,
-            targetType == .worktree
-        {
+        if Self.isTargetedBridgeCommand(command), targetType == .worktree {
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 

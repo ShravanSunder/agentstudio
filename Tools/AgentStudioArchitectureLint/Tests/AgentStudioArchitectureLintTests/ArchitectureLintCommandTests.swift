@@ -46,6 +46,18 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("Core-owned presentation types"))
     }
 
+    @Test("PaneTab command presentation rejects bulk pane snapshots")
+    func paneTabCommandPresentationRejectsBulkPaneSnapshots() throws {
+        let result = runCommand(
+            arguments: [
+                fixturePath("Bad/Sources/AgentStudio/App/Panes/PaneTabViewController.swift")
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("error: [agentstudio_hot_pane_snapshot_reads]"))
+    }
+
     @Test("relative single-file paths receive the same architecture classification")
     func relativeSingleFilePathsReceiveArchitectureClassification() throws {
         let badFixtureRoot = fixturePath("Bad")
