@@ -117,13 +117,6 @@ extension Ghostty.ActionRouter {
         }
     }
 
-    @MainActor
-    static func flushLocalActions(for surfaceID: UUID) async {
-        localActionDrainScheduler.cancel(for: surfaceID)
-        await drainLocalActions(for: surfaceID, lane: .immediate)
-        await drainLocalActions(for: surfaceID, lane: .title)
-    }
-
     static func retireLocalActions(for surfaceID: UUID) {
         localActionDrainScheduler.cancel(for: surfaceID)
         localActionAccumulator.removeSurface(surfaceID)

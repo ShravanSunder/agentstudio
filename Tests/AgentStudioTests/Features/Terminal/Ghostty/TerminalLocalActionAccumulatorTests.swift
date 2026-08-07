@@ -770,8 +770,8 @@ struct TerminalLocalActionDrainSchedulerTests {
         #expect(scheduler.pendingDrainClaimCount == 1)
     }
 
-    @Test("independent immediate and title claims execute once in either admission order")
-    func independentLaneClaimsExecuteOnceInEitherAdmissionOrder() async throws {
+    @Test("independent title and immediate claims execute once when title admits first")
+    func independentLaneClaimsExecuteOnceWhenTitleAdmitsFirst() async throws {
         let executor = ControlledLocalDrainSchedulerExecutor()
         let recorder = SchedulerDrainRecorder()
         let scheduler = TerminalLocalActionDrainScheduler(
@@ -800,6 +800,36 @@ struct TerminalLocalActionDrainSchedulerTests {
         #expect(scheduler.pendingDrainClaimCount == 0)
     }
 
+    @Test("independent immediate and title claims execute once when immediate admits first")
+    func independentLaneClaimsExecuteOnceWhenImmediateAdmitsFirst() async throws {
+        let executor = ControlledLocalDrainSchedulerExecutor()
+        let recorder = SchedulerDrainRecorder()
+        let scheduler = TerminalLocalActionDrainScheduler(
+            drain: recorder.record,
+            scheduleTitleDeadline: executor.recordTitleDeadline,
+            enqueueMainActorDrain: executor.recordMainActorAdmission
+        )
+        let surfaceID = UUIDv7.generate()
+
+        scheduler.schedule(
+            surfaceID,
+            .init(lane: .title, absoluteDeadlineNanoseconds: 1_000_000_007)
+        )
+        scheduler.schedule(surfaceID, .init(lane: .immediate, absoluteDeadlineNanoseconds: nil))
+        try executor.claimTitleDeadline()
+
+        try await executor.runMainActorAdmission(at: 0)
+        try await executor.runMainActorAdmission(at: 0)
+
+        #expect(
+            await recorder.drains == [
+                .init(surfaceID: surfaceID, lane: .immediate),
+                .init(surfaceID: surfaceID, lane: .title),
+            ]
+        )
+        #expect(scheduler.pendingDrainClaimCount == 0)
+    }
+
     @Test("retirement invalidates captured immediate and title claims")
     func retirementInvalidatesCapturedImmediateAndTitleClaims() async throws {
         let executor = ControlledLocalDrainSchedulerExecutor()
@@ -816,9 +846,10 @@ struct TerminalLocalActionDrainSchedulerTests {
             .init(lane: .title, absoluteDeadlineNanoseconds: 1_000_000_007)
         )
         scheduler.schedule(surfaceID, .init(lane: .immediate, absoluteDeadlineNanoseconds: nil))
+        try executor.claimTitleDeadline()
         scheduler.cancel(for: surfaceID)
 
-        executor.claimTitleDeadlineWithoutExpectation()
+        try await executor.runMainActorAdmission(at: 0)
         try await executor.runMainActorAdmission(at: 0)
 
         #expect(await recorder.drains.isEmpty)
