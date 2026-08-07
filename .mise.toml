@@ -312,6 +312,7 @@ run = """
 set -euo pipefail
 mise run lint
 mise run test:architecture
+mise run test:atomlib-compile-negative
 mise run test:bridge-web
 mise run bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
@@ -325,6 +326,10 @@ git diff --check
 [tasks."test:architecture"]
 description = "Run the AgentStudio architecture lint tool package tests"
 run = "swift test --package-path Tools/AgentStudioArchitectureLint"
+
+[tasks."test:atomlib-compile-negative"]
+description = "Verify AtomLib compile-time transfer constraints"
+run = "/bin/bash scripts/verify-atomlib-compile-failures.sh"
 
 [tasks."test:swift"]
 description = "Run Swift non-serialized and serialized WebKit tests"
