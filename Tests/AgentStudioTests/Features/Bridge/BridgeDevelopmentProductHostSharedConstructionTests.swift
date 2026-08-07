@@ -22,19 +22,20 @@ struct BridgeDevHostSharedConstructionTests {
             ),
             makeReviewProvider: { _, _ in provider }
         )
-        let request = try makeDevelopmentBootstrapRequest(surface: "review")
+        try await withShutdownDevelopmentProductHost(host) {
+            let request = try makeDevelopmentBootstrapRequest(surface: "review")
 
-        // Act
-        _ = try await host.issueBootstrap(for: request)
-        let snapshot = await provider.snapshot()
+            // Act
+            _ = try await host.issueBootstrap(for: request)
+            let snapshot = await provider.snapshot()
 
-        // Assert
-        #expect(snapshot.regularComparisonCount == 0)
-        #expect(snapshot.sharedEndpointResolutionCount == 2)
-        #expect(snapshot.sharedComparisonCount == 1)
-        #expect(snapshot.sharedCaptureCount == 1)
-        #expect(snapshot.sharedInstallCount == 1)
-        await host.shutdown()
+            // Assert
+            #expect(snapshot.regularComparisonCount == 0)
+            #expect(snapshot.sharedEndpointResolutionCount == 2)
+            #expect(snapshot.sharedComparisonCount == 1)
+            #expect(snapshot.sharedCaptureCount == 1)
+            #expect(snapshot.sharedInstallCount == 1)
+        }
     }
 
     @Test("a cancelled Review bootstrap cannot commit after its successor")
@@ -55,26 +56,34 @@ struct BridgeDevHostSharedConstructionTests {
             ),
             makeReviewProvider: { _, _ in provider }
         )
-        let reviewRequest = try makeDevelopmentBootstrapRequest(surface: "review")
-        let fileRequest = try makeDevelopmentBootstrapRequest(surface: "file")
-        let abandonedBootstrap = Task {
-            try await host.issueBootstrap(for: reviewRequest)
-        }
-        await comparisonGate.waitForStartedComparisonCount(1)
+        try await withShutdownDevelopmentProductHost(host) {
+            let reviewRequest = try makeDevelopmentBootstrapRequest(surface: "review")
+            let fileRequest = try makeDevelopmentBootstrapRequest(surface: "file")
+            let abandonedBootstrap = Task {
+                try await host.issueBootstrap(for: reviewRequest)
+            }
+            do {
+                await comparisonGate.waitForStartedComparisonCount(1)
 
-        // Act
-        abandonedBootstrap.cancel()
-        let successorBootstrap = Task {
-            try await host.issueBootstrap(for: fileRequest)
-        }
-        await comparisonGate.releaseAll()
+                // Act
+                abandonedBootstrap.cancel()
+                let successorBootstrap = Task {
+                    try await host.issueBootstrap(for: fileRequest)
+                }
+                await comparisonGate.releaseAll()
 
-        // Assert
-        await #expect(throws: CancellationError.self) {
-            _ = try await abandonedBootstrap.value
+                // Assert
+                await #expect(throws: CancellationError.self) {
+                    _ = try await abandonedBootstrap.value
+                }
+                _ = try await successorBootstrap.value
+            } catch {
+                abandonedBootstrap.cancel()
+                await comparisonGate.releaseAll()
+                _ = await abandonedBootstrap.result
+                throw error
+            }
         }
-        _ = try await successorBootstrap.value
-        await host.shutdown()
     }
 }
 

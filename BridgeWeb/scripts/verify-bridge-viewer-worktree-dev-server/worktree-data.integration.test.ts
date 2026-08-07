@@ -4,6 +4,7 @@ import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+	runAllOwnedCleanupOperations,
 	startOwnedBridgeDevelopmentServer,
 	type OwnedBridgeDevelopmentServer,
 } from '../dev-server/bridge-development-server-process.js';
@@ -19,20 +20,39 @@ describe('Bridge viewer typed product File worktree data', () => {
 	const initialDevServerUrl = process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'];
 
 	afterEach(async (): Promise<void> => {
-		if (initialDevServerUrl === undefined) {
-			delete process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'];
-		} else {
-			process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] = initialDevServerUrl;
-		}
-		vi.resetModules();
-		await viteServer?.close();
+		const ownedViteServer = viteServer;
+		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
 		viteServer = null;
-		await bridgeDevelopmentServer?.stop();
 		bridgeDevelopmentServer = null;
-		if (initialBackendOrigin === undefined) {
-			delete process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
-		} else {
-			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = initialBackendOrigin;
+		try {
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'integration Vite server',
+						run: async (): Promise<void> => {
+							await ownedViteServer?.close();
+						},
+					},
+					{
+						name: 'integration Swift development backend',
+						run: async (): Promise<void> => {
+							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+				],
+			});
+		} finally {
+			if (initialDevServerUrl === undefined) {
+				delete process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'];
+			} else {
+				process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] = initialDevServerUrl;
+			}
+			if (initialBackendOrigin === undefined) {
+				delete process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
+			} else {
+				process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = initialBackendOrigin;
+			}
+			vi.resetModules();
 		}
 	});
 

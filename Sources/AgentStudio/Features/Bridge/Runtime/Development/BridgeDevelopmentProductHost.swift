@@ -32,7 +32,11 @@ package actor BridgeDevelopmentProductHost {
     private let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     private let schemeHandler: BridgeSchemeHandler
     private var isShutdown = false
-    private var publishedFileNavigationBindingRevision: Int?
+    private var publishedFileNavigation:
+        (
+            bindingRevision: Int,
+            source: BridgeProductFileSourceIdentity
+        )?
     private let worktreeId: UUID
 
     package init(source: BridgeDevelopmentProductSource) async throws {
@@ -214,6 +218,9 @@ package actor BridgeDevelopmentProductHost {
     package func shutdown() async {
         guard !isShutdown else { return }
         isShutdown = true
+        let transitionTail = bootstrapTransitionTail
+        await transitionTail?.value
+        bootstrapTransitionTail = nil
         await MainActor.run {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()
@@ -287,9 +294,15 @@ package actor BridgeDevelopmentProductHost {
     private func publishFileNavigationIfNeeded(
         _ source: BridgeProductFileSourceIdentity
     ) async {
-        let bindingRevision = navigationBindingRevision
+        guard
+            let bindingRevision = Self.nextFileNavigationBindingRevision(
+                currentBindingRevision: navigationBindingRevision,
+                previouslyPublishedBindingRevision: publishedFileNavigation?.bindingRevision,
+                previouslyPublishedSource: publishedFileNavigation?.source,
+                acceptedSource: source
+            )
+        else { return }
         guard !isShutdown,
-            publishedFileNavigationBindingRevision != bindingRevision,
             let navigationIntent,
             let navigationCommand = Self.bindFileNavigationCommand(
                 intent: navigationIntent,
@@ -310,7 +323,22 @@ package actor BridgeDevelopmentProductHost {
                 streamAbsenceDisposition: .retainForReplay
             )
         else { return }
-        publishedFileNavigationBindingRevision = bindingRevision
+        navigationBindingRevision = bindingRevision
+        publishedFileNavigation = (bindingRevision: bindingRevision, source: source)
+    }
+
+    static func nextFileNavigationBindingRevision(
+        currentBindingRevision: Int,
+        previouslyPublishedBindingRevision: Int?,
+        previouslyPublishedSource: BridgeProductFileSourceIdentity?,
+        acceptedSource: BridgeProductFileSourceIdentity
+    ) -> Int? {
+        guard previouslyPublishedSource != acceptedSource else {
+            guard previouslyPublishedBindingRevision != currentBindingRevision else { return nil }
+            return currentBindingRevision
+        }
+        guard let previouslyPublishedBindingRevision else { return currentBindingRevision }
+        return max(currentBindingRevision, previouslyPublishedBindingRevision + 1)
     }
 
     private func prepareReviewPublicationIfNeeded(

@@ -7,7 +7,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { startOwnedBridgeDevelopmentServer } from '../../scripts/dev-server/bridge-development-server-process.ts';
+import {
+	runAllOwnedCleanupOperations,
+	startOwnedBridgeDevelopmentServer,
+} from '../../scripts/dev-server/bridge-development-server-process.ts';
 import { bridgeReviewItemIdOracle } from '../../scripts/verify-bridge-viewer-worktree-dev-server/bridge-review-item-id-oracle.ts';
 
 const execFileAsync = promisify(execFile);
@@ -237,7 +240,10 @@ export async function startBridgeViewerOwnedViteProductServer(
 		repoRootPath,
 		worktreeRoot: oracle.worktreeRoot,
 	}).catch(async (error: unknown): Promise<never> => {
-		await telemetryReceiver.stop();
+		await runAllOwnedCleanupOperations({
+			operations: [{ name: 'telemetry receiver', run: telemetryReceiver.stop }],
+			primaryError: error,
+		});
 		throw error;
 	});
 	const child = spawn(
@@ -289,35 +295,68 @@ export async function startBridgeViewerOwnedViteProductServer(
 			'owned Vite readiness',
 		);
 	} catch (error: unknown) {
+		let startupError = error;
 		try {
-			return await rejectOwnedViteStartupAfterCleanup({
+			await rejectOwnedViteStartupAfterCleanup({
 				child,
 				exitPromise,
 				startupError: error,
 			});
-		} finally {
-			await telemetryReceiver.stop();
-			await bridgeDevelopmentServer.stop();
+		} catch (cleanupAwareStartupError: unknown) {
+			startupError = cleanupAwareStartupError;
 		}
+		await runAllOwnedCleanupOperations({
+			operations: [
+				{ name: 'telemetry receiver', run: telemetryReceiver.stop },
+				{
+					name: 'Swift development backend',
+					run: async (): Promise<void> => {
+						await bridgeDevelopmentServer.stop();
+					},
+				},
+			],
+			primaryError: startupError,
+		});
+		throw startupError;
 	}
 	const origin = `http://127.0.0.1:${port}`;
 	return {
 		origin,
 		pid: child.pid ?? 0,
 		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
-			try {
-				const viteCleanup = await stopOwnedViteServer({ child, exitPromise });
-				const backendCleanup = await bridgeDevelopmentServer.stop();
-				return {
-					...viteCleanup,
-					forcedTerminationRequired:
-						viteCleanup.forcedTerminationRequired || backendCleanup.forcedTerminationRequired,
-					ownedProcessAliveAfterStop:
-						viteCleanup.ownedProcessAliveAfterStop || backendCleanup.ownedProcessAliveAfterStop,
-				};
-			} finally {
-				await telemetryReceiver.stop();
+			const cleanupResults: {
+				backend: Awaited<ReturnType<typeof bridgeDevelopmentServer.stop>> | null;
+				vite: BridgeViewerOwnedViteProductServerCleanup | null;
+			} = { backend: null, vite: null };
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'Vite',
+						run: async (): Promise<void> => {
+							cleanupResults.vite = await stopOwnedViteServer({ child, exitPromise });
+						},
+					},
+					{
+						name: 'Swift development backend',
+						run: async (): Promise<void> => {
+							cleanupResults.backend = await bridgeDevelopmentServer.stop();
+						},
+					},
+					{ name: 'telemetry receiver', run: telemetryReceiver.stop },
+				],
+			});
+			if (cleanupResults.vite === null || cleanupResults.backend === null) {
+				throw new Error('Owned Bridge product server cleanup did not return process facts.');
 			}
+			return {
+				...cleanupResults.vite,
+				forcedTerminationRequired:
+					cleanupResults.vite.forcedTerminationRequired ||
+					cleanupResults.backend.forcedTerminationRequired,
+				ownedProcessAliveAfterStop:
+					cleanupResults.vite.ownedProcessAliveAfterStop ||
+					cleanupResults.backend.ownedProcessAliveAfterStop,
+			};
 		},
 		version: /VITE v(?<version>\d+\.\d+\.\d+)/u.exec(readinessOutput)?.groups?.['version'] ?? null,
 	};

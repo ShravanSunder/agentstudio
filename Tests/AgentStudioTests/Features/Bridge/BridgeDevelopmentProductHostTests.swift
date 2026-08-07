@@ -186,6 +186,59 @@ struct BridgeDevelopmentProductHostTests {
         )
     }
 
+    @Test("a distinct accepted File source advances the navigation binding revision")
+    func distinctAcceptedFileSourceAdvancesBindingRevision() throws {
+        // Arrange
+        let firstSource = try BridgeProductFileSourceIdentity(
+            repoId: "11111111-1111-7111-8111-111111111111",
+            rootRevisionToken: "root-revision-1",
+            sourceCursor: "file-cursor-1",
+            sourceId: "file-source-1",
+            subscriptionGeneration: 1,
+            worktreeId: "22222222-2222-7222-8222-222222222222"
+        )
+        let secondSource = try BridgeProductFileSourceIdentity(
+            repoId: "11111111-1111-7111-8111-111111111111",
+            rootRevisionToken: "root-revision-2",
+            sourceCursor: "file-cursor-2",
+            sourceId: "file-source-2",
+            subscriptionGeneration: 2,
+            worktreeId: "22222222-2222-7222-8222-222222222222"
+        )
+
+        // Act
+        let firstRevision = BridgeDevelopmentProductHost.nextFileNavigationBindingRevision(
+            currentBindingRevision: 7,
+            previouslyPublishedBindingRevision: nil,
+            previouslyPublishedSource: nil,
+            acceptedSource: firstSource
+        )
+        let repeatedRevision = BridgeDevelopmentProductHost.nextFileNavigationBindingRevision(
+            currentBindingRevision: 7,
+            previouslyPublishedBindingRevision: firstRevision,
+            previouslyPublishedSource: firstSource,
+            acceptedSource: firstSource
+        )
+        let replacementWorkerRevision = BridgeDevelopmentProductHost.nextFileNavigationBindingRevision(
+            currentBindingRevision: 8,
+            previouslyPublishedBindingRevision: firstRevision,
+            previouslyPublishedSource: firstSource,
+            acceptedSource: firstSource
+        )
+        let reboundRevision = BridgeDevelopmentProductHost.nextFileNavigationBindingRevision(
+            currentBindingRevision: 7,
+            previouslyPublishedBindingRevision: firstRevision,
+            previouslyPublishedSource: firstSource,
+            acceptedSource: secondSource
+        )
+
+        // Assert
+        #expect(firstRevision == 7)
+        #expect(repeatedRevision == nil)
+        #expect(replacementWorkerRevision == 8)
+        #expect(reboundRevision == 8)
+    }
+
     @Test("rejects a source that is not a Git worktree")
     func rejectsNonGitWorktree() async throws {
         // Arrange
@@ -204,6 +257,53 @@ struct BridgeDevelopmentProductHostTests {
         }
     }
 
+    @Test("malformed bootstrap metadata length throws instead of constructing an invalid range")
+    func malformedBootstrapMetadataLengthThrows() {
+        // Arrange
+        var data = Data([1, 0, 0, 1, 0])
+        data.append(Data(repeating: 0, count: BridgeProductWireContract.capabilityByteLength))
+
+        // Act / Assert
+        #expect(throws: (any Error).self) {
+            _ = try decodeDevelopmentBootstrapEnvelope(data)
+        }
+    }
+
+    @Test("scoped host lifetime shuts down after a thrown operation")
+    func scopedHostLifetimeShutsDownAfterThrownOperation() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-error-cleanup"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let host = try await BridgeDevelopmentProductHost(
+            source: BridgeDevelopmentProductSource(
+                worktreeRoot: repositoryURL,
+                reviewBase: "HEAD"
+            ),
+            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
+        )
+        let request = try JSONDecoder().decode(
+            BridgeDevelopmentProductBootstrapRequest.self,
+            from: Data(
+                #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                    .utf8
+            )
+        )
+
+        // Act
+        await #expect(throws: ExpectedDevelopmentHostOperationError.self) {
+            try await withShutdownDevelopmentProductHost(host) {
+                throw ExpectedDevelopmentHostOperationError()
+            }
+        }
+
+        // Assert
+        await #expect(throws: BridgeDevelopmentProductHostError.shutdown) {
+            _ = try await host.issueBootstrap(for: request)
+        }
+    }
+
     @Test("replacement bootstrap keeps pane identity and rotates worker authority")
     func replacementBootstrapRotatesWorkerAuthority() async throws {
         // Arrange
@@ -219,32 +319,33 @@ struct BridgeDevelopmentProductHostTests {
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
-        let navigationIntent = #"{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"}"#
-        let initialRequest = try JSONDecoder().decode(
-            BridgeDevelopmentProductBootstrapRequest.self,
-            from: Data(#"{"navigationIntent":\#(navigationIntent),"reason":"initial"}"#.utf8)
-        )
-
-        // Act
-        let initialDelivery = try await host.issueBootstrap(for: initialRequest)
-        let initialEnvelope = try decodeDevelopmentBootstrapEnvelope(initialDelivery)
-        let replacementRequest = try JSONDecoder().decode(
-            BridgeDevelopmentProductBootstrapRequest.self,
-            from: Data(
-                #"{"navigationIntent":\#(navigationIntent),"paneSessionId":"\#(initialEnvelope.bootstrap.paneSessionId)","reason":"workerReplacement"}"#
-                    .utf8
+        try await withShutdownDevelopmentProductHost(host) {
+            let navigationIntent = #"{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"}"#
+            let initialRequest = try JSONDecoder().decode(
+                BridgeDevelopmentProductBootstrapRequest.self,
+                from: Data(#"{"navigationIntent":\#(navigationIntent),"reason":"initial"}"#.utf8)
             )
-        )
-        let replacementDelivery = try await host.issueBootstrap(for: replacementRequest)
-        let replacementEnvelope = try decodeDevelopmentBootstrapEnvelope(replacementDelivery)
 
-        // Assert
-        #expect(replacementEnvelope.bootstrap.paneSessionId == initialEnvelope.bootstrap.paneSessionId)
-        #expect(replacementEnvelope.bootstrap.workerInstanceId != initialEnvelope.bootstrap.workerInstanceId)
-        #expect(replacementEnvelope.capabilityBytes != initialEnvelope.capabilityBytes)
-        #expect(initialEnvelope.capabilityBytes.count == BridgeProductWireContract.capabilityByteLength)
-        #expect(replacementEnvelope.capabilityBytes.count == BridgeProductWireContract.capabilityByteLength)
-        await host.shutdown()
+            // Act
+            let initialDelivery = try await host.issueBootstrap(for: initialRequest)
+            let initialEnvelope = try decodeDevelopmentBootstrapEnvelope(initialDelivery)
+            let replacementRequest = try JSONDecoder().decode(
+                BridgeDevelopmentProductBootstrapRequest.self,
+                from: Data(
+                    #"{"navigationIntent":\#(navigationIntent),"paneSessionId":"\#(initialEnvelope.bootstrap.paneSessionId)","reason":"workerReplacement"}"#
+                        .utf8
+                )
+            )
+            let replacementDelivery = try await host.issueBootstrap(for: replacementRequest)
+            let replacementEnvelope = try decodeDevelopmentBootstrapEnvelope(replacementDelivery)
+
+            // Assert
+            #expect(replacementEnvelope.bootstrap.paneSessionId == initialEnvelope.bootstrap.paneSessionId)
+            #expect(replacementEnvelope.bootstrap.workerInstanceId != initialEnvelope.bootstrap.workerInstanceId)
+            #expect(replacementEnvelope.capabilityBytes != initialEnvelope.capabilityBytes)
+            #expect(initialEnvelope.capabilityBytes.count == BridgeProductWireContract.capabilityByteLength)
+            #expect(replacementEnvelope.capabilityBytes.count == BridgeProductWireContract.capabilityByteLength)
+        }
     }
 
     @Test("a reloaded development page can issue a fresh initial bootstrap")
@@ -262,27 +363,28 @@ struct BridgeDevelopmentProductHostTests {
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
-        let initialRequest = try JSONDecoder().decode(
-            BridgeDevelopmentProductBootstrapRequest.self,
-            from: Data(
-                #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
-                    .utf8
+        try await withShutdownDevelopmentProductHost(host) {
+            let initialRequest = try JSONDecoder().decode(
+                BridgeDevelopmentProductBootstrapRequest.self,
+                from: Data(
+                    #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                        .utf8
+                )
             )
-        )
-        let firstEnvelope = try decodeDevelopmentBootstrapEnvelope(
-            await host.issueBootstrap(for: initialRequest)
-        )
+            let firstEnvelope = try decodeDevelopmentBootstrapEnvelope(
+                await host.issueBootstrap(for: initialRequest)
+            )
 
-        // Act
-        let reloadedEnvelope = try decodeDevelopmentBootstrapEnvelope(
-            await host.issueBootstrap(for: initialRequest)
-        )
+            // Act
+            let reloadedEnvelope = try decodeDevelopmentBootstrapEnvelope(
+                await host.issueBootstrap(for: initialRequest)
+            )
 
-        // Assert
-        #expect(reloadedEnvelope.bootstrap.paneSessionId == firstEnvelope.bootstrap.paneSessionId)
-        #expect(reloadedEnvelope.bootstrap.workerInstanceId != firstEnvelope.bootstrap.workerInstanceId)
-        #expect(reloadedEnvelope.capabilityBytes != firstEnvelope.capabilityBytes)
-        await host.shutdown()
+            // Assert
+            #expect(reloadedEnvelope.bootstrap.paneSessionId == firstEnvelope.bootstrap.paneSessionId)
+            #expect(reloadedEnvelope.bootstrap.workerInstanceId != firstEnvelope.bootstrap.workerInstanceId)
+            #expect(reloadedEnvelope.capabilityBytes != firstEnvelope.capabilityBytes)
+        }
     }
 
     @Test("routes worker admission through the existing product adapter")
@@ -300,68 +402,84 @@ struct BridgeDevelopmentProductHostTests {
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
-        let bootstrapRequest = try JSONDecoder().decode(
-            BridgeDevelopmentProductBootstrapRequest.self,
-            from: Data(
-                #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
-                    .utf8
+        try await withShutdownDevelopmentProductHost(host) {
+            let bootstrapRequest = try JSONDecoder().decode(
+                BridgeDevelopmentProductBootstrapRequest.self,
+                from: Data(
+                    #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                        .utf8
+                )
             )
-        )
-        let delivery = try decodeDevelopmentBootstrapEnvelope(
-            await host.issueBootstrap(for: bootstrapRequest)
-        )
-        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
-            Array(delivery.capabilityBytes)
-        )
-        let requestBody = try JSONSerialization.data(
-            withJSONObject: [
-                "kind": "workerSession.open",
-                "paneSessionId": delivery.bootstrap.paneSessionId,
-                "request": NSNull(),
-                "requestId": "request-open-development-host",
-                "requestSequence": 1,
-                "wireVersion": BridgeProductWireContract.version,
-                "workerInstanceId": delivery.bootstrap.workerInstanceId,
-            ],
-            options: [.sortedKeys]
-        )
-        var request = URLRequest(url: try #require(URL(string: BridgeProductWireContract.commandRoute)))
-        request.httpMethod = BridgeProductWireContract.requestMethod
-        request.httpBody = requestBody
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(
-            capabilityHeader,
-            forHTTPHeaderField: BridgeProductWireContract.capabilityHeaderName
-        )
+            let delivery = try decodeDevelopmentBootstrapEnvelope(
+                await host.issueBootstrap(for: bootstrapRequest)
+            )
+            let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(
+                Array(delivery.capabilityBytes)
+            )
+            let requestBody = try JSONSerialization.data(
+                withJSONObject: [
+                    "kind": "workerSession.open",
+                    "paneSessionId": delivery.bootstrap.paneSessionId,
+                    "request": NSNull(),
+                    "requestId": "request-open-development-host",
+                    "requestSequence": 1,
+                    "wireVersion": BridgeProductWireContract.version,
+                    "workerInstanceId": delivery.bootstrap.workerInstanceId,
+                ],
+                options: [.sortedKeys]
+            )
+            var request = URLRequest(url: try #require(URL(string: BridgeProductWireContract.commandRoute)))
+            request.httpMethod = BridgeProductWireContract.requestMethod
+            request.httpBody = requestBody
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(
+                capabilityHeader,
+                forHTTPHeaderField: BridgeProductWireContract.capabilityHeaderName
+            )
 
-        // Act
-        var response: HTTPURLResponse?
-        var responseBody = Data()
-        for try await result in await host.route(request) {
-            switch result {
-            case .response(let receivedResponse):
-                response = receivedResponse as? HTTPURLResponse
-            case .data(let data):
-                responseBody.append(data)
-            @unknown default:
-                Issue.record("Unexpected URL scheme response event")
+            // Act
+            var response: HTTPURLResponse?
+            var responseBody = Data()
+            for try await result in await host.route(request) {
+                switch result {
+                case .response(let receivedResponse):
+                    response = receivedResponse as? HTTPURLResponse
+                case .data(let data):
+                    responseBody.append(data)
+                @unknown default:
+                    Issue.record("Unexpected URL scheme response event")
+                }
             }
-        }
-        let controlResponse = try BridgeProductStrictJSON.decode(
-            BridgeProductControlResponse.self,
-            from: responseBody
-        )
+            let controlResponse = try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: responseBody
+            )
 
-        // Assert
-        #expect(response?.statusCode == 200)
-        guard case .workerSessionAccepted(let accepted) = controlResponse else {
-            Issue.record("Expected the existing adapter to accept the worker session")
-            await host.shutdown()
-            return
+            // Assert
+            #expect(response?.statusCode == 200)
+            guard case .workerSessionAccepted(let accepted) = controlResponse else {
+                Issue.record("Expected the existing adapter to accept the worker session")
+                return
+            }
+            #expect(accepted.correlation.paneSessionId == delivery.bootstrap.paneSessionId)
+            #expect(accepted.correlation.workerInstanceId == delivery.bootstrap.workerInstanceId)
         }
-        #expect(accepted.correlation.paneSessionId == delivery.bootstrap.paneSessionId)
-        #expect(accepted.correlation.workerInstanceId == delivery.bootstrap.workerInstanceId)
+    }
+}
+
+private struct ExpectedDevelopmentHostOperationError: Error {}
+
+func withShutdownDevelopmentProductHost<Result>(
+    _ host: BridgeDevelopmentProductHost,
+    operation: () async throws -> Result
+) async throws -> Result {
+    do {
+        let result = try await operation()
         await host.shutdown()
+        return result
+    } catch {
+        await host.shutdown()
+        throw error
     }
 }
 
@@ -384,10 +502,11 @@ private func decodeDevelopmentBootstrapEnvelope(
         (length << 8) | Int(byte)
     }
     let metadataRange = prefixByteCount..<(prefixByteCount + metadataByteCount)
+    guard metadataRange.upperBound <= data.count else {
+        throw CocoaError(.fileReadCorruptFile)
+    }
     let capabilityRange = metadataRange.upperBound..<data.count
-    guard metadataRange.upperBound <= data.count,
-        capabilityRange.count == BridgeProductWireContract.capabilityByteLength
-    else {
+    guard capabilityRange.count == BridgeProductWireContract.capabilityByteLength else {
         throw CocoaError(.fileReadCorruptFile)
     }
     return try DecodedDevelopmentBootstrapEnvelope(

@@ -4,6 +4,7 @@ import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { afterEach, describe, expect, test } from 'vitest';
 
 import {
+	runAllOwnedCleanupOperations,
 	startOwnedBridgeDevelopmentServer,
 	type OwnedBridgeDevelopmentServer,
 } from '../dev-server/bridge-development-server-process.js';
@@ -19,14 +20,33 @@ describe('Bridge verifier product File session', () => {
 	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 
 	afterEach(async (): Promise<void> => {
-		await viteServer?.close();
+		const ownedViteServer = viteServer;
+		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
 		viteServer = null;
-		await bridgeDevelopmentServer?.stop();
 		bridgeDevelopmentServer = null;
-		if (initialBackendOrigin === undefined) {
-			delete process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
-		} else {
-			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = initialBackendOrigin;
+		try {
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'integration Vite server',
+						run: async (): Promise<void> => {
+							await ownedViteServer?.close();
+						},
+					},
+					{
+						name: 'integration Swift development backend',
+						run: async (): Promise<void> => {
+							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+				],
+			});
+		} finally {
+			if (initialBackendOrigin === undefined) {
+				delete process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
+			} else {
+				process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = initialBackendOrigin;
+			}
 		}
 	});
 

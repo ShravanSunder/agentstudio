@@ -4,6 +4,7 @@ import HTTPTypes
 import Hummingbird
 import HummingbirdTesting
 import Testing
+import WebKit
 
 @testable import AgentStudioBridge
 @testable import AgentStudioBridgeDevelopmentServer
@@ -38,19 +39,20 @@ struct BridgeDevelopmentHTTPRoutingTests {
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
-        let application = BridgeDevelopmentHTTPApplication.make(host: host)
+        try await withDevelopmentHost(host) {
+            let application = BridgeDevelopmentHTTPApplication.make(host: host)
 
-        // Act / Assert
-        try await application.test(.router) { client in
-            try await client.execute(
-                uri: "/__bridge-product/health",
-                method: .get
-            ) { response in
-                #expect(response.status == .noContent)
-                #expect(response.body.readableBytes == 0)
+            // Act / Assert
+            try await application.test(.router) { client in
+                try await client.execute(
+                    uri: "/__bridge-product/health",
+                    method: .get
+                ) { response in
+                    #expect(response.status == .noContent)
+                    #expect(response.body.readableBytes == 0)
+                }
             }
         }
-        await host.shutdown()
     }
 
     @Test("bootstrap route returns the existing binary session envelope")
@@ -68,27 +70,28 @@ struct BridgeDevelopmentHTTPRoutingTests {
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
-        let application = BridgeDevelopmentHTTPApplication.make(host: host)
-        let body = ByteBuffer(
-            string:
-                #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
-        )
+        try await withDevelopmentHost(host) {
+            let application = BridgeDevelopmentHTTPApplication.make(host: host)
+            let body = ByteBuffer(
+                string:
+                    #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+            )
 
-        // Act / Assert
-        try await application.test(.router) { client in
-            try await client.execute(
-                uri: "/__bridge-product/bootstrap",
-                method: .post,
-                headers: [.contentType: "application/json"],
-                body: body
-            ) { response in
-                #expect(response.status == .ok)
-                #expect(response.headers[.contentType] == "application/octet-stream")
-                #expect(response.body.readableBytes > 37)
-                #expect(response.body.getInteger(at: 0, as: UInt8.self) == 1)
+            // Act / Assert
+            try await application.test(.router) { client in
+                try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: body
+                ) { response in
+                    #expect(response.status == .ok)
+                    #expect(response.headers[.contentType] == "application/octet-stream")
+                    #expect(response.body.readableBytes > 37)
+                    #expect(response.body.getInteger(at: 0, as: UInt8.self) == 1)
+                }
             }
         }
-        await host.shutdown()
     }
 
     @Test("command route forwards worker admission through the existing product adapter")
@@ -106,64 +109,171 @@ struct BridgeDevelopmentHTTPRoutingTests {
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
-        let application = BridgeDevelopmentHTTPApplication.make(host: host)
+        try await withDevelopmentHost(host) {
+            let application = BridgeDevelopmentHTTPApplication.make(host: host)
 
-        // Act / Assert
-        try await application.test(.router) { client in
-            let bootstrapResponse = try await client.execute(
-                uri: "/__bridge-product/bootstrap",
-                method: .post,
-                headers: [.contentType: "application/json"],
-                body: ByteBuffer(
-                    string:
-                        #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+            // Act / Assert
+            try await application.test(.router) { client in
+                let bootstrapResponse = try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"open-file-view","commandKind":"activateContext","surface":"file"},"reason":"initial"}"#
+                    )
                 )
-            )
-            let envelope = try decodeHTTPBootstrapEnvelope(
-                Data(bootstrapResponse.body.readableBytesView)
-            )
-            let capability = try BridgeProductCapabilityHeaderEncoding.encode(
-                Array(envelope.capabilityBytes)
-            )
-            let requestBody = try JSONSerialization.data(
-                withJSONObject: [
-                    "kind": "workerSession.open",
-                    "paneSessionId": envelope.bootstrap.paneSessionId,
-                    "request": NSNull(),
-                    "requestId": "request-open-development-http",
-                    "requestSequence": 1,
-                    "wireVersion": BridgeProductWireContract.version,
-                    "workerInstanceId": envelope.bootstrap.workerInstanceId,
-                ],
-                options: [.sortedKeys]
-            )
-            let capabilityHeader = try #require(
-                HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
-            )
-            try await client.execute(
-                uri: "/__bridge-product/command",
-                method: .post,
-                headers: [
-                    .contentType: "application/json",
-                    capabilityHeader: capability,
-                ],
-                body: ByteBuffer(data: requestBody)
-            ) { response in
-                #expect(response.status == .ok)
-                #expect(response.headers[.contentType] == "application/json")
-                let controlResponse = try BridgeProductStrictJSON.decode(
-                    BridgeProductControlResponse.self,
-                    from: Data(response.body.readableBytesView)
+                let envelope = try decodeHTTPBootstrapEnvelope(
+                    Data(bootstrapResponse.body.readableBytesView)
                 )
-                guard case .workerSessionAccepted(let accepted) = controlResponse else {
-                    Issue.record("Expected workerSession.accepted through the HTTP carrier")
-                    return
+                let capability = try BridgeProductCapabilityHeaderEncoding.encode(
+                    Array(envelope.capabilityBytes)
+                )
+                let requestBody = try JSONSerialization.data(
+                    withJSONObject: [
+                        "kind": "workerSession.open",
+                        "paneSessionId": envelope.bootstrap.paneSessionId,
+                        "request": NSNull(),
+                        "requestId": "request-open-development-http",
+                        "requestSequence": 1,
+                        "wireVersion": BridgeProductWireContract.version,
+                        "workerInstanceId": envelope.bootstrap.workerInstanceId,
+                    ],
+                    options: [.sortedKeys]
+                )
+                let capabilityHeader = try #require(
+                    HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
+                )
+                try await client.execute(
+                    uri: "/__bridge-product/command",
+                    method: .post,
+                    headers: [
+                        .contentType: "application/json",
+                        capabilityHeader: capability,
+                    ],
+                    body: ByteBuffer(data: requestBody)
+                ) { response in
+                    #expect(response.status == .ok)
+                    #expect(response.headers[.contentType] == "application/json")
+                    let controlResponse = try BridgeProductStrictJSON.decode(
+                        BridgeProductControlResponse.self,
+                        from: Data(response.body.readableBytesView)
+                    )
+                    guard case .workerSessionAccepted(let accepted) = controlResponse else {
+                        Issue.record("Expected workerSession.accepted through the HTTP carrier")
+                        return
+                    }
+                    #expect(accepted.correlation.paneSessionId == envelope.bootstrap.paneSessionId)
+                    #expect(accepted.correlation.workerInstanceId == envelope.bootstrap.workerInstanceId)
                 }
-                #expect(accepted.correlation.paneSessionId == envelope.bootstrap.paneSessionId)
-                #expect(accepted.correlation.workerInstanceId == envelope.bootstrap.workerInstanceId)
             }
         }
+    }
+
+    @Test("product requests forward only protocol-required headers")
+    func productRequestsForwardOnlyProtocolHeaders() throws {
+        // Arrange
+        let capabilityHeader = try #require(
+            HTTPField.Name(BridgeProductWireContract.capabilityHeaderName)
+        )
+        let hostHeader = try #require(HTTPField.Name("Host"))
+        let destinationURL = try #require(URL(string: BridgeProductWireContract.commandRoute))
+        let headers: HTTPFields = [
+            .contentType: "application/json; charset=utf-8",
+            capabilityHeader: "capability-value",
+            .cookie: "private-session=value",
+            hostHeader: "127.0.0.1:43123",
+            .connection: "keep-alive",
+            .transferEncoding: "chunked",
+        ]
+
+        // Act
+        let request = BridgeDevelopmentHTTPApplication.forwardedProductRequest(
+            destinationURL: destinationURL,
+            body: Data("{}".utf8),
+            headers: headers
+        )
+
+        // Assert
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
+        #expect(
+            request.value(forHTTPHeaderField: BridgeProductWireContract.capabilityHeaderName)
+                == "capability-value"
+        )
+        #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+        #expect(request.value(forHTTPHeaderField: "Host") == nil)
+        #expect(request.value(forHTTPHeaderField: "Connection") == nil)
+        #expect(request.value(forHTTPHeaderField: "Transfer-Encoding") == nil)
+    }
+
+    @Test("product response preserves every ordered body chunk beyond the former buffer bound")
+    func productResponsePreservesEveryOrderedBodyChunk() async throws {
+        // Arrange
+        let chunkCount = 80
+        let responseURL = try #require(URL(string: BridgeProductWireContract.contentRoute))
+        let responseHead = try #require(
+            HTTPURLResponse(
+                url: responseURL,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/octet-stream"]
+            )
+        )
+        let results = AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
+            continuation.yield(.response(responseHead))
+            for ordinal in 0..<chunkCount {
+                continuation.yield(.data(Data([UInt8(ordinal)])))
+            }
+            continuation.finish()
+        }
+
+        // Act
+        let response = try await BridgeDevelopmentHTTPProductResponse.make(from: results)
+        let bodyRecorder = BridgeDevelopmentHTTPBodyRecorder()
+        try await response.body.write(bodyRecorder)
+
+        // Assert
+        #expect(await bodyRecorder.bytes == Array(0..<UInt8(chunkCount)))
+        #expect(await bodyRecorder.didFinish)
+    }
+
+    @Test("malformed bootstrap metadata length throws instead of constructing an invalid range")
+    func malformedBootstrapMetadataLengthThrows() {
+        // Arrange
+        var data = Data([1, 0, 0, 1, 0])
+        data.append(Data(repeating: 0, count: BridgeProductWireContract.capabilityByteLength))
+
+        // Act / Assert
+        #expect(throws: (any Error).self) {
+            _ = try decodeHTTPBootstrapEnvelope(data)
+        }
+    }
+}
+
+private func withDevelopmentHost<Result>(
+    _ host: BridgeDevelopmentProductHost,
+    operation: () async throws -> Result
+) async throws -> Result {
+    do {
+        let result = try await operation()
         await host.shutdown()
+        return result
+    } catch {
+        await host.shutdown()
+        throw error
+    }
+}
+
+private actor BridgeDevelopmentHTTPBodyRecorder: ResponseBodyWriter {
+    private(set) var bytes: [UInt8] = []
+    private(set) var didFinish = false
+
+    func write(_ buffer: ByteBuffer) {
+        bytes.append(contentsOf: buffer.readableBytesView)
+    }
+
+    func finish(_: HTTPFields?) {
+        didFinish = true
     }
 }
 
@@ -186,10 +296,11 @@ private func decodeHTTPBootstrapEnvelope(
         (length << 8) | Int(byte)
     }
     let metadataRange = prefixByteCount..<(prefixByteCount + metadataByteCount)
+    guard metadataRange.upperBound <= data.count else {
+        throw CocoaError(.fileReadCorruptFile)
+    }
     let capabilityRange = metadataRange.upperBound..<data.count
-    guard metadataRange.upperBound <= data.count,
-        capabilityRange.count == BridgeProductWireContract.capabilityByteLength
-    else {
+    guard capabilityRange.count == BridgeProductWireContract.capabilityByteLength else {
         throw CocoaError(.fileReadCorruptFile)
     }
     return try DecodedHTTPBootstrapEnvelope(

@@ -9,23 +9,27 @@ extension BridgePaneProductFileMetadataSourceTests {
         // Arrange
         let fixture = try ProductFileSourceFixture(fileCount: 1)
         defer { fixture.remove() }
-        let (observedSources, observedSourceContinuation) =
-            AsyncStream<BridgeProductFileSourceIdentity>.makeStream()
+        let acceptedSourceRecorder = AcceptedFileSourceRecorder()
         let source = fixture.makeSource(sourceAcceptedObserver: { acceptedSource in
-            observedSourceContinuation.yield(acceptedSource)
+            await acceptedSourceRecorder.record(acceptedSource)
         })
         let collector = ProductFileMetadataEventCollector()
+        let subscription = try fixture.openSnapshot()
 
         // Act
-        try await source.open(
-            subscription: fixture.openSnapshot(),
-            productAdmission: fixture.productAdmission.context
-        ) { event in
-            await collector.append(event)
+        do {
+            try await source.open(
+                subscription: subscription,
+                productAdmission: fixture.productAdmission.context
+            ) { event in
+                await collector.append(event)
+            }
+        } catch {
+            await source.cancel(subscriptionId: subscription.subscriptionId)
+            throw error
         }
-        var observedSourceIterator = observedSources.makeAsyncIterator()
-        let observedSource = try #require(await observedSourceIterator.next())
-        observedSourceContinuation.finish()
+        await source.cancel(subscriptionId: subscription.subscriptionId)
+        let observedSource = try #require(await acceptedSourceRecorder.source)
 
         // Assert
         let emittedSource = try #require(
@@ -35,5 +39,13 @@ extension BridgePaneProductFileMetadataSourceTests {
             }.first
         )
         #expect(observedSource == emittedSource)
+    }
+}
+
+private actor AcceptedFileSourceRecorder {
+    private(set) var source: BridgeProductFileSourceIdentity?
+
+    func record(_ source: BridgeProductFileSourceIdentity) {
+        self.source = source
     }
 }

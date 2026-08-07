@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
@@ -31,6 +31,28 @@ interface ChildProcessExit {
 	readonly signal: NodeJS.Signals | null;
 }
 
+export type BridgeDevelopmentServerLifecycleOutcome =
+	| ({ readonly kind: 'exit' } & ChildProcessExit)
+	| { readonly error: Error; readonly kind: 'spawn-error' };
+
+export interface OwnedCleanupOperation {
+	readonly name: string;
+	readonly run: () => Promise<void>;
+}
+
+export interface OwnedBridgeDevelopmentServerProcessControl {
+	readonly pid?: number | undefined;
+	readonly kill: (signal: NodeJS.Signals) => boolean;
+}
+
+type BridgeDevelopmentServerReadinessProbeOutcome =
+	| {
+			readonly kind: 'lifecycle';
+			readonly outcome: BridgeDevelopmentServerLifecycleOutcome;
+	  }
+	| { readonly kind: 'probe-failed' }
+	| { readonly kind: 'response'; readonly response: Response };
+
 export async function startOwnedBridgeDevelopmentServer(props: {
 	readonly baseRef: string;
 	readonly repoRootPath: string;
@@ -49,8 +71,9 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 			stdio: ['pipe', 'pipe', 'pipe'],
 		},
 	);
-	const exitPromise = new Promise<ChildProcessExit>((resolve): void => {
-		child.once('exit', (code, signal): void => resolve({ code, signal }));
+	const lifecycleOutcome = new Promise<BridgeDevelopmentServerLifecycleOutcome>((resolve): void => {
+		child.once('exit', (code, signal): void => resolve({ code, kind: 'exit', signal }));
+		child.once('error', (error): void => resolve({ error, kind: 'spawn-error' }));
 	});
 	let stdoutTail = '';
 	let stderrTail = '';
@@ -63,22 +86,32 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 		stderrTail = appendBoundedTail(stderrTail, chunk);
 	});
 	try {
-		await waitForServerReadiness({
-			child,
-			exitPromise,
+		await waitForBridgeDevelopmentServerReadiness({
+			currentTimeMilliseconds: Date.now,
+			fetchHealth: async (healthUrl): Promise<Response> =>
+				await fetch(healthUrl, {
+					method: 'GET',
+					signal: AbortSignal.timeout(1_000),
+				}),
+			lifecycleOutcome,
 			origin,
 			stderrTail: (): string => stderrTail,
 			stdoutTail: (): string => stdoutTail,
+			waitForNextProbe: async (): Promise<void> => {
+				await new Promise<void>((resolve): void => {
+					setTimeout(resolve, readinessProbeIntervalMilliseconds);
+				});
+			},
 		});
 	} catch (error: unknown) {
-		await stopOwnedProcess(child, exitPromise);
+		await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome);
 		throw error;
 	}
 	return {
 		origin,
 		pid: child.pid ?? 0,
 		stop: async (): Promise<OwnedBridgeDevelopmentServerCleanup> =>
-			await stopOwnedProcess(child, exitPromise),
+			await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome),
 	};
 }
 
@@ -92,34 +125,53 @@ async function bridgeDevelopmentServerExecutablePath(repoRootPath: string): Prom
 	return join(stdout.trim(), 'agentstudio-bridge-dev-server');
 }
 
-async function waitForServerReadiness(props: {
-	readonly child: ChildProcessWithoutNullStreams;
-	readonly exitPromise: Promise<ChildProcessExit>;
+export async function waitForBridgeDevelopmentServerReadiness(props: {
+	readonly currentTimeMilliseconds: () => number;
+	readonly fetchHealth: (healthUrl: string) => Promise<Response>;
+	readonly lifecycleOutcome: Promise<BridgeDevelopmentServerLifecycleOutcome>;
 	readonly origin: string;
 	readonly stderrTail: () => string;
 	readonly stdoutTail: () => string;
+	readonly waitForNextProbe: () => Promise<void>;
 }): Promise<void> {
-	const deadline = Date.now() + startupTimeoutMilliseconds;
-	while (Date.now() < deadline) {
-		const exit = await settledValue(props.exitPromise);
-		if (exit !== null) {
+	const deadline = props.currentTimeMilliseconds() + startupTimeoutMilliseconds;
+	// oxlint-disable no-await-in-loop -- Readiness probes are intentionally ordered and rate-limited.
+	while (props.currentTimeMilliseconds() < deadline) {
+		const probeOutcome = await Promise.race<BridgeDevelopmentServerReadinessProbeOutcome>([
+			props.lifecycleOutcome.then(
+				(outcome): BridgeDevelopmentServerReadinessProbeOutcome => ({
+					kind: 'lifecycle',
+					outcome,
+				}),
+			),
+			props.fetchHealth(`${props.origin}${BRIDGE_PRODUCT_DEV_HEALTH_ROUTE}`).then(
+				(response): BridgeDevelopmentServerReadinessProbeOutcome => ({
+					kind: 'response',
+					response,
+				}),
+				(): BridgeDevelopmentServerReadinessProbeOutcome => ({ kind: 'probe-failed' }),
+			),
+		]);
+		if (probeOutcome.kind === 'lifecycle' && probeOutcome.outcome.kind === 'spawn-error') {
 			throw new Error(
-				`Owned Swift development backend exited before readiness: ${JSON.stringify({ exit, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
+				`Owned Swift development backend failed to spawn before readiness: ${JSON.stringify({ error: probeOutcome.outcome.error.message, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
+				{ cause: probeOutcome.outcome.error },
 			);
 		}
-		try {
-			const response = await fetch(`${props.origin}${BRIDGE_PRODUCT_DEV_HEALTH_ROUTE}`, {
-				method: 'GET',
-				signal: AbortSignal.timeout(1_000),
-			});
-			await response.body?.cancel();
-			if (bridgeDevelopmentServerHealthResponseIsReady(response)) return;
-		} catch {
-			await new Promise<void>((resolve): void => {
-				setTimeout(resolve, readinessProbeIntervalMilliseconds);
-			});
+		if (probeOutcome.kind === 'lifecycle' && probeOutcome.outcome.kind === 'exit') {
+			throw new Error(
+				`Owned Swift development backend exited before readiness: ${JSON.stringify({ exit: probeOutcome.outcome, stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
+			);
 		}
+		if (probeOutcome.kind === 'response') {
+			try {
+				await probeOutcome.response.body?.cancel();
+			} catch {}
+			if (bridgeDevelopmentServerHealthResponseIsReady(probeOutcome.response)) return;
+		}
+		await props.waitForNextProbe();
 	}
+	// oxlint-enable no-await-in-loop
 	throw new Error(
 		`Timed out waiting for owned Swift development backend: ${JSON.stringify({ stderrTail: props.stderrTail(), stdoutTail: props.stdoutTail() })}`,
 	);
@@ -129,25 +181,59 @@ export function bridgeDevelopmentServerHealthResponseIsReady(response: Response)
 	return response.status === 204;
 }
 
-async function stopOwnedProcess(
-	child: ChildProcessWithoutNullStreams,
-	exitPromise: Promise<ChildProcessExit>,
+export async function stopOwnedBridgeDevelopmentServerProcess(
+	child: OwnedBridgeDevelopmentServerProcessControl,
+	lifecycleOutcome: Promise<BridgeDevelopmentServerLifecycleOutcome>,
 ): Promise<OwnedBridgeDevelopmentServerCleanup> {
 	const pid = child.pid ?? null;
+	const outcomeBeforeStop = await settledValue(lifecycleOutcome);
+	if (outcomeBeforeStop?.kind === 'spawn-error') {
+		return {
+			exitCode: null,
+			exitSignal: null,
+			forcedTerminationRequired: false,
+			ownedProcessAliveAfterStop: pid === null ? false : processIsAlive(pid),
+		};
+	}
 	child.kill('SIGTERM');
 	let forcedTerminationRequired = false;
-	let exit = await withBoundedTimeoutOrNull(exitPromise, shutdownTimeoutMilliseconds);
-	if (exit === null) {
+	let outcome = await withBoundedTimeoutOrNull(lifecycleOutcome, shutdownTimeoutMilliseconds);
+	if (outcome === null) {
 		forcedTerminationRequired = true;
 		child.kill('SIGKILL');
-		exit = await withBoundedTimeoutOrNull(exitPromise, shutdownTimeoutMilliseconds);
+		outcome = await withBoundedTimeoutOrNull(lifecycleOutcome, shutdownTimeoutMilliseconds);
 	}
+	const exit = outcome?.kind === 'exit' ? outcome : null;
 	return {
 		exitCode: exit?.code ?? null,
 		exitSignal: exit?.signal ?? null,
 		forcedTerminationRequired,
 		ownedProcessAliveAfterStop: pid === null ? false : processIsAlive(pid),
 	};
+}
+
+export async function runAllOwnedCleanupOperations(props: {
+	readonly operations: readonly OwnedCleanupOperation[];
+	readonly primaryError?: unknown;
+}): Promise<void> {
+	const cleanupFailures: unknown[] = [];
+	const failedCleanupNames: string[] = [];
+	for (const operation of props.operations) {
+		try {
+			// oxlint-disable-next-line no-await-in-loop -- Cleanup order is owned and every operation must run after a predecessor failure.
+			await operation.run();
+		} catch (error: unknown) {
+			cleanupFailures.push(error);
+			failedCleanupNames.push(operation.name);
+		}
+	}
+	if (cleanupFailures.length > 0) {
+		throw new AggregateError(
+			props.primaryError === undefined ? cleanupFailures : [props.primaryError, ...cleanupFailures],
+			`Owned cleanup failed: ${failedCleanupNames.join(', ')}.`,
+		);
+	}
+	if (props.primaryError !== undefined) throw props.primaryError;
 }
 
 async function reserveLoopbackPort(): Promise<number> {

@@ -55,16 +55,34 @@ enum BridgeDevelopmentHTTPApplication {
             guard let destinationURL = URL(string: destination) else {
                 throw HTTPError(.internalServerError)
             }
-            var forwardedRequest = URLRequest(url: destinationURL)
-            forwardedRequest.httpMethod = "POST"
-            forwardedRequest.httpBody = Data(body.readableBytesView)
-            for field in request.headers {
-                forwardedRequest.addValue(field.value, forHTTPHeaderField: field.name.rawName)
-            }
+            let forwardedRequest = forwardedProductRequest(
+                destinationURL: destinationURL,
+                body: Data(body.readableBytesView),
+                headers: request.headers
+            )
             return try await BridgeDevelopmentHTTPProductResponse.make(
                 from: await host.route(forwardedRequest)
             )
         }
+    }
+
+    static func forwardedProductRequest(
+        destinationURL: URL,
+        body: Data,
+        headers: HTTPFields
+    ) -> URLRequest {
+        var request = URLRequest(url: destinationURL)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        if let contentType = headers[.contentType] {
+            request.setValue(contentType, forHTTPHeaderField: HTTPField.Name.contentType.rawName)
+        }
+        if let capabilityName = HTTPField.Name(BridgeProductWireContract.capabilityHeaderName),
+            let capability = headers[capabilityName]
+        {
+            request.setValue(capability, forHTTPHeaderField: capabilityName.rawName)
+        }
+        return request
     }
 
     private static func bootstrapResponse(
@@ -102,7 +120,7 @@ struct BridgeDevelopmentProductHostShutdownService: Service {
     }
 }
 
-private enum BridgeDevelopmentHTTPProductResponse {
+enum BridgeDevelopmentHTTPProductResponse {
     static func make(
         from results: AsyncThrowingStream<URLSchemeTaskResult, any Error>
     ) async throws -> Response {
@@ -112,7 +130,7 @@ private enum BridgeDevelopmentHTTPProductResponse {
             )
         let (responseBody, responseBodyContinuation) =
             AsyncThrowingStream<ByteBuffer, any Error>.makeStream(
-                bufferingPolicy: .bufferingOldest(64)
+                bufferingPolicy: .unbounded
             )
         let routeTask = Task {
             do {
@@ -127,13 +145,19 @@ private enum BridgeDevelopmentHTTPProductResponse {
                             throw BridgeDevelopmentHTTPResponseError.invalidResponseSequence
                         }
                         receivedResponseHead = true
-                        responseHeadContinuation.yield(httpResponse)
+                        guard case .enqueued = responseHeadContinuation.yield(httpResponse) else {
+                            throw BridgeDevelopmentHTTPResponseError.invalidResponseSequence
+                        }
                         responseHeadContinuation.finish()
                     case .data(let data):
                         guard receivedResponseHead else {
                             throw BridgeDevelopmentHTTPResponseError.invalidResponseSequence
                         }
-                        responseBodyContinuation.yield(ByteBuffer(bytes: data))
+                        guard
+                            case .enqueued = responseBodyContinuation.yield(ByteBuffer(bytes: data))
+                        else {
+                            throw BridgeDevelopmentHTTPResponseError.invalidResponseSequence
+                        }
                     @unknown default:
                         throw BridgeDevelopmentHTTPResponseError.invalidResponseSequence
                     }

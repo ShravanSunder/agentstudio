@@ -6,7 +6,11 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { startOwnedBridgeDevelopmentServer } from '../dev-server/bridge-development-server-process.ts';
+import {
+	runAllOwnedCleanupOperations,
+	startOwnedBridgeDevelopmentServer,
+	type OwnedBridgeDevelopmentServerCleanup,
+} from '../dev-server/bridge-development-server-process.ts';
 import { bridgeReviewItemIdOracle } from './bridge-review-item-id-oracle.ts';
 import {
 	bridgeProductStartupFixtureIdentities,
@@ -118,19 +122,49 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 		journeyFailure = bridgeViewerProductOnlyJourneyFailureFromError(error);
 		harnessFailure = boundedErrorMessage(error);
 	} finally {
-		const viteCleanup = server === null ? null : await server.stop();
-		const backendCleanup =
-			bridgeDevelopmentServer === null ? null : await bridgeDevelopmentServer.stop();
-		if (viteCleanup !== null) {
+		const cleanupResults: {
+			backend: OwnedBridgeDevelopmentServerCleanup | null;
+			vite: BridgeViewerViteServerCleanupProof | null;
+		} = { backend: null, vite: null };
+		let cleanupFailure: unknown = null;
+		try {
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'Vite',
+						run: async (): Promise<void> => {
+							cleanupResults.vite = server === null ? null : await server.stop();
+						},
+					},
+					{
+						name: 'Swift development backend',
+						run: async (): Promise<void> => {
+							cleanupResults.backend =
+								bridgeDevelopmentServer === null ? null : await bridgeDevelopmentServer.stop();
+						},
+					},
+				],
+			});
+		} catch (error: unknown) {
+			cleanupFailure = error;
+		}
+		if (cleanupResults.vite !== null) {
 			cleanup = {
-				...viteCleanup,
+				...cleanupResults.vite,
 				forcedTerminationRequired:
-					viteCleanup.forcedTerminationRequired ||
-					(backendCleanup?.forcedTerminationRequired ?? false),
+					cleanupResults.vite.forcedTerminationRequired ||
+					(cleanupResults.backend?.forcedTerminationRequired ?? false),
 				ownedProcessAliveAfterStop:
-					viteCleanup.ownedProcessAliveAfterStop ||
-					(backendCleanup?.ownedProcessAliveAfterStop ?? false),
+					cleanupResults.vite.ownedProcessAliveAfterStop ||
+					(cleanupResults.backend?.ownedProcessAliveAfterStop ?? false),
 			};
+		}
+		if (cleanupFailure !== null) {
+			const cleanupFailureMessage = boundedErrorMessage(cleanupFailure);
+			harnessFailure =
+				harnessFailure === null
+					? cleanupFailureMessage
+					: `${harnessFailure}; cleanup=${cleanupFailureMessage}`;
 		}
 	}
 
