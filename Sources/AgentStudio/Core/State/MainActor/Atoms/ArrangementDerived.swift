@@ -157,13 +157,29 @@ package struct ArrangementDerived {
         )
     }
 
+    nonisolated package static func zoomSourceWorkspaceContext(
+        resolvedContext: (repo: Repo, worktree: Worktree)?,
+        worktreeEnrichment: WorktreeEnrichment?
+    ) -> PaneDisplayWorkspaceContext? {
+        guard let resolvedContext else { return nil }
+        return PaneDisplayWorkspaceContext(
+            repoName: resolvedContext.repo.name,
+            worktreeName: resolvedContext.worktree.path.lastPathComponent,
+            worktreeIconName: resolvedContext.worktree.isMainWorktree
+                ? "octicon-star-fill" : "octicon-git-worktree",
+            branchName: PaneDisplayDerived.resolvedBranchName(
+                worktree: resolvedContext.worktree,
+                enrichment: worktreeEnrichment
+            )
+        )
+    }
+
     private func zoomSourceIdentity(
         for sourcePaneId: UUID
     ) -> ArrangementPanelZoomSourceIdentity? {
         let workspacePane = atom(\.workspacePane)
         let repositoryTopology = atom(\.workspaceRepositoryTopology)
         let repoCache = atom(\.repoCache)
-        let paneDisplay = atom(\.paneDisplay)
         guard let sourcePane = workspacePane.pane(sourcePaneId) else {
             return nil
         }
@@ -176,18 +192,12 @@ package struct ArrangementDerived {
                 }
             }
             ?? repositoryTopology.repoAndWorktree(containing: sourcePane.metadata.cwd)
-        let workspaceContext = resolvedContext.map { context in
-            PaneDisplayWorkspaceContext(
-                repoName: context.0.name,
-                worktreeName: context.1.path.lastPathComponent,
-                worktreeIconName: context.1.isMainWorktree
-                    ? "octicon-star-fill" : "octicon-git-worktree",
-                branchName: paneDisplay.resolvedBranchName(
-                    worktree: context.1,
-                    enrichment: repoCache.worktreeEnrichment(for: context.1.id)
-                )
-            )
-        }
+        let workspaceContext = Self.zoomSourceWorkspaceContext(
+            resolvedContext: resolvedContext,
+            worktreeEnrichment: resolvedContext.flatMap {
+                repoCache.worktreeEnrichment(for: $0.worktree.id)
+            }
+        )
         return Self.zoomSourceIdentity(
             for: sourcePane,
             workspaceContext: workspaceContext

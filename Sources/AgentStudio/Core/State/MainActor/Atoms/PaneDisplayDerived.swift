@@ -281,60 +281,76 @@ package struct PaneDisplayDerived {
 
     package func resolvedWorkspaceContext(for pane: Pane) -> PaneDisplayWorkspaceContext? {
         let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
-        let workspaceLookup = atom(\.workspaceLookup)
         let repoCache = atom(\.repoCache)
 
         let explicitRepoId = pane.repoId ?? pane.metadata.repoId
         let explicitWorktreeId = pane.worktreeId ?? pane.metadata.worktreeId
-
-        if let explicitRepoId,
-            let explicitWorktreeId,
-            let repo = workspaceRepositoryTopology.repo(explicitRepoId),
-            let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
-        {
-            return PaneDisplayWorkspaceContext(
-                repoName: pane.metadata.repoName ?? repo.name,
-                worktreeName: pane.metadata.worktreeName ?? worktree.path.lastPathComponent,
-                worktreeIconName: worktree.isMainWorktree ? "octicon-star-fill" : "octicon-git-worktree",
-                branchName: Self.resolvedBranchName(
-                    worktree: worktree,
-                    enrichment: repoCache.worktreeEnrichment(for: worktree.id)
-                )
-            )
-        }
-
-        if explicitRepoId != nil || explicitWorktreeId != nil {
+        let explicitContext: (repo: Repo, worktree: Worktree)? = {
+            guard let explicitRepoId,
+                let explicitWorktreeId,
+                let repo = workspaceRepositoryTopology.repo(explicitRepoId),
+                let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
+            else { return nil }
+            return (repo, worktree)
+        }()
+        if explicitContext == nil, explicitRepoId != nil || explicitWorktreeId != nil {
             paneDisplayLogger.warning(
                 "resolvedWorkspaceContext: explicit repo/worktree for pane \(pane.id.uuidString, privacy: .public) missing from topology; falling back"
             )
         }
+        let resolvedContext =
+            explicitContext
+            ?? workspaceRepositoryTopology.repoAndWorktree(containing: pane.metadata.cwd)
+        let resolvedWorktreeEnrichment = resolvedContext.flatMap {
+            repoCache.worktreeEnrichment(for: $0.worktree.id)
+        }
+        let metadataWorktreeEnrichment = explicitWorktreeId.flatMap { worktreeId in
+            resolvedContext?.worktree.id == worktreeId
+                ? resolvedWorktreeEnrichment
+                : repoCache.worktreeEnrichment(for: worktreeId)
+        }
+        return Self.workspaceContext(
+            for: pane,
+            resolvedContext: resolvedContext,
+            usesExplicitAssociation: explicitContext != nil,
+            resolvedWorktreeEnrichment: resolvedWorktreeEnrichment,
+            metadataWorktreeEnrichment: metadataWorktreeEnrichment
+        )
+    }
 
-        if let resolvedContext = workspaceLookup.repoAndWorktree(containing: pane.metadata.cwd) {
+    nonisolated package static func workspaceContext(
+        for pane: Pane,
+        resolvedContext: (repo: Repo, worktree: Worktree)?,
+        usesExplicitAssociation: Bool,
+        resolvedWorktreeEnrichment: WorktreeEnrichment?,
+        metadataWorktreeEnrichment: WorktreeEnrichment?
+    ) -> PaneDisplayWorkspaceContext? {
+        if let resolvedContext {
+            let resolvedWorktreeName =
+                usesExplicitAssociation
+                ? resolvedContext.worktree.path.lastPathComponent
+                : resolvedContext.worktree.name
             return PaneDisplayWorkspaceContext(
                 repoName: pane.metadata.repoName ?? resolvedContext.repo.name,
-                worktreeName: pane.metadata.worktreeName ?? resolvedContext.worktree.name,
+                worktreeName: pane.metadata.worktreeName ?? resolvedWorktreeName,
                 worktreeIconName: resolvedContext.worktree.isMainWorktree
                     ? "octicon-star-fill" : "octicon-git-worktree",
                 branchName: Self.resolvedBranchName(
                     worktree: resolvedContext.worktree,
-                    enrichment: repoCache.worktreeEnrichment(for: resolvedContext.worktree.id)
+                    enrichment: resolvedWorktreeEnrichment
                 )
             )
         }
 
-        if let repoName = pane.metadata.repoName, let worktreeName = pane.metadata.worktreeName {
-            let branchName = explicitWorktreeId.flatMap { worktreeId in
-                let branch = repoCache.worktreeEnrichment(for: worktreeId)?.branch ?? ""
-                return branch.isEmpty ? nil : branch
-            }
-            return PaneDisplayWorkspaceContext(
-                repoName: repoName,
-                worktreeName: worktreeName,
-                worktreeIconName: "octicon-git-worktree",
-                branchName: branchName
-            )
-        }
-
-        return nil
+        guard let repoName = pane.metadata.repoName,
+            let worktreeName = pane.metadata.worktreeName
+        else { return nil }
+        let branch = metadataWorktreeEnrichment?.branch ?? ""
+        return PaneDisplayWorkspaceContext(
+            repoName: repoName,
+            worktreeName: worktreeName,
+            worktreeIconName: "octicon-git-worktree",
+            branchName: branch.isEmpty ? nil : branch
+        )
     }
 }
