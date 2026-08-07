@@ -57,6 +57,7 @@ extension RepoExplorerView {
             arrangementAtom: store.tabArrangementAtom
         )
         let paneLocationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: workspaceTab
         )

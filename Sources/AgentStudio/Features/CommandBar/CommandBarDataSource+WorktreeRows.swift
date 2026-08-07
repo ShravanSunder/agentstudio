@@ -175,6 +175,7 @@ extension CommandBarDataSource {
             arrangementAtom: store.tabArrangementAtom
         )
         let locationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: workspaceTab
         )
@@ -216,6 +217,7 @@ extension CommandBarDataSource {
         )
         let openPanes = atom(\.workspaceLookup).paneLocations(
             for: worktree.id,
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: workspaceTab
         )

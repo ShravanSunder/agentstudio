@@ -39,26 +39,32 @@ package struct WorkspaceLookupDerived {
 
     package func paneLocations(
         for worktreeId: UUID,
+        repositoryTopology: RepositoryTopologyAtom,
         workspacePane: WorkspacePaneAtom,
         workspaceTab: WorkspaceTabLayoutDerived
     ) -> [WorkspacePaneLocation] {
-        paneLocationsByWorktreeId(workspacePane: workspacePane, workspaceTab: workspaceTab)[worktreeId] ?? []
+        paneLocationsByWorktreeId(
+            repositoryTopology: repositoryTopology,
+            workspacePane: workspacePane,
+            workspaceTab: workspaceTab
+        )[worktreeId] ?? []
     }
 
     package func paneLocations(for worktreeId: UUID) -> [WorkspacePaneLocation] {
         paneLocations(
             for: worktreeId,
+            repositoryTopology: atom(\.workspaceRepositoryTopology),
             workspacePane: atom(\.workspacePane),
             workspaceTab: atom(\.workspaceTab)
         )
     }
 
     package func paneLocationsByWorktreeId(
+        repositoryTopology: RepositoryTopologyAtom,
         workspacePane: WorkspacePaneAtom,
         workspaceTab: WorkspaceTabLayoutDerived
     ) -> [UUID: [WorkspacePaneLocation]] {
         let paneGraph = workspacePane.graphAtom
-        let repositoryTopology = atom(\.workspaceRepositoryTopology)
         let tabs = workspaceTab.tabs
         var locationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
         var seenPaneIds = Set<UUID>()

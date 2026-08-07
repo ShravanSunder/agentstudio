@@ -213,6 +213,7 @@ struct WorkspaceLookupDerivedTests {
             )
 
             let locationsByWorktree = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+                repositoryTopology: store.repositoryTopologyAtom,
                 workspacePane: store.paneAtom,
                 workspaceTab: WorkspaceTabLayoutDerived(
                     shellAtom: store.tabShellAtom,
@@ -250,6 +251,7 @@ struct WorkspaceLookupDerivedTests {
             let invalidationRecorder = WorkspaceLookupObservationInvalidationRecorder()
             withObservationTracking {
                 _ = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+                    repositoryTopology: store.repositoryTopologyAtom,
                     workspacePane: store.paneAtom,
                     workspaceTab: workspaceTab
                 )
