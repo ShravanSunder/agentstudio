@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -251,17 +252,64 @@ struct BridgeDevelopmentProductHostTests {
                 currentBindingRevision: revisionAfterReentrantBootstrap,
                 publishedRequestBindingRevision: publishedRequestRevision
             )
+        let advancedRevision =
+            BridgeDevelopmentProductHost.navigationBindingRevisionAfterFilePublish(
+                currentBindingRevision: publishedRequestRevision,
+                publishedRequestBindingRevision: revisionAfterReentrantBootstrap
+            )
 
         // Assert
         #expect(committedRevision == revisionAfterReentrantBootstrap)
+        #expect(advancedRevision == revisionAfterReentrantBootstrap)
+    }
+
+    @Test("an older File publish completion cannot replace a newer published source")
+    func olderFilePublishCompletionPreservesNewerPublishedSource() throws {
+        // Arrange
+        let olderSource = try BridgeProductFileSourceIdentity(
+            repoId: "11111111-1111-7111-8111-111111111111",
+            rootRevisionToken: "root-revision-a",
+            sourceCursor: "file-cursor-a",
+            sourceId: "file-source-a",
+            subscriptionGeneration: 8,
+            worktreeId: "22222222-2222-7222-8222-222222222222"
+        )
+        let newerSource = try BridgeProductFileSourceIdentity(
+            repoId: "11111111-1111-7111-8111-111111111111",
+            rootRevisionToken: "root-revision-b",
+            sourceCursor: "file-cursor-b",
+            sourceId: "file-source-b",
+            subscriptionGeneration: 9,
+            worktreeId: "22222222-2222-7222-8222-222222222222"
+        )
+
+        // Act
+        let newerCompletion = BridgeDevelopmentProductHost.FileNavigationPublication(
+            bindingRevision: 9,
+            source: newerSource
+        )
+        let committedPublication = BridgeDevelopmentProductHost.fileNavigationPublicationAfterCommit(
+            currentPublication: newerCompletion,
+            completedPublication: BridgeDevelopmentProductHost.FileNavigationPublication(
+                bindingRevision: 8,
+                source: olderSource
+            )
+        )
+
+        // Assert
+        #expect(committedPublication == newerCompletion)
     }
 
     @Test("rejects a source that is not a Git worktree")
     func rejectsNonGitWorktree() async throws {
         // Arrange
         let sourceURL = FileManager.default.temporaryDirectory.appending(
-            path: "bridge-development-product-host-non-git"
+            path:
+                "bridge-development-product-host-non-git-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
         )
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
 
         // Act / Assert
         await #expect(throws: BridgeDevelopmentProductHostError.invalidWorktree) {

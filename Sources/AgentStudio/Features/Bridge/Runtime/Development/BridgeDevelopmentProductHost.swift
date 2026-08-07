@@ -4,6 +4,11 @@ import Foundation
 import WebKit
 
 package actor BridgeDevelopmentProductHost {
+    struct FileNavigationPublication: Equatable {
+        let bindingRevision: Int
+        let source: BridgeProductFileSourceIdentity
+    }
+
     private struct ProductProviderDependencies {
         let fileMetadataSource: BridgePaneProductFileMetadataSource
         let initialPresentation: BridgePaneProductPresentationSnapshot
@@ -32,11 +37,7 @@ package actor BridgeDevelopmentProductHost {
     private let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     private let schemeHandler: BridgeSchemeHandler
     private var isShutdown = false
-    private var publishedFileNavigation:
-        (
-            bindingRevision: Int,
-            source: BridgeProductFileSourceIdentity
-        )?
+    private var publishedFileNavigation: FileNavigationPublication?
     private let worktreeId: UUID
 
     package init(source: BridgeDevelopmentProductSource) async throws {
@@ -327,7 +328,25 @@ package actor BridgeDevelopmentProductHost {
             currentBindingRevision: navigationBindingRevision,
             publishedRequestBindingRevision: bindingRevision
         )
-        publishedFileNavigation = (bindingRevision: bindingRevision, source: source)
+        publishedFileNavigation = Self.fileNavigationPublicationAfterCommit(
+            currentPublication: publishedFileNavigation,
+            completedPublication: FileNavigationPublication(
+                bindingRevision: bindingRevision,
+                source: source
+            )
+        )
+    }
+
+    static func fileNavigationPublicationAfterCommit(
+        currentPublication: FileNavigationPublication?,
+        completedPublication: FileNavigationPublication
+    ) -> FileNavigationPublication {
+        guard let currentPublication,
+            currentPublication.bindingRevision >= completedPublication.bindingRevision
+        else {
+            return completedPublication
+        }
+        return currentPublication
     }
 
     static func navigationBindingRevisionAfterFilePublish(
