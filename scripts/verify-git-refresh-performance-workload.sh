@@ -1236,7 +1236,13 @@ required_performance_metric_event_names() {
   cat <<'EOF'
 performance.commandbar.items
 performance.commandbar.filter
+performance.tabbar.capture
 performance.tabbar.refresh
+performance.tabbar.worker
+performance.tabbar.current
+performance.tabbar.terminal
+performance.tabbar.publication
+performance.tabbar.visible
 performance.sidebar.projection
 performance.sidebar.row_index
 performance.coordinator.write
@@ -1328,7 +1334,7 @@ capture_tab_bar_lifecycle_snapshot() {
   local capture_response terminal_response snapshot
   capture_response="$(
     query_victoria_logs \
-      "$(victoria_event_query performance.tabbar.refresh) | fields _msg, agentstudio.performance.tabbar.sequence | limit 10000" \
+      "$(victoria_event_query performance.tabbar.capture) | fields _msg, agentstudio.performance.tabbar.sequence | limit 10000" \
       2>/dev/null || true
   )"
   terminal_response="$(
@@ -1369,7 +1375,7 @@ def sequence(record):
 
 captures = []
 for record in records(capture_path):
-    if record.get("_msg") not in (None, "performance.tabbar.refresh"):
+    if record.get("_msg") not in (None, "performance.tabbar.capture"):
         continue
     value = sequence(record)
     if value is not None:
@@ -1758,6 +1764,7 @@ performance.git.snapshot_dedup
 performance.git.event_posted
 performance.coordinator.write
 performance.topology.repo_and_worktree
+performance.tabbar.capture
 performance.tabbar.current
 performance.tabbar.publication
 performance.tabbar.refresh

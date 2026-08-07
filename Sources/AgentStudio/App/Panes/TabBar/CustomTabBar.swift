@@ -290,7 +290,7 @@ struct CustomTabBar: View {
                 adapter.availableWidth = newWidth
             }
         }
-        .onChange(of: adapter.materializedProjection.freshness, initial: true) { _, _ in
+        .onChange(of: adapter.outputPublicationRevision, initial: true) { _, _ in
             adapter.visibleProjectionDidRender()
         }
         .frame(height: AppStyles.Shell.TabBar.height)

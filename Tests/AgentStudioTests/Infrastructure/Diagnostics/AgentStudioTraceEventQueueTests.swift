@@ -57,6 +57,40 @@ struct AgentStudioTraceEventQueueTests {
         )
     }
 
+    @Test("flush exports completeness after displacing the last buffered performance record")
+    func flushExportsTerminalDropCompleteness() async throws {
+        let blockingSink = BlockingTraceSink()
+        await blockingSink.suspendRecords()
+        let traceRuntime = makeTraceRuntime(sink: blockingSink)
+        let queue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime, bufferLimit: 1)
+
+        queue.record(tag: .performance, body: "trace.queue.blocking", attributes: [:])
+        await blockingSink.waitForRecordAttempt()
+        queue.record(tag: .performance, body: "trace.queue.displaced-by-flush", attributes: [:])
+        let flushTask = Task {
+            try await queue.flush()
+        }
+
+        let observedDrop = await waitUntil {
+            queue.completenessSnapshot().droppedRecordCount == 1
+        }
+        #expect(observedDrop, "Flush did not displace the buffered performance record")
+
+        await blockingSink.resumeRecords()
+        try await flushTask.value
+        try await queue.drain()
+
+        let completenessAttributes = try #require(
+            await blockingSink.attributes(forBody: "performance.trace_queue.completeness")
+        )
+        #expect(
+            completenessAttributes["agentstudio.performance.trace_queue.dropped_record.count"] == .int(1)
+        )
+        #expect(
+            completenessAttributes["agentstudio.performance.trace_queue.high_watermark"] == .int(1)
+        )
+    }
+
     private func makeTraceRuntime() -> AgentStudioTraceRuntime {
         AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
@@ -95,6 +129,17 @@ struct AgentStudioTraceEventQueueTests {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-trace-event-queue-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func waitUntil(
+        attempts: Int = 10_000,
+        predicate: () -> Bool
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if predicate() { return true }
+            await Task.yield()
+        }
+        return predicate()
     }
 }
 

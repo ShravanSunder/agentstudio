@@ -30,6 +30,9 @@ final class TabBarAdapter {
         materializedProjection.value?.activeTabID
     }
 
+    /// Advances only when a semantically changed projection is published.
+    private(set) var outputPublicationRevision: UInt64 = 0
+
     // MARK: - Overflow Detection
 
     var availableWidth: CGFloat = 0 {
@@ -176,6 +179,7 @@ final class TabBarAdapter {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.hasStopped else { return }
+                self.outputPublicationRevision &+= 1
                 self.projectionTelemetry.recordPublication()
                 self.updateOverflow()
                 self.observeMaterializedProjection()
@@ -284,7 +288,7 @@ private final class TabBarProjectionTelemetry: Sendable {
             return admission
         }
         recorder.recordDuration(
-            .tabBarRefresh,
+            .tabBarCapture,
             duration: admission.captureStartedAt.duration(to: clock.now),
             attributes: Self.attributes(for: admission)
         )
@@ -357,6 +361,11 @@ private final class TabBarProjectionTelemetry: Sendable {
         guard let admission else { return }
         recordTerminal(admission, outcome: outcome, recorder: recorder)
         if outcome == "published" || outcome == "equal" {
+            recorder.recordDuration(
+                .tabBarRefresh,
+                duration: admission.captureStartedAt.duration(to: clock.now),
+                attributes: Self.attributes(for: admission)
+            )
             recorder.recordDuration(
                 .tabBarCurrent,
                 duration: admission.interactionStartedAt.duration(to: clock.now),

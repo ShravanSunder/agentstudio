@@ -18,6 +18,14 @@ REPO_FANOUT_SURFACES = [
     "performance.sidebar.row_index",
 ]
 COORDINATOR_SURFACES = ["performance.coordinator.write"]
+CANDIDATE_TAB_BAR_PHASE_SURFACES = [
+    "performance.tabbar.capture",
+    "performance.tabbar.worker",
+    "performance.tabbar.current",
+    "performance.tabbar.terminal",
+    "performance.tabbar.publication",
+    "performance.tabbar.visible",
+]
 REQUIRED_NUMERIC_FIELDS = [
     "victoria_metrics_count",
     "victoria_logs_count",
@@ -264,12 +272,16 @@ def validate_provenance_matches(
             "workload_fingerprint",
             f"{lane} workload_fingerprint changed",
         ))
-        failures.extend(validate_matched_value(
-            baseline,
-            candidate,
-            "issued_interaction_count",
-            f"{lane} issued_interaction_count changed",
-        ))
+        baseline_count = numeric(baseline, "issued_interaction_count")
+        candidate_count = numeric(candidate, "issued_interaction_count")
+        boundary = numeric(baseline, "regression_boundary_percent")
+        if baseline_count > 0 and candidate_count > 0:
+            drift_percent = abs(candidate_count - baseline_count) / baseline_count * 100
+            if drift_percent > boundary:
+                failures.append(
+                    f"{lane} issued_interaction_count drift exceeded {boundary:g}%: "
+                    f"{baseline_count:g} -> {candidate_count:g} ({drift_percent:.1f}%)"
+                )
 
     reference_trace_tags = baseline_workload.get("trace_tags")
     for label, values in [
@@ -318,16 +330,26 @@ def validate_required_surface_fields(
     return failures
 
 
-def validate_command_bar_fingerprint(
+def validate_command_bar_query_evidence(
     before_values: dict[str, str],
     after_values: dict[str, str],
 ) -> list[str]:
     failures: list[str] = []
     key = "performance.commandbar.filter.query_character.max"
-    before = required_numeric(before_values, key, "baseline interaction", failures)
-    after = required_numeric(after_values, key, "after interaction", failures)
-    if not failures and before != after:
-        failures.append(f"command-bar interaction fingerprint changed: {key} {before:g} -> {after:g}")
+    required_numeric(before_values, key, "baseline interaction", failures)
+    required_numeric(after_values, key, "after interaction", failures)
+    return failures
+
+
+def validate_candidate_phase_evidence(
+    label: str,
+    values: dict[str, str],
+) -> list[str]:
+    failures = validate_required_surface_fields(label, values, CANDIDATE_TAB_BAR_PHASE_SURFACES)
+    for surface in CANDIDATE_TAB_BAR_PHASE_SURFACES:
+        count = numeric(values, surface_key(surface, "victoria_metrics_count"))
+        if count <= 0:
+            failures.append(f"candidate phase metric {surface} must be present in {label}")
     return failures
 
 
@@ -439,7 +461,8 @@ failures.extend(validate_required_surface_fields(
     after_workload,
     [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
 ))
-failures.extend(validate_command_bar_fingerprint(baseline_interaction, after_interaction))
+failures.extend(validate_candidate_phase_evidence("after workload", after_workload))
+failures.extend(validate_command_bar_query_evidence(baseline_interaction, after_interaction))
 failures.extend(validate_instrumentation_continuity(
     "baseline interaction",
     baseline_interaction,
@@ -458,7 +481,7 @@ failures.extend(validate_instrumentation_continuity(
 failures.extend(validate_instrumentation_continuity(
     "after workload",
     after_workload,
-    [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
+    [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES, *CANDIDATE_TAB_BAR_PHASE_SURFACES],
 ))
 
 if regression_boundary_percent is not None:

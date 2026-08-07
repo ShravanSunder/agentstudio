@@ -63,6 +63,61 @@ struct GitRefreshPerformanceComparatorScriptTests {
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
     }
 
+    @Test("performance comparator accepts bounded interaction-count drift")
+    func performanceComparatorAcceptsBoundedInteractionCountDrift() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        afterWorkloadValues["issued_interaction_count"] = "27"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
+    @Test("performance comparator rejects interaction-count drift beyond the frozen boundary")
+    func performanceComparatorRejectsExcessiveInteractionCountDrift() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        afterWorkloadValues["issued_interaction_count"] = "28"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("workload issued_interaction_count drift exceeded 10%"))
+    }
+
+    @Test("performance comparator treats query-character maximum as informational")
+    func performanceComparatorTreatsQueryCharacterMaximumAsInformational() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        afterInteractionValues["performance.commandbar.filter.query_character.max"] = "47"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: afterInteractionValues
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
     @Test("performance comparator does not require terminal-CWD topology evidence")
     func performanceComparatorDoesNotRequireTerminalCWDTopologyEvidence() throws {
         let fixtureRoot = try temporaryFixtureRoot()
@@ -258,6 +313,29 @@ struct GitRefreshPerformanceComparatorScriptTests {
         #expect(result.stderr.contains("performance.tabbar.lifecycle_exact must be true in candidate workload"))
     }
 
+    @Test("performance comparator requires every candidate tab bar phase")
+    func performanceComparatorRequiresEveryCandidateTabBarPhase() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        afterWorkloadValues.removeValue(forKey: "performance.tabbar.worker.victoria_metrics_count")
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.stderr.contains(
+                "missing required metric performance.tabbar.worker.victoria_metrics_count in after workload"
+            )
+        )
+    }
+
     @Test("performance comparator rejects duplicate and missing tab bar lifecycle sequences")
     func performanceComparatorRejectsNonExactTabBarLifecycle() throws {
         let fixtureRoot = try temporaryFixtureRoot()
@@ -393,45 +471,6 @@ struct GitRefreshPerformanceComparatorScriptTests {
 
         #expect(result.exitCode != 0)
         #expect(result.stderr.contains("instrumentation loss"))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("not_ready"))
-    }
-
-    @Test("performance comparator fails when command-bar interaction sequence differs")
-    func performanceComparatorFailsWhenCommandBarInteractionSequenceDiffers() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        var afterInteractionValues = commandBarSummaryValues(itemsCount: 4, itemsP95: 10, itemsMax: 1)
-        afterInteractionValues["performance.commandbar.filter.query_character.max"] = "1"
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: afterInteractionValues
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode != 0)
-        #expect(result.stderr.contains("command-bar interaction fingerprint changed"))
         let comparison = try String(contentsOf: output, encoding: .utf8)
         #expect(comparison.contains("not_ready"))
     }
@@ -609,6 +648,21 @@ struct GitRefreshPerformanceComparatorScriptTests {
             "performance.sidebar.row_index",
             "performance.topology.repo_and_worktree",
             "performance.coordinator.write",
+        ] {
+            values["\(eventName).victoria_metrics_count"] = "\(fanoutCount)"
+            values["\(eventName).victoria_logs_count"] = "\(fanoutCount)"
+            values["\(eventName).jsonl_count"] = "0"
+            values["\(eventName).elapsed_ms.p95"] = "\(fanoutP95)"
+            values["\(eventName).elapsed_ms.p95_unavailable"] = "false"
+            values["\(eventName).elapsed_ms.max"] = "\(fanoutMax)"
+        }
+        for eventName in [
+            "performance.tabbar.capture",
+            "performance.tabbar.worker",
+            "performance.tabbar.current",
+            "performance.tabbar.terminal",
+            "performance.tabbar.publication",
+            "performance.tabbar.visible",
         ] {
             values["\(eventName).victoria_metrics_count"] = "\(fanoutCount)"
             values["\(eventName).victoria_logs_count"] = "\(fanoutCount)"

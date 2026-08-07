@@ -161,6 +161,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("capture_authenticated_final_state_oracle()"))
         #expect(source.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         #expect(source.contains("performance.tabbar.terminal"))
+        #expect(source.contains("performance.tabbar.capture"))
         #expect(source.contains("performance.tabbar.current"))
         #expect(source.contains("performance.tabbar.publication"))
         #expect(source.contains("performance.tabbar.visible"))
@@ -235,7 +236,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
                     #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
                 "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
-                    #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
+                    #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
                     + "\n"
                     + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published","agentstudio.performance.elapsed_ms":"7","agentstudio.performance.commandbar.query_character.count":"7"}"#
                     + "\n",
@@ -285,11 +286,11 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
                     #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
                 "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
-                    #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"1"}"#
+                    #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1"}"#
                     + "\n"
-                    + #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"1"}"#
+                    + #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1"}"#
                     + "\n"
-                    + #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"2"}"#
+                    + #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"2"}"#
                     + "\n"
                     + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published"}"#
                     + "\n",

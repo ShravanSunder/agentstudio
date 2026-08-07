@@ -107,6 +107,9 @@ final class TabBarAdapterMaterializationTests {
             onProjectionCompletion: completionRecorder.record
         )
         #expect(await completionRecorder.wait(for: .published(.init(value: 1))))
+        #expect(await waitUntil { self.adapter.outputPublicationRevision == 1 })
+        let publicationRevisionAfterInitialOutput = adapter.outputPublicationRevision
+        #expect(publicationRevisionAfterInitialOutput == 1)
         let outputObservationCount = TabBarAdapterTestCounter()
         withObservationTracking {
             _ = adapter.materializedProjection.value
@@ -145,6 +148,7 @@ final class TabBarAdapterMaterializationTests {
         #expect(await managementLayerChanged.wait(), "Management-layer observation did not update")
 
         #expect(adapter.materializedProjection.revision == 0)
+        #expect(adapter.outputPublicationRevision == publicationRevisionAfterInitialOutput)
         #expect(!outputObservationCount.didIncrement)
         #expect(projectionController.projectionCount == projectionCountAfterEqualOutput)
     }
@@ -259,6 +263,7 @@ final class TabBarAdapterMaterializationTests {
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.capture\"") == 1)
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.refresh\"") == 1)
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.worker\"") == 1)
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.terminal\"") == 1)
@@ -377,6 +382,17 @@ final class TabBarAdapterMaterializationTests {
 
         #expect(retainedMaterializedProjection.value == nil)
         #expect(retainedMaterializedProjection.freshness == .stopped)
+    }
+
+    private func waitUntil(
+        attempts: Int = 10_000,
+        predicate: () -> Bool
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            if predicate() { return true }
+            await Task.yield()
+        }
+        return predicate()
     }
 }
 
