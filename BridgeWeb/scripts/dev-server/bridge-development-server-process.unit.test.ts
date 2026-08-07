@@ -1,10 +1,26 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	bridgeDevelopmentServerExecutablePath,
 	runAllOwnedCleanupOperations,
 	stopOwnedBridgeDevelopmentServerProcess,
 	waitForBridgeDevelopmentServerReadiness,
 } from './bridge-development-server-process.ts';
+
+describe('owned Bridge development server executable', () => {
+	test('resolves the prebuilt stable artifact path', () => {
+		// Arrange
+		const repoRootPath = '/tmp/agent-studio';
+
+		// Act
+		const executablePath = bridgeDevelopmentServerExecutablePath(repoRootPath);
+
+		// Assert
+		expect(executablePath).toBe(
+			'/tmp/agent-studio/.build-bridge-development-server/agentstudio-bridge-dev-server',
+		);
+	});
+});
 
 describe('owned Bridge development server lifecycle', () => {
 	test('treats a child spawn error as a terminal readiness outcome', async () => {

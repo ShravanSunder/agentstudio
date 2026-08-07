@@ -7,7 +7,7 @@
 		"audit:assets": "node --experimental-strip-types scripts/audit-dependencies-and-assets.ts",
 		"benchmark:viewer": "vitest --config vitest.benchmark.config.ts run",
 		"build": "node --experimental-strip-types scripts/build-app.ts",
-		"build:swift-dev-server": "swift build --package-path .. --scratch-path ../.build-bridge-development-server --product agentstudio-bridge-dev-server",
+		"build:swift-dev-server": "mise --cd .. run build-bridge-development-server",
 		"check": "oxlint --type-aware && node --experimental-strip-types scripts/check-bridgeweb-architecture.ts && oxfmt --check . && tsc --noEmit && pnpm run check:product-contract",
 		"check:product-contract": "tsc --noEmit -p tsconfig.product-contract.json",
 		"dev": "vite --host 127.0.0.1",

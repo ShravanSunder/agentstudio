@@ -321,6 +321,52 @@ describe('Bridge app dev product session host', () => {
 		host.dispose();
 	});
 
+	test('reloads after the backend truncates an accepted bootstrap response', async () => {
+		// Arrange
+		const target = new EventTarget();
+		const truncatedResponse = new Response(new Uint8Array([1]), {
+			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE },
+			status: 200,
+		});
+		vi.spyOn(truncatedResponse, 'arrayBuffer').mockRejectedValue(
+			new TypeError('terminated while reading response body'),
+		);
+		const fetchBootstrap = vi.fn<typeof fetch>(async () => truncatedResponse);
+		const fetchHealth = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		const reloadPage = vi.fn();
+		const acknowledgement = waitForReadyAcknowledgement(target);
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+			waitForHealthProbe: async (): Promise<void> => {},
+		});
+
+		// Act
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-truncated' } }),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-truncated' },
+			}),
+		);
+
+		// Assert
+		expect(await acknowledgement).toEqual({
+			jsonrpc: '2.0',
+			id: 'bridge-ready-truncated',
+			error: { code: -32_000, message: 'Bridge development backend unavailable' },
+		});
+		await vi.waitFor((): void => {
+			expect(fetchHealth).toHaveBeenCalledOnce();
+			expect(reloadPage).toHaveBeenCalledOnce();
+		});
+		host.dispose();
+	});
+
 	test.each([
 		{
 			label: 'live backend rejection',

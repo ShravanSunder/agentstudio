@@ -282,7 +282,15 @@ async function fetchRegisteredBootstrap(props: {
 	) {
 		throw new Error('Bridge product dev bootstrap request was rejected.');
 	}
-	return decodeBridgeProductDevBootstrapDelivery(await response.arrayBuffer());
+	let responseBody: ArrayBuffer;
+	try {
+		responseBody = await response.arrayBuffer();
+	} catch {
+		throw new BridgeDevelopmentBootstrapTransportUnavailableError(
+			'Bridge product development backend is unavailable.',
+		);
+	}
+	return decodeBridgeProductDevBootstrapDelivery(responseBody);
 }
 
 async function isViteProxyUpstreamUnavailableResponse(response: Response): Promise<boolean> {

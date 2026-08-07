@@ -1,12 +1,9 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 
 import { BRIDGE_PRODUCT_DEV_HEALTH_ROUTE } from '../../src/core/comm-worker/bridge-product-dev-bootstrap.js';
-
-const execFileAsync = promisify(execFile);
 
 const startupTimeoutMilliseconds = 120_000;
 const shutdownTimeoutMilliseconds = 10_000;
@@ -60,7 +57,7 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 }): Promise<OwnedBridgeDevelopmentServer> {
 	const port = await reserveLoopbackPort();
 	const origin = `http://127.0.0.1:${port}`;
-	const executablePath = await bridgeDevelopmentServerExecutablePath(props.repoRootPath);
+	const executablePath = bridgeDevelopmentServerExecutablePath(props.repoRootPath);
 	await access(executablePath);
 	const child = spawn(
 		executablePath,
@@ -115,14 +112,8 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 	};
 }
 
-async function bridgeDevelopmentServerExecutablePath(repoRootPath: string): Promise<string> {
-	const scratchPath = join(repoRootPath, '.build-bridge-development-server');
-	const { stdout } = await execFileAsync(
-		'swift',
-		['build', '--package-path', repoRootPath, '--scratch-path', scratchPath, '--show-bin-path'],
-		{ cwd: repoRootPath, encoding: 'utf8' },
-	);
-	return join(stdout.trim(), 'agentstudio-bridge-dev-server');
+export function bridgeDevelopmentServerExecutablePath(repoRootPath: string): string {
+	return join(repoRootPath, '.build-bridge-development-server', 'agentstudio-bridge-dev-server');
 }
 
 export async function waitForBridgeDevelopmentServerReadiness(props: {

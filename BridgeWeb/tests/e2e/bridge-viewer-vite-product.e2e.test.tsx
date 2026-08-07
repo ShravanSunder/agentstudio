@@ -326,8 +326,12 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					expectedSha256: mutatedContent.sha256,
 				}),
 			);
+			const initialRootRevisionToken = readFileDescriptorRootRevisionToken(
+				initialRequest?.descriptor,
+			);
+			expect(initialRootRevisionToken).toEqual(expect.stringMatching(/\S/u));
 			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
-				readFileDescriptorRootRevisionToken(initialRequest?.descriptor),
+				initialRootRevisionToken,
 			);
 		} finally {
 			await page?.close();
