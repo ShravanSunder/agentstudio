@@ -106,17 +106,26 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains("createNew"))
     }
 
-    @Test("pane row uses the compact square split icon")
-    func paneRowUsesCompactSquareSplitIcon() throws {
-        let source = try String(
+    @Test("pane rows use the shared secondary metadata styling")
+    func paneRowsUseSharedSecondaryMetadataStyling() throws {
+        let paneNavigationSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
         )
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
 
-        #expect(source.contains("Image(systemName: \"square.split.2x1\")"))
+        #expect(paneNavigationSource.contains("SidebarMetadataLine("))
+        #expect(paneNavigationSource.contains("iconSystemName: \"square.split.2x1\""))
+        #expect(paneNavigationSource.contains("text: label"))
         #expect(
-            source.contains(
-                ".font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))"
+            worktreeRowSource.contains(
+                """
+                Image(systemName: "square.split.2x1")
+                                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
+                """
             )
         )
     }

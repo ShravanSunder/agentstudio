@@ -147,8 +147,8 @@ struct RepoExplorerWorktreeRowContent: View {
 
             if !placementText.isEmpty {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Image(systemName: "rectangle.split.2x1")
-                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                    Image(systemName: "square.split.2x1")
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
