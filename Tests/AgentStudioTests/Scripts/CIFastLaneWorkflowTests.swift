@@ -226,7 +226,6 @@ struct CIFastLaneWorkflowTests {
             named: "large_serial_non_webkit_filter_pattern",
             in: testHelperScript
         )
-
         #expect(ciWorkflow.contains("SWIFT_BUILD_DIR: .build-ci"))
         #expect(!ciWorkflow.contains("Test large non-WebKit lane"))
         #expect(benchmarkWorkflow.contains("push:\n    branches: [main]"))
@@ -302,6 +301,28 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("standalone_swift_test_filters"))
         #expect(!testHelperScript.contains("isolated_swift_test_class_filters"))
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
+    }
+
+    @Test("aggregate lane isolates executor-sensitive eager derivation tests")
+    func aggregateLaneIsolatesExecutorSensitiveEagerDerivationTests() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let aggregateFilter = try shellFunction(
+            named: "aggregate_serial_non_webkit_filter_pattern",
+            in: helperScript
+        )
+        let aggregateRunner = try shellFunction(
+            named: "run_aggregate_serial_non_webkit_swift_tests",
+            in: helperScript
+        )
+        let fullRunner = try shellFunction(named: "run_non_serialized_swift_tests", in: helperScript)
+        let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+
+        #expect(aggregateFilter.contains("EagerDerivedAtomTests"))
+        #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
+        #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
+        #expect(aggregateRunner.contains("serial aggregate-only non-WebKit suites"))
+        #expect(aggregateRunner.contains("--filter \"$(aggregate_serial_non_webkit_filter_pattern)\""))
+        #expect(!fastRunner.contains("aggregate_serial_non_webkit_filter_pattern"))
     }
 
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")

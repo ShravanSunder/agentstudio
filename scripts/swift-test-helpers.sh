@@ -43,12 +43,29 @@ large_serial_non_webkit_filter_pattern() {
   echo "${patterns[*]}"
 }
 
+aggregate_serial_non_webkit_filter_pattern() {
+  local patterns=(
+    EagerDerivedAtomTests
+  )
+  local IFS="|"
+  echo "${patterns[*]}"
+}
+
 prebuild_swift_tests() {
   # shellcheck disable=SC2086
   run_swift_with_timeout \
     "prebuild test bundles" \
     "$PREBUILD_TIMEOUT_SECONDS" \
     swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+}
+
+run_aggregate_serial_non_webkit_swift_tests() {
+  run_swift_with_timeout \
+    "serial aggregate-only non-WebKit suites" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    --filter "$(aggregate_serial_non_webkit_filter_pattern)" \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 }
 
 run_non_serialized_swift_tests() {
@@ -60,7 +77,10 @@ run_non_serialized_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
+      --skip "$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+
+    run_aggregate_serial_non_webkit_swift_tests
   else
     run_swift_with_timeout \
       "serial $label" \
