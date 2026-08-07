@@ -46,6 +46,7 @@ large_serial_non_webkit_filter_pattern() {
 aggregate_serial_non_webkit_filter_pattern() {
   local patterns=(
     EagerDerivedAtomTests
+    TabBarAdapterMaterializationTests
   )
   local IFS="|"
   echo "${patterns[*]}"
@@ -102,7 +103,9 @@ run_fast_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+      --skip "Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+
+    run_aggregate_serial_non_webkit_swift_tests
   else
     run_swift_with_timeout \
       "serial fast non-WebKit suites" \

@@ -274,9 +274,10 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
         #expect(
             fastRunner.contains(
-                "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\""
+                "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)\""
             )
         )
+        #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(!testHelperScript.contains("app_ipc_live_socket_suite_filters"))
         #expect(!fastRunner.contains("serial App IPC service live socket suites"))
         #expect(!fastRunner.contains("app_ipc_live_socket_suite_filter"))
@@ -303,8 +304,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
     }
 
-    @Test("aggregate lane isolates executor-sensitive eager derivation tests")
-    func aggregateLaneIsolatesExecutorSensitiveEagerDerivationTests() throws {
+    @Test("aggregate lane isolates executor-sensitive eager derivation and tab bar tests")
+    func aggregateLaneIsolatesExecutorSensitiveEagerDerivationAndTabBarTests() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let aggregateFilter = try shellFunction(
             named: "aggregate_serial_non_webkit_filter_pattern",
@@ -318,11 +319,16 @@ struct CIFastLaneWorkflowTests {
         let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
 
         #expect(aggregateFilter.contains("EagerDerivedAtomTests"))
+        #expect(aggregateFilter.contains("TabBarAdapterMaterializationTests"))
         #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(aggregateRunner.contains("serial aggregate-only non-WebKit suites"))
         #expect(aggregateRunner.contains("--filter \"$(aggregate_serial_non_webkit_filter_pattern)\""))
-        #expect(!fastRunner.contains("aggregate_serial_non_webkit_filter_pattern"))
+        #expect(
+            fastRunner.contains(
+                "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)\""
+            ))
+        #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
     }
 
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
