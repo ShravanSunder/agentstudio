@@ -148,6 +148,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarRowIndex = "performance.sidebar.row_index"
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
+        case tabBarCurrent = "performance.tabbar.current"
+        case tabBarPublication = "performance.tabbar.publication"
         case tabBarRefresh = "performance.tabbar.refresh"
         case tabBarTerminal = "performance.tabbar.terminal"
         case tabBarVisible = "performance.tabbar.visible"
@@ -367,6 +369,14 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         runtimeDeliveryPerformanceReporter?.disable()
         try await eventQueue?.drain()
         if eventQueue == nil {
+            try await traceRuntime?.flush()
+        }
+    }
+
+    package func flush() async throws {
+        if let eventQueue {
+            try await eventQueue.flush()
+        } else {
             try await traceRuntime?.flush()
         }
     }

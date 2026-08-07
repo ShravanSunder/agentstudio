@@ -223,8 +223,8 @@ final class TabBarAdapterMaterializationTests {
         #expect(projectionController.projectedGenerations == [1, 2, 3])
     }
 
-    @Test("tab bar telemetry records capture worker terminal and visible lifecycle")
-    func telemetryRecordsCaptureWorkerTerminalAndVisibleLifecycle() async throws {
+    @Test("tab bar telemetry records capture worker terminal publication current and visible lifecycle")
+    func telemetryRecordsCompleteMaterializationLifecycle() async throws {
         let traceDirectory = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-tabbar-telemetry-tests")
             .appending(path: UUIDv7.generate().uuidString)
@@ -262,12 +262,65 @@ final class TabBarAdapterMaterializationTests {
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.refresh\"") == 1)
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.worker\"") == 1)
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.terminal\"") == 1)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.current\"") == 1)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.publication\"") == 1)
         #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.visible\"") == 1)
         #expect(contents.contains("\"agentstudio.performance.tabbar.sequence\":1"))
         #expect(contents.contains("\"agentstudio.performance.tabbar.tab.count\":1"))
         #expect(contents.contains("\"agentstudio.performance.tabbar.pane.count\":1"))
         #expect(contents.contains("\"agentstudio.performance.tabbar.terminal.outcome\":\"published\""))
         #expect(contents.contains("\"agentstudio.performance.tabbar.active_tab.present\":true"))
+    }
+
+    @Test("stop immediately settles an admitted projection exactly once")
+    func stopImmediatelySettlesAdmissionWithoutLateDuplicate() async throws {
+        let projectionGate = TabBarAdapterProjectionGate()
+        defer { projectionGate.release() }
+        let projectionController = TabBarAdapterProjectionController(
+            gatesByGeneration: [1: projectionGate]
+        )
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-tabbar-stop-telemetry-tests")
+            .appending(path: UUIDv7.generate().uuidString)
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "tabbar-stop-lifecycle",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 761,
+            sessionID: "tabbar-stop-lifecycle-session",
+            timeUnixNano: { 7610 }
+        )
+        let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let completionRecorder = TabBarAdapterProjectionCompletionRecorder()
+        let pane = store.createPane(title: "Stopping")
+        store.appendTab(Tab(paneId: pane.id, name: "Stopping"))
+        adapter.stop()
+        adapter = TabBarAdapter(
+            store: store,
+            repoCache: repoCache,
+            inboxAtom: inboxAtom,
+            performanceTraceRecorder: performanceTraceRecorder,
+            project: projectionController.project,
+            onProjectionCompletion: completionRecorder.record
+        )
+        #expect(await projectionGate.waitUntilStarted(), "Held projection did not start")
+
+        adapter.stop()
+        try await performanceTraceRecorder.flush()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        var contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.terminal\"") == 1)
+        #expect(contents.contains("\"agentstudio.performance.tabbar.terminal.outcome\":\"cancelled\""))
+
+        projectionGate.release()
+        #expect(await completionRecorder.wait(for: .cancelled(.init(value: 1))))
+        try await performanceTraceRecorder.flush()
+        contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.occurrenceCount(of: "\"body\":\"performance.tabbar.terminal\"") == 1)
     }
 
     @Test("stop permits adapter and materialized projection release")

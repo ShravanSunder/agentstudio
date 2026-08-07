@@ -188,6 +188,29 @@ struct GitRefreshPerformanceComparatorScriptTests {
             result.stderr.contains("tab bar lifecycle continuity failed in candidate workload: capture=10 terminal=9"))
     }
 
+    @Test("performance comparator rejects duplicate and missing tab bar lifecycle sequences")
+    func performanceComparatorRejectsNonExactTabBarLifecycle() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        afterWorkloadValues["performance.tabbar.lifecycle_exact"] = "false"
+        afterWorkloadValues["performance.tabbar.duplicate_capture_sequence_count"] = "1"
+        afterWorkloadValues["performance.tabbar.missing_terminal_sequence_count"] = "1"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("performance.tabbar.lifecycle_exact must be true"))
+        #expect(result.stderr.contains("duplicate capture sequences"))
+        #expect(result.stderr.contains("missing terminal sequences"))
+    }
+
     @Test("performance comparator rejects trace queue loss")
     func performanceComparatorRejectsTraceQueueLoss() throws {
         let fixtureRoot = try temporaryFixtureRoot()
@@ -451,6 +474,12 @@ struct GitRefreshPerformanceComparatorScriptTests {
             "regression_boundary_percent": "10",
             "performance.tabbar.capture_count": "10",
             "performance.tabbar.terminal_count": "10",
+            "performance.tabbar.lifecycle_exact": "true",
+            "performance.tabbar.duplicate_capture_sequence_count": "0",
+            "performance.tabbar.duplicate_terminal_sequence_count": "0",
+            "performance.tabbar.missing_terminal_sequence_count": "0",
+            "performance.tabbar.unexpected_terminal_sequence_count": "0",
+            "performance.tabbar.invalid_terminal_outcome_count": "0",
             "agentstudio.performance.trace_queue.dropped_record.count": "0",
             "agentstudio.performance.trace_queue.high_watermark": "7",
             "final_tab_count_equivalent": "true",

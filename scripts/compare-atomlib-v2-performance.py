@@ -176,6 +176,20 @@ def validate_evidence_completeness(
             f"capture={capture_count:g} terminal={terminal_count:g}"
         )
 
+    if values.get("performance.tabbar.lifecycle_exact", "").lower() != "true":
+        failures.append(f"performance.tabbar.lifecycle_exact must be true in {label}")
+    lifecycle_count_fields = [
+        ("performance.tabbar.duplicate_capture_sequence_count", "duplicate capture sequences"),
+        ("performance.tabbar.duplicate_terminal_sequence_count", "duplicate terminal sequences"),
+        ("performance.tabbar.missing_terminal_sequence_count", "missing terminal sequences"),
+        ("performance.tabbar.unexpected_terminal_sequence_count", "unexpected terminal sequences"),
+        ("performance.tabbar.invalid_terminal_outcome_count", "invalid terminal outcomes"),
+    ]
+    for key, description in lifecycle_count_fields:
+        count = required_nonnegative_number(values, key, label, failures)
+        if count is not None and count != 0:
+            failures.append(f"tab bar lifecycle has {count:g} {description} in {label}")
+
     dropped_count = required_nonnegative_number(
         values,
         "agentstudio.performance.trace_queue.dropped_record.count",

@@ -117,6 +117,7 @@ final class TabBarAdapter {
     func stop() {
         guard !hasStopped else { return }
         hasStopped = true
+        projectionTelemetry.stop()
         materializedProjection.stop()
     }
 
@@ -143,6 +144,7 @@ final class TabBarAdapter {
         projectionGeneration &+= 1
         let generation = TabBarProjectionGeneration(value: projectionGeneration)
         let materializedProjection = self.materializedProjection
+        let projectionTelemetry = self.projectionTelemetry
         let captureStartedAt = projectionTelemetry.captureStartedAt()
         let capture = withObservationTracking {
             TabBarProjectionCapture(
@@ -156,6 +158,7 @@ final class TabBarAdapter {
                 )
             )
         } onChange: { [weak self, weak materializedProjection] in
+            projectionTelemetry.sourceDidInvalidate()
             materializedProjection?.sourceDidInvalidate()
             Task { @MainActor [weak self] in
                 self?.captureAndAdmitNewestRequest()
@@ -173,6 +176,7 @@ final class TabBarAdapter {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.hasStopped else { return }
+                self.projectionTelemetry.recordPublication()
                 self.updateOverflow()
                 self.observeMaterializedProjection()
             }
@@ -224,7 +228,8 @@ final class TabBarAdapter {
 private final class TabBarProjectionTelemetry: Sendable {
     private struct Admission: Sendable {
         let sequence: UInt64
-        let startedAt: ContinuousClock.Instant
+        let captureStartedAt: ContinuousClock.Instant
+        let interactionStartedAt: ContinuousClock.Instant
         var tabCount: Int?
         var paneCount: Int?
         var activeTabPresent: Bool?
@@ -232,6 +237,8 @@ private final class TabBarProjectionTelemetry: Sendable {
 
     private struct State: Sendable {
         var admissionsBySequence: [UInt64: Admission] = [:]
+        var pendingInteractionStartedAt: ContinuousClock.Instant?
+        var pendingPublicationAdmission: Admission?
         var pendingVisibleAdmission: Admission?
     }
 
@@ -248,24 +255,37 @@ private final class TabBarProjectionTelemetry: Sendable {
         return clock.now
     }
 
+    func sourceDidInvalidate() {
+        guard recorder?.isEnabled == true else { return }
+        let invalidatedAt = clock.now
+        state.withLock { state in
+            if state.pendingInteractionStartedAt == nil {
+                state.pendingInteractionStartedAt = invalidatedAt
+            }
+        }
+    }
+
     func recordAdmission(
         _ capture: TabBarProjectionCapture,
         startedAt: ContinuousClock.Instant?
     ) {
         guard let recorder, recorder.isEnabled, let startedAt else { return }
-        let admission = Admission(
-            sequence: capture.request.generation.value,
-            startedAt: startedAt,
-            tabCount: nil,
-            paneCount: nil,
-            activeTabPresent: nil
-        )
-        state.withLock { state in
+        let admission = state.withLock { state -> Admission in
+            let admission = Admission(
+                sequence: capture.request.generation.value,
+                captureStartedAt: startedAt,
+                interactionStartedAt: state.pendingInteractionStartedAt ?? startedAt,
+                tabCount: nil,
+                paneCount: nil,
+                activeTabPresent: nil
+            )
+            state.pendingInteractionStartedAt = nil
             state.admissionsBySequence[admission.sequence] = admission
+            return admission
         }
         recorder.recordDuration(
             .tabBarRefresh,
-            duration: startedAt.duration(to: clock.now),
+            duration: admission.captureStartedAt.duration(to: clock.now),
             attributes: Self.attributes(for: admission)
         )
     }
@@ -329,17 +349,34 @@ private final class TabBarProjectionTelemetry: Sendable {
                 return nil
             }
             if didPublish {
+                state.pendingPublicationAdmission = admission
                 state.pendingVisibleAdmission = admission
             }
             return admission
         }
         guard let admission else { return }
-        var attributes = Self.attributes(for: admission)
-        attributes["agentstudio.performance.tabbar.terminal.outcome"] = .string(outcome)
+        recordTerminal(admission, outcome: outcome, recorder: recorder)
+        if outcome == "published" || outcome == "equal" {
+            recorder.recordDuration(
+                .tabBarCurrent,
+                duration: admission.interactionStartedAt.duration(to: clock.now),
+                attributes: Self.attributes(for: admission)
+            )
+        }
+    }
+
+    @MainActor
+    func recordPublication() {
+        guard let recorder, recorder.isEnabled else { return }
+        let admission = state.withLock { state in
+            defer { state.pendingPublicationAdmission = nil }
+            return state.pendingPublicationAdmission
+        }
+        guard let admission else { return }
         recorder.recordDuration(
-            .tabBarTerminal,
-            duration: admission.startedAt.duration(to: clock.now),
-            attributes: attributes
+            .tabBarPublication,
+            duration: admission.interactionStartedAt.duration(to: clock.now),
+            attributes: Self.attributes(for: admission)
         )
     }
 
@@ -353,8 +390,46 @@ private final class TabBarProjectionTelemetry: Sendable {
         guard let admission else { return }
         recorder.recordDuration(
             .tabBarVisible,
-            duration: admission.startedAt.duration(to: clock.now),
+            duration: admission.interactionStartedAt.duration(to: clock.now),
             attributes: Self.attributes(for: admission)
+        )
+    }
+
+    @MainActor
+    func stop() {
+        guard let recorder, recorder.isEnabled else {
+            state.withLock { state in
+                state.admissionsBySequence.removeAll()
+                state.pendingInteractionStartedAt = nil
+                state.pendingPublicationAdmission = nil
+                state.pendingVisibleAdmission = nil
+            }
+            return
+        }
+        let unsettledAdmissions = state.withLock { state -> [Admission] in
+            let admissions = state.admissionsBySequence.values.sorted { $0.sequence < $1.sequence }
+            state.admissionsBySequence.removeAll()
+            state.pendingInteractionStartedAt = nil
+            state.pendingPublicationAdmission = nil
+            state.pendingVisibleAdmission = nil
+            return admissions
+        }
+        for admission in unsettledAdmissions {
+            recordTerminal(admission, outcome: "cancelled", recorder: recorder)
+        }
+    }
+
+    private func recordTerminal(
+        _ admission: Admission,
+        outcome: String,
+        recorder: AgentStudioPerformanceTraceRecorder
+    ) {
+        var attributes = Self.attributes(for: admission)
+        attributes["agentstudio.performance.tabbar.terminal.outcome"] = .string(outcome)
+        recorder.recordDuration(
+            .tabBarTerminal,
+            duration: admission.interactionStartedAt.duration(to: clock.now),
+            attributes: attributes
         )
     }
 

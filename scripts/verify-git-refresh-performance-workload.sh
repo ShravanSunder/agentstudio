@@ -254,6 +254,12 @@ WRITERS_FINISHED_AT=""
 ISSUED_INTERACTION_COUNT=0
 TAB_BAR_CAPTURE_COUNT=0
 TAB_BAR_TERMINAL_COUNT=0
+TAB_BAR_LIFECYCLE_EXACT=false
+TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT=0
+TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT=0
+TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT=0
+TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT=0
+TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT=0
 TRACE_QUEUE_DROPPED_RECORD_COUNT=""
 TRACE_QUEUE_HIGH_WATERMARK=""
 FINAL_TAB_COUNT=0
@@ -1230,8 +1236,12 @@ required_performance_metric_event_names() {
   cat <<'EOF'
 performance.commandbar.items
 performance.commandbar.filter
+performance.tabbar.current
+performance.tabbar.publication
 performance.tabbar.refresh
 performance.tabbar.terminal
+performance.tabbar.visible
+performance.tabbar.worker
 performance.sidebar.projection
 performance.sidebar.row_index
 performance.topology.repo_and_worktree
@@ -1295,13 +1305,18 @@ wait_for_tab_bar_lifecycle_continuity() {
   local deadline=$((SECONDS + METRICS_EXPORT_TIMEOUT_SECONDS))
   : >"$continuity_log"
   while [ "$SECONDS" -lt "$deadline" ]; do
-    TAB_BAR_CAPTURE_COUNT="$(victoria_metric_event_count performance.tabbar.refresh)"
-    TAB_BAR_TERMINAL_COUNT="$(victoria_metric_event_count performance.tabbar.terminal)"
-    printf 'observed_at=%s capture_count=%s terminal_count=%s\n' \
+    capture_tab_bar_lifecycle_snapshot
+    printf 'observed_at=%s capture_count=%s terminal_count=%s exact=%s duplicate_capture=%s duplicate_terminal=%s missing_terminal=%s unexpected_terminal=%s invalid_outcome=%s\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       "$TAB_BAR_CAPTURE_COUNT" \
-      "$TAB_BAR_TERMINAL_COUNT" >>"$continuity_log"
-    if [ "$TAB_BAR_CAPTURE_COUNT" -gt 0 ] && [ "$TAB_BAR_CAPTURE_COUNT" -eq "$TAB_BAR_TERMINAL_COUNT" ]; then
+      "$TAB_BAR_TERMINAL_COUNT" \
+      "$TAB_BAR_LIFECYCLE_EXACT" \
+      "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" \
+      "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" \
+      "$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" \
+      "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" \
+      "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >>"$continuity_log"
+    if [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]; then
       echo "tabbar_lifecycle_continuity=succeeded" >>"$continuity_log"
       return 0
     fi
@@ -1309,6 +1324,119 @@ wait_for_tab_bar_lifecycle_continuity() {
   done
   echo "tabbar_lifecycle_continuity=timed_out" >>"$continuity_log"
   return 1
+}
+
+capture_tab_bar_lifecycle_snapshot() {
+  local capture_response terminal_response snapshot
+  capture_response="$(
+    query_victoria_logs \
+      "$(victoria_event_query performance.tabbar.refresh) | fields _msg, agentstudio.performance.tabbar.sequence | limit 10000" \
+      2>/dev/null || true
+  )"
+  terminal_response="$(
+    query_victoria_logs \
+      "$(victoria_event_query performance.tabbar.terminal) | fields _msg, agentstudio.performance.tabbar.sequence, agentstudio.performance.tabbar.terminal.outcome | limit 10000" \
+      2>/dev/null || true
+  )"
+  snapshot="$(
+    /usr/bin/python3 - \
+      <(printf '%s\n' "$capture_response") \
+      <(printf '%s\n' "$terminal_response") <<'PY'
+import collections
+import json
+import sys
+
+capture_path, terminal_path = sys.argv[1:3]
+valid_outcomes = {"published", "equal", "superseded", "cancelled"}
+
+
+def records(path):
+    with open(path, "r", encoding="utf-8") as response_file:
+        for line in response_file:
+            if not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except (TypeError, ValueError):
+                continue
+
+
+def sequence(record):
+    try:
+        value = int(record.get("agentstudio.performance.tabbar.sequence"))
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+captures = []
+for record in records(capture_path):
+    if record.get("_msg") not in (None, "performance.tabbar.refresh"):
+        continue
+    value = sequence(record)
+    if value is not None:
+        captures.append(value)
+
+terminals = []
+invalid_outcome_count = 0
+for record in records(terminal_path):
+    if record.get("_msg") not in (None, "performance.tabbar.terminal"):
+        continue
+    value = sequence(record)
+    outcome = record.get("agentstudio.performance.tabbar.terminal.outcome")
+    if value is None or outcome not in valid_outcomes:
+        invalid_outcome_count += 1
+        continue
+    terminals.append(value)
+
+capture_counts = collections.Counter(captures)
+terminal_counts = collections.Counter(terminals)
+duplicate_capture_count = sum(count - 1 for count in capture_counts.values() if count > 1)
+duplicate_terminal_count = sum(count - 1 for count in terminal_counts.values() if count > 1)
+missing_terminal_count = sum((capture_counts - terminal_counts).values())
+unexpected_terminal_count = sum((terminal_counts - capture_counts).values())
+is_exact = (
+    bool(captures)
+    and capture_counts == terminal_counts
+    and duplicate_capture_count == 0
+    and duplicate_terminal_count == 0
+    and invalid_outcome_count == 0
+)
+
+print(f"capture_count={len(captures)}")
+print(f"terminal_count={len(terminals)}")
+print(f"lifecycle_exact={str(is_exact).lower()}")
+print(f"duplicate_capture_sequence_count={duplicate_capture_count}")
+print(f"duplicate_terminal_sequence_count={duplicate_terminal_count}")
+print(f"missing_terminal_sequence_count={missing_terminal_count}")
+print(f"unexpected_terminal_sequence_count={unexpected_terminal_count}")
+print(f"invalid_terminal_outcome_count={invalid_outcome_count}")
+PY
+  )"
+
+  TAB_BAR_CAPTURE_COUNT="$(sed -n 's/^capture_count=//p' <<<"$snapshot")"
+  TAB_BAR_TERMINAL_COUNT="$(sed -n 's/^terminal_count=//p' <<<"$snapshot")"
+  TAB_BAR_LIFECYCLE_EXACT="$(sed -n 's/^lifecycle_exact=//p' <<<"$snapshot")"
+  TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT="$(sed -n 's/^duplicate_capture_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT="$(sed -n 's/^duplicate_terminal_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT="$(sed -n 's/^missing_terminal_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT="$(sed -n 's/^unexpected_terminal_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT="$(sed -n 's/^invalid_terminal_outcome_count=//p' <<<"$snapshot")"
+}
+
+require_exact_tab_bar_lifecycle() {
+  capture_tab_bar_lifecycle_snapshot
+  [ "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has duplicate capture sequences: $TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has duplicate terminal sequences: $TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has missing terminal sequences: $TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has unexpected terminal sequences: $TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has invalid terminal outcomes: $TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >&2
+  [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]
 }
 
 trace_queue_metric_query() {
@@ -1622,8 +1750,12 @@ performance.git.snapshot_dedup
 performance.git.event_posted
 performance.coordinator.write
 performance.topology.repo_and_worktree
+performance.tabbar.current
+performance.tabbar.publication
 performance.tabbar.refresh
 performance.tabbar.terminal
+performance.tabbar.visible
+performance.tabbar.worker
 performance.sidebar.projection
 performance.sidebar.row_index
 performance.commandbar.items
@@ -1678,6 +1810,12 @@ summarize_traces() {
     echo "regression_boundary_percent=$REGRESSION_BOUNDARY_PERCENT"
     echo "performance.tabbar.capture_count=$TAB_BAR_CAPTURE_COUNT"
     echo "performance.tabbar.terminal_count=$TAB_BAR_TERMINAL_COUNT"
+    echo "performance.tabbar.lifecycle_exact=$TAB_BAR_LIFECYCLE_EXACT"
+    echo "performance.tabbar.duplicate_capture_sequence_count=$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT"
+    echo "performance.tabbar.duplicate_terminal_sequence_count=$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT"
+    echo "performance.tabbar.missing_terminal_sequence_count=$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT"
+    echo "performance.tabbar.unexpected_terminal_sequence_count=$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT"
+    echo "performance.tabbar.invalid_terminal_outcome_count=$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT"
     echo "agentstudio.performance.trace_queue.dropped_record.count=${TRACE_QUEUE_DROPPED_RECORD_COUNT:-}"
     echo "agentstudio.performance.trace_queue.high_watermark=${TRACE_QUEUE_HIGH_WATERMARK:-}"
     echo "final_tab_count=$FINAL_TAB_COUNT"
@@ -1754,6 +1892,12 @@ prepare_fixture
 } >"$ARTIFACT/observability-state.env"
 
 if [ "$prepare_only" = true ]; then
+  if test_responses_enabled && [ -n "${AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE+x}" ]; then
+    if ! require_exact_tab_bar_lifecycle; then
+      summarize_traces
+      exit 1
+    fi
+  fi
   summarize_traces
   echo "prepared fixture only: $ARTIFACT"
   exit 0

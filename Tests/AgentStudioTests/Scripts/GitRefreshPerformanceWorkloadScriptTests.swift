@@ -145,6 +145,9 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             "source_head source_digest executable_digest trace_tags activation_mode launch_method "
             + "executable_identity worktree_identity issued_interaction_count regression_boundary_percent "
             + "performance.tabbar.capture_count performance.tabbar.terminal_count "
+            + "performance.tabbar.lifecycle_exact performance.tabbar.duplicate_capture_sequence_count "
+            + "performance.tabbar.duplicate_terminal_sequence_count performance.tabbar.missing_terminal_sequence_count "
+            + "performance.tabbar.unexpected_terminal_sequence_count performance.tabbar.invalid_terminal_outcome_count "
             + "agentstudio.performance.trace_queue.dropped_record.count "
             + "agentstudio.performance.trace_queue.high_watermark "
             + "final_tab_count_equivalent final_active_tab_equivalent final_membership_equivalent "
@@ -158,6 +161,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("capture_authenticated_final_state_oracle()"))
         #expect(source.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         #expect(source.contains("performance.tabbar.terminal"))
+        #expect(source.contains("performance.tabbar.current"))
+        #expect(source.contains("performance.tabbar.publication"))
+        #expect(source.contains("performance.tabbar.visible"))
+        #expect(source.contains("performance.tabbar.worker"))
         #expect(source.contains("agentstudio_performance_trace_queue_dropped_record_count"))
         #expect(source.contains("agentstudio_performance_trace_queue_high_watermark"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
@@ -228,9 +235,9 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
                     #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
                 "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
-                    #"{"agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
+                    #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
                     + "\n"
-                    + #"{"agentstudio.performance.elapsed_ms":"7","agentstudio.performance.commandbar.query_character.count":"7"}"#
+                    + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published","agentstudio.performance.elapsed_ms":"7","agentstudio.performance.commandbar.query_character.count":"7"}"#
                     + "\n",
             ]
         )
@@ -250,6 +257,48 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             #expect(summary.contains("\(eventName).elapsed_ms.p95_unavailable=false"))
         }
         #expect(summary.contains("performance.commandbar.filter.query_character.max=7"))
+        #expect(summary.contains("performance.tabbar.lifecycle_exact=true"))
+        #expect(summary.contains("performance.tabbar.duplicate_capture_sequence_count=0"))
+        #expect(summary.contains("performance.tabbar.missing_terminal_sequence_count=0"))
+    }
+
+    @Test("prepare-only workload proof rejects duplicate and missing tab bar lifecycle sequences")
+    func prepareOnlyWorkloadProofRejectsInvalidTabBarLifecycleSequences() throws {
+        let proofRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-workload-lifecycle-rejection-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: proofRoot) }
+
+        let result = try runScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
+                "AGENTSTUDIO_TRACE_NAME": "invalid-lifecycle-test",
+                "AGENTSTUDIO_PERF_REPO_COUNT": "1",
+                "AGENTSTUDIO_PERF_WORKTREE_COUNT": "1",
+                "AGENTSTUDIO_PERF_ACTIVE_PANES": "1",
+                "AGENTSTUDIO_PERF_WRITER_COUNT": "1",
+                "AGENTSTUDIO_PERF_DURATION_SECONDS": "1",
+                "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR": "0",
+                "AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES": "1",
+                "AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL": "http://127.0.0.1:1/select/logsql/query",
+                "AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL": "http://127.0.0.1:1/api/v1/query",
+                "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
+                    #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
+                "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
+                    #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"1"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"1"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.refresh","agentstudio.performance.tabbar.sequence":"2"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published"}"#
+                    + "\n",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("duplicate capture sequences"))
+        #expect(result.stderr.contains("missing terminal sequences"))
     }
 
     @Test("workload proof rejects canned query responses outside prepare-only tests")
