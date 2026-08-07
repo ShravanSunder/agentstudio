@@ -19,18 +19,10 @@ struct RepoExplorerPaneRow: View {
     var body: some View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
-                HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Image(systemName: "rectangle.split.2x1")
-                        .foregroundStyle(.secondary)
-                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-
-                    Text(label)
-                        .font(.system(size: AppStyles.General.Typography.textBase))
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                SidebarMetadataLine(
+                    iconSystemName: "square.split.2x1",
+                    text: label
+                )
             }
         }
         .buttonStyle(.plain)

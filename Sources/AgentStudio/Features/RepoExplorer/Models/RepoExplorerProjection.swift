@@ -541,7 +541,6 @@ enum RepoExplorerProjection {
         var entriesByGroupId: [String: [PlacementEntry]] = [:]
         var groupLabelsById: [String: (title: String, secondary: String?)] = [:]
         var paneModeSeenWorktreesByGroup: [String: Set<UUID>] = [:]
-        let inactiveGroupId = "\(mode.rawValue):inactive"
 
         func appendGroupIfNeeded(_ groupId: String, title: String, secondary: String? = nil) {
             guard groupLabelsById[groupId] == nil else { return }
@@ -554,13 +553,7 @@ enum RepoExplorerProjection {
                 if processedWorktreeCount.isMultiple(of: 256) { try cancellationCheck() }
                 processedWorktreeCount += 1
                 let worktreeLocations = sortedUniqueLocations(locationsByWorktreeId[worktree.id] ?? [])
-                guard !worktreeLocations.isEmpty else {
-                    appendGroupIfNeeded(inactiveGroupId, title: "Inactive")
-                    entriesByGroupId[inactiveGroupId, default: []].append(
-                        PlacementEntry(repo: repo, worktree: worktree, location: nil)
-                    )
-                    continue
-                }
+                guard !worktreeLocations.isEmpty else { continue }
 
                 for location in worktreeLocations {
                     switch mode {
@@ -602,9 +595,7 @@ enum RepoExplorerProjection {
             case .tab:
                 sortedUniqueTabIds(locations).map { "tab:\($0.uuidString)" }
             }
-        let orderedGroupIds =
-            activeGroupIds.filter { !(entriesByGroupId[$0] ?? []).isEmpty }
-            + (entriesByGroupId[inactiveGroupId, default: []].isEmpty ? [] : [inactiveGroupId])
+        let orderedGroupIds = activeGroupIds.filter { !(entriesByGroupId[$0] ?? []).isEmpty }
 
         var projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:]
         let groups: [RepoPresentationGroup] = orderedGroupIds.compactMap { groupId in
