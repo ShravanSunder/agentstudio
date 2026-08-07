@@ -55,6 +55,57 @@ export interface InstalledBridgeReadyHandshake {
 	readonly dispose: () => void;
 }
 
+export interface InstalledControlledBridgeReadyHandshake extends InstalledBridgeReadyHandshake {
+	readonly acknowledgeReady: () => void;
+	readonly readyRequestId: () => string | null;
+}
+
+function dispatchBridgeHandshakeWithoutTelemetryConfig(): void {
+	document.dispatchEvent(new CustomEvent('__bridge_handshake'));
+}
+
+export function installControlledBridgeReadyHandshake(): InstalledControlledBridgeReadyHandshake {
+	let readyRequestId: string | null = null;
+	const handleBridgeReady = (event: Event): void => {
+		if (!('detail' in event)) return;
+		const detail = event.detail;
+		if (
+			typeof detail !== 'object' ||
+			detail === null ||
+			!('requestId' in detail) ||
+			typeof detail.requestId !== 'string'
+		) {
+			return;
+		}
+		readyRequestId = detail.requestId;
+	};
+	document.addEventListener(
+		'__bridge_handshake_request',
+		dispatchBridgeHandshakeWithoutTelemetryConfig,
+	);
+	document.addEventListener('__bridge_ready', handleBridgeReady);
+	return {
+		acknowledgeReady: (): void => {
+			if (readyRequestId === null) {
+				throw new Error('Expected a pending Bridge ready request.');
+			}
+			document.dispatchEvent(
+				new CustomEvent('__bridge_ready_ack', {
+					detail: { jsonrpc: '2.0', id: readyRequestId, result: null },
+				}),
+			);
+		},
+		dispose: (): void => {
+			document.removeEventListener(
+				'__bridge_handshake_request',
+				dispatchBridgeHandshakeWithoutTelemetryConfig,
+			);
+			document.removeEventListener('__bridge_ready', handleBridgeReady);
+		},
+		readyRequestId: (): string | null => readyRequestId,
+	};
+}
+
 export function installBridgeReadyHandshake(
 	props: {
 		readonly readyErrorMessage?: string;

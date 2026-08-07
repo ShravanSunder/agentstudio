@@ -691,7 +691,6 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			sendActiveViewerModeUpdate();
 			return (): void => {};
 		}
-		sendActiveViewerModeUpdate();
 		return registerBridgeReadyCallback(sendActiveViewerModeUpdate);
 	}, [
 		activeViewerSources,
