@@ -13,13 +13,13 @@ package protocol GitProjectorPerformanceRecording: Sendable {
 
     func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
-        attributes: [String: AgentStudioTraceValue]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue]
     )
 
     func recordDuration(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
         duration: Duration,
-        attributes: [String: AgentStudioTraceValue]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue]
     )
 }
 

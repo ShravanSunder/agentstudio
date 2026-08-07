@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -42,14 +43,7 @@ final class TabBarAdapterTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            notificationDotColorProvider: { paneIds in
-                AppDelegate.tabNotificationDotColor(
-                    for: notificationAtom.attentionLane(forPaneIds: paneIds)
-                )
-            },
-            observeNotificationDotInputs: {
-                _ = notificationAtom.notifications
-            }
+            inboxAtom: notificationAtom
         )
     }
 
@@ -57,8 +51,10 @@ final class TabBarAdapterTests {
 
     @Test
 
-    func test_initialState_empty() {
+    func test_initialState_empty() async {
         resetFixture()
+        await waitForAdapterRefresh()
+
         // Assert
         #expect(adapter.tabs.isEmpty)
         #expect((adapter.activeTabId) == nil)
@@ -655,8 +651,6 @@ final class TabBarAdapterTests {
         // Act
         adapter.availableWidth = 600
 
-        await waitForAdapterRefresh()
-
         // Assert
         #expect(adapter.tabs.count == 2)
         #expect(!(adapter.isOverflowing))
@@ -677,8 +671,6 @@ final class TabBarAdapterTests {
 
         // Act
         adapter.availableWidth = 600
-
-        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 8)
@@ -734,8 +726,6 @@ final class TabBarAdapterTests {
         // Act — set content width wider than available
         adapter.contentWidth = 700
 
-        await waitForAdapterRefresh()
-
         // Assert
         #expect(adapter.isOverflowing)
     }
@@ -758,8 +748,6 @@ final class TabBarAdapterTests {
         // Still within hysteresis buffer (600 - 50 = 550, and 570 > 550)
         adapter.contentWidth = 570
 
-        await waitForAdapterRefresh()
-
         // Assert — should remain overflowing due to hysteresis
         #expect(adapter.isOverflowing)
     }
@@ -780,8 +768,6 @@ final class TabBarAdapterTests {
 
         // Act — reduce well below hysteresis threshold (600 - 50 = 550)
         adapter.contentWidth = 500
-
-        await waitForAdapterRefresh()
 
         // Assert
         #expect(!(adapter.isOverflowing))
@@ -817,14 +803,52 @@ final class TabBarAdapterTests {
         #expect(!(adapter.isOverflowing))
     }
     private func waitForAdapterRefresh() async {
-        for _ in 0..<8 {
-            await Task.yield()
+        let currentGeneration: TabBarProjectionGeneration? =
+            switch adapter.materializedProjection.freshness {
+            case .current(let generation): generation
+            case .idle, .running, .invalidated, .stopped: nil
+            }
+        let waiter = TabBarAdapterConditionWaiter {
+            guard case .current(let generation) = self.adapter.materializedProjection.freshness else {
+                return false
+            }
+            return currentGeneration.map { $0 != generation } ?? true
         }
+        #expect(await waiter.wait(), "Timed out waiting for current tab bar projection")
     }
 }
 
 extension Array {
     fileprivate subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+@MainActor
+final class TabBarAdapterConditionWaiter {
+    private let condition: @MainActor () -> Bool
+    private let didMeetCondition = TabBarAdapterTestSignal()
+
+    init(condition: @escaping @MainActor () -> Bool) {
+        self.condition = condition
+    }
+
+    func wait() async -> Bool {
+        observeCondition()
+        return await didMeetCondition.wait()
+    }
+
+    private func observeCondition() {
+        if condition() {
+            didMeetCondition.signal()
+            return
+        }
+        withObservationTracking {
+            _ = condition()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeCondition()
+            }
+        }
     }
 }

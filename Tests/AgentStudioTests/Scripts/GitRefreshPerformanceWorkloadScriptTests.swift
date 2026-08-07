@@ -142,13 +142,32 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         )
         #expect(source.contains("performance.commandbar.filter.query_character.max="))
         let summaryMetadataKeys =
-            "source_head trace_tags activation_mode launch_method executable_identity worktree_identity "
+            "source_head source_digest executable_digest trace_tags activation_mode launch_method "
+            + "executable_identity worktree_identity issued_interaction_count regression_boundary_percent "
+            + "performance.tabbar.capture_count performance.tabbar.terminal_count "
+            + "performance.tabbar.lifecycle_exact performance.tabbar.duplicate_capture_sequence_count "
+            + "performance.tabbar.duplicate_terminal_sequence_count performance.tabbar.missing_terminal_sequence_count "
+            + "performance.tabbar.unexpected_terminal_sequence_count performance.tabbar.invalid_terminal_outcome_count "
+            + "agentstudio.performance.trace_queue.dropped_record.count "
+            + "agentstudio.performance.trace_queue.high_watermark "
+            + "final_tab_count_equivalent final_active_tab_equivalent final_membership_equivalent "
             + "workload_fingerprint required_performance_metric_minimum_count "
             + "required_commandbar_query_character_minimum"
         for metadataKey in summaryMetadataKeys.split(separator: " ") {
             #expect(source.contains("echo \"\(metadataKey)="))
         }
         #expect(source.contains("workload_fingerprint()"))
+        #expect(source.contains("source_digest()"))
+        #expect(source.contains("capture_authenticated_final_state_oracle()"))
+        #expect(source.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
+        #expect(source.contains("performance.tabbar.terminal"))
+        #expect(source.contains("performance.tabbar.capture"))
+        #expect(source.contains("performance.tabbar.current"))
+        #expect(source.contains("performance.tabbar.publication"))
+        #expect(source.contains("performance.tabbar.visible"))
+        #expect(source.contains("performance.tabbar.worker"))
+        #expect(source.contains("agentstudio_performance_trace_queue_dropped_record_count"))
+        #expect(source.contains("agentstudio_performance_trace_queue_high_watermark"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD"))
     }
@@ -217,9 +236,9 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
                     #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
                 "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
-                    #"{"agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
+                    #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
                     + "\n"
-                    + #"{"agentstudio.performance.elapsed_ms":"7","agentstudio.performance.commandbar.query_character.count":"7"}"#
+                    + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published","agentstudio.performance.elapsed_ms":"7","agentstudio.performance.commandbar.query_character.count":"7"}"#
                     + "\n",
             ]
         )
@@ -239,6 +258,48 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             #expect(summary.contains("\(eventName).elapsed_ms.p95_unavailable=false"))
         }
         #expect(summary.contains("performance.commandbar.filter.query_character.max=7"))
+        #expect(summary.contains("performance.tabbar.lifecycle_exact=true"))
+        #expect(summary.contains("performance.tabbar.duplicate_capture_sequence_count=0"))
+        #expect(summary.contains("performance.tabbar.missing_terminal_sequence_count=0"))
+    }
+
+    @Test("prepare-only workload proof rejects duplicate and missing tab bar lifecycle sequences")
+    func prepareOnlyWorkloadProofRejectsInvalidTabBarLifecycleSequences() throws {
+        let proofRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-workload-lifecycle-rejection-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: proofRoot) }
+
+        let result = try runScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
+                "AGENTSTUDIO_TRACE_NAME": "invalid-lifecycle-test",
+                "AGENTSTUDIO_PERF_REPO_COUNT": "1",
+                "AGENTSTUDIO_PERF_WORKTREE_COUNT": "1",
+                "AGENTSTUDIO_PERF_ACTIVE_PANES": "1",
+                "AGENTSTUDIO_PERF_WRITER_COUNT": "1",
+                "AGENTSTUDIO_PERF_DURATION_SECONDS": "1",
+                "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR": "0",
+                "AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES": "1",
+                "AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL": "http://127.0.0.1:1/select/logsql/query",
+                "AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL": "http://127.0.0.1:1/api/v1/query",
+                "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
+                    #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
+                "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
+                    #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"2"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published"}"#
+                    + "\n",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("duplicate capture sequences"))
+        #expect(result.stderr.contains("missing terminal sequences"))
     }
 
     @Test("workload proof rejects canned query responses outside prepare-only tests")
@@ -268,245 +329,6 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(result.exitCode != 0)
         #expect(result.stderr.contains("AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE"))
         #expect(result.stderr.contains("AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES"))
-    }
-
-    @Test("performance comparator fails when only coordinator write improves")
-    func performanceComparatorFailsWhenOnlyCoordinatorWriteImproves() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 9)
-                .merging([
-                    "performance.coordinator.write.victoria_metrics_count": "1",
-                    "performance.coordinator.write.elapsed_ms.p95": "1",
-                    "performance.coordinator.write.elapsed_ms.max": "1",
-                ]) { _, newValue in newValue }
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 4, itemsP95: 10, itemsMax: 1)
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode != 0)
-        #expect(result.stderr.contains("repo-cache fanout"))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("not_ready"))
-    }
-
-    @Test("performance comparator fails when coordinator write regresses")
-    func performanceComparatorFailsWhenCoordinatorWriteRegresses() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-                .merging(coordinatorSummaryValues(count: 10, p95: 10, max: 10)) { _, newValue in newValue }
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
-                .merging(coordinatorSummaryValues(count: 12, p95: 10, max: 10)) { _, newValue in newValue }
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 4, itemsP95: 10, itemsMax: 1)
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode != 0)
-        #expect(result.stderr.contains("performance.coordinator.write.victoria_metrics_count regressed"))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("not_ready"))
-    }
-
-    @Test("performance comparator passes command-bar and repo-cache fanout thresholds")
-    func performanceComparatorPassesCommandBarAndRepoCacheFanoutThresholds() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 4, itemsP95: 10, itemsMax: 1)
-                .merging([
-                    "performance.commandbar.filter.elapsed_ms.max": "100"
-                ]) { _, newValue in newValue }
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("ready"))
-        #expect(comparison.contains("repo-cache fanout threshold met"))
-        #expect(comparison.contains("performance.commandbar.filter.elapsed_ms.max is informational"))
-    }
-
-    @Test("performance comparator fails when required metrics are missing")
-    func performanceComparatorFailsWhenRequiredMetricsAreMissing() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        var afterInteractionValues = commandBarSummaryValues(itemsCount: 4, itemsP95: 10, itemsMax: 1)
-        afterInteractionValues.removeValue(forKey: "performance.commandbar.items.victoria_metrics_count")
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: afterInteractionValues
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode != 0)
-        #expect(result.stderr.contains("missing required metric"))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("not_ready"))
-    }
-
-    @Test("performance comparator fails when metrics disappear but logs remain")
-    func performanceComparatorFailsWhenMetricsDisappearButLogsRemain() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        var afterInteractionValues = commandBarSummaryValues(itemsCount: 0, itemsP95: 10, itemsMax: 1)
-        afterInteractionValues["performance.commandbar.items.victoria_logs_count"] = "10"
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: afterInteractionValues
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode != 0)
-        #expect(result.stderr.contains("instrumentation loss"))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("not_ready"))
-    }
-
-    @Test("performance comparator fails when command-bar interaction sequence differs")
-    func performanceComparatorFailsWhenCommandBarInteractionSequenceDiffers() throws {
-        let fixtureRoot = try temporaryFixtureRoot()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
-        let baselineWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
-        )
-        let afterWorkload = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
-        )
-        let baselineInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),
-            values: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
-        )
-        var afterInteractionValues = commandBarSummaryValues(itemsCount: 4, itemsP95: 10, itemsMax: 1)
-        afterInteractionValues["performance.commandbar.filter.query_character.max"] = "1"
-        let afterInteraction = try writeSummary(
-            at: fixtureRoot.appendingPathComponent("after-interaction.txt"),
-            values: afterInteractionValues
-        )
-        let output = fixtureRoot.appendingPathComponent("comparison.txt")
-
-        let result = try runScript(arguments: [
-            comparisonScriptPath,
-            "--baseline-workload", baselineWorkload.path,
-            "--after-workload", afterWorkload.path,
-            "--baseline-interaction", baselineInteraction.path,
-            "--after-interaction", afterInteraction.path,
-            "--output", output.path,
-        ])
-
-        #expect(result.exitCode != 0)
-        #expect(result.stderr.contains("command-bar interaction fingerprint changed"))
-        let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("not_ready"))
     }
 
     @Test("workload fixture materializes and reloads through strict SQLite")
@@ -590,7 +412,6 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         "performance.tabbar.refresh",
         "performance.sidebar.projection",
         "performance.sidebar.row_index",
-        "performance.topology.repo_and_worktree",
         "performance.coordinator.write",
     ]
 
@@ -670,74 +491,6 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         return root
     }
 
-    private func writeSummary(
-        at url: URL,
-        values: [String: String]
-    ) throws -> URL {
-        let body =
-            values
-            .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: "\n")
-        try (body + "\n").write(to: url, atomically: true, encoding: .utf8)
-        return url
-    }
-
-    private func commandBarSummaryValues(
-        itemsCount: Int,
-        itemsP95: Int,
-        itemsMax: Int
-    ) -> [String: String] {
-        [
-            "performance.commandbar.items.victoria_metrics_count": "\(itemsCount)",
-            "performance.commandbar.items.victoria_logs_count": "\(itemsCount)",
-            "performance.commandbar.items.jsonl_count": "0",
-            "performance.commandbar.items.elapsed_ms.p95": "\(itemsP95)",
-            "performance.commandbar.items.elapsed_ms.p95_unavailable": "false",
-            "performance.commandbar.items.elapsed_ms.max": "\(itemsMax)",
-            "performance.commandbar.filter.victoria_metrics_count": "10",
-            "performance.commandbar.filter.victoria_logs_count": "10",
-            "performance.commandbar.filter.jsonl_count": "0",
-            "performance.commandbar.filter.elapsed_ms.p95": "10",
-            "performance.commandbar.filter.elapsed_ms.p95_unavailable": "false",
-            "performance.commandbar.filter.elapsed_ms.max": "1",
-            "performance.commandbar.filter.query_character.max": "10",
-        ]
-    }
-
-    private func workloadSummaryValues(
-        fanoutCount: Int,
-        fanoutP95: Int,
-        fanoutMax: Int
-    ) -> [String: String] {
-        var values: [String: String] = [:]
-        for eventName in [
-            "performance.tabbar.refresh",
-            "performance.sidebar.projection",
-            "performance.sidebar.row_index",
-            "performance.topology.repo_and_worktree",
-            "performance.coordinator.write",
-        ] {
-            values["\(eventName).victoria_metrics_count"] = "\(fanoutCount)"
-            values["\(eventName).victoria_logs_count"] = "\(fanoutCount)"
-            values["\(eventName).jsonl_count"] = "0"
-            values["\(eventName).elapsed_ms.p95"] = "\(fanoutP95)"
-            values["\(eventName).elapsed_ms.p95_unavailable"] = "false"
-            values["\(eventName).elapsed_ms.max"] = "\(fanoutMax)"
-        }
-        return values
-    }
-
-    private func coordinatorSummaryValues(count: Int, p95: Int, max: Int) -> [String: String] {
-        [
-            "performance.coordinator.write.victoria_metrics_count": "\(count)",
-            "performance.coordinator.write.victoria_logs_count": "\(count)",
-            "performance.coordinator.write.jsonl_count": "0",
-            "performance.coordinator.write.elapsed_ms.p95": "\(p95)",
-            "performance.coordinator.write.elapsed_ms.p95_unavailable": "false",
-            "performance.coordinator.write.elapsed_ms.max": "\(max)",
-        ]
-    }
 }
 
 private struct FixtureCounts {

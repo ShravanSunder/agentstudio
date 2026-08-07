@@ -66,7 +66,11 @@ private func makeMainSplitViewControllerHarness(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: WindowLifecycleAtom()
     )
-    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
+    let tabBarAdapter = TabBarAdapter(
+        store: store,
+        repoCache: atoms.core.repoCache,
+        inboxAtom: inboxAtom
+    )
     let controller = MainSplitViewController(
         store: store,
         octiconLoader: makeTestOcticonLoader(),

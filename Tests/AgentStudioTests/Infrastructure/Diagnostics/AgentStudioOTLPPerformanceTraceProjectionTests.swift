@@ -104,6 +104,71 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.private_payload"] == nil)
     }
 
+    @Test
+    func tabBarProjectionKeepsAggregateFactsAndDropsIdentityAndPayloadContext() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 602,
+            severityText: .info,
+            body: "performance.tabbar.terminal",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.tabbar.sequence": .int(17),
+                "agentstudio.performance.tabbar.tab.count": .int(3),
+                "agentstudio.performance.tabbar.pane.count": .int(8),
+                "agentstudio.performance.tabbar.terminal.outcome": .string("published"),
+                "agentstudio.performance.tabbar.active_tab.present": .bool(true),
+                "agentstudio.performance.trace_queue.dropped_record.count": .int(0),
+                "agentstudio.performance.trace_queue.high_watermark": .int(7),
+                "agentstudio.performance.tabbar.tab.id": .string("01987654-3210-7abc-8def-0123456789ab"),
+                "agentstudio.performance.tabbar.title": .string("private title"),
+                "agentstudio.performance.tabbar.path": .string("/Users/private/repository"),
+                "agentstudio.performance.tabbar.request": .string("private request"),
+                "agentstudio.performance.tabbar.notification.body": .string("private body"),
+            ]
+        )
+        let invalidOutcomeRecord = AgentStudioTraceRecord(
+            timeUnixNano: 603,
+            severityText: .info,
+            body: "performance.tabbar.terminal",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.tabbar.terminal.outcome": .string("private-dynamic-value")
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let invalidOutcomeProjection = AgentStudioOTLPTraceProjection.project(invalidOutcomeRecord)
+
+        #expect(projection.attributes["agentstudio.performance.tabbar.sequence"] == .int(17))
+        #expect(projection.attributes["agentstudio.performance.tabbar.tab.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.performance.tabbar.pane.count"] == .int(8))
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.terminal.outcome"]
+                == .string("published")
+        )
+        #expect(projection.attributes["agentstudio.performance.tabbar.active_tab.present"] == .bool(true))
+        #expect(
+            projection.attributes["agentstudio.performance.trace_queue.dropped_record.count"] == .int(0)
+        )
+        #expect(projection.attributes["agentstudio.performance.trace_queue.high_watermark"] == .int(7))
+        #expect(projection.attributes["agentstudio.performance.tabbar.tab.id"] == nil)
+        #expect(projection.attributes["agentstudio.performance.tabbar.title"] == nil)
+        #expect(projection.attributes["agentstudio.performance.tabbar.path"] == nil)
+        #expect(projection.attributes["agentstudio.performance.tabbar.request"] == nil)
+        #expect(projection.attributes["agentstudio.performance.tabbar.notification.body"] == nil)
+        #expect(
+            invalidOutcomeProjection.attributes["agentstudio.performance.tabbar.terminal.outcome"] == nil
+        )
+    }
+
     private func performanceProjectionRecord(worktreeID: UUID) -> AgentStudioTraceRecord {
         AgentStudioTraceRecord(
             timeUnixNano: 600,

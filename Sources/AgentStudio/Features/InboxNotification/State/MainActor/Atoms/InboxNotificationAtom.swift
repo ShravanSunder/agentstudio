@@ -33,6 +33,7 @@ package final class InboxNotificationAtom {
     package private(set) var notifications: [InboxNotification] = []
     package private(set) var globalUnreadCount = 0
     package private(set) var globalRollUpAlertCount = 0
+    private var attentionFactSnapshot: InboxAttentionFactSnapshot = .empty
 
     package init() {}
 
@@ -121,16 +122,16 @@ package final class InboxNotificationAtom {
     }
 
     package func attentionLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
-        let paneIdSet = Set(paneIds)
-        let matchingLanes = notifications.compactMap { notification -> InboxNotificationClaimLane? in
-            guard notification.contributesToAttentionDot else { return nil }
-            guard let paneId = notification.paneId, paneIdSet.contains(paneId) else { return nil }
-            return notification.displayLane
-        }
-        if matchingLanes.contains(.actionNeeded) { return .actionNeeded }
-        if matchingLanes.contains(.safety) { return .safety }
-        if matchingLanes.contains(.settledAgent) { return .settledAgent }
-        return nil
+        let readerGroupId = false
+        return try! InboxAttentionProjector.project(
+            snapshot: captureAttentionFacts(),
+            groups: [readerGroupId: Set(paneIds)],
+            cancellationCheck: {}
+        )[readerGroupId]
+    }
+
+    package func captureAttentionFacts() -> InboxAttentionFactSnapshot {
+        attentionFactSnapshot
     }
 
     @discardableResult
@@ -370,5 +371,6 @@ package final class InboxNotificationAtom {
     private func recalculateGlobalUnreadCount() {
         globalUnreadCount = unreadCount { _ in true }
         globalRollUpAlertCount = rollUpAlertCount { _ in true }
+        attentionFactSnapshot = InboxAttentionFactSnapshot(notifications: notifications)
     }
 }

@@ -295,7 +295,11 @@ private func withMainWindowControllerHarness<T>(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: atoms.core.windowLifecycle
     )
-    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
+    let tabBarAdapter = TabBarAdapter(
+        store: store,
+        repoCache: atoms.core.repoCache,
+        inboxAtom: inboxAtom
+    )
 
     var controller: MainWindowController?
     let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in

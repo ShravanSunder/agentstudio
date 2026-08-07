@@ -3722,19 +3722,25 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
 
     func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
-        attributes: [String: AgentStudioTraceValue]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue]
     ) {
+        guard isEnabled else { return }
+        let evaluatedAttributes = attributes()
         lock.lock()
-        recordedEvents.append((event, attributes))
+        recordedEvents.append((event, evaluatedAttributes))
         lock.unlock()
     }
 
     func recordDuration(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
         duration: Duration,
-        attributes: [String: AgentStudioTraceValue]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue]
     ) {
-        record(event, attributes: attributes)
+        guard isEnabled else { return }
+        let evaluatedAttributes = attributes()
+        lock.lock()
+        recordedEvents.append((event, evaluatedAttributes))
+        lock.unlock()
     }
 
     func backoffEvents(open: Bool) -> [BackoffEvent] {

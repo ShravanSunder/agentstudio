@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import Synchronization
 import Testing
 
 @testable import AgentStudio
@@ -71,6 +72,45 @@ struct MainWindowControllerPresentationFactsTests {
         }
     }
 
+    @Test("window close stops held tab-bar work before its late completion")
+    func windowCloseStopsHeldTabBarProjection() async throws {
+        let projectionGate = PresentationFactsTabBarProjectionGate()
+        defer { projectionGate.release() }
+        let completionRecorder = PresentationFactsProjectionCompletionRecorder()
+
+        await withPresentationFactsWindowHarness(
+            tabBarAdapterBuilder: { store, repoCache, inboxAtom in
+                TabBarAdapter(
+                    store: store,
+                    repoCache: repoCache,
+                    inboxAtom: inboxAtom,
+                    project: projectionGate.project,
+                    onProjectionCompletion: completionRecorder.record
+                )
+            },
+            body: { harness in
+                #expect(await projectionGate.waitUntilStarted(), "Held projection did not start")
+                let retainedProjection = harness.tabBarAdapter.materializedProjection
+
+                harness.controller.windowWillClose(
+                    Notification(name: NSWindow.willCloseNotification, object: harness.window)
+                )
+                harness.controller.windowWillClose(
+                    Notification(name: NSWindow.willCloseNotification, object: harness.window)
+                )
+                #expect(retainedProjection.freshness == .stopped)
+
+                projectionGate.release()
+                #expect(
+                    await completionRecorder.wait(for: .cancelled(.init(value: 1))),
+                    "Late held completion was not rejected after window shutdown"
+                )
+                #expect(retainedProjection.value == nil)
+                #expect(retainedProjection.freshness == .stopped)
+            }
+        )
+    }
+
     private func presentationFacts(of window: NSWindow) -> WindowPresentationFacts {
         WindowPresentationFacts(
             isVisible: window.isVisible,
@@ -86,10 +126,23 @@ private struct PresentationFactsWindowHarness {
     let windowLifecycleStore: WindowLifecycleAtom
     let controller: MainWindowController
     let window: NSWindow
+    let tabBarAdapter: TabBarAdapter
 }
 
 @MainActor
 private func withPresentationFactsWindowHarness<T>(
+    tabBarAdapterBuilder:
+        @MainActor (
+            _ store: WorkspaceStore,
+            _ repoCache: RepoCacheAtom,
+            _ inboxAtom: InboxNotificationAtom
+        ) -> TabBarAdapter = { store, repoCache, inboxAtom in
+            TabBarAdapter(
+                store: store,
+                repoCache: repoCache,
+                inboxAtom: inboxAtom
+            )
+        },
     body: @MainActor (PresentationFactsWindowHarness) async throws -> T
 ) async rethrows -> T {
     let atoms = makeTestAtomRegistry()
@@ -121,6 +174,11 @@ private func withPresentationFactsWindowHarness<T>(
     var controller: MainWindowController?
 
     let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in
+        let tabBarAdapter = tabBarAdapterBuilder(
+            store,
+            atoms.core.repoCache,
+            atoms.inboxNotification
+        )
         let windowController = MainWindowController(
             workspaceWindowId: windowId,
             store: store,
@@ -132,11 +190,11 @@ private func withPresentationFactsWindowHarness<T>(
             runtimeCommandDispatcher: coordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: atoms.core.repoCache),
+            tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atoms.bridgePaneAttendance,
             editorChooser: atoms.editorChooser,
-            inboxAtom: InboxNotificationAtom(),
+            inboxAtom: atoms.inboxNotification,
             inboxPrefsAtom: InboxNotificationPrefsAtom(),
             inboxSidebarState: InboxSidebarState(),
             paneInboxPresentationState: atoms.paneInboxPresentationState,
@@ -154,7 +212,8 @@ private func withPresentationFactsWindowHarness<T>(
                 windowId: windowId,
                 windowLifecycleStore: atoms.core.windowLifecycle,
                 controller: windowController,
-                window: window
+                window: window,
+                tabBarAdapter: tabBarAdapter
             )
         )
     }
@@ -163,6 +222,69 @@ private func withPresentationFactsWindowHarness<T>(
     controller?.close()
     await coordinator.shutdown()
     return result
+}
+
+private final class PresentationFactsTabBarProjectionGate: Sendable {
+    private let started = TabBarAdapterTestSignal()
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private let didRelease = Mutex(false)
+
+    func hold() throws(CancellationError) {
+        started.signal()
+        guard releaseSemaphore.wait(timeout: .now() + .seconds(5)) == .success else {
+            throw CancellationError()
+        }
+    }
+
+    func project(
+        _ request: TabBarProjectionRequest
+    ) throws(CancellationError) -> TabBarProjection {
+        try hold()
+        return try TabBarProjector.project(request)
+    }
+
+    func waitUntilStarted() async -> Bool {
+        await started.wait()
+    }
+
+    func release() {
+        let shouldRelease = didRelease.withLock { didRelease in
+            guard !didRelease else { return false }
+            didRelease = true
+            return true
+        }
+        if shouldRelease {
+            releaseSemaphore.signal()
+        }
+    }
+}
+
+@MainActor
+private final class PresentationFactsProjectionCompletionRecorder {
+    private var completions: [TabBarMaterializedProjection.ProjectionCompletion] = []
+    private var waiters:
+        [(
+            completion: TabBarMaterializedProjection.ProjectionCompletion,
+            signal: TabBarAdapterTestSignal
+        )] = []
+
+    func record(_ completion: TabBarMaterializedProjection.ProjectionCompletion) {
+        completions.append(completion)
+        for waiter in waiters where waiter.completion == completion {
+            waiter.signal.signal()
+        }
+    }
+
+    func wait(
+        for completion: TabBarMaterializedProjection.ProjectionCompletion
+    ) async -> Bool {
+        if completions.contains(completion) {
+            return true
+        }
+        let signal = TabBarAdapterTestSignal()
+        waiters.append((completion: completion, signal: signal))
+        return await signal.wait()
+    }
 }
 
 @MainActor

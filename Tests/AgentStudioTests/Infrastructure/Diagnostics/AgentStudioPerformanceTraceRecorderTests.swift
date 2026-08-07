@@ -212,6 +212,35 @@ struct AgentStudioPerformanceTraceRecorderTests {
     }
 
     @Test
+    func disabledPerformanceTagDoesNotEvaluateAttributeBuilders() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 919,
+            timeUnixNano: { 127 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        let attributeEvaluationCounter = AttributeEvaluationCounter()
+
+        recorder.record(
+            .gitStatusComputed,
+            attributes: attributeEvaluationCounter.attributes()
+        )
+        recorder.recordDuration(
+            .tabBarRefresh,
+            duration: .milliseconds(1),
+            attributes: attributeEvaluationCounter.attributes()
+        )
+        try await recorder.drain()
+
+        #expect(attributeEvaluationCounter.evaluationCount == 0)
+    }
+
+    @Test
     func recorderPiggybacksRuntimeDeliverySnapshotOnMemorySample() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()
         let runtime = AgentStudioTraceRuntime(
@@ -307,6 +336,20 @@ struct AgentStudioPerformanceTraceRecorderTests {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-performance-trace-recorder-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+}
+
+private final class AttributeEvaluationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var evaluationCountStorage = 0
+
+    var evaluationCount: Int {
+        lock.withLock { evaluationCountStorage }
+    }
+
+    func attributes() -> [String: AgentStudioTraceValue] {
+        lock.withLock { evaluationCountStorage += 1 }
+        return ["agentstudio.performance.git.running.count": .int(1)]
     }
 }
 

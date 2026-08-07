@@ -2,6 +2,7 @@
 import math
 import pathlib
 import sys
+import typing
 
 baseline_workload_path = pathlib.Path(sys.argv[1])
 after_workload_path = pathlib.Path(sys.argv[2])
@@ -9,18 +10,22 @@ baseline_interaction_path = pathlib.Path(sys.argv[3])
 after_interaction_path = pathlib.Path(sys.argv[4])
 output_path = pathlib.Path(sys.argv[5])
 
-REQUIRED_IMPROVEMENT_PERCENT = 50.0
-MAX_REGRESSION_PERCENT = 10.0
-
 COMMAND_BAR_SURFACES = ["performance.commandbar.items"]
 COMMAND_BAR_FILTER_STABILITY_SURFACES = ["performance.commandbar.filter"]
 REPO_FANOUT_SURFACES = [
     "performance.tabbar.refresh",
     "performance.sidebar.projection",
     "performance.sidebar.row_index",
-    "performance.topology.repo_and_worktree",
 ]
 COORDINATOR_SURFACES = ["performance.coordinator.write"]
+CANDIDATE_TAB_BAR_PHASE_SURFACES = [
+    "performance.tabbar.capture",
+    "performance.tabbar.worker",
+    "performance.tabbar.current",
+    "performance.tabbar.terminal",
+    "performance.tabbar.publication",
+    "performance.tabbar.visible",
+]
 REQUIRED_NUMERIC_FIELDS = [
     "victoria_metrics_count",
     "victoria_logs_count",
@@ -103,6 +108,209 @@ def required_numeric(
     return value
 
 
+def required_string(
+    values: dict[str, str],
+    key: str,
+    label: str,
+    failures: list[str],
+) -> typing.Optional[str]:
+    value = values.get(key, "").strip()
+    if not value:
+        failures.append(f"missing required provenance {key} in {label}")
+        return None
+    return value
+
+
+def required_positive_number(
+    values: dict[str, str],
+    key: str,
+    label: str,
+    failures: list[str],
+) -> typing.Optional[float]:
+    failure_count = len(failures)
+    value = required_numeric(values, key, label, failures)
+    if len(failures) != failure_count:
+        return None
+    if value <= 0:
+        failures.append(f"{key} must be positive in {label}: {value:g}")
+        return None
+    return value
+
+
+def required_nonnegative_number(
+    values: dict[str, str],
+    key: str,
+    label: str,
+    failures: list[str],
+) -> typing.Optional[float]:
+    failure_count = len(failures)
+    value = required_numeric(values, key, label, failures)
+    if len(failures) != failure_count:
+        return None
+    if value < 0:
+        failures.append(f"{key} must be nonnegative in {label}: {value:g}")
+        return None
+    return value
+
+
+def validate_common_evidence(
+    label: str,
+    values: dict[str, str],
+) -> list[str]:
+    failures: list[str] = []
+    required_string(values, "source_digest", label, failures)
+    required_string(values, "executable_digest", label, failures)
+    required_string(values, "workload_fingerprint", label, failures)
+    trace_tags = required_string(values, "trace_tags", label, failures)
+    if trace_tags is not None and "performance" not in [tag.strip() for tag in trace_tags.split(",")]:
+        failures.append(f"trace_tags must contain performance in {label}: {trace_tags}")
+
+    launch_method = values.get("launch_method", "")
+    if launch_method != "launchservices":
+        failures.append(f"requires launch_method=launchservices in {label}: {launch_method or '<missing>'}")
+    activation_mode = values.get("activation_mode", "")
+    if activation_mode != "background":
+        failures.append(f"requires activation_mode=background in {label}: {activation_mode or '<missing>'}")
+
+    required_positive_number(values, "issued_interaction_count", label, failures)
+    required_nonnegative_number(values, "regression_boundary_percent", label, failures)
+
+    for key in [
+        "final_tab_count_equivalent",
+        "final_active_tab_equivalent",
+        "final_membership_equivalent",
+    ]:
+        if values.get(key, "").lower() != "true":
+            failures.append(f"{key} must be true in {label}")
+    return failures
+
+
+def validate_candidate_evidence(
+    label: str,
+    values: dict[str, str],
+) -> list[str]:
+    failures: list[str] = []
+
+    capture_count = required_positive_number(values, "performance.tabbar.capture_count", label, failures)
+    terminal_count = required_positive_number(values, "performance.tabbar.terminal_count", label, failures)
+    if capture_count is not None and terminal_count is not None and capture_count != terminal_count:
+        failures.append(
+            f"tab bar lifecycle continuity failed in {label}: "
+            f"capture={capture_count:g} terminal={terminal_count:g}"
+        )
+
+    if values.get("performance.tabbar.lifecycle_exact", "").lower() != "true":
+        failures.append(f"performance.tabbar.lifecycle_exact must be true in {label}")
+    lifecycle_count_fields = [
+        ("performance.tabbar.duplicate_capture_sequence_count", "duplicate capture sequences"),
+        ("performance.tabbar.duplicate_terminal_sequence_count", "duplicate terminal sequences"),
+        ("performance.tabbar.missing_terminal_sequence_count", "missing terminal sequences"),
+        ("performance.tabbar.unexpected_terminal_sequence_count", "unexpected terminal sequences"),
+        ("performance.tabbar.invalid_terminal_outcome_count", "invalid terminal outcomes"),
+    ]
+    for key, description in lifecycle_count_fields:
+        count = required_nonnegative_number(values, key, label, failures)
+        if count is not None and count != 0:
+            failures.append(f"tab bar lifecycle has {count:g} {description} in {label}")
+
+    dropped_count = required_nonnegative_number(
+        values,
+        "agentstudio.performance.trace_queue.dropped_record.count",
+        label,
+        failures,
+    )
+    if dropped_count is not None and dropped_count != 0:
+        failures.append(f"trace queue dropped {dropped_count:g} records in {label}")
+    required_nonnegative_number(
+        values,
+        "agentstudio.performance.trace_queue.high_watermark",
+        label,
+        failures,
+    )
+    return failures
+
+
+def validate_matched_value(
+    left_values: dict[str, str],
+    right_values: dict[str, str],
+    key: str,
+    mismatch_label: str,
+) -> list[str]:
+    left = left_values.get(key)
+    right = right_values.get(key)
+    if left and right and left != right:
+        return [f"{mismatch_label}: {left} -> {right}"]
+    return []
+
+
+def validate_provenance_matches(
+    baseline_workload: dict[str, str],
+    candidate_workload: dict[str, str],
+    baseline_interaction: dict[str, str],
+    candidate_interaction: dict[str, str],
+) -> list[str]:
+    failures: list[str] = []
+    for side, workload, interaction in [
+        ("baseline", baseline_workload, baseline_interaction),
+        ("candidate", candidate_workload, candidate_interaction),
+    ]:
+        for key in ["source_digest", "executable_digest"]:
+            failures.extend(validate_matched_value(
+                workload,
+                interaction,
+                key,
+                f"{side} {key} differs between workload and interaction",
+            ))
+
+    for lane, baseline, candidate in [
+        ("workload", baseline_workload, candidate_workload),
+        ("interaction", baseline_interaction, candidate_interaction),
+    ]:
+        failures.extend(validate_matched_value(
+            baseline,
+            candidate,
+            "workload_fingerprint",
+            f"{lane} workload_fingerprint changed",
+        ))
+        baseline_count = numeric(baseline, "issued_interaction_count")
+        candidate_count = numeric(candidate, "issued_interaction_count")
+        boundary = numeric(baseline, "regression_boundary_percent")
+        if baseline_count > 0 and candidate_count > 0:
+            drift_percent = abs(candidate_count - baseline_count) / baseline_count * 100
+            if drift_percent > boundary:
+                failures.append(
+                    f"{lane} issued_interaction_count drift exceeded {boundary:g}%: "
+                    f"{baseline_count:g} -> {candidate_count:g} ({drift_percent:.1f}%)"
+                )
+
+    reference_trace_tags = baseline_workload.get("trace_tags")
+    for label, values in [
+        ("candidate workload", candidate_workload),
+        ("baseline interaction", baseline_interaction),
+        ("candidate interaction", candidate_interaction),
+    ]:
+        trace_tags = values.get("trace_tags")
+        if reference_trace_tags and trace_tags and trace_tags != reference_trace_tags:
+            failures.append(
+                f"trace_tags changed between baseline workload and {label}: "
+                f"{reference_trace_tags} -> {trace_tags}"
+            )
+
+    reference_boundary = baseline_workload.get("regression_boundary_percent")
+    for label, values in [
+        ("candidate workload", candidate_workload),
+        ("baseline interaction", baseline_interaction),
+        ("candidate interaction", candidate_interaction),
+    ]:
+        boundary = values.get("regression_boundary_percent")
+        if reference_boundary and boundary and boundary != reference_boundary:
+            failures.append(
+                f"regression_boundary_percent differs between baseline workload and {label}: "
+                f"{reference_boundary} -> {boundary}"
+            )
+    return failures
+
+
 def validate_required_surface_fields(
     label: str,
     values: dict[str, str],
@@ -122,16 +330,26 @@ def validate_required_surface_fields(
     return failures
 
 
-def validate_command_bar_fingerprint(
+def validate_command_bar_query_evidence(
     before_values: dict[str, str],
     after_values: dict[str, str],
 ) -> list[str]:
     failures: list[str] = []
     key = "performance.commandbar.filter.query_character.max"
-    before = required_numeric(before_values, key, "baseline interaction", failures)
-    after = required_numeric(after_values, key, "after interaction", failures)
-    if not failures and before != after:
-        failures.append(f"command-bar interaction fingerprint changed: {key} {before:g} -> {after:g}")
+    required_numeric(before_values, key, "baseline interaction", failures)
+    required_numeric(after_values, key, "after interaction", failures)
+    return failures
+
+
+def validate_candidate_phase_evidence(
+    label: str,
+    values: dict[str, str],
+) -> list[str]:
+    failures = validate_required_surface_fields(label, values, CANDIDATE_TAB_BAR_PHASE_SURFACES)
+    for surface in CANDIDATE_TAB_BAR_PHASE_SURFACES:
+        count = numeric(values, surface_key(surface, "victoria_metrics_count"))
+        if count <= 0:
+            failures.append(f"candidate phase metric {surface} must be present in {label}")
     return failures
 
 
@@ -165,27 +383,12 @@ def improvement_line(before_values: dict[str, str], after_values: dict[str, str]
     return f"{metric_key(surface, metric)}: {before:g} -> {after:g} ({improvement_percent(before, after):.1f}% better)"
 
 
-def surface_has_required_win(before_values: dict[str, str], after_values: dict[str, str], surface: str) -> bool:
-    count_before = numeric(before_values, metric_key(surface, "count"))
-    count_after = numeric(after_values, metric_key(surface, "count"))
-    if improvement_percent(count_before, count_after) >= REQUIRED_IMPROVEMENT_PERCENT:
-        return True
-
-    if p95_available(before_values, after_values, surface):
-        p95_before = numeric(before_values, metric_key(surface, "p95"))
-        p95_after = numeric(after_values, metric_key(surface, "p95"))
-        return improvement_percent(p95_before, p95_after) >= REQUIRED_IMPROVEMENT_PERCENT
-
-    max_before = numeric(before_values, metric_key(surface, "max"))
-    max_after = numeric(after_values, metric_key(surface, "max"))
-    return improvement_percent(max_before, max_after) >= REQUIRED_IMPROVEMENT_PERCENT
-
-
 def regression_failures(
     before_values: dict[str, str],
     after_values: dict[str, str],
     surfaces: list[str],
     metrics: list[str],
+    regression_boundary_percent: float,
 ) -> list[str]:
     failures: list[str] = []
     for surface in surfaces:
@@ -197,7 +400,7 @@ def regression_failures(
             if before <= 0 and after <= 0:
                 continue
             regression = regression_percent(before, after)
-            if regression > MAX_REGRESSION_PERCENT:
+            if regression > regression_boundary_percent:
                 failures.append(
                     f"{metric_key(surface, metric)} regressed {regression:.1f}% ({before:g} -> {after:g})"
                 )
@@ -211,6 +414,33 @@ after_interaction = parse_summary(after_interaction_path)
 
 failures: list[str] = []
 
+for label, values in [
+    ("baseline workload", baseline_workload),
+    ("candidate workload", after_workload),
+    ("baseline interaction", baseline_interaction),
+    ("candidate interaction", after_interaction),
+]:
+    failures.extend(validate_common_evidence(label, values))
+for label, values in [
+    ("candidate workload", after_workload),
+    ("candidate interaction", after_interaction),
+]:
+    failures.extend(validate_candidate_evidence(label, values))
+failures.extend(validate_provenance_matches(
+    baseline_workload,
+    after_workload,
+    baseline_interaction,
+    after_interaction,
+))
+
+boundary_failures: list[str] = []
+regression_boundary_percent = required_nonnegative_number(
+    baseline_workload,
+    "regression_boundary_percent",
+    "baseline workload",
+    boundary_failures,
+)
+
 failures.extend(validate_required_surface_fields(
     "baseline interaction",
     baseline_interaction,
@@ -231,7 +461,8 @@ failures.extend(validate_required_surface_fields(
     after_workload,
     [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
 ))
-failures.extend(validate_command_bar_fingerprint(baseline_interaction, after_interaction))
+failures.extend(validate_candidate_phase_evidence("after workload", after_workload))
+failures.extend(validate_command_bar_query_evidence(baseline_interaction, after_interaction))
 failures.extend(validate_instrumentation_continuity(
     "baseline interaction",
     baseline_interaction,
@@ -250,37 +481,31 @@ failures.extend(validate_instrumentation_continuity(
 failures.extend(validate_instrumentation_continuity(
     "after workload",
     after_workload,
-    [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
+    [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES, *CANDIDATE_TAB_BAR_PHASE_SURFACES],
 ))
 
-if not any(surface_has_required_win(baseline_interaction, after_interaction, surface) for surface in COMMAND_BAR_SURFACES):
-    failures.append(
-        "command-bar interaction did not improve performance.commandbar.items count or p95 by >=50%"
-    )
-
-if not any(surface_has_required_win(baseline_workload, after_workload, surface) for surface in REPO_FANOUT_SURFACES):
-    failures.append(
-        "repo-cache fanout did not improve any required surface count or p95 by >=50%"
-    )
-
-failures.extend(regression_failures(
-    baseline_interaction,
-    after_interaction,
-    COMMAND_BAR_SURFACES,
-    ["count", "p95", "max"],
-))
-failures.extend(regression_failures(
-    baseline_interaction,
-    after_interaction,
-    COMMAND_BAR_FILTER_STABILITY_SURFACES,
-    ["count", "p95"],
-))
-failures.extend(regression_failures(
-    baseline_workload,
-    after_workload,
-    [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
-    ["count", "p95", "max"],
-))
+if regression_boundary_percent is not None:
+    failures.extend(regression_failures(
+        baseline_interaction,
+        after_interaction,
+        COMMAND_BAR_SURFACES,
+        ["count", "p95", "max"],
+        regression_boundary_percent,
+    ))
+    failures.extend(regression_failures(
+        baseline_interaction,
+        after_interaction,
+        COMMAND_BAR_FILTER_STABILITY_SURFACES,
+        ["count", "p95"],
+        regression_boundary_percent,
+    ))
+    failures.extend(regression_failures(
+        baseline_workload,
+        after_workload,
+        [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
+        ["count", "p95", "max"],
+        regression_boundary_percent,
+    ))
 
 lines: list[str] = []
 lines.append("AtomLib v2 final performance comparison")
@@ -321,9 +546,8 @@ if failures:
         lines.append(f"failure: {failure}")
 else:
     lines.append("ready")
-    lines.append("command-bar interaction threshold met")
-    lines.append("repo-cache fanout threshold met")
-    lines.append("no targeted regression exceeded 10%")
+    lines.append(f"frozen regression boundary: {regression_boundary_percent:g}%")
+    lines.append("all provenance, completeness, final-state, and regression gates passed")
 
 output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

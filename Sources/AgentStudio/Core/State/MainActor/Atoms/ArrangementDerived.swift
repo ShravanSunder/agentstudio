@@ -24,13 +24,11 @@ package struct ArrangementDerived {
         }
 
         return tab.activePaneIds.map { paneId in
-            PaneVisibilityInfo(
-                id: paneId,
+            Self.paneVisibilityInfo(
+                paneId: paneId,
                 title: paneDisplay.displayLabel(for: paneId),
                 isMinimized: tab.activeMinimizedPaneIds.contains(paneId),
-                supportsZoom: workspacePane.pane(paneId).map {
-                    ZoomCommandCapabilityPolicy.isPaneContentEligible($0.content)
-                } ?? false
+                paneContent: workspacePane.pane(paneId)?.content
             )
         }
     }
@@ -43,11 +41,9 @@ package struct ArrangementDerived {
         }
 
         return tab.arrangements.map { arrangement in
-            ArrangementInfo(
-                id: arrangement.id,
-                name: arrangement.name,
-                role: arrangement.isDefault ? .defaultArrangement : .userLayout,
-                isActive: arrangement.id == tab.activeArrangementId
+            Self.arrangementInfo(
+                for: arrangement,
+                activeArrangementId: tab.activeArrangementId
             )
         }
     }
@@ -60,9 +56,8 @@ package struct ArrangementDerived {
             return nil
         }
 
-        return ArrangementPanelZoomMode(
-            label: "Cancel Zoom",
-            sourcePaneId: presentation.sourcePaneId,
+        return Self.zoomMode(
+            presentation: presentation,
             sourceIdentity: zoomSourceIdentity(for: presentation.sourcePaneId)
         )
     }
@@ -76,37 +71,69 @@ package struct ArrangementDerived {
         return Self.nextCustomArrangementName(existing: tab.arrangements)
     }
 
-    private func zoomSourceIdentity(
-        for sourcePaneId: UUID
-    ) -> ArrangementPanelZoomSourceIdentity? {
-        let workspacePane = atom(\.workspacePane)
-        let repositoryTopology = atom(\.workspaceRepositoryTopology)
-        let repoCache = atom(\.repoCache)
-        let paneDisplay = atom(\.paneDisplay)
-        guard let sourcePane = workspacePane.pane(sourcePaneId) else {
+    nonisolated package static func paneVisibilityInfo(
+        paneId: UUID,
+        title: String,
+        isMinimized: Bool,
+        paneContent: PaneContent?
+    ) -> PaneVisibilityInfo {
+        PaneVisibilityInfo(
+            id: paneId,
+            title: title,
+            isMinimized: isMinimized,
+            supportsZoom: paneContent.map(ZoomCommandCapabilityPolicy.isPaneContentEligible(_:)) ?? false
+        )
+    }
+
+    nonisolated package static func arrangementInfo(
+        for arrangement: PaneArrangement,
+        activeArrangementId: UUID
+    ) -> ArrangementInfo {
+        ArrangementInfo(
+            id: arrangement.id,
+            name: arrangement.name,
+            role: arrangement.isDefault ? .defaultArrangement : .userLayout,
+            isActive: arrangement.id == activeArrangementId
+        )
+    }
+
+    nonisolated package static func zoomMode(
+        presentation: ZoomPresentation,
+        sourceIdentity: ArrangementPanelZoomSourceIdentity?
+    ) -> ArrangementPanelZoomMode {
+        ArrangementPanelZoomMode(
+            label: "Cancel Zoom",
+            sourcePaneId: presentation.sourcePaneId,
+            sourceIdentity: sourceIdentity
+        )
+    }
+
+    nonisolated package static func activeArrangementBadgeNumber(for tab: Tab) -> Int? {
+        let customArrangements = tab.arrangements.filter { !$0.isDefault }
+        guard let index = customArrangements.firstIndex(where: { $0.id == tab.activeArrangementId }) else {
             return nil
         }
+        return index + 1
+    }
 
-        let resolvedContext =
-            sourcePane.worktreeId.flatMap { worktreeId in
-                sourcePane.repoId.flatMap { repoId in
-                    repositoryTopology.repo(repoId).flatMap { repo in
-                        repositoryTopology.worktree(worktreeId).map { (repo: repo, worktree: $0) }
-                    }
-                }
-            }
-            ?? repositoryTopology.repoAndWorktree(containing: sourcePane.metadata.cwd)
+    nonisolated package static func activeArrangementDisplayName(
+        for arrangement: PaneArrangement
+    ) -> String {
+        arrangement.isDefault ? "Default" : arrangement.name
+    }
 
+    nonisolated package static func zoomSourceIdentity(
+        for sourcePane: Pane,
+        workspaceContext: PaneDisplayWorkspaceContext?
+    ) -> ArrangementPanelZoomSourceIdentity {
         let sourceLabels: [String]
-        if let resolvedContext {
+        if let workspaceContext {
             sourceLabels = [
-                resolvedContext.repo.name,
-                paneDisplay.resolvedBranchName(
-                    worktree: resolvedContext.worktree,
-                    enrichment: repoCache.worktreeEnrichment(for: resolvedContext.worktree.id)
-                ),
-                resolvedContext.worktree.path.lastPathComponent,
+                workspaceContext.repoName,
+                workspaceContext.branchName,
+                workspaceContext.worktreeName,
             ]
+            .compactMap { $0 }
         } else {
             sourceLabels = [
                 sourcePane.metadata.facets.repoName,
@@ -119,7 +146,7 @@ package struct ArrangementDerived {
         }
         let sourceTitle =
             sourceLabels.isEmpty
-            ? paneDisplay.displayLabel(for: sourcePaneId)
+            ? PaneDisplayDerived.displayParts(for: sourcePane, workspaceContext: workspaceContext).primaryLabel
             : sourceLabels.joined(separator: " | ")
         let targetPath = sourcePane.metadata.cwd
 
@@ -127,6 +154,53 @@ package struct ArrangementDerived {
             title: sourceTitle,
             detail: targetPath?.standardizedFileURL.path,
             fullPath: targetPath?.standardizedFileURL.path
+        )
+    }
+
+    nonisolated package static func zoomSourceWorkspaceContext(
+        resolvedContext: (repo: Repo, worktree: Worktree)?,
+        worktreeEnrichment: WorktreeEnrichment?
+    ) -> PaneDisplayWorkspaceContext? {
+        guard let resolvedContext else { return nil }
+        return PaneDisplayWorkspaceContext(
+            repoName: resolvedContext.repo.name,
+            worktreeName: resolvedContext.worktree.path.lastPathComponent,
+            worktreeIconName: resolvedContext.worktree.isMainWorktree
+                ? "octicon-star-fill" : "octicon-git-worktree",
+            branchName: PaneDisplayDerived.resolvedBranchName(
+                worktree: resolvedContext.worktree,
+                enrichment: worktreeEnrichment
+            )
+        )
+    }
+
+    private func zoomSourceIdentity(
+        for sourcePaneId: UUID
+    ) -> ArrangementPanelZoomSourceIdentity? {
+        let workspacePane = atom(\.workspacePane)
+        let repositoryTopology = atom(\.workspaceRepositoryTopology)
+        let repoCache = atom(\.repoCache)
+        guard let sourcePane = workspacePane.pane(sourcePaneId) else {
+            return nil
+        }
+        let resolvedContext =
+            sourcePane.worktreeId.flatMap { worktreeId in
+                sourcePane.repoId.flatMap { repoId in
+                    repositoryTopology.repo(repoId).flatMap { repo in
+                        repositoryTopology.worktree(worktreeId).map { (repo, $0) }
+                    }
+                }
+            }
+            ?? repositoryTopology.repoAndWorktree(containing: sourcePane.metadata.cwd)
+        let workspaceContext = Self.zoomSourceWorkspaceContext(
+            resolvedContext: resolvedContext,
+            worktreeEnrichment: resolvedContext.flatMap {
+                repoCache.worktreeEnrichment(for: $0.worktree.id)
+            }
+        )
+        return Self.zoomSourceIdentity(
+            for: sourcePane,
+            workspaceContext: workspaceContext
         )
     }
 }

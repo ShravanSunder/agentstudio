@@ -144,6 +144,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.surface",
         "agentstudio.performance.sidebar.trigger",
         "agentstudio.performance.sidebar.toggle.intent",
+        "agentstudio.performance.tabbar.terminal.outcome",
         "agentstudio.performance.terminal.accumulator.drain.class",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
@@ -463,8 +464,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
+        "agentstudio.performance.tabbar.sequence",
         "agentstudio.performance.tabbar.source_tab.count",
         "agentstudio.performance.tabbar.tab.count",
+        "agentstudio.performance.trace_queue.dropped_record.count",
+        "agentstudio.performance.trace_queue.high_watermark",
         "agentstudio.performance.terminal.accumulator.equal_suppressed.count",
         "agentstudio.performance.terminal.accumulator.follow_up_drain.count",
         "agentstudio.performance.terminal.accumulator.mainactor_task.count",
@@ -685,6 +689,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.is_filtering",
         "agentstudio.performance.sidebar.was_empty",
         "agentstudio.performance.sidebar.was_collapsed",
+        "agentstudio.performance.tabbar.active_tab.present",
         "agentstudio.performance.terminal.activity_projection.submitted",
         "agentstudio.performance.terminal.surface.dedup_likely",
         "agentstudio.performance.terminal.surface.hidden",
@@ -898,6 +903,8 @@ extension AgentStudioOTLPTraceProjection {
                 "data_refresh", "startup_diagnostic",
             ]
             .contains(value)
+        case "agentstudio.performance.tabbar.terminal.outcome":
+            return ["published", "equal", "superseded", "cancelled"].contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",
