@@ -56,6 +56,8 @@
 - Modify `Sources/AgentStudio/Core/State/MainActor/Atoms/TabDisplayDerived.swift`
 - Modify `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift`
 - Modify `Sources/AgentStudio/Core/State/MainActor/Atoms/ArrangementDerived.swift`
+- Modify `Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift`
+- Modify `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneDerived.swift`
 - Create `Tests/AgentStudioTests/Core/State/CoreTabBarProjectorTests.swift`
 
 **Interface:** opaque `CoreTabBarProjectionRequest: Sendable` with `@MainActor static capture(store:repoCache:)`; `CoreTabBarProjector.project(_:cancellationCheck:) throws(CancellationError) -> CoreTabBarProjection`; package-visible Sendable/Equatable item output containing title, arrangement, visibility, minimized, zoom, pane-group, and active-tab facts.

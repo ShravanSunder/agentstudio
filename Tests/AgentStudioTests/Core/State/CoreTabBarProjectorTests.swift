@@ -194,6 +194,39 @@ final class CoreTabBarProjectorTests {
     }
 
     @Test
+    func topologySnapshotChecksCancellationForEachPathEntry() {
+        withTestCoreAtoms(using: coreAtoms) { _ in
+            let repositoryPath = URL(filePath: "/tmp/core-tab-bar-snapshot-cancellation/repository")
+            let repository = store.addRepo(at: repositoryPath)
+            let mainWorktree = repository.worktrees[0]
+            let linkedWorktree = Worktree(
+                repoId: repository.id,
+                name: "linked",
+                path: repositoryPath.appending(path: "linked")
+            )
+            store.reconcileDiscoveredWorktrees(
+                repository.id,
+                worktrees: [mainWorktree, linkedWorktree]
+            )
+            let snapshot = store.repositoryTopologyAtom.captureReadSnapshot()
+            var cancellationCheckCount = 0
+            func cancelOnSecondPathEntry() throws(CancellationError) {
+                cancellationCheckCount += 1
+                guard cancellationCheckCount == 2 else { return }
+                throw CancellationError()
+            }
+
+            #expect(throws: CancellationError.self) {
+                try snapshot.repoAndWorktree(
+                    containing: URL(filePath: "/tmp/core-tab-bar-snapshot-cancellation/unmatched"),
+                    cancellationCheck: cancelOnSecondPathEntry
+                )
+            }
+            #expect(cancellationCheckCount == 2)
+        }
+    }
+
+    @Test
     func projectorReportsDefaultAndCustomArrangementPresentationWithoutZoom() throws {
         try withTestCoreAtoms(using: coreAtoms) { _ in
             let pane = store.createPane()
