@@ -106,6 +106,10 @@ final class TabBarAdapter {
         materializedProjection.stop()
     }
 
+    isolated deinit {
+        stop()
+    }
+
     // MARK: - Observation
 
     private func observe() {

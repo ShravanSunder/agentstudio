@@ -355,12 +355,6 @@ extension AppDelegate {
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
         startWorkspacePaneRecencyObservation()
-        tabBarAdapter = TabBarAdapter(
-            store: store,
-            repoCache: repoCache,
-            inboxAtom: atomStore.inboxNotification,
-            performanceTraceRecorder: performanceTraceRecorder
-        )
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
