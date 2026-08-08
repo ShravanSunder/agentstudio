@@ -7,8 +7,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
+import {
+	runAllOwnedCleanupOperations,
+	startOwnedBridgeDevelopmentServer,
+} from '../../scripts/dev-server/bridge-development-server-process.ts';
+import { bridgeReviewItemIdOracle } from '../../scripts/verify-bridge-viewer-worktree-dev-server/bridge-review-item-id-oracle.ts';
+
 const execFileAsync = promisify(execFile);
 const bridgeWebRootPath = new URL('../../', import.meta.url).pathname;
+const repoRootPath = new URL('../../..', import.meta.url).pathname;
 const viteCLIPath = join(bridgeWebRootPath, 'node_modules/vite/bin/vite.js');
 const serverStartupTimeoutMilliseconds = 30_000;
 const serverShutdownTimeoutMilliseconds = 10_000;
@@ -162,7 +169,12 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 				return {
 					base: reviewRoleOracle('base', baseBody),
 					head: reviewRoleOracle('head', headBody),
-					itemId: `review-item-${sha256(path).slice(0, 32)}`,
+					itemId: bridgeReviewItemIdOracle({
+						newContentHash: gitBlobHash(headBody),
+						oldContentHash: gitBlobHash(baseBody),
+						path,
+						previousPath: null,
+					}),
 					path,
 				};
 			}),
@@ -223,6 +235,17 @@ export async function startBridgeViewerOwnedViteProductServer(
 ): Promise<BridgeViewerOwnedViteProductServer> {
 	const port = await reserveLoopbackPort();
 	const telemetryReceiver = await startBridgeViewerOwnedTelemetryReceiver();
+	const bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
+		baseRef: oracle.baseRef,
+		repoRootPath,
+		worktreeRoot: oracle.worktreeRoot,
+	}).catch(async (error: unknown): Promise<never> => {
+		await runAllOwnedCleanupOperations({
+			operations: [{ name: 'telemetry receiver', run: telemetryReceiver.stop }],
+			primaryError: error,
+		});
+		throw error;
+	});
 	const child = spawn(
 		process.execPath,
 		[viteCLIPath, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
@@ -230,11 +253,9 @@ export async function startBridgeViewerOwnedViteProductServer(
 			cwd: bridgeWebRootPath,
 			env: {
 				...process.env,
-				BRIDGE_WEB_DEV_BASE: oracle.baseRef,
-				BRIDGE_WEB_DEV_SCENARIO: 'current-worktree',
+				BRIDGE_WEB_DEV_BACKEND_ORIGIN: bridgeDevelopmentServer.origin,
 				BRIDGE_WEB_DEV_TELEMETRY_OTLP_LOGS_URL: `${telemetryReceiver.origin}/v1/logs`,
 				BRIDGE_WEB_DEV_TELEMETRY_OTLP_METRICS_URL: `${telemetryReceiver.origin}/v1/metrics`,
-				BRIDGE_WEB_DEV_WORKTREE: oracle.worktreeRoot,
 			},
 			stdio: ['pipe', 'pipe', 'pipe'],
 		},
@@ -274,26 +295,68 @@ export async function startBridgeViewerOwnedViteProductServer(
 			'owned Vite readiness',
 		);
 	} catch (error: unknown) {
+		let startupError = error;
 		try {
-			return await rejectOwnedViteStartupAfterCleanup({
+			await rejectOwnedViteStartupAfterCleanup({
 				child,
 				exitPromise,
 				startupError: error,
 			});
-		} finally {
-			await telemetryReceiver.stop();
+		} catch (cleanupAwareStartupError: unknown) {
+			startupError = cleanupAwareStartupError;
 		}
+		await runAllOwnedCleanupOperations({
+			operations: [
+				{ name: 'telemetry receiver', run: telemetryReceiver.stop },
+				{
+					name: 'Swift development backend',
+					run: async (): Promise<void> => {
+						await bridgeDevelopmentServer.stop();
+					},
+				},
+			],
+			primaryError: startupError,
+		});
+		throw startupError;
 	}
 	const origin = `http://127.0.0.1:${port}`;
 	return {
 		origin,
 		pid: child.pid ?? 0,
 		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {
-			try {
-				return await stopOwnedViteServer({ child, exitPromise });
-			} finally {
-				await telemetryReceiver.stop();
+			const cleanupResults: {
+				backend: Awaited<ReturnType<typeof bridgeDevelopmentServer.stop>> | null;
+				vite: BridgeViewerOwnedViteProductServerCleanup | null;
+			} = { backend: null, vite: null };
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'Vite',
+						run: async (): Promise<void> => {
+							cleanupResults.vite = await stopOwnedViteServer({ child, exitPromise });
+						},
+					},
+					{
+						name: 'Swift development backend',
+						run: async (): Promise<void> => {
+							cleanupResults.backend = await bridgeDevelopmentServer.stop();
+						},
+					},
+					{ name: 'telemetry receiver', run: telemetryReceiver.stop },
+				],
+			});
+			if (cleanupResults.vite === null || cleanupResults.backend === null) {
+				throw new Error('Owned Bridge product server cleanup did not return process facts.');
 			}
+			return {
+				...cleanupResults.vite,
+				forcedTerminationRequired:
+					cleanupResults.vite.forcedTerminationRequired ||
+					cleanupResults.backend.forcedTerminationRequired,
+				ownedProcessAliveAfterStop:
+					cleanupResults.vite.ownedProcessAliveAfterStop ||
+					cleanupResults.backend.ownedProcessAliveAfterStop,
+			};
 		},
 		version: /VITE v(?<version>\d+\.\d+\.\d+)/u.exec(readinessOutput)?.groups?.['version'] ?? null,
 	};
@@ -352,6 +415,14 @@ function reviewRoleOracle(
 	body: string,
 ): BridgeViewerViteProductReviewRoleOracle {
 	return { body, byteLength: Buffer.byteLength(body), role, sha256: sha256(body) };
+}
+
+function gitBlobHash(content: string): string {
+	const contentBytes = Buffer.from(content);
+	return createHash('sha1')
+		.update(`blob ${contentBytes.byteLength}\0`)
+		.update(contentBytes)
+		.digest('hex');
 }
 
 async function runFixtureGit(cwd: string, arguments_: readonly string[]): Promise<string> {

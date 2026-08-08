@@ -7,6 +7,21 @@ import Testing
 
 @testable import AgentStudioRepoExplorer
 
+private final class RepoProjectionInvalidationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var invalidationCount: Int {
+        lock.withLock { storedCount }
+    }
+
+    func record() {
+        lock.withLock {
+            storedCount += 1
+        }
+    }
+}
+
 @MainActor
 func makeRepoExplorerTestOcticonLoader(from testFilePath: String = #filePath) -> OcticonLoader {
     OcticonLoader(
@@ -226,6 +241,59 @@ struct RepoExplorerViewProjectionHelperTests {
         #expect(snapshotRecorder.readCount == 1)
         #expect(candidates.map(\.paneId) == [firstPane.id, secondPane.id])
         #expect(candidates.map(\.attendanceOrdinal) == [7, 19])
+    }
+
+    @Test("sidebar snapshot observation ignores pane titles and invalidates for residency")
+    func sidebarSnapshotObservationIsTitleInsensitive() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-observation"))
+            let worktree = try #require(repo.worktrees.first)
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                title: "Initial title",
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            store.appendTab(Tab(paneId: pane.id))
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                bridgeAttendanceSnapshot: { [:] },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetVisibilityMode: { _ in },
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+            withObservationTracking {
+                _ = view.makeSidebarSnapshot(
+                    repos: store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
+                    repoEnrichmentByRepoId: [:],
+                    groupingMode: .repo,
+                    sortOrder: .ascending,
+                    visibilityMode: .all,
+                    query: ""
+                )
+            } onChange: {
+                invalidationRecorder.record()
+            }
+
+            store.paneAtom.updatePaneTitle(pane.id, title: "Updated title")
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+
+            store.paneAtom.setResidency(.backgrounded, for: pane.id)
+
+            #expect(invalidationRecorder.invalidationCount == 1)
+        }
     }
 
     @Test("source group icon uses same checkout color contract as worktree rows")

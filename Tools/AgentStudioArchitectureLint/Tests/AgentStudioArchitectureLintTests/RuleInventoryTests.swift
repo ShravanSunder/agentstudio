@@ -33,6 +33,7 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_atomlib_is_generic", severity: .error),
         ExpectedRule(id: "agentstudio_derived_atom_declared_inputs", severity: .error),
         ExpectedRule(id: "agentstudio_repo_cache_keyed_reads", severity: .error),
+        ExpectedRule(id: "agentstudio_hot_pane_snapshot_reads", severity: .error),
         ExpectedRule(id: "agentstudio_worktree_enrichment_comparator", severity: .error),
         ExpectedRule(id: "agentstudio_state_actor_path", severity: .warning),
         ExpectedRule(id: "agentstudio_ipc_programmatic_control_boundary", severity: .error),

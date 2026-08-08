@@ -169,9 +169,9 @@ struct GhosttyActionRouterMixedPressureTests {
                 <= TerminalLocalActionAccumulator.maximumRetainedEntriesPerSurface
         )
 
-        let localBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID))
+        let localBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID, lane: .immediate))
         #expect(localBatch.metrics.offeredCount == UInt64(localSampleCount))
-        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID) == .idle)
+        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID, lane: .immediate) == .idle)
         #expect(fixture.accumulator.pendingSurfaceCount == 0)
         #expect(fixture.accumulator.retainedEntryCount == 0)
     }
@@ -325,7 +325,7 @@ private final class MixedAdmissionDrainScheduleRecorder: @unchecked Sendable {
         lock.withLock { storage }
     }
 
-    func record(_ surfaceID: UUID, _: TerminalLocalDrainSchedule) {
+    func record(_ surfaceID: UUID, _: TerminalLocalDrainRequest) {
         lock.withLock {
             storage.append(surfaceID)
         }

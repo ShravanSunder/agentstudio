@@ -41,6 +41,7 @@ enum ArchitectureRuleRegistry {
         AtomLibGenericRule(),
         DerivedAtomDeclaredInputsRule(),
         RepoCacheKeyedReadsRule(),
+        HotPaneSnapshotReadsRule(),
         WorktreeEnrichmentComparatorRule(),
         StateActorPathRule(),
         IPCProgrammaticControlBoundaryRule(),

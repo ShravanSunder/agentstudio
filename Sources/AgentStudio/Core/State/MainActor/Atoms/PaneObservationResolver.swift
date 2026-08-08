@@ -15,8 +15,20 @@ package enum PaneObservationResolver {
         pane: (UUID) -> Pane?,
         drawerView: (UUID) -> DrawerView? = { _ in nil }
     ) -> UUID? {
+        currentAttendedPaneId(
+            attendedPaneId: attendedPaneId,
+            isDrawerExpanded: { pane($0)?.drawer?.isExpanded == true },
+            drawerView: drawerView
+        )
+    }
+
+    package static func currentAttendedPaneId(
+        attendedPaneId: UUID?,
+        isDrawerExpanded: (UUID) -> Bool,
+        drawerView: (UUID) -> DrawerView? = { _ in nil }
+    ) -> UUID? {
         guard let attendedPaneId else { return nil }
-        if let drawer = pane(attendedPaneId)?.drawer, drawer.isExpanded {
+        if isDrawerExpanded(attendedPaneId) {
             guard let view = drawerView(attendedPaneId),
                 let activeChildId = view.activeChildId,
                 !view.minimizedPaneIds.contains(activeChildId)
@@ -35,6 +47,22 @@ package enum PaneObservationResolver {
         pane: (UUID) -> Pane?,
         drawerView: (UUID) -> DrawerView? = { _ in nil }
     ) -> Set<UUID> {
+        currentObservedPaneIds(
+            attendedPaneId: attendedPaneId,
+            activeTab: activeTab,
+            zoomSourcePaneId: zoomSourcePaneId,
+            isDrawerExpanded: { pane($0)?.drawer?.isExpanded == true },
+            drawerView: drawerView
+        )
+    }
+
+    package static func currentObservedPaneIds(
+        attendedPaneId: UUID?,
+        activeTab: Tab?,
+        zoomSourcePaneId: UUID? = nil,
+        isDrawerExpanded: (UUID) -> Bool,
+        drawerView: (UUID) -> DrawerView? = { _ in nil }
+    ) -> Set<UUID> {
         guard let attendedPaneId else { return [] }
         let activePaneIds = currentRenderedPaneIds(
             activeTab: activeTab,
@@ -43,7 +71,7 @@ package enum PaneObservationResolver {
         )
         var observedPaneIds = Set<UUID>()
         for paneId in activePaneIds {
-            if let drawer = pane(paneId)?.drawer, drawer.isExpanded {
+            if isDrawerExpanded(paneId) {
                 if let view = drawerView(paneId),
                     let activeChildId = view.activeChildId,
                     !view.minimizedPaneIds.contains(activeChildId)

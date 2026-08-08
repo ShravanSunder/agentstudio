@@ -320,14 +320,14 @@ struct GhosttyActionRouterTests {
                 routingLookup: fixture.routingLookup
             )
         )
-        let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID))
+        let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID, lane: .title))
         let laterTitle = try #require(laterBatch.titleMetadata?.runtimeTitle)
         Ghostty.ActionRouter.routeContractedTitleMetadata(
             laterTitle,
             surfaceViewObjectID: fixture.surfaceViewObjectID,
             routingLookup: fixture.routingLookup
         )
-        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID) == .idle)
+        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID, lane: .title) == .idle)
 
         let replay = await fixture.runtime.eventsSince(seq: 0)
         #expect(terminalEventNames(from: replay.events) == ["title:A", "command:7", "title:C"])
@@ -368,14 +368,14 @@ struct GhosttyActionRouterTests {
                 accumulator: fixture.accumulator
             ) == .handledLocally
         )
-        let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID))
+        let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID, lane: .title))
         let laterTitle = try #require(laterBatch.titleMetadata?.runtimeTitle)
         Ghostty.ActionRouter.routeContractedTitleMetadata(
             laterTitle,
             surfaceViewObjectID: fixture.surfaceViewObjectID,
             routingLookup: fixture.routingLookup
         )
-        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID) == .idle)
+        #expect(fixture.accumulator.finishDrain(for: fixture.surfaceID, lane: .title) == .idle)
 
         let replay = await fixture.runtime.eventsSince(seq: 0)
         #expect(terminalEventNames(from: replay.events) == ["command:3", "title:later"])

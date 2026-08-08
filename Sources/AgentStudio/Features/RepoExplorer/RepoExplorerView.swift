@@ -24,8 +24,7 @@ package struct RepoExplorerView: View {
     let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let commandDispatcher: any AppCommandDispatching
-    let canSetVisibilityMode: ((RepoExplorerVisibilityMode) -> Bool)?
-    let canSetSortOrder: ((RepoExplorerSortOrder) -> Bool)?
+    let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let onSetVisibilityMode: (RepoExplorerVisibilityMode) -> Void
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
     let onRefocusActivePane: () -> Void
@@ -46,8 +45,7 @@ package struct RepoExplorerView: View {
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         commandDispatcher: any AppCommandDispatching,
-        canSetVisibilityMode: ((RepoExplorerVisibilityMode) -> Bool)? = nil,
-        canSetSortOrder: ((RepoExplorerSortOrder) -> Bool)? = nil,
+        commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot = .empty,
         onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void,
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefocusActivePane: @escaping () -> Void,
@@ -64,8 +62,7 @@ package struct RepoExplorerView: View {
         self.repoExplorerPrefs = repoExplorerPrefs
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.commandDispatcher = commandDispatcher
-        self.canSetVisibilityMode = canSetVisibilityMode
-        self.canSetSortOrder = canSetSortOrder
+        self.commandPresentationSnapshot = commandPresentationSnapshot
         self.onSetVisibilityMode = onSetVisibilityMode
         self.onSetSortOrder = onSetSortOrder
         self.onRefocusActivePane = onRefocusActivePane
@@ -377,7 +374,7 @@ package struct RepoExplorerView: View {
                             repoId: resolvedWorktreeContext.repo.id,
                             isFavorite: isFavorite,
                             showsFavoriteControl: favoriteControlVisibility.showsInlineButton,
-                            dispatcher: commandDispatcher
+                            snapshot: commandPresentationSnapshot
                         )
                         RepoExplorerWorktreeRow(
                             octiconLoader: octiconLoader,
@@ -836,38 +833,15 @@ package struct RepoExplorerView: View {
 }
 
 extension RepoExplorerView {
-    private var currentCommandContext: CommandContext {
-        let workspaceTab = WorkspaceTabLayoutDerived(
-            shellAtom: store.tabShellAtom,
-            arrangementAtom: store.tabArrangementAtom
-        )
-        let focusedPane = atom(\.workspaceFocusedPane).resolve(
-            workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom,
-            requestedOwner: atom(\.workspaceFocusOwner).owner
-        )
-        return atom(\.commandContext).currentContext(
-            workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom,
-            focusedPane: focusedPane,
-            workspacePanePresentation: store.panePresentationAtom
-        )
-    }
-
     @ViewBuilder
     private var repoToolbarRow: some View {
         let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
         let nextVisibilityMode: RepoExplorerVisibilityMode = isFavoritesOnly ? .all : .favoritesOnly
         let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
         let commandPresentation = RepoExplorerToolbarCommandPresentation.resolve(
-            commandContext: currentCommandContext,
-            dispatcher: commandDispatcher,
-            capabilityOverrides: Self.argumentCommandCapabilities(
-                nextVisibilityMode: nextVisibilityMode,
-                nextSortOrder: nextSortOrder,
-                canSetVisibilityMode: canSetVisibilityMode,
-                canSetSortOrder: canSetSortOrder
-            )
+            nextVisibilityMode: nextVisibilityMode,
+            nextSortOrder: nextSortOrder,
+            snapshot: commandPresentationSnapshot
         )
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let presentedGroupingModes = RepoExplorerGroupingMode.allCases.filter { groupingMode in

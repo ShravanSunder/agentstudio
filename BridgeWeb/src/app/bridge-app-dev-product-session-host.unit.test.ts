@@ -16,6 +16,7 @@ import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_REQUEST_MEDIA_TYPE,
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE,
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
+	BRIDGE_PRODUCT_DEV_HEALTH_ROUTE,
 	encodeBridgeProductDevBootstrapDelivery,
 	type BridgeProductDevBootstrapDelivery,
 } from '../core/comm-worker/bridge-product-dev-bootstrap.js';
@@ -171,6 +172,285 @@ describe('Bridge app dev product session host', () => {
 		}
 	});
 
+	test('acknowledges page readiness only after the initial bootstrap succeeds', async () => {
+		// Arrange
+		const target = new EventTarget();
+		const envelope = encodeBridgeProductDevBootstrapDelivery(productBootstrapDelivery(1));
+		const fetchBootstrap = vi.fn<typeof fetch>(
+			async () =>
+				new Response(envelope.buffer as ArrayBuffer, {
+					headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE },
+					status: 200,
+				}),
+		);
+		const fetchHealth = vi.fn<typeof fetch>();
+		const reloadPage = vi.fn();
+		const acknowledgement = waitForReadyAcknowledgement(target);
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+		});
+
+		// Act
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-success' } }),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-success' },
+			}),
+		);
+
+		// Assert
+		expect(await acknowledgement).toEqual({
+			jsonrpc: '2.0',
+			id: 'bridge-ready-success',
+			result: null,
+		});
+		expect(fetchHealth).not.toHaveBeenCalled();
+		expect(reloadPage).not.toHaveBeenCalled();
+		host.dispose();
+	});
+
+	test('acknowledges a fresh ready request after React reinstalls the handshake', async () => {
+		// Arrange
+		const target = new EventTarget();
+		const deliveries = [productBootstrapDelivery(1), productBootstrapDelivery(2)];
+		const fetchBootstrap = vi.fn<typeof fetch>(async () => {
+			const delivery = deliveries.shift();
+			if (delivery === undefined) throw new Error('Unexpected bootstrap request.');
+			const envelope = encodeBridgeProductDevBootstrapDelivery(delivery);
+			return new Response(envelope.buffer as ArrayBuffer, {
+				headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE },
+				status: 200,
+			});
+		});
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			navigationIntent,
+			target,
+		});
+
+		// Act
+		const firstAcknowledgement = waitForReadyAcknowledgement(target);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-first-handshake' },
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-first' } }),
+		);
+		await firstAcknowledgement;
+		const secondAcknowledgement = waitForReadyAcknowledgement(target);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-second-handshake' },
+			}),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-second' } }),
+		);
+
+		// Assert
+		expect(await secondAcknowledgement).toEqual({
+			jsonrpc: '2.0',
+			id: 'bridge-ready-second',
+			result: null,
+		});
+		expect(fetchBootstrap).toHaveBeenCalledTimes(2);
+		host.dispose();
+	});
+
+	test('acknowledges initial failure and reloads once after the backend becomes healthy', async () => {
+		// Arrange
+		const target = new EventTarget();
+		const fetchBootstrap = vi.fn<typeof fetch>(
+			async () =>
+				new Response(null, {
+					headers: { 'Content-Type': 'text/plain' },
+					status: 502,
+				}),
+		);
+		const fetchHealth = vi
+			.fn<typeof fetch>()
+			.mockRejectedValueOnce(new Error('still unavailable'))
+			.mockResolvedValueOnce(new Response(null, { status: 503 }))
+			.mockResolvedValueOnce(new Response(null, { status: 204 }));
+		const probeWaits = createControlledHealthProbeWaits();
+		const reloadPage = vi.fn();
+		const acknowledgement = waitForReadyAcknowledgement(target);
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+			waitForHealthProbe: probeWaits.wait,
+		});
+
+		// Act
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-failure' } }),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-failure' },
+			}),
+		);
+
+		// Assert
+		expect(await acknowledgement).toEqual({
+			jsonrpc: '2.0',
+			id: 'bridge-ready-failure',
+			error: { code: -32_000, message: 'Bridge development backend unavailable' },
+		});
+		await probeWaits.releaseNext();
+		expect(fetchHealth).toHaveBeenNthCalledWith(
+			1,
+			BRIDGE_PRODUCT_DEV_HEALTH_ROUTE,
+			expect.objectContaining({ method: 'GET' }),
+		);
+		await probeWaits.releaseNext();
+		await probeWaits.releaseNext();
+		expect(fetchHealth).toHaveBeenCalledTimes(3);
+		expect(reloadPage).toHaveBeenCalledOnce();
+		host.dispose();
+	});
+
+	test('reloads after the backend truncates an accepted bootstrap response', async () => {
+		// Arrange
+		const target = new EventTarget();
+		const truncatedResponse = new Response(new Uint8Array([1]), {
+			headers: { 'Content-Type': BRIDGE_PRODUCT_DEV_BOOTSTRAP_RESPONSE_MEDIA_TYPE },
+			status: 200,
+		});
+		vi.spyOn(truncatedResponse, 'arrayBuffer').mockRejectedValue(
+			new TypeError('terminated while reading response body'),
+		);
+		const fetchBootstrap = vi.fn<typeof fetch>(async () => truncatedResponse);
+		const fetchHealth = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		const reloadPage = vi.fn();
+		const acknowledgement = waitForReadyAcknowledgement(target);
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+			waitForHealthProbe: async (): Promise<void> => {},
+		});
+
+		// Act
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-truncated' } }),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-truncated' },
+			}),
+		);
+
+		// Assert
+		expect(await acknowledgement).toEqual({
+			jsonrpc: '2.0',
+			id: 'bridge-ready-truncated',
+			error: { code: -32_000, message: 'Bridge development backend unavailable' },
+		});
+		await vi.waitFor((): void => {
+			expect(fetchHealth).toHaveBeenCalledOnce();
+			expect(reloadPage).toHaveBeenCalledOnce();
+		});
+		host.dispose();
+	});
+
+	test.each([
+		{
+			label: 'live backend rejection',
+			response: (): Response => new Response(null, { status: 503 }),
+		},
+		{
+			label: 'non-empty 502 response',
+			response: (): Response =>
+				new Response('application rejection', {
+					headers: { 'Content-Type': 'text/plain' },
+					status: 502,
+				}),
+		},
+	])('does not reload after an application bootstrap rejection: $label', async ({ response }) => {
+		// Arrange
+		const target = new EventTarget();
+		const fetchBootstrap = vi.fn<typeof fetch>(async () => response());
+		const fetchHealth = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+		const reloadPage = vi.fn();
+		const acknowledgement = waitForReadyAcknowledgement(target);
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+			waitForHealthProbe: async (): Promise<void> => {},
+		});
+
+		// Act
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-rejected' } }),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-rejected' },
+			}),
+		);
+		await acknowledgement;
+		await Promise.resolve();
+
+		// Assert
+		expect(fetchHealth).not.toHaveBeenCalled();
+		expect(reloadPage).not.toHaveBeenCalled();
+		host.dispose();
+	});
+
+	test('disposal cancels readiness probing before a page reload', async () => {
+		// Arrange
+		const target = new EventTarget();
+		const fetchBootstrap = vi.fn<typeof fetch>(async () => {
+			throw new Error('backend unavailable');
+		});
+		const fetchHealth = vi.fn<typeof fetch>();
+		const probeWaits = createControlledHealthProbeWaits();
+		const reloadPage = vi.fn();
+		const acknowledgement = waitForReadyAcknowledgement(target);
+		const host = installBridgeAppDevProductSessionHost({
+			fetchBootstrap,
+			fetchHealth,
+			navigationIntent,
+			reloadPage,
+			target,
+			waitForHealthProbe: probeWaits.wait,
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_ready', { detail: { requestId: 'bridge-ready-dispose' } }),
+		);
+		target.dispatchEvent(
+			new CustomEvent('__bridge_product_session_bootstrap_request', {
+				detail: { reason: 'initial', requestId: 'bootstrap-dispose' },
+			}),
+		);
+		await acknowledgement;
+
+		// Act
+		host.dispose();
+		await probeWaits.releaseNext();
+
+		// Assert
+		expect(fetchHealth).not.toHaveBeenCalled();
+		expect(reloadPage).not.toHaveBeenCalled();
+	});
+
 	test('ignores malformed requests and stops after disposal', () => {
 		// Arrange
 		const target = new EventTarget();
@@ -203,6 +483,44 @@ describe('Bridge app dev product session host', () => {
 		expect(fetchBootstrap).not.toHaveBeenCalled();
 	});
 });
+
+function waitForReadyAcknowledgement(target: EventTarget): Promise<unknown> {
+	return new Promise<unknown>((resolve): void => {
+		target.addEventListener(
+			'__bridge_ready_ack',
+			(event): void => resolve('detail' in event ? event.detail : null),
+			{ once: true },
+		);
+	});
+}
+
+function createControlledHealthProbeWaits(): {
+	readonly releaseNext: () => Promise<void>;
+	readonly wait: (signal: AbortSignal) => Promise<void>;
+} {
+	const pendingWaits: Array<() => void> = [];
+	return {
+		releaseNext: async (): Promise<void> => {
+			await vi.waitFor((): void => {
+				expect(pendingWaits.length).toBeGreaterThan(0);
+			});
+			pendingWaits.shift()?.();
+			for (let microtask = 0; microtask < 4; microtask += 1) {
+				await Promise.resolve();
+			}
+		},
+		wait: async (signal): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				if (signal.aborted) {
+					resolve();
+					return;
+				}
+				pendingWaits.push(resolve);
+				signal.addEventListener('abort', (): void => resolve(), { once: true });
+			});
+		},
+	};
+}
 
 function productBootstrapDelivery(sequence: number): BridgeProductDevBootstrapDelivery {
 	return {

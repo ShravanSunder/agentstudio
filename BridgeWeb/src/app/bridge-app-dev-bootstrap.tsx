@@ -29,14 +29,19 @@ if (rootElement !== null) {
 	});
 	const productSessionHost = installBridgeAppDevProductSessionHost({
 		navigationIntent: options.navigationIntent,
+		reloadPage: (): void => location.reload(),
 	});
 	const workerFactory = createBridgePierrePortableBlobWorkerFactory();
 	const markdownWorkerClient = createBridgeMarkdownRenderWebWorkerClient({
 		workerFactory: createBridgeMarkdownRenderModuleWorkerFactory(),
 	});
+	const paneRuntime = createBridgePaneRuntime({
+		sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
+	});
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
+			paneRuntime.dispose();
 			productSessionHost.dispose();
 			telemetryHost.dispose();
 			workerFactory.revoke();
@@ -48,11 +53,7 @@ if (rootElement !== null) {
 		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled
 			markdownWorkerClient={markdownWorkerClient}
-			paneRuntimeFactory={(): ReturnType<typeof createBridgePaneRuntime> =>
-				createBridgePaneRuntime({
-					sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
-				})
-			}
+			paneRuntime={paneRuntime}
 			fileViewerProps={{ autoOpenInitialFile: true }}
 			codeViewWorkerFactory={workerFactory.workerFactory}
 		/>,

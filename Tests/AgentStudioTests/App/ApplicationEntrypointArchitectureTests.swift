@@ -163,12 +163,22 @@ struct ApplicationEntrypointArchitectureTests {
             startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
         #expect(diagnosticTaskIndex < diagnosticDispatchRecordIndex)
         #expect(diagnosticDispatchRecordIndex < diagnosticFirstYieldIndex)
-        let dispatchDebugGuardIndex = try #require(startupDiagnosticsSource.range(of: "#if DEBUG")?.lowerBound)
+        let diagnosticSwitchIndex = try #require(
+            startupDiagnosticsSource.range(of: "switch action.kind {")?.lowerBound)
+        let dispatchDebugGuardIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "#if DEBUG",
+                range: diagnosticSwitchIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
         let dispatchSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .crossTabMoveGeometrySmoke")?.lowerBound)
         let dispatchIPCSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .ipcTerminalSmoke")?.lowerBound)
-        let dispatchDebugEndIndex = try #require(startupDiagnosticsSource.range(of: "#endif")?.lowerBound)
+        let dispatchDebugEndIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "#endif",
+                range: dispatchDebugGuardIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
         #expect(dispatchDebugGuardIndex < dispatchSmokeCaseIndex)
         #expect(dispatchSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(dispatchDebugGuardIndex < dispatchIPCSmokeCaseIndex)

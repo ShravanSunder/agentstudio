@@ -713,11 +713,11 @@ private func applySearchLifecycle(
     mountedBy mountView: TerminalPaneMountView
 ) {
     accumulator.offer(action, for: surfaceID)
-    guard let batch = accumulator.beginDrain(for: surfaceID) else {
+    guard let batch = accumulator.beginDrain(for: surfaceID, lane: .immediate) else {
         Issue.record("Expected a terminal search lifecycle batch")
         return
     }
     _ = runtime.applyLocalActionBatch(batch)
-    _ = accumulator.finishDrain(for: surfaceID)
+    _ = accumulator.finishDrain(for: surfaceID, lane: .immediate)
     mountView.applyRuntimeStateSnapshot(runtime)
 }

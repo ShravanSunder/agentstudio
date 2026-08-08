@@ -22,7 +22,9 @@ struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
         self.productSessionRouter = productSessionRouter
     }
 
-    func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
+    func reply(
+        for request: URLRequest
+    ) -> AsyncThrowingStream<URLSchemeTaskResult, any Error> {
         AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
             routeReply(for: request, continuation: continuation)
         }

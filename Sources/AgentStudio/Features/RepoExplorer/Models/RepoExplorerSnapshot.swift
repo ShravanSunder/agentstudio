@@ -37,7 +37,7 @@ package enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sen
 
     package static let `default`: Self = .ascending
 
-    var toggled: Self {
+    package var toggled: Self {
         switch self {
         case .ascending:
             return .descending

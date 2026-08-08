@@ -49,7 +49,7 @@ struct AtomFamilyObservationTests {
     @Test
     func missingKeyReadWakesWhenThatKeyIsInserted() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let missingKeyCounter = AtomFamilyObservationCounter()
 
         withObservationTracking {
@@ -70,7 +70,7 @@ struct AtomFamilyObservationTests {
     @Test
     func replaceAllInsertedValueIsReadableThroughKeyedSlot() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
 
         map.replaceAll(["repo-a": 1], mutation: mutation)
@@ -83,7 +83,7 @@ struct AtomFamilyObservationTests {
     @Test
     func keyedReadersWakeOnlyForTouchedKey() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let keyACounter = AtomFamilyObservationCounter()
         let keyBCounter = AtomFamilyObservationCounter()
 
@@ -110,7 +110,7 @@ struct AtomFamilyObservationTests {
     @Test
     func membershipRevisionWakesOnlyForAddOrRemove() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let membershipCounter = AtomFamilyObservationCounter()
 
         withObservationTracking {
@@ -156,7 +156,7 @@ struct AtomFamilyObservationTests {
     @Test
     func perKeyRevisionAdvancesOnlyForAcceptedChangesToThatKey() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         #expect(map.revision(for: "repo-a") == 0)
         #expect(map.revision(for: "repo-b") == 0)
@@ -191,7 +191,7 @@ struct AtomFamilyObservationTests {
     @Test
     func perKeyRevisionObservationTracksOnlyAcceptedChangesToThatKey() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let revisionCounter = AtomFamilyObservationCounter()
         observeRepoARevision(in: map, counter: revisionCounter)
 
@@ -220,7 +220,7 @@ struct AtomFamilyObservationTests {
     @Test
     func removalCallbackReRegistersAndWakesAgainForReinsertion() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let removalCounter = AtomFamilyObservationCounter()
 
         let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
@@ -245,9 +245,55 @@ struct AtomFamilyObservationTests {
     }
 
     @Test
+    func retiringRemovedSlotWakesOnceAndPreservesActiveResubscription() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
+        let repoACounter = AtomFamilyObservationCounter()
+
+        let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(1, for: "repo-a", mutation: addMutation)
+        map.setValue(2, for: "repo-b", mutation: addMutation)
+        addMutation.commit()
+        observeRepoA(in: map, counter: repoACounter)
+
+        let removeMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.removeValueAndRetireSlot(for: "repo-a", mutation: removeMutation)
+        map.removeValueAndRetireSlot(for: "repo-b", mutation: removeMutation)
+        removeMutation.commit()
+
+        #expect(repoACounter.count == 1)
+        #expect(map.storageSlotCount == 1)
+
+        let reinsertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(3, for: "repo-a", mutation: reinsertMutation)
+        reinsertMutation.commit()
+
+        #expect(repoACounter.count == 2)
+        #expect(map.value(for: "repo-a") == 3)
+    }
+
+    @Test
+    func pruningMissingSlotsPreservesActiveResubscription() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
+        let repoACounter = AtomFamilyObservationCounter()
+        observeRepoA(in: map, counter: repoACounter)
+
+        #expect(map.pruneNilSlots(excluding: []) == 1)
+        #expect(repoACounter.count == 1)
+        #expect(map.storageSlotCount == 1)
+
+        let insertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(1, for: "repo-a", mutation: insertMutation)
+        insertMutation.commit()
+
+        #expect(repoACounter.count == 2)
+    }
+
+    @Test
     func removingMissingObservedKeyIsSemanticNoOp() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let removalCounter = AtomFamilyObservationCounter()
 
         observeRepoA(in: map, counter: removalCounter)
@@ -274,7 +320,7 @@ struct AtomFamilyObservationTests {
     @Test
     func replaceAllTombstonesRemovedSlots() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: addMutation)
@@ -307,7 +353,7 @@ struct AtomFamilyObservationTests {
     @Test
     func removeAllTombstonesAllSlots() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: addMutation)
@@ -338,7 +384,7 @@ struct AtomFamilyObservationTests {
     @Test
     func removeAllRetainsSlotsThatOnlyObservedMissingKeys() {
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         #expect(map.value(for: "repo-a") == nil)
         #expect(map.storageSlotCount == 1)
@@ -368,12 +414,14 @@ struct AtomFamilyObservationTests {
         AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
         defer { AtomPerformanceTelemetry.shared.resetForTests() }
         let aggregateRevision = AtomRevision()
-        let map = AtomFamily<String, Int>(isContentEqual: ==)
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
 
         #expect(map.value(for: "repo-a") == nil)
         let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: mutation)
         mutation.commit()
+        #expect(map.membershipKeys() == Set(["repo-a"]))
+        #expect(map.snapshot() == ["repo-a": 1])
         try await AtomPerformanceTelemetry.shared.drainForTests()
 
         let outputFileURL = try #require(runtime.outputFileURL)
@@ -383,7 +431,53 @@ struct AtomFamilyObservationTests {
         #expect(contents.contains("\"agentstudio.trace.tag\":\"atoms\""))
         #expect(contents.contains("\"agentstudio.performance.atom.kind\":\"entity_map\""))
         #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"value\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"membership_keys\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"snapshot\""))
         #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"set\""))
         #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":1"))
+    }
+
+    @Test
+    func atomFamiliesEmitControlledLabelsWithoutKeysOrValues() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("atom-family-label-telemetry", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "atom-family-label-telemetry",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 918,
+            timeUnixNano: { 778 }
+        )
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
+        defer { AtomPerformanceTelemetry.shared.resetForTests() }
+        let aggregateRevision = AtomRevision()
+        let canonicalFamily = AtomFamily<String, String>(
+            telemetryLabel: "pane_graph_canonical",
+            isContentEqual: ==
+        )
+        let structuralFamily = AtomFamily<String, String>(
+            telemetryLabel: "pane_graph_structural",
+            isContentEqual: ==
+        )
+
+        #expect(canonicalFamily.value(for: "private-pane-key") == nil)
+        #expect(structuralFamily.value(for: "private-structural-key") == nil)
+        let mutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        canonicalFamily.setValue("private-pane-value", for: "private-pane-key", mutation: mutation)
+        structuralFamily.setValue("private-structural-value", for: "private-structural-key", mutation: mutation)
+        mutation.commit()
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.performance.atom.label\":\"pane_graph_canonical\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.label\":\"pane_graph_structural\""))
+        #expect(!contents.contains("private-pane-key"))
+        #expect(!contents.contains("private-pane-value"))
+        #expect(!contents.contains("private-structural-key"))
+        #expect(!contents.contains("private-structural-value"))
     }
 }

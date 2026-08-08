@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -458,6 +459,62 @@ struct RepoExplorerReadModelTests {
             rowId: rowId
         )
         #expect(context?.destination == paneRow.destination)
+    }
+
+    @Test("tab mode omits worktrees without pane locations")
+    func tabModeOmitsWorktreesWithoutPaneLocations() throws {
+        let repoId = UUIDv7.generate()
+        let locatedWorktree = worktree(repoId: repoId, name: "located")
+        let worktreeWithoutPane = worktree(repoId: repoId, name: "without-pane")
+        let paneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo(id: repoId, name: "agent-studio", worktrees: [locatedWorktree, worktreeWithoutPane])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    locatedWorktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: paneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: false
+                        )
+                    ]
+                ]
+            )
+        )
+
+        #expect(projection.resolvedGroups.map(\.id) == ["tab:\(tabId.uuidString)"])
+        #expect(projection.worktreeRowsByGroupId.keys.sorted() == ["tab:\(tabId.uuidString)"])
+        #expect(
+            projection.worktreeRowsByGroupId["tab:\(tabId.uuidString)"]?.map(\.worktree.id)
+                == [locatedWorktree.id]
+        )
+
+        let rowIndex = RepoExplorerRowIndex(projection: projection, collapsedGroupIds: [], isFiltering: false)
+        #expect(rowIndex.entries.count == 2)
+        guard
+            case .resolvedWorktreeRow(let groupId, let rowRepoId, let worktreeId, let rowId) =
+                rowIndex.entries[1]
+        else {
+            Issue.record("Expected one located worktree row after the tab header")
+            return
+        }
+        let context = try #require(
+            rowIndex.resolve(
+                groupId: groupId,
+                repoId: rowRepoId,
+                worktreeId: worktreeId,
+                rowId: rowId
+            )
+        )
+        #expect(context.worktree.id == locatedWorktree.id)
+        #expect(context.placementContext?.paneId == paneId)
+        #expect(context.placementContext?.isActiveInTab == false)
     }
 
     @Test("tab mode preserves duplicate worktree rows inside one tab")
