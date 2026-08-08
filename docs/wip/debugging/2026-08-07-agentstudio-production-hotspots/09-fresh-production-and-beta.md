@@ -9,7 +9,7 @@ Runtime identity:
 - `/Applications/AgentStudio.app`
 - version `0.0.74`, build `115`
 - PID `95537`
-- sample: [/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt](/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt:1)
+- sample: local-only `/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt` (line 1)
 - 25 seconds, 14,737 sampled intervals; physical footprint about 1.9 GB
 
 Active-stack ranking in this window:
@@ -22,11 +22,11 @@ Active-stack ranking in this window:
 | OTLP dispatch | 249 | 1.7% | utility/export path |
 | SQLite snapshot writers | 149 | 1.0% | background persistence |
 
-The main thread was mostly waiting in AppKit, but 3,064 SwiftUI update cycles entered `OutlineListCoordinator.diffRows`; 2,922 of those recursively diffed rows and 2,868 traversed `ForEachList` ([sample lines 1993–2021](/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt:1993)). The concrete row identity was `RepoExplorerListEntry` ([sample lines 2024–2031](/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt:2024)). The 2,998 diff intervals over 25 seconds are approximately 120 diff passes per second, matching the display cadence on this machine. That makes the immediate defect shape “the sidebar list is being revisited at frame rate,” not merely “one expensive atom write.” The mutation or animation that keeps the list in the frame loop is still unidentified.
+The main thread was mostly waiting in AppKit, but 3,064 sampled SwiftUI intervals entered `OutlineListCoordinator.diffRows`; 2,922 of those recursively diffed rows and 2,868 traversed `ForEachList` (local-only sample artifact `/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt`, lines 1993–2021). The concrete row identity was `RepoExplorerListEntry` (the same local-only artifact, lines 2024–2031). These are sampled intervals, not SwiftUI update-cycle or call counts, so they do not establish a frame-rate invocation count. The 2,998 sampled diff intervals still make the sidebar list a material presentation hotspot, but the mutation or animation that keeps it active remains unidentified.
 
-The renderer thread was mostly waiting in its kqueue loop, with the active slices entering `Renderer.updateFrame`, `Renderer.drawFrame`, `RenderPass.begin`, Metal command-buffer commit, and glyph work ([sample lines 7493–7506](/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt:7493)). This is real renderer activity, but the sample does not identify which terminal surface or whether the work is driven by a specific UI invalidation.
+The renderer thread was mostly waiting in its kqueue loop, with the active slices entering `Renderer.updateFrame`, `Renderer.drawFrame`, `RenderPass.begin`, Metal command-buffer commit, and glyph work (local-only sample artifact `/tmp/AgentStudio_2026-08-07_194425_Cqt5.sample.txt`, lines 7493–7506). This is real renderer activity, but the sample does not identify which terminal surface or whether the work is driven by a specific UI invalidation.
 
-The earlier stable sample had a different active mix: Git status about 21.2%, Repo Explorer diff about 8.2%, and Ghostty renderer work about 5.2% ([earlier sample](/tmp/AgentStudio_2026-08-07_183104_Gsnw.sample.txt:14)). The two windows therefore establish a workload/state-dependent pressure set:
+The earlier stable sample had a different active mix: Git status about 21.2%, Repo Explorer diff about 8.2%, and Ghostty renderer work about 5.2% (local-only sample artifact `/tmp/AgentStudio_2026-08-07_183104_Gsnw.sample.txt`, line 14). The two windows therefore establish a workload/state-dependent pressure set:
 
 ```text
 Git-heavy window                 RepoExplorer/renderer-heavy window
@@ -44,15 +44,15 @@ state:
 
 - PID `95537`, `/Applications/AgentStudio.app`, version `0.0.74` build `115`;
 - 15 seconds, 8,359 continuously present main-thread intervals;
-- artifact: [stable-highcpu-primary-95537.sample.txt](/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt:1).
+- artifact: local-only `/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt` (line 1).
 
-The main thread entered `OutlineListCoordinator.diffRows` 4,642 times (55.9%
+The main thread entered `OutlineListCoordinator.diffRows` in 4,642 sampled intervals (55.9%
 of its continuously present samples), with 4,525 recursive row-diff intervals
-and 4,396 `ForEachList` traversals ([main-thread stack](/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt:45)). Concurrent worker
+and 4,396 `ForEachList` traversals (local-only sample artifact, line 45). Concurrent worker
 categories included 2,628 libgit2 blocking-read intervals (31.4%) and 2,611
 active Ghostty renderer intervals (31.2%). The Git stack remained in
 `LibGit2AgentStudioGitLocalClient.status` → `LibGit2StatusReader.status`, with
-filesystem calls such as `lstat`, `open`, and `getdirentries` ([Git stack](/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt:9168)). The renderer stack included glyph rebuild, `RenderPass.begin`, `updateFrame`, and `drawFrame` ([renderer stack](/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt:7646)).
+filesystem calls such as `lstat`, `open`, and `getdirentries` (same local-only sample, line 9168). The renderer stack included glyph rebuild, `RenderPass.begin`, `updateFrame`, and `drawFrame` (same local-only sample, line 7646).
 
 These are parallel one-core-equivalent stack-presence shares from `sample`, so
 they can sum above 100%. The capture confirms three concurrent pressure lanes;
@@ -79,7 +79,7 @@ Notable families:
 - `performance.coordinator.write`: 134
 - `performance.process.malloc_zone` and `performance.runtime_delivery.snapshot`: 969 each
 
-Git status in this interval was 647 full scans and 35 pathspec scans. Successful status elapsed time averaged about 224 ms, p50 about 114 ms, p95 about 823 ms, and max about 1,397 ms. Unavailable results were 309 `read_capacity_exceeded`, 164 `timeout`, and 29 `read_already_in_flight`.
+Git status in this interval had 742 successful-status records. The preserved scope breakdown accounts for 682 records: 647 full scans and 35 pathspec scans; the remaining 60 records are unclassified in the rollup and are intentionally not assigned to either category. Successful status elapsed time averaged about 224 ms, p50 about 114 ms, p95 about 823 ms, and max about 1,397 ms. Unavailable results were 309 `read_capacity_exceeded`, 164 `timeout`, and 29 `read_already_in_flight`.
 
 The highest-admission worktree hash was `acdb0ed8bf7bfb00` (69 admissions, 52 successful statuses, 17 unavailable); `809c4428faf0d071` followed (44 admissions, 17 successful statuses, 27 unavailable). These are safe deterministic hashes, not raw paths. This is the first fresh grouping evidence that a small set of worktrees contributes a disproportionate share of Git pressure.
 
@@ -91,11 +91,11 @@ EventBus pressure was low in this steady window: 962 snapshots, maximum active d
 
 Runtime identity:
 
-- local bundle: `/Users/shravansunder/.agentstudio-db/beta-observability/0.0.74-beta.3/AgentStudio Beta.app`
+- local bundle: local-only `/Users/shravansunder/.agentstudio-db/beta-observability/0.0.74-beta.3/AgentStudio Beta.app`
 - version `0.0.74-beta.3`, build `2494`
 - PID `87376`
 - marker `beta-observability-1786145960-87306`
-- state: [`tmp/beta-observability/latest-observability.env`](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/tmp/beta-observability/latest-observability.env:1)
+- state: local-only `tmp/beta-observability/latest-observability.env` (line 1)
 
 The beta verifier correctly failed because no `app.did_finish_launching.succeeded` record was exported. This was not a Victoria query-window problem: through `2026-08-07T23:46:42Z`, the marker had `app.did_finish_launching.started = 1`, `app.did_finish_launching.succeeded = 0`, and no failure event. The last startup records were `terminal.startup.zmx_attach_prepared` and `terminal.startup.surface_create_started`.
 
@@ -112,7 +112,7 @@ TerminalActivationScheduler.activate
   → fs.openDirAbsolute / openat
 ```
 
-All 3,738 sample intervals on the main thread followed this chain ([sample lines 23–48](/tmp/agentstudio-beta-startup-hang-87376.sample.txt:23)). Current source confirms the synchronous call is made while the `@MainActor` mount path creates `Ghostty.SurfaceView` ([WorkspaceSurfaceCoordinator+ViewLifecycle.swift:217](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift:217), [WorkspaceSurfaceCoordinator+ViewLifecycle.swift:255](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift:255), [SurfaceManager.swift:186](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift:186), [GhosttySurfaceView.swift:390](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift:390)).
+All 3,738 sampled intervals on the main thread followed this chain (local-only sample artifact `/tmp/agentstudio-beta-startup-hang-87376.sample.txt`, lines 23–48). Current source confirms the synchronous call is made while the `@MainActor` mount path creates `Ghostty.SurfaceView` ([WorkspaceSurfaceCoordinator+ViewLifecycle.swift:217](../../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift:217), [WorkspaceSurfaceCoordinator+ViewLifecycle.swift:255](../../../../Sources/AgentStudio/App/Coordination/WorkspaceSurfaceCoordinator+ViewLifecycle.swift:255), [SurfaceManager.swift:186](../../../../Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift:186), [GhosttySurfaceView.swift:390](../../../../Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift:390)).
 
 This is an accepted beta startup blocker and a direct MainActor boundary defect. It is not yet proof of the steady production CPU mix: the stable samples did not show this startup stack, and the beta launch never reached the post-presentation completion marker. It is also not an atom-DAG issue; the blocking edge is synchronous native terminal creation inside MainActor startup.
 
@@ -126,12 +126,12 @@ verification path at the current source head
 
 - command: `AGENTSTUDIO_PERF_SAMPLE_DURING_WORKLOAD=1 mise run verify-git-refresh-performance-workload`
 - marker: `perf-195024-35905`
-- artifact summary: [/tmp/asperf/perf-195024-35905/summary.txt](/tmp/asperf/perf-195024-35905/summary.txt:1)
+- artifact summary: local-only `/tmp/asperf/perf-195024-35905/summary.txt` (line 1)
 - fixture: 118 repositories, 163 worktrees, 14 active panes, 5 concurrent
   writers, 60-second busy interval
 - app: script-owned debug PID 50013; cleanup stopped the app and all five
   writer PIDs, and the post-run debug-idle preflight passed
-- sample: [/tmp/asperf/perf-195024-35905/main-sample.txt](/tmp/asperf/perf-195024-35905/main-sample.txt:1)
+- sample: local-only `/tmp/asperf/perf-195024-35905/main-sample.txt` (line 1)
 
 Fresh marker-scoped evidence was present for Git ticks (75 metric / 128 log
 records), admissions (511 / 564), status (503 / 556), snapshot deduplication

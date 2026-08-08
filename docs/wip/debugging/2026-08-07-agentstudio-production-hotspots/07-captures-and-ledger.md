@@ -2,9 +2,9 @@
 
 ## Production baseline
 
-Stable process: `/Applications/AgentStudio.app`, version `0.0.74`, build `115`, PID `95537` during the earlier production window. The process was bursty (0–31% samples) with approximately 117 threads. The unfiltered sample is [AgentStudio_2026-08-07_183104_Gsnw.sample.txt](/tmp/AgentStudio_2026-08-07_183104_Gsnw.sample.txt:14).
+Stable process: `/Applications/AgentStudio.app`, version `0.0.74`, build `115`, PID `95537` during the earlier production window. The process was bursty (0–31% samples) with approximately 117 threads. The unfiltered sample is a local-only artifact at `/tmp/AgentStudio_2026-08-07_183104_Gsnw.sample.txt`, line 14.
 
-A later high-CPU capture sampled the same PID for 15 seconds: [stable-highcpu-primary-95537.sample.txt](/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt:1). It had 8,359 continuously present main-thread intervals, with 4,642 in `OutlineListCoordinator.diffRows`; the parallel worker categories included 2,628 libgit2 blocking-read intervals and 2,611 active Ghostty renderer intervals. `/usr/bin/sample` is wall-clock stack sampling, so these are stack-presence shares rather than cycle-accurate CPU attribution.
+A later high-CPU capture sampled the same PID for 15 seconds: local-only artifact `/tmp/AgentStudio_2026-08-07_stable-highcpu-primary-95537.sample.txt`, line 1. It had 8,359 continuously present main-thread sample intervals, with 4,642 in `OutlineListCoordinator.diffRows`; the parallel worker categories included 2,628 libgit2 blocking-read intervals and 2,611 active Ghostty renderer intervals. `/usr/bin/sample` is wall-clock stack sampling, so these are stack-presence shares rather than cycle-accurate CPU attribution.
 
 Accepted production evidence is summarized in [02-git-trigger-status.md](02-git-trigger-status.md), [03-terminal-ghostty.md](03-terminal-ghostty.md), and [04-mainactor-invalidation.md](04-mainactor-invalidation.md).
 
@@ -15,7 +15,7 @@ Accepted production evidence is summarized in [02-git-trigger-status.md](02-git-
 - Version: `0.0.1-debug+1ge0`, build `2494`.
 - Debug code: `1ge0`.
 - Marker: `debug-observability-1ge0-1786145377-78486`.
-- State: [latest-observability.env](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/tmp/debug-observability/latest-observability.env:1).
+- State: local-only `tmp/debug-observability/latest-observability.env` (line 1).
 - Verification: `mise run verify-debug-observability` passed.
 - Stack sample: `/tmp/agentstudio-fresh-debug-capture-20260807-85446.sample.txt`.
 - Result: idle CPU 0–4%; no Git or atom series; runtime debt/drops zero; sidebar projection max 0.43 ms.
@@ -26,10 +26,10 @@ This capture is a valid negative control, not a production workload reproduction
 
 The installed `/Applications/AgentStudio Beta.app` is `0.0.73-beta.10` and predates PR #251. A current-code local beta bundle was built and launched from this worktree:
 
-- bundle `/Users/shravansunder/.agentstudio-db/beta-observability/0.0.74-beta.3/AgentStudio Beta.app`;
+- bundle local-only `/Users/shravansunder/.agentstudio-db/beta-observability/0.0.74-beta.3/AgentStudio Beta.app`;
 - PID `87376`, marker `beta-observability-1786145960-87306`;
 - verifier failed because `app.did_finish_launching.succeeded` was absent;
-- five-second sample: [/tmp/agentstudio-beta-startup-hang-87376.sample.txt](/tmp/agentstudio-beta-startup-hang-87376.sample.txt:23).
+- five-second sample: local-only `/tmp/agentstudio-beta-startup-hang-87376.sample.txt` (line 23).
 
 The beta process stalled before post-presentation startup at synchronous Ghostty surface creation on the MainActor. This is a current-beta startup blocker, not a replacement for the stable production workload proof. Full evidence is in [09-fresh-production-and-beta.md](09-fresh-production-and-beta.md).
 
@@ -39,7 +39,7 @@ The beta process stalled before post-presentation startup at synchronous Ghostty
 - source head: `3960f3b224cb439617b9fd8ded16e750933a94c5`;
 - marker: `perf-195024-35905`;
 - fixture: 118 repos / 163 worktrees / 14 panes / 5 writers / 60 seconds;
-- artifact: [/tmp/asperf/perf-195024-35905/summary.txt](/tmp/asperf/perf-195024-35905/summary.txt:1);
+- artifact: local-only `/tmp/asperf/perf-195024-35905/summary.txt` (line 1);
 - result: exit 1 only at the required metric-export gate; cleanup stopped the
   script-owned debug app and all writers, and idle preflight passed afterward;
 - fresh families: Git tick/admission/status, snapshot dedup, event publication,
@@ -86,5 +86,5 @@ not a completed sidebar performance proof.
 | OTLP is primary CPU cause | refuted | ~1.6% sampled active dispatch | controlled on/off run |
 | Current beta startup blocks MainActor in Ghostty surface creation | accepted | PID-bound beta sample; no launch-complete marker | determine why the native open blocks and whether it reproduces in release startup |
 | Ghostty renderer/Metal is a current steady hotspot | accepted as window-specific | second stable sample ~19.3% active stack share | map renderer work to surface/frame invalidation |
-| Disposable Git workload exercises the complete instrumented path | unresolved | fresh marker-scoped partial receipt | `performance.topology.repo_and_worktree` exported zero records |
-| Atom-tag sidebar proof completed | unresolved | fresh marker-scoped diagnostic counts | startup `command_exercised` gate blocked before IPC; no final benchmark |
+| Disposable Git workload provides partial workload coverage | unresolved | fresh marker-scoped partial receipt | `performance.topology.repo_and_worktree` exported zero records |
+| Atom-tag run provides diagnostic evidence only | unresolved | fresh marker-scoped diagnostic counts | startup `command_exercised` gate blocked before IPC; no final benchmark |

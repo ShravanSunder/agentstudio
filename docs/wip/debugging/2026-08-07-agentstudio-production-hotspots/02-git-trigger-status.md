@@ -22,7 +22,7 @@ The trigger classes are:
 - a 15-second active/visible self-heal tick and slower background stripes;
 - capacity, timeout, cancellation, SDK, or in-flight retries.
 
-Sources: [FilesystemActor.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift:274), [GitWorkingDirectoryProjector.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector.swift:546), and [GitWorkingDirectoryProjector+PathspecStatus.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector+PathspecStatus.swift:71).
+Sources: [FilesystemActor.swift](../../../../Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift:274), [GitWorkingDirectoryProjector.swift](../../../../Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector.swift:546), and [GitWorkingDirectoryProjector+PathspecStatus.swift](../../../../Sources/AgentStudio/Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector+PathspecStatus.swift:71).
 
 ## Production evidence
 
@@ -32,7 +32,7 @@ The measured full-status wall time was approximately 89–108 ms average, 488–
 
 This is CPU pressure even when the downstream Git UI remains unchanged: deduplication happens after the native scan.
 
-A later current-channel rollup (30 minutes, generic stable marker `trace`, not PID-bound) recorded 742 successful statuses, 647 full and 35 pathspec; 502 unavailable attempts (309 capacity, 164 timeout, 29 already-in-flight); 738 snapshot deduplications; and 4 event-posted records. Successful status elapsed time averaged about 224 ms, p50 about 114 ms, p95 about 823 ms, and max about 1,397 ms. The hash-grouped counts were concentrated in a few worktrees, with `acdb0ed8bf7bfb00` at 69 admissions/52 statuses and `809c4428faf0d071` at 44 admissions/17 statuses. Because the channel marker has no process identity, this rollup is corroboration of current Git pressure, not a PID-specific causal join. The detailed rollup is [09-fresh-production-and-beta.md](09-fresh-production-and-beta.md).
+A later current-channel rollup (30 minutes, generic stable marker `trace`, not PID-bound) recorded 742 successful-status records. Its preserved scope breakdown accounts for 682 of them: 647 full and 35 pathspec; the remaining 60 records are unclassified in the rollup and must not be assigned to either category. The same window recorded 502 unavailable attempts (309 capacity, 164 timeout, 29 already-in-flight), 738 snapshot deduplications, and 4 event-posted records. Successful status elapsed time averaged about 224 ms, p50 about 114 ms, p95 about 823 ms, and max about 1,397 ms. The hash-grouped counts were concentrated in a few worktrees, with `acdb0ed8bf7bfb00` at 69 admissions/52 statuses and `809c4428faf0d071` at 44 admissions/17 statuses. Because the channel marker has no process identity, this rollup is corroboration of current Git pressure, not a PID-specific causal join. The detailed rollup is [09-fresh-production-and-beta.md](09-fresh-production-and-beta.md).
 
 ## Coalescing and gaps
 

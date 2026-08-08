@@ -7,6 +7,10 @@ Scope: production `0.0.74`, a fresh debug build from this worktree, and a local 
 
 This is an evidence collection, not a fix plan. A finding is accepted only when it has a current-source anchor plus fresh runtime evidence; otherwise it remains a lead or unresolved question.
 
+## Artifact handoff
+
+Stack samples, launcher state files, beta bundles, and workload directories under `/tmp`, `tmp/`, or `~/.agentstudio-db` are local-only artifacts and are intentionally not checked into this documentation PR. They may contain machine-specific paths, process identities, or large binary/text samples, so their local paths are not portable review links. The durable handoff is the command, source HEAD, marker, artifact path, and expected Victoria query recorded in [07-captures-and-ledger.md](07-captures-and-ledger.md) and [09-fresh-production-and-beta.md](09-fresh-production-and-beta.md). A reviewer can reproduce a run with the repository's `mise` commands and a fresh marker; absence of a checked-in sample is not a claim that the run did not occur.
+
 ## Collection map
 
 - [00-bug-packet.md](00-bug-packet.md) — symptom, scope, runtime identities, and proof boundaries.

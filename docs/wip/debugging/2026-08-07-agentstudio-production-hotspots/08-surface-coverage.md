@@ -1,6 +1,6 @@
 # Surface coverage inventory
 
-This inventory prevents the Git/Repo Explorer findings from being mistaken for a complete CPU accounting. The source-side performance recorder defines these measurable families in [AgentStudioPerformanceTraceRecorder.swift](/Users/shravansunder/Documents/dev/project-dev/agent-studio.slowdonw/Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioPerformanceTraceRecorder.swift:116).
+This inventory prevents the Git/Repo Explorer findings from being mistaken for a complete CPU accounting. The source-side performance recorder defines these measurable families in [AgentStudioPerformanceTraceRecorder.swift](../../../../Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioPerformanceTraceRecorder.swift:116).
 
 | Surface family | Instrumented signals | Current evidence | Status |
 | --- | --- | --- | --- |
