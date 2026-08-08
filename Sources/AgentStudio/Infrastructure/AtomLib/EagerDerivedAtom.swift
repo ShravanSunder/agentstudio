@@ -36,6 +36,7 @@ package final class EagerDerivedAtom<
     @ObservationIgnored private var admittedIdentity: RequestIdentity?
     @ObservationIgnored private var admittedEpoch: UInt64?
     @ObservationIgnored private var retainedTask: Task<Void, Never>?
+    @ObservationIgnored private var unsettledProjectionTaskCount = 0
     @ObservationIgnored private var hasStopped = false
 
     package init(
@@ -78,6 +79,7 @@ package final class EagerDerivedAtom<
         let previousValue = value
         let isValueEqual = self.isValueEqual
         let project = self.project
+        unsettledProjectionTaskCount += 1
         // Detached execution is the primitive's off-MainActor projection guarantee.
         // swiftlint:disable:next no_task_detached
         retainedTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -104,6 +106,21 @@ package final class EagerDerivedAtom<
                 )
             }
         }
+    }
+
+    package func isCurrent(_ identity: RequestIdentity) -> Bool {
+        guard !hasStopped,
+            admittedIdentity == identity,
+            admittedEpoch == revocationEpoch.withLock({ $0 }),
+            freshness == .current(identity)
+        else {
+            return false
+        }
+        return true
+    }
+
+    package var hasUnsettledProjectionTasks: Bool {
+        unsettledProjectionTaskCount > 0
     }
 
     package func stop() {
@@ -136,6 +153,7 @@ package final class EagerDerivedAtom<
         identity completedIdentity: RequestIdentity,
         epoch completedEpoch: UInt64
     ) {
+        projectionTaskDidSettle()
         guard !hasStopped else {
             onProjectionCompletion(.cancelled(completedIdentity))
             return
@@ -169,6 +187,7 @@ package final class EagerDerivedAtom<
         identity completedIdentity: RequestIdentity,
         epoch completedEpoch: UInt64
     ) {
+        projectionTaskDidSettle()
         guard !hasStopped else {
             onProjectionCompletion(.cancelled(completedIdentity))
             return
@@ -183,5 +202,10 @@ package final class EagerDerivedAtom<
         }
         retainedTask = nil
         onProjectionCompletion(.cancelled(completedIdentity))
+    }
+
+    private func projectionTaskDidSettle() {
+        precondition(unsettledProjectionTaskCount > 0)
+        unsettledProjectionTaskCount -= 1
     }
 }

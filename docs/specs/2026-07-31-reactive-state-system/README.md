@@ -13,8 +13,8 @@ The current goal is authorized to implement exactly two pull requests:
 PR 1  AtomFamily + lazy DerivedAtom
       └── Repo Explorer keyed worktree-facts admission
 
-PR 2  total cancellation-only eager/off-main EagerDerivedAtom
-      └── Tab Bar projection and current-result publication
+PR 2  cancellation-only EagerDerivedAtom + EagerDerivedAtomFamily
+      └── keyed per-tab projection + coherent Tab Bar publication
 ```
 
 For this goal, the Requirements and Specification govern only through the
@@ -39,7 +39,7 @@ RS-01–RS-28, observable contracts, failure behavior, and proof obligations.
 | Program Design | Governing subset for this goal | Read when deciding internal How |
 |---|---|---|
 | [Reactive Atoms and Derived Values](2026-07-31-reactive-atoms-and-derived-values-program-design.md) | RS-01–RS-08, RS-10, and slice-specific RS-21–RS-28 only as realized by its PR 1 boundary | Source ownership, `AtomFamily`, lazy `DerivedAtom`, keyed observation, or Repo Explorer's keyed worktree-facts admission |
-| [Off-Main Materialization and Lifecycle](2026-07-31-off-main-materialization-and-lifecycle-program-design.md) | RS-03, RS-09–RS-14, and slice-specific RS-21–RS-28 only as realized by its PR 2 boundary | `EagerDerivedAtom`, checked transfer, latest-wins lifecycle, Tab Bar projection/current-result publication, or its required proof |
+| [Off-Main Materialization and Lifecycle](2026-07-31-off-main-materialization-and-lifecycle-program-design.md) | RS-03–RS-05, RS-09–RS-14, and slice-specific RS-21–RS-28 only as realized by its PR 2 boundary | `EagerDerivedAtomFamily`, checked transfer, keyed latest-wins lifecycle, coherent Tab Bar publication, or its required proof |
 
 RS-21–RS-28 are cross-cutting. Each active design owns only the guardrail,
 observability, and proof realization for its slice; none introduces a parallel
@@ -64,17 +64,19 @@ Victoria/comparator, and test systems. Neither creates a parallel system.
 |---|---|---|---|
 | U1, U2, U4 | Key isolation, coherent mutation, current lazy/eager output | Core/Feature product owners over Infrastructure atom primitives; App only where cross-Feature composition is required | Swift Observation behavior suites and ArchitectureLint |
 | U3 | Compatibility across each hard cut | The product owner of the selected source or projection | Isolated debug interaction plus supported-state inspection and relaunch |
-| U5 | Checked off-main replaceable computation | Product capture/projector plus retained `EagerDerivedAtom` lifecycle | Compiler-negative transfer proof and deterministic overlap/cancellation tests |
+| U5 | Checked off-main replaceable computation | Product capture/projector plus retained keyed `EagerDerivedAtomFamily` lifecycle | Compiler-negative transfer proof and deterministic overlap/cancellation tests |
 | U6, U7 | Honest enforcement and provenance-bound evidence | Existing ArchitectureLint, trace tags, Victoria workload, and comparator owners | Static, semantic, runtime, and matched-distribution gates at their actual boundaries |
 | U9 | Narrow independently provable adoption | Each linked slice; no family-wide runtime coordinator | Slice inventory through the existing lint, test, debug, and performance systems |
 
 ## Pull-Request Boundary
 
 PR 1 does not depend on eager materialization or persistence changes. PR 2
-depends on the cancellation-only eager primitive and current Core/Feature
-source contracts, not on the SQLite design or deferred pane/tab family
-migrations. The measurement correction described by the off-main design is a
-PR 2 proof prerequisite, not a third reactive-state implementation PR.
+depends on the cancellation-only eager node and keyed eager-family primitive,
+plus only the tab-scoped source-family corrections required to preserve
+unrelated-tab isolation. It does not depend on the SQLite design or broader
+pane/tab family migrations. The measurement correction described by the
+off-main design is a PR 2 proof prerequisite, not a third reactive-state
+implementation PR.
 
 No third implementation slice may be added to this goal. Additional reactive or
 persistence work requires separate scope authorization after these two PRs.

@@ -11,6 +11,13 @@ typealias TabBarMaterializedProjection = EagerDerivedAtom<
     TabBarProjection
 >
 
+typealias TabBarMaterializedProjectionFamily = EagerDerivedAtomFamily<
+    UUID,
+    TabBarProjectionRequest,
+    TabBarProjectionGeneration,
+    TabBarProjection
+>
+
 private struct TabBarProjectionCapture {
     let request: TabBarProjectionRequest
 }
@@ -78,15 +85,10 @@ final class TabBarAdapter {
     private let repoCache: RepoCacheAtom
     private let inboxAtom: InboxNotificationAtom
     private let projectionTelemetry: TabBarProjectionTelemetry
-    @ObservationIgnored private let project:
-        @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection
     @ObservationIgnored private let onProjectionCompletion:
         @MainActor @Sendable (TabBarMaterializedProjection.ProjectionCompletion) -> Void
-    @ObservationIgnored private var materializedProjectionByTabId: [UUID: TabBarMaterializedProjection] = [:]
+    @ObservationIgnored private var materializedProjectionFamily: TabBarMaterializedProjectionFamily!
     @ObservationIgnored private var tabObservationGenerationById: [UUID: UInt64] = [:]
-    @ObservationIgnored private var admittedProjectionGenerationByTabId: [UUID: TabBarProjectionGeneration] = [:]
-    @ObservationIgnored private var readyProjectionGenerationByTabId: [UUID: TabBarProjectionGeneration] = [:]
-    @ObservationIgnored private var itemByTabId: [UUID: TabBarItem] = [:]
     @ObservationIgnored private var orderedTabIds: [UUID] = []
     @ObservationIgnored private var requestedActiveTabId: UUID?
     @ObservationIgnored private var nextTabObservationGeneration: UInt64 = 0
@@ -97,11 +99,11 @@ final class TabBarAdapter {
     private var hasStopped = false
 
     var materializedProjections: [TabBarMaterializedProjection] {
-        Array(materializedProjectionByTabId.values)
+        materializedProjectionFamily.atoms
     }
 
     func materializedProjection(for tabId: UUID) -> TabBarMaterializedProjection? {
-        materializedProjectionByTabId[tabId]
+        materializedProjectionFamily.atom(for: tabId)
     }
 
     init(
@@ -125,8 +127,15 @@ final class TabBarAdapter {
         self.repoCache = repoCache
         self.inboxAtom = inboxAtom
         self.projectionTelemetry = projectionTelemetry
-        self.project = measuredProject
         self.onProjectionCompletion = onProjectionCompletion
+        self.materializedProjectionFamily = TabBarMaterializedProjectionFamily(
+            requestIdentity: \.generation,
+            isValueEqual: ==,
+            project: measuredProject,
+            onProjectionCompletion: { [weak self] tabId, completion in
+                self?.handleProjectionCompletion(completion, for: tabId)
+            }
+        )
         observe()
     }
 
@@ -134,9 +143,7 @@ final class TabBarAdapter {
         guard !hasStopped else { return }
         hasStopped = true
         projectionTelemetry.stop()
-        for materializedProjection in materializedProjectionByTabId.values {
-            materializedProjection.stop()
-        }
+        materializedProjectionFamily.stop()
     }
 
     isolated deinit {
@@ -181,35 +188,21 @@ final class TabBarAdapter {
         requestedActiveTabId = activeTabId
 
         let retainedTabIds = Set(orderedTabIds)
-        for removedTabId in Array(materializedProjectionByTabId.keys)
+        for removedTabId in Array(tabObservationGenerationById.keys)
         where !retainedTabIds.contains(removedTabId) {
-            materializedProjectionByTabId.removeValue(forKey: removedTabId)?.stop()
+            materializedProjectionFamily.remove(for: removedTabId)
             tabObservationGenerationById.removeValue(forKey: removedTabId)
-            admittedProjectionGenerationByTabId.removeValue(forKey: removedTabId)
-            readyProjectionGenerationByTabId.removeValue(forKey: removedTabId)
-            itemByTabId.removeValue(forKey: removedTabId)
         }
-        for tabId in orderedTabIds where materializedProjectionByTabId[tabId] == nil {
-            materializedProjectionByTabId[tabId] = makeMaterializedProjection(for: tabId)
+        for tabId in orderedTabIds where materializedProjectionFamily.atom(for: tabId) == nil {
+            _ = materializedProjectionFamily.materialize(for: tabId)
             observeTabItem(tabId)
         }
         publishProjectionIfReady()
     }
 
-    private func makeMaterializedProjection(for tabId: UUID) -> TabBarMaterializedProjection {
-        let project = self.project
-        return TabBarMaterializedProjection(
-            requestIdentity: \.generation,
-            isValueEqual: ==,
-            project: project,
-            onProjectionCompletion: { [weak self] completion in
-                self?.handleProjectionCompletion(completion, for: tabId)
-            }
-        )
-    }
-
     private func observeTabItem(_ tabId: UUID) {
-        guard !hasStopped, let materializedProjection = materializedProjectionByTabId[tabId] else {
+        guard !hasStopped, let materializedProjection = materializedProjectionFamily.atom(for: tabId)
+        else {
             return
         }
         nextTabObservationGeneration &+= 1
@@ -218,8 +211,6 @@ final class TabBarAdapter {
 
         projectionGeneration &+= 1
         let generation = TabBarProjectionGeneration(value: projectionGeneration)
-        admittedProjectionGenerationByTabId[tabId] = generation
-        readyProjectionGenerationByTabId.removeValue(forKey: tabId)
         let projectionTelemetry = self.projectionTelemetry
         let captureStartedAt = projectionTelemetry.captureStartedAt()
         let capture = withObservationTracking {
@@ -251,7 +242,7 @@ final class TabBarAdapter {
         }
         guard let capture else { return }
         projectionTelemetry.recordAdmission(capture, startedAt: captureStartedAt)
-        materializedProjection.admit(capture.request)
+        materializedProjectionFamily.admit(capture.request, for: tabId)
     }
 
     private func handleProjectionCompletion(
@@ -260,38 +251,29 @@ final class TabBarAdapter {
     ) {
         projectionTelemetry.recordCompletion(completion)
         onProjectionCompletion(completion)
-        let completedGeneration: TabBarProjectionGeneration
         switch completion {
-        case .published(let generation), .equal(let generation):
-            completedGeneration = generation
+        case .published, .equal:
+            break
         case .superseded, .cancelled:
             return
         }
-        guard orderedTabIds.contains(tabId),
-            admittedProjectionGenerationByTabId[tabId] == completedGeneration
-        else { return }
-        if case .published = completion {
-            guard let projection = materializedProjectionByTabId[tabId]?.value,
-                let item = projection.items.first,
-                item.id == tabId
-            else { return }
-            itemByTabId[tabId] = item
-        }
-        readyProjectionGenerationByTabId[tabId] = completedGeneration
+        guard orderedTabIds.contains(tabId) else { return }
         publishProjectionIfReady()
     }
 
     private func publishProjectionIfReady() {
-        guard
-            orderedTabIds.allSatisfy({ tabId in
-                guard let admittedGeneration = admittedProjectionGenerationByTabId[tabId] else {
-                    return false
-                }
-                return readyProjectionGenerationByTabId[tabId] == admittedGeneration
-                    && itemByTabId[tabId] != nil
-            })
-        else { return }
-        let items = orderedTabIds.compactMap { itemByTabId[$0] }
+        var items: [TabBarItem] = []
+        items.reserveCapacity(orderedTabIds.count)
+        for tabId in orderedTabIds {
+            guard let projection = materializedProjectionFamily.currentValue(for: tabId),
+                projection.items.count == 1,
+                let item = projection.items.first,
+                item.id == tabId
+            else {
+                return
+            }
+            items.append(item)
+        }
         let activeTabId =
             requestedActiveTabId.flatMap { requestedTabId in
                 orderedTabIds.contains(requestedTabId) ? requestedTabId : nil
