@@ -2,9 +2,42 @@ import CoreGraphics
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
+@testable import AgentStudioTestSupport
 
 struct AgentStudioStartupDiagnosticActionTests {
+    @MainActor
+    @Test("sidebar performance fixture creates a terminal and resets its owning tab title")
+    func sidebarPerformanceFixtureCreatesTerminalWithPlaceholderTabTitle() throws {
+        try withTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+
+            let fixture = SidebarPerformanceProofFixture.prepare(store: store) {
+                let pane = store.createPane(title: "Runtime title")
+                store.appendTab(Tab(paneId: pane.id, name: "Runtime title"))
+                return pane
+            }
+
+            let preparedFixture = try #require(fixture)
+            #expect(store.pane(preparedFixture.paneId)?.metadata.contentType == .terminal)
+            #expect(store.tabLayoutAtom.tab(preparedFixture.tabId)?.name == "Tab")
+        }
+    }
+
+    @MainActor
+    @Test("sidebar performance fixture rejects terminal creation failure")
+    func sidebarPerformanceFixtureRejectsTerminalCreationFailure() {
+        withTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+
+            let fixture = SidebarPerformanceProofFixture.prepare(store: store) { nil }
+
+            #expect(fixture == nil)
+            #expect(store.tabLayoutAtom.tabs.isEmpty)
+            #expect(store.paneAtom.graphAtom.paneIDs.isEmpty)
+        }
+    }
 
     @Test("Bridge smoke render proof requires hydrated selected content")
     func bridgeSmokeRenderProofRequiresHydratedSelectedContent() {

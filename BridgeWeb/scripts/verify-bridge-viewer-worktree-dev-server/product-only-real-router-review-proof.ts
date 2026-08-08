@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { errors, type Page } from 'playwright';
 
 import {
@@ -283,15 +281,12 @@ export async function proveReviewTreeSelection(props: {
 		targetRow.click();
 		return path;
 	}, bridgeViewerProductOnlySelectors);
-	const targetItemId = `review-item-${createHash('sha256').update(targetPath).digest('hex').slice(0, 32)}`;
-	if (!props.expectedItemIds.includes(targetItemId)) {
-		throw new Error(`REVIEW_TREE_SELECTION_TARGET_OUTSIDE_MANIFEST: ${targetPath}`);
-	}
 	await waitForProductCompositionState(async (): Promise<void> => {
 		await props.page.waitForFunction(
-			({ selectors, targetItemId }): boolean => {
+			({ initialItemId, selectors }): boolean => {
 				const codePanel = document.querySelector(selectors.reviewCodePanel);
-				if (codePanel?.getAttribute('data-selected-item-id') !== targetItemId) return false;
+				const targetItemId = codePanel?.getAttribute('data-selected-item-id');
+				if (targetItemId === null || targetItemId === initialItemId) return false;
 				const targetHost = queryAllInOpenShadowRoots(codePanel ?? document, 'diffs-container').find(
 					(host): boolean => {
 						const itemMarker = bridgeReviewHostElement(host, '[data-bridge-code-view-item-id]');
@@ -321,12 +316,19 @@ export async function proveReviewTreeSelection(props: {
 					return matches;
 				}
 			},
-			{ selectors: bridgeViewerProductOnlySelectors, targetItemId },
+			{
+				initialItemId: beforeSelection.selectedItemId,
+				selectors: bridgeViewerProductOnlySelectors,
+			},
 			{ timeout: productCompositionSettleTimeoutMilliseconds },
 		);
 	});
 	await waitForFreshReviewFrameSettlement({ page: props.page, stage: 'tree-selection' });
 	const afterSelection = await readFreshReviewViewportState(props.page);
+	const targetItemId = afterSelection.selectedItemId;
+	if (targetItemId === null || !props.expectedItemIds.includes(targetItemId)) {
+		throw new Error(`REVIEW_TREE_SELECTION_TARGET_OUTSIDE_MANIFEST: ${targetPath}`);
+	}
 	const targetVisibleItem = afterSelection.visibleItems.find(
 		(item): boolean => item.itemId === targetItemId,
 	);

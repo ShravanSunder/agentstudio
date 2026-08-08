@@ -1,6 +1,49 @@
 import AgentStudioCore
 import Foundation
 
+package enum RepoExplorerCommandPresentationArguments: Hashable, Sendable {
+    case noArguments
+    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
+    case repoSidebarSortOrder(RepoExplorerSortOrder)
+}
+
+package struct RepoExplorerCommandPresentationRequest: Hashable, Sendable {
+    package let command: AppCommand
+    package let surface: AppCommandSurface
+    package let target: UUID?
+    package let targetType: SearchItemType?
+    package let arguments: RepoExplorerCommandPresentationArguments
+
+    package init(
+        command: AppCommand,
+        surface: AppCommandSurface,
+        target: UUID?,
+        targetType: SearchItemType?,
+        arguments: RepoExplorerCommandPresentationArguments
+    ) {
+        self.command = command
+        self.surface = surface
+        self.target = target
+        self.targetType = targetType
+        self.arguments = arguments
+    }
+}
+
+package struct RepoExplorerCommandPresentationSnapshot: Equatable, Sendable {
+    package static let empty = Self(generation: 0, results: [:])
+
+    package let generation: UInt64
+    package let results: [RepoExplorerCommandPresentationRequest: Bool]
+
+    package init(
+        generation: UInt64,
+        results: [RepoExplorerCommandPresentationRequest: Bool]
+    ) {
+        self.generation = generation
+        self.results = results
+    }
+}
+
 struct RepoExplorerPresentedCommand {
     let commandSpec: AppCommandSpec
     let isEnabled: Bool
@@ -11,64 +54,15 @@ struct RepoExplorerPresentedCommand {
 }
 
 enum RepoExplorerCommandPresentation {
-    @MainActor
-    static func contextualCommands(
-        _ commands: [AppCommand],
-        surface: AppCommandSurface,
-        commandContext: CommandContext,
-        dispatcher: any AppCommandDispatching,
-        capabilityOverrides: [AppCommand: Bool] = [:]
-    ) -> [RepoExplorerPresentedCommand] {
-        commands.compactMap { command in
-            let commandSpec = command.definition
-            guard
-                commandSpec.shouldPresent(
-                    AppCommandPresentationQuery(
-                        surface: surface,
-                        subject: .contextual(commandContext)
-                    )
-                )
-            else {
-                return nil
-            }
-
-            return RepoExplorerPresentedCommand(
-                commandSpec: commandSpec,
-                isEnabled: capabilityOverrides[command] ?? dispatcher.canDispatch(command)
-            )
-        }
-    }
-
-    @MainActor
-    static func targetedCommands(
-        _ commands: [AppCommand],
-        surface: AppCommandSurface,
-        target: UUID,
-        targetType: SearchItemType,
-        dispatcher: any AppCommandDispatching
-    ) -> [RepoExplorerPresentedCommand] {
-        commands.compactMap { command in
-            let commandSpec = command.definition
-            guard
-                commandSpec.shouldPresent(
-                    AppCommandPresentationQuery(
-                        surface: surface,
-                        subject: .targeted(targetType)
-                    )
-                )
-            else {
-                return nil
-            }
-
-            return RepoExplorerPresentedCommand(
-                commandSpec: commandSpec,
-                isEnabled: dispatcher.canDispatch(
-                    command,
-                    target: target,
-                    targetType: targetType
-                )
-            )
-        }
+    static func presentedCommand(
+        for request: RepoExplorerCommandPresentationRequest,
+        snapshot: RepoExplorerCommandPresentationSnapshot
+    ) -> RepoExplorerPresentedCommand? {
+        guard let isEnabled = snapshot.results[request] else { return nil }
+        return RepoExplorerPresentedCommand(
+            commandSpec: request.command.definition,
+            isEnabled: isEnabled
+        )
     }
 }
 
@@ -91,56 +85,76 @@ package struct RepoExplorerWorktreeCommandPresentation {
     private let contextMenuCommandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]
     private let inlineCommandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]
 
-    @MainActor
+    package static func requests(
+        worktreeId: UUID,
+        repoId: UUID,
+        isFavorite: Bool,
+        showsFavoriteControl: Bool
+    ) -> Set<RepoExplorerCommandPresentationRequest> {
+        let favoriteCommand: AppCommand = isFavorite ? .removeRepoFavorite : .addRepoFavorite
+        var requests = Set(
+            contextMenuWorktreeCommands.map { command in
+                RepoExplorerCommandPresentationRequest(
+                    command: command,
+                    surface: .contextMenu,
+                    target: worktreeId,
+                    targetType: .worktree,
+                    arguments: .noArguments
+                )
+            }
+        )
+        requests.insert(
+            RepoExplorerCommandPresentationRequest(
+                command: .openWorktree,
+                surface: .inlineControl,
+                target: worktreeId,
+                targetType: .worktree,
+                arguments: .noArguments
+            )
+        )
+        if showsFavoriteControl {
+            for surface in [AppCommandSurface.contextMenu, .inlineControl] {
+                requests.insert(
+                    RepoExplorerCommandPresentationRequest(
+                        command: favoriteCommand,
+                        surface: surface,
+                        target: repoId,
+                        targetType: .repo,
+                        arguments: .noArguments
+                    )
+                )
+            }
+        }
+        return requests
+    }
+
     static func resolve(
         worktreeId: UUID,
         repoId: UUID,
         isFavorite: Bool,
         showsFavoriteControl: Bool,
-        dispatcher: any AppCommandDispatching
+        snapshot: RepoExplorerCommandPresentationSnapshot
     ) -> Self {
-        let favoriteCommand: AppCommand = isFavorite ? .removeRepoFavorite : .addRepoFavorite
-        let contextMenuWorktreeCommands = RepoExplorerCommandPresentation.targetedCommands(
-            contextMenuWorktreeCommands,
-            surface: .contextMenu,
-            target: worktreeId,
-            targetType: .worktree,
-            dispatcher: dispatcher
-        )
-        let contextMenuFavoriteCommands =
-            showsFavoriteControl
-            ? RepoExplorerCommandPresentation.targetedCommands(
-                [favoriteCommand],
-                surface: .contextMenu,
-                target: repoId,
-                targetType: .repo,
-                dispatcher: dispatcher
-            )
-            : []
-        let inlineWorktreeCommands = RepoExplorerCommandPresentation.targetedCommands(
-            [.openWorktree],
-            surface: .inlineControl,
-            target: worktreeId,
-            targetType: .worktree,
-            dispatcher: dispatcher
-        )
-        let inlineFavoriteCommands =
-            showsFavoriteControl
-            ? RepoExplorerCommandPresentation.targetedCommands(
-                [favoriteCommand],
-                surface: .inlineControl,
-                target: repoId,
-                targetType: .repo,
-                dispatcher: dispatcher
-            )
-            : []
+        let presentedCommands = requests(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            isFavorite: isFavorite,
+            showsFavoriteControl: showsFavoriteControl
+        ).compactMap { request -> (RepoExplorerCommandPresentationRequest, RepoExplorerPresentedCommand)? in
+            RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
+                .map { (request, $0) }
+        }
 
         return Self(
             contextMenuCommandsByIdentity: Self.index(
-                contextMenuWorktreeCommands + contextMenuFavoriteCommands
+                presentedCommands.compactMap { request, command in
+                    request.surface == .contextMenu ? command : nil
+                }
             ),
             inlineCommandsByIdentity: Self.index(
-                inlineWorktreeCommands + inlineFavoriteCommands
+                presentedCommands.compactMap { request, command in
+                    request.surface == .inlineControl ? command : nil
+                }
             )
         )
     }
@@ -164,7 +178,7 @@ package struct RepoExplorerWorktreeCommandPresentation {
     }
 }
 
-struct RepoExplorerToolbarCommandPresentation {
+package struct RepoExplorerToolbarCommandPresentation {
     private static let toolbarCommands: [AppCommand] = [
         .setRepoSidebarGroupingRepo,
         .setRepoSidebarGroupingPane,
@@ -175,19 +189,42 @@ struct RepoExplorerToolbarCommandPresentation {
 
     private let commandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]
 
-    @MainActor
+    package static func requests(
+        nextVisibilityMode: RepoExplorerVisibilityMode,
+        nextSortOrder: RepoExplorerSortOrder
+    ) -> Set<RepoExplorerCommandPresentationRequest> {
+        Set(
+            toolbarCommands.map { command in
+                let arguments: RepoExplorerCommandPresentationArguments =
+                    switch command {
+                    case .setRepoSidebarVisibilityMode:
+                        .repoSidebarVisibilityMode(nextVisibilityMode)
+                    case .setRepoSidebarSortOrder:
+                        .repoSidebarSortOrder(nextSortOrder)
+                    default:
+                        .noArguments
+                    }
+                return RepoExplorerCommandPresentationRequest(
+                    command: command,
+                    surface: .inlineControl,
+                    target: nil,
+                    targetType: nil,
+                    arguments: arguments
+                )
+            })
+    }
+
     static func resolve(
-        commandContext: CommandContext,
-        dispatcher: any AppCommandDispatching,
-        capabilityOverrides: [AppCommand: Bool] = [:]
+        nextVisibilityMode: RepoExplorerVisibilityMode,
+        nextSortOrder: RepoExplorerSortOrder,
+        snapshot: RepoExplorerCommandPresentationSnapshot
     ) -> Self {
-        let presentedCommands = RepoExplorerCommandPresentation.contextualCommands(
-            toolbarCommands,
-            surface: .inlineControl,
-            commandContext: commandContext,
-            dispatcher: dispatcher,
-            capabilityOverrides: capabilityOverrides
-        )
+        let presentedCommands = requests(
+            nextVisibilityMode: nextVisibilityMode,
+            nextSortOrder: nextSortOrder
+        ).compactMap { request in
+            RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)
+        }
         return Self(
             commandsByIdentity: Dictionary(
                 uniqueKeysWithValues: presentedCommands.map { presentedCommand in

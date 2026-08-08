@@ -35,6 +35,16 @@ package final class InboxNotificationAtom {
     package private(set) var globalRollUpAlertCount = 0
     private var attentionFactSnapshot: InboxAttentionFactSnapshot = .empty
 
+    @ObservationIgnored private let attentionLaneByPaneId = AtomFamily<
+        UUID,
+        InboxNotificationClaimLane
+    >(
+        telemetryLabel: "inbox_notification_attention_lane",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let attentionProjectionRevision = AtomRevision()
+    @ObservationIgnored private var attentionLaneSnapshotByPaneId: [UUID: InboxNotificationClaimLane] = [:]
+
     package init() {}
 
     func unreadCount(forPaneId paneId: UUID) -> Int {
@@ -122,12 +132,11 @@ package final class InboxNotificationAtom {
     }
 
     package func attentionLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
-        let readerGroupId = false
-        return try! InboxAttentionProjector.project(
-            snapshot: captureAttentionFacts(),
-            groups: [readerGroupId: Set(paneIds)],
-            cancellationCheck: {}
-        )[readerGroupId]
+        let matchingLanes = paneIds.compactMap { attentionLaneByPaneId.value(for: $0) }
+        if matchingLanes.contains(.actionNeeded) { return .actionNeeded }
+        if matchingLanes.contains(.safety) { return .safety }
+        if matchingLanes.contains(.settledAgent) { return .settledAgent }
+        return nil
     }
 
     package func captureAttentionFacts() -> InboxAttentionFactSnapshot {
@@ -372,5 +381,40 @@ package final class InboxNotificationAtom {
         globalUnreadCount = unreadCount { _ in true }
         globalRollUpAlertCount = rollUpAlertCount { _ in true }
         attentionFactSnapshot = InboxAttentionFactSnapshot(notifications: notifications)
+        recalculateAttentionLaneProjection()
+    }
+
+    private func recalculateAttentionLaneProjection() {
+        var nextAttentionLaneByPaneId: [UUID: InboxNotificationClaimLane] = [:]
+        for notification in notifications where notification.contributesToAttentionDot {
+            guard let paneId = notification.paneId else { continue }
+            switch notification.displayLane {
+            case .actionNeeded:
+                nextAttentionLaneByPaneId[paneId] = .actionNeeded
+            case .safety:
+                if nextAttentionLaneByPaneId[paneId] != .actionNeeded {
+                    nextAttentionLaneByPaneId[paneId] = .safety
+                }
+            case .settledAgent:
+                if nextAttentionLaneByPaneId[paneId] == nil {
+                    nextAttentionLaneByPaneId[paneId] = .settledAgent
+                }
+            case .activity:
+                break
+            }
+        }
+
+        let mutation = AtomMutationContext(aggregateRevision: attentionProjectionRevision)
+        let previousPaneIds = Set(attentionLaneSnapshotByPaneId.keys)
+        let nextPaneIds = Set(nextAttentionLaneByPaneId.keys)
+        for removedPaneId in previousPaneIds.subtracting(nextPaneIds) {
+            attentionLaneByPaneId.removeValue(for: removedPaneId, mutation: mutation)
+        }
+        for (paneId, nextLane) in nextAttentionLaneByPaneId
+        where attentionLaneSnapshotByPaneId[paneId] != nextLane {
+            attentionLaneByPaneId.setValue(nextLane, for: paneId, mutation: mutation)
+        }
+        attentionLaneSnapshotByPaneId = nextAttentionLaneByPaneId
+        mutation.commit()
     }
 }

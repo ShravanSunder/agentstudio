@@ -22,7 +22,7 @@ struct AgentStudioPerformanceTraceRecorderTests {
 
         recorder.recordTerminalAccumulatorDrain(
             TerminalAccumulatorDrainPerformanceSnapshot(
-                drainClass: .immediate,
+                drainClass: .titleDeadline,
                 offeredCount: 100,
                 replacedCount: 80,
                 equalSuppressedCount: 10,
@@ -70,7 +70,7 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"body\":\"performance.terminal.accumulator_drain\""))
         #expect(
             contents.contains(
-                "\"agentstudio.performance.terminal.accumulator.drain.class\":\"immediate\""
+                "\"agentstudio.performance.terminal.accumulator.drain.class\":\"title_deadline\""
             )
         )
         #expect(contents.contains("\"body\":\"performance.terminal.compact_apply\""))

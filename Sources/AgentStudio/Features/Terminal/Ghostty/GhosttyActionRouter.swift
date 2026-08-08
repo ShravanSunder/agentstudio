@@ -26,8 +26,8 @@ extension Ghostty {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
         @MainActor static var startupTraceRecorder: AgentStudioStartupTraceRecorder?
         static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
-        static let localActionDrainScheduler = TerminalLocalActionDrainScheduler { surfaceID in
-            await drainLocalActions(for: surfaceID)
+        static let localActionDrainScheduler = TerminalLocalActionDrainScheduler { surfaceID, lane in
+            await drainLocalActions(for: surfaceID, lane: lane)
         }
         static let localActionAccumulator = TerminalLocalActionAccumulator(
             scheduleDrain: { surfaceID, schedule in
@@ -37,7 +37,7 @@ extension Ghostty {
                 localActionDrainScheduler.scheduleFollowUp(surfaceID, schedule)
             },
             cancelScheduledTitleDrain: { surfaceID in
-                localActionDrainScheduler.cancel(for: surfaceID)
+                localActionDrainScheduler.cancelTitle(for: surfaceID)
             }
         )
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [

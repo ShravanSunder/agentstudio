@@ -15,19 +15,19 @@ private struct TabBarProjectionCapture {
     let request: TabBarProjectionRequest
 }
 
-/// Derives tab bar display state from the workspace atoms.
-/// Owns only the materialized projection and transient MainActor UI state.
+/// Derives tab bar display state from keyed workspace observations.
+/// Each tab projects off MainActor; the adapter publishes one coherent aggregate.
 @MainActor
 @Observable
 final class TabBarAdapter {
     // MARK: - Materialized Projection
 
     var tabs: [TabBarItem] {
-        materializedProjection.value?.items ?? []
+        publishedProjection?.items ?? []
     }
 
     var activeTabId: UUID? {
-        materializedProjection.value?.activeTabID
+        publishedProjection?.activeTabID
     }
 
     /// Advances only when a semantically changed projection is published.
@@ -74,15 +74,35 @@ final class TabBarAdapter {
 
     // MARK: - Internals
 
-    let materializedProjection: TabBarMaterializedProjection
-
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let inboxAtom: InboxNotificationAtom
     private let projectionTelemetry: TabBarProjectionTelemetry
+    @ObservationIgnored private let project:
+        @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection
+    @ObservationIgnored private let onProjectionCompletion:
+        @MainActor @Sendable (TabBarMaterializedProjection.ProjectionCompletion) -> Void
+    @ObservationIgnored private var materializedProjectionByTabId: [UUID: TabBarMaterializedProjection] = [:]
+    @ObservationIgnored private var tabObservationGenerationById: [UUID: UInt64] = [:]
+    @ObservationIgnored private var admittedProjectionGenerationByTabId: [UUID: TabBarProjectionGeneration] = [:]
+    @ObservationIgnored private var readyProjectionGenerationByTabId: [UUID: TabBarProjectionGeneration] = [:]
+    @ObservationIgnored private var itemByTabId: [UUID: TabBarItem] = [:]
+    @ObservationIgnored private var orderedTabIds: [UUID] = []
+    @ObservationIgnored private var requestedActiveTabId: UUID?
+    @ObservationIgnored private var nextTabObservationGeneration: UInt64 = 0
     private var projectionGeneration: UInt64 = 0
     private var isObservingManagementLayer = false
+    private var isObservingTabCollection = false
+    private var publishedProjection: TabBarProjection?
     private var hasStopped = false
+
+    var materializedProjections: [TabBarMaterializedProjection] {
+        Array(materializedProjectionByTabId.values)
+    }
+
+    func materializedProjection(for tabId: UUID) -> TabBarMaterializedProjection? {
+        materializedProjectionByTabId[tabId]
+    }
 
     init(
         store: WorkspaceStore,
@@ -105,15 +125,8 @@ final class TabBarAdapter {
         self.repoCache = repoCache
         self.inboxAtom = inboxAtom
         self.projectionTelemetry = projectionTelemetry
-        self.materializedProjection = TabBarMaterializedProjection(
-            requestIdentity: \.generation,
-            isValueEqual: ==,
-            project: measuredProject,
-            onProjectionCompletion: { completion in
-                projectionTelemetry.recordCompletion(completion)
-                onProjectionCompletion(completion)
-            }
-        )
+        self.project = measuredProject
+        self.onProjectionCompletion = onProjectionCompletion
         observe()
     }
 
@@ -121,7 +134,9 @@ final class TabBarAdapter {
         guard !hasStopped else { return }
         hasStopped = true
         projectionTelemetry.stop()
-        materializedProjection.stop()
+        for materializedProjection in materializedProjectionByTabId.values {
+            materializedProjection.stop()
+        }
     }
 
     isolated deinit {
@@ -136,55 +151,158 @@ final class TabBarAdapter {
 
     private func observe() {
         isManagementLayerActive = atom(\.managementLayer).isActive
-        observeMaterializedProjection()
+        observeTabCollection()
         observeManagementLayer()
-        captureAndAdmitNewestRequest()
     }
 
-    private func captureAndAdmitNewestRequest() {
-        guard !hasStopped else { return }
+    private func observeTabCollection() {
+        guard !hasStopped, !isObservingTabCollection else { return }
+        isObservingTabCollection = true
+        let collection = withObservationTracking {
+            (
+                orderedTabIds: store.tabShellAtom.orderedTabIds,
+                activeTabId: store.tabShellAtom.activeTabId
+            )
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.hasStopped else { return }
+                self.isObservingTabCollection = false
+                self.observeTabCollection()
+            }
+        }
+        reconcileTabObservers(
+            orderedTabIds: collection.orderedTabIds,
+            activeTabId: collection.activeTabId
+        )
+    }
+
+    private func reconcileTabObservers(orderedTabIds: [UUID], activeTabId: UUID?) {
+        self.orderedTabIds = orderedTabIds
+        requestedActiveTabId = activeTabId
+
+        let retainedTabIds = Set(orderedTabIds)
+        for removedTabId in Array(materializedProjectionByTabId.keys)
+        where !retainedTabIds.contains(removedTabId) {
+            materializedProjectionByTabId.removeValue(forKey: removedTabId)?.stop()
+            tabObservationGenerationById.removeValue(forKey: removedTabId)
+            admittedProjectionGenerationByTabId.removeValue(forKey: removedTabId)
+            readyProjectionGenerationByTabId.removeValue(forKey: removedTabId)
+            itemByTabId.removeValue(forKey: removedTabId)
+        }
+        for tabId in orderedTabIds where materializedProjectionByTabId[tabId] == nil {
+            materializedProjectionByTabId[tabId] = makeMaterializedProjection(for: tabId)
+            observeTabItem(tabId)
+        }
+        publishProjectionIfReady()
+    }
+
+    private func makeMaterializedProjection(for tabId: UUID) -> TabBarMaterializedProjection {
+        let project = self.project
+        return TabBarMaterializedProjection(
+            requestIdentity: \.generation,
+            isValueEqual: ==,
+            project: project,
+            onProjectionCompletion: { [weak self] completion in
+                self?.handleProjectionCompletion(completion, for: tabId)
+            }
+        )
+    }
+
+    private func observeTabItem(_ tabId: UUID) {
+        guard !hasStopped, let materializedProjection = materializedProjectionByTabId[tabId] else {
+            return
+        }
+        nextTabObservationGeneration &+= 1
+        let observationGeneration = nextTabObservationGeneration
+        tabObservationGenerationById[tabId] = observationGeneration
 
         projectionGeneration &+= 1
         let generation = TabBarProjectionGeneration(value: projectionGeneration)
-        let materializedProjection = self.materializedProjection
+        admittedProjectionGenerationByTabId[tabId] = generation
+        readyProjectionGenerationByTabId.removeValue(forKey: tabId)
         let projectionTelemetry = self.projectionTelemetry
         let captureStartedAt = projectionTelemetry.captureStartedAt()
         let capture = withObservationTracking {
-            TabBarProjectionCapture(
-                request: TabBarProjectionRequest(
-                    generation: generation,
-                    coreRequest: CoreTabBarProjectionRequest.capture(
-                        store: store,
-                        repoCache: repoCache
-                    ),
-                    inboxAttentionFacts: inboxAtom.captureAttentionFacts()
+            CoreTabBarProjectionRequest.capture(
+                tabId: tabId,
+                store: store,
+                repoCache: repoCache
+            ).map { coreRequest in
+                TabBarProjectionCapture(
+                    request: TabBarProjectionRequest(
+                        generation: generation,
+                        coreRequest: coreRequest,
+                        inboxAttentionLane: inboxAtom.attentionLane(
+                            forPaneIds: coreRequest.paneIds
+                        )
+                    )
                 )
-            )
+            }
         } onChange: { [weak self, weak materializedProjection] in
             projectionTelemetry.sourceDidInvalidate()
             materializedProjection?.sourceDidInvalidate()
             Task { @MainActor [weak self] in
-                self?.captureAndAdmitNewestRequest()
+                guard let self,
+                    !self.hasStopped,
+                    self.tabObservationGenerationById[tabId] == observationGeneration
+                else { return }
+                self.observeTabItem(tabId)
             }
         }
+        guard let capture else { return }
         projectionTelemetry.recordAdmission(capture, startedAt: captureStartedAt)
         materializedProjection.admit(capture.request)
     }
 
-    private func observeMaterializedProjection() {
-        guard !hasStopped else { return }
-        let materializedProjection = self.materializedProjection
-        withObservationTracking {
-            _ = materializedProjection.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, !self.hasStopped else { return }
-                self.outputPublicationRevision &+= 1
-                self.projectionTelemetry.recordPublication()
-                self.updateOverflow()
-                self.observeMaterializedProjection()
-            }
+    private func handleProjectionCompletion(
+        _ completion: TabBarMaterializedProjection.ProjectionCompletion,
+        for tabId: UUID
+    ) {
+        projectionTelemetry.recordCompletion(completion)
+        onProjectionCompletion(completion)
+        let completedGeneration: TabBarProjectionGeneration
+        switch completion {
+        case .published(let generation), .equal(let generation):
+            completedGeneration = generation
+        case .superseded, .cancelled:
+            return
         }
+        guard orderedTabIds.contains(tabId),
+            admittedProjectionGenerationByTabId[tabId] == completedGeneration
+        else { return }
+        if case .published = completion {
+            guard let projection = materializedProjectionByTabId[tabId]?.value,
+                let item = projection.items.first,
+                item.id == tabId
+            else { return }
+            itemByTabId[tabId] = item
+        }
+        readyProjectionGenerationByTabId[tabId] = completedGeneration
+        publishProjectionIfReady()
+    }
+
+    private func publishProjectionIfReady() {
+        guard
+            orderedTabIds.allSatisfy({ tabId in
+                guard let admittedGeneration = admittedProjectionGenerationByTabId[tabId] else {
+                    return false
+                }
+                return readyProjectionGenerationByTabId[tabId] == admittedGeneration
+                    && itemByTabId[tabId] != nil
+            })
+        else { return }
+        let items = orderedTabIds.compactMap { itemByTabId[$0] }
+        let activeTabId =
+            requestedActiveTabId.flatMap { requestedTabId in
+                orderedTabIds.contains(requestedTabId) ? requestedTabId : nil
+            } ?? orderedTabIds.last
+        let candidate = TabBarProjection(items: items, activeTabID: activeTabId)
+        guard publishedProjection != candidate else { return }
+        let previousProjection = publishedProjection
+        publishedProjection = candidate
+        outputPublicationRevision &+= 1
+        projectionTelemetry.recordPublication(previous: previousProjection, current: candidate)
+        updateOverflow()
     }
 
     private func observeManagementLayer() {
@@ -235,8 +353,10 @@ private final class TabBarProjectionTelemetry: Sendable {
         let captureStartedAt: ContinuousClock.Instant
         let interactionStartedAt: ContinuousClock.Instant
         var tabCount: Int?
+        var sourceTabCount: Int?
         var paneCount: Int?
         var activeTabPresent: Bool?
+        var affectedItemCount: Int?
     }
 
     private struct State: Sendable {
@@ -280,8 +400,10 @@ private final class TabBarProjectionTelemetry: Sendable {
                 captureStartedAt: startedAt,
                 interactionStartedAt: state.pendingInteractionStartedAt ?? startedAt,
                 tabCount: nil,
+                sourceTabCount: nil,
                 paneCount: nil,
-                activeTabPresent: nil
+                activeTabPresent: nil,
+                affectedItemCount: nil
             )
             state.pendingInteractionStartedAt = nil
             state.admissionsBySequence[admission.sequence] = admission
@@ -360,28 +482,41 @@ private final class TabBarProjectionTelemetry: Sendable {
         }
         guard let admission else { return }
         recordTerminal(admission, outcome: outcome, recorder: recorder)
-        if outcome == "published" || outcome == "equal" {
-            recorder.recordDuration(
-                .tabBarRefresh,
-                duration: admission.captureStartedAt.duration(to: clock.now),
-                attributes: Self.attributes(for: admission)
-            )
-            recorder.recordDuration(
-                .tabBarCurrent,
-                duration: admission.interactionStartedAt.duration(to: clock.now),
-                attributes: Self.attributes(for: admission)
-            )
-        }
     }
 
     @MainActor
-    func recordPublication() {
+    func recordPublication(
+        previous: TabBarProjection?,
+        current: TabBarProjection
+    ) {
         guard let recorder, recorder.isEnabled else { return }
-        let admission = state.withLock { state in
+        let admission = state.withLock { state -> Admission? in
             defer { state.pendingPublicationAdmission = nil }
-            return state.pendingPublicationAdmission
+            guard var admission = state.pendingPublicationAdmission else { return nil }
+            admission.tabCount = current.items.count
+            admission.sourceTabCount = current.items.count
+            admission.paneCount = current.items.reduce(into: 0) { count, item in
+                count += item.panes.count
+            }
+            admission.activeTabPresent = current.activeTabID != nil
+            admission.affectedItemCount = Self.affectedItemCount(
+                previous: previous?.items ?? [],
+                current: current.items
+            )
+            state.pendingVisibleAdmission = admission
+            return admission
         }
         guard let admission else { return }
+        recorder.recordDuration(
+            .tabBarRefresh,
+            duration: admission.captureStartedAt.duration(to: clock.now),
+            attributes: Self.attributes(for: admission)
+        )
+        recorder.recordDuration(
+            .tabBarCurrent,
+            duration: admission.interactionStartedAt.duration(to: clock.now),
+            attributes: Self.attributes(for: admission)
+        )
         recorder.recordDuration(
             .tabBarPublication,
             duration: admission.interactionStartedAt.duration(to: clock.now),
@@ -457,12 +592,36 @@ private final class TabBarProjectionTelemetry: Sendable {
         if let tabCount = admission.tabCount {
             attributes["agentstudio.performance.tabbar.tab.count"] = .int(tabCount)
         }
+        if let sourceTabCount = admission.sourceTabCount {
+            attributes["agentstudio.performance.tabbar.source_tab.count"] = .int(sourceTabCount)
+        }
         if let paneCount = admission.paneCount {
             attributes["agentstudio.performance.tabbar.pane.count"] = .int(paneCount)
         }
         if let activeTabPresent = admission.activeTabPresent {
             attributes["agentstudio.performance.tabbar.active_tab.present"] = .bool(activeTabPresent)
         }
+        if let affectedItemCount = admission.affectedItemCount {
+            attributes["agentstudio.performance.tabbar.affected_item.count"] = .int(affectedItemCount)
+        }
         return attributes
+    }
+
+    private static func affectedItemCount(
+        previous: [TabBarItem],
+        current: [TabBarItem]
+    ) -> Int {
+        let previousById = Dictionary(uniqueKeysWithValues: previous.map { ($0.id, $0) })
+        let currentById = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        let previousIndexById = Dictionary(
+            uniqueKeysWithValues: previous.enumerated().map { ($0.element.id, $0.offset) }
+        )
+        let currentIndexById = Dictionary(
+            uniqueKeysWithValues: current.enumerated().map { ($0.element.id, $0.offset) }
+        )
+        return Set(previousById.keys).union(currentById.keys).count { tabId in
+            previousById[tabId] != currentById[tabId]
+                || previousIndexById[tabId] != currentIndexById[tabId]
+        }
     }
 }

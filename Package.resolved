@@ -1,5 +1,5 @@
 {
-  "originHash" : "1f8b28c7c6ff6600c87bcf84114c618f7126160f6df8fb32f6d76637cdb35da6",
+  "originHash" : "142b13dd411be85d068724bd7e3260fbda259bb49108d9461033aa88d5ff918a",
   "pins" : [
     {
       "identity" : "agentstudio-git",
@@ -52,6 +52,15 @@
       "state" : {
         "revision" : "8723cf856dc23d9c2fad4d874e7b9ed3254acf03",
         "version" : "2.3.0"
+      }
+    },
+    {
+      "identity" : "hummingbird",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hummingbird-project/hummingbird.git",
+      "state" : {
+        "revision" : "277e5db5b6d348270088e6ee8e8fa2539bae603d",
+        "version" : "2.23.0"
       }
     },
     {

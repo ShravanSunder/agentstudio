@@ -1,5 +1,6 @@
 import AgentStudioCommandBar
 import AgentStudioCore
+import AgentStudioRepoExplorer
 import Foundation
 import Observation
 import os
@@ -244,6 +245,75 @@ final class AppCommandDispatcher: AppCommandDispatching {
 
     func commands(for itemType: SearchItemType) -> [AppCommandSpec] {
         definitions.values.filter { $0.targeting.supports(targetType: itemType) }
+    }
+
+    func repoExplorerCommandPresentationSnapshot(
+        requests: Set<RepoExplorerCommandPresentationRequest>,
+        generation: UInt64
+    ) -> RepoExplorerCommandPresentationSnapshot {
+        let handlerCapabilities = handler?.repoExplorerCommandCapabilities(requests) ?? [:]
+        var results: [RepoExplorerCommandPresentationRequest: Bool] = [:]
+        results.reserveCapacity(requests.count)
+
+        for request in requests {
+            guard let definition = definitions[request.command] else { continue }
+            let presentationQuery: AppCommandPresentationQuery
+            if let targetType = request.targetType {
+                guard request.target != nil else { continue }
+                presentationQuery = AppCommandPresentationQuery(
+                    surface: request.surface,
+                    subject: .targeted(targetType)
+                )
+            } else {
+                guard request.target == nil else { continue }
+                presentationQuery = AppCommandPresentationQuery(
+                    surface: request.surface,
+                    subject: .contextual(.empty)
+                )
+            }
+            guard definition.shouldPresent(presentationQuery) else { continue }
+            guard !definition.requiresManagementLayer || atom(\.managementLayer).isActive else {
+                results[request] = false
+                continue
+            }
+
+            let appCanExecute: Bool
+            switch request.arguments {
+            case .noArguments:
+                if let target = request.target, let targetType = request.targetType {
+                    appCanExecute =
+                        appCommandRouter?.canExecute(
+                            request.command,
+                            target: target,
+                            targetType: targetType
+                        ) ?? false
+                } else {
+                    appCanExecute = appCommandRouter?.canExecute(request.command) ?? false
+                }
+            case .repoSidebarVisibilityMode(let mode):
+                appCanExecute =
+                    appCommandRouter?.canExecute(
+                        AppCommandExecutionRequest(
+                            command: request.command,
+                            arguments: .repoSidebarVisibilityMode(mode)
+                        )
+                    ) ?? false
+            case .repoSidebarSortOrder(let order):
+                appCanExecute =
+                    appCommandRouter?.canExecute(
+                        AppCommandExecutionRequest(
+                            command: request.command,
+                            arguments: .repoSidebarSortOrder(order)
+                        )
+                    ) ?? false
+            }
+            results[request] = appCanExecute || (handlerCapabilities[request] ?? false)
+        }
+
+        return RepoExplorerCommandPresentationSnapshot(
+            generation: generation,
+            results: results
+        )
     }
 
     private func canExecutionOwnersExecute(

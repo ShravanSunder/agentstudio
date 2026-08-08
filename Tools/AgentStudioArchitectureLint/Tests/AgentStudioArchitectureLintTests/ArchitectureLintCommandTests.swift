@@ -30,6 +30,7 @@ struct ArchitectureLintCommandTests {
         #expect(result.output.contains("error: [agentstudio_no_task_sleep_in_tests]"))
         #expect(result.output.contains("error: [agentstudio_eventbus_subscriber_policy_required]"))
         #expect(result.output.contains("error: [agentstudio_shared_components_are_stateless]"))
+        #expect(result.output.contains("error: [agentstudio_hot_pane_snapshot_reads]"))
     }
 
     @Test("shared components reject Core-owned static presentation reads")
@@ -43,6 +44,21 @@ struct ArchitectureLintCommandTests {
         #expect(result.exitCode == 1)
         #expect(result.output.contains("error: [agentstudio_shared_components_are_stateless]"))
         #expect(result.output.contains("Core-owned presentation types"))
+    }
+
+    @Test("PaneTab command presentation rejects bulk pane snapshots and wrappers")
+    func paneTabCommandPresentationRejectsBulkPaneSnapshotsAndWrappers() throws {
+        let result = runCommand(
+            arguments: [
+                fixturePath("Bad/Sources/AgentStudio/App/Panes/PaneTabViewController.swift")
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("error: [agentstudio_hot_pane_snapshot_reads]"))
+        #expect(
+            result.output.components(separatedBy: "[agentstudio_hot_pane_snapshot_reads]").count - 1 == 4
+        )
     }
 
     @Test("relative single-file paths receive the same architecture classification")

@@ -77,8 +77,8 @@ package struct ActionStateSnapshot: Equatable {
     let isManagementLayerActive: Bool
     /// Runtime-only Zoom source pane keyed by owning tab.
     let zoomSourcePaneIdByTabId: [UUID: UUID]
-    let knownRepoIds: Set<UUID>
-    let knownWorktreeIds: Set<UUID>
+    package let knownRepoIds: Set<UUID>
+    package let knownWorktreeIds: Set<UUID>
     /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
     let drawerParentByPaneId: [UUID: UUID]
     /// Parent layout pane -> current drawer layout for validator-side legality checks.

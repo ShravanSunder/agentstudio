@@ -316,8 +316,8 @@ struct AppBootSequenceTests {
             )
 
             #expect(ObjectIdentifier(firstAdapter) != ObjectIdentifier(reopenedAdapter))
-            #expect(firstAdapter.materializedProjection.freshness == .stopped)
-            #expect(reopenedAdapter.materializedProjection.freshness != .stopped)
+            #expect(firstAdapter.materializedProjections.allSatisfy { $0.freshness == .stopped })
+            #expect(reopenedAdapter.materializedProjections.allSatisfy { $0.freshness != .stopped })
         }
 
         await coordinator.shutdown()

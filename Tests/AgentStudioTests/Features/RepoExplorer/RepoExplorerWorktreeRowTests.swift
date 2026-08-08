@@ -106,6 +106,30 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains("createNew"))
     }
 
+    @Test("pane rows use the shared secondary metadata styling")
+    func paneRowsUseSharedSecondaryMetadataStyling() throws {
+        let paneNavigationSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(paneNavigationSource.contains("SidebarMetadataLine("))
+        #expect(paneNavigationSource.contains("iconSystemName: \"square.split.2x1\""))
+        #expect(paneNavigationSource.contains("text: label"))
+        #expect(
+            worktreeRowSource.contains(
+                """
+                Image(systemName: "square.split.2x1")
+                                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
+                """
+            )
+        )
+    }
+
     @Test("repo explorer remains inbox-feature agnostic")
     func repoExplorerDoesNotReferenceInboxFeatureTypes() throws {
         let source = try String(

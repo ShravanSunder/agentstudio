@@ -518,7 +518,7 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(firstSourcePane.id, inTab: sourceTab.id)
             enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
-            let durablePaneIds = Set(harness.store.paneAtom.panes.keys)
+            let durablePaneIds = harness.store.paneAtom.graphAtom.paneIDs
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
             let bridgeHostPaneIdsBeforeZoom = Set(harness.viewRegistry.allBridgeViews.keys)
@@ -577,7 +577,7 @@ extension WebKitSerializedTests {
             )
             #expect(harness.coordinator.bridgePaneActivity(for: firstCompanionPaneId) == .foreground)
             #expect(harness.coordinator.bridgePaneActivity(for: secondCompanionPaneId) == .loadedHidden)
-            #expect(Set(harness.store.paneAtom.panes.keys) == durablePaneIds)
+            #expect(harness.store.paneAtom.graphAtom.paneIDs == durablePaneIds)
             #expect(
                 harness.store.tab(sourceTab.id)?.arrangements.allSatisfy {
                     !$0.layout.contains(firstCompanionPaneId)

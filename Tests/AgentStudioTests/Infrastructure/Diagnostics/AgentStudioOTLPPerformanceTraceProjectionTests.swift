@@ -25,6 +25,7 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.future.elapsed_ms"] == nil)
         #expect(projection.attributes["agentstudio.performance.future.has_value"] == nil)
         #expect(projection.attributes["agentstudio.performance.atom.kind"] == .string("entity_map"))
+        #expect(projection.attributes["agentstudio.performance.atom.label"] == .string("pane_graph_canonical"))
         #expect(projection.attributes["agentstudio.performance.atom.operation"] == .string("value"))
         #expect(projection.attributes["agentstudio.performance.atom.slot.count"] == .int(2))
         #expect(projection.attributes["agentstudio.performance.atom.cached_key.count"] == .int(1))
@@ -69,6 +70,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
             projection.attributes["agentstudio.performance.terminal.surface.source"]
                 == .string("forceGeometrySync"))
         #expect(projection.attributes["agentstudio.worktree.id"] == nil)
+        #expect(projection.attributes["agentstudio.performance.atom.key"] == nil)
+        #expect(projection.attributes["agentstudio.performance.atom.value"] == nil)
         #expect(projection.resource["process.pid"] == nil)
         #expect(!renderedProjection.contains("/Users/shravan"))
         #expect(!renderedProjection.contains(worktreeID.uuidString))
@@ -193,6 +196,9 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 "agentstudio.performance.future.elapsed_ms": .double(999),
                 "agentstudio.performance.future.has_value": .bool(true),
                 "agentstudio.performance.atom.kind": .string("entity_map"),
+                "agentstudio.performance.atom.label": .string("pane_graph_canonical"),
+                "agentstudio.performance.atom.key": .string("private-pane-key"),
+                "agentstudio.performance.atom.value": .string("private-pane-value"),
                 "agentstudio.performance.atom.operation": .string("value"),
                 "agentstudio.performance.atom.slot.count": .int(2),
                 "agentstudio.performance.atom.cached_key.count": .int(1),

@@ -132,6 +132,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.preferences.global.status",
         "agentstudio.performance.coordinator.phase",
         "agentstudio.performance.atom.kind",
+        "agentstudio.performance.atom.label",
         "agentstudio.performance.atom.operation",
         "agentstudio.performance.git.backoff.reason",
         "agentstudio.performance.git.status_scope",
@@ -449,6 +450,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.pane.count",
         "agentstudio.performance.pane_view_restore.tab.count",
         "agentstudio.performance.pane_view_restore.visible_pane.count",
+        "agentstudio.performance.repo_explorer.affected_item.count",
+        "agentstudio.performance.repo_explorer.capability_snapshot.count",
+        "agentstudio.performance.repo_explorer.command_resolution.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
         "agentstudio.performance.sidebar.group.count",
         "agentstudio.performance.sidebar.input.count",
@@ -464,6 +468,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.split_width",
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
+        "agentstudio.performance.tabbar.affected_item.count",
         "agentstudio.performance.tabbar.sequence",
         "agentstudio.performance.tabbar.source_tab.count",
         "agentstudio.performance.tabbar.tab.count",
@@ -754,19 +759,6 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
 
-    private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
-        "agentstudio.release_channel",
-        "agentstudio.runtime_flavor",
-        "agent.proof.launch",
-        "agent.proof.marker",
-        "dev.release.channel",
-        "dev.repo.hash",
-        "dev.runtime.flavor",
-        "dev.worktree.hash",
-        "dev.branch.name",
-        "service.version",
-    ]
-
     private static func safeResource(_ resource: [String: String]) -> [String: String] {
         var projected: [String: String] = [:]
         for (key, value) in resource where allowedSafeResourceKeys.contains(key) && isSafeResourceValue(value) {
@@ -830,6 +822,19 @@ package enum AgentStudioOTLPTraceProjection {
 // MARK: - Value Validation
 
 extension AgentStudioOTLPTraceProjection {
+    private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
+        "agentstudio.release_channel",
+        "agentstudio.runtime_flavor",
+        "agent.proof.launch",
+        "agent.proof.marker",
+        "dev.release.channel",
+        "dev.repo.hash",
+        "dev.runtime.flavor",
+        "dev.worktree.hash",
+        "dev.branch.name",
+        "service.version",
+    ]
+
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
     }

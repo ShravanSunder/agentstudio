@@ -4,30 +4,25 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type ProxyOptions } from 'vite';
 
 import {
 	createBridgeDevTelemetrySink,
 	type BridgeDevTelemetrySink,
 	type BridgeDevTelemetrySnapshot,
 } from './scripts/dev-server/bridge-dev-telemetry.js';
-import { createBridgeProductDevCarrier } from './scripts/dev-server/bridge-product-dev-carrier.js';
 import {
-	createBridgeWorktreeDevProvider,
-	resolveBridgeWorktreeDevProviderConfig,
-	type BridgeWorktreeDevProvider,
-	type BridgeWorktreeDevProviderConfig,
-} from './scripts/dev-server/bridge-worktree-dev-provider.js';
-import { BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE } from './src/core/comm-worker/bridge-product-dev-bootstrap.js';
+	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
+	BRIDGE_PRODUCT_DEV_HEALTH_ROUTE,
+} from './src/core/comm-worker/bridge-product-dev-bootstrap.js';
 import {
 	BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT,
 	BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT,
 	BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT,
 } from './src/core/comm-worker/bridge-product-http-request-executor.js';
 
-type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
-
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
+const bridgeProductDevBackendOrigin = resolveBridgeProductDevBackendOrigin(process.env);
 export default defineConfig({
 	base: './',
 	resolve: {
@@ -36,68 +31,9 @@ export default defineConfig({
 	plugins: [
 		react(),
 		{
-			name: 'bridge-worktree-dev-provider',
+			name: 'bridge-dev-telemetry',
 			configureServer(server) {
 				const telemetrySink = createBridgeDevTelemetrySink();
-				const providerPromisesByConfig = new Map<string, BridgeWorktreeDevProviderPromise>();
-				const providerConfigPromisesByCacheKey = new Map<
-					string,
-					Promise<BridgeWorktreeDevProviderConfig>
-				>();
-				const getProviderConfig = async (
-					requestUrl: string | null,
-				): Promise<BridgeWorktreeDevProviderConfig> => {
-					const cacheKey = bridgeWorktreeDevProviderConfigCacheKey({
-						env: process.env,
-						requestUrl,
-					});
-					if (cacheKey === null) {
-						return await resolveBridgeWorktreeDevProviderConfig({
-							env: process.env,
-							packageRoot: bridgeWebPackageRoot,
-							requestUrl,
-						});
-					}
-					const existingConfigPromise = providerConfigPromisesByCacheKey.get(cacheKey);
-					if (existingConfigPromise !== undefined) {
-						return await existingConfigPromise;
-					}
-					const configPromise = resolveBridgeWorktreeDevProviderConfig({
-						env: process.env,
-						packageRoot: bridgeWebPackageRoot,
-						requestUrl,
-					});
-					providerConfigPromisesByCacheKey.set(cacheKey, configPromise);
-					return await configPromise;
-				};
-				const getProvider = async (requestUrl: string | null): BridgeWorktreeDevProviderPromise => {
-					const config = await getProviderConfig(requestUrl);
-					const configKey = `${config.scenarioName}\u0000${config.worktreeRoot}\u0000${config.baseRef}`;
-					const existingProviderPromise = providerPromisesByConfig.get(configKey);
-					if (existingProviderPromise !== undefined) {
-						return existingProviderPromise;
-					}
-					const providerPromise = createBridgeWorktreeDevProvider(config);
-					providerPromisesByConfig.set(configKey, providerPromise);
-					return providerPromise;
-				};
-				const productCarrier = createBridgeProductDevCarrier({
-					getFileProvider: getProvider,
-					getReviewSourceConfig: getProviderConfig,
-				});
-				server.middlewares.use(BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE, (request, response) => {
-					void productCarrier.handleBootstrapRequest({ request, response });
-				});
-				server.middlewares.use(BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT, (request, response) => {
-					void productCarrier.handleCommandRequest({ request, response });
-				});
-				server.middlewares.use(BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT, (request, response) => {
-					void productCarrier.handleStreamRequest({ request, response });
-				});
-				server.middlewares.use(BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT, (request, response) => {
-					void productCarrier.handleContentRequest({ request, response });
-				});
-				server.httpServer?.once('close', (): void => productCarrier.dispose());
 				server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
 					void handleBridgeDevTelemetryBatchRequest({
 						request,
@@ -117,6 +53,7 @@ export default defineConfig({
 	],
 	server: {
 		host: '127.0.0.1',
+		proxy: bridgeProductDevProxyConfiguration(bridgeProductDevBackendOrigin),
 	},
 	build: {
 		outDir: '../Sources/AgentStudio/Resources/BridgeWeb/app',
@@ -185,40 +122,40 @@ function handleBridgeDevTelemetryStatusRequest(props: {
 	writeJsonResponse(props.response, 200, props.telemetrySink.snapshot());
 }
 
-export function bridgeWorktreeDevProviderConfigCacheKey(props: {
-	readonly env: Readonly<Record<string, string | undefined>>;
-	readonly requestUrl: string | null;
-}): string | null {
-	const contentUrl = new URL(props.requestUrl ?? '/', 'http://127.0.0.1');
+export function resolveBridgeProductDevBackendOrigin(
+	env: Readonly<Record<string, string | undefined>>,
+): string {
+	const configuredOrigin = env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] ?? 'http://127.0.0.1:43871';
+	const origin = new URL(configuredOrigin);
 	if (
-		props.requestUrl?.includes('://') === true &&
-		!bridgeWorktreeDevProviderCacheHostnameIsLoopback(contentUrl.hostname)
+		origin.protocol !== 'http:' ||
+		!bridgeProductDevBackendHostnameIsLoopback(origin.hostname) ||
+		origin.username !== '' ||
+		origin.password !== '' ||
+		origin.pathname !== '/' ||
+		origin.search !== '' ||
+		origin.hash !== ''
 	) {
-		return null;
+		throw new Error('BRIDGE_WEB_DEV_BACKEND_ORIGIN must be a loopback HTTP origin.');
 	}
-	if (
-		contentUrl.searchParams.has('worktree') ||
-		contentUrl.searchParams.has('repo') ||
-		contentUrl.searchParams.has('base')
-	) {
-		return null;
-	}
-	const scenario =
-		singleSearchParamValue(contentUrl, 'scenario') ??
-		props.env['BRIDGE_WEB_DEV_SCENARIO'] ??
-		'current-worktree';
-	const envWorktree = props.env['BRIDGE_WEB_DEV_WORKTREE'] ?? 'package-root';
-	const envBase = props.env['BRIDGE_WEB_DEV_BASE'] ?? 'default-base';
-	return [scenario, envWorktree, envBase].join('\u0000');
+	return origin.origin;
 }
 
-function bridgeWorktreeDevProviderCacheHostnameIsLoopback(hostname: string): boolean {
+export function bridgeProductDevProxyConfiguration(
+	backendOrigin: string,
+): Readonly<Record<string, ProxyOptions>> {
+	const proxy: ProxyOptions = { target: backendOrigin };
+	return {
+		[BRIDGE_PRODUCT_DEV_HEALTH_ROUTE]: proxy,
+		[BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE]: proxy,
+		[BRIDGE_PRODUCT_HTTP_COMMAND_ENDPOINT]: proxy,
+		[BRIDGE_PRODUCT_HTTP_STREAM_ENDPOINT]: proxy,
+		[BRIDGE_PRODUCT_HTTP_CONTENT_ENDPOINT]: proxy,
+	};
+}
+
+function bridgeProductDevBackendHostnameIsLoopback(hostname: string): boolean {
 	return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
-}
-
-function singleSearchParamValue(url: URL, name: string): string | null {
-	const values = url.searchParams.getAll(name);
-	return values.length === 1 ? (values[0] ?? null) : null;
 }
 
 async function readJsonRequestBody(request: IncomingMessage, maxBytes: number): Promise<unknown> {

@@ -78,9 +78,11 @@ struct MainWindowControllerPresentationFactsTests {
         defer { projectionGate.release() }
         let completionRecorder = PresentationFactsProjectionCompletionRecorder()
 
-        await withPresentationFactsWindowHarness(
+        try await withPresentationFactsWindowHarness(
             tabBarAdapterBuilder: { store, repoCache, inboxAtom in
-                TabBarAdapter(
+                let pane = store.createPane(title: "Held projection")
+                store.appendTab(Tab(paneId: pane.id, name: "Held projection"))
+                return TabBarAdapter(
                     store: store,
                     repoCache: repoCache,
                     inboxAtom: inboxAtom,
@@ -90,7 +92,9 @@ struct MainWindowControllerPresentationFactsTests {
             },
             body: { harness in
                 #expect(await projectionGate.waitUntilStarted(), "Held projection did not start")
-                let retainedProjection = harness.tabBarAdapter.materializedProjection
+                let retainedProjection = try #require(
+                    harness.tabBarAdapter.materializedProjections.first
+                )
 
                 harness.controller.windowWillClose(
                     Notification(name: NSWindow.willCloseNotification, object: harness.window)

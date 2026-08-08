@@ -74,13 +74,13 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
 
         for tab in tabs {
             for _ in 0..<16 {
-                _ = store.paneAtom.panes
+                _ = store.paneAtom.paneSnapshot()
             }
             coordinator.execute(.closeTab(tabId: tab.id))
         }
         coordinator.undoCloseTab()
         for _ in 0..<16 {
-            _ = store.paneAtom.panes
+            _ = store.paneAtom.paneSnapshot()
         }
         try await recorder.drain()
 

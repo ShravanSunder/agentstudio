@@ -33,7 +33,7 @@ struct TabBarProjectionGeneration: Equatable, Sendable {
 struct TabBarProjectionRequest: Sendable {
     let generation: TabBarProjectionGeneration
     let coreRequest: CoreTabBarProjectionRequest
-    let inboxAttentionFacts: InboxAttentionFactSnapshot
+    let inboxAttentionLane: InboxNotificationClaimLane?
 }
 
 struct TabBarProjection: Equatable, Sendable {
@@ -50,18 +50,6 @@ enum TabBarProjector {
             request.coreRequest,
             cancellationCheck: cancellationCheck
         )
-        var paneIDsByTabID: [UUID: Set<UUID>] = [:]
-        paneIDsByTabID.reserveCapacity(coreProjection.items.count)
-        for coreItem in coreProjection.items {
-            try cancellationCheck()
-            paneIDsByTabID[coreItem.id] = Set(coreItem.paneIds)
-        }
-        let attentionLanesByTabID = try InboxAttentionProjector.project(
-            snapshot: request.inboxAttentionFacts,
-            groups: paneIDsByTabID,
-            cancellationCheck: cancellationCheck
-        )
-
         var items: [TabBarItem] = []
         items.reserveCapacity(coreProjection.items.count)
         for coreItem in coreProjection.items {
@@ -85,7 +73,7 @@ enum TabBarProjector {
                     arrangements: coreItem.arrangements,
                     minimizedCount: coreItem.minimizedCount,
                     notificationDotColor: notificationDotColor(
-                        for: attentionLanesByTabID[coreItem.id]
+                        for: request.inboxAttentionLane
                     )
                 )
             )

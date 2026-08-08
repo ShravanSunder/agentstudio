@@ -39,25 +39,32 @@ package struct WorkspaceLookupDerived {
 
     package func paneLocations(
         for worktreeId: UUID,
+        repositoryTopology: RepositoryTopologyAtom,
         workspacePane: WorkspacePaneAtom,
         workspaceTab: WorkspaceTabLayoutDerived
     ) -> [WorkspacePaneLocation] {
-        paneLocationsByWorktreeId(workspacePane: workspacePane, workspaceTab: workspaceTab)[worktreeId] ?? []
+        paneLocationsByWorktreeId(
+            repositoryTopology: repositoryTopology,
+            workspacePane: workspacePane,
+            workspaceTab: workspaceTab
+        )[worktreeId] ?? []
     }
 
     package func paneLocations(for worktreeId: UUID) -> [WorkspacePaneLocation] {
         paneLocations(
             for: worktreeId,
+            repositoryTopology: atom(\.workspaceRepositoryTopology),
             workspacePane: atom(\.workspacePane),
             workspaceTab: atom(\.workspaceTab)
         )
     }
 
     package func paneLocationsByWorktreeId(
+        repositoryTopology: RepositoryTopologyAtom,
         workspacePane: WorkspacePaneAtom,
         workspaceTab: WorkspaceTabLayoutDerived
     ) -> [UUID: [WorkspacePaneLocation]] {
-        let panes = workspacePane.panes
+        let paneGraph = workspacePane.graphAtom
         let tabs = workspaceTab.tabs
         var locationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
         var seenPaneIds = Set<UUID>()
@@ -65,30 +72,41 @@ package struct WorkspaceLookupDerived {
         for (tabIndex, tab) in tabs.enumerated() {
             for paneId in tab.allPaneIds {
                 guard seenPaneIds.insert(paneId).inserted else { continue }
-                guard let pane = panes[paneId], pane.residency == .active else { continue }
-                guard let worktreeId = pane.worktreeId else { continue }
+                guard let paneFacts = paneGraph.paneStructuralFacts(paneId), paneFacts.residency == .active else {
+                    continue
+                }
+                guard let worktreeId = repositoryTopology.repoAndWorktree(containing: paneFacts.cwd)?.worktree.id else {
+                    continue
+                }
 
                 let paneIndexInTab =
-                    tab.activePaneIds.firstIndex(of: pane.id)
-                    ?? tab.allPaneIds.firstIndex(of: pane.id)
+                    tab.activePaneIds.firstIndex(of: paneFacts.paneID)
+                    ?? tab.allPaneIds.firstIndex(of: paneFacts.paneID)
                     ?? 0
 
                 locationsByWorktreeId[worktreeId, default: []].append(
                     WorkspacePaneLocation(
-                        paneId: pane.id,
+                        paneId: paneFacts.paneID,
                         tabId: tab.id,
                         tabIndex: tabIndex,
                         paneIndexInTab: paneIndexInTab,
-                        isActiveInTab: tab.activePaneId == pane.id
+                        isActiveInTab: tab.activePaneId == paneFacts.paneID
                     )
                 )
             }
         }
 
-        for pane in panes.values where pane.residency == .active {
-            guard !seenPaneIds.contains(pane.id), let worktreeId = pane.worktreeId else { continue }
+        for paneID in paneGraph.paneIDs {
+            guard let paneFacts = paneGraph.paneStructuralFacts(paneID), paneFacts.residency == .active else {
+                continue
+            }
+            guard !seenPaneIds.contains(paneID),
+                let worktreeId = repositoryTopology.repoAndWorktree(containing: paneFacts.cwd)?.worktree.id
+            else {
+                continue
+            }
             workspaceLookupLogger.warning(
-                "paneLocationsByWorktreeId: active pane \(pane.id.uuidString, privacy: .public) for worktree \(worktreeId.uuidString, privacy: .public) has no owning tab"
+                "paneLocationsByWorktreeId: active pane \(paneID.uuidString, privacy: .public) for worktree \(worktreeId.uuidString, privacy: .public) has no owning tab"
             )
         }
 

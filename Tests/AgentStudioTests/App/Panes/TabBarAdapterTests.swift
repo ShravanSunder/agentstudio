@@ -16,6 +16,7 @@ final class TabBarAdapterTests {
     private var inboxAtom: InboxNotificationAtom!
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
+    private var lastObservedOutputPublicationRevision: UInt64 = 0
 
     init() {
         installTestCoreAtomsIfNeeded()
@@ -45,6 +46,7 @@ final class TabBarAdapterTests {
             repoCache: repoCache,
             inboxAtom: notificationAtom
         )
+        lastObservedOutputPublicationRevision = 0
     }
 
     // MARK: - Initial State
@@ -803,18 +805,14 @@ final class TabBarAdapterTests {
         #expect(!(adapter.isOverflowing))
     }
     private func waitForAdapterRefresh() async {
-        let currentGeneration: TabBarProjectionGeneration? =
-            switch adapter.materializedProjection.freshness {
-            case .current(let generation): generation
-            case .idle, .running, .invalidated, .stopped: nil
-            }
+        let expectedTabIds = store.tabs.map(\.id)
+        let previousPublicationRevision = lastObservedOutputPublicationRevision
         let waiter = TabBarAdapterConditionWaiter {
-            guard case .current(let generation) = self.adapter.materializedProjection.freshness else {
-                return false
-            }
-            return currentGeneration.map { $0 != generation } ?? true
+            self.adapter.tabs.map(\.id) == expectedTabIds
+                && self.adapter.outputPublicationRevision > previousPublicationRevision
         }
-        #expect(await waiter.wait(), "Timed out waiting for current tab bar projection")
+        #expect(await waiter.wait(), "Timed out waiting for current tab bar items")
+        lastObservedOutputPublicationRevision = adapter.outputPublicationRevision
     }
 }
 

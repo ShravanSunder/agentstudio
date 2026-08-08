@@ -1,5 +1,6 @@
 import AgentStudioInfrastructure
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioCore
@@ -22,6 +23,37 @@ struct WorkspaceTabGraphAtomTests {
         #expect(atom.tabIndex(for: states[299].tabId) == 299)
     }
 
+    @Test("keyed graph lookup ignores unrelated tab insertion")
+    func keyedGraphLookupIgnoresUnrelatedTabInsertion() {
+        // Arrange
+        let atom = WorkspaceTabGraphAtom()
+        let observedState = makeGraphState()
+        let unrelatedState = makeGraphState()
+        atom.replaceStates([observedState])
+        let invalidation = WorkspaceTabGraphObservationCounter()
+        withObservationTracking {
+            _ = atom.tabState(observedState.tabId)
+        } onChange: {
+            invalidation.record()
+        }
+
+        // Act
+        atom.replaceStates([observedState, unrelatedState])
+
+        // Assert
+        #expect(!invalidation.didFire)
+        #expect(atom.tabState(observedState.tabId) == observedState)
+        #expect(atom.tabState(unrelatedState.tabId) == unrelatedState)
+    }
+
+}
+
+private final class WorkspaceTabGraphObservationCounter: @unchecked Sendable {
+    private(set) var didFire = false
+
+    func record() {
+        didFire = true
+    }
 }
 
 private func makeGraphState() -> TabGraphState {

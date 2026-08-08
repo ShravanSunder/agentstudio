@@ -191,4 +191,23 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(appCompositionSource.contains("command: .setRepoSidebarSortOrder"))
         #expect(appCompositionSource.contains("arguments: .repoSidebarSortOrder(order)"))
     }
+
+    @Test("Repo Explorer body consumes immutable command presentation without live capability reads")
+    func repoExplorerBodyConsumesImmutableCommandPresentation() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let featureSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let presentationSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerCommandPresentation.swift"),
+            encoding: .utf8
+        )
+
+        #expect(featureSource.contains("commandPresentationSnapshot"))
+        #expect(!featureSource.contains("canSetVisibilityMode"))
+        #expect(!featureSource.contains("canSetSortOrder"))
+        #expect(!presentationSource.contains("dispatcher.canDispatch"))
+    }
 }

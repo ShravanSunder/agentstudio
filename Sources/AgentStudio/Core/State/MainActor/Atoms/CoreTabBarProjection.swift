@@ -26,13 +26,78 @@ package struct CoreTabBarProjectionRequest: Sendable {
             activeArrangementIdsByTabId: store.arrangementCursorAtom.activeArrangementIdsByTabId,
             paneCursorsByArrangementId: store.arrangementCursorAtom.paneCursorsByArrangementId,
             drawerCursorsByKey: store.arrangementCursorAtom.drawerCursorsByKey,
-            paneStates: store.paneGraphAtom.paneStates,
+            paneStates: store.paneGraphAtom.paneStateSnapshot(),
             expandedDrawerId: store.drawerCursorAtom.expandedDrawerId,
             topologySnapshot: store.repositoryTopologyAtom.captureReadSnapshot(),
             repoEnrichmentSnapshot: repoCache.repoEnrichmentSnapshot(),
             worktreeEnrichmentSnapshot: repoCache.worktreeEnrichmentSnapshot(),
             zoomPresentationsByTabId: store.panePresentationAtom.zoomPresentationsByTabId
         )
+    }
+
+    @MainActor
+    package static func capture(
+        tabId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> Self? {
+        guard let tabShell = store.tabShellAtom.tabShell(tabId),
+            let tabGraphState = store.tabGraphAtom.tabState(tabId)
+        else {
+            return nil
+        }
+
+        let arrangementIds = Set(tabGraphState.arrangements.map(\.id))
+        let paneCursorsByArrangementId = Dictionary(
+            uniqueKeysWithValues: arrangementIds.compactMap { arrangementId in
+                store.arrangementCursorAtom.activePaneId(forArrangement: arrangementId).map {
+                    (arrangementId, ArrangementPaneCursorState(activePaneId: $0))
+                }
+            }
+        )
+        var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] = [:]
+        for arrangement in tabGraphState.arrangements {
+            for drawerId in arrangement.drawerViews.keys {
+                guard
+                    let activeChildId = store.arrangementCursorAtom.activeChildId(
+                        forArrangement: arrangement.id,
+                        drawerId: drawerId
+                    )
+                else { continue }
+                drawerCursorsByKey[
+                    ArrangementDrawerCursorKey(
+                        arrangementId: arrangement.id,
+                        drawerId: drawerId
+                    )
+                ] = ArrangementDrawerCursorState(activeChildId: activeChildId)
+            }
+        }
+        let paneStates = Dictionary(
+            uniqueKeysWithValues: tabGraphState.allPaneIds.compactMap { paneId in
+                store.paneGraphAtom.paneState(paneId).map { (paneId, $0) }
+            }
+        )
+
+        return Self(
+            tabShells: [tabShell],
+            activeTabId: tabId,
+            tabGraphStates: [tabGraphState],
+            activeArrangementIdsByTabId: store.arrangementCursorAtom.activeArrangementId(forTab: tabId)
+                .map { [tabId: $0] } ?? [:],
+            paneCursorsByArrangementId: paneCursorsByArrangementId,
+            drawerCursorsByKey: drawerCursorsByKey,
+            paneStates: paneStates,
+            expandedDrawerId: store.drawerCursorAtom.expandedDrawerId,
+            topologySnapshot: store.repositoryTopologyAtom.captureReadSnapshot(),
+            repoEnrichmentSnapshot: repoCache.repoEnrichmentSnapshot(),
+            worktreeEnrichmentSnapshot: repoCache.worktreeEnrichmentSnapshot(),
+            zoomPresentationsByTabId: store.panePresentationAtom.zoomPresentation(forTab: tabId)
+                .map { [tabId: $0] } ?? [:]
+        )
+    }
+
+    package var paneIds: [UUID] {
+        tabGraphStates.first?.allPaneIds ?? []
     }
 }
 

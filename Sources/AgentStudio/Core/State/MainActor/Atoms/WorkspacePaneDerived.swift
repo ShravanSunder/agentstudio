@@ -19,9 +19,9 @@ package struct WorkspacePaneDerived {
         self.repoEnrichmentCacheAtom = repoEnrichmentCacheAtom
     }
 
-    var panes: [UUID: Pane] {
+    func paneSnapshot() -> [UUID: Pane] {
         Dictionary(
-            uniqueKeysWithValues: graphAtom.paneStates.map { paneId, state in
+            uniqueKeysWithValues: graphAtom.paneStateSnapshot().map { paneId, state in
                 (paneId, pane(from: state))
             }
         )
@@ -33,7 +33,7 @@ package struct WorkspacePaneDerived {
     }
 
     func panes(for worktreeId: UUID) -> [Pane] {
-        panes.values.filter { $0.worktreeId == worktreeId }
+        paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }
 
     private func pane(from state: PaneGraphState) -> Pane {

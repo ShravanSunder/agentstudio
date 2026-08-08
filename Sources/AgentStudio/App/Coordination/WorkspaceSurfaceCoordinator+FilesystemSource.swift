@@ -605,7 +605,7 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func filesystemProjectionPaneEntries() -> [FilesystemProjectionPaneEntry] {
-        store.paneAtom.panes.values.map { pane in
+        store.paneAtom.paneSnapshot().values.map { pane in
             FilesystemProjectionPaneEntry(
                 paneId: pane.id,
                 paneKind: pane.metadata.contentType,

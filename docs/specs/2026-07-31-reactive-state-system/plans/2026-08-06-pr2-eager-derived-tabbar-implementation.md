@@ -15,6 +15,14 @@
 - Preserve one output authority: remove synchronous `refresh()` in the same cutover; do not add fallback or compatibility paths.
 - Stop for a new ownership/public contract, reverse target edge, product type in Infrastructure, or proof-framework expansion.
 
+**Accepted reorder exception and follow-up:** This PR permits a tab-order mutation to
+reproject the retained per-tab items. Correctness and coherent publication remain
+required, but reorder-only projection proportionality is deferred to a focused
+follow-up PR. That follow-up will separate tab ordering observation from keyed
+per-tab shell/content observation so a reorder can publish cached items without
+starting content projections. It must preserve the keyed pane-title and Inbox
+invalidation guarantees delivered here.
+
 ## Requirement and proof matrix
 
 | Requirement | Implementation seam | Required proof |

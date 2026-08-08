@@ -69,6 +69,7 @@ extension RepoExplorerView {
             arrangementAtom: store.tabArrangementAtom
         )
         let paneLocationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: workspaceTab
         )
@@ -89,7 +90,7 @@ extension RepoExplorerView {
     func bridgePaneCommandCandidatesByWorktreeId(
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
     ) -> [UUID: [BridgePaneCommandCandidate]] {
-        let panesByPaneId = store.paneAtom.panes
+        let paneGraph = store.paneAtom.graphAtom
         let activeTabId = store.tabLayoutAtom.activeTabId
         let activePaneId = activeTabId.flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
         let attendanceOrdinalByPaneId = bridgeAttendanceSnapshot()
@@ -98,20 +99,14 @@ extension RepoExplorerView {
 
         for (worktreeId, paneLocations) in paneLocationsByWorktreeId {
             candidatesByWorktreeId[worktreeId] = paneLocations.compactMap { location -> BridgePaneCommandCandidate? in
-                guard let pane = panesByPaneId[location.paneId] else { return nil }
-                let isBridgePane: Bool
-                if case .bridgePanel = pane.content {
-                    isBridgePane = true
-                } else {
-                    isBridgePane = false
-                }
+                guard let paneFacts = paneGraph.paneStructuralFacts(location.paneId) else { return nil }
                 return BridgePaneCommandCandidate(
-                    paneId: pane.id,
+                    paneId: paneFacts.paneID,
                     worktreeId: worktreeId,
-                    isBridgePane: isBridgePane,
-                    isPaneActive: pane.residency == .active,
-                    isCurrentActivePane: activeTabId == location.tabId && activePaneId == pane.id,
-                    attendanceOrdinal: attendanceOrdinalByPaneId[pane.id],
+                    isBridgePane: paneFacts.isBridgeEligible,
+                    isPaneActive: paneFacts.residency == .active,
+                    isCurrentActivePane: activeTabId == location.tabId && activePaneId == paneFacts.paneID,
+                    attendanceOrdinal: attendanceOrdinalByPaneId[paneFacts.paneID],
                     tabIndex: location.tabIndex,
                     paneIndexInTab: location.paneIndexInTab
                 )
