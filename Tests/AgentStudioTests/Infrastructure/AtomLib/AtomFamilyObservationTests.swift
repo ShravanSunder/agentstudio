@@ -245,6 +245,52 @@ struct AtomFamilyObservationTests {
     }
 
     @Test
+    func retiringRemovedSlotWakesOnceAndPreservesActiveResubscription() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
+        let repoACounter = AtomFamilyObservationCounter()
+
+        let addMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(1, for: "repo-a", mutation: addMutation)
+        map.setValue(2, for: "repo-b", mutation: addMutation)
+        addMutation.commit()
+        observeRepoA(in: map, counter: repoACounter)
+
+        let removeMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.removeValueAndRetireSlot(for: "repo-a", mutation: removeMutation)
+        map.removeValueAndRetireSlot(for: "repo-b", mutation: removeMutation)
+        removeMutation.commit()
+
+        #expect(repoACounter.count == 1)
+        #expect(map.storageSlotCount == 1)
+
+        let reinsertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(3, for: "repo-a", mutation: reinsertMutation)
+        reinsertMutation.commit()
+
+        #expect(repoACounter.count == 2)
+        #expect(map.value(for: "repo-a") == 3)
+    }
+
+    @Test
+    func pruningMissingSlotsPreservesActiveResubscription() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
+        let repoACounter = AtomFamilyObservationCounter()
+        observeRepoA(in: map, counter: repoACounter)
+
+        #expect(map.pruneNilSlots(excluding: []) == 1)
+        #expect(repoACounter.count == 1)
+        #expect(map.storageSlotCount == 1)
+
+        let insertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(1, for: "repo-a", mutation: insertMutation)
+        insertMutation.commit()
+
+        #expect(repoACounter.count == 2)
+    }
+
+    @Test
     func removingMissingObservedKeyIsSemanticNoOp() {
         let aggregateRevision = AtomRevision()
         let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)

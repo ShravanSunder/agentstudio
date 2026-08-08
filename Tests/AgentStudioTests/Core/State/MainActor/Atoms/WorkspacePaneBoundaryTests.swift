@@ -142,20 +142,20 @@ struct WorkspacePaneBoundaryTests {
         #expect(replacementRevision.invalidationCount == 1)
         #expect(graphAtom.paneIDs == Set([paneA.id, restoredPaneID]))
 
-        let retainedMissingID = UUIDv7.generate()
-        let retainedMissingCanonical = observe { _ = graphAtom.paneState(retainedMissingID) }
-        let retainedMissingStructural = observe { _ = graphAtom.paneStructuralFacts(retainedMissingID) }
-        let equalReplacementRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
-        let revisionBeforeEqualReplacement = graphAtom.paneAcceptedCommitRevision
+        let missingPrunedID = UUIDv7.generate()
+        let prunedCanonical = observe { _ = graphAtom.paneState(missingPrunedID) }
+        let prunedStructural = observe { _ = graphAtom.paneStructuralFacts(missingPrunedID) }
+        let pruneRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+        let revisionBeforePruning = graphAtom.paneAcceptedCommitRevision
 
         graphAtom.replacePaneStates(
             try requirePaneGraphReplacement(graphAtom.paneStateSnapshot())
         )
 
-        #expect(retainedMissingCanonical.invalidationCount == 0)
-        #expect(retainedMissingStructural.invalidationCount == 0)
-        #expect(equalReplacementRevision.invalidationCount == 0)
-        #expect(graphAtom.paneAcceptedCommitRevision == revisionBeforeEqualReplacement)
+        #expect(prunedCanonical.invalidationCount == 1)
+        #expect(prunedStructural.invalidationCount == 1)
+        #expect(pruneRevision.invalidationCount == 0)
+        #expect(graphAtom.paneAcceptedCommitRevision == revisionBeforePruning)
     }
 
     @Test("Pane graph state strips drawer expansion and display facets")
