@@ -64,6 +64,7 @@ final class BridgePaneStateTests {
             .localDefaultBranch(branchName: "main"),
             .originDefaultBranch(remoteName: "origin", branchName: "main"),
             .branch(name: "feature/review"),
+            .commit(oid: "0123456789abcdef0123456789abcdef01234567"),
             .ref(name: "v1.2.3"),
             .headMinusOne,
             .staged,
@@ -250,6 +251,10 @@ private let legacyWorkspaceIntentCases: [(String, WorkspaceBaseline?)] = [
         .branch(name: "stack/base")
     ),
     (
+        #"{"kind":"commit","oid":"0123456789abcdef0123456789abcdef01234567"}"#,
+        .commit(oid: "0123456789abcdef0123456789abcdef01234567")
+    ),
+    (
         #"{"kind":"ref","name":"refs/tags/v1.2.3"}"#,
         .ref(name: "refs/tags/v1.2.3")
     ),
@@ -312,6 +317,9 @@ private let malformedLegacyWorkspaceBaselines: [String] = [
     #"{"kind":"originDefaultBranch","branchName":"main"}"#,
     #"{"kind":"originDefaultBranch","remoteName":"origin"}"#,
     #"{"kind":"branch"}"#,
+    #"{"kind":"commit"}"#,
+    #"{"kind":"commit","oid":"abc123"}"#,
+    #"{"kind":"commit","oid":"gggggggggggggggggggggggggggggggggggggggg"}"#,
     #"{"kind":"ref"}"#,
     #"{"kind":"unknown"}"#,
 ]

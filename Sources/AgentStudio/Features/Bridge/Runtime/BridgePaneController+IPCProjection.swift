@@ -856,6 +856,8 @@ extension BridgePaneController {
             .originDefaultBranch(remoteName: remoteName, branchName: branchName)
         case .branch(let name):
             .branch(name: name)
+        case .commit(let oid):
+            .commit(oid: oid)
         case .ref(let name):
             .ref(name: name)
         }

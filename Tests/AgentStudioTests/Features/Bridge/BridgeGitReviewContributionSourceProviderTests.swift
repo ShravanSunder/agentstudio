@@ -105,6 +105,30 @@ extension BridgeGitReviewSourceProviderTests {
         )
         #expect(await fixture.gitClient.recordedDiffRequests().isEmpty)
     }
+
+    @Test("AgentStudioGit adapter preserves an exact commit target as a commit revision")
+    func agentStudioGitAdapterPreservesExactCommitTarget() async throws {
+        let fixture = makeContributionAdapterFixture()
+        let oid = "0123456789abcdef0123456789abcdef01234567"
+
+        _ = try await fixture.provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .commit(oid: oid),
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                reviewGenerationValue: 12
+            )
+        )
+
+        #expect(
+            await fixture.gitClient.recordedContributionDiffRequests() == [
+                GitContributionDiffRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .named(oid)
+                )
+            ]
+        )
+    }
 }
 
 private struct ContributionAdapterFixture {

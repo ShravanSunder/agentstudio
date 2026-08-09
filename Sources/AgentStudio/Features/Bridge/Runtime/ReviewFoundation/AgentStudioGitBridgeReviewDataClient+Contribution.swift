@@ -85,6 +85,8 @@ extension AgentStudioGitBridgeReviewDataClient {
             .named(branchName)
         case .originDefaultBranch(let remoteName, let branchName):
             .named("\(remoteName)/\(branchName)")
+        case .commit(let oid):
+            .named(oid)
         case .ref(let name):
             .named(name)
         }

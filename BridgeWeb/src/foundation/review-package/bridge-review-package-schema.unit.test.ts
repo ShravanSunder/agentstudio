@@ -14,7 +14,10 @@ describe('Bridge review package schema', () => {
 				kind: 'contribution',
 				resolvedTargetOID: 'resolved-target-oid',
 				reviewedHeadOID: 'reviewed-head-oid',
-				symbolicTarget: { kind: 'branch', name: 'integration' },
+				symbolicTarget: {
+					kind: 'commit',
+					oid: '0123456789abcdef0123456789abcdef01234567',
+				},
 			},
 			reviewedSubjectLabel: 'feature/review-comments',
 		} as const;
@@ -86,6 +89,24 @@ describe('Bridge review package schema', () => {
 		const result = bridgeReviewPackageSchema.safeParse({
 			...reviewPackage,
 			itemsById: undefined,
+		});
+
+		expect(result.success).toBe(false);
+	});
+
+	test('rejects non-exact commit comparison origins', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const result = bridgeReviewPackageSchema.safeParse({
+			...reviewPackage,
+			comparisonOrigin: {
+				baseRole: 'contributionBase',
+				comparedRole: 'capturedWorkingTree',
+				contributionBaseOID: 'contribution-base-oid',
+				kind: 'contribution',
+				resolvedTargetOID: 'resolved-target-oid',
+				reviewedHeadOID: 'reviewed-head-oid',
+				symbolicTarget: { kind: 'commit', oid: 'abc123' },
+			},
 		});
 
 		expect(result.success).toBe(false);

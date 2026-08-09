@@ -83,7 +83,7 @@ extension BridgePaneController {
                 head: makeWorkingTreeEndpoint(worktreeId: worktreeId, repoId: repoId),
                 comparisonSemantics: .workingTreeDelta
             )
-        case .localDefaultBranch, .originDefaultBranch, .branch, .ref, .headMinusOne:
+        case .localDefaultBranch, .originDefaultBranch, .branch, .commit, .ref, .headMinusOne:
             return makeContributionEndpointSelection(
                 target: baseline?.contributionTarget,
                 worktreeId: worktreeId,
@@ -121,6 +121,13 @@ extension BridgePaneController {
             return makeGitRefAgainstWorkingTreeSelection(
                 endpointId: "baseline-branch-\(Self.endpointComponent(from: name))",
                 refName: name,
+                worktreeId: worktreeId,
+                repoId: repoId
+            )
+        case .commit(let oid):
+            return makeGitRefAgainstWorkingTreeSelection(
+                endpointId: "baseline-commit-\(Self.endpointComponent(from: oid))",
+                refName: oid,
                 worktreeId: worktreeId,
                 repoId: repoId
             )

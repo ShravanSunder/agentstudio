@@ -73,7 +73,7 @@ export function BridgeReviewComparisonControl(
 			setValidationMessage('Enter a full 40- or 64-character hexadecimal commit hash.');
 			return;
 		}
-		props.onApplyTarget({ kind: 'ref', name: normalizedOID });
+		props.onApplyTarget({ kind: 'commit', oid: normalizedOID });
 		setValidationMessage(null);
 		setOpen(false);
 	};
@@ -453,6 +453,8 @@ function comparisonTargetsEqual(
 			);
 		case 'branch':
 			return rightTarget.kind === 'branch' && leftTarget.name === rightTarget.name;
+		case 'commit':
+			return rightTarget.kind === 'commit' && leftTarget.oid === rightTarget.oid;
 		case 'ref':
 			return rightTarget.kind === 'ref' && leftTarget.name === rightTarget.name;
 	}
@@ -562,6 +564,8 @@ function comparisonTargetLabel(target: ReviewComparisonTarget): string {
 		case 'branch':
 		case 'ref':
 			return target.name;
+		case 'commit':
+			return target.oid;
 	}
 	return unreachableComparisonValue(target);
 }

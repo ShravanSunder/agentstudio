@@ -77,6 +77,8 @@ struct BridgeIPCResponseBudget: Sendable {
         switch target {
         case .localDefaultBranch(let branchName), .branch(let branchName), .ref(let branchName):
             48 + estimatedJSONStringBytes(branchName)
+        case .commit(let oid):
+            48 + estimatedJSONStringBytes(oid)
         case .originDefaultBranch(let remoteName, let branchName):
             64 + estimatedJSONStringBytes(remoteName) + estimatedJSONStringBytes(branchName)
         }

@@ -57,6 +57,7 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
     case localDefaultBranch(branchName: String)
     case originDefaultBranch(remoteName: String, branchName: String)
     case branch(name: String)
+    case commit(oid: String)
     case ref(name: String)
 
     private enum CodingKeys: String, CodingKey {
@@ -64,12 +65,14 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
         case branchName
         case remoteName
         case name
+        case oid
     }
 
     private enum Kind: String, Codable {
         case localDefaultBranch
         case originDefaultBranch
         case branch
+        case commit
         case ref
     }
 
@@ -88,6 +91,10 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
             )
         case .branch:
             self = .branch(name: try container.decode(String.self, forKey: .name))
+        case .commit:
+            self = .commit(
+                oid: try decodeExactGitCommitOID(from: container, forKey: .oid, decoder: decoder)
+            )
         case .ref:
             self = .ref(name: try container.decode(String.self, forKey: .name))
         }
@@ -106,6 +113,9 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
         case .branch(let name):
             try container.encode(Kind.branch, forKey: .kind)
             try container.encode(name, forKey: .name)
+        case .commit(let oid):
+            try container.encode(Kind.commit, forKey: .kind)
+            try container.encode(oid, forKey: .oid)
         case .ref(let name):
             try container.encode(Kind.ref, forKey: .kind)
             try container.encode(name, forKey: .name)
@@ -123,6 +133,7 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
     case localDefaultBranch(branchName: String)
     case originDefaultBranch(remoteName: String, branchName: String)
     case branch(name: String)
+    case commit(oid: String)
     case ref(name: String)
     case headMinusOne
     case staged
@@ -133,12 +144,14 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
         case branchName
         case remoteName
         case name
+        case oid
     }
 
     private enum Kind: String, Codable {
         case localDefaultBranch
         case originDefaultBranch
         case branch
+        case commit
         case ref
         case headMinusOne
         case staged
@@ -164,6 +177,10 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
             )
         case .branch:
             self = .branch(name: try container.decode(String.self, forKey: .name))
+        case .commit:
+            self = .commit(
+                oid: try decodeExactGitCommitOID(from: container, forKey: .oid, decoder: decoder)
+            )
         case .ref:
             self = .ref(name: try container.decode(String.self, forKey: .name))
         case .headMinusOne:
@@ -188,6 +205,9 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
         case .branch(let name):
             try container.encode(Kind.branch, forKey: .kind)
             try container.encode(name, forKey: .name)
+        case .commit(let oid):
+            try container.encode(Kind.commit, forKey: .kind)
+            try container.encode(oid, forKey: .oid)
         case .ref(let name):
             try container.encode(Kind.ref, forKey: .kind)
             try container.encode(name, forKey: .name)
@@ -208,6 +228,8 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
             self = .originDefaultBranch(remoteName: remoteName, branchName: branchName)
         case .branch(let name):
             self = .branch(name: name)
+        case .commit(let oid):
+            self = .commit(oid: oid)
         case .ref(let name):
             self = .ref(name: name)
         }
@@ -221,6 +243,8 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
             .originDefaultBranch(remoteName: remoteName, branchName: branchName)
         case .branch(let name):
             .branch(name: name)
+        case .commit(let oid):
+            .commit(oid: oid)
         case .ref(let name):
             .ref(name: name)
         case .headMinusOne:
@@ -246,6 +270,30 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
             .ref(name: value)
         }
     }
+}
+
+private func decodeExactGitCommitOID<CodingKeyType: CodingKey>(
+    from container: KeyedDecodingContainer<CodingKeyType>,
+    forKey key: CodingKeyType,
+    decoder: Decoder
+) throws -> String {
+    let oid = try container.decode(String.self, forKey: key)
+    let utf8 = oid.utf8
+    guard utf8.count == 40 || utf8.count == 64,
+        utf8.allSatisfy({ byte in
+            (byte >= 48 && byte <= 57)
+                || (byte >= 65 && byte <= 70)
+                || (byte >= 97 && byte <= 102)
+        })
+    else {
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath + [key],
+                debugDescription: "Commit OID must contain exactly 40 or 64 hexadecimal characters"
+            )
+        )
+    }
+    return oid
 }
 
 extension BridgePaneSource {
@@ -359,7 +407,7 @@ extension BridgePaneSource {
             switch baseline {
             case .staged, .unstaged, .headMinusOne:
                 try workspace.encode(baseline, forKey: .baseline)
-            case .localDefaultBranch, .originDefaultBranch, .branch, .ref:
+            case .localDefaultBranch, .originDefaultBranch, .branch, .commit, .ref:
                 try workspace.encode(
                     baseline?.contributionTarget,
                     forKey: .comparisonTarget
@@ -385,7 +433,7 @@ extension BridgePaneSource {
             nil
         case .ref(let name) where name == "HEAD":
             nil
-        case .originDefaultBranch, .branch, .ref, .headMinusOne, .staged, .unstaged:
+        case .originDefaultBranch, .branch, .commit, .ref, .headMinusOne, .staged, .unstaged:
             baseline
         }
     }

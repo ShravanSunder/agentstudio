@@ -122,6 +122,7 @@ describe('Bridge product call contracts', () => {
 			{ branchName: 'main', kind: 'localDefaultBranch' },
 			{ branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
 			{ kind: 'branch', name: 'feature/review' },
+			{ kind: 'commit', oid: '0123456789abcdef0123456789abcdef01234567' },
 			{ kind: 'ref', name: 'refs/tags/v1.0.0' },
 		] as const;
 
@@ -142,6 +143,10 @@ describe('Bridge product call contracts', () => {
 			{ target: { kind: 'localDefaultBranch', name: 'main' } },
 			{ target: { branchName: 'main', kind: 'originDefaultBranch' } },
 			{ target: { kind: 'branch', name: '' } },
+			{ target: { kind: 'commit', oid: '' } },
+			{ target: { kind: 'commit', oid: 'abc123' } },
+			{ target: { kind: 'commit', oid: 'g'.repeat(40) } },
+			{ target: { kind: 'commit', name: '0123456789abcdef0123456789abcdef01234567' } },
 			{ target: { extra: true, kind: 'ref', name: 'HEAD' } },
 			{ extra: true, target: { kind: 'ref', name: 'HEAD' } },
 		]) {

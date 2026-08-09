@@ -140,6 +140,46 @@ struct BridgeProductReviewComparisonContractTests {
         #expect(encodedResult == canonicalResult)
     }
 
+    @Test("exact commit comparison update round trips without ref ambiguity")
+    func exactCommitComparisonUpdateRoundTrips() throws {
+        let oid = "0123456789abcdef0123456789abcdef01234567"
+        let requestJSON = Data(
+            #"{"method":"review.comparison.update","request":{"target":{"kind":"commit","oid":"0123456789abcdef0123456789abcdef01234567"}}}"#
+                .utf8
+        )
+
+        let request = try BridgeProductStrictJSON.decode(
+            BridgeProductCallRequest.self,
+            from: requestJSON
+        )
+        let encodedRequest = try sortedJSONObject(request)
+        let canonicalRequest = try sortedJSONObject(from: requestJSON)
+
+        #expect(
+            request
+                == .reviewComparisonUpdate(
+                    BridgeProductReviewComparisonUpdateRequest(
+                        target: .commit(oid: oid)
+                    )
+                )
+        )
+        #expect(encodedRequest == canonicalRequest)
+
+        for invalidOID in ["abc123", String(repeating: "g", count: 40)] {
+            let invalidRequestJSON = Data(
+                """
+                {"method":"review.comparison.update","request":{"target":{"kind":"commit","oid":"\(invalidOID)"}}}
+                """.utf8
+            )
+            #expect(throws: Error.self) {
+                _ = try BridgeProductStrictJSON.decode(
+                    BridgeProductCallRequest.self,
+                    from: invalidRequestJSON
+                )
+            }
+        }
+    }
+
     @Test("pane presentation carries canonical target attempt and snapshot identity")
     func panePresentationCarriesComparisonState() throws {
         // Arrange

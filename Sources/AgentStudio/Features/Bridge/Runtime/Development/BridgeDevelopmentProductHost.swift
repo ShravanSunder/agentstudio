@@ -798,6 +798,8 @@ package actor BridgeDevelopmentProductHost {
             branchName
         case .originDefaultBranch(let remoteName, let branchName):
             "\(remoteName)/\(branchName)"
+        case .commit(let oid):
+            oid
         case .ref(let name):
             name
         }

@@ -212,16 +212,13 @@ A contribution comparison MUST include committed changes after the
 contribution base, staged changes, unstaged tracked-file changes, deletions,
 renames detectable by the supported Git data plane, and untracked files.
 
-The existing explicit staged-only and unstaged-only comparison choices MUST
-retain their narrower meanings and MUST NOT be reinterpreted as contribution
-comparisons. They remain outside the new `Compare to` control, selected-target
-state, and contribution-origin contract.
-
 ```text
 full-worktree target → base-to-current-worktree
-staged-only          → HEAD-to-index
-unstaged-only        → index-to-working-files
 ```
+
+Selecting, preserving, or changing staged-only and unstaged-only modes is
+outside PR0. This work MUST NOT add staging-aware selector behavior or change
+those pre-existing modes.
 
 Traces to: P0-U4.
 
@@ -476,9 +473,7 @@ to`; Agent Studio does not infer it from checkout or upstream state.
   and refreshes must continue to expose existing loading/cancellation behavior
   rather than blocking the application UI.
 - Compatibility: existing saved explicit branch, remote-tracking branch, exact
-  commit, and Git-reference meanings remain restorable. Existing staged-only and
-  unstaged-only persistence and comparison semantics remain unchanged and are
-  not incorporated into the new `Compare to` control. Legacy checkout-derived defaults and literal
+  commit, and Git-reference meanings remain restorable. Legacy checkout-derived defaults and literal
   `main` defaults are re-established through P0-R1 rather than promoted into
   reviewer-selected intent. PR0 creates one contribution path, not old and new
   comparison modes for the same target.
@@ -526,17 +521,13 @@ intentionally stacked base can be selected explicitly through the same target
 control.
 Automated interaction evidence MUST also show that an unidentified or
 unresolvable repository default produces an attention state, exposes no false
-`Default` label, and allows the reviewer to select another target. Automated
-interaction evidence plus manual visual evidence MUST also show that
-staged-only and unstaged-only each visibly name their active comparison kind
-and omit the `Compare to` target.
+`Default` label, and allows the reviewer to select another target.
 
 ### P0-V3 — Snapshot and failure evidence
 
 State or contract inspection MUST show every applicable P0-R7 common and
-comparison-kind-specific origin field. It MUST prove that contribution,
-staged-only, and unstaged-only snapshots expose truthful endpoint roles without
-fabricated contribution history, and that unresolved targets, unrelated
+contribution-origin field. It MUST prove that contribution snapshots expose
+truthful endpoint roles without fabricated contribution history, and that unresolved targets, unrelated
 history, multiple best shared-history commits, missing required objects, and
 attempts superseded by observed source invalidation do not publish a misleading
 current snapshot.
@@ -552,12 +543,8 @@ the failed pending target.
 
 Integration evidence MUST show restoration re-resolves the branch or pinned commit target and
 that stale or superseded asynchronous results cannot replace the latest
-applicable comparison. It MUST show that restoring staged-only or unstaged-only
-preserves the narrow comparison kind and does not invent selected-target or
-contribution-base identity. Transition evidence MUST show that full-worktree to
-narrow to full-worktree reuses the pane's retained target, including when the
-pane is restored while narrow comparison is active, and that a pane with no
-retained target uses P0-R1 when it returns to the full-worktree comparison.
+applicable comparison. A pane with no retained target uses P0-R1 when Review
+View opens.
 
 Automated transition evidence MUST hold selected target intent constant while
 target history advances and while the worktree separately incorporates target

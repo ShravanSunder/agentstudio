@@ -141,7 +141,9 @@ extension WebKitSerializedTests {
                     orderedItemIds: [],
                     comparisonOrigin: .contribution(
                         BridgeReviewContributionOrigin(
-                            symbolicTarget: .ref(name: "refs/heads/stack-base"),
+                            symbolicTarget: .commit(
+                                oid: "0123456789abcdef0123456789abcdef01234567"
+                            ),
                             resolvedTargetOID: "1111111111111111111111111111111111111111",
                             reviewedHeadOID: "2222222222222222222222222222222222222222",
                             contributionBaseOID: "3333333333333333333333333333333333333333"
@@ -163,8 +165,11 @@ extension WebKitSerializedTests {
             #expect(origin["kind"] as? String == "contribution")
             #expect(origin["baseRole"] as? String == "contributionBase")
             #expect(origin["comparedRole"] as? String == "capturedWorkingTree")
-            #expect(symbolicTarget["kind"] as? String == "ref")
-            #expect(symbolicTarget["name"] as? String == "refs/heads/stack-base")
+            #expect(symbolicTarget["kind"] as? String == "commit")
+            #expect(
+                symbolicTarget["oid"] as? String
+                    == "0123456789abcdef0123456789abcdef01234567"
+            )
             #expect(origin["resolvedTargetOID"] as? String == "1111111111111111111111111111111111111111")
             #expect(origin["reviewedHeadOID"] as? String == "2222222222222222222222222222222222222222")
             #expect(origin["contributionBaseOID"] as? String == "3333333333333333333333333333333333333333")

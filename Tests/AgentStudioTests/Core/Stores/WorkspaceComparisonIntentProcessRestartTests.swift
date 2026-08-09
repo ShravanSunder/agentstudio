@@ -123,12 +123,15 @@ struct WorkspaceComparisonIntentProcessRestartTests {
         let comparisonTargetObject = try #require(
             workspaceObject["comparisonTarget"] as? [String: Any]
         )
-        #expect(Set(comparisonTargetObject.keys) == ["kind", "name"])
-        #expect(comparisonTargetObject["kind"] as? String == "ref")
-        #expect(comparisonTargetObject["name"] as? String == "refs/remotes/origin/review-base")
+        #expect(Set(comparisonTargetObject.keys) == ["kind", "oid"])
+        #expect(comparisonTargetObject["kind"] as? String == "commit")
+        #expect(
+            comparisonTargetObject["oid"] as? String
+                == "0123456789abcdef0123456789abcdef01234567"
+        )
         print("COMPARISON_INTENT_PROCESS_B_TEST_PID=\(ProcessInfo.processInfo.processIdentifier)")
         print("COMPARISON_INTENT_PROCESS_B_RESTORED_PANE_ID=\(restoredPane.id.uuidString)")
-        print("COMPARISON_INTENT_PROCESS_B_RESTORED_TARGET=refs/remotes/origin/review-base")
+        print("COMPARISON_INTENT_PROCESS_B_RESTORED_TARGET=0123456789abcdef0123456789abcdef01234567")
         print("COMPARISON_INTENT_PROCESS_B_EXACT_PAYLOAD_SHAPE=true")
         print("COMPARISON_INTENT_PROCESS_B_CALCULATED_ORIGIN_PERSISTED=false")
     }
@@ -147,7 +150,7 @@ private struct WorkspaceComparisonIntentRestartFixture {
     }
 
     var expectedTarget: WorkspaceReviewContributionTarget {
-        .ref(name: "refs/remotes/origin/review-base")
+        .commit(oid: "0123456789abcdef0123456789abcdef01234567")
     }
 
     func makeDatastore() -> WorkspaceSQLiteDatastore {

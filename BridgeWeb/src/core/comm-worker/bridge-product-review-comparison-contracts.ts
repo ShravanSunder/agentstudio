@@ -10,6 +10,12 @@ export const bridgeProductReviewComparisonTargetSchema = z.discriminatedUnion('k
 		})
 		.strict(),
 	z.object({ kind: z.literal('branch'), name: z.string().min(1) }).strict(),
+	z
+		.object({
+			kind: z.literal('commit'),
+			oid: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
+		})
+		.strict(),
 	z.object({ kind: z.literal('ref'), name: z.string().min(1) }).strict(),
 ]);
 

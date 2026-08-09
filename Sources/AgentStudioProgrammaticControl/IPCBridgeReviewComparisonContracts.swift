@@ -2,14 +2,15 @@ public enum IPCBridgeReviewComparisonTarget: Codable, Equatable, Sendable {
     case localDefaultBranch(branchName: String)
     case originDefaultBranch(remoteName: String, branchName: String)
     case branch(name: String)
+    case commit(oid: String)
     case ref(name: String)
 
     private enum CodingKeys: String, CodingKey {
-        case kind, branchName, remoteName, name
+        case kind, branchName, remoteName, name, oid
     }
 
     private enum Kind: String, Codable {
-        case localDefaultBranch, originDefaultBranch, branch, ref
+        case localDefaultBranch, originDefaultBranch, branch, commit, ref
     }
 
     public init(from decoder: Decoder) throws {
@@ -26,6 +27,25 @@ public enum IPCBridgeReviewComparisonTarget: Codable, Equatable, Sendable {
             )
         case .branch:
             self = .branch(name: try container.decode(String.self, forKey: .name))
+        case .commit:
+            let oid = try container.decode(String.self, forKey: .oid)
+            let utf8 = oid.utf8
+            guard utf8.count == 40 || utf8.count == 64,
+                utf8.allSatisfy({ byte in
+                    (byte >= 48 && byte <= 57)
+                        || (byte >= 65 && byte <= 70)
+                        || (byte >= 97 && byte <= 102)
+                })
+            else {
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath + [CodingKeys.oid],
+                        debugDescription:
+                            "Commit OID must contain exactly 40 or 64 hexadecimal characters"
+                    )
+                )
+            }
+            self = .commit(oid: oid)
         case .ref:
             self = .ref(name: try container.decode(String.self, forKey: .name))
         }
@@ -44,6 +64,9 @@ public enum IPCBridgeReviewComparisonTarget: Codable, Equatable, Sendable {
         case .branch(let name):
             try container.encode(Kind.branch, forKey: .kind)
             try container.encode(name, forKey: .name)
+        case .commit(let oid):
+            try container.encode(Kind.commit, forKey: .kind)
+            try container.encode(oid, forKey: .oid)
         case .ref(let name):
             try container.encode(Kind.ref, forKey: .kind)
             try container.encode(name, forKey: .name)

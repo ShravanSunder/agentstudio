@@ -63,20 +63,16 @@ The design is compatibility-bound by these current owners and call paths:
 - contribution-shaped baselines currently become a resolved Git-ref endpoint
   directly compared with the working tree; this is the target-tip behavior
   PR0 replaces.
-- staged-only already maps `HEAD → index`; unstaged-only already maps
-  `index → working tree`.
 - the controller's full-load path checks its Review generation, while the
   publication coordinator, refresh admission, and cancellation supply their
   existing admission boundaries. Source invalidation does not yet advance the
   Review generation before queued catch-up, and the catch-up path does not read
   that generation.
 - the current catch-up Review path rebuilds from the committed package's
-  already-resolved endpoints and original generation. That replay is valid for
-  staged-only and unstaged-only refresh, but it cannot re-resolve a living
-  contribution target, HEAD, or contribution base.
+  already-resolved endpoints and original generation. It cannot re-resolve a
+  living contribution target, HEAD, or contribution base.
 - an unresolved legacy `ref("HEAD")` full load currently retries as
-  unstaged-only. That silent meaning change is a current compatibility edge
-  PR0 removes rather than carries into the new intent model.
+  a different comparison meaning. PR0 removes that fallback.
 - Review metadata already resets to a full snapshot when package source
   identity or endpoints change.
 - `{packageId, reviewGeneration, revision}` already identifies a published
@@ -257,43 +253,32 @@ Dependency rules:
 
 ## Pane intent stores the selected target, not calculated Git results
 
-Today the workspace source stores one `WorkspaceBaseline`. Selecting staged or
-unstaged therefore replaces the target-shaped value. Replace that single value
-with one comparison intent that can keep the last selected full-worktree target
-while a narrow kind is active:
+Reuse the workspace pane's existing durable `WorkspaceBaseline?` slot as the
+symbolic contribution-target intent. Extend its target-bearing cases with the
+matching `WorkspaceReviewContributionTarget` vocabulary:
 
 ```text
-WorkspaceReviewComparisonIntent
-  activeKind:
-    contribution | stagedOnly | unstagedOnly
-
-  contributionTarget:
-    target:
-      localDefaultBranch(branchName)
-      originDefaultBranch(remoteName, branchName)
-      branch(name)
-      ref(name)
-      commit(oid)
-    or nil
+nil                                           selection requires attention
+localDefaultBranch(branchName)                moving local branch
+originDefaultBranch(remoteName, branchName)   moving remote-tracking branch
+branch(name)                                  moving selected branch
+ref(name)                                     other symbolic Git reference
+commit(oid)                                   pinned exact commit
 ```
 
 The invariants are:
 
-- `activeKind == contribution` and a non-nil target means resolve that target.
-- `activeKind == contribution` and a nil target means selection requires
-  attention; no fallback target is fabricated.
-- a narrow active kind may retain `contributionTarget`, but that target is
-  inactive and absent from narrow comparison chrome and snapshot origin.
-- selecting a contribution target replaces `contributionTarget` and makes
-  contribution active.
-- selecting staged-only or unstaged-only changes only `activeKind`, retaining
-  the last contribution target.
-- narrow → contribution reuses the retained target when one exists; otherwise
-  it enters selection-required state and may run the same guarded initial
-  repository-default lookup used by a new Review surface.
-- restoring an active contribution intent resolves its saved branch/ref or
-  exact commit target,
-  as required by P0-R8.
+- a non-nil target-bearing baseline resolves that symbolic target afresh;
+- nil means selection requires attention and no fallback target is fabricated;
+- reviewer selection replaces the target through `WorkspacePaneGraphAtom`;
+- persistence stores only the symbolic target, never its resolved target, HEAD,
+  or contribution-base OID;
+- restoration resolves the saved branch/ref or exact commit target afresh, as
+  required by P0-R8.
+
+Staged-only and unstaged-only selection or persistence are outside PR0. Their
+existing baseline cases remain compatibility data and are not redesigned by
+this change.
 
 Every path that creates a Review-capable workspace Bridge pane constructs the
 same selection-required comparison intent: the dedicated Review opener, the
@@ -348,24 +333,13 @@ Add a discriminated origin to `BridgeReviewPackage` and to the Review metadata
 snapshot/reset contract:
 
 ```text
-BridgeReviewComparisonOrigin
-│
-├─ contribution
-│    selected branch/ref kind + name or pinned commit OID
-│    resolved target OID
-│    reviewed HEAD OID
-│    unique contribution-base OID
-│    base role: contribution base
-│    compared role: captured working-tree result
-│
-├─ stagedOnly
-│    reviewed HEAD OID
-│    base role: reviewed HEAD
-│    compared role: captured index
-│
-└─ unstagedOnly
-     base role: captured index
-     compared role: captured working tree
+BridgeReviewComparisonOrigin.contribution
+  selected branch/ref kind + name or pinned commit OID
+  resolved target OID
+  reviewed HEAD OID
+  unique contribution-base OID
+  base role: contribution base
+  compared role: captured working-tree result
 ```
 
 Common origin remains composed from existing package/query/item data:
@@ -381,9 +355,8 @@ and live transition explanations. PR0 does not add parallel display-only Git
 identities.
 
 `reviewGeneration` advances for every intent-changing attempt and every fresh
-contribution capture. A narrow same-lineage endpoint replay may retain its
-generation and advance the existing package revision. A published package
-never changes its origin. Review metadata may use deltas only within the same
+contribution capture. A published package never changes its origin. Review
+metadata may use deltas only within the same
 generation and equal origin. A contribution refresh therefore uses the
 existing source-change reset/snapshot path while the current active projection
 remains displayed until its successor is admitted. PR0 does not relax delta
@@ -475,10 +448,9 @@ that generation prevents the superseded captured result from publishing. A
 later observed change schedules a fresh capture. The Git read does not
 introduce repository locks or a second watcher.
 
-The existing `diff` operations remain the paths for staged-only and
-unstaged-only. Bridge must not emulate contribution behavior by issuing
-separate target resolution, HEAD resolution, merge-base, and diff calls: that
-would expose incoherent inputs and duplicate policy outside `agentstudio-git`.
+Bridge must not emulate contribution behavior by issuing separate target
+resolution, HEAD resolution, merge-base, and diff calls: that would expose
+incoherent inputs and duplicate policy outside `agentstudio-git`.
 
 The existing Bridge provider boundary gains one contribution-specific read:
 
@@ -519,25 +491,19 @@ mapping prevents the focused Debug carrier from constructing a different
 origin than production for the same captured comparison.
 
 For that request, `BridgeReviewPipeline` consumes the prepared comparison and
-does not call the existing endpoint-comparison operation again. Staged-only and
-unstaged-only continue through the existing endpoint-comparison path. Both
-paths converge on the existing package builders; there is no second package
-assembler.
+does not call the existing endpoint-comparison operation again. It converges on
+the existing package builders; there is no second package assembler.
 
 The same capture path owns every contribution refresh. The existing catch-up
-reservation still coalesces filesystem work, but its Review branch selects by
-the committed active kind:
+reservation still coalesces filesystem work:
 
 ```text
 contribution invalidation → new generation → fresh contribution capture
-narrow invalidation       → existing endpoint-replay refresh
 ```
 
 A contribution invalidation never rebuilds from the committed package's
 resolved endpoints. The new capture therefore re-resolves the selected target,
-reviewed HEAD, and unique base before package assembly. Staged-only and
-unstaged-only may keep replaying their kind-stable endpoints because those
-endpoints intentionally mean the current index and working tree.
+reviewed HEAD, and unique base before package assembly.
 
 Shared Review construction keeps `BridgeSharedReviewPackageTemplate`
 projection-only. The resolved request, not the reusable template, owns the
@@ -648,9 +614,6 @@ PROPOSED CONTRIBUTION PATH
   → [+] fresh contribution attempt; never endpoint replay
   → fresh target + HEAD + base + working-tree capture
 
-[=] Staged-only or unstaged-only invalidation
-  → existing endpoint-replay refresh
-
 Error return:
   Default designation absent, malformed, or without a resolvable
   remote-tracking branch
@@ -660,12 +623,8 @@ Error return:
   Git or admission failure
   ← controller retains old committed snapshot only as stale, or unavailable
   ← Review View exposes choose/retry; no substitute comparison is built
-  ← [-] unresolved HEAD never retries as unstaged-only
+  ← [-] unresolved HEAD never retries as a different comparison meaning
 ```
-
-Staged-only and unstaged-only preserve their current endpoint and Git-diff
-edges. They gain only the shared intent/origin representation and visible kind
-presentation.
 
 ## Review control transport
 
@@ -788,10 +747,8 @@ the compared OIDs. Closing or restoring the pane may discard the summary; the
 restored current package still exposes its exact current target and shared
 starting point.
 
-In narrow mode the closed control names only `Staged only` or `Unstaged only`;
-it does not display the retained full-worktree target. Pending and stale
-presentation keeps two facts distinct: the active requested intent and the
-origin of any still-rendered prior snapshot.
+Pending and stale presentation keeps two facts distinct: the active requested
+intent and the origin of any still-rendered prior snapshot.
 
 ## Comparison state uses the existing pane-presentation stream
 
@@ -1055,8 +1012,6 @@ Guards and illegal paths:
 - a failed attempt cannot relabel an older snapshot with the pending target;
 - pane presentation pairs a retained stale snapshot only with its exact
   `{packageId, reviewGeneration, revision}` identity;
-- a narrow snapshot cannot contain selected-target or contribution-base
-  origin;
 - an origin change cannot be applied as an item-only delta;
 - restore never marks a decoded snapshot current; it starts a fresh attempt.
 
@@ -1071,11 +1026,9 @@ filesystem event
 │
 ├─ ordinary worktree content/status change
 │    └─ Review-capable Bridge panes for the exact worktree
-│         ├─ contribution → fresh target/HEAD/base capture          changed path
-│         └─ staged/unstaged → endpoint-replay refresh              retained path
+│         └─ contribution → fresh target/HEAD/base capture          changed path
 │
 └─ Git-internal change or suppressed Git-internal path
-     ├─ exact-worktree staged/unstaged endpoint replay              retained path
      └─ same-repository contribution panes                          added scope
           └─ each pane starts a fresh target/HEAD/base capture
 ```
@@ -1085,15 +1038,14 @@ Git-internal count, repository identity, each controller's persisted intent,
 and existing refresh admission/coalescing. It does not create a repository
 observer, polling loop, or cross-pane coordinator. Duplicate invalidations are
 coalesced by the existing per-pane refresh admission. That admission remains a
-scheduler, not a comparison-semantics owner: its contribution branch starts the
-fresh capture path, while its narrow branch may call the existing endpoint
-replay.
+scheduler, not a comparison-semantics owner: it starts the fresh contribution
+capture path.
 
 The changed edge spans both owners. `WorkspaceSurfaceCoordinator` widens routing
 to same-repository contribution panes. `BridgePaneController` correspondingly
 relaxes its current exact-worktree equality guard only for Git-internal changes
-admitted to an active contribution comparison; ordinary file changes and narrow
-comparisons retain exact-worktree admission. Without both changes the widened
+admitted to an active contribution comparison; ordinary file changes retain
+exact-worktree admission. Without both changes the widened
 route would be silently discarded at the controller.
 
 Observation of either relevant event immediately advances the affected
@@ -1132,7 +1084,7 @@ target catalog unavailable
 
 invalid target / missing HEAD / missing object
   agentstudio-git ──► unavailable, or retain prior snapshot as stale
-                    └─ never retry as unstaged-only
+                    └─ never retry as a different comparison meaning
 
 no shared history / multiple best bases
   agentstudio-git ──► unavailable; choose target; never choose a base
@@ -1155,21 +1107,19 @@ and the active intent is shown separately as pending/failed.
 ## Restore and data cutover
 
 `BridgePaneState` remains encoded in the existing pane payload. Its decoder
-maps the old `WorkspaceBaseline` representation once into the new intent:
+maps the old `WorkspaceBaseline` representation into the contribution target:
 
 ```text
-old localDefaultBranch            → contribution + no target; run guarded default lookup
-old branch/origin/ref except HEAD → contribution + same target
-old headMinusOne                   → contribution + ref("HEAD~1")
-old staged baseline                → stagedOnly + no remembered target
-old unstaged baseline              → unstagedOnly + no remembered target
-old ref("HEAD")                    → contribution + no target; run guarded default lookup
+old localDefaultBranch            → no target; run guarded default lookup
+old branch/origin/ref except HEAD → same target
+old headMinusOne                  → ref("HEAD~1")
+old ref("HEAD")                   → no target; run guarded default lookup
 ```
 
 An active restored contribution always resolves its saved branch, ref, or
 pinned commit target. A
 legacy explicit branch, origin, or non-`HEAD` ref remains the retained
-contribution target across a later narrow-mode transition. Legacy
+contribution target. Legacy
 `localDefaultBranch` cannot establish explicit reviewer provenance: current
 writers derived it from the canonical main-worktree checkout or a literal
 `main`, so the decoder treats it as absent target intent and runs the guarded
@@ -1190,8 +1140,7 @@ On restore:
 1. the pane graph decodes the intent;
 2. the coordinator creates the controller from it;
 3. the controller starts a new generation;
-4. contribution re-resolves target/HEAD/base; narrow modes recapture their
-   endpoints;
+4. contribution re-resolves target/HEAD/base;
 5. only the new publication can become current.
 
 ## Cross-cutting realization
@@ -1242,7 +1191,7 @@ P0-R2  pane facade/graph + committed-call target + controller
        contract: commit before acknowledgement; header names subject and target;
                  branch rows distinguish local/remote/default and show revisions;
                  commits persist as pinned OIDs; exact target/base and
-                 shared-history meaning are accessible; narrow hides retained target
+                 shared-history meaning are accessible
        proof: committed-call integration plus keyboard/accessibility/visual interaction
 
 P0-R3  correlated agentstudio-git contribution read
@@ -1251,8 +1200,8 @@ P0-R3  correlated agentstudio-git contribution read
               base-to-working-tree semantics; Agent Studio integration proves
               adapter mapping and the pinned package revision
 
-P0-R4  contribution operation + existing narrow diff paths
-       contract: committed and dirty state; narrow meanings unchanged
+P0-R4  contribution operation
+       contract: committed and dirty worktree state
        proof: native Git integration across every file-state class
 
 P0-R5  raw invalidation routing + controller generation/admission

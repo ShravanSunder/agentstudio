@@ -4,6 +4,26 @@ import Testing
 
 @Suite("IPC programmatic-control contracts")
 struct IPCContractsTests {
+    @Test("Review comparison commit targets require exact hexadecimal OIDs")
+    func reviewComparisonCommitTargetsRequireExactHexadecimalOIDs() throws {
+        let validOID = "0123456789abcdef0123456789abcdef01234567"
+
+        #expect(
+            try JSONDecoder().decode(
+                IPCBridgeReviewComparisonTarget.self,
+                from: Data(#"{"kind":"commit","oid":"0123456789abcdef0123456789abcdef01234567"}"#.utf8)
+            ) == .commit(oid: validOID)
+        )
+        for invalidOID in ["abc123", String(repeating: "g", count: 40)] {
+            #expect(throws: Error.self) {
+                _ = try JSONDecoder().decode(
+                    IPCBridgeReviewComparisonTarget.self,
+                    from: Data(#"{"kind":"commit","oid":"\#(invalidOID)"}"#.utf8)
+                )
+            }
+        }
+    }
+
     @Test("arrangements presentation contracts round trip optional pane context")
     func arrangementsPresentationContractsRoundTripOptionalPaneContext() throws {
         let correlationId = UUID()

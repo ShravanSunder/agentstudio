@@ -351,7 +351,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		});
 
 		// Assert
-		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({ kind: 'ref', name: fullOID });
+		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({ kind: 'commit', oid: fullOID });
 	});
 
 	test('explains target-only movement from the directly preceding displayed origin', async () => {
