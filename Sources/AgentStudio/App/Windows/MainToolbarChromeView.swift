@@ -48,10 +48,16 @@ final class MainToolbarChromeView: NSView {
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
-            tabBarHostingView.topAnchor.constraint(equalTo: topAnchor),
+            tabBarHostingView.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: AppStyles.Shell.TabBar.stripCenterlineOffset
+            ),
             tabBarHostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             tabBarHostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            tabBarHostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            tabBarHostingView.bottomAnchor.constraint(
+                equalTo: bottomAnchor,
+                constant: AppStyles.Shell.TabBar.stripCenterlineOffset
+            ),
         ])
     }
 
