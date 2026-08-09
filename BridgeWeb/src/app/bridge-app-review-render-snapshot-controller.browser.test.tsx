@@ -244,7 +244,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(harness.sentCommands).toContainEqual(
 			expect.objectContaining({
 				command: 'reviewComparisonUpdate',
-				target: { kind: 'ref', name: exactCommitOID },
+				target: { kind: 'commit', oid: exactCommitOID },
 			}),
 		);
 	});
