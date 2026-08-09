@@ -100,7 +100,16 @@ struct BridgeDevHostSharedConstructionTests {
             named: "bridge-development-product-host-initial-presentation"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let targetCatalog = BridgeReviewComparisonTargetCatalog(
+            defaultTarget: nil,
+            branches: [
+                .local(branchName: "main", oid: String(repeating: "c", count: 40)),
+                .local(branchName: "stack/base", oid: String(repeating: "d", count: 40)),
+            ]
+        )
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider(
+            reviewComparisonTargetCatalog: targetCatalog
+        )
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
             contributionTargetCommit: developmentContributionTargetCommit(
@@ -116,6 +125,8 @@ struct BridgeDevHostSharedConstructionTests {
             // Assert
             #expect(presentation.reviewComparison?.activeTarget == .ref(name: "HEAD"))
             #expect(presentation.reviewComparison?.attempt == .settled(reviewGeneration: 1))
+            #expect(presentation.reviewComparison?.targetCatalog == targetCatalog)
+            #expect(await provider.snapshot().reviewComparisonTargetReadCount == 1)
             guard case .current(let displayedSnapshot) = presentation.reviewComparison?.displayedSnapshot else {
                 Issue.record("Expected the initial package to become the displayed comparison snapshot")
                 return
@@ -209,6 +220,7 @@ private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
     let contributionCaptureCount: Int
     let contributionTargets: [WorkspaceReviewContributionTarget]
     let regularComparisonCount: Int
+    let reviewComparisonTargetReadCount: Int
     let sharedCaptureCount: Int
     let sharedComparisonCount: Int
     let sharedEndpointResolutionCount: Int
@@ -227,7 +239,10 @@ private actor BridgeComparisonUpdateCompletionRecorder {
 private actor BridgeDevelopmentSharedConstructionReviewProvider:
     BridgeSharedReviewConstructionSourceProvider
 {
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? { nil }
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+        reviewComparisonTargetReadCount += 1
+        return reviewComparisonTargetCatalog
+    }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture
@@ -253,14 +268,20 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
     private var contributionCaptureCount = 0
     private var contributionTargets: [WorkspaceReviewContributionTarget] = []
     private var regularComparisonCount = 0
+    private let reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog?
+    private var reviewComparisonTargetReadCount = 0
     private var sharedCaptureCount = 0
     private var sharedComparisonCount = 0
     private var sharedEndpointResolutionCount = 0
     private var sharedInstallCount = 0
     private var reviewGenerationValues: [Int] = []
 
-    init(comparisonGate: BridgeComparisonGate? = nil) {
+    init(
+        comparisonGate: BridgeComparisonGate? = nil,
+        reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog? = nil
+    ) {
         self.comparisonGate = comparisonGate
+        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
     }
 
     func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {
@@ -377,6 +398,7 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
             contributionCaptureCount: contributionCaptureCount,
             contributionTargets: contributionTargets,
             regularComparisonCount: regularComparisonCount,
+            reviewComparisonTargetReadCount: reviewComparisonTargetReadCount,
             sharedCaptureCount: sharedCaptureCount,
             sharedComparisonCount: sharedComparisonCount,
             sharedEndpointResolutionCount: sharedEndpointResolutionCount,

@@ -103,6 +103,8 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(source.contains("Computer Use must select the comparison target before verification"))
         #expect(source.contains("persisted symbolic comparison target selected through the UI"))
         #expect(source.contains("comparisonTriggerLabel"))
+        #expect(source.contains(#"f"Compare: {comparison_target_name}""#))
+        #expect(!source.contains(#"f"Compare to: {comparison_target_name}""#))
         #expect(source.contains("contentTopbarFrame"))
         #expect(source.contains("contentTopbarControlsFrame"))
         #expect(source.contains("comparisonTriggerFrame"))

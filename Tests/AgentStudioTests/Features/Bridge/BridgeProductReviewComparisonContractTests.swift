@@ -194,6 +194,29 @@ struct BridgeProductReviewComparisonContractTests {
         #expect(encodedFrame == canonicalFrame)
     }
 
+    @Test("target catalog encodes an absent default as explicit null")
+    func targetCatalogEncodesAbsentDefaultAsExplicitNull() throws {
+        // Arrange
+        let catalog = BridgeReviewComparisonTargetCatalog(
+            defaultTarget: nil,
+            branches: [
+                .local(
+                    branchName: "stack/base",
+                    oid: "af70f11324247e802366a8f6ab1f4ea0ec5ae55f"
+                )
+            ]
+        )
+
+        // Act
+        let encodedCatalog = try sortedJSONObject(catalog)
+
+        // Assert
+        #expect(
+            encodedCatalog
+                == #"{"branches":[{"branchName":"stack\/base","kind":"local","oid":"af70f11324247e802366a8f6ab1f4ea0ec5ae55f"}],"defaultTarget":null}"#
+        )
+    }
+
     private func sortedJSONObject<TValue: Encodable>(_ value: TValue) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

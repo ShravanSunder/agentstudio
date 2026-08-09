@@ -645,8 +645,50 @@ package enum BridgeReviewComparisonBranchTarget: Codable, Equatable, Sendable {
 }
 
 package struct BridgeReviewComparisonTargetCatalog: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case branches
+        case defaultTarget
+    }
+
     let defaultTarget: BridgeReviewComparisonBranchTarget?
     let branches: [BridgeReviewComparisonBranchTarget]
+
+    package init(
+        defaultTarget: BridgeReviewComparisonBranchTarget?,
+        branches: [BridgeReviewComparisonBranchTarget]
+    ) {
+        self.defaultTarget = defaultTarget
+        self.branches = branches
+    }
+
+    package init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review comparison target catalog"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.defaultTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeReviewComparisonBranchTarget.self,
+            forKey: .defaultTarget,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        self.branches = try container.decode(
+            [BridgeReviewComparisonBranchTarget].self,
+            forKey: .branches
+        )
+    }
+
+    package func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(branches, forKey: .branches)
+        if let defaultTarget {
+            try container.encode(defaultTarget, forKey: .defaultTarget)
+        } else {
+            try container.encodeNil(forKey: .defaultTarget)
+        }
+    }
 }
 
 struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {

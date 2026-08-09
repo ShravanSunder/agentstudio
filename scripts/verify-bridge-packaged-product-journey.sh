@@ -689,7 +689,7 @@ try:
         and value.get("summary", {}).get("comparisonSharedStartRevision") == reviewed_after,
         attempts=1800,
     )
-    if comparison_render.get("summary", {}).get("comparisonTriggerLabel") != f"Compare to: {comparison_target_name}":
+    if comparison_render.get("summary", {}).get("comparisonTriggerLabel") != f"Compare: {comparison_target_name}":
         fail(f"Review comparison trigger label is stale: {comparison_render}")
     if not comparison_render.get("summary", {}).get("comparisonTriggerDescription"):
         fail(f"Review comparison trigger description is missing: {comparison_render}")

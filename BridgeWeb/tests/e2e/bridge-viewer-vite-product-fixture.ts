@@ -62,6 +62,7 @@ export interface BridgeViewerViteProductReviewRoleOracle {
 
 export interface BridgeViewerOwnedViteProductServer {
 	readonly backendPid: number;
+	readonly diagnostics: () => string;
 	readonly origin: string;
 	readonly pid: number;
 	readonly stop: () => Promise<BridgeViewerOwnedViteProductServerCleanup>;
@@ -395,6 +396,13 @@ export async function startBridgeViewerOwnedViteProductServer(
 	const origin = `http://127.0.0.1:${port}`;
 	return {
 		backendPid: bridgeDevelopmentServer.pid,
+		diagnostics: (): string =>
+			JSON.stringify({
+				backendStderr: bridgeDevelopmentServer.stderrTail(),
+				backendStdout: bridgeDevelopmentServer.stdoutTail(),
+				viteStderr: stderrTail,
+				viteStdout: stdoutTail,
+			}),
 		origin,
 		pid: child.pid ?? 0,
 		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {

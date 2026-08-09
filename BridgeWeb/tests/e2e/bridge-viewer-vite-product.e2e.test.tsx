@@ -20,6 +20,10 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 	type BridgeViewerViteProductReviewFileOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
+import {
+	observeBrowserRuntimeDiagnostics,
+	waitForSettledReviewComparison,
+} from './bridge-viewer-vite-review-comparison-proof.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 
@@ -81,14 +85,6 @@ interface FileContentScrollProof {
 	readonly finalMarkerPainted: boolean;
 	readonly firstMarkerPainted: boolean;
 	readonly middleMarkerPainted: boolean;
-}
-
-interface ReviewComparisonBrowserProof {
-	readonly packageId: string;
-	readonly reviewGeneration: number;
-	readonly revision: number;
-	readonly symbolicTargetLabel: string;
-	readonly targetOID: string;
 }
 
 let disposeFixture: (() => Promise<void>) | null = null;
@@ -356,29 +352,46 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		try {
 			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageA = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			const pageADiagnostics = observeBrowserRuntimeDiagnostics(pageA);
 			await pageA.goto(productReviewUrl(serverA.origin), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await pageA.waitForSelector('[data-testid="review-viewer-shell"]', {
-				timeout: productJourneyTimeoutMilliseconds,
-			});
+			try {
+				await pageA.waitForFunction(
+					(): boolean =>
+						document.querySelector('[data-testid="review-viewer-shell"]') !== null ||
+						(document.body.textContent ?? '').includes('Review metadata is unavailable'),
+					undefined,
+					{
+					timeout: productJourneyTimeoutMilliseconds,
+					},
+				);
+				if ((await pageA.getByTestId('review-viewer-shell').count()) === 0) {
+					throw new Error('Review metadata entered the unavailable state.');
+				}
+			} catch (error: unknown) {
+				throw new Error(
+					`Review shell did not load: ${await pageADiagnostics.describe()} server=${serverA.diagnostics()}`,
+					{
+					cause: error,
+					},
+				);
+			}
 			await waitForSettledReviewComparison({
-				expectedTargetLabel: 'Compare to: HEAD',
+				expectedTargetLabel: 'Compare: HEAD',
 				expectedTargetOID: fixture.oracle.baseRef,
 				page: pageA,
+				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
 			});
 
-			// Act: process A commits the symbolic target through the real Compare-to UI.
-			const comparisonContent = pageA.getByTestId('bridge-review-comparison-content');
-			await comparisonContent
-				.getByPlaceholder('branch or Git ref')
-				.fill(fixture.oracle.comparisonTargetName);
-			await comparisonContent.getByRole('button', { name: 'Apply' }).click();
+			// Act: process A commits the symbolic target through the real Compare Worktree UI.
+			await pageA.getByTestId(`comparison-branch-${fixture.oracle.comparisonTargetName}`).click();
 			const processAProof = await waitForSettledReviewComparison({
-				expectedTargetLabel: `Compare to: ${fixture.oracle.comparisonTargetName}`,
+				expectedTargetLabel: `Compare: ${fixture.oracle.comparisonTargetName}`,
 				expectedTargetOID: fixture.oracle.baseRef,
 				page: pageA,
+				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
 			});
 			await pageA.close();
 
@@ -396,9 +409,10 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				waitUntil: 'domcontentloaded',
 			});
 			const processBProof = await waitForSettledReviewComparison({
-				expectedTargetLabel: `Compare to: ${fixture.oracle.comparisonTargetName}`,
+				expectedTargetLabel: `Compare: ${fixture.oracle.comparisonTargetName}`,
 				expectedTargetOID: movedTargetOID,
 				page: pageB,
+				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
 			});
 			await pageB.close();
 
@@ -435,69 +449,6 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 		}
 	});
 });
-
-async function waitForSettledReviewComparison(props: {
-	readonly expectedTargetLabel: string;
-	readonly expectedTargetOID: string;
-	readonly page: Page;
-}): Promise<ReviewComparisonBrowserProof> {
-	const comparisonTrigger = props.page.getByTestId('bridge-review-comparison-trigger');
-	await expect
-		.poll(async (): Promise<string | null> => await comparisonTrigger.textContent(), {
-			timeout: productJourneyTimeoutMilliseconds,
-		})
-		.toBe(props.expectedTargetLabel);
-	let settledTargetOID = '';
-	try {
-		await expect
-			.poll(
-				async (): Promise<string | null> => {
-					const observedTargetOID = await props.page.evaluate(
-						(): string | null =>
-							document
-								.querySelector('[data-testid="bridge-review-comparison-target-revision"]')
-								?.getAttribute('title') ?? null,
-					);
-					if (observedTargetOID !== null) settledTargetOID = observedTargetOID;
-					if (
-						observedTargetOID === null &&
-						(await props.page.getByTestId('bridge-review-comparison-content').count()) === 0
-					) {
-						await comparisonTrigger.click();
-					}
-					return observedTargetOID;
-				},
-				{ timeout: productJourneyTimeoutMilliseconds },
-			)
-			.toBe(props.expectedTargetOID);
-	} catch (error: unknown) {
-		const comparisonState = await props.page.evaluate(
-			(): string | null =>
-				document.querySelector('[data-testid="bridge-review-comparison-content"]')?.textContent ??
-				null,
-		);
-		throw new Error(`Review comparison did not settle: ${comparisonState ?? '<missing>'}`, {
-			cause: error,
-		});
-	}
-	const reviewShell = props.page.getByTestId('review-viewer-shell');
-	const packageId = await reviewShell.getAttribute('data-review-metadata-id');
-	const reviewGeneration = Number(
-		await reviewShell.getAttribute('data-review-metadata-generation'),
-	);
-	const revision = Number(await reviewShell.getAttribute('data-review-metadata-revision'));
-	const symbolicTargetLabel = (await comparisonTrigger.textContent()) ?? '';
-	if (packageId === null || packageId.length === 0) {
-		throw new Error('Settled Review comparison is missing package identity.');
-	}
-	return {
-		packageId,
-		reviewGeneration,
-		revision,
-		symbolicTargetLabel,
-		targetOID: settledTargetOID,
-	};
-}
 
 function assertJourneyFreshness(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;

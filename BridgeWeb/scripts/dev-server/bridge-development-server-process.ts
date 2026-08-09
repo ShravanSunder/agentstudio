@@ -13,7 +13,9 @@ const maximumLogTailCharacters = 8_192;
 export interface OwnedBridgeDevelopmentServer {
 	readonly origin: string;
 	readonly pid: number;
+	readonly stderrTail: () => string;
 	readonly stop: () => Promise<OwnedBridgeDevelopmentServerCleanup>;
+	readonly stdoutTail: () => string;
 }
 
 export interface OwnedBridgeDevelopmentServerCleanup {
@@ -115,8 +117,10 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 	return {
 		origin,
 		pid: child.pid ?? 0,
+		stderrTail: (): string => stderrTail,
 		stop: async (): Promise<OwnedBridgeDevelopmentServerCleanup> =>
 			await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome),
+		stdoutTail: (): string => stdoutTail,
 	};
 }
 

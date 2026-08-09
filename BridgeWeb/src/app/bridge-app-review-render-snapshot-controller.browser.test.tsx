@@ -154,7 +154,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: master');
+			.toHaveTextContent('Compare: master');
 	});
 
 	test('keeps comparison meaning accessible while closed at the shared 24px control scale', async () => {
@@ -203,7 +203,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(triggerBox.top).toBeGreaterThanOrEqual(topbarBox.top);
 		expect(triggerBox.bottom).toBeLessThanOrEqual(topbarBox.bottom);
 		expect(controlsBox.right).toBeLessThanOrEqual(topbarBox.right);
-		expect(trigger.getAttribute('aria-label')).toBe('Compare to: master');
+		expect(trigger.getAttribute('aria-label')).toBe('Compare: master');
 		expect(descriptionId).not.toBeNull();
 		expect(document.getElementById(descriptionId ?? '')?.textContent).toContain(
 			'Changes only on master are excluded',

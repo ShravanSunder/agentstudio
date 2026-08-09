@@ -89,7 +89,10 @@ package actor BridgeDevelopmentProductHost {
         )
         let reviewProvider = makeReviewProvider(source.worktreeRoot, gitReadContext)
         let reviewPipeline = BridgeReviewPipeline(provider: reviewProvider)
-        _ = try Self.reviewTarget(from: source.paneState)
+        let initialReviewTarget = try Self.reviewTarget(from: source.paneState)
+        let reviewComparisonTargetCatalog = try await Self.loadReviewComparisonTargetCatalog(
+            from: reviewProvider
+        )
 
         let constructionCoordinator = BridgeWorktreeProductConstructionCoordinator()
         let reviewSharedConstructionBinder = Self.makeReviewSharedConstructionBinder(
@@ -111,15 +114,14 @@ package actor BridgeDevelopmentProductHost {
         let committedCallTarget = await MainActor.run {
             BridgeDevelopmentProductCommittedCallTarget()
         }
-        let refreshAdmissionCoordinator = await MainActor.run {
-            BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
-        }
+        let refreshAdmissionCoordinator = await Self.makeRefreshAdmissionCoordinator(
+            initialReviewTarget: initialReviewTarget,
+            targetCatalog: reviewComparisonTargetCatalog
+        )
         let refreshWorkAdmissionSource = await MainActor.run {
             refreshAdmissionCoordinator.workAdmissionSource
         }
-        let initialPresentation = await MainActor.run {
-            refreshAdmissionCoordinator.productPresentationSnapshot
-        }
+        let initialPresentation = await refreshAdmissionCoordinator.productPresentationSnapshot
         let providerDependencies = ProductProviderDependencies(
             applyReviewComparisonUpdate: { request, productAdmission in
                 await committedCallTarget.applyReviewComparisonUpdate(
@@ -591,6 +593,34 @@ package actor BridgeDevelopmentProductHost {
             coordinator: coordinator,
             pipeline: pipeline,
             repositoryPath: repositoryPath
+        )
+    }
+
+    private static func loadReviewComparisonTargetCatalog(
+        from reviewProvider: any BridgeReviewSourceProvider
+    ) async throws -> BridgeReviewComparisonTargetCatalog? {
+        do {
+            return try await reviewProvider.reviewComparisonTargets()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+    }
+
+    @MainActor
+    private static func makeRefreshAdmissionCoordinator(
+        initialReviewTarget: WorkspaceReviewContributionTarget,
+        targetCatalog: BridgeReviewComparisonTargetCatalog?
+    ) -> BridgePaneRefreshAdmissionCoordinator {
+        BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: initialReviewTarget,
+                attempt: .pending(reviewGeneration: 0),
+                displayedSnapshot: .absent,
+                targetCatalog: targetCatalog
+            )
         )
     }
 
