@@ -4,7 +4,7 @@ import Foundation
 @testable import AgentStudioBridge
 
 actor BridgeGitReviewDataClientFake: BridgeGitReviewDataClient, BridgeSharedReviewConstructionClient {
-    func localDefaultBranch() async throws -> String? {
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
         nil
     }
 

@@ -52,6 +52,39 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(settled.reviewComparison?.displayedSnapshot == .current(successor))
     }
 
+    @Test("comparison transitions retain the published target catalog")
+    func comparisonTransitionsRetainPublishedTargetCatalog() throws {
+        let catalog = BridgeReviewComparisonTargetCatalog(
+            defaultTarget: .remoteTracking(
+                remoteName: "origin",
+                branchName: "main",
+                oid: "origin-main-oid"
+            ),
+            branches: [.local(branchName: "main", oid: "local-main-oid")]
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: nil,
+                attempt: .selectionRequired,
+                displayedSnapshot: .absent
+            )
+        )
+
+        coordinator.publishReviewComparisonTargetCatalog(catalog)
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .originDefaultBranch(remoteName: "origin", branchName: "main"),
+            reviewGeneration: 8
+        )
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 8,
+            failureKind: "git.unresolvedTarget",
+            retryable: true
+        )
+
+        #expect(coordinator.productPresentationSnapshot.reviewComparison?.targetCatalog == catalog)
+    }
+
     @Test("current comparison failure retains the displayed predecessor as stale")
     func currentComparisonFailureRetainsDisplayedPredecessorAsStale() {
         // Arrange

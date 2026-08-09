@@ -69,11 +69,12 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("late automatic default adopts the canonical reviewer target and captures contribution once")
-        func lateAutomaticDefaultAdoptsCanonicalReviewerTargetAndCapturesContributionOnce() async throws {
+        @Test("origin symbolic default adopts its exact remote target and publishes the catalog")
+        func originSymbolicDefaultAdoptsExactRemoteTargetAndPublishesCatalog() async throws {
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
             let provider = CanonicalContributionReviewSourceProvider()
+            let targetRecorder = AutomaticContributionTargetRecorder()
             let reviewerState = BridgePaneState(
                 panelKind: .diffViewer,
                 source: .workspace(
@@ -103,7 +104,10 @@ extension WebKitSerializedTests {
                 ),
                 reviewSourceProvider: provider,
                 initialPaneActivity: .foreground,
-                initialContributionTargetCommit: { _ in .unchanged(reviewerState) }
+                initialContributionTargetCommit: { target in
+                    targetRecorder.record(target)
+                    return .unchanged(reviewerState)
+                }
             )
             defer { controller.teardown() }
 
@@ -113,7 +117,11 @@ extension WebKitSerializedTests {
                 Issue.record("Expected canonical reviewer target contribution load to succeed")
                 return
             }
-            #expect(await provider.recordedLocalDefaultBranchReadCount() == 1)
+            #expect(await provider.recordedReviewComparisonTargetReadCount() == 1)
+            #expect(
+                targetRecorder.target
+                    == .originDefaultBranch(remoteName: "upstream", branchName: "trunk")
+            )
             #expect(await provider.recordedComparisonReadCount() == 0)
             let contributionRequest = try #require(await provider.recordedContributionRequests().first)
             #expect(contributionRequest.symbolicTarget == .branch(name: "reviewer-selected"))
@@ -129,6 +137,10 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(canonicalBaseline?.contributionTarget == .branch(name: "reviewer-selected"))
+            #expect(
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?.targetCatalog
+                    == CanonicalContributionReviewSourceProvider.targetCatalog
+            )
         }
 
         @Test("workspace review compare targets select git ref baseline against working tree")
@@ -195,6 +207,11 @@ extension WebKitSerializedTests {
         @Test("workspace contribution without a target requires selection and does not fabricate HEAD")
         func workspaceContributionWithoutTargetRequiresSelectionAndDoesNotFabricateHead() async throws {
             let worktreeId = UUIDv7.generate()
+            let targetRecorder = AutomaticContributionTargetRecorder()
+            let targetCatalog = BridgeReviewComparisonTargetCatalog(
+                defaultTarget: .local(branchName: "main", oid: "divergent-local-main-oid"),
+                branches: [.local(branchName: "main", oid: "divergent-local-main-oid")]
+            )
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
@@ -208,6 +225,7 @@ extension WebKitSerializedTests {
                     ]
                 ),
                 contentByHandleId: [:],
+                reviewComparisonTargetCatalog: targetCatalog,
                 comparisonFailureByBaseProviderIdentity: [:]
             )
             let controller = makeController(
@@ -216,7 +234,11 @@ extension WebKitSerializedTests {
                     baseline: nil
                 ),
                 worktreeId: worktreeId,
-                provider: provider
+                provider: provider,
+                initialContributionTargetCommit: { target in
+                    targetRecorder.record(target)
+                    return .paneMissing
+                }
             )
             defer { controller.teardown() }
 
@@ -228,6 +250,11 @@ extension WebKitSerializedTests {
             }
             #expect(await provider.recordedContributionRequests().isEmpty)
             #expect(await provider.recordedComparisonRequests().isEmpty)
+            #expect(targetRecorder.target == nil)
+            #expect(
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?.targetCatalog
+                    == targetCatalog
+            )
             #expect(controller.paneState.diff.status == .error)
         }
 
@@ -638,7 +665,9 @@ extension WebKitSerializedTests {
             source: BridgePaneSource?,
             repoId: UUID? = nil,
             worktreeId: UUID?,
-            provider: any BridgeReviewSourceProvider
+            provider: any BridgeReviewSourceProvider,
+            initialContributionTargetCommit:
+                (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
         ) -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
@@ -650,7 +679,8 @@ extension WebKitSerializedTests {
                     facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId)
                 ),
                 reviewSourceProvider: provider,
-                initialPaneActivity: .foreground
+                initialPaneActivity: .foreground,
+                initialContributionTargetCommit: initialContributionTargetCommit
             )
         }
 
@@ -769,13 +799,29 @@ private let reviewContributionEndpointCases = [
 ]
 
 private actor CanonicalContributionReviewSourceProvider: BridgeReviewSourceProvider {
-    private var localDefaultBranchReadCount = 0
+    static let targetCatalog = BridgeReviewComparisonTargetCatalog(
+        defaultTarget: .remoteTracking(
+            remoteName: "upstream",
+            branchName: "trunk",
+            oid: "upstream-trunk-oid"
+        ),
+        branches: [
+            .local(branchName: "main", oid: "local-main-oid"),
+            .remoteTracking(
+                remoteName: "upstream",
+                branchName: "trunk",
+                oid: "upstream-trunk-oid"
+            ),
+        ]
+    )
+
+    private var reviewComparisonTargetReadCount = 0
     private var comparisonReadCount = 0
     private var contributionRequests: [BridgeContributionComparisonRequest] = []
 
-    func localDefaultBranch() async throws -> String? {
-        localDefaultBranchReadCount += 1
-        return "main"
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+        reviewComparisonTargetReadCount += 1
+        return Self.targetCatalog
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
@@ -843,7 +889,16 @@ private actor CanonicalContributionReviewSourceProvider: BridgeReviewSourceProvi
         throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
     }
 
-    func recordedLocalDefaultBranchReadCount() -> Int { localDefaultBranchReadCount }
+    func recordedReviewComparisonTargetReadCount() -> Int { reviewComparisonTargetReadCount }
     func recordedComparisonReadCount() -> Int { comparisonReadCount }
     func recordedContributionRequests() -> [BridgeContributionComparisonRequest] { contributionRequests }
+}
+
+@MainActor
+private final class AutomaticContributionTargetRecorder {
+    private(set) var target: WorkspaceReviewContributionTarget?
+
+    func record(_ target: WorkspaceReviewContributionTarget) {
+        self.target = target
+    }
 }

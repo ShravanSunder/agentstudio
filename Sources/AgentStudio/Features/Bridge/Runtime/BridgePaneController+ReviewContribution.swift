@@ -50,18 +50,31 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
-        guard case .workspace(_, nil) = bridgePaneState.source else { return }
-        guard let branchName = try await reviewSourceProvider.localDefaultBranch() else { return }
+        guard case .workspace(_, let baseline) = bridgePaneState.source else { return }
+        let targetCatalog: BridgeReviewComparisonTargetCatalog?
+        do {
+            targetCatalog = try await reviewSourceProvider.reviewComparisonTargets()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            targetCatalog = nil
+        }
         guard
             isReviewPackageLoadCurrent(
                 reset: reset,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
-            ),
+            )
+        else { return }
+        refreshAdmissionCoordinator.publishReviewComparisonTargetCatalog(targetCatalog)
+        _ = scheduleProductPresentationPublication()
+        guard baseline == nil else { return }
+        guard
+            case .remoteTracking(let remoteName, let branchName, _) = targetCatalog?.defaultTarget,
             let initialContributionTargetCommit
         else { return }
         let mutationResult = initialContributionTargetCommit(
-            .localDefaultBranch(branchName: branchName)
+            .originDefaultBranch(remoteName: remoteName, branchName: branchName)
         )
         guard
             isReviewPackageLoadCurrent(

@@ -1,8 +1,8 @@
 import Foundation
 
 actor BridgeUnavailableReviewSourceProvider: BridgeReviewSourceProvider {
-    func localDefaultBranch() async throws -> String? {
-        throw BridgeProviderFailure.providerUnavailable
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+        nil
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

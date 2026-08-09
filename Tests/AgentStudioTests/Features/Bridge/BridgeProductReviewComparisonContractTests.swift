@@ -144,7 +144,7 @@ struct BridgeProductReviewComparisonContractTests {
     func panePresentationCarriesComparisonState() throws {
         // Arrange
         let presentationJSON = Data(
-            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":["review"],"reviewComparison":{"activeTarget":{"kind":"branch","name":"stack/base"},"attempt":{"status":"pending","reviewGeneration":8},"displayedSnapshot":{"status":"stale","packageId":"package-7","reviewGeneration":7,"revision":11}}}"#
+            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":["review"],"reviewComparison":{"activeTarget":{"kind":"branch","name":"stack/base"},"attempt":{"status":"pending","reviewGeneration":8},"displayedSnapshot":{"status":"stale","packageId":"package-7","reviewGeneration":7,"revision":11},"targetCatalog":{"defaultTarget":{"kind":"remoteTracking","remoteName":"origin","branchName":"main","oid":"origin-main-oid"},"branches":[{"kind":"local","branchName":"main","oid":"local-main-oid"},{"kind":"remoteTracking","remoteName":"origin","branchName":"main","oid":"origin-main-oid"}]}}}"#
                 .utf8
         )
 
@@ -173,6 +173,21 @@ struct BridgeProductReviewComparisonContractTests {
                             reviewGeneration: 7,
                             revision: 11
                         )
+                    ),
+                    targetCatalog: BridgeReviewComparisonTargetCatalog(
+                        defaultTarget: .remoteTracking(
+                            remoteName: "origin",
+                            branchName: "main",
+                            oid: "origin-main-oid"
+                        ),
+                        branches: [
+                            .local(branchName: "main", oid: "local-main-oid"),
+                            .remoteTracking(
+                                remoteName: "origin",
+                                branchName: "main",
+                                oid: "origin-main-oid"
+                            ),
+                        ]
                     )
                 )
         )

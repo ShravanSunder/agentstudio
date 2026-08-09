@@ -5,20 +5,20 @@ import Foundation
 private let libGit2NotFoundErrorCode: Int32 = -3
 
 extension AgentStudioGitBridgeReviewDataClient {
-    func loadGitLocalDefaultBranch(
+    func loadGitReviewComparisonTargets(
         freshnessKey: BridgeGitReadFreshnessKey
-    ) async throws -> GitLocalDefaultBranch? {
+    ) async throws -> GitReviewComparisonTargetCatalog {
         let client = self.client
         do {
             return try await scheduledGitRead(
                 operationClass: .reviewMetadata,
                 coalescingKey: try gitReadCoalescingKey(
-                    domain: "local-default-branch",
+                    domain: "review-comparison-targets",
                     request: repositoryPath
                 ),
                 freshnessKey: freshnessKey
             ) {
-                try await client.localDefaultBranch(for: self.repositoryPath)
+                try await client.reviewComparisonTargets(for: self.repositoryPath)
             }
         } catch BridgeGitReadSchedulerError.timedOut {
             throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)

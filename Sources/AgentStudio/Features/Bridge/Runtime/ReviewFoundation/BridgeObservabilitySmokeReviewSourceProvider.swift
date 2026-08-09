@@ -9,8 +9,21 @@ import Foundation
 
         package init() {}
 
-        package func localDefaultBranch() async throws -> String? {
-            "main"
+        package func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+            BridgeReviewComparisonTargetCatalog(
+                defaultTarget: .remoteTracking(
+                    remoteName: "origin",
+                    branchName: "main",
+                    oid: "bridge-observability-smoke-target"
+                ),
+                branches: [
+                    .remoteTracking(
+                        remoteName: "origin",
+                        branchName: "main",
+                        oid: "bridge-observability-smoke-target"
+                    )
+                ]
+            )
         }
 
         package func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

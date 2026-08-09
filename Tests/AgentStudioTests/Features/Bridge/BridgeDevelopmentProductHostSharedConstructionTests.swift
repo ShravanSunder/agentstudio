@@ -227,7 +227,7 @@ private actor BridgeComparisonUpdateCompletionRecorder {
 private actor BridgeDevelopmentSharedConstructionReviewProvider:
     BridgeSharedReviewConstructionSourceProvider
 {
-    func localDefaultBranch() async throws -> String? { nil }
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? { nil }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture

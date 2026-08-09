@@ -3,7 +3,7 @@ import Foundation
 @testable import AgentStudioBridge
 
 actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
-    private let localDefaultBranchName: String?
+    private let reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog?
     private var contributionCapture: BridgeContributionComparisonCapture?
     var comparison: BridgeEndpointComparison
     var contentByHandleId: [String: BridgeContentLoadResult]
@@ -30,7 +30,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     init(
         comparison: BridgeEndpointComparison,
         contentByHandleId: [String: BridgeContentLoadResult],
-        localDefaultBranchName: String? = nil,
+        reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog? = nil,
         contributionCapture: BridgeContributionComparisonCapture? = nil,
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
@@ -39,7 +39,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparisonGate: BridgeComparisonGate? = nil,
         checksCancellationAfterGate: Bool = false
     ) {
-        self.localDefaultBranchName = localDefaultBranchName
+        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
         self.contributionCapture = contributionCapture
         self.comparison = comparison
         self.contentByHandleId = contentByHandleId
@@ -51,8 +51,8 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         self.checksCancellationAfterGate = checksCancellationAfterGate
     }
 
-    func localDefaultBranch() async throws -> String? {
-        localDefaultBranchName
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+        reviewComparisonTargetCatalog
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

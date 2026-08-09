@@ -5,8 +5,10 @@ import Foundation
 @testable import AgentStudioBridge
 
 extension AgentStudioGitLocalClient {
-    func localDefaultBranch(for _: URL) async throws(GitDataPlaneError) -> GitLocalDefaultBranch? {
-        throw GitDataPlaneError.unsupported(message: "local default branch not configured")
+    func reviewComparisonTargets(for _: URL) async throws(GitDataPlaneError)
+        -> GitReviewComparisonTargetCatalog
+    {
+        throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
     }
 
     func contributionDiff(_: GitContributionDiffRequest) async throws(GitDataPlaneError)
@@ -22,7 +24,7 @@ struct GitContentLocator: Hashable, Sendable {
 }
 
 actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
-    private let localDefaultBranchResult: GitLocalDefaultBranch?
+    private let reviewComparisonTargetCatalog: GitReviewComparisonTargetCatalog?
     private var contributionDiffSnapshot: GitContributionDiffSnapshot?
     private var diffSnapshot: GitDiffSnapshot
     private let diffFailure: GitDataPlaneError?
@@ -43,11 +45,11 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private var treeRequests: [GitTreeReadRequest] = []
     private var statusRequests: [(URL, GitStatusOptions)] = []
     private var revisionResolutionRequests: [GitRevisionResolutionRequest] = []
-    private var localDefaultBranchRequests: [URL] = []
+    private var reviewComparisonTargetRequests: [URL] = []
     private var contributionDiffRequests: [GitContributionDiffRequest] = []
 
     init(
-        localDefaultBranchResult: GitLocalDefaultBranch? = nil,
+        reviewComparisonTargetCatalog: GitReviewComparisonTargetCatalog? = nil,
         contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
         diffFailure: GitDataPlaneError? = nil,
@@ -64,7 +66,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionGate: BridgeGitContentReadGate? = nil,
         revisionResolutionFailure: GitDataPlaneError? = nil
     ) {
-        self.localDefaultBranchResult = localDefaultBranchResult
+        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
         self.contributionDiffSnapshot = contributionDiffSnapshot
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
@@ -149,11 +151,14 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
-    func localDefaultBranch(for repositoryPath: URL) async throws(GitDataPlaneError)
-        -> GitLocalDefaultBranch?
+    func reviewComparisonTargets(for repositoryPath: URL) async throws(GitDataPlaneError)
+        -> GitReviewComparisonTargetCatalog
     {
-        localDefaultBranchRequests.append(repositoryPath)
-        return localDefaultBranchResult
+        reviewComparisonTargetRequests.append(repositoryPath)
+        guard let reviewComparisonTargetCatalog else {
+            throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
+        }
+        return reviewComparisonTargetCatalog
     }
 
     func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
@@ -261,8 +266,8 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionRequests
     }
 
-    func recordedLocalDefaultBranchRequests() -> [URL] {
-        localDefaultBranchRequests
+    func recordedReviewComparisonTargetRequests() -> [URL] {
+        reviewComparisonTargetRequests
     }
 
     func recordedContributionDiffRequests() -> [GitContributionDiffRequest] {

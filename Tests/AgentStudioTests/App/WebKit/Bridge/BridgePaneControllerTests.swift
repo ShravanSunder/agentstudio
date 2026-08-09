@@ -30,7 +30,7 @@ extension WebKitSerializedTests {
                 self.laterGenerationComparison = laterGenerationComparison
             }
 
-            func localDefaultBranch() async throws -> String? { nil }
+            func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? { nil }
 
             func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
                 -> BridgeContributionComparisonCapture

@@ -2,12 +2,27 @@ import AgentStudioCore
 import AgentStudioGit
 
 extension AgentStudioGitBridgeReviewDataClient {
-    func localDefaultBranch() async throws -> String? {
-        try await loadGitLocalDefaultBranch(
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+        let catalog = try await loadGitReviewComparisonTargets(
             freshnessKey: BridgeGitReadFreshnessKey(
-                token: "\(gitReadContext.scopeKey.token):local-default-branch"
+                token: "\(gitReadContext.scopeKey.token):review-comparison-targets"
             )
-        )?.name
+        )
+        return BridgeReviewComparisonTargetCatalog(
+            defaultTarget: catalog.defaultTarget.map(bridgeReviewComparisonBranchTarget),
+            branches: catalog.branches.map(bridgeReviewComparisonBranchTarget)
+        )
+    }
+
+    private func bridgeReviewComparisonBranchTarget(
+        _ target: GitReviewComparisonBranchTarget
+    ) -> BridgeReviewComparisonBranchTarget {
+        switch target {
+        case .local(let branchName, let oid):
+            .local(branchName: branchName, oid: oid)
+        case .remoteTracking(let remoteName, let branchName, let oid):
+            .remoteTracking(remoteName: remoteName, branchName: branchName, oid: oid)
+        }
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

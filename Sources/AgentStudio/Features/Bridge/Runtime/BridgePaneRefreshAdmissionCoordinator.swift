@@ -142,6 +142,21 @@ final class BridgePaneRefreshAdmissionCoordinator {
         )
     }
 
+    func publishReviewComparisonTargetCatalog(
+        _ targetCatalog: BridgeReviewComparisonTargetCatalog?
+    ) {
+        guard let reviewComparison else { return }
+        let nextComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: reviewComparison.activeTarget,
+            attempt: reviewComparison.attempt,
+            displayedSnapshot: reviewComparison.displayedSnapshot,
+            targetCatalog: targetCatalog
+        )
+        guard nextComparison != reviewComparison else { return }
+        self.reviewComparison = nextComparison
+        presentationRevision += 1
+    }
+
     func beginReviewComparisonAttempt(
         activeTarget: WorkspaceReviewContributionTarget,
         reviewGeneration: Int
@@ -149,7 +164,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
         let nextComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: activeTarget,
             attempt: .pending(reviewGeneration: reviewGeneration),
-            displayedSnapshot: reviewComparison?.displayedSnapshot.stalePredecessor ?? .absent
+            displayedSnapshot: reviewComparison?.displayedSnapshot.stalePredecessor ?? .absent,
+            targetCatalog: reviewComparison?.targetCatalog
         )
         guard nextComparison != reviewComparison else { return }
         reviewComparison = nextComparison
@@ -166,7 +182,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
         self.reviewComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: reviewComparison.activeTarget,
             attempt: .settled(reviewGeneration: reviewGeneration),
-            displayedSnapshot: .current(displayedSnapshotIdentity)
+            displayedSnapshot: .current(displayedSnapshotIdentity),
+            targetCatalog: reviewComparison.targetCatalog
         )
         presentationRevision += 1
     }
@@ -185,7 +202,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 failureKind: failureKind,
                 retryable: retryable
             ),
-            displayedSnapshot: reviewComparison.displayedSnapshot.stalePredecessor
+            displayedSnapshot: reviewComparison.displayedSnapshot.stalePredecessor,
+            targetCatalog: reviewComparison.targetCatalog
         )
         presentationRevision += 1
     }

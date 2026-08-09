@@ -3,7 +3,9 @@ import Foundation
 @testable import AgentStudioBridge
 
 actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
-    func localDefaultBranch() async throws -> String? { nil }
+    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+        reviewComparisonTargetCatalog
+    }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture
@@ -39,6 +41,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     }
 
     private var contributionCapture: BridgeContributionComparisonCapture?
+    private let reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog?
     private var contributionCaptureGate: BridgeContributionCaptureGate?
     private let contributionFailure: BridgeProviderFailure?
     var comparison: BridgeEndpointComparison
@@ -69,6 +72,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         contributionCapture: BridgeContributionComparisonCapture? = nil,
         contributionCaptureGate: BridgeContributionCaptureGate? = nil,
         contributionFailure: BridgeProviderFailure? = nil,
+        reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog? = nil,
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
         comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure] = [:],
@@ -79,6 +83,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         self.contributionCapture = contributionCapture
         self.contributionCaptureGate = contributionCaptureGate
         self.contributionFailure = contributionFailure
+        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
         self.comparison = comparison
         self.contentByHandleId = contentByHandleId
         self.treeDescriptors = treeDescriptors

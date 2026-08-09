@@ -86,7 +86,18 @@ extension WebKitSerializedTests {
         func contributionLoadPublishesPendingThenSettledSnapshotIdentity() async throws {
             let target = WorkspaceReviewContributionTarget.branch(name: "stack/base")
             let comparison = makeComparison()
-            let provider = makeContributionProvider(comparison: comparison)
+            let targetCatalog = BridgeReviewComparisonTargetCatalog(
+                defaultTarget: .remoteTracking(
+                    remoteName: "origin",
+                    branchName: "main",
+                    oid: "origin-main-oid"
+                ),
+                branches: [.local(branchName: "stack/base", oid: "stack-base-oid")]
+            )
+            let provider = makeContributionProvider(
+                comparison: comparison,
+                targetCatalog: targetCatalog
+            )
             let controller = makeController(
                 target: target,
                 comparison: comparison,
@@ -117,7 +128,8 @@ extension WebKitSerializedTests {
                                 reviewGeneration: package.reviewGeneration.rawValue,
                                 revision: package.revision
                             )
-                        )
+                        ),
+                        targetCatalog: targetCatalog
                     )
             )
         }
@@ -186,7 +198,8 @@ extension WebKitSerializedTests {
         }
 
         private func makeContributionProvider(
-            comparison: BridgeEndpointComparison
+            comparison: BridgeEndpointComparison,
+            targetCatalog: BridgeReviewComparisonTargetCatalog? = nil
         ) -> BridgeReviewSourceProviderFake {
             BridgeReviewSourceProviderFake(
                 comparison: comparison,
@@ -196,7 +209,8 @@ extension WebKitSerializedTests {
                     reviewedHeadOID: "reviewed-head-oid",
                     contributionBaseOID: "contribution-base-oid",
                     comparison: comparison
-                )
+                ),
+                reviewComparisonTargetCatalog: targetCatalog
             )
         }
 

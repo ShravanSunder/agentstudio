@@ -5,11 +5,25 @@ import Testing
 @testable import AgentStudioBridge
 
 extension BridgeGitReviewSourceProviderTests {
-    @Test("AgentStudioGit adapter reads the repository-designated local default branch")
-    func agentStudioGitAdapterReadsRepositoryDesignatedLocalDefaultBranch() async throws {
+    @Test("AgentStudioGit adapter preserves typed local and remote Review comparison targets")
+    func agentStudioGitAdapterPreservesTypedReviewComparisonTargets() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-default-branch-test")
         let gitClient = AgentStudioGitLocalClientFake(
-            localDefaultBranchResult: GitLocalDefaultBranch(name: "integration")
+            reviewComparisonTargetCatalog: GitReviewComparisonTargetCatalog(
+                defaultTarget: .remoteTracking(
+                    remoteName: "origin",
+                    branchName: "integration",
+                    oid: "origin-integration-oid"
+                ),
+                branches: [
+                    .local(branchName: "integration", oid: "local-integration-oid"),
+                    .remoteTracking(
+                        remoteName: "origin",
+                        branchName: "integration",
+                        oid: "origin-integration-oid"
+                    ),
+                ]
+            )
         )
         let provider = BridgeGitReviewSourceProvider(
             client: AgentStudioGitBridgeReviewDataClient(
@@ -19,10 +33,27 @@ extension BridgeGitReviewSourceProviderTests {
             )
         )
 
-        let branchName = try await provider.localDefaultBranch()
+        let catalog = try await provider.reviewComparisonTargets()
 
-        #expect(branchName == "integration")
-        #expect(await gitClient.recordedLocalDefaultBranchRequests() == [repositoryPath])
+        #expect(
+            catalog
+                == BridgeReviewComparisonTargetCatalog(
+                    defaultTarget: .remoteTracking(
+                        remoteName: "origin",
+                        branchName: "integration",
+                        oid: "origin-integration-oid"
+                    ),
+                    branches: [
+                        .local(branchName: "integration", oid: "local-integration-oid"),
+                        .remoteTracking(
+                            remoteName: "origin",
+                            branchName: "integration",
+                            oid: "origin-integration-oid"
+                        ),
+                    ]
+                )
+        )
+        #expect(await gitClient.recordedReviewComparisonTargetRequests() == [repositoryPath])
     }
 
     @Test("AgentStudioGit adapter captures one correlated contribution and registers its content")
