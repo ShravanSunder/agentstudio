@@ -439,6 +439,7 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 			return call.result;
 		case 'file.activeViewerMode.update':
 		case 'review.activeViewerMode.update':
+		case 'review.comparison.update':
 		case 'review.intake.ready':
 		case 'review.markFileViewed':
 		case 'review.publication.applied':

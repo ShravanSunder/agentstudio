@@ -107,10 +107,15 @@ function reviewSourceDisplayPatch(
 		throw new Error('Review display projection requires active source identity and revision.');
 	}
 	const payload: BridgeWorkerReviewSourceDisplayPayload = {
+		baseEndpoint: snapshot.baseEndpoint,
+		comparisonOrigin: snapshot.comparisonOrigin,
+		headEndpoint: snapshot.headEndpoint,
 		metadataWindowIdentity: reviewMetadataWindowIdentity(snapshot),
 		metadataSourceId: snapshot.identity.sourceIdentity,
 		packageId: snapshot.identity.packageId,
+		query: snapshot.query,
 		reviewGeneration: snapshot.identity.generation,
+		reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		status,
 		summary: snapshot.summary,
 		totalItemCount: snapshot.totalItemCount,

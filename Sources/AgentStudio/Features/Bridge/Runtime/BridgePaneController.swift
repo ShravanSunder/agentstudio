@@ -58,7 +58,10 @@ package final class BridgePaneController {
     package var bridgePaneState: BridgePaneState
     let initialContributionTargetCommit:
         (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
+    let contributionTargetCommit:
+        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
     var nextReviewGeneration: BridgeReviewGeneration = 0
+    var pendingComparisonReviewGeneration: BridgeReviewGeneration?
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var productPresentationTransitionGeneration: UInt64 = 0
@@ -119,6 +122,8 @@ package final class BridgePaneController {
         telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
             BridgePaneController.dispatchTelemetrySessionBootstrap,
         initialContributionTargetCommit:
+            (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil,
+        contributionTargetCommit:
             (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
     ) {
         self.paneId = paneId
@@ -137,11 +142,11 @@ package final class BridgePaneController {
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
         self.reviewSourceProvider = resolvedReviewSourceProvider
         self.initialContributionTargetCommit = initialContributionTargetCommit
-        let resolvedReviewContentLoaderCache = BridgeReviewContentLoaderCache(
-            provider: resolvedReviewSourceProvider
-        )
+        self.contributionTargetCommit = contributionTargetCommit
+        let resolvedReviewContentLoaderCache = Self.makeReviewContentLoaderCache(resolvedReviewSourceProvider)
         self.reviewContentLoaderCache = resolvedReviewContentLoaderCache
-        let resolvedRefreshAdmissionCoordinator = BridgePaneRefreshAdmissionCoordinator(
+        let resolvedRefreshAdmissionCoordinator = Self.makeRefreshAdmissionCoordinator(
+            state,
             initialActivity: initialPaneActivity
         )
         self.refreshAdmissionCoordinator = resolvedRefreshAdmissionCoordinator
@@ -231,6 +236,41 @@ package final class BridgePaneController {
         configureReadyMessageHandler(readyMessageHandler)
         configureRuntimeCallbacks()
         resolvedProductSessionDependencies.committedCallTarget?.controller = self
+    }
+
+    private static func initialReviewComparisonPresentation(
+        for state: BridgePaneState
+    ) -> BridgePaneReviewComparisonPresentation? {
+        guard case .workspace(_, let baseline) = state.source else { return nil }
+        guard let baseline else {
+            return BridgePaneReviewComparisonPresentation(
+                activeTarget: nil,
+                attempt: .selectionRequired,
+                displayedSnapshot: .absent
+            )
+        }
+        guard let contributionTarget = baseline.contributionTarget else { return nil }
+        return BridgePaneReviewComparisonPresentation(
+            activeTarget: contributionTarget,
+            attempt: .pending(reviewGeneration: 0),
+            displayedSnapshot: .absent
+        )
+    }
+
+    private static func makeRefreshAdmissionCoordinator(
+        _ state: BridgePaneState,
+        initialActivity: BridgePaneActivity
+    ) -> BridgePaneRefreshAdmissionCoordinator {
+        BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: initialActivity,
+            initialReviewComparison: initialReviewComparisonPresentation(for: state)
+        )
+    }
+
+    private static func makeReviewContentLoaderCache(
+        _ provider: any BridgeReviewSourceProvider
+    ) -> BridgeReviewContentLoaderCache {
+        BridgeReviewContentLoaderCache(provider: provider)
     }
 
     private func configureReadyMessageHandler(_ readyMessageHandler: BridgeReadyMessageHandler) {

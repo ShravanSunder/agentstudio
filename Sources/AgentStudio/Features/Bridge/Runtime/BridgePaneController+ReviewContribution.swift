@@ -3,6 +3,48 @@ import Foundation
 
 @MainActor
 extension BridgePaneController {
+    func handleCommittedProductReviewComparisonUpdate(
+        _ request: BridgeProductReviewComparisonUpdateRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> Bool {
+        guard productAdmission.withValidAdmission({ true }) == true,
+            let contributionTargetCommit
+        else {
+            productAdmissionGate.close()
+            return false
+        }
+        let mutationResult = contributionTargetCommit(request.target)
+        guard productAdmission.withValidAdmission({ true }) == true else { return false }
+        let canonicalState: BridgePaneState
+        switch mutationResult {
+        case .applied(let state), .unchanged(let state):
+            canonicalState = state
+        case .paneMissing, .notBridgePane, .notWorkspaceSource:
+            productAdmissionGate.close()
+            return false
+        }
+        guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
+            canonicalBaseline?.contributionTarget == request.target
+        else {
+            productAdmissionGate.close()
+            return false
+        }
+
+        bridgePaneState = canonicalState
+        let reviewGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = reviewGeneration
+        pendingComparisonReviewGeneration = reviewGeneration
+        refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+            activeTarget: request.target,
+            reviewGeneration: reviewGeneration.rawValue
+        )
+        _ = scheduleProductPresentationPublication()
+        pendingReviewPackageBuildReasons.insert(.productResync)
+        activeReviewRefreshTask?.cancel()
+        scheduleRetainedReviewPackageBuildIfPossible()
+        return true
+    }
+
     func adoptInitialContributionTargetIfEligible(
         reset: ReviewPackageLoadReset,
         productAdmission: BridgeProductAdmissionContext,

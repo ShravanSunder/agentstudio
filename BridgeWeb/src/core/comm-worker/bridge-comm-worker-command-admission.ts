@@ -23,6 +23,7 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
+		case 'reviewComparisonUpdate':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
 			return 'review';

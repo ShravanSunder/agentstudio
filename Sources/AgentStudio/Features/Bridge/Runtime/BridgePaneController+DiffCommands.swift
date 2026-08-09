@@ -368,7 +368,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                         paneState.diff.setStatus(.loading)
                     }
                     paneState.diff.advanceEpoch()
-                    let reviewGeneration = nextReviewGeneration.next()
+                    let reviewGeneration =
+                        pendingComparisonReviewGeneration
+                        ?? nextReviewGeneration.next()
+                    pendingComparisonReviewGeneration = nil
                     nextReviewGeneration = reviewGeneration
                     return ReviewPackageLoadReset(
                         reviewGeneration: reviewGeneration
@@ -377,6 +380,15 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             }).flatMap({ $0 })
         else {
             return nil
+        }
+        if case .workspace(_, let baseline) = bridgePaneState.source,
+            let activeTarget = baseline?.contributionTarget
+        {
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: activeTarget,
+                reviewGeneration: reset.reviewGeneration.rawValue
+            )
+            _ = scheduleProductPresentationPublication()
         }
         return reset
     }
@@ -554,6 +566,30 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         else {
             return .stale
         }
+        if case .workspace(_, let baseline) = bridgePaneState.source,
+            let activeTarget = baseline?.contributionTarget
+        {
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: activeTarget,
+                reviewGeneration: refreshGeneration.rawValue
+            )
+            _ = scheduleProductPresentationPublication()
+        }
+        return await performReviewPackageRefresh(
+            currentPublication: currentPublication,
+            refreshGeneration: refreshGeneration,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            productAdmission: productAdmission
+        )
+    }
+
+    private func performReviewPackageRefresh(
+        currentPublication: BridgeReviewCommittedPublication,
+        refreshGeneration: BridgeReviewGeneration,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> BridgePaneRefreshCatchUpOutcome {
+        let currentPackage = currentPublication.package
         do {
             let (constructionResult, packageTraceContext) = try await loadReviewPackageForRefresh(
                 currentPackage,
@@ -600,6 +636,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             guard !Self.isUnchangedSameLineageLoad(load, currentPublication: currentPublication)
             else {
                 await load.releaseArtifactPin()
+                settleReviewComparisonAttempt(
+                    reviewGeneration: refreshGeneration,
+                    package: currentPackage
+                )
                 return .succeeded
             }
             let contentRegisterStart = ContinuousClock.now
@@ -627,6 +667,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return .succeeded
         } catch BridgeProviderFailure.providerUnavailable {
             bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
+            failReviewComparisonAttempt(
+                reviewGeneration: refreshGeneration,
+                failureKind: "providerUnavailable",
+                retryable: true
+            )
             return .failed
         } catch is CancellationError {
             return .stale
@@ -634,8 +679,41 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             bridgeDiffCommandLogger.debug(
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
+            failReviewComparisonAttempt(
+                reviewGeneration: refreshGeneration,
+                failureKind: Self.reviewPackageLoadFailureSummary(for: error, stage: "package"),
+                retryable: true
+            )
             return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
         }
+    }
+
+    private func settleReviewComparisonAttempt(
+        reviewGeneration: BridgeReviewGeneration,
+        package: BridgeReviewPackage
+    ) {
+        refreshAdmissionCoordinator.settleReviewComparisonAttempt(
+            reviewGeneration: reviewGeneration.rawValue,
+            displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                packageId: package.packageId,
+                reviewGeneration: package.reviewGeneration.rawValue,
+                revision: package.revision
+            )
+        )
+        _ = scheduleProductPresentationPublication()
+    }
+
+    private func failReviewComparisonAttempt(
+        reviewGeneration: BridgeReviewGeneration,
+        failureKind: String,
+        retryable: Bool
+    ) {
+        refreshAdmissionCoordinator.failReviewComparisonAttempt(
+            reviewGeneration: reviewGeneration.rawValue,
+            failureKind: failureKind,
+            retryable: retryable
+        )
+        _ = scheduleProductPresentationPublication()
     }
 
     private func beginReviewPackageRefresh(
@@ -650,7 +728,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 else {
                     return currentPackage.reviewGeneration
                 }
-                let reviewGeneration = nextReviewGeneration.next()
+                let reviewGeneration =
+                    pendingComparisonReviewGeneration
+                    ?? nextReviewGeneration.next()
+                pendingComparisonReviewGeneration = nil
                 nextReviewGeneration = reviewGeneration
                 return reviewGeneration
             }
@@ -772,6 +853,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 } ?? (accepted: false, isInitial: false)
             } ?? (accepted: false, isInitial: false)
         guard failureDisposition.accepted else { return false }
+        failReviewComparisonAttempt(
+            reviewGeneration: reset.reviewGeneration,
+            failureKind: failureSummary,
+            retryable: true
+        )
         if failureDisposition.isInitial {
             await productSchemeProvider?.resetCurrentReviewSubscriptionsForUnavailableSource(
                 productAdmission: productAdmission,

@@ -33,6 +33,7 @@ export interface BridgeCommWorkerReviewMetadataIdentity {
 
 export interface BridgeCommWorkerReviewMetadataSnapshot {
 	readonly baseEndpoint: ReviewMetadataSnapshotEvent['baseEndpoint'] | null;
+	readonly comparisonOrigin: NonNullable<ReviewMetadataSnapshotEvent['comparisonOrigin']> | null;
 	readonly contentSources: readonly BridgeProductReviewContentSourceDescriptor[];
 	readonly extentFacts: readonly BridgeProductReviewExtentFact[];
 	readonly headEndpoint: ReviewMetadataSnapshotEvent['headEndpoint'] | null;
@@ -41,6 +42,7 @@ export interface BridgeCommWorkerReviewMetadataSnapshot {
 	readonly orderedItemIds: readonly string[];
 	readonly query: ReviewMetadataSnapshotEvent['query'] | null;
 	readonly revision: number | null;
+	readonly reviewedSubjectLabel: string | null;
 	readonly summary: ReviewMetadataPayloadEvent['summary'] | null;
 	readonly totalItemCount: number | null;
 	readonly totalTreeRowCount: number | null;
@@ -56,6 +58,7 @@ export interface BridgeCommWorkerReviewMetadataApplyResult {
 
 export class BridgeCommWorkerReviewMetadataProjection {
 	#baseEndpoint: ReviewMetadataSnapshotEvent['baseEndpoint'] | null = null;
+	#comparisonOrigin: NonNullable<ReviewMetadataSnapshotEvent['comparisonOrigin']> | null = null;
 	readonly #contentSourceByDescriptorId = new Map<
 		string,
 		BridgeProductReviewContentSourceDescriptor
@@ -72,6 +75,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	#projectionRevision = 0;
 	#query: ReviewMetadataSnapshotEvent['query'] | null = null;
 	#revision: number | null = null;
+	#reviewedSubjectLabel: string | null = null;
 	#summary: ReviewMetadataPayloadEvent['summary'] | null = null;
 	#totalItemCount: number | null = null;
 	#totalTreeRowCount: number | null = null;
@@ -106,8 +110,10 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				this.#identity = reviewMetadataIdentity(event);
 				this.#revision = event.revision;
 				this.#baseEndpoint = event.baseEndpoint;
+				this.#comparisonOrigin = event.comparisonOrigin ?? null;
 				this.#headEndpoint = event.headEndpoint;
 				this.#query = event.query;
+				this.#reviewedSubjectLabel = event.reviewedSubjectLabel ?? null;
 				this.#applyPayload(event, affectedItemIds);
 				reset = true;
 				break;
@@ -130,6 +136,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				this.#resetProjection();
 				this.#identity = reviewMetadataIdentity(event);
 				this.#revision = event.revision;
+				this.#comparisonOrigin = event.comparisonOrigin ?? null;
+				this.#reviewedSubjectLabel = event.reviewedSubjectLabel ?? null;
 				reset = true;
 				break;
 			default:
@@ -211,6 +219,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		);
 		return {
 			baseEndpoint: this.#baseEndpoint,
+			comparisonOrigin: this.#comparisonOrigin,
 			contentSources: [...this.#contentSourceByDescriptorId.values()].toSorted((left, right) =>
 				left.descriptorId.localeCompare(right.descriptorId),
 			),
@@ -224,6 +233,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			orderedItemIds,
 			query: this.#query,
 			revision: this.#revision,
+			reviewedSubjectLabel: this.#reviewedSubjectLabel,
 			summary: this.#summary,
 			totalItemCount: this.#totalItemCount,
 			totalTreeRowCount: this.#totalTreeRowCount,
@@ -237,6 +247,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		const uniqueItemIds = [...new Set(itemIds)];
 		return {
 			baseEndpoint: this.#baseEndpoint,
+			comparisonOrigin: this.#comparisonOrigin,
 			contentSources: uniqueItemIds.flatMap((itemId) =>
 				[...(this.#contentSourceDescriptorIdsByItemId.get(itemId) ?? [])].flatMap(
 					(descriptorId) => {
@@ -260,6 +271,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			orderedItemIds: uniqueItemIds.filter((itemId) => this.#itemMetadataById.has(itemId)),
 			query: this.#query,
 			revision: this.#revision,
+			reviewedSubjectLabel: this.#reviewedSubjectLabel,
 			summary: this.#summary,
 			totalItemCount: this.#totalItemCount,
 			totalTreeRowCount: this.#totalTreeRowCount,
@@ -479,6 +491,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 
 	#resetProjection(): void {
 		this.#baseEndpoint = null;
+		this.#comparisonOrigin = null;
 		this.#contentSourceByDescriptorId.clear();
 		this.#contentSourceDescriptorIdsByItemId.clear();
 		this.#extentFactByKey.clear();
@@ -491,6 +504,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		this.#itemIdsByIndex = [];
 		this.#query = null;
 		this.#revision = null;
+		this.#reviewedSubjectLabel = null;
 		this.#summary = null;
 		this.#totalItemCount = null;
 		this.#totalTreeRowCount = null;

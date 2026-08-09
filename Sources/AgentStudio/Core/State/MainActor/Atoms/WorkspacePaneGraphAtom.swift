@@ -583,6 +583,36 @@ package final class WorkspacePaneGraphAtom {
         }
     }
 
+    @discardableResult
+    package func setBridgeContributionTarget(
+        _ paneId: UUID,
+        target: WorkspaceReviewContributionTarget
+    ) -> BridgePaneStateMutationResult {
+        mutatePaneStates { paneStates in
+            guard let paneState = paneStates[paneId] else {
+                return .paneMissing
+            }
+            guard case .bridgePanel(let currentState) = paneState.content else {
+                return .notBridgePane
+            }
+            guard case .workspace(let rootPath, _) = currentState.source else {
+                return .notWorkspaceSource
+            }
+            let updatedState = BridgePaneState(
+                panelKind: currentState.panelKind,
+                source: .workspace(
+                    rootPath: rootPath,
+                    baseline: WorkspaceBaseline(contributionTarget: target)
+                )
+            )
+            guard updatedState != currentState else {
+                return .unchanged(currentState)
+            }
+            paneStates[paneId]?.content = .bridgePanel(updatedState)
+            return .applied(updatedState)
+        }
+    }
+
     func setResidency(_ residency: SessionResidency, for paneId: UUID) {
         guard paneStateMap.snapshotValue(for: paneId) != nil else {
             workspacePaneLogger.warning("setResidency: pane \(paneId) not found")

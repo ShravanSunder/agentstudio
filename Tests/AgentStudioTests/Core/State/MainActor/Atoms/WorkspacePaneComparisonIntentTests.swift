@@ -107,6 +107,41 @@ struct WorkspacePaneComparisonIntentTests {
         #expect(paneAtom.pane(pane.id)?.content == .bridgePanel(expectedState))
     }
 
+    @Test("reviewer comparison target replaces the canonical workspace target")
+    func reviewerComparisonTargetReplacesCanonicalWorkspaceTarget() throws {
+        // Arrange
+        let paneAtom = WorkspacePaneAtom()
+        let pane = try #require(
+            paneAtom.createPane(
+                content: .bridgePanel(selectionRequiredBridgeState),
+                metadata: bridgePaneMetadata
+            )
+        )
+        let selectedTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
+        let expectedState = BridgePaneState(
+            panelKind: .fileViewer,
+            source: .workspace(
+                rootPath: "/tmp/comparison-intent",
+                baseline: WorkspaceBaseline(contributionTarget: selectedTarget)
+            )
+        )
+
+        // Act
+        let applied = paneAtom.setBridgeContributionTarget(
+            pane.id,
+            target: selectedTarget
+        )
+        let unchanged = paneAtom.setBridgeContributionTarget(
+            pane.id,
+            target: selectedTarget
+        )
+
+        // Assert
+        #expect(applied == .applied(expectedState))
+        #expect(unchanged == .unchanged(expectedState))
+        #expect(paneAtom.pane(pane.id)?.content == .bridgePanel(expectedState))
+    }
+
     private var selectionRequiredBridgeState: BridgePaneState {
         BridgePaneState(
             panelKind: .fileViewer,

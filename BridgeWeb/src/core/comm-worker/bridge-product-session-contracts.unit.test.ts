@@ -103,11 +103,11 @@ describe('Bridge product session contracts', () => {
 	test('keeps the Swift and TypeScript corpora byte-identical at frozen hashes', () => {
 		const fixturePairs = [
 			{
-				expectedHash: 'cc606c5033795e0f44908a8e9ecd36c35fef42b678a6c27244e2c430a4eb6a15',
+				expectedHash: 'a07db8378410416269c1a0199ebb7f802ee6e994e93e958e0098b5541ed95836',
 				kind: 'valid',
 			},
 			{
-				expectedHash: '94362a8149370792a487653b5879811e45fd1a6d791cc2e0edd311dcad5ed460',
+				expectedHash: 'b21fd70db537c0d2fef3f05746da9d63daf8ea8ea2db911369ed2844af0992a9',
 				kind: 'invalid',
 			},
 		] as const;
@@ -244,7 +244,7 @@ describe('Bridge product session contracts', () => {
 		const panePresentations = validProductSessionCorpus.metadataFrames.filter(
 			(frame) => frame.kind === 'pane.presentation',
 		);
-		expect(panePresentations.map((presentation) => presentation.activityRevision)).toEqual([
+		expect(panePresentations.map((presentation) => presentation.presentationRevision)).toEqual([
 			1, 2, 3, 4,
 		]);
 		expect(panePresentations.map((presentation) => presentation.nativeActivity)).toEqual([

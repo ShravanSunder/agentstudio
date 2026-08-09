@@ -33,6 +33,7 @@ describe('Bridge comm worker Review display projection', () => {
 		};
 		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			comparisonOrigin: reviewComparisonOrigin,
 			contentSources: [reviewContentSource(item)],
 			extentFacts: [reviewExtentFact(item)],
 			headEndpoint: reviewEndpoint('head', 'workingTree'),
@@ -40,6 +41,7 @@ describe('Bridge comm worker Review display projection', () => {
 			itemMetadata: [item],
 			orderedItemIds: [item.itemId],
 			query: reviewQuery(),
+			reviewedSubjectLabel: 'feature/review-comments',
 			revision: 12,
 			summary: reviewSummary(1),
 			totalItemCount: 1,
@@ -72,6 +74,13 @@ describe('Bridge comm worker Review display projection', () => {
 		expect(sourcePayload['reviewGeneration']).toBe(reviewIdentity.generation);
 		expect(sourcePayload['metadataSourceId']).toBe(reviewIdentity.sourceIdentity);
 		expect(sourcePayload['packageId']).toBe(reviewIdentity.packageId);
+		expect(sourcePayload).toMatchObject({
+			baseEndpoint: snapshot.baseEndpoint,
+			comparisonOrigin: reviewComparisonOrigin,
+			headEndpoint: snapshot.headEndpoint,
+			query: snapshot.query,
+			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
+		});
 		expect(sourcePayload).not.toHaveProperty('publicationId');
 	});
 
@@ -100,6 +109,7 @@ describe('Bridge comm worker Review display projection', () => {
 		};
 		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			comparisonOrigin: null,
 			contentSources: [reviewContentSource(firstItem)],
 			extentFacts: [reviewExtentFact(firstItem)],
 			headEndpoint: reviewEndpoint('head', 'workingTree'),
@@ -108,6 +118,7 @@ describe('Bridge comm worker Review display projection', () => {
 			orderedItemIds: [firstItem.itemId],
 			query: reviewQuery(),
 			revision: 12,
+			reviewedSubjectLabel: null,
 			summary: reviewSummary(1),
 			totalItemCount: 1,
 			totalTreeRowCount: 0,
@@ -169,6 +180,7 @@ describe('Bridge comm worker Review display projection', () => {
 		};
 		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			comparisonOrigin: null,
 			contentSources: countedContentSources.values,
 			extentFacts: countedExtentFacts.values,
 			headEndpoint: reviewEndpoint('head', 'workingTree'),
@@ -182,6 +194,7 @@ describe('Bridge comm worker Review display projection', () => {
 			orderedItemIds: itemMetadata.map((item) => item.itemId),
 			query: reviewQuery(),
 			revision: 12,
+			reviewedSubjectLabel: null,
 			summary: reviewSummary(totalItemCount),
 			totalItemCount,
 			totalTreeRowCount: 0,
@@ -275,6 +288,16 @@ const reviewIdentity = {
 	packageId: 'package-1',
 	publicationId: '00000000-0000-7000-8000-000000000012',
 	sourceIdentity: 'source-1',
+} as const;
+
+const reviewComparisonOrigin = {
+	baseRole: 'contributionBase',
+	comparedRole: 'capturedWorkingTree',
+	contributionBaseOID: 'contribution-base-oid',
+	kind: 'contribution',
+	resolvedTargetOID: 'resolved-target-oid',
+	reviewedHeadOID: 'reviewed-head-oid',
+	symbolicTarget: { kind: 'branch', name: 'integration' },
 } as const;
 
 function reviewItemMetadata(index: number): BridgeProductReviewItemMetadata {

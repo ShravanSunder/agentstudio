@@ -12,6 +12,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from '../../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { bridgeWorkerReviewSourceContext } from '../../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../../core/comm-worker/bridge-worker-rpc-client.js';
 import { createBridgeWorkerRpcLifecycleStore } from '../../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
@@ -632,6 +633,7 @@ function reviewDisplayEvent(
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext('review-recovery-witness-package'),
 					metadataSourceId: 'review-recovery-witness-source',
 					metadataWindowIdentity,
 					packageId: 'review-recovery-witness-package',
@@ -707,6 +709,7 @@ function reviewDisplayAppendEvent(
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext('review-recovery-witness-package'),
 					metadataSourceId: 'review-recovery-witness-source',
 					metadataWindowIdentity: 'review-recovery-witness-window-r2',
 					packageId: 'review-recovery-witness-package',

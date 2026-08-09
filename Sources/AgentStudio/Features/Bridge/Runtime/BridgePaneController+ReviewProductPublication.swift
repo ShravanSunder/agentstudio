@@ -80,6 +80,7 @@ extension BridgePaneController {
         guard case .committed(let committedPublication) = commitResult else {
             return .rejected
         }
+        settleCommittedReviewComparisonPresentation(committedPublication.package)
         invalidateRetainedReviewTargetIfSourceChanged(to: committedPublication.package)
 
         // Native B is already committed. A closed admission may suppress this
@@ -119,6 +120,23 @@ extension BridgePaneController {
             productAdmission: productAdmission
         )
         return .committed(delivery: deliveryDisposition)
+    }
+
+    private func settleCommittedReviewComparisonPresentation(
+        _ package: BridgeReviewPackage
+    ) {
+        guard case .workspace(_, let baseline) = bridgePaneState.source,
+            baseline?.contributionTarget != nil
+        else { return }
+        refreshAdmissionCoordinator.settleReviewComparisonAttempt(
+            reviewGeneration: package.reviewGeneration.rawValue,
+            displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                packageId: package.packageId,
+                reviewGeneration: package.reviewGeneration.rawValue,
+                revision: package.revision
+            )
+        )
+        _ = scheduleProductPresentationPublication()
     }
 
     private func invalidateRetainedReviewTargetIfSourceChanged(

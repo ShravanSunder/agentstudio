@@ -92,7 +92,7 @@ struct BridgeProductSessionContractTests {
             guard case .panePresentation(let presentation) = frame else { return nil }
             return presentation
         }
-        #expect(panePresentations.map(\.activityRevision) == [1, 2, 3, 4])
+        #expect(panePresentations.map(\.presentationRevision) == [1, 2, 3, 4])
         #expect(
             panePresentations.map(\.nativeActivity)
                 == [.foreground, .loadedHidden, .dormant, .closed]

@@ -212,7 +212,7 @@ interface PendingFilePreparationHarness {
 	readonly events: BridgeProductBoundedAsyncQueue<BridgeProductSubscriptionEvent<'file.metadata'>>;
 	readonly postedMessages: readonly { readonly message: BridgeWorkerServerToMainMessage }[];
 	readonly publishPresentation: (
-		activityRevision: number,
+		presentationRevision: number,
 		nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 	) => void;
 	readonly scheduledDrains: BridgeCommWorkerPreparationDrain[];
@@ -315,13 +315,13 @@ async function createPendingFilePreparationHarness(): Promise<PendingFilePrepara
 	});
 	activateBridgeCommWorkerFileViewerMode(dispatch, 'preparation-cancellation');
 	const publishPresentation = (
-		activityRevision: number,
+		presentationRevision: number,
 		nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 	): void => {
 		if (panePresentationSink === null) {
 			throw new Error('Expected Bridge pane presentation sink registration.');
 		}
-		panePresentationSink(makePanePresentationFrame(activityRevision, nativeActivity));
+		panePresentationSink(makePanePresentationFrame(presentationRevision, nativeActivity));
 	};
 	publishPresentation(1, 'foreground');
 	dispatch.message(
@@ -510,17 +510,18 @@ function fileDescriptorReadyEvent(
 async function* emptyFrames(): AsyncIterable<never> {}
 
 function makePanePresentationFrame(
-	activityRevision: number,
+	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
-		activityRevision,
+		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-file-preparation-cancellation',
 		nativeActivity,
 		paneSessionId: 'pane-session-file-preparation-cancellation',
 		refreshingLanes: [],
-		streamSequence: activityRevision,
+		reviewComparison: null,
+		streamSequence: presentationRevision,
 		wireVersion: 2,
 		workerInstanceId: 'worker-instance-file-preparation-cancellation',
 	};

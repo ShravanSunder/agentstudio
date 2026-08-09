@@ -2,6 +2,31 @@ import { z } from 'zod';
 
 export const bridgeReviewGenerationSchema = z.number().int().nonnegative();
 
+export const bridgeReviewComparisonTargetSchema = z.discriminatedUnion('kind', [
+	z.object({ branchName: z.string().min(1), kind: z.literal('localDefaultBranch') }).strict(),
+	z
+		.object({
+			branchName: z.string().min(1),
+			kind: z.literal('originDefaultBranch'),
+			remoteName: z.string().min(1),
+		})
+		.strict(),
+	z.object({ kind: z.literal('branch'), name: z.string().min(1) }).strict(),
+	z.object({ kind: z.literal('ref'), name: z.string().min(1) }).strict(),
+]);
+
+export const bridgeReviewComparisonOriginSchema = z
+	.object({
+		baseRole: z.literal('contributionBase'),
+		comparedRole: z.literal('capturedWorkingTree'),
+		contributionBaseOID: z.string().min(1),
+		kind: z.literal('contribution'),
+		resolvedTargetOID: z.string().min(1),
+		reviewedHeadOID: z.string().min(1),
+		symbolicTarget: bridgeReviewComparisonTargetSchema,
+	})
+	.strict();
+
 export const bridgeSourceEndpointKindSchema = z.enum([
 	'gitRef',
 	'workingTree',
@@ -257,10 +282,12 @@ export const bridgeReviewPackageSchema = z
 		revision: z.number().int().nonnegative(),
 		query: bridgeReviewQuerySchema,
 		baseEndpoint: bridgeSourceEndpointSchema,
+		comparisonOrigin: bridgeReviewComparisonOriginSchema.nullable().optional(),
 		headEndpoint: bridgeSourceEndpointSchema,
 		orderedItemIds: z.array(z.string()),
 		itemsById: z.record(z.string(), bridgeReviewItemDescriptorSchema),
 		groups: z.array(bridgeReviewGroupSchema),
+		reviewedSubjectLabel: z.string().min(1).nullable().optional(),
 		summary: bridgeReviewPackageSummarySchema,
 		filterState: bridgeViewFilterSchema,
 		generatedAtUnixMilliseconds: z.number().int().nonnegative(),

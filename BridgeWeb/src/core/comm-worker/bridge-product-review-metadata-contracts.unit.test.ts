@@ -83,6 +83,15 @@ describe('Bridge product Review metadata contracts', () => {
 				repoId: 'repo-1',
 				worktreeId: 'worktree-1',
 			},
+			comparisonOrigin: {
+				baseRole: 'contributionBase',
+				comparedRole: 'capturedWorkingTree',
+				contributionBaseOID: 'contribution-base-oid',
+				kind: 'contribution',
+				resolvedTargetOID: 'resolved-target-oid',
+				reviewedHeadOID: 'reviewed-head-oid',
+				symbolicTarget: { kind: 'branch', name: 'integration' },
+			},
 			contentSources: [reviewContentSource],
 			eventKind: 'review.snapshot',
 			extentFacts: [{ contentRole: 'head', itemId: 'review-item-1', lineCount: 3 }],
@@ -152,6 +161,7 @@ describe('Bridge product Review metadata contracts', () => {
 				},
 				worktreeId: 'worktree-1',
 			},
+			reviewedSubjectLabel: 'feature/review-comments',
 			summary: {
 				additions: 2,
 				deletions: 1,
@@ -183,6 +193,10 @@ describe('Bridge product Review metadata contracts', () => {
 
 		// Assert
 		expect(parsed.eventKind).toBe('review.snapshot');
+		expect(parsed).toMatchObject({
+			comparisonOrigin: snapshot.comparisonOrigin,
+			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
+		});
 		expect(JSON.stringify(parsed)).not.toMatch(/resourceUrl|contentHandle|"contents":/i);
 		for (const mismatchedSource of [
 			{ ...reviewContentSource, packageId: 'review-package-2' },
@@ -277,6 +291,27 @@ describe('Bridge product Review metadata contracts', () => {
 				],
 				summary: snapshot.summary,
 				toRevision: 11,
+			}),
+		).toThrow();
+		expect(
+			bridgeProductReviewMetadataEventSchema.parse({
+				...reviewSourceIdentity,
+				comparisonOrigin: snapshot.comparisonOrigin,
+				eventKind: 'review.reset',
+				reason: 'sourceChanged',
+				reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
+			}),
+		).toMatchObject({
+			comparisonOrigin: snapshot.comparisonOrigin,
+			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
+		});
+		expect(() =>
+			bridgeProductReviewMetadataEventSchema.parse({
+				...snapshot,
+				comparisonOrigin: {
+					...snapshot.comparisonOrigin,
+					baseRole: 'capturedWorkingTree',
+				},
 			}),
 		).toThrow();
 

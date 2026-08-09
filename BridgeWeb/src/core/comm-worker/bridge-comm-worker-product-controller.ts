@@ -140,6 +140,10 @@ export class BridgeCommWorkerProductController {
 				return await this.#productTransport.call('review.markFileViewed', {
 					itemId: command.params.fileId,
 				});
+			case 'review.comparison.update':
+				return await this.#productTransport.call('review.comparison.update', {
+					target: command.params.target,
+				});
 			case 'bridge.activeViewerMode.update':
 				return await this.#sendActiveViewerModeUpdate(command);
 			case 'bridge.intakeReady':

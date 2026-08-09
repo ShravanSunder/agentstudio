@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { bridgeDemandLaneSchema } from '../models/bridge-demand-models.js';
+import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call-contracts.js';
 import { bridgeProductReviewContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
 	bridgeProductIdentifierSchema,
@@ -17,7 +18,10 @@ import {
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
 } from './bridge-product-review-primitives.js';
-import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
+import {
+	bridgeProductNavigationCommandSchema,
+	bridgeProductReviewComparisonPresentationSchema,
+} from './bridge-product-session-contracts.js';
 import {
 	bridgeProductFileTruncationKindSchema,
 	bridgeProductFileVirtualizedExtentKindSchema,
@@ -158,6 +162,13 @@ export const bridgeWorkerReviewIntakeReadyCommandSchema = bridgeWorkerMainToServ
 	.merge(bridgeWorkerReviewIntakeReadyParamsSchema)
 	.extend({
 		command: z.literal('reviewIntakeReady'),
+	})
+	.strict();
+
+export const bridgeWorkerReviewComparisonUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('reviewComparisonUpdate'),
+		target: bridgeProductReviewComparisonTargetSchema,
 	})
 	.strict();
 
@@ -340,6 +351,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
+	bridgeWorkerReviewComparisonUpdateCommandSchema,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
@@ -365,6 +377,9 @@ export type BridgeWorkerMetadataInterestUpdateCommand = z.infer<
 >;
 export type BridgeWorkerReviewIntakeReadyCommand = z.infer<
 	typeof bridgeWorkerReviewIntakeReadyCommandSchema
+>;
+export type BridgeWorkerReviewComparisonUpdateCommand = z.infer<
+	typeof bridgeWorkerReviewComparisonUpdateCommandSchema
 >;
 export type BridgeWorkerActiveViewerModeUpdateCommand = z.infer<
 	typeof bridgeWorkerActiveViewerModeUpdateCommandSchema
@@ -430,6 +445,7 @@ export const bridgeWorkerPanelChromePatchPayloadSchema = z
 	.object({
 		isLoading: z.boolean().optional(),
 		message: z.string().min(1).nullable().optional(),
+		reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable().optional(),
 	})
 	.strict();
 

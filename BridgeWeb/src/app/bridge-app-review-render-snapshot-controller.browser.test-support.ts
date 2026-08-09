@@ -2,6 +2,7 @@ import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewDisplayPatchEvent,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 
 export function hierarchicalReviewDisplayEvent(): BridgeWorkerReviewDisplayPatchEvent {
 	return {
@@ -12,6 +13,7 @@ export function hierarchicalReviewDisplayEvent(): BridgeWorkerReviewDisplayPatch
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext('review-hierarchical-package'),
 					metadataSourceId: 'review-hierarchical-source',
 					metadataWindowIdentity: 'review-window-hierarchical',
 					packageId: 'review-hierarchical-package',

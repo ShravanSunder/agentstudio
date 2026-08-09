@@ -45,7 +45,7 @@ extension BridgePaneController {
         }
     }
 
-    private func scheduleProductPresentationPublication() -> Task<Void, Never>? {
+    func scheduleProductPresentationPublication() -> Task<Void, Never>? {
         guard let productSchemeProvider else { return nil }
         let snapshot = refreshAdmissionCoordinator.productPresentationSnapshot
         return scheduleProductPresentationTransition {

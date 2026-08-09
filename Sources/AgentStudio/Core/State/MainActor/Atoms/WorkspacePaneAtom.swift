@@ -176,6 +176,14 @@ package final class WorkspacePaneAtom {
         graphAtom.setInitialBridgeContributionTargetIfAbsent(paneId, target: target)
     }
 
+    @discardableResult
+    package func setBridgeContributionTarget(
+        _ paneId: UUID,
+        target: WorkspaceReviewContributionTarget
+    ) -> BridgePaneStateMutationResult {
+        graphAtom.setBridgeContributionTarget(paneId, target: target)
+    }
+
     package func setResidency(_ residency: SessionResidency, for paneId: UUID) {
         graphAtom.setResidency(residency, for: paneId)
     }

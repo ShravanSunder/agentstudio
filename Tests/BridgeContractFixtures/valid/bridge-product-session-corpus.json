@@ -626,8 +626,9 @@
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 1,
-      "activityRevision": 1,
+      "presentationRevision": 1,
       "nativeActivity": "foreground",
+      "reviewComparison": null,
       "refreshingLanes": [
         "file",
         "review"
@@ -640,8 +641,9 @@
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 2,
-      "activityRevision": 2,
+      "presentationRevision": 2,
       "nativeActivity": "loadedHidden",
+      "reviewComparison": null,
       "refreshingLanes": []
     },
     {
@@ -651,8 +653,9 @@
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 3,
-      "activityRevision": 3,
+      "presentationRevision": 3,
       "nativeActivity": "dormant",
+      "reviewComparison": null,
       "refreshingLanes": []
     },
     {
@@ -662,8 +665,9 @@
       "workerInstanceId": "worker-instance-1",
       "metadataStreamId": "metadata-stream-presentation-1",
       "streamSequence": 4,
-      "activityRevision": 4,
+      "presentationRevision": 4,
       "nativeActivity": "closed",
+      "reviewComparison": null,
       "refreshingLanes": []
     },
     {

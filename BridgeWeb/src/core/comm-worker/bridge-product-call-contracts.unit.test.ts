@@ -6,6 +6,7 @@ import {
 	bridgeProductCallResultSchema,
 	bridgeProductFileSourceCurrentRequestSchema,
 	bridgeProductFileSourceCurrentResultSchema,
+	bridgeProductReviewComparisonUpdateRequestSchema,
 	bridgeProductReviewIntakeReadyRequestSchema,
 	bridgeProductReviewPublicationAppliedRequestSchema,
 } from './bridge-product-call-contracts.js';
@@ -112,6 +113,40 @@ describe('Bridge product call contracts', () => {
 		]) {
 			expect(
 				bridgeProductReviewPublicationAppliedRequestSchema.safeParse(invalidRequest).success,
+			).toBe(false);
+		}
+	});
+
+	test('defines a strict target-only Review comparison update with a null result', () => {
+		const targets = [
+			{ branchName: 'main', kind: 'localDefaultBranch' },
+			{ branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
+			{ kind: 'branch', name: 'feature/review' },
+			{ kind: 'ref', name: 'refs/tags/v1.0.0' },
+		] as const;
+
+		for (const target of targets) {
+			const request = { method: 'review.comparison.update', request: { target } } as const;
+			expect(bridgeProductReviewComparisonUpdateRequestSchema.parse(request.request)).toEqual(
+				request.request,
+			);
+			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+			expect(
+				bridgeProductCallResultSchema.parse({ method: 'review.comparison.update', result: null }),
+			).toEqual({ method: 'review.comparison.update', result: null });
+		}
+
+		for (const invalidRequest of [
+			{},
+			{ target: null },
+			{ target: { kind: 'localDefaultBranch', name: 'main' } },
+			{ target: { branchName: 'main', kind: 'originDefaultBranch' } },
+			{ target: { kind: 'branch', name: '' } },
+			{ target: { extra: true, kind: 'ref', name: 'HEAD' } },
+			{ extra: true, target: { kind: 'ref', name: 'HEAD' } },
+		]) {
+			expect(
+				bridgeProductReviewComparisonUpdateRequestSchema.safeParse(invalidRequest).success,
 			).toBe(false);
 		}
 	});

@@ -84,7 +84,12 @@ package struct BridgePaneProductSessionDependencies {
 
 @MainActor
 final class BridgePaneProductCommittedCallTarget {
+    private let productAdmissionGate: BridgeProductAdmissionGate
     weak var controller: BridgePaneController?
+
+    init(productAdmissionGate: BridgeProductAdmissionGate = BridgeProductAdmissionGate()) {
+        self.productAdmissionGate = productAdmissionGate
+    }
 
     func applyActiveViewerModeUpdate(
         _ call: BridgeProductCallRequest,
@@ -105,7 +110,8 @@ final class BridgePaneProductCommittedCallTarget {
             mode = .review
             sourceProtocol = .review
             update = request
-        case .reviewIntakeReady, .reviewMarkFileViewed, .reviewPublicationApplied:
+        case .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
+            .reviewPublicationApplied:
             return
         }
         let activeSource = update.activeSource.map {
@@ -134,6 +140,21 @@ final class BridgePaneProductCommittedCallTarget {
             request,
             productAdmission: productAdmission
         )
+    }
+
+    func applyReviewComparisonUpdate(
+        _ request: BridgeProductReviewComparisonUpdateRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard let controller,
+            await controller.handleCommittedProductReviewComparisonUpdate(
+                request,
+                productAdmission: productAdmission
+            )
+        else {
+            productAdmissionGate.close()
+            return
+        }
     }
 }
 
@@ -468,7 +489,7 @@ extension BridgePaneController {
         _ input: BridgeProductSessionDependencyInput
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
-        let committedCallTarget = BridgePaneProductCommittedCallTarget()
+        let committedCallTarget = makeCommittedCallTarget(productAdmissionGate)
         let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
             if let authority = makeProductFileSourceAuthority(
                 paneId: UUID(uuidString: input.paneSessionId),
@@ -541,6 +562,7 @@ extension BridgePaneController {
                     productAdmission: productAdmission
                 )
             },
+            applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
             lifecycleTraceRecorder: input.telemetryRecorder.map(
@@ -565,6 +587,12 @@ extension BridgePaneController {
             committedCallTarget: committedCallTarget,
             productProvider: provider
         )
+    }
+
+    private static func makeCommittedCallTarget(
+        _ productAdmissionGate: BridgeProductAdmissionGate
+    ) -> BridgePaneProductCommittedCallTarget {
+        BridgePaneProductCommittedCallTarget(productAdmissionGate: productAdmissionGate)
     }
 
     private static func makeProductFileSourceAuthority(

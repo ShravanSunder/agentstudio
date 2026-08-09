@@ -196,7 +196,6 @@ describe('Bridge comm worker Review product runtime', () => {
 	});
 
 	test('publishes a bounded Review display failure when the product subscription fails', async () => {
-		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);
@@ -794,17 +793,18 @@ function requirePanePresentationSink(
 }
 
 function makePanePresentationFrame(
-	activityRevision: number,
+	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
-		activityRevision,
+		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-review-pane-suppression',
 		nativeActivity,
 		paneSessionId: 'pane-session-review-pane-suppression',
 		refreshingLanes: [],
-		streamSequence: activityRevision,
+		reviewComparison: null,
+		streamSequence: presentationRevision,
 		wireVersion: 2,
 		workerInstanceId: 'worker-instance-review-pane-suppression',
 	};

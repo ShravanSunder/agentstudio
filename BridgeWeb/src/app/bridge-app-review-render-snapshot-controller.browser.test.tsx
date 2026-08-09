@@ -9,6 +9,7 @@ import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worke
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
@@ -155,6 +156,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					{
 						operation: 'upsert',
 						payload: {
+							...bridgeWorkerReviewSourceContext('review-package-browser-test'),
 							metadataSourceId: 'review-source-browser-test',
 							metadataWindowIdentity: 'review-window-empty',
 							packageId: 'review-package-browser-test',

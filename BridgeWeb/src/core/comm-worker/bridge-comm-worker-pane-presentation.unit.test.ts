@@ -15,9 +15,10 @@ describe('Bridge comm worker pane presentation authority', () => {
 		expect(authority.admitsWork).toBe(false);
 		expect(authority.workSignal.aborted).toBe(true);
 		expect(snapshot).toEqual({
-			activityRevision: 0,
+			presentationRevision: 0,
 			nativeActivity: 'dormant',
 			refreshingLanes: [],
+			reviewComparison: null,
 			workAdmissionGeneration: 0,
 		});
 		expect(authority.isCurrentWorkAdmission(0)).toBe(false);
@@ -128,27 +129,56 @@ describe('Bridge comm worker pane presentation authority', () => {
 		expect(authority.admitsWork).toBe(false);
 		expect(authority.workSignal.aborted).toBe(true);
 		expect(authority.snapshot).toEqual({
-			activityRevision: 2,
+			presentationRevision: 2,
 			nativeActivity: 'loadedHidden',
 			refreshingLanes: ['file'],
+			reviewComparison: null,
 			workAdmissionGeneration: 0,
 		});
+	});
+
+	test('projects exact stale predecessor identity while a successor comparison is pending', () => {
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		const reviewComparison = {
+			activeTarget: { kind: 'ref', name: 'release-candidate' },
+			attempt: { reviewGeneration: 9, status: 'pending' },
+			displayedSnapshot: {
+				packageId: 'package-predecessor',
+				reviewGeneration: 8,
+				revision: 4,
+				status: 'stale',
+			},
+		} as const;
+
+		authority.apply(makePanePresentationFrame(1, 'foreground', ['review'], reviewComparison));
+
+		expect(authority.snapshot.reviewComparison).toEqual(reviewComparison);
+		expect(() =>
+			authority.apply(
+				makePanePresentationFrame(1, 'foreground', ['review'], {
+					...reviewComparison,
+					displayedSnapshot: { ...reviewComparison.displayedSnapshot, status: 'current' },
+				}),
+			),
+		).toThrow('Bridge pane presentation revision was reused with changed state.');
 	});
 });
 
 function makePanePresentationFrame(
-	activityRevision: number,
+	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 	refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'] = [],
+	reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'] = null,
 ): BridgeProductPanePresentationFrame {
 	return {
-		activityRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-pane-presentation-unit-test',
 		nativeActivity,
 		paneSessionId: 'pane-session-pane-presentation-unit-test',
+		presentationRevision,
 		refreshingLanes,
-		streamSequence: activityRevision,
+		reviewComparison,
+		streamSequence: presentationRevision,
 		wireVersion: 2,
 		workerInstanceId: 'worker-instance-pane-presentation-unit-test',
 	};

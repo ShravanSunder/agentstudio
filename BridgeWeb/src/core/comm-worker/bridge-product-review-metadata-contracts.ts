@@ -9,6 +9,7 @@ import {
 	bridgeProductOpaqueReferenceSchema,
 	bridgeProductSafeMessageSchema,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewComparisonOriginSchema } from './bridge-product-review-comparison-contracts.js';
 import {
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
@@ -20,6 +21,8 @@ import {
 	bridgeProductReviewPublicationIdSchema,
 	bridgeProductReviewSourceEndpointKindSchema,
 } from './bridge-product-review-primitives.js';
+
+export { bridgeProductReviewComparisonOriginSchema } from './bridge-product-review-comparison-contracts.js';
 
 const bridgeProductReviewMetadataLoadedBySchema = z.enum([
 	'startup_window',
@@ -315,10 +318,12 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
 		baseEndpoint: bridgeProductReviewSourceEndpointSchema,
+		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.snapshot'),
 		headEndpoint: bridgeProductReviewSourceEndpointSchema,
 		itemWindow: bridgeProductReviewItemWindowSchema,
 		query: bridgeProductReviewQuerySchema,
+		reviewedSubjectLabel: bridgeProductSafeMessageSchema.optional(),
 		treeWindow: bridgeProductReviewTreeWindowSchema,
 	})
 	.strict()
@@ -394,8 +399,10 @@ export const bridgeProductReviewMetadataInvalidatedEventSchema = z
 export const bridgeProductReviewMetadataResetEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
+		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.reset'),
 		reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
+		reviewedSubjectLabel: bridgeProductSafeMessageSchema.optional(),
 	})
 	.strict();
 

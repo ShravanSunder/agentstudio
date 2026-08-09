@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
 	bridgeProductCallRequestSchema,
 	bridgeProductCallResultSchema,
+	bridgeProductReviewComparisonTargetSchema,
 } from './bridge-product-call-contracts.js';
 import { bridgeProductContentIdentitySchema } from './bridge-product-content-contracts.js';
 import {
@@ -427,6 +428,57 @@ const bridgeProductSubscriptionDataFrameSchema = z.discriminatedUnion('subscript
 		.strict(),
 ]);
 
+const bridgeProductReviewComparisonAttemptSchema = z.discriminatedUnion('status', [
+	z.object({ status: z.literal('selectionRequired') }).strict(),
+	z
+		.object({
+			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
+			status: z.literal('pending'),
+		})
+		.strict(),
+	z
+		.object({
+			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
+			status: z.literal('settled'),
+		})
+		.strict(),
+	z
+		.object({
+			failureKind: z.string().min(1),
+			retryable: z.boolean(),
+			status: z.literal('unavailable'),
+		})
+		.strict(),
+]);
+
+const bridgeProductReviewDisplayedSnapshotSchema = z.discriminatedUnion('status', [
+	z.object({ status: z.literal('none') }).strict(),
+	z
+		.object({
+			packageId: bridgeProductIdentifierSchema,
+			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
+			revision: bridgeProductNonnegativeSequenceSchema,
+			status: z.literal('current'),
+		})
+		.strict(),
+	z
+		.object({
+			packageId: bridgeProductIdentifierSchema,
+			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
+			revision: bridgeProductNonnegativeSequenceSchema,
+			status: z.literal('stale'),
+		})
+		.strict(),
+]);
+
+export const bridgeProductReviewComparisonPresentationSchema = z
+	.object({
+		activeTarget: bridgeProductReviewComparisonTargetSchema.nullable(),
+		attempt: bridgeProductReviewComparisonAttemptSchema,
+		displayedSnapshot: bridgeProductReviewDisplayedSnapshotSchema,
+	})
+	.strict();
+
 const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', [
 	z
 		.object({
@@ -439,9 +491,9 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
-			activityRevision: bridgeProductPositiveSequenceSchema,
 			kind: z.literal('pane.presentation'),
 			nativeActivity: z.enum(['foreground', 'loadedHidden', 'dormant', 'closed']),
+			presentationRevision: bridgeProductPositiveSequenceSchema,
 			refreshingLanes: z
 				.array(z.enum(['file', 'review']))
 				.max(2)
@@ -456,6 +508,7 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 					},
 					{ message: 'Bridge pane refreshing lanes must be unique and canonical.' },
 				),
+			reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable(),
 			streamSequence: bridgeProductPositiveSequenceSchema,
 		})
 		.strict(),

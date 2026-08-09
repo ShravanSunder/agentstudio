@@ -78,9 +78,15 @@ describe('Bridge Review presentation adapter', () => {
 		expect(presentationSnapshot?.projection.projectionId).toBe(
 			presentationSnapshot?.presentationKey,
 		);
-		expect(presentationSnapshot?.reviewPackage.packageId).toBe(
-			presentationSnapshot?.presentationKey,
-		);
+		expect(presentationSnapshot?.reviewPackage.packageId).toBe('review-package-ready');
+		expect(presentationSnapshot?.reviewPackage).toMatchObject({
+			baseEndpoint: reviewBaseEndpoint,
+			comparisonOrigin: reviewComparisonOrigin,
+			filterState: reviewQuery.viewFilter,
+			headEndpoint: reviewHeadEndpoint,
+			query: reviewQuery,
+			reviewedSubjectLabel: 'feature/review-comments',
+		});
 	});
 
 	test('keeps a complete stale worker display mounted while replacement metadata is pending', () => {
@@ -116,10 +122,15 @@ describe('Bridge Review presentation adapter', () => {
 		[
 			'loading',
 			{
+				baseEndpoint: null,
+				comparisonOrigin: null,
+				headEndpoint: null,
 				metadataSourceId: 'review-source-loading',
 				metadataWindowIdentity: 'review-window-loading',
 				packageId: 'review-package-loading',
+				query: null,
 				reviewGeneration: 1,
+				reviewedSubjectLabel: null,
 				status: 'loading',
 				summary: null,
 				totalItemCount: null,
@@ -523,10 +534,15 @@ function readyReviewSourceSlice(props: {
 	readonly status: 'ready';
 } {
 	return {
+		baseEndpoint: reviewBaseEndpoint,
+		comparisonOrigin: reviewComparisonOrigin,
+		headEndpoint: reviewHeadEndpoint,
 		metadataSourceId: 'review-source-ready',
 		metadataWindowIdentity: props.metadataWindowIdentity ?? 'review-window-ready',
 		packageId: 'review-package-ready',
+		query: reviewQuery,
 		reviewGeneration: props.reviewGeneration ?? 1,
+		reviewedSubjectLabel: 'feature/review-comments',
 		status: 'ready',
 		summary: {
 			additions: 1,
@@ -539,6 +555,69 @@ function readyReviewSourceSlice(props: {
 		totalTreeRowCount: props.treeRowCount,
 	};
 }
+
+const reviewBaseEndpoint = {
+	createdAtUnixMilliseconds: 1,
+	endpointId: 'review-base-endpoint',
+	kind: 'gitRef',
+	label: 'integration',
+	providerIdentity: 'git-ref:integration',
+	repoId: 'repo-1',
+	worktreeId: 'worktree-1',
+} as const;
+
+const reviewHeadEndpoint = {
+	createdAtUnixMilliseconds: 2,
+	endpointId: 'review-head-endpoint',
+	kind: 'workingTree',
+	label: 'Working Tree',
+	providerIdentity: 'working-tree',
+	repoId: 'repo-1',
+	worktreeId: 'worktree-1',
+} as const;
+
+const reviewComparisonOrigin = {
+	baseRole: 'contributionBase',
+	comparedRole: 'capturedWorkingTree',
+	contributionBaseOID: 'contribution-base-oid',
+	kind: 'contribution',
+	resolvedTargetOID: 'resolved-target-oid',
+	reviewedHeadOID: 'reviewed-head-oid',
+	symbolicTarget: { kind: 'branch', name: 'integration' },
+} as const;
+
+const reviewQuery = {
+	baseEndpointId: reviewBaseEndpoint.endpointId,
+	comparisonSemantics: 'threeDot',
+	fileTarget: null,
+	grouping: { kind: 'folder' },
+	headEndpointId: reviewHeadEndpoint.endpointId,
+	pathScope: ['Sources/**'],
+	provenanceFilter: {
+		agentSessionIds: [],
+		operationIds: [],
+		paneIds: [],
+		promptIds: [],
+		sourceKinds: [],
+	},
+	queryId: 'review-query-1',
+	queryKind: 'compare',
+	repoId: 'repo-1',
+	viewFilter: {
+		changeKinds: ['modified'],
+		excludedExtensions: [],
+		excludedFileClasses: [],
+		excludedPathGlobs: [],
+		includedExtensions: ['swift'],
+		includedFileClasses: ['source'],
+		includedPathGlobs: ['Sources/**'],
+		reviewStates: ['unreviewed'],
+		showBinaryFiles: false,
+		showHiddenFiles: false,
+		showLargeFiles: false,
+	},
+	worktreeId: 'worktree-1',
+} as const;
 
 function incrementalCatalogSnapshot(props: {
 	readonly changeCursor: number;

@@ -20,6 +20,7 @@ import {
 	type BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import {
@@ -880,6 +881,7 @@ function reviewDisplayPatchEvent(props: {
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext(`review-package-epoch-${props.epoch}`),
 					metadataSourceId: `review-source-epoch-${props.epoch}`,
 					metadataWindowIdentity: `review-window-epoch-${props.epoch}`,
 					packageId: `review-package-epoch-${props.epoch}`,

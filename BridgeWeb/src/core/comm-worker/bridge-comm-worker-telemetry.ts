@@ -40,6 +40,7 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'metadataInterestUpdate'
 	| 'mode'
 	| 'reviewIntakeReady'
+	| 'reviewComparisonUpdate'
 	| 'reviewInvalidate'
 	| 'reviewProjectionUpdate'
 	| 'renderDisposition'

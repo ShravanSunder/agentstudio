@@ -78,6 +78,7 @@ export function reviewMetadataSnapshotEventFromCompleteSnapshot(
 	}
 	return {
 		baseEndpoint: snapshot.baseEndpoint,
+		...(snapshot.comparisonOrigin === null ? {} : { comparisonOrigin: snapshot.comparisonOrigin }),
 		contentSources: snapshot.contentSources,
 		eventKind: 'review.snapshot',
 		extentFacts: snapshot.extentFacts,
@@ -94,6 +95,9 @@ export function reviewMetadataSnapshotEventFromCompleteSnapshot(
 		publicationId: snapshot.identity.publicationId,
 		query: snapshot.query,
 		revision: snapshot.revision,
+		...(snapshot.reviewedSubjectLabel === null
+			? {}
+			: { reviewedSubjectLabel: snapshot.reviewedSubjectLabel }),
 		sourceIdentity: snapshot.identity.sourceIdentity,
 		summary: snapshot.summary,
 		treeRows: snapshot.treeRows,

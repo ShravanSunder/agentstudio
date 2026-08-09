@@ -141,6 +141,7 @@ const surfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
+	'review.comparison.update': 'review',
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
@@ -163,6 +164,9 @@ const surfaceByContentKind = {
 const reviewCallSurface: 'review' = bridgeProductSurfaceForCallKind('review.markFileViewed');
 const reviewIntakeReadyCallSurface: 'review' =
 	bridgeProductSurfaceForCallKind('review.intake.ready');
+const reviewComparisonUpdateCallSurface: 'review' = bridgeProductSurfaceForCallKind(
+	'review.comparison.update',
+);
 const reviewPublicationAppliedCallSurface: 'review' = bridgeProductSurfaceForCallKind(
 	'review.publication.applied',
 );
@@ -185,6 +189,7 @@ const allMappedSurfaces: readonly BridgeProductSurface[] = [
 ];
 void reviewCallSurface;
 void reviewIntakeReadyCallSurface;
+void reviewComparisonUpdateCallSurface;
 void reviewPublicationAppliedCallSurface;
 void reviewActiveModeCallSurface;
 void fileActiveModeCallSurface;
@@ -217,6 +222,11 @@ const intakeReadyResult: Promise<null> = productTransport.call('review.intake.re
 	streamId: 'review-stream-1',
 });
 void intakeReadyResult;
+const reviewComparisonUpdateResult: Promise<null> = productTransport.call(
+	'review.comparison.update',
+	{ target: { kind: 'branch', name: 'feature/review' } },
+);
+void reviewComparisonUpdateResult;
 const reviewPublicationAppliedResult: Promise<null> = productTransport.call(
 	'review.publication.applied',
 	{ publicationId: '00000000-0000-7000-8000-000000000017' },

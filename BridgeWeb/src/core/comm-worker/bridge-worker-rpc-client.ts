@@ -151,6 +151,7 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
+		case 'reviewComparisonUpdate':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
 			return surface === 'review';

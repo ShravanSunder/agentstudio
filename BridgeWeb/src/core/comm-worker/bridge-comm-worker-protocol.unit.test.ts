@@ -9,6 +9,7 @@ import {
 	encodeBridgeWorkerModeCommand,
 	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
+	encodeBridgeWorkerReviewComparisonUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -67,6 +68,11 @@ describe('Bridge comm worker protocol', () => {
 				streamId: 'review:pane-1',
 				reason: 'bridge-ready',
 			}),
+			encodeBridgeWorkerReviewComparisonUpdateCommand({
+				requestId: 'request-review-comparison-update',
+				epoch: 1,
+				target: { kind: 'originDefaultBranch', remoteName: 'origin', branchName: 'main' },
+			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
 				epoch: 1,
@@ -96,6 +102,7 @@ describe('Bridge comm worker protocol', () => {
 			'markFileViewed',
 			'metadataInterestUpdate',
 			'reviewIntakeReady',
+			'reviewComparisonUpdate',
 			'mode',
 			'activeViewerModeUpdate',
 		]);
@@ -127,7 +134,11 @@ describe('Bridge comm worker protocol', () => {
 			streamId: 'review:pane-1',
 			reason: 'bridge-ready',
 		});
-		expect(commands[7]).toMatchObject({
+		expect(commands[6]).toMatchObject({
+			command: 'reviewComparisonUpdate',
+			target: { kind: 'originDefaultBranch', remoteName: 'origin', branchName: 'main' },
+		});
+		expect(commands[8]).toMatchObject({
 			command: 'activeViewerModeUpdate',
 			update: {
 				sessionId: 'active-viewer-session',

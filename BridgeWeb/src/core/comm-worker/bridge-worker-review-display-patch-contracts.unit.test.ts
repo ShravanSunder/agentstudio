@@ -7,11 +7,12 @@ import {
 	bridgeWorkerReviewDisplayPatchEventSchema,
 	type BridgeWorkerReviewDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
+import { bridgeWorkerReviewSourceContext } from './bridge-worker-review-display.test-support.js';
 
 describe('Bridge worker Review display patch contracts', () => {
-	test('rejects product and source authority instead of treating it as display state', () => {
+	test('admits exact Review source context while rejecting content authority', () => {
 		// Arrange
-		const event = AUTHORITY_BEARING_REVIEW_DISPLAY_EVENT;
+		const event = REVIEW_DISPLAY_EVENT;
 		const sourcePatch = event.patches[0];
 		const itemPatch = event.patches[1];
 		if (
@@ -22,35 +23,11 @@ describe('Bridge worker Review display patch contracts', () => {
 		) {
 			throw new Error('Expected Review source and item display patch fixtures.');
 		}
+		expect(bridgeWorkerReviewDisplayPatchEventSchema.parse(event)).toEqual(event);
+		expect(sourcePatch.payload).toMatchObject(
+			bridgeWorkerReviewSourceContext(sourcePatch.payload.packageId),
+		);
 		const authorityCases: ReadonlyArray<{ readonly label: string; readonly value: unknown }> = [
-			{
-				label: 'package identifier',
-				value: event,
-			},
-			{
-				label: 'source endpoint descriptor',
-				value: {
-					...event,
-					patches: [
-						{
-							...sourcePatch,
-							payload: {
-								...sourcePatch.payload,
-								baseEndpoint: {
-									createdAtUnixMilliseconds: 1,
-									endpointId: 'base',
-									kind: 'gitRef',
-									label: 'base',
-									providerIdentity: 'provider-1',
-									repoId: 'repo-1',
-									worktreeId: 'worktree-1',
-								},
-							},
-						},
-						itemPatch,
-					],
-				},
-			},
 			{
 				label: 'product content source descriptor',
 				value: {
@@ -207,7 +184,7 @@ describe('Bridge worker Review display patch contracts', () => {
 	});
 });
 
-const AUTHORITY_BEARING_REVIEW_DISPLAY_EVENT = {
+const REVIEW_DISPLAY_EVENT = {
 	direction: 'serverWorkerToMain',
 	epoch: 1,
 	kind: 'reviewDisplayPatch',
@@ -215,15 +192,19 @@ const AUTHORITY_BEARING_REVIEW_DISPLAY_EVENT = {
 		{
 			operation: 'upsert',
 			payload: {
-				baseEndpoint: null,
-				generation: 7,
-				headEndpoint: null,
+				...bridgeWorkerReviewSourceContext('package-1'),
+				metadataSourceId: 'source-1',
+				metadataWindowIdentity: 'metadata-window-package-1-r11',
 				packageId: 'package-1',
-				query: null,
-				revision: 11,
-				sourceIdentity: 'source-1',
-				status: 'loading',
-				summary: null,
+				reviewGeneration: 7,
+				status: 'ready',
+				summary: {
+					additions: 1,
+					deletions: 0,
+					filesChanged: 1,
+					hiddenFileCount: 0,
+					visibleFileCount: 1,
+				},
 				totalItemCount: 1,
 				totalTreeRowCount: 1,
 			},
@@ -234,7 +215,7 @@ const AUTHORITY_BEARING_REVIEW_DISPLAY_EVENT = {
 			payload: {
 				items: [
 					{
-						contentSources: [],
+						contentFacts: [],
 						extentFacts: [],
 						metadata: {
 							basePath: 'Sources/App.swift',
@@ -253,10 +234,10 @@ const AUTHORITY_BEARING_REVIEW_DISPLAY_EVENT = {
 							reviewPriority: 'normal',
 							reviewState: 'unreviewed',
 						},
+						metadataWindowIdentity: 'metadata-window-item-1-r11',
 					},
 				],
-				removedItemIds: [],
-				replacementOrder: null,
+				operations: [],
 				reset: true,
 				startIndex: 0,
 			},

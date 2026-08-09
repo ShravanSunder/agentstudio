@@ -192,12 +192,13 @@ function makeTelemetryReviewProductTransport(props: {
 			sink: (frame: BridgeProductPanePresentationFrame) => void,
 		): void => {
 			sink({
-				activityRevision: 1,
+				presentationRevision: 1,
 				kind: 'pane.presentation',
 				metadataStreamId: 'telemetry-review-metadata-stream',
 				nativeActivity: 'foreground',
 				paneSessionId: 'telemetry-review-pane-session',
 				refreshingLanes: [],
+				reviewComparison: null,
 				streamSequence: 1,
 				wireVersion: 2,
 				workerInstanceId: 'telemetry-review-worker-instance',

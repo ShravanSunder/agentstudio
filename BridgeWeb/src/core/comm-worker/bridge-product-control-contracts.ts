@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call-contracts.js';
+
 export const bridgeActiveViewerSourceSchema = z
 	.object({
 		protocol: z.enum(['review', 'worktree-file']),
@@ -41,6 +43,13 @@ const bridgeProductControlActiveViewerModeUpdateCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlReviewComparisonUpdateCommandSchema = z
+	.object({
+		method: z.literal('review.comparison.update'),
+		params: z.object({ target: bridgeProductReviewComparisonTargetSchema }).strict(),
+	})
+	.strict();
+
 const bridgeProductControlIntakeReadyCommandSchema = z
 	.object({
 		method: z.literal('bridge.intakeReady'),
@@ -50,6 +59,7 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
 	bridgeProductControlMarkFileViewedCommandSchema,
+	bridgeProductControlReviewComparisonUpdateCommandSchema,
 	bridgeProductControlActiveViewerModeUpdateCommandSchema,
 	bridgeProductControlIntakeReadyCommandSchema,
 ]);

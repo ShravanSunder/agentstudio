@@ -1445,13 +1445,14 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 1,
+        "presentationRevision": 1,
         "nativeActivity": "background",
+        "reviewComparison": null,
         "refreshingLanes": []
       }
     },
     {
-      "name": "pane presentation uses zero activity revision",
+      "name": "pane presentation uses zero presentation revision",
       "contract": "metadataFrame",
       "value": {
         "kind": "pane.presentation",
@@ -1460,13 +1461,14 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 0,
+        "presentationRevision": 0,
         "nativeActivity": "foreground",
+        "reviewComparison": null,
         "refreshingLanes": []
       }
     },
     {
-      "name": "pane presentation activity revision exceeds safe integer",
+      "name": "pane presentation revision exceeds safe integer",
       "contract": "metadataFrame",
       "value": {
         "kind": "pane.presentation",
@@ -1475,8 +1477,9 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 9007199254740992,
+        "presentationRevision": 9007199254740992,
         "nativeActivity": "foreground",
+        "reviewComparison": null,
         "refreshingLanes": []
       }
     },
@@ -1490,8 +1493,9 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 1,
+        "presentationRevision": 1,
         "nativeActivity": "foreground",
+        "reviewComparison": null,
         "refreshingLanes": [
           "file",
           "file"
@@ -1508,8 +1512,9 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 1,
+        "presentationRevision": 1,
         "nativeActivity": "foreground",
+        "reviewComparison": null,
         "refreshingLanes": [
           "metadata"
         ]
@@ -1525,8 +1530,9 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 1,
+        "presentationRevision": 1,
         "nativeActivity": "foreground",
+        "reviewComparison": null,
         "refreshingLanes": [
           "review",
           "file"
@@ -1543,8 +1549,9 @@
         "workerInstanceId": "worker-instance-1",
         "metadataStreamId": "metadata-stream-presentation-1",
         "streamSequence": 1,
-        "activityRevision": 1,
+        "presentationRevision": 1,
         "nativeActivity": "foreground",
+        "reviewComparison": null,
         "refreshingLanes": [],
         "surface": "file"
       }

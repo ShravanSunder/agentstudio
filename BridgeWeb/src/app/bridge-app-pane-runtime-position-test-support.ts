@@ -10,6 +10,7 @@ import type {
 	BridgeWorkerCodeViewFileItem,
 	BridgeWorkerCodeViewDiffItem,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { parseBridgeCodeViewDiffForBrowserTest } from '../review-viewer/code-view/bridge-code-view-browser-test-diff.js';
 import { reviewWitnessTreeRows } from '../review-viewer/test-support/bridge-viewer-browser-recovery-tree-fixture.js';
 import { actWait } from './bridge-app-browser-test-actions.js';
@@ -464,6 +465,7 @@ function makeReviewDisplayEvent(
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext('position-review-package'),
 					metadataSourceId: 'position-review-source',
 					metadataWindowIdentity: reviewMetadataWindowIdentity,
 					packageId: 'position-review-package',

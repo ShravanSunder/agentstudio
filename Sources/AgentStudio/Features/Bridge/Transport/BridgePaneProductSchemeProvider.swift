@@ -25,6 +25,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) async -> Void
+    private let applyReviewComparisonUpdate:
+        @MainActor @Sendable (
+            BridgeProductReviewComparisonUpdateRequest,
+            BridgeProductAdmissionContext
+        ) async -> Void
     private let contentDemandAdmission: BridgeContentDemandAdmission
     private let fileContentReaderFactory: BridgePaneProductFileContentReaderFactory
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
@@ -59,6 +64,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductControlCorrelation,
                 BridgeProductAdmissionContext
             ) async -> Void = { _, _, _ in },
+        applyReviewComparisonUpdate:
+            @escaping @MainActor @Sendable (
+                BridgeProductReviewComparisonUpdateRequest,
+                BridgeProductAdmissionContext
+            ) async -> Void = { _, _ in },
         initialPanePresentation: BridgePaneProductPresentationSnapshot? = nil,
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
@@ -85,6 +95,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.refreshWorkAdmissionSource = refreshWorkAdmissionSource
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
+        self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
     }
 
     func response(
@@ -110,6 +121,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewActiveViewerModeUpdate
+                    )
+                case .reviewComparisonUpdate:
+                    return try .callCompleted(
+                        correlating: request,
+                        result: .reviewComparisonUpdate
                     )
                 case .reviewMarkFileViewed:
                     return try .callCompleted(
@@ -169,43 +185,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         } catch {
             preconditionFailure("Bridge product provider could not build a correlated response")
         }
-    }
-
-    func applyCommittedControlEffect(
-        _ effect: BridgeProductSessionCompletionEffect,
-        for request: BridgeProductControlRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async {
-        if case .productCall(let committedProductCall) = effect,
-            case .productCall(let callRequest) = request,
-            committedProductCall == callRequest.call
-        {
-            guard (productAdmission.withValidAdmission { true }) == true else { return }
-            switch committedProductCall {
-            case .fileSourceCurrent:
-                break
-            case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
-                await applyActiveViewerModeUpdate(
-                    committedProductCall,
-                    request.correlation,
-                    productAdmission
-                )
-            case .reviewMarkFileViewed(let markRequest):
-                await markReviewItemViewed(markRequest.itemId, productAdmission)
-            case .reviewIntakeReady(let intakeRequest):
-                await handleReviewIntakeReady(intakeRequest, productAdmission)
-            case .reviewPublicationApplied(let appliedRequest):
-                _ = await recordReviewPublicationApplication(
-                    appliedRequest.publicationId,
-                    productAdmission
-                )
-            }
-            return
-        }
-        await metadataCoordinator.apply(
-            effect,
-            productAdmission: productAdmission
-        )
     }
 
     func reserveReviewPublication(
@@ -843,6 +822,45 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
 }
 
 extension BridgePaneProductSchemeProvider {
+    func applyCommittedControlEffect(
+        _ effect: BridgeProductSessionCompletionEffect,
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        if case .productCall(let committedProductCall) = effect,
+            case .productCall(let callRequest) = request,
+            committedProductCall == callRequest.call
+        {
+            guard (productAdmission.withValidAdmission { true }) == true else { return }
+            switch committedProductCall {
+            case .fileSourceCurrent:
+                break
+            case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
+                await applyActiveViewerModeUpdate(
+                    committedProductCall,
+                    request.correlation,
+                    productAdmission
+                )
+            case .reviewComparisonUpdate(let updateRequest):
+                await applyReviewComparisonUpdate(updateRequest, productAdmission)
+            case .reviewMarkFileViewed(let markRequest):
+                await markReviewItemViewed(markRequest.itemId, productAdmission)
+            case .reviewIntakeReady(let intakeRequest):
+                await handleReviewIntakeReady(intakeRequest, productAdmission)
+            case .reviewPublicationApplied(let appliedRequest):
+                _ = await recordReviewPublicationApplication(
+                    appliedRequest.publicationId,
+                    productAdmission
+                )
+            }
+            return
+        }
+        await metadataCoordinator.apply(
+            effect,
+            productAdmission: productAdmission
+        )
+    }
+
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,

@@ -7,6 +7,93 @@ import Testing
 @Suite("Bridge pane refresh admission coordinator")
 @MainActor
 struct BridgePaneRefreshAdmissionCoordinatorTests {
+    @Test("successor comparison keeps the displayed predecessor stale until settlement")
+    func successorComparisonKeepsDisplayedPredecessorStaleUntilSettlement() throws {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let successor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-8",
+            reviewGeneration: 8,
+            revision: 12
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        let initialRevision = coordinator.productPresentationSnapshot.presentationRevision
+
+        // Act
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+        let pending = coordinator.productPresentationSnapshot
+        coordinator.settleReviewComparisonAttempt(
+            reviewGeneration: 8,
+            displayedSnapshotIdentity: successor
+        )
+        let settled = coordinator.productPresentationSnapshot
+
+        // Assert
+        #expect(pending.presentationRevision == initialRevision + 1)
+        #expect(pending.reviewComparison?.activeTarget == .branch(name: "stack/base"))
+        #expect(pending.reviewComparison?.attempt == .pending(reviewGeneration: 8))
+        #expect(pending.reviewComparison?.displayedSnapshot == .stale(predecessor))
+        #expect(settled.presentationRevision == initialRevision + 2)
+        #expect(settled.reviewComparison?.attempt == .settled(reviewGeneration: 8))
+        #expect(settled.reviewComparison?.displayedSnapshot == .current(successor))
+    }
+
+    @Test("current comparison failure retains the displayed predecessor as stale")
+    func currentComparisonFailureRetainsDisplayedPredecessorAsStale() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+
+        // Act
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 8,
+            failureKind: "git.unresolvedTarget",
+            retryable: true
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison
+                == BridgePaneReviewComparisonPresentation(
+                    activeTarget: .branch(name: "stack/base"),
+                    attempt: .unavailable(
+                        failureKind: "git.unresolvedTarget",
+                        retryable: true
+                    ),
+                    displayedSnapshot: .stale(predecessor)
+                )
+        )
+    }
+
     @Test("loaded-hidden invalidation storms accumulate in one pane-wide dirty fact")
     func loadedHiddenInvalidationStormAccumulatesOneDirtyFact() throws {
         // Arrange

@@ -180,18 +180,29 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			presentation.nativeActivity === 'foreground' &&
 			activeViewerMode === surface &&
 			presentation.refreshingLanes.includes(refreshingLane);
-		const publicationIdentity = `${workerDerivationEpoch}:${isUpdating ? 'updating' : 'idle'}`;
+		const projectedReviewComparison = surface === 'review' ? presentation.reviewComparison : null;
+		const publicationIdentity = JSON.stringify([
+			workerDerivationEpoch,
+			isUpdating ? 'updating' : 'idle',
+			projectedReviewComparison,
+		]);
 		if (publishedUpdatingChromeIdentityBySurface.get(surface) === publicationIdentity) return;
-		const patch = isUpdating
-			? {
-					operation: 'upsert' as const,
-					payload: {
-						isLoading: true,
-						message: surface === 'file' ? 'Updating files…' : 'Updating review…',
-					},
-					slice: 'panelChrome' as const,
-				}
-			: { operation: 'reset' as const, slice: 'panelChrome' as const };
+		const patch =
+			isUpdating || projectedReviewComparison !== null
+				? {
+						operation: 'upsert' as const,
+						payload: {
+							...(isUpdating
+								? {
+										isLoading: true,
+										message: surface === 'file' ? 'Updating files…' : 'Updating review…',
+									}
+								: {}),
+							...(surface === 'review' ? { reviewComparison: projectedReviewComparison } : {}),
+						},
+						slice: 'panelChrome' as const,
+					}
+				: { operation: 'reset' as const, slice: 'panelChrome' as const };
 		const commonEvent = {
 			direction: 'serverWorkerToMain' as const,
 			patches: [patch],

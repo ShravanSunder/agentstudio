@@ -45,7 +45,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 		// Act
 		presentation.publish({
-			activityRevision: 1,
+			presentationRevision: 1,
 			nativeActivity: 'foreground',
 			refreshingLanes: ['file', 'review'],
 		});
@@ -55,7 +55,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 			{
 				kind: 'reviewRenderPatch',
 				operation: 'upsert',
-				payload: { isLoading: true, message: 'Updating review…' },
+				payload: { isLoading: true, message: 'Updating review…', reviewComparison: null },
 				surface: 'review',
 			},
 		]);
@@ -63,7 +63,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 		// Act
 		const publicationCountBeforeReplay = panelChromePublications(postedMessages).length;
 		presentation.publish({
-			activityRevision: 1,
+			presentationRevision: 1,
 			nativeActivity: 'foreground',
 			refreshingLanes: ['file', 'review'],
 		});
@@ -103,7 +103,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 		// Act
 		postedMessages.length = 0;
 		presentation.publish({
-			activityRevision: 2,
+			presentationRevision: 2,
 			nativeActivity: 'foreground',
 			refreshingLanes: [],
 		});
@@ -120,7 +120,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 		// Arrange
 		presentation.publish({
-			activityRevision: 3,
+			presentationRevision: 3,
 			nativeActivity: 'foreground',
 			refreshingLanes: ['file'],
 		});
@@ -128,7 +128,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 		// Act
 		presentation.publish({
-			activityRevision: 4,
+			presentationRevision: 4,
 			nativeActivity: 'loadedHidden',
 			refreshingLanes: ['file', 'review'],
 		});
@@ -144,13 +144,39 @@ describe('Bridge comm worker updating panel chrome', () => {
 			},
 		]);
 		expect(hiddenPublications).not.toContainEqual(expect.objectContaining({ operation: 'upsert' }));
+
+		postedMessages.length = 0;
+		const reviewComparison = {
+			activeTarget: { kind: 'branch', name: 'feature/review' },
+			attempt: { reviewGeneration: 6, status: 'pending' },
+			displayedSnapshot: {
+				packageId: 'package-predecessor',
+				reviewGeneration: 5,
+				revision: 2,
+				status: 'stale',
+			},
+		} as const;
+		presentation.publish({
+			nativeActivity: 'foreground',
+			presentationRevision: 5,
+			refreshingLanes: [],
+			reviewComparison,
+		});
+
+		expect(panelChromePublications(postedMessages)).toContainEqual({
+			kind: 'reviewRenderPatch',
+			operation: 'upsert',
+			payload: { reviewComparison },
+			surface: 'review',
+		});
 	});
 });
 
 interface PanePresentationPublicationProps {
-	readonly activityRevision: number;
+	readonly presentationRevision: number;
 	readonly nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'];
 	readonly refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'];
+	readonly reviewComparison?: BridgeProductPanePresentationFrame['reviewComparison'];
 }
 
 interface PanelChromePublication {
@@ -225,7 +251,8 @@ function createPanePresentationTestTransport(props: {
 				kind: 'pane.presentation',
 				metadataStreamId: 'metadata-stream-updating-chrome',
 				paneSessionId: 'pane-session-updating-chrome',
-				streamSequence: publication.activityRevision,
+				reviewComparison: publication.reviewComparison ?? null,
+				streamSequence: publication.presentationRevision,
 				wireVersion: 2,
 				workerInstanceId: 'worker-instance-updating-chrome',
 			});

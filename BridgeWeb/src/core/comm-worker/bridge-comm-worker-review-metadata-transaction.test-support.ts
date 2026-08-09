@@ -31,6 +31,15 @@ type ReviewInvalidatedEvent = Extract<
 export const workerDerivationEpoch = 31;
 export const activeIdentity = reviewIdentity('active', 7, 11);
 export const candidateIdentity = reviewIdentity('candidate', 8, 21);
+export const reviewComparisonOrigin = {
+	baseRole: 'contributionBase',
+	comparedRole: 'capturedWorkingTree',
+	contributionBaseOID: 'contribution-base-oid',
+	kind: 'contribution',
+	resolvedTargetOID: 'resolved-target-oid',
+	reviewedHeadOID: 'reviewed-head-oid',
+	symbolicTarget: { kind: 'branch', name: 'integration' },
+} as const;
 
 export function makeApplicatorHarness(
 	props: {
@@ -87,7 +96,13 @@ export function reviewIdentity(
 }
 
 export function reviewReset(identity: ReviewMetadataIdentity): BridgeProductReviewMetadataEvent {
-	return { ...identity, eventKind: 'review.reset', reason: 'sourceChanged' };
+	return {
+		...identity,
+		comparisonOrigin: reviewComparisonOrigin,
+		eventKind: 'review.reset',
+		reason: 'sourceChanged',
+		reviewedSubjectLabel: 'feature/review-comments',
+	};
 }
 
 export function reviewSourceAccepted(
@@ -106,9 +121,11 @@ export function reviewSnapshot(
 	return {
 		...reviewPayload(identity, itemId, startIndex, totalItemCount, finalWindow),
 		baseEndpoint: reviewEndpoint('base', 'gitRef'),
+		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.snapshot',
 		headEndpoint: reviewEndpoint('head', 'workingTree'),
 		query: reviewQuery(),
+		reviewedSubjectLabel: 'feature/review-comments',
 	};
 }
 

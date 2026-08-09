@@ -5,6 +5,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
+	encodeBridgeWorkerReviewComparisonUpdateCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
@@ -131,6 +132,44 @@ describe('Bridge comm worker runtime protocol', () => {
 				requestId: 'request-mark-viewed',
 				status: 'ready',
 			}),
+		);
+	});
+
+	test('acknowledges a Review comparison update only after product control completes', async () => {
+		const sentCommands: BridgeProductControlCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const productControlCompletion = createDeferredVoid();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			sendProductControl: async (command): Promise<void> => {
+				sentCommands.push(command);
+				await productControlCompletion.promise;
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerReviewComparisonUpdateCommand({
+				epoch: 3,
+				requestId: 'request-comparison-update',
+				target: { kind: 'branch', name: 'feature/review' },
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(sentCommands).toEqual([
+			{
+				method: 'review.comparison.update',
+				params: { target: { kind: 'branch', name: 'feature/review' } },
+			},
+		]);
+		expect(postedMessages.map(({ message }) => message)).not.toContainEqual(
+			expect.objectContaining({ requestId: 'request-comparison-update', status: 'ready' }),
+		);
+		productControlCompletion.resolve();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(postedMessages.map(({ message }) => message)).toContainEqual(
+			expect.objectContaining({ requestId: 'request-comparison-update', status: 'ready' }),
 		);
 	});
 

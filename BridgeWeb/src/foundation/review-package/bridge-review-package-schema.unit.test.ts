@@ -5,12 +5,28 @@ import { makeBridgeReviewPackage } from './bridge-review-package-test-support.js
 
 describe('Bridge review package schema', () => {
 	test('parses the current Bridge review package contract', () => {
-		const reviewPackage = makeBridgeReviewPackage();
+		const reviewPackage = {
+			...makeBridgeReviewPackage(),
+			comparisonOrigin: {
+				baseRole: 'contributionBase',
+				comparedRole: 'capturedWorkingTree',
+				contributionBaseOID: 'contribution-base-oid',
+				kind: 'contribution',
+				resolvedTargetOID: 'resolved-target-oid',
+				reviewedHeadOID: 'reviewed-head-oid',
+				symbolicTarget: { kind: 'branch', name: 'integration' },
+			},
+			reviewedSubjectLabel: 'feature/review-comments',
+		} as const;
 
 		const parsedReviewPackage = bridgeReviewPackageSchema.parse(reviewPackage);
 
 		expect(parsedReviewPackage.packageId).toBe(reviewPackage.packageId);
 		expect(parsedReviewPackage.orderedItemIds).toEqual(reviewPackage.orderedItemIds);
+		expect(parsedReviewPackage).toMatchObject({
+			comparisonOrigin: reviewPackage.comparisonOrigin,
+			reviewedSubjectLabel: reviewPackage.reviewedSubjectLabel,
+		});
 	});
 
 	test('accepts omitted keys for Swift nil optional fields', () => {

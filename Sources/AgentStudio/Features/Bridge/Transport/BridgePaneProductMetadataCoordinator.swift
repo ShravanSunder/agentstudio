@@ -386,7 +386,7 @@ actor BridgePaneProductMetadataCoordinator {
         _ snapshot: BridgePaneProductPresentationSnapshot
     ) async {
         if let latestPanePresentation {
-            guard snapshot.activityRevision > latestPanePresentation.activityRevision else { return }
+            guard snapshot.presentationRevision > latestPanePresentation.presentationRevision else { return }
         }
         latestPanePresentation = snapshot
         await enqueueLatestPanePresentationIfPossible()

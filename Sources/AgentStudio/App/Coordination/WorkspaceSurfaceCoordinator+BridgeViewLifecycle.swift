@@ -25,6 +25,13 @@ extension WorkspaceSurfaceCoordinator {
                     pane.id,
                     target: target
                 )
+            },
+            contributionTargetCommit: { [weak self] target in
+                guard let self else { return .paneMissing }
+                return store.paneAtom.setBridgeContributionTarget(
+                    pane.id,
+                    target: target
+                )
             }
         )
         let view = BridgePaneMountView(paneId: pane.id, controller: controller)
