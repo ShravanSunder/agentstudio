@@ -684,9 +684,22 @@ final class TabBarAdapterMaterializationTests {
             for: "performance.tabbar.worker",
             in: contents
         )
+        let currentElapsedMilliseconds = try tabBarTelemetryElapsedMilliseconds(
+            for: "performance.tabbar.current",
+            in: contents
+        )
+        let publicationElapsedMilliseconds = try tabBarTelemetryElapsedMilliseconds(
+            for: "performance.tabbar.publication",
+            in: contents
+        )
         #expect(
             refreshElapsedMilliseconds < workerElapsedMilliseconds,
             "Tab Bar refresh must measure MainActor publication work, not include off-main projection"
+        )
+        #expect(
+            publicationElapsedMilliseconds < workerElapsedMilliseconds
+                && publicationElapsedMilliseconds < currentElapsedMilliseconds,
+            "Tab Bar publication must exclude off-main worker time and remain shorter than interaction-to-current"
         )
     }
 

@@ -119,8 +119,8 @@ struct GitRefreshPerformanceComparatorScriptTests {
         #expect(result.stderr.contains("performance.tabbar.refresh.victoria_metrics_count coverage collapsed"))
     }
 
-    @Test("performance comparator treats query-character maximum as informational")
-    func performanceComparatorTreatsQueryCharacterMaximumAsInformational() throws {
+    @Test("performance comparator rejects a changed command-bar interaction fingerprint")
+    func performanceComparatorRejectsChangedCommandBarInteractionFingerprint() throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var afterInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
@@ -134,11 +134,17 @@ struct GitRefreshPerformanceComparatorScriptTests {
             afterInteractionValues: afterInteractionValues
         )
 
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.exitCode != 0)
+        #expect(
+            result.stderr.contains(
+                "command-bar interaction fingerprint changed: "
+                    + "performance.commandbar.filter.query_character.max 10 -> 47"
+            )
+        )
     }
 
-    @Test("performance comparator does not require terminal-CWD topology evidence")
-    func performanceComparatorDoesNotRequireTerminalCWDTopologyEvidence() throws {
+    @Test("performance comparator requires topology lookup evidence")
+    func performanceComparatorRequiresTopologyLookupEvidence() throws {
         let fixtureRoot = try temporaryFixtureRoot()
         defer { try? FileManager.default.removeItem(at: fixtureRoot) }
         var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
@@ -157,7 +163,14 @@ struct GitRefreshPerformanceComparatorScriptTests {
             afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
         )
 
-        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.exitCode != 0)
+        #expect(
+            result.stderr.contains(
+                "missing required metric "
+                    + "performance.topology.repo_and_worktree.victoria_metrics_count "
+                    + "in baseline workload"
+            )
+        )
     }
 
     @Test("performance comparator fails when coordinator write regresses")

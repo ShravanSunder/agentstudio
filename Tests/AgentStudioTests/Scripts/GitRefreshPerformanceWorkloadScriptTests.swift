@@ -27,6 +27,23 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         Self.expectStrictSQLiteFixtureAndQuiescenceContract(source)
     }
 
+    @Test("required performance metric inventory includes topology lookups")
+    func requiredPerformanceMetricInventoryIncludesTopologyLookups() throws {
+        let source = try String(contentsOf: URL(fileURLWithPath: scriptPath), encoding: .utf8)
+        let inventoryStart = try #require(
+            source.range(of: "required_performance_metric_event_names() {")
+        )
+        let inventoryEnd = try #require(
+            source.range(
+                of: "\n}\n\nmissing_required_performance_metric_events()",
+                range: inventoryStart.upperBound..<source.endIndex
+            )
+        )
+        let inventory = source[inventoryStart.lowerBound..<inventoryEnd.lowerBound]
+
+        #expect(inventory.contains("performance.topology.repo_and_worktree"))
+    }
+
     private static func expectSharedObservabilityContract(_ source: String) {
         #expect(source.contains("standard per-worktree debug observability"))
         #expect(source.contains("VictoriaMetrics performance evidence"))

@@ -1245,6 +1245,7 @@ performance.tabbar.publication
 performance.tabbar.visible
 performance.sidebar.projection
 performance.sidebar.row_index
+performance.topology.repo_and_worktree
 performance.coordinator.write
 EOF
 }

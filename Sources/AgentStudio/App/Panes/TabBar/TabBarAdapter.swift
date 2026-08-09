@@ -554,7 +554,7 @@ private final class TabBarProjectionTelemetry: Sendable {
         )
         recorder.recordDuration(
             .tabBarPublication,
-            duration: admission.interactionStartedAt.duration(to: clock.now),
+            duration: refreshStartedAt.duration(to: clock.now),
             attributes: Self.attributes(for: admission)
         )
     }

@@ -80,16 +80,16 @@ Use the primitive that matches the read surface:
 | Primitive | Use for | Rule |
 | --- | --- | --- |
 | `AtomValue<Value>` | one scalar or one cohesive content value | writes require an explicit content comparator except for trivial scalar allowlist types |
-| `AtomEntityMap<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
-| `DerivedValue<Value>` | generic memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
+| `AtomFamily<Key, Value>` | keyed entity families such as repo enrichment, worktree enrichment, and PR counts | hot UI reads use `value(for:)`; dictionary snapshots are bridge surfaces |
+| `DerivedAtom<Value>` | generic memoized read models | compute from declared input revisions; do not reach back into `CoreAtomScope` or `atom(\...)` |
 | `AtomMutationContext` | grouped mutations across primitive updates inside one owner | bump the aggregate revision once after accepted changes |
 
 The derived-read contract is enforced by
-`agentstudio_derived_value_declared_inputs`: a `DerivedValue` compute closure
+`agentstudio_derived_atom_declared_inputs`: a `DerivedAtom` compute closure
 must be a pure function of declared revisions/inputs, not a hidden atom read
 through `CoreAtomScope`, `CoreAtoms`, or `atom(\...)`.
 
-`AtomEntityMap` is the internal atom-family primitive. It stores a private
+`AtomFamily` is the internal atom-family primitive. It stores a private
 dictionary for snapshots, but each key has its own observable slot. A row that
 reads `worktreeEnrichment(for: worktreeId)` should wake only when that
 worktree's enrichment changes, or when it read an absent key and that same key
@@ -109,7 +109,7 @@ Lint rule `agentstudio_repo_cache_keyed_reads` rejects hot
 surfaces.
 
 `RepoEnrichmentCacheAtom` is the reference implementation: repo enrichment,
-worktree enrichment, and PR counts are owned as separate `AtomEntityMap`
+worktree enrichment, and PR counts are owned as separate `AtomFamily`
 instances; `RepoCacheAtom` exposes keyed reads for hot consumers and snapshot
 methods for persistence/cold bulk bridges.
 
@@ -146,7 +146,7 @@ facts, snapshots, deltas, or intents.
 | Question | Placement |
 | --- | --- |
 | Is this canonical UI-observed state? | `@MainActor` atom |
-| Does a SwiftUI row need to wake for one key? | `AtomEntityMap` slot in the owning atom |
+| Does a SwiftUI row need to wake for one key? | `AtomFamily` slot in the owning atom |
 | Does it perform git, filesystem, SQLite, network, or process work? | runtime/store/off-main actor |
 | Does it canonicalize many paths or diff many repos/worktrees/panes/tabs? | actor or measured MainActor exception |
 | Is it final application of compact actor output? | owning `@MainActor` atom or coordinator |
@@ -222,7 +222,7 @@ When a new atom, state surface, or persisted field is added:
 1. Classify the field into one lifecycle lane.
 2. Name its role: write-owner state, derived read model, or current row
    projection.
-3. Choose the observation surface: scalar value, keyed `AtomEntityMap`,
+3. Choose the observation surface: scalar value, keyed `AtomFamily`,
    derived read model, or snapshot bridge.
 4. Define the content comparator so equal data does not fire atom invalidation.
 5. If persisted, identify the owning store/repository and reset semantics.

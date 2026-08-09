@@ -16,6 +16,7 @@ REPO_FANOUT_SURFACES = [
     "performance.tabbar.refresh",
     "performance.sidebar.projection",
     "performance.sidebar.row_index",
+    "performance.topology.repo_and_worktree",
 ]
 COORDINATOR_SURFACES = ["performance.coordinator.write"]
 CANDIDATE_TAB_BAR_PHASE_SURFACES = [
@@ -330,14 +331,16 @@ def validate_required_surface_fields(
     return failures
 
 
-def validate_command_bar_query_evidence(
+def validate_command_bar_fingerprint(
     before_values: dict[str, str],
     after_values: dict[str, str],
 ) -> list[str]:
     failures: list[str] = []
     key = "performance.commandbar.filter.query_character.max"
-    required_numeric(before_values, key, "baseline interaction", failures)
-    required_numeric(after_values, key, "after interaction", failures)
+    before = required_numeric(before_values, key, "baseline interaction", failures)
+    after = required_numeric(after_values, key, "after interaction", failures)
+    if not failures and before != after:
+        failures.append(f"command-bar interaction fingerprint changed: {key} {before:g} -> {after:g}")
     return failures
 
 
@@ -461,6 +464,7 @@ regression_boundary_percent = required_nonnegative_number(
     "baseline workload",
     boundary_failures,
 )
+failures.extend(boundary_failures)
 
 failures.extend(validate_required_surface_fields(
     "baseline interaction",
@@ -483,7 +487,7 @@ failures.extend(validate_required_surface_fields(
     [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES],
 ))
 failures.extend(validate_candidate_phase_evidence("after workload", after_workload))
-failures.extend(validate_command_bar_query_evidence(baseline_interaction, after_interaction))
+failures.extend(validate_command_bar_fingerprint(baseline_interaction, after_interaction))
 failures.extend(validate_instrumentation_continuity(
     "baseline interaction",
     baseline_interaction,

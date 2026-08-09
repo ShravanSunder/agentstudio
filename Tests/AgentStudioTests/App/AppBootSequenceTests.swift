@@ -295,6 +295,8 @@ struct AppBootSequenceTests {
                 performanceTraceRecorder: performanceTraceRecorder,
                 closeTransitionCoordinator: PaneCloseTransitionCoordinator()
             )
+            let pane = store.createPane(title: "Materialized projection")
+            store.appendTab(Tab(paneId: pane.id, name: "Materialized projection"))
             let firstController = delegate.makeMainWindowController(dependencies: dependencies)
             let reopenedController = delegate.makeMainWindowController(dependencies: dependencies)
             defer {
@@ -305,9 +307,11 @@ struct AppBootSequenceTests {
             }
             guard
                 let firstAdapter = tabBarAdapterOwnedByWindowController(firstController),
-                let reopenedAdapter = tabBarAdapterOwnedByWindowController(reopenedController)
+                let reopenedAdapter = tabBarAdapterOwnedByWindowController(reopenedController),
+                let firstProjection = firstAdapter.materializedProjections.first,
+                let reopenedProjection = reopenedAdapter.materializedProjections.first
             else {
-                Issue.record("Window controller did not install its tab-bar adapter")
+                Issue.record("Window controller did not materialize its tab-bar projection")
                 return
             }
 
@@ -316,8 +320,9 @@ struct AppBootSequenceTests {
             )
 
             #expect(ObjectIdentifier(firstAdapter) != ObjectIdentifier(reopenedAdapter))
-            #expect(firstAdapter.materializedProjections.allSatisfy { $0.freshness == .stopped })
-            #expect(reopenedAdapter.materializedProjections.allSatisfy { $0.freshness != .stopped })
+            #expect(ObjectIdentifier(firstProjection) != ObjectIdentifier(reopenedProjection))
+            #expect(firstProjection.freshness == .stopped)
+            #expect(reopenedProjection.freshness != .stopped)
         }
 
         await coordinator.shutdown()
