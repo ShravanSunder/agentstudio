@@ -11,25 +11,7 @@ struct TabBarChromeLayoutPlanTests {
     func placesPlusAfterTabStripDivider() {
         let plan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: false)
 
-        #expect(
-            plan.controlOrder == [
-                .sidebarSurfaces,
-                .divider,
-                .watchFolder,
-                .managementLayer,
-                .arrangement,
-                .tabStrip,
-                .divider,
-                .newTab,
-            ])
-        #expect(
-            plan.leadingControls == [
-                .sidebarSurfaces,
-                .divider,
-                .watchFolder,
-                .managementLayer,
-                .arrangement,
-            ])
+        #expect(plan.workspaceTabControls == [.tabStrip, .divider, .newTab])
         #expect(plan.trailingControls == [.divider, .newTab])
     }
 
@@ -37,8 +19,8 @@ struct TabBarChromeLayoutPlanTests {
     func omitsPlusWhenAddActionUnavailable() {
         let plan = TabBarChromeLayoutPlan(hasNewTab: false, isOverflowing: false)
 
-        #expect(!plan.controlOrder.contains(.newTab))
-        #expect(Array(plan.controlOrder.suffix(2)) == [.arrangement, .tabStrip])
+        #expect(plan.workspaceTabControls == [.tabStrip])
+        #expect(plan.trailingControls.isEmpty)
     }
 
     @Test("places overflow before divider and plus")
@@ -47,26 +29,21 @@ struct TabBarChromeLayoutPlanTests {
         let overflowPlan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: true)
 
         #expect(normalPlan.showsTrailingControls)
-        #expect(Array(normalPlan.controlOrder.suffix(3)) == [.tabStrip, .divider, .newTab])
+        #expect(normalPlan.workspaceTabControls == [.tabStrip, .divider, .newTab])
         #expect(overflowPlan.showsTrailingControls)
         #expect(
-            Array(overflowPlan.controlOrder.suffix(5)) == [
-                .overflowLeft, .overflowRight, .overflowMenu, .divider, .newTab,
+            overflowPlan.workspaceTabControls == [
+                .tabStrip, .overflowLeft, .overflowRight, .overflowMenu, .divider, .newTab,
             ])
         #expect(overflowPlan.trailingControls == [.overflowLeft, .overflowRight, .overflowMenu, .divider, .newTab])
     }
 
-    @Test("uses exact overflowing toolbar order without GitHub top chrome")
-    func usesExactOverflowingToolbarOrderWithoutGitHubTopChrome() {
+    @Test("workspace tab layout excludes fixed native toolbar controls")
+    func workspaceTabLayoutExcludesFixedNativeToolbarControls() {
         let plan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: true)
 
         #expect(
-            plan.controlOrder == [
-                .sidebarSurfaces,
-                .divider,
-                .watchFolder,
-                .managementLayer,
-                .arrangement,
+            plan.workspaceTabControls == [
                 .tabStrip,
                 .overflowLeft,
                 .overflowRight,
@@ -80,10 +57,6 @@ struct TabBarChromeLayoutPlanTests {
     func classifiesToolbarControlStyles() {
         let plan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: true)
 
-        #expect(plan.controlStyles[.sidebarSurfaces] == .plainIcon)
-        #expect(plan.controlStyles[.watchFolder] == .toolbarButton)
-        #expect(plan.controlStyles[.managementLayer] == .toolbarButton)
-        #expect(plan.controlStyles[.arrangement] == .toolbarButton)
         #expect(plan.controlStyles[.newTab] == .toolbarButton)
         #expect(plan.controlStyles[.overflowLeft] == .plainIcon)
         #expect(plan.controlStyles[.overflowRight] == .plainIcon)

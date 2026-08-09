@@ -63,8 +63,6 @@ class MainSplitViewController: NSSplitViewController {
 
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
-    private let shellChromeContainerView = NSView()
-    private let shellChromeDragRegionView = ShellChromeDragRegionView()
     private var sidebarFocusTask: Task<Void, Never>?
     private var sidebarWidthRestoreTask: Task<Void, Never>?
     private var shouldExpandSidebarOnLoad = false
@@ -180,25 +178,14 @@ class MainSplitViewController: NSSplitViewController {
         rootView.wantsLayer = true
         splitView = ShellSplitView()
 
-        shellChromeContainerView.translatesAutoresizingMaskIntoConstraints = false
-        shellChromeContainerView.wantsLayer = true
-        rootView.addSubview(shellChromeContainerView)
-
         splitView.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(splitView)
 
         NSLayoutConstraint.activate([
-            shellChromeContainerView.topAnchor.constraint(equalTo: rootView.topAnchor),
-            shellChromeContainerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            shellChromeContainerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            shellChromeContainerView.heightAnchor.constraint(
-                equalToConstant: AppStyles.Shell.TabBar.height + AppStyles.Shell.Chrome.tabBarTopInset
-            ),
-
-            splitView.topAnchor.constraint(equalTo: shellChromeContainerView.bottomAnchor),
-            splitView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-            splitView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-            splitView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+            splitView.topAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.topAnchor),
+            splitView.leadingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.bottomAnchor),
         ])
 
         view = rootView
@@ -229,7 +216,10 @@ class MainSplitViewController: NSSplitViewController {
             embedsTabBarInView: false
         )
         self.paneTabViewController = paneTabVC
-        installShellChrome(paneTabVC.makeTabBarHostingView())
+        // Initialize the shared tab host before PaneTabViewController's view
+        // lifecycle evaluates empty-state visibility. The toolbar owns placement
+        // of this host; this controller only owns its feature wiring.
+        _ = paneTabVC.makeTabBarHostingView()
 
         // Configure split view
         splitView.isVertical = true
@@ -288,35 +278,20 @@ class MainSplitViewController: NSSplitViewController {
         scheduleSidebarWidthRestore()
     }
 
-    private func installShellChrome(_ tabBarHostingView: DraggableTabBarHostingView) {
-        tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
-        tabBarHostingView.wantsLayer = true
-        shellChromeContainerView.addSubview(tabBarHostingView)
-        shellChromeDragRegionView.translatesAutoresizingMaskIntoConstraints = false
-        shellChromeContainerView.addSubview(
-            shellChromeDragRegionView,
-            positioned: .above,
-            relativeTo: tabBarHostingView
-        )
+    func makeToolbarChromeView() -> MainToolbarChromeView {
+        loadViewIfNeeded()
+        guard let paneTabViewController else {
+            preconditionFailure("Pane tab view controller must exist before toolbar chrome is created")
+        }
+        return MainToolbarChromeView(tabBarHostingView: paneTabViewController.makeTabBarHostingView())
+    }
 
-        NSLayoutConstraint.activate([
-            tabBarHostingView.topAnchor.constraint(
-                equalTo: shellChromeContainerView.topAnchor,
-                constant: AppStyles.Shell.Chrome.tabBarTopInset
-            ),
-            tabBarHostingView.leadingAnchor.constraint(
-                equalTo: shellChromeContainerView.leadingAnchor,
-                constant: AppStyles.Shell.Chrome.tabBarLeadingInset
-            ),
-            tabBarHostingView.trailingAnchor.constraint(equalTo: shellChromeContainerView.trailingAnchor),
-            tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
-            shellChromeDragRegionView.topAnchor.constraint(equalTo: shellChromeContainerView.topAnchor),
-            shellChromeDragRegionView.leadingAnchor.constraint(equalTo: shellChromeContainerView.leadingAnchor),
-            shellChromeDragRegionView.trailingAnchor.constraint(equalTo: shellChromeContainerView.trailingAnchor),
-            shellChromeDragRegionView.heightAnchor.constraint(
-                equalToConstant: AppStyles.Shell.Chrome.windowDragRegionHeight
-            ),
-        ])
+    func makeToolbarControlView(_ control: MainToolbarControl) -> NSView {
+        loadViewIfNeeded()
+        guard let paneTabViewController else {
+            preconditionFailure("Pane tab view controller must exist before toolbar controls are created")
+        }
+        return paneTabViewController.makeToolbarControlView(control)
     }
 
     override func viewDidAppear() {
@@ -329,7 +304,37 @@ class MainSplitViewController: NSSplitViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        updateWindowContentSafeArea()
         applySidebarWidthAfterLayoutIfNeeded()
+    }
+
+    func updateWindowContentSafeArea() {
+        guard let window = view.window else { return }
+
+        let nonObscuredRect = view.convert(window.contentLayoutRect, from: nil)
+        let bounds = view.bounds
+        let targetInsets = NSEdgeInsets(
+            top: max(0, bounds.maxY - nonObscuredRect.maxY),
+            left: max(0, nonObscuredRect.minX - bounds.minX),
+            bottom: max(0, nonObscuredRect.minY - bounds.minY),
+            right: max(0, bounds.maxX - nonObscuredRect.maxX)
+        )
+
+        let existingInsets = view.additionalSafeAreaInsets
+        let inheritedInsets = view.safeAreaInsets
+        let insets = NSEdgeInsets(
+            top: max(0, targetInsets.top - inheritedInsets.top + existingInsets.top),
+            left: max(0, targetInsets.left - inheritedInsets.left + existingInsets.left),
+            bottom: max(0, targetInsets.bottom - inheritedInsets.bottom + existingInsets.bottom),
+            right: max(0, targetInsets.right - inheritedInsets.right + existingInsets.right)
+        )
+        guard
+            existingInsets.top != insets.top
+                || existingInsets.left != insets.left
+                || existingInsets.bottom != insets.bottom
+                || existingInsets.right != insets.right
+        else { return }
+        view.additionalSafeAreaInsets = insets
     }
 
     private func saveSidebarState() {

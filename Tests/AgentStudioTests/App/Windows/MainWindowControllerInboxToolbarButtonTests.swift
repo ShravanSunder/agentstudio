@@ -6,6 +6,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -16,20 +17,116 @@ struct MainWindowControllerInboxToolbarButtonTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("main window delegates top chrome instead of installing native toolbar controls")
-    func mainWindowDelegatesTopChromeInsteadOfInstallingNativeToolbarControls() throws {
+    @Test("main window installs the native toolbar boundary for top chrome")
+    func mainWindowInstallsNativeToolbarBoundary() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Windows/MainWindowController.swift")
 
-        #expect(source.contains("MainSplitViewController owns the shell-spanning top strip."))
-        #expect(!source.contains("\n        setupToolbar()"))
-        #expect(!source.contains("\n        setupTitlebarAccessory()"))
+        #expect(source.contains("toolbarStyle = .unifiedCompact"))
+        #expect(!source.contains("setupTitlebarAccessory"))
     }
 
-    @Test("top chrome installs worktree and inbox sidebar buttons")
-    func topChromeInstallsWorktreeAndInboxSidebarButtons() throws {
+    @Test("main window installs native fixed controls before the workspace tabs item")
+    func mainWindowInstallsNativeFixedControlsBeforeWorkspaceTabsItem() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let window = harness.window
+            let toolbar = try #require(window.toolbar)
+            #expect(toolbar.identifier == NSToolbar.Identifier("MainToolbar"))
+            #expect(window.toolbarStyle == .unifiedCompact)
+
+            let expectedItemIdentifiers = [
+                "worktreeSidebar",
+                "inboxSidebar",
+                "watchFolder",
+                "managementLayer",
+                "arrangement",
+                "workspaceTabs",
+            ]
+            #expect(toolbar.items.map(\.itemIdentifier.rawValue) == expectedItemIdentifiers)
+
+            let expectedFixedControlViews = [
+                "worktreeSidebar": "worktreeToolbarControl",
+                "inboxSidebar": "inboxToolbarControl",
+                "watchFolder": "watchFolderToolbarControl",
+                "managementLayer": "managementLayerToolbarControl",
+                "arrangement": "arrangementToolbarControl",
+            ]
+            for (itemIdentifier, viewIdentifier) in expectedFixedControlViews {
+                let item = try #require(
+                    toolbar.items.first(where: {
+                        $0.itemIdentifier.rawValue == itemIdentifier
+                    })
+                )
+                #expect(item.view?.identifier?.rawValue == viewIdentifier)
+                #expect(!(item.view is MainToolbarChromeView))
+            }
+
+            let workspaceTabsItem = try #require(
+                toolbar.items.first(where: {
+                    $0.itemIdentifier.rawValue == "workspaceTabs"
+                })
+            )
+            let workspaceTabsView = try #require(workspaceTabsItem.view)
+            #expect(workspaceTabsView.identifier == NSUserInterfaceItemIdentifier("workspaceTabsToolbarControl"))
+            #expect(workspaceTabsView is MainToolbarChromeView)
+            #expect(workspaceTabsView.frame.height == AppStyles.Shell.TabBar.height)
+            #expect(
+                findDescendant(
+                    in: workspaceTabsView,
+                    identifier: ShellChromeDragRegionView.viewIdentifier.rawValue
+                ) != nil
+            )
+            #expect(
+                window.contentView.flatMap {
+                    findDescendant(
+                        in: $0,
+                        identifier: ShellChromeDragRegionView.viewIdentifier.rawValue
+                    )
+                } == nil
+            )
+            #expect(window.standardWindowButton(.closeButton)?.isHidden == false)
+            #expect(window.standardWindowButton(.miniaturizeButton)?.isHidden == false)
+            #expect(window.standardWindowButton(.zoomButton)?.isHidden == false)
+            #expect(window.collectionBehavior.contains(.fullScreenNone))
+            #expect(window.collectionBehavior.contains(.fullScreenDisallowsTiling))
+
+            let contentView = try #require(window.contentView)
+            let rootView = try #require(window.contentViewController?.view)
+            let splitView = try #require(findDescendant(in: rootView, ofType: ShellSplitView.self))
+            splitView.layoutSubtreeIfNeeded()
+            let splitRect = splitView.convert(splitView.bounds, to: contentView)
+            let nonObscuredRect = contentView.convert(window.contentLayoutRect, from: nil)
+            #expect(splitRect.minY >= nonObscuredRect.minY - 1)
+            #expect(splitRect.maxY <= nonObscuredRect.maxY + 1)
+            #expect(abs(splitRect.maxY - nonObscuredRect.maxY) < 1)
+        }
+    }
+
+    @Test("workspace tabs keep overflow and new-tab controls but exclude fixed toolbar controls")
+    func workspaceTabsKeepTabUtilitiesButExcludeFixedToolbarControls() throws {
+        let tabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
+        let layoutSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/TabBarChromeLayoutPlan.swift")
+
+        #expect(!tabBarSource.contains("leadingChromeControl"))
+        #expect(!tabBarSource.contains("ToolbarButton.verticalOffset"))
+        #expect(layoutSource.contains("var workspaceTabControls: [TabBarChromeControl]"))
+        #expect(layoutSource.contains(".tabStrip"))
+        #expect(layoutSource.contains(".overflowLeft"))
+        #expect(layoutSource.contains(".overflowRight"))
+        #expect(layoutSource.contains(".overflowMenu"))
+        #expect(layoutSource.contains(".newTab"))
+        #expect(!layoutSource.contains(".sidebarSurfaces"))
+        #expect(!layoutSource.contains(".watchFolder"))
+        #expect(!layoutSource.contains(".managementLayer"))
+        #expect(!layoutSource.contains(".arrangement"))
+    }
+
+    @Test("native toolbar installs distinct worktree and inbox views")
+    func nativeToolbarInstallsDistinctWorktreeAndInboxViews() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-        #expect(source.contains("struct SidebarSurfaceTabBarControls: View"))
+        #expect(source.contains("struct SidebarSurfaceToolbarButton: View"))
+        #expect(source.contains("case repos"))
+        #expect(source.contains("case inbox"))
         #expect(source.contains("command: .showWorktreeSidebar"))
         #expect(source.contains("symbolName: \"square.stack.3d.down.right\""))
         #expect(source.contains("selectedSymbolName: \"square.stack.3d.down.right.fill\""))
@@ -359,6 +456,19 @@ private func findDescendant(in view: NSView, identifier: String) -> NSView? {
     }
     for subview in view.subviews {
         if let match = findDescendant(in: subview, identifier: identifier) {
+            return match
+        }
+    }
+    return nil
+}
+
+@MainActor
+private func findDescendant<T: NSView>(in view: NSView, ofType type: T.Type) -> T? {
+    if let match = view as? T {
+        return match
+    }
+    for subview in view.subviews {
+        if let match = findDescendant(in: subview, ofType: type) {
             return match
         }
     }

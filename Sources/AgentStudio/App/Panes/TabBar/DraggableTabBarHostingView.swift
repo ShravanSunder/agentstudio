@@ -55,7 +55,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         hostingView = NSHostingView(rootView: rootView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.sizingOptions = [.preferredContentSize]
+        hostingView.sizingOptions = []
         hostingView.safeAreaRegions = []
         addSubview(hostingView)
 

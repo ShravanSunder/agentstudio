@@ -164,24 +164,13 @@ struct DraggableTabBarWindowDragTests {
     }
 
     @MainActor
-    @Test("main split chrome layers explicit drag region above tab host")
-    func mainSplitChromeLayersExplicitDragRegionAboveTabHost() async throws {
-        try await withMainSplitViewControllerHarness { harness in
-            harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
-            harness.controller.view.layoutSubtreeIfNeeded()
+    @Test("main split no longer owns a content chrome row")
+    func mainSplitNoLongerOwnsContentChromeRow() throws {
+        let source = try sourceContents("Sources/AgentStudio/App/Windows/MainSplitViewController.swift")
 
-            let descendants = descendants(of: harness.controller.view)
-            let dragRegion = try #require(descendants.compactMap { $0 as? ShellChromeDragRegionView }.first)
-            let tabHost = try #require(descendants.compactMap { $0 as? DraggableTabBarHostingView }.first)
-            let chromeContainer = try #require(dragRegion.superview)
-            let tabHostContainer = try #require(tabHost.superview)
-
-            #expect(chromeContainer === tabHostContainer)
-            let dragRegionIndex = try #require(chromeContainer.subviews.firstIndex { $0 === dragRegion })
-            let tabHostIndex = try #require(chromeContainer.subviews.firstIndex { $0 === tabHost })
-            #expect(dragRegionIndex > tabHostIndex)
-            #expect(abs(dragRegion.frame.height - AppStyles.Shell.Chrome.windowDragRegionHeight) < 0.5)
-        }
+        #expect(!source.contains("shellChromeContainerView"))
+        #expect(!source.contains("installShellChrome"))
+        #expect(source.contains("makeToolbarChromeView"))
     }
 
     private func sourceContents(_ relativePath: String) throws -> String {
@@ -189,10 +178,6 @@ struct DraggableTabBarWindowDragTests {
         return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
     }
 
-    @MainActor
-    private func descendants(of view: NSView) -> [NSView] {
-        view.subviews + view.subviews.flatMap { descendants(of: $0) }
-    }
 }
 
 private final class ZoomRecordingWindow: NSWindow {

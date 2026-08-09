@@ -9,10 +9,6 @@ import AppKit
 import Observation
 import SwiftUI
 
-final class SidebarToolbarButton: NSButton {
-    var currentSymbolName = ""
-}
-
 enum InboxToolbarUnreadBadgeText {
     static func text(for unreadCount: Int) -> String {
         unreadCount > 99 ? "99+" : "\(unreadCount)"
@@ -22,14 +18,8 @@ enum InboxToolbarUnreadBadgeText {
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
-    private var sidebarAccessory: NSTitlebarAccessoryViewController?
-    private var inboxAtom: InboxNotificationAtom?
-    private var uiState: WorkspaceSidebarState?
-    private weak var worktreeToolbarButton: SidebarToolbarButton?
-    private weak var inboxToolbarButton: SidebarToolbarButton?
-    private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
-    private var isObservingInboxUnread = false
-    private var isObservingSidebarSurface = false
+    private var toolbarItems: [NSToolbarItem.Identifier: NSToolbarItem] = [:]
+    private var inboxAtom: InboxNotificationAtom!
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -96,7 +86,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.workspaceWindowMemoryAtom = store.windowMemoryAtom
         self.inboxAtom = inboxAtom
-        self.uiState = atom(\.workspaceSidebarState)
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
         synchronizeWindowPresentationFacts()
@@ -127,8 +116,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         )
         self.splitViewController = splitVC
         window.contentViewController = splitVC
+        splitVC.loadViewIfNeeded()
+        setupToolbar()
 
-        // MainSplitViewController owns the shell-spanning top strip.
+        // MainSplitViewController owns the pane content; the native toolbar owns
+        // the single top line containing its composed tab/control surface.
     }
 
     // MARK: - NSWindowDelegate (frame persistence)
@@ -234,194 +226,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    // MARK: - Titlebar Accessory
-
-    private func setupTitlebarAccessory() {
-        let worktreeSidebarPresentation = AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar)
-        let inboxSidebarPresentation = AppCommandDispatcher.shared.definition(for: .showInboxNotifications)
-
-        // Worktree sidebar button
-        let worktreeButton = makeSidebarToolbarButton(
-            identifier: "worktreeToolbarButton",
-            accessibilityLabel: worktreeSidebarPresentation.actionSpec.label,
-            toolTip: worktreeSidebarPresentation.controlTooltipRenderValue(),
-            action: #selector(showWorktreeSidebarAction)
-        )
-        self.worktreeToolbarButton = worktreeButton
-
-        // Inbox sidebar button
-        let inboxButton = makeSidebarToolbarButton(
-            identifier: "inboxToolbarBell",
-            accessibilityLabel: inboxSidebarPresentation.actionSpec.label,
-            toolTip: inboxSidebarPresentation.controlTooltipRenderValue(),
-            action: #selector(showInboxSidebarAction)
-        )
-        self.inboxToolbarButton = inboxButton
-        installInboxUnreadBadge(on: inboxButton)
-
-        // Stack buttons horizontally with standard titlebar spacing
-        let stack = NSStackView(views: [worktreeButton, inboxButton])
-        stack.identifier = NSUserInterfaceItemIdentifier("sidebarToolbarAccessory")
-        stack.orientation = .horizontal
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 22, bottom: 0, right: 0)
-        stack.frame = NSRect(x: 0, y: 0, width: 104, height: 28)
-
-        let accessoryVC = NSTitlebarAccessoryViewController()
-        accessoryVC.view = stack
-        accessoryVC.layoutAttribute = .left
-
-        window?.addTitlebarAccessoryViewController(accessoryVC)
-        self.sidebarAccessory = accessoryVC
-        updateSidebarToolbarIcons()
-        observeSidebarSurface()
-    }
-
-    private func makeSidebarToolbarButton(
-        identifier: String,
-        accessibilityLabel: String,
-        toolTip: ControlTooltipRenderValue,
-        action: Selector
-    ) -> SidebarToolbarButton {
-        let button = SidebarToolbarButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        button.bezelStyle = .accessoryBarAction
-        button.isBordered = false
-        button.identifier = NSUserInterfaceItemIdentifier(identifier)
-        button.target = self
-        button.action = action
-        button.applyControlTooltip(toolTip)
-        button.image = sidebarToolbarImage(
-            symbolName: "circle",
-            accessibilityDescription: accessibilityLabel
-        )
-        return button
-    }
-
-    private func updateSidebarToolbarIcons() {
-        guard let uiState else { return }
-        let sidebarIsOpen = !uiState.sidebarCollapsed
-        let worktreeSymbol =
-            sidebarIsOpen && uiState.sidebarSurface == .repos
-            ? "square.stack.3d.down.right.fill"
-            : "square.stack.3d.down.right"
-        let inboxSymbol =
-            sidebarIsOpen && uiState.sidebarSurface == .inbox
-            ? "bell.fill"
-            : "bell"
-
-        applySidebarToolbarImage(
-            symbolName: worktreeSymbol,
-            accessibilityDescription: AppCommandDispatcher.shared.definition(for: .showWorktreeSidebar).actionSpec
-                .label,
-            to: worktreeToolbarButton
-        )
-        applySidebarToolbarImage(
-            symbolName: inboxSymbol,
-            accessibilityDescription: AppCommandDispatcher.shared.definition(for: .showInboxNotifications).actionSpec
-                .label,
-            to: inboxToolbarButton
-        )
-    }
-
-    private func sidebarToolbarImage(
-        symbolName: String,
-        accessibilityDescription: String
-    ) -> NSImage? {
-        let image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: accessibilityDescription
-        )
-        image?.setName(NSImage.Name(symbolName))
-        return image
-    }
-
-    private func applySidebarToolbarImage(
-        symbolName: String,
-        accessibilityDescription: String,
-        to button: SidebarToolbarButton?
-    ) {
-        button?.currentSymbolName = symbolName
-        button?.image = sidebarToolbarImage(
-            symbolName: symbolName,
-            accessibilityDescription: accessibilityDescription
-        )
-    }
-
-    private func observeSidebarSurface() {
-        guard !isObservingSidebarSurface, let uiState else { return }
-        isObservingSidebarSurface = true
-        withObservationTracking {
-            _ = uiState.sidebarSurface
-            _ = uiState.sidebarCollapsed
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.isObservingSidebarSurface = false
-                self.updateSidebarToolbarIcons()
-                self.observeSidebarSurface()
-            }
-        }
-    }
-
-    private func installInboxUnreadBadge(on button: NSButton) {
-        let badgeAnchor = NSView()
-        badgeAnchor.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBadgeAnchor")
-        badgeAnchor.translatesAutoresizingMaskIntoConstraints = false
-        button.addSubview(badgeAnchor)
-
-        let badge = NSHostingView(rootView: UnreadCountBadge(text: "1"))
-        badge.identifier = NSUserInterfaceItemIdentifier("inboxToolbarUnreadBadge")
-        badge.translatesAutoresizingMaskIntoConstraints = false
-        badge.isHidden = true
-        badge.setContentHuggingPriority(.required, for: .horizontal)
-        badge.setContentHuggingPriority(.required, for: .vertical)
-        button.addSubview(badge)
-        NSLayoutConstraint.activate([
-            badgeAnchor.centerXAnchor.constraint(equalTo: button.centerXAnchor),
-            badgeAnchor.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-            badgeAnchor.widthAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
-            badgeAnchor.heightAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
-            badge.topAnchor.constraint(
-                equalTo: badgeAnchor.topAnchor,
-                constant: -AppStyles.Shell.Sidebar.badgeOffset
-            ),
-            badge.trailingAnchor.constraint(
-                equalTo: badgeAnchor.trailingAnchor,
-                constant: AppStyles.Shell.Sidebar.badgeOffset
-            ),
-        ])
-        inboxToolbarBadgeHostingView = badge
-        updateInboxUnreadBadge()
-        observeInboxUnreadCount()
-    }
-
-    private func updateInboxUnreadBadge() {
-        let unreadCount = inboxAtom?.globalRollUpAlertCount ?? 0
-        guard unreadCount > 0 else {
-            inboxToolbarBadgeHostingView?.isHidden = true
-            return
-        }
-        inboxToolbarBadgeHostingView?.rootView = UnreadCountBadge(
-            text: InboxToolbarUnreadBadgeText.text(for: unreadCount)
-        )
-        inboxToolbarBadgeHostingView?.isHidden = false
-    }
-
-    private func observeInboxUnreadCount() {
-        guard !isObservingInboxUnread else { return }
-        isObservingInboxUnread = true
-        withObservationTracking {
-            _ = inboxAtom?.globalRollUpAlertCount
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.isObservingInboxUnread = false
-                self.updateInboxUnreadBadge()
-                self.observeInboxUnreadCount()
-            }
-        }
-    }
-
     // MARK: - Toolbar
 
     private func setupToolbar() {
@@ -430,8 +234,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         toolbar.allowsDisplayModeCustomization = false
+        toolbar.autosavesConfiguration = false
         window?.toolbar = toolbar
-        window?.toolbarStyle = .unified
+        window?.toolbarStyle = .unifiedCompact
+        splitViewController?.updateWindowContentSafeArea()
+        window?.contentView?.layoutSubtreeIfNeeded()
+        refreshToolbarToggleState()
     }
 
     // MARK: - Actions
@@ -509,58 +317,20 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         toggleSidebar()
     }
 
-    @objc private func showWorktreeSidebarAction() {
-        showWorktreeSidebar()
-        updateSidebarToolbarIcons()
-    }
-
-    @objc private func showInboxSidebarAction() {
-        showRollUpInboxNotifications(commandBarIsKey: false)
-        updateSidebarToolbarIcons()
-    }
-
-    @objc private func watchFolderAction() {
-        AppCommandDispatcher.shared.dispatch(.watchFolder)
-    }
-
-    private func commandToolbarButtonItem(
-        for command: AppCommand,
-        action: Selector
-    ) -> NSToolbarItem {
-        let definition = AppCommandDispatcher.shared.definition(for: command)
-        let item = NSToolbarItem(itemIdentifier: .watchFolder)
-        item.label = definition.actionSpec.label
-        item.paletteLabel = definition.actionSpec.label
-        item.applyControlTooltip(definition.controlTooltipRenderValue())
-
-        let buttonSize = AppStyles.Shell.Titlebar.buttonSize
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: buttonSize, height: buttonSize))
-        button.title = ""
-        button.target = self
-        button.action = action
-        button.bezelStyle = .accessoryBarAction
-        button.isBordered = false
-        button.imagePosition = .imageOnly
-        button.applyControlTooltip(definition.controlTooltipRenderValue())
-        button.setAccessibilityLabel(definition.actionSpec.label)
-
-        if case .system(let systemName) = definition.actionSpec.icon {
-            let image = NSImage(
-                systemSymbolName: systemName.rawValue,
-                accessibilityDescription: definition.actionSpec.label
-            )
-            button.image =
-                image?.withSymbolConfiguration(
-                    NSImage.SymbolConfiguration(
-                        pointSize: AppStyles.Shell.Titlebar.iconSize,
-                        weight: .medium
-                    )
-                ) ?? image
+    @objc private func showWorktreeSidebarToolbarAction() {
+        AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)
+        Task { @MainActor [weak self] in
+            self?.refreshToolbarToggleState()
         }
-
-        item.view = button
-        return item
     }
+
+    @objc private func showInboxToolbarAction() {
+        AppCommandDispatcher.shared.dispatch(.showInboxNotifications)
+        Task { @MainActor [weak self] in
+            self?.refreshToolbarToggleState()
+        }
+    }
+
 }
 
 // MARK: - NSToolbarDelegate
@@ -568,8 +338,15 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            .flexibleSpace,
+            .worktreeSidebar,
+            .inboxSidebar,
+            .sidebarDivider,
             .watchFolder,
+            .managementLayer,
+            .arrangement,
+            .workspaceTabs,
+            .selectTab,
+            .newTab,
         ]
     }
 
@@ -581,13 +358,233 @@ extension MainWindowController: NSToolbarDelegate {
         _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
+        if let cachedItem = toolbarItems[itemIdentifier] {
+            return cachedItem
+        }
+
+        let item: NSToolbarItem?
         switch itemIdentifier {
+        case .worktreeSidebar:
+            item = makeNativeToolbarItem(
+                identifier: itemIdentifier,
+                label: "Repositories",
+                command: .showWorktreeSidebar,
+                symbolName: "square.stack.3d.down.right",
+                isBordered: false,
+                action: #selector(showWorktreeSidebarToolbarAction)
+            )
+        case .inboxSidebar:
+            let inboxItem = makeNativeToolbarItem(
+                identifier: itemIdentifier,
+                label: "Inbox",
+                command: .showInboxNotifications,
+                symbolName: "bell",
+                isBordered: false,
+                action: #selector(showInboxToolbarAction)
+            )
+            let unread = inboxAtom.globalRollUpAlertCount
+            inboxItem.badge = unread > 0 ? .count(unread) : nil
+            item = inboxItem
+        case .sidebarDivider:
+            item = makeToolbarDividerItem(identifier: itemIdentifier)
         case .watchFolder:
-            return commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))
+            item = makeControlToolbarItem(
+                identifier: itemIdentifier,
+                label: "Watch Folder",
+                control: .watchFolder
+            )
+        case .managementLayer:
+            item = makeControlToolbarItem(
+                identifier: itemIdentifier,
+                label: "Management Mode",
+                control: .managementLayer
+            )
+        case .arrangement:
+            item = makeToolbarItem(
+                identifier: itemIdentifier,
+                label: "Arrangements"
+            )
+        case .workspaceTabs:
+            let workspaceTabsItem = NSToolbarItem(itemIdentifier: itemIdentifier)
+            workspaceTabsItem.label = "Workspace Tabs"
+            workspaceTabsItem.paletteLabel = "Workspace Tabs"
+            workspaceTabsItem.visibilityPriority = .low
+            workspaceTabsItem.isBordered = false
+            workspaceTabsItem.view = splitViewController?.makeToolbarChromeView()
+            item = workspaceTabsItem
+        case .selectTab:
+            item = makeControlToolbarItem(
+                identifier: itemIdentifier,
+                label: "Select Tab",
+                control: .selectTab
+            )
+        case .newTab:
+            item = makeControlToolbarItem(
+                identifier: itemIdentifier,
+                label: "New Tab",
+                control: .newTab
+            )
 
         default:
-            return nil
+            item = nil
         }
+
+        if let item {
+            toolbarItems[itemIdentifier] = item
+        }
+        return item
+    }
+
+    private func makeToolbarItem(
+        identifier: NSToolbarItem.Identifier,
+        label: String
+    ) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = label
+        item.paletteLabel = label
+        item.visibilityPriority = .high
+        item.view = splitViewController?.makeToolbarControlView(.arrangement)
+        return item
+    }
+
+    private func makeControlToolbarItem(
+        identifier: NSToolbarItem.Identifier,
+        label: String,
+        control: MainToolbarControl
+    ) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = label
+        item.paletteLabel = label
+        item.visibilityPriority = .high
+        item.isBordered = false
+        item.view = splitViewController?.makeToolbarControlView(control)
+        return item
+    }
+
+    private func makeNativeToolbarItem(
+        identifier: NSToolbarItem.Identifier,
+        label: String,
+        command: AppCommand,
+        symbolName: String,
+        isBordered: Bool,
+        action: Selector
+    ) -> NSToolbarItem {
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = label
+        item.paletteLabel = label
+        item.visibilityPriority = .high
+        let symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: AppStyles.Shell.Chrome.ToolbarButton.iconSize,
+            weight: .medium
+        )
+        item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)?
+            .withSymbolConfiguration(symbolConfiguration)
+        item.isBordered = isBordered
+        item.target = self
+        item.action = action
+        item.applyControlTooltip(
+            AppCommandDispatcher.shared.definition(for: command).controlTooltipRenderValue()
+        )
+        item.isEnabled = AppCommandDispatcher.shared.canDispatch(command)
+        return item
+    }
+
+    private func makeToolbarDividerItem(
+        identifier: NSToolbarItem.Identifier
+    ) -> NSToolbarItem {
+        let dividerView = ToolbarDividerView()
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = "Sidebar Divider"
+        item.paletteLabel = "Sidebar Divider"
+        item.visibilityPriority = .high
+        item.isBordered = false
+        item.view = dividerView
+        return item
+    }
+
+    func refreshToolbarToggleState() {
+        let sidebarState = atom(\.workspaceSidebarState)
+        let sidebarOpen = !sidebarState.sidebarCollapsed
+        let managementActive = atom(\.managementLayer).isActive
+        setToggleImage(
+            identifier: .worktreeSidebar,
+            baseSymbol: "square.stack.3d.down.right",
+            selectedSymbol: "square.stack.3d.down.right.fill",
+            label: "Repositories",
+            isSelected: sidebarOpen && sidebarState.sidebarSurface == .repos
+        )
+        setToggleImage(
+            identifier: .inboxSidebar,
+            baseSymbol: "bell",
+            selectedSymbol: "bell.fill",
+            label: "Inbox",
+            isSelected: sidebarOpen && sidebarState.sidebarSurface == .inbox
+        )
+        setToggleImage(
+            identifier: .managementLayer,
+            baseSymbol: "rectangle.split.2x2",
+            selectedSymbol: "rectangle.split.2x2.fill",
+            label: "Management Mode",
+            isSelected: managementActive
+        )
+    }
+
+    private func setToggleImage(
+        identifier: NSToolbarItem.Identifier,
+        baseSymbol: String,
+        selectedSymbol: String,
+        label: String,
+        isSelected: Bool
+    ) {
+        guard let item = toolbarItems[identifier] else { return }
+        let symbolName = isSelected ? selectedSymbol : baseSymbol
+        var configuration = NSImage.SymbolConfiguration(
+            pointSize: AppStyles.Shell.Chrome.ToolbarButton.iconSize,
+            weight: .medium
+        )
+        if isSelected {
+            configuration = configuration.applying(
+                NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor])
+            )
+        }
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)?
+            .withSymbolConfiguration(configuration)
+        item.image = image
+    }
+}
+
+private final class ToolbarDividerView: NSView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: AppStyles.Shell.Chrome.dividerHorizontalPadding * 2 + 1,
+            height: AppStyles.Shell.Chrome.dividerHeight
+        )
+    }
+
+    init() {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        let lineView = NSView(frame: .zero)
+        lineView.translatesAutoresizingMaskIntoConstraints = false
+        lineView.wantsLayer = true
+        lineView.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        addSubview(lineView)
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(
+                equalToConstant: AppStyles.Shell.Chrome.dividerHorizontalPadding * 2 + 1
+            ),
+            heightAnchor.constraint(equalToConstant: AppStyles.Shell.Chrome.dividerHeight),
+            lineView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            lineView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            lineView.widthAnchor.constraint(equalToConstant: 1),
+            lineView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.Chrome.dividerHeight),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not supported")
     }
 }
 

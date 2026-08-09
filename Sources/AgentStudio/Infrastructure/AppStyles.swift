@@ -213,23 +213,12 @@ package enum AppStyles {
         }
 
         package enum Chrome {
-            package static let tabBarLeadingInset: CGFloat = 80
-            package static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
-            package static let tabBarTopInset: CGFloat = 0
-            package static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
             package static let circledControlSpacing: CGFloat = 12
-            package static let tabStripLeadingPadding: CGFloat = 10
             package static let plainToolbarIconSpacing: CGFloat = 0
             package static let dividerHeight: CGFloat = 18
             package static let dividerHorizontalPadding: CGFloat = 12
             package static let windowDragRegionHeight: CGFloat =
                 AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
-
-            package enum SidebarNav {
-                package static let iconSpacing: CGFloat = AppStyles.Shell.Chrome.iconClusterSpacing
-                package static let dividerLeadingPadding: CGFloat = 14
-                package static let dividerTrailingPadding: CGFloat = 24
-            }
 
             package enum PlainToolbarIcon {
                 package static let buttonSize: CGFloat = 24
@@ -239,7 +228,6 @@ package enum AppStyles {
             package enum ToolbarButton {
                 package static let size: CGFloat = 28
                 package static let iconSize: CGFloat = 12
-                package static let verticalOffset: CGFloat = 2
                 package static let baseFillColor = Color(
                     nsColor: NSColor(hex: "#141416") ?? NSColor(white: 0.08, alpha: 1))
                 package static let hoverFillColor = Color(
