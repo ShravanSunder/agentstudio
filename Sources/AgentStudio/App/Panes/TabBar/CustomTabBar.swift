@@ -196,7 +196,6 @@ struct CustomTabBar: View {
                         }
                     }
                     .frame(height: AppStyles.Shell.TabBar.tabPillHeight, alignment: .center)
-                    .offset(y: AppStyles.Shell.TabBar.tabStripPillVerticalNudge)
 
                     // Left gradient fade
                     if showLeftFade {

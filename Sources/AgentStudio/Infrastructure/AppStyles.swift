@@ -208,11 +208,6 @@ package enum AppStyles {
         package enum TabBar {
             package static let height: CGFloat = 40
             package static let tabPillHeight: CGFloat = 32
-            /// Optical compensation for NSToolbar row headroom above the tabs item.
-            /// Value derived from pixel measurement, not from the row's own geometry —
-            /// AppKit reserves headroom above this toolbar item that we can't remove,
-            /// so the pill strip nudges up to visually re-center within the strip.
-            package static let tabStripPillVerticalNudge: CGFloat = -3
             package static let tabPillSpacing: CGFloat = 2
             package static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
