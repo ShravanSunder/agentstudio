@@ -423,16 +423,17 @@ unambiguous mapping remain selection-required.
 `BridgeReviewSourceProvider` exposes the same catalog and
 `AgentStudioGitBridgeReviewDataClient` schedules it through the existing
 `BridgeGitReadScheduler` as Review metadata work. Initial target adoption uses
-only the catalog's designated default row. Opening the comparison control asks
-for the current catalog through the existing Bridge product-call and worker-RPC
-path; BridgeWeb filters the returned rows locally as the user types. It does not
-perform a Git read per keystroke.
+only the catalog's designated default row. The existing initial Review-package
+load captures that same catalog once and publishes it inside
+`pane.presentation.reviewComparison`. Opening the comparison control reads the
+already-published presentation slice; BridgeWeb filters those rows locally as
+the user types. It does not perform a Git read on open or per keystroke.
 
 The catalog is transient display data. It is neither pane intent nor snapshot
 origin and is not stored in SQLite. PR0 does not introduce a cross-pane catalog
 cache, watcher, or refresh service. Sharing and coalescing one catalog per
-worktree remains the explicitly deferred selector optimization; the current
-control performs one bounded request when opened.
+worktree remains the explicitly deferred selector optimization; PR0 performs
+one bounded catalog read for each pane controller's initial Review load.
 
 ## One native contribution read owns Git coherence
 
@@ -609,13 +610,10 @@ PROPOSED CONTRIBUTION PATH
   → no designation/error/late result leaves selection-required unchanged
 
 [+] Compare Worktree control opens
-  → [+] Review worker target-catalog request
-  → [+] review.comparison.targets.current product call
-  → [+] existing Bridge Git provider schedules one target-catalog read
-  → [+] agentstudio-git returns default + local/remote-tracking branch rows
-  ← [+] product result → existing Review display-patch target-catalog slice
+  → [=] existing worker panelChrome projection
+  → [+] reads target catalog from pane.presentation.reviewComparison
   ← [+] BridgeWeb renders rows and filters them locally as text changes
-  ← catalog error renders selector-local failure; current comparison is unchanged
+  ← null catalog renders selector-local unavailability; current comparison is unchanged
 
 [+] Review header action
   → typed Bridge review control command
@@ -671,17 +669,13 @@ presentation.
 
 ## Review control transport
 
-Use the existing Bridge product-call and worker-RPC path; do not add a second
-WebKit message handler or Agent Studio IPC command.
+Use the existing pane-presentation path for transient catalog data and the
+existing Bridge product-call and worker-RPC path for committed selection; do
+not add a second WebKit message handler or Agent Studio IPC command.
 
-Two typed Review operations reuse the existing product-call path:
+One typed Review operation reuses the existing product-call path:
 
 ```text
-review.comparison.targets.current
-  input:  none
-  effect: one bounded agentstudio-git target-catalog read
-  output: designated default plus local and remote-tracking branch rows
-
 review.comparison.update
   input:  one selected branch/ref or exact commit target
   effect: protocol commit → controller → App callback → pane graph → adopt → refresh
@@ -698,12 +692,14 @@ controller adopts and refreshes only for `applied` or exact `unchanged`; if the
 pane no longer exists, it retires the pane admission so the dispatcher cannot
 return a successful acknowledgement for an unapplied intent.
 
-The target-catalog result is transient worker/UI data. A dedicated
-`reviewComparisonTargetsRequest` worker command calls the existing product
-transport and publishes the result through an added target-catalog slice of the
-existing Review display-patch path. The UI neither calls native code directly
-nor adds another WebKit transport. Catalog failure is contained to the opened
-selector and does not invalidate the currently displayed comparison.
+The target catalog is transient worker/UI data. The native controller reads it
+during the existing initial Review-package load, retains it in the existing
+Review comparison presentation owner, and publishes it through
+`pane.presentation.reviewComparison.targetCatalog`. The worker's existing
+panelChrome projection copies that slice to the UI. The UI neither calls native
+code directly nor adds another request/result lifecycle. Catalog failure
+publishes `null`, is contained to the selector, and does not invalidate the
+currently displayed comparison.
 
 Branch rows submit their typed branch/ref target immediately. Commit mode
 accepts a full Git object ID after bounded hexadecimal validation and submits a
@@ -844,12 +840,11 @@ not add another communication system:
 ```text
 BridgeWeb → native
   existing comm-worker product-call transport
-    review.comparison.targets.current
     review.comparison.update
 
 native → BridgeWeb
   existing product metadata transport
-    pane.presentation with optional Review comparison state
+    pane.presentation with optional Review comparison state + target catalog
     Review metadata reset/snapshot with immutable comparison origin
   existing worker Review display-patch transport
     transient comparison target catalog
@@ -1131,8 +1126,9 @@ no repository default target
                                      └─ never substitute checkout, main, or HEAD
 
 target catalog unavailable
-  product call / agentstudio-git ──► selector-local retry state
-                                  └─ current comparison remains unchanged
+  initial Review load / agentstudio-git ──► null presentation catalog
+                                         ├─ selector explains unavailability
+                                         └─ current comparison remains unchanged
 
 invalid target / missing HEAD / missing object
   agentstudio-git ──► unavailable, or retain prior snapshot as stale
@@ -1241,7 +1237,7 @@ P0-R1  agentstudio-git designation read + controller guard + pane intent
               and Zoom-companion initial Review-package loads
 
 P0-R2  pane facade/graph + committed-call target + controller
-       + target-catalog product read + Branch/Commit Review control
+       + target catalog in pane presentation + Branch/Commit Review control
        + existing pane metadata → package subject-label projection
        contract: commit before acknowledgement; header names subject and target;
                  branch rows distinguish local/remote/default and show revisions;
@@ -1335,9 +1331,8 @@ infrastructure. No release or tag proof is required for PR0.
 Gain: truthful repository-default selection, correct contribution meaning, one
 durable authority, coherent origin, and a discoverable target control. Cost:
 one target-catalog read, one correlated contribution read, a guarded controller
-lookup, one read-only product call and worker display slice, a pane-payload codec
-cutover, and origin propagation through the existing Review package/reset
-contract.
+lookup, one pane-presentation catalog slice, a pane-payload codec cutover, and
+origin propagation through the existing Review package/reset contract.
 
 ### Rejected — compose resolve, merge-base, and diff calls in Bridge
 
@@ -1358,14 +1353,14 @@ No PR0 requirement needs historical browsing, synchronization, collaboration,
 or a frozen Review object. Such machinery would add lifecycle and recovery
 problems without improving the current contribution comparison.
 
-The accepted usability debt is that the catalog is requested per opened pane
-control. PR0 does not share or coalesce one catalog per worktree across tabs and
-panes. That optimization is reconsidered when repeated Git reads are measured or
-the selector is reused by another surface; it must reuse existing Git refresh
-ownership rather than add a watcher or cache service. A searchable commit
-history is also deferred: Commit mode accepts one exact OID. A historical
-snapshot store is reconsidered only when a future annotation or audit
-requirement needs retrieval, not merely identity.
+The accepted usability debt is that the catalog is read once per pane
+controller's initial Review load. PR0 does not share or coalesce one catalog per
+worktree across tabs and panes. That optimization is reconsidered when repeated
+Git reads are measured or the selector is reused by another surface; it must
+reuse existing Git refresh ownership rather than add a watcher or cache
+service. A searchable commit history is also deferred: Commit mode accepts one
+exact OID. A historical snapshot store is reconsidered only when a future
+annotation or audit requirement needs retrieval, not merely identity.
 
 PR0 also does not infer stacked-branch ancestry. A reviewer working on a stack
 pays the explicit cost of choosing that stack's intended base in the same
