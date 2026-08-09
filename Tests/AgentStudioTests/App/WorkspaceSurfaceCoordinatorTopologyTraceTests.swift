@@ -99,7 +99,10 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
             content: .bridgePanel(
                 BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: cwd.path, baseline: .localDefaultBranch(branchName: "main"))
+                    source: .workspace(
+                        rootPath: cwd.path,
+                        comparisonIntent: .init(
+                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")))
                 )
             ),
             metadata: PaneMetadata(

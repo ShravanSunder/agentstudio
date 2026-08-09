@@ -472,7 +472,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .fileViewer,
-                    source: .workspace(rootPath: "/tmp/product-file-viewer", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/product-file-viewer",
+                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground

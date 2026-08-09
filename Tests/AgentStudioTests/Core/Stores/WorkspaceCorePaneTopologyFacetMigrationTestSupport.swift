@@ -448,7 +448,8 @@ func insertMigration015Bridge(_ database: Database, ids: Migration015FixtureIDs)
             panelKind: .fileViewer,
             source: .workspace(
                 rootPath: "/tmp/migration-015",
-                baseline: .localDefaultBranch(branchName: "main")
+                comparisonIntent: .init(
+                    activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
             )
         )
     )
@@ -852,7 +853,8 @@ func assertMigration015ApplicationState(
                     panelKind: .fileViewer,
                     source: .workspace(
                         rootPath: "/tmp/migration-015",
-                        baseline: .localDefaultBranch(branchName: "main")
+                        comparisonIntent: .init(
+                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
                     )
                 )
             )

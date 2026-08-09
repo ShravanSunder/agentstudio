@@ -392,7 +392,8 @@ extension WebKitSerializedTests {
                         panelKind: .diffViewer,
                         source: .workspace(
                             rootPath: worktree.path.path,
-                            baseline: .localDefaultBranch(branchName: "main")
+                            comparisonIntent: .init(
+                                activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
                         )
                     )
                 ),
@@ -468,7 +469,10 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: rootPath.path, baseline: .localDefaultBranch(branchName: "main"))
+                    source: .workspace(
+                        rootPath: rootPath.path,
+                        comparisonIntent: .init(
+                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")))
                 ),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 bridgeWorld: .page
@@ -485,7 +489,10 @@ extension WebKitSerializedTests {
             let rootPath = URL(fileURLWithPath: "/tmp/agentstudio-file-view-root")
             let state = BridgePaneState(
                 panelKind: .fileViewer,
-                source: .workspace(rootPath: rootPath.path, baseline: .localDefaultBranch(branchName: "main"))
+                source: .workspace(
+                    rootPath: rootPath.path,
+                    comparisonIntent: .init(
+                        activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")))
             )
 
             let artifacts = BridgePaneController.makeBootstrapArtifacts(

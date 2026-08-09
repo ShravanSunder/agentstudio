@@ -181,7 +181,9 @@ private func makeWorkspaceRefreshTestSetup(
     )
     let paneState = BridgePaneState(
         panelKind: .diffViewer,
-        source: .workspace(rootPath: worktree.path.path, baseline: .headMinusOne)
+        source: .workspace(
+            rootPath: worktree.path.path,
+            comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
     )
     let bridgePane = harness.store.createPane(
         content: .bridgePanel(paneState),

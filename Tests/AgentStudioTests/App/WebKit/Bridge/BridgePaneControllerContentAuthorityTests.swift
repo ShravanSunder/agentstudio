@@ -87,7 +87,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
                 ),
                 reviewSourceProvider: provider
             )
@@ -171,7 +173,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
                 ),
                 reviewSourceProvider: provider
             )
@@ -360,7 +364,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
                 ),
                 reviewSourceProvider: provider
             )
@@ -419,7 +425,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
                 ),
                 reviewSourceProvider: provider
             )

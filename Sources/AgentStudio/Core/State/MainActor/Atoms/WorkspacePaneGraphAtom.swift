@@ -207,6 +207,14 @@ package enum WorkspacePaneGraphReplacementRejection: Error, Equatable, Sendable 
     case duplicateDrawerChildMembership(UUID)
 }
 
+package enum BridgePaneStateMutationResult: Equatable, Sendable {
+    case applied(BridgePaneState)
+    case unchanged(BridgePaneState)
+    case paneMissing
+    case notBridgePane
+    case notWorkspaceSource
+}
+
 /// A complete pane graph that has passed the pane domain's normalization and
 /// relational invariants. Its initializer is intentionally private so full
 /// atom replacement cannot bypass validation.
@@ -521,6 +529,60 @@ package final class WorkspacePaneGraphAtom {
         guard paneState.content != .webview(state) else { return }
         mutatePaneStates { paneStates in
             paneStates[paneId]?.content = .webview(state)
+        }
+    }
+
+    @discardableResult
+    package func updateBridgePaneState(
+        _ paneId: UUID,
+        state: BridgePaneState
+    ) -> BridgePaneStateMutationResult {
+        mutatePaneStates { paneStates in
+            guard let paneState = paneStates[paneId] else {
+                return .paneMissing
+            }
+            guard case .bridgePanel(let currentState) = paneState.content else {
+                return .notBridgePane
+            }
+            guard currentState != state else {
+                return .unchanged(currentState)
+            }
+            paneStates[paneId]?.content = .bridgePanel(state)
+            return .applied(state)
+        }
+    }
+
+    @discardableResult
+    package func setInitialBridgeContributionTargetIfAbsent(
+        _ paneId: UUID,
+        target: WorkspaceReviewContributionTarget
+    ) -> BridgePaneStateMutationResult {
+        mutatePaneStates { paneStates in
+            guard let paneState = paneStates[paneId] else {
+                return .paneMissing
+            }
+            guard case .bridgePanel(let currentState) = paneState.content else {
+                return .notBridgePane
+            }
+            guard case .workspace(let rootPath, let comparisonIntent) = currentState.source else {
+                return .notWorkspaceSource
+            }
+            guard comparisonIntent.contributionTarget == nil else {
+                return .unchanged(currentState)
+            }
+
+            let updatedState = BridgePaneState(
+                panelKind: currentState.panelKind,
+                source: .workspace(
+                    rootPath: rootPath,
+                    comparisonIntent: WorkspaceReviewComparisonIntent(
+                        activeKind: comparisonIntent.activeKind,
+                        contributionTarget: target
+                    )
+                )
+            )
+            paneStates[paneId]?.content = .bridgePanel(updatedState)
+            return .applied(updatedState)
         }
     }
 

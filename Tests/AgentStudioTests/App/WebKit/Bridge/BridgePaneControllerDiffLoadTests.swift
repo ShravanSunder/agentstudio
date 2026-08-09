@@ -158,7 +158,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let controller = makeController(
             state: BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             ),
             reviewSourceProvider: provider
         )
@@ -227,7 +229,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             paneId: paneId,
             state: BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             ),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
@@ -304,7 +308,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let controller = makeController(
             state: BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             ),
             reviewSourceProvider: provider
         )
@@ -333,7 +339,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             paneId: UUIDv7.generate(),
             state: BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             ),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground

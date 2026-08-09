@@ -411,7 +411,8 @@ enum BridgeProductWebKitSurfaceJourneyTestSupport {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: repoURL.path,
-                    baseline: .localDefaultBranch(branchName: "main")
+                    comparisonIntent: .init(
+                        activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
                 )
             ),
             appRootURL: testBridgeAppRootURL(),

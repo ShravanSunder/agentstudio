@@ -23,7 +23,7 @@ extension WebKitSerializedTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/accepted/bridge/source",
-                    baseline: .unstaged
+                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)
                 )
             )
             let acceptedPane = Pane(

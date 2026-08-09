@@ -16,13 +16,17 @@ struct PaneFilesystemLocationPolicyTests {
         let bridgeFiles = PaneContent.bridgePanel(
             BridgePaneState(
                 panelKind: .fileViewer,
-                source: .workspace(rootPath: "/work/files", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/work/files",
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             )
         )
         let bridgeReview = PaneContent.bridgePanel(
             BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/work/review", baseline: .unstaged)
+                source: .workspace(
+                    rootPath: "/work/review",
+                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
             )
         )
         let codeViewer = PaneContent.codeViewer(
@@ -66,7 +70,8 @@ struct PaneFilesystemLocationPolicyTests {
         let bridge = PaneContent.bridgePanel(
             BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/work/review", baseline: .staged)
+                source: .workspace(
+                    rootPath: "/work/review", comparisonIntent: .init(activeKind: .stagedOnly, contributionTarget: nil))
             )
         )
         let codeViewer = PaneContent.codeViewer(

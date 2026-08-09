@@ -160,6 +160,22 @@ package final class WorkspacePaneAtom {
         graphAtom.syncPaneWebviewState(paneId, state: state)
     }
 
+    @discardableResult
+    package func updateBridgePaneState(
+        _ paneId: UUID,
+        state: BridgePaneState
+    ) -> BridgePaneStateMutationResult {
+        graphAtom.updateBridgePaneState(paneId, state: state)
+    }
+
+    @discardableResult
+    package func setInitialBridgeContributionTargetIfAbsent(
+        _ paneId: UUID,
+        target: WorkspaceReviewContributionTarget
+    ) -> BridgePaneStateMutationResult {
+        graphAtom.setInitialBridgeContributionTargetIfAbsent(paneId, target: target)
+    }
+
     package func setResidency(_ residency: SessionResidency, for paneId: UUID) {
         graphAtom.setResidency(residency, for: paneId)
     }

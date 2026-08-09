@@ -48,7 +48,13 @@ final class BridgePaneStateTests {
     func test_codable_roundTrip_with_workspaceSource() throws {
         let state = BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/repo", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/repo",
+                comparisonIntent: .init(
+                    activeKind: .contribution,
+                    contributionTarget: .ref(name: "HEAD~1")
+                )
+            )
         )
         let data = try JSONEncoder().encode(state)
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: data)
@@ -56,31 +62,27 @@ final class BridgePaneStateTests {
     }
 
     @Test
-    func test_codable_roundTrip_with_workspaceCompareTargets() throws {
-        let states = [
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/repo",
-                    baseline: .localDefaultBranch(branchName: "main")
-                )
-            ),
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(
-                    rootPath: "/tmp/repo",
-                    baseline: .originDefaultBranch(remoteName: "origin", branchName: "main")
-                )
-            ),
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/repo", baseline: .branch(name: "feature/review"))
-            ),
-            BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/repo", baseline: .ref(name: "v1.2.3"))
-            ),
+    func test_codable_roundTrip_preservesActiveKindAndRetainedContributionTarget() throws {
+        let targets: [WorkspaceReviewContributionTarget] = [
+            .localDefaultBranch(branchName: "main"),
+            .originDefaultBranch(remoteName: "origin", branchName: "main"),
+            .branch(name: "feature/review"),
+            .ref(name: "v1.2.3"),
         ]
+        let states = WorkspaceReviewComparisonIntent.ActiveKind.allCases.flatMap { activeKind in
+            targets.map { target in
+                BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(
+                        rootPath: "/tmp/repo",
+                        comparisonIntent: .init(
+                            activeKind: activeKind,
+                            contributionTarget: target
+                        )
+                    )
+                )
+            }
+        }
 
         for state in states {
             let data = try JSONEncoder().encode(state)
@@ -90,21 +92,88 @@ final class BridgePaneStateTests {
     }
 
     @Test
-    func test_codable_decodes_legacy_raw_workspace_baseline() throws {
-        let json = #"""
+    func test_codable_emitsOnlyComparisonIntentWorkspacePayload() throws {
+        let state = BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(
+                rootPath: "/tmp/repo",
+                comparisonIntent: .init(
+                    activeKind: .stagedOnly,
+                    contributionTarget: .branch(name: "stack/base")
+                )
+            )
+        )
+
+        let data = try JSONEncoder().encode(state)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let source = try #require(json["source"] as? [String: Any])
+        let workspace = try #require(source["workspace"] as? [String: Any])
+
+        #expect(workspace["comparisonIntent"] != nil)
+        #expect(workspace["baseline"] == nil)
+    }
+
+    @Test(arguments: legacyWorkspaceIntentCases)
+    func test_codable_decodesLegacyWorkspacePayload(
+        legacyJSON: String,
+        expectedIntent: WorkspaceReviewComparisonIntent
+    ) throws {
+        let json = """
             {
               "panelKind": "diffViewer",
               "source": {
                 "workspace": {
                   "rootPath": "/tmp/repo",
-                  "baseline": "unstaged"
+                  "baseline": \(legacyJSON)
                 }
               }
             }
-            """#
+            """
+
         let decoded = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
 
-        #expect(decoded.source == .workspace(rootPath: "/tmp/repo", baseline: .unstaged))
+        #expect(
+            decoded.source
+                == .workspace(rootPath: "/tmp/repo", comparisonIntent: expectedIntent)
+        )
+    }
+
+    @Test(arguments: malformedLegacyWorkspaceBaselines)
+    func test_codable_rejectsMalformedKeyedLegacyWorkspaceBaseline(
+        legacyJSON: String
+    ) {
+        let json = """
+            {
+              "panelKind": "diffViewer",
+              "source": {
+                "workspace": {
+                  "rootPath": "/tmp/repo",
+                  "baseline": \(legacyJSON)
+                }
+              }
+            }
+            """
+
+        #expect(throws: Error.self) {
+            _ = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
+        }
+    }
+
+    @Test
+    func test_codable_rejectsMultipleOuterSourceCases() {
+        let json = """
+            {
+              "panelKind": "diffViewer",
+              "source": {
+                "commit": { "sha": "abc123" },
+                "branchDiff": { "head": "feature", "base": "main" }
+              }
+            }
+            """
+
+        #expect(throws: Error.self) {
+            _ = try JSONDecoder().decode(BridgePaneState.self, from: Data(json.utf8))
+        }
     }
 
     @Test
@@ -174,3 +243,89 @@ final class BridgePaneStateTests {
         }
     }
 }
+
+private let legacyWorkspaceIntentCases: [(String, WorkspaceReviewComparisonIntent)] = [
+    (
+        #"{"kind":"localDefaultBranch","branchName":"hotfix/urgent"}"#,
+        .init(activeKind: .contribution, contributionTarget: nil)
+    ),
+    (
+        #"{"kind":"originDefaultBranch","remoteName":"origin","branchName":"master"}"#,
+        .init(
+            activeKind: .contribution,
+            contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "master")
+        )
+    ),
+    (
+        #"{"kind":"branch","name":"stack/base"}"#,
+        .init(activeKind: .contribution, contributionTarget: .branch(name: "stack/base"))
+    ),
+    (
+        #"{"kind":"ref","name":"refs/tags/v1.2.3"}"#,
+        .init(activeKind: .contribution, contributionTarget: .ref(name: "refs/tags/v1.2.3"))
+    ),
+    (
+        #"{"kind":"ref","name":"HEAD"}"#,
+        .init(activeKind: .contribution, contributionTarget: nil)
+    ),
+    (
+        #"{"kind":"headMinusOne"}"#,
+        .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1"))
+    ),
+    (
+        #"{"kind":"staged"}"#,
+        .init(activeKind: .stagedOnly, contributionTarget: nil)
+    ),
+    (
+        #"{"kind":"unstaged"}"#,
+        .init(activeKind: .unstagedOnly, contributionTarget: nil)
+    ),
+    (
+        #""localDefaultBranch""#,
+        .init(activeKind: .contribution, contributionTarget: nil)
+    ),
+    (
+        #""originDefaultBranch""#,
+        .init(
+            activeKind: .contribution,
+            contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "main")
+        )
+    ),
+    (
+        #""branch""#,
+        .init(activeKind: .contribution, contributionTarget: .ref(name: "branch"))
+    ),
+    (
+        #""ref""#,
+        .init(activeKind: .contribution, contributionTarget: .ref(name: "ref"))
+    ),
+    (
+        #""headMinusOne""#,
+        .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1"))
+    ),
+    (
+        #""HEAD""#,
+        .init(activeKind: .contribution, contributionTarget: nil)
+    ),
+    (
+        #""main""#,
+        .init(activeKind: .contribution, contributionTarget: .ref(name: "main"))
+    ),
+    (
+        #""staged""#,
+        .init(activeKind: .stagedOnly, contributionTarget: nil)
+    ),
+    (
+        #""unstaged""#,
+        .init(activeKind: .unstagedOnly, contributionTarget: nil)
+    ),
+]
+
+private let malformedLegacyWorkspaceBaselines: [String] = [
+    #"{"kind":"localDefaultBranch"}"#,
+    #"{"kind":"originDefaultBranch","branchName":"main"}"#,
+    #"{"kind":"originDefaultBranch","remoteName":"origin"}"#,
+    #"{"kind":"branch"}"#,
+    #"{"kind":"ref"}"#,
+    #"{"kind":"unknown"}"#,
+]

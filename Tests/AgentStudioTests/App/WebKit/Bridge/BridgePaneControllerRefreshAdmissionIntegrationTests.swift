@@ -581,7 +581,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let controller = makeController(
             state: BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/bridge-refresh-teardown", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/tmp/bridge-refresh-teardown",
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             )
         )
         controller.applyBridgePaneActivity(.foreground)

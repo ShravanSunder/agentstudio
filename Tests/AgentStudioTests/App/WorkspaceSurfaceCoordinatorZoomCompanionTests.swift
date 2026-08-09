@@ -98,8 +98,8 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("Zoom companion uses the cached main-worktree branch as its review baseline")
-        func zoomCompanionUsesCachedMainWorktreeBranchBaseline() async throws {
+        @Test("Zoom companion ignores cached checkout and starts without a comparison target")
+        func zoomCompanionStartsWithoutTargetWhenCheckoutIsCached() async throws {
             let harness = makeZoomCompanionHarness()
             defer { try? FileManager.default.removeItem(at: harness.root) }
             let repo = try #require(
@@ -135,18 +135,24 @@ extension WebKitSerializedTests {
                 harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
             )
 
-            guard case .workspace(_, let baseline) = companionState.source else {
+            guard case .workspace(_, let comparisonIntent) = companionState.source else {
                 Issue.record("Expected Zoom companion to use a workspace source")
                 await harness.coordinator.shutdown()
                 return
             }
-            #expect(baseline == .localDefaultBranch(branchName: "master"))
+            #expect(
+                comparisonIntent
+                    == WorkspaceReviewComparisonIntent(
+                        activeKind: .contribution,
+                        contributionTarget: nil
+                    )
+            )
 
             await harness.coordinator.shutdown()
         }
 
-        @Test("Zoom companion falls back to HEAD when default-branch enrichment is unavailable")
-        func zoomCompanionFallsBackToHEADWithoutDefaultBranchEnrichment() async throws {
+        @Test("Zoom companion starts without a comparison target when checkout enrichment is absent")
+        func zoomCompanionStartsWithoutTargetWhenCheckoutEnrichmentIsAbsent() async throws {
             let harness = makeZoomCompanionHarness()
             defer { try? FileManager.default.removeItem(at: harness.root) }
             let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
@@ -167,12 +173,18 @@ extension WebKitSerializedTests {
                 harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
             )
 
-            guard case .workspace(_, let baseline) = companionState.source else {
+            guard case .workspace(_, let comparisonIntent) = companionState.source else {
                 Issue.record("Expected Zoom companion to use a workspace source")
                 await harness.coordinator.shutdown()
                 return
             }
-            #expect(baseline == .ref(name: "HEAD"))
+            #expect(
+                comparisonIntent
+                    == WorkspaceReviewComparisonIntent(
+                        activeKind: .contribution,
+                        contributionTarget: nil
+                    )
+            )
 
             await harness.coordinator.shutdown()
         }

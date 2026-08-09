@@ -521,7 +521,8 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: input.repoURL.path,
-                        baseline: .localDefaultBranch(branchName: "main")
+                        comparisonIntent: .init(
+                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -829,7 +830,8 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: repoURL.path,
-                        baseline: .localDefaultBranch(branchName: "main")
+                        comparisonIntent: .init(
+                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),

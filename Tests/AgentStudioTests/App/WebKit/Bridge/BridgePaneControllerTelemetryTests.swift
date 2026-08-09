@@ -37,7 +37,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
@@ -96,7 +98,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),

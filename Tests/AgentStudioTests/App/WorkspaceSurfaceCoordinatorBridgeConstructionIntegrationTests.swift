@@ -103,7 +103,9 @@ extension WebKitSerializedTests {
             )
             let state = BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: worktree.path.path, baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: worktree.path.path,
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             )
             let pane = makeBridgePane(
                 title: "Create-before-tab Review",
@@ -190,6 +192,20 @@ extension WebKitSerializedTests {
             )
 
             // Assert — the production open must establish foreground admission synchronously.
+            guard case .bridgePanel(let persistedBridgeState) = harness.store.pane(pane.id)?.content,
+                case .workspace(_, let comparisonIntent) = persistedBridgeState.source
+            else {
+                Issue.record("Production Review open did not persist a workspace Bridge source")
+                await harness.finish()
+                return
+            }
+            #expect(
+                comparisonIntent
+                    == WorkspaceReviewComparisonIntent(
+                        activeKind: .contribution,
+                        contributionTarget: nil
+                    )
+            )
             #expect(harness.coordinator.bridgePaneActivity(for: pane.id) == .foreground)
             #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
             let admittedReviewTask = controller.activeReviewRefreshTask
@@ -197,6 +213,45 @@ extension WebKitSerializedTests {
             await admittedReviewTask?.value
             #expect(controller.paneState.diff.status == .ready)
             #expect(controller.paneState.diff.packageMetadata != nil)
+
+            await harness.finish()
+        }
+
+        @Test("production File View open starts without a fabricated comparison target")
+        func productionFileViewOpenStartsWithoutComparisonTarget() async throws {
+            // Arrange
+            let repositoryURL = try FilesystemTestGitRepo.create(
+                named: "bridge-production-file-open-comparison-intent"
+            )
+            defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+            try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+            let harness = makeBridgePaneActivityTestHarness()
+            let repo = harness.store.addRepo(at: repositoryURL)
+            let worktree = try #require(
+                harness.store.repo(repo.id)?.worktrees.first(where: { $0.isMainWorktree })
+            )
+            enterForegroundNativeEnvironment(harness)
+
+            // Act
+            let pane = try #require(
+                harness.coordinator.openBridgeFilesInNewTab(worktreeId: worktree.id)
+            )
+
+            // Assert
+            guard case .bridgePanel(let persistedBridgeState) = harness.store.pane(pane.id)?.content,
+                case .workspace(_, let comparisonIntent) = persistedBridgeState.source
+            else {
+                Issue.record("Production File View open did not persist a workspace Bridge source")
+                await harness.finish()
+                return
+            }
+            #expect(
+                comparisonIntent
+                    == WorkspaceReviewComparisonIntent(
+                        activeKind: .contribution,
+                        contributionTarget: nil
+                    )
+            )
 
             await harness.finish()
         }
@@ -212,7 +267,9 @@ extension WebKitSerializedTests {
             let harness = makeBridgePaneActivityTestHarness()
             let state = BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: repositoryURL.path, baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: repositoryURL.path,
+                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
             )
             let pane = harness.store.createPane(
                 content: .bridgePanel(state),
@@ -552,7 +609,9 @@ private func makeTwoPaneWorktreeSetup(
     )
     let state = BridgePaneState(
         panelKind: .diffViewer,
-        source: .workspace(rootPath: worktree.path.path, baseline: .headMinusOne)
+        source: .workspace(
+            rootPath: worktree.path.path,
+            comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
     )
     let firstPane = makeBridgePane(
         title: "First shared construction pane",

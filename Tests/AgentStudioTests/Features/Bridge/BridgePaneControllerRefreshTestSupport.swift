@@ -49,7 +49,9 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/worktree",
+                comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -297,7 +299,9 @@ func makeRefreshAdmissionIntegrationFixture(
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/bridge-refresh-admission", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/bridge-refresh-admission",
+                comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
