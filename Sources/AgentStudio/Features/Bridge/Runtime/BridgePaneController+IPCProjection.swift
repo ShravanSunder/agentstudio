@@ -32,6 +32,14 @@ private struct BridgePageRenderSnapshot: Decodable {
     let reviewMetadataTreeRowCount: Int?
     let reviewSelectedItemId: String?
     let reviewCodeTextLength: Int?
+    let comparisonTriggerLabel: String?
+    let comparisonTriggerDescription: String?
+    let comparisonTriggerState: String?
+    let comparisonTargetRevision: String?
+    let comparisonSharedStartRevision: String?
+    let contentTopbarFrame: IPCBridgeDOMRect?
+    let contentTopbarControlsFrame: IPCBridgeDOMRect?
+    let comparisonTriggerFrame: IPCBridgeDOMRect?
     let pageErrorCount: Int
     let pageErrorKinds: [String]
     let pageErrorMessages: [String]
@@ -75,6 +83,8 @@ extension BridgePaneController {
             reviewGeneration: package?.reviewGeneration.rawValue,
             revision: package?.revision,
             summary: package.map(ipcPackageSummary),
+            comparisonOrigin: package?.comparisonOrigin.map(ipcComparisonOrigin),
+            reviewedSubjectLabel: package?.reviewedSubjectLabel,
             items: items
         )
         try BridgeIPCResponseBudget.validate(result)
@@ -159,6 +169,14 @@ extension BridgePaneController {
                     reviewMetadataTreeRowCount: snapshot.reviewMetadataTreeRowCount,
                     reviewSelectedItemId: snapshot.reviewSelectedItemId,
                     reviewCodeTextLength: snapshot.reviewCodeTextLength,
+                    comparisonTriggerLabel: snapshot.comparisonTriggerLabel,
+                    comparisonTriggerDescription: snapshot.comparisonTriggerDescription,
+                    comparisonTriggerState: snapshot.comparisonTriggerState,
+                    comparisonTargetRevision: snapshot.comparisonTargetRevision,
+                    comparisonSharedStartRevision: snapshot.comparisonSharedStartRevision,
+                    contentTopbarFrame: snapshot.contentTopbarFrame,
+                    contentTopbarControlsFrame: snapshot.contentTopbarControlsFrame,
+                    comparisonTriggerFrame: snapshot.comparisonTriggerFrame,
                     visibleHydrationStateProbe: snapshot.visibleHydrationStateProbe,
                     visibleHydrationDiscardProbe: snapshot.visibleHydrationDiscardProbe,
                     frameJankProbe: snapshot.frameJankProbe
@@ -429,6 +447,22 @@ extension BridgePaneController {
             : [];
           const clip = (value, limit) => String(value ?? '').slice(0, limit);
           const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+          const contentTopbar = document.querySelector('[data-testid="bridge-viewer-content-topbar"]');
+          const contentTopbarControls = document.querySelector(
+            '[data-testid="bridge-viewer-content-topbar-controls"]'
+          );
+          const comparisonTrigger = document.querySelector(
+            '[data-testid="bridge-review-comparison-trigger"]'
+          );
+          const comparisonContent = document.querySelector(
+            '[data-testid="bridge-review-comparison-content"]'
+          );
+          const comparisonTargetRevisionElement = document.querySelector(
+            '[data-testid="bridge-review-comparison-target-revision"]'
+          );
+          const comparisonSharedStartRevisionElement = document.querySelector(
+            '[data-testid="bridge-review-comparison-shared-start-revision"]'
+          );
           const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
           const fileTree = document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]');
           const fileCodeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
@@ -466,6 +500,17 @@ extension BridgePaneController {
           };
           const objectOrNull = (value) => {
             return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+          };
+          const rectOrNull = (element) => {
+            if (element === null) return null;
+            const rect = element.getBoundingClientRect();
+            const x = finiteNumberOrNull(rect.x);
+            const y = finiteNumberOrNull(rect.y);
+            const width = finiteNumberOrNull(rect.width);
+            const height = finiteNumberOrNull(rect.height);
+            return x === null || y === null || width === null || height === null
+              ? null
+              : { x, y, width, height };
           };
           const rawVisibleHydrationStateProbe = objectOrNull(window.__bridgeVisibleHydrationStateProbe);
           const visibleHydrationStateProbe = rawVisibleHydrationStateProbe === null
@@ -633,6 +678,25 @@ extension BridgePaneController {
                 .map((element) => element.shadowRoot?.textContent || '')
                 .join(' ')
                 .length;
+          const comparisonDescriptionId = clippedNonemptyStringOrNull(
+            comparisonTrigger?.getAttribute('aria-describedby'),
+            256
+          );
+          const comparisonDescription = comparisonDescriptionId === null
+            ? null
+            : document.getElementById(comparisonDescriptionId);
+          const comparisonTriggerLabel = clippedNonemptyStringOrNull(
+            comparisonTrigger?.getAttribute('aria-label') || comparisonTrigger?.textContent,
+            256
+          );
+          const comparisonTriggerDescription = clippedNonemptyStringOrNull(
+            comparisonDescription?.textContent,
+            1024
+          );
+          const comparisonTriggerState = enumStringOrNull(
+            comparisonTrigger?.getAttribute('data-state'),
+            ['open', 'closed']
+          );
           const fileCodeText = `${fileCodeCanvas?.textContent || ''} ${codeViewShadowText}`;
           const pageErrorKinds = Array.from(new Set(errorProbe.slice(-8).map((entry) => {
             return clip(entry.kind, 80);
@@ -672,6 +736,20 @@ extension BridgePaneController {
             reviewMetadataTreeRowCount,
             reviewSelectedItemId,
             reviewCodeTextLength,
+            comparisonTriggerLabel,
+            comparisonTriggerDescription,
+            comparisonTriggerState,
+            comparisonTargetRevision: clippedNonemptyStringOrNull(
+              comparisonTargetRevisionElement?.getAttribute('title'),
+              128
+            ),
+            comparisonSharedStartRevision: clippedNonemptyStringOrNull(
+              comparisonSharedStartRevisionElement?.getAttribute('title'),
+              128
+            ),
+            contentTopbarFrame: rectOrNull(contentTopbar),
+            contentTopbarControlsFrame: rectOrNull(contentTopbarControls),
+            comparisonTriggerFrame: rectOrNull(comparisonTrigger),
             pageErrorCount: errorProbe.length,
             pageErrorKinds,
             pageErrorMessages,
@@ -752,6 +830,35 @@ extension BridgePaneController {
             visibleFileCount: package.summary.visibleFileCount,
             hiddenFileCount: package.summary.hiddenFileCount
         )
+    }
+
+    private func ipcComparisonOrigin(
+        _ origin: BridgeReviewComparisonOrigin
+    ) -> IPCBridgeReviewComparisonOrigin {
+        switch origin {
+        case .contribution(let contribution):
+            .contribution(
+                symbolicTarget: ipcComparisonTarget(contribution.symbolicTarget),
+                resolvedTargetOID: contribution.resolvedTargetOID,
+                reviewedHeadOID: contribution.reviewedHeadOID,
+                contributionBaseOID: contribution.contributionBaseOID
+            )
+        }
+    }
+
+    private func ipcComparisonTarget(
+        _ target: WorkspaceReviewContributionTarget
+    ) -> IPCBridgeReviewComparisonTarget {
+        switch target {
+        case .localDefaultBranch(let branchName):
+            .localDefaultBranch(branchName: branchName)
+        case .originDefaultBranch(let remoteName, let branchName):
+            .originDefaultBranch(remoteName: remoteName, branchName: branchName)
+        case .branch(let name):
+            .branch(name: name)
+        case .ref(let name):
+            .ref(name: name)
+        }
     }
 
     private func ipcReviewItemSummaries(

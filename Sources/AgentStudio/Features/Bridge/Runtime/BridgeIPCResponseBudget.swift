@@ -38,6 +38,10 @@ struct BridgeIPCResponseBudget: Sendable {
             byteCount += estimatedJSONIntegerBytes(summary.visibleFileCount)
             byteCount += estimatedJSONIntegerBytes(summary.hiddenFileCount)
         }
+        byteCount += estimatedOptionalJSONStringBytes(value.reviewedSubjectLabel)
+        if let comparisonOrigin = value.comparisonOrigin {
+            byteCount += estimatedPayloadBytes(comparisonOrigin)
+        }
         for item in value.items {
             byteCount += 96
             byteCount += estimatedJSONStringBytes(item.itemId)
@@ -47,6 +51,35 @@ struct BridgeIPCResponseBudget: Sendable {
             byteCount += estimatedJSONBooleanBytes(item.collapsed)
         }
         return byteCount
+    }
+
+    private static func estimatedPayloadBytes(
+        _ origin: IPCBridgeReviewComparisonOrigin
+    ) -> Int {
+        switch origin {
+        case .contribution(
+            let symbolicTarget,
+            let resolvedTargetOID,
+            let reviewedHeadOID,
+            let contributionBaseOID
+        ):
+            160
+                + estimatedPayloadBytes(symbolicTarget)
+                + estimatedJSONStringBytes(resolvedTargetOID)
+                + estimatedJSONStringBytes(reviewedHeadOID)
+                + estimatedJSONStringBytes(contributionBaseOID)
+        }
+    }
+
+    private static func estimatedPayloadBytes(
+        _ target: IPCBridgeReviewComparisonTarget
+    ) -> Int {
+        switch target {
+        case .localDefaultBranch(let branchName), .branch(let branchName), .ref(let branchName):
+            48 + estimatedJSONStringBytes(branchName)
+        case .originDefaultBranch(let remoteName, let branchName):
+            64 + estimatedJSONStringBytes(remoteName) + estimatedJSONStringBytes(branchName)
+        }
     }
 
     private static func estimatedPayloadBytes(_ value: IPCBridgeContentGetResult) -> Int {

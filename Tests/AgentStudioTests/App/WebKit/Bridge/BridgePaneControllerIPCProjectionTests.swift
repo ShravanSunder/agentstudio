@@ -131,6 +131,45 @@ extension WebKitSerializedTests {
             #expect(encodedPayload.contains("\"provenance\"") == false)
         }
 
+        @Test("IPC package snapshot projects the exact contribution origin and reviewed subject")
+        func ipcPackageSnapshot_projectsExactContributionOriginAndReviewedSubject() throws {
+            let controller = makeIPCForegroundController()
+            defer { controller.teardown() }
+            controller.paneState.diff.setPackageMetadata(
+                makeIPCReviewPackage(
+                    descriptors: [],
+                    orderedItemIds: [],
+                    comparisonOrigin: .contribution(
+                        BridgeReviewContributionOrigin(
+                            symbolicTarget: .ref(name: "refs/heads/stack-base"),
+                            resolvedTargetOID: "1111111111111111111111111111111111111111",
+                            reviewedHeadOID: "2222222222222222222222222222222222222222",
+                            contributionBaseOID: "3333333333333333333333333333333333333333"
+                        )
+                    ),
+                    reviewedSubjectLabel: "feature/review-comments"
+                )
+            )
+
+            let result = try controller.ipcReviewPackageSnapshot()
+            let encodedResult = try JSONEncoder().encode(result)
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: encodedResult) as? [String: Any]
+            )
+            let origin = try #require(payload["comparisonOrigin"] as? [String: Any])
+            let symbolicTarget = try #require(origin["symbolicTarget"] as? [String: Any])
+
+            #expect(payload["reviewedSubjectLabel"] as? String == "feature/review-comments")
+            #expect(origin["kind"] as? String == "contribution")
+            #expect(origin["baseRole"] as? String == "contributionBase")
+            #expect(origin["comparedRole"] as? String == "capturedWorkingTree")
+            #expect(symbolicTarget["kind"] as? String == "ref")
+            #expect(symbolicTarget["name"] as? String == "refs/heads/stack-base")
+            #expect(origin["resolvedTargetOID"] as? String == "1111111111111111111111111111111111111111")
+            #expect(origin["reviewedHeadOID"] as? String == "2222222222222222222222222222222222222222")
+            #expect(origin["contributionBaseOID"] as? String == "3333333333333333333333333333333333333333")
+        }
+
         @Test("IPC package summaries preserve package order and descriptor fields")
         func ipcPackageSnapshot_preservesPackageOrderAndDescriptorFields() throws {
             let controller = makeIPCForegroundController()
@@ -847,7 +886,9 @@ private func makeIPCReviewItemDescriptor(
 
 private func makeIPCReviewPackage(
     descriptors: [BridgeReviewItemDescriptor],
-    orderedItemIds: [String]
+    orderedItemIds: [String],
+    comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+    reviewedSubjectLabel: String? = nil
 ) -> BridgeReviewPackage {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
@@ -873,6 +914,8 @@ private func makeIPCReviewPackage(
             hiddenFileCount: 0
         ),
         filterState: BridgeViewFilter(),
-        generatedAtUnixMilliseconds: 1
+        generatedAtUnixMilliseconds: 1,
+        comparisonOrigin: comparisonOrigin,
+        reviewedSubjectLabel: reviewedSubjectLabel
     )
 }
