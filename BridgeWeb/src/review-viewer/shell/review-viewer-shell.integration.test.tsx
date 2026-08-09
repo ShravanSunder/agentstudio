@@ -164,10 +164,19 @@ describe('review viewer shell', () => {
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 
-	test('renders review content header from comparison endpoint identity', () => {
+	test('renders contribution subject without generic endpoint comparison vocabulary', () => {
 		const basePackage = makeBridgeReviewPackage();
 		const reviewPackage = {
 			...basePackage,
+			comparisonOrigin: {
+				baseRole: 'contributionBase' as const,
+				comparedRole: 'capturedWorkingTree' as const,
+				contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				kind: 'contribution' as const,
+				resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+				reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
+				symbolicTarget: { branchName: 'master', kind: 'localDefaultBranch' as const },
+			},
 			query: {
 				...basePackage.query,
 				baseEndpointId: 'baseline-local-default',
@@ -187,6 +196,7 @@ describe('review viewer shell', () => {
 				label: 'Working tree',
 				providerIdentity: 'working-tree:worktree-1',
 			},
+			reviewedSubjectLabel: 'feature/annotations',
 		};
 		const element = renderReviewViewerShellForTest({
 			reviewPackage,
@@ -197,8 +207,9 @@ describe('review viewer shell', () => {
 		});
 
 		const contentHeader = findElementByComponent(element, BridgeViewerContentHeader);
-		expect(contentHeader?.props.title).toBe('Current worktree vs Default / Sources/App/View.swift');
+		expect(contentHeader?.props.title).toBe('feature/annotations changes / Sources/App/View.swift');
 		expect(contentHeader?.props.title).not.toBe(basePackage.query.queryId);
+		expect(contentHeader?.props.title).not.toContain(' vs ');
 	});
 
 	test('passes Review updating chrome to the shared header only while Review is active', () => {

@@ -590,31 +590,24 @@ function bridgeReviewViewerHeaderTitle(props: {
 }
 
 function bridgeReviewComparisonTitle(reviewPackage: BridgeReviewPackage): string {
-	const baseLabel = bridgeReviewEndpointDisplayLabel({
-		endpointId: reviewPackage.query.baseEndpointId,
-		endpoint: reviewPackage.baseEndpoint,
-	});
-	const headLabel = bridgeReviewEndpointDisplayLabel({
-		endpointId: reviewPackage.query.headEndpointId,
-		endpoint: reviewPackage.headEndpoint,
-	});
-	return `${headLabel} vs ${baseLabel}`;
-}
-
-function bridgeReviewEndpointDisplayLabel(props: {
-	readonly endpointId: string | null | undefined;
-	readonly endpoint: BridgeReviewPackage['baseEndpoint'];
-}): string {
-	if (props.endpoint.kind === 'workingTree') {
-		return 'Current worktree';
+	if (reviewPackage.comparisonOrigin?.kind === 'contribution') {
+		const reviewedSubjectLabel = reviewPackage.reviewedSubjectLabel?.trim();
+		return `${reviewedSubjectLabel === undefined || reviewedSubjectLabel.length === 0 ? 'Current worktree' : reviewedSubjectLabel} changes`;
 	}
 	if (
-		props.endpointId === 'baseline-local-default' ||
-		props.endpointId === 'baseline-origin-default'
+		reviewPackage.query.comparisonSemantics === 'indexDelta' &&
+		reviewPackage.headEndpoint.kind === 'index'
 	) {
-		return 'Default';
+		return 'Staged changes';
 	}
-	return props.endpoint.label;
+	if (
+		reviewPackage.query.comparisonSemantics === 'workingTreeDelta' &&
+		reviewPackage.baseEndpoint.kind === 'index' &&
+		reviewPackage.headEndpoint.kind === 'workingTree'
+	) {
+		return 'Unstaged changes';
+	}
+	return 'Current worktree changes';
 }
 
 function BridgeReviewContentUnavailableState(props: { readonly sourcePath: string }): ReactElement {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerReviewComparisonUpdateCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -20,6 +21,7 @@ import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-ru
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerPanelChromePatchPayload,
+	BridgeWorkerReviewComparisonUpdateCommand,
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewProjectionUpdateCommand,
 	BridgeWorkerServerToMainMessage,
@@ -83,6 +85,9 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly setReviewTreeVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly updateReviewDisplayProjection: (
 		query: BridgeWorkerReviewProjectionUpdateCommand['query'],
+	) => void;
+	readonly updateReviewComparisonTarget: (
+		target: BridgeWorkerReviewComparisonUpdateCommand['target'],
 	) => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 }
@@ -252,6 +257,18 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewClient],
 	);
+	const updateReviewComparisonTarget = useCallback(
+		(target: BridgeWorkerReviewComparisonUpdateCommand['target']): void => {
+			props.reviewClient.send(
+				encodeBridgeWorkerReviewComparisonUpdateCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-client-owned',
+					target,
+				}),
+			);
+		},
+		[props.reviewClient],
+	);
 	useEffect((): void => {
 		const lastVisibleIndex = Math.max(0, workerViewportItemIds.length - 1);
 		displayStore.setLocalViewport({
@@ -321,6 +338,7 @@ export function useBridgeReviewRenderSnapshotController(
 		selectedReviewItem: selectedReviewItem ?? null,
 		setReviewCodeViewVisibleItemIds,
 		setReviewTreeVisibleItemIds,
+		updateReviewComparisonTarget,
 		updateReviewDisplayProjection,
 		visibleCodeViewItems,
 	};
@@ -424,14 +442,16 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				props.renderSnapshotStore.applyReviewDisplayPatchEvent(message);
 				break;
 			case 'reviewRenderPatch': {
-				if (!bridgeReviewPublicationMatchesDisplayEpoch(props.renderSnapshotStore, message)) {
-					break;
-				}
+				const publicationMatchesDisplay = bridgeReviewPublicationMatchesDisplayEpoch(
+					props.renderSnapshotStore,
+					message,
+				);
 				const currentMemberPatches = message.patches.filter(
 					(patch): boolean =>
 						patch.slice === 'panelChrome' ||
-						patch.operation === 'reset' ||
-						props.renderSnapshotStore.reviewCatalogContainsItem(patch.itemId),
+						(publicationMatchesDisplay &&
+							(patch.operation === 'reset' ||
+								props.renderSnapshotStore.reviewCatalogContainsItem(patch.itemId))),
 				);
 				if (currentMemberPatches.length > 0) {
 					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: currentMemberPatches });

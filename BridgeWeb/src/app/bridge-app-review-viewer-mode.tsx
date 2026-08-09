@@ -33,6 +33,7 @@ import {
 	BridgeReviewViewerShellBoundary,
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
+import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
@@ -143,21 +144,6 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				viewSettings,
 			}),
 		[viewSettings],
-	);
-	const contentHeaderControls = (
-		<>
-			{viewerHeaderControls}
-			{isActive ? (
-				<BridgeViewerViewSettingsMenu
-					defaultSettings={bridgeReviewDefaultViewSettings}
-					onChange={setViewSettings}
-					onOpenChange={setViewSettingsMenuOpen}
-					open={viewSettingsMenuOpen}
-					settings={viewSettings}
-					surface="review"
-				/>
-			) : null}
-		</>
 	);
 	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
 		useState<BridgeReviewTreeSelectionRevealRequest | null>(null);
@@ -294,6 +280,27 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				reviewSourceSlice,
 			}),
 		[catalogSnapshot, displayStore, reviewSourceSlice],
+	);
+	const contentHeaderControls = (
+		<>
+			{viewerHeaderControls}
+			<BridgeReviewComparisonControl
+				comparisonPresentation={panelChromeSlice.reviewComparison}
+				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
+				isActive={isActive}
+				onApplyTarget={controller.updateReviewComparisonTarget}
+			/>
+			{isActive ? (
+				<BridgeViewerViewSettingsMenu
+					defaultSettings={bridgeReviewDefaultViewSettings}
+					onChange={setViewSettings}
+					onOpenChange={setViewSettingsMenuOpen}
+					open={viewSettingsMenuOpen}
+					settings={viewSettings}
+					surface="review"
+				/>
+			) : null}
+		</>
 	);
 	const reviewGeneration = presentationSnapshot?.reviewPackage.reviewGeneration ?? null;
 	const reviewPackageId = presentationSnapshot?.reviewPackage.packageId ?? null;
