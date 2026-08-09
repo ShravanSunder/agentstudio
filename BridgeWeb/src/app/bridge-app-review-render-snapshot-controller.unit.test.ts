@@ -886,6 +886,7 @@ function reviewDisplayPatchEvent(props: {
 					metadataWindowIdentity: `review-window-epoch-${props.epoch}`,
 					packageId: `review-package-epoch-${props.epoch}`,
 					reviewGeneration: props.epoch,
+					revision: props.epoch,
 					status: 'ready',
 					summary: {
 						additions: 0,

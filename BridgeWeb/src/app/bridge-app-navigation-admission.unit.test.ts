@@ -32,6 +32,7 @@ describe('BridgeApp navigation admission', () => {
 				metadataWindowIdentity: 'review-window-loading',
 				packageId: reviewSource.packageId,
 				reviewGeneration: reviewSource.generation,
+				revision: 1,
 				status: 'loading',
 				summary: null,
 				totalItemCount: null,

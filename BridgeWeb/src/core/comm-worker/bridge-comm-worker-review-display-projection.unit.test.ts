@@ -74,6 +74,7 @@ describe('Bridge comm worker Review display projection', () => {
 		expect(sourcePayload['reviewGeneration']).toBe(reviewIdentity.generation);
 		expect(sourcePayload['metadataSourceId']).toBe(reviewIdentity.sourceIdentity);
 		expect(sourcePayload['packageId']).toBe(reviewIdentity.packageId);
+		expect(sourcePayload['revision']).toBe(snapshot.revision);
 		expect(sourcePayload).toMatchObject({
 			baseEndpoint: snapshot.baseEndpoint,
 			comparisonOrigin: reviewComparisonOrigin,

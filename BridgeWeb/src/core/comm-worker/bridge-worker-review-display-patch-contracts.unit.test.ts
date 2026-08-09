@@ -27,6 +27,25 @@ describe('Bridge worker Review display patch contracts', () => {
 		expect(sourcePatch.payload).toMatchObject(
 			bridgeWorkerReviewSourceContext(sourcePatch.payload.packageId),
 		);
+		expect(sourcePatch.payload.revision).toBe(11);
+		expect(
+			bridgeWorkerReviewDisplayPatchEventSchema.safeParse({
+				...event,
+				patches: [
+					{
+						...sourcePatch,
+						payload: { ...sourcePatch.payload, revision: undefined },
+					},
+					itemPatch,
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerReviewDisplayPatchEventSchema.safeParse({
+				...event,
+				patches: [{ ...sourcePatch, payload: { ...sourcePatch.payload, revision: -1 } }, itemPatch],
+			}).success,
+		).toBe(false);
 		const authorityCases: ReadonlyArray<{ readonly label: string; readonly value: unknown }> = [
 			{
 				label: 'product content source descriptor',
@@ -197,6 +216,7 @@ const REVIEW_DISPLAY_EVENT = {
 				metadataWindowIdentity: 'metadata-window-package-1-r11',
 				packageId: 'package-1',
 				reviewGeneration: 7,
+				revision: 11,
 				status: 'ready',
 				summary: {
 					additions: 1,

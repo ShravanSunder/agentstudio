@@ -116,6 +116,7 @@ function reviewSourceDisplayPatch(
 		query: snapshot.query,
 		reviewGeneration: snapshot.identity.generation,
 		reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
+		revision: snapshot.revision,
 		status,
 		summary: snapshot.summary,
 		totalItemCount: snapshot.totalItemCount,

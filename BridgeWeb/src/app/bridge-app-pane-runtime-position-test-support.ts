@@ -470,6 +470,7 @@ function makeReviewDisplayEvent(
 					metadataWindowIdentity: reviewMetadataWindowIdentity,
 					packageId: 'position-review-package',
 					reviewGeneration: 1,
+					revision: 1,
 					status: 'ready',
 					summary: {
 						additions: reviewFileCount,

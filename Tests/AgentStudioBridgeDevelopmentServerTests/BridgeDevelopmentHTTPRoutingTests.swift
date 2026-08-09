@@ -8,20 +8,85 @@ import WebKit
 
 @testable import AgentStudioBridge
 @testable import AgentStudioBridgeDevelopmentServer
+@testable import AgentStudioCore
 
 @Suite("Bridge development HTTP routing")
 struct BridgeDevelopmentHTTPRoutingTests {
+    @MainActor
+    @Test("core composition seeds an absent exact pane once and restores its symbolic target")
+    func coreCompositionRestoresExactPaneWithoutReseeding() async throws {
+        // Arrange
+        let paneID = PaneId.generateUUIDv7().uuid
+        let fixtureRoot = FileManager.default.temporaryDirectory.appending(
+            path: "bridge-development-core-composition-\(paneID.uuidString)",
+            directoryHint: .isDirectory
+        )
+        let dataRoot = fixtureRoot.appending(path: "data", directoryHint: .isDirectory)
+        let worktreeRoot = fixtureRoot.appending(path: "repository", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+        let firstConfiguration = try BridgeDevelopmentServerConfiguration(
+            dataRoot: dataRoot,
+            paneID: paneID,
+            port: 43_871,
+            seedContributionTarget: .ref(name: "refs/heads/original-base"),
+            seedWorktreeRoot: worktreeRoot
+        )
+
+        // Act
+        let firstComposition = try await BridgeDevelopmentServerCoreComposition.prepare(
+            configuration: firstConfiguration
+        )
+        let firstSource = firstComposition.productSource
+        try await firstComposition.shutdown()
+        let secondConfiguration = try BridgeDevelopmentServerConfiguration(
+            dataRoot: dataRoot,
+            paneID: paneID,
+            port: 43_872,
+            seedContributionTarget: .ref(name: "refs/heads/must-not-reseed"),
+            seedWorktreeRoot: worktreeRoot
+        )
+        let secondComposition = try await BridgeDevelopmentServerCoreComposition.prepare(
+            configuration: secondConfiguration
+        )
+        let restoredSource = secondComposition.productSource
+        try await secondComposition.shutdown()
+
+        // Assert
+        #expect(firstSource.paneID == paneID)
+        #expect(restoredSource.paneID == paneID)
+        #expect(firstSource.repoID == restoredSource.repoID)
+        #expect(firstSource.worktreeID == restoredSource.worktreeID)
+        #expect(restoredSource.worktreeRoot == worktreeRoot.standardizedFileURL)
+        #expect(
+            restoredSource.paneState.source
+                == .workspace(
+                    rootPath: worktreeRoot.standardizedFileURL.path,
+                    baseline: .ref(name: "refs/heads/original-base")
+                )
+        )
+    }
+
     @Test("server configuration is fixed to IPv4 loopback")
     func serverConfigurationUsesLoopback() throws {
-        // Arrange / Act
+        // Arrange
+        let paneID = try #require(UUID(uuidString: "019fe721-7d8b-7ca0-b5c7-89e5fd7463f3"))
+
+        // Act
         let configuration = try BridgeDevelopmentServerConfiguration(
-            worktreeRoot: URL(fileURLWithPath: "/tmp/repository"),
-            reviewBase: "HEAD",
-            port: 43_871
+            dataRoot: URL(fileURLWithPath: "/tmp/bridge-development-data"),
+            paneID: paneID,
+            port: 43_871,
+            seedContributionTarget: .ref(name: "refs/heads/review-base"),
+            seedWorktreeRoot: URL(fileURLWithPath: "/tmp/repository")
         )
 
         // Assert
         #expect(configuration.applicationConfiguration.address == .hostname("127.0.0.1", port: 43_871))
+        #expect(configuration.dataRoot.path == "/tmp/bridge-development-data")
+        #expect(configuration.paneID == paneID)
+        #expect(configuration.seedContributionTarget == .ref(name: "refs/heads/review-base"))
+        #expect(configuration.seedWorktreeRoot.path == "/tmp/repository")
     }
 
     @Test("health route reports readiness without a response body")
@@ -32,13 +97,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
-        let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
-            ),
-            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
-        )
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             let application = BridgeDevelopmentHTTPApplication.make(host: host)
 
@@ -63,13 +122,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
-        let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
-            ),
-            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
-        )
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             let application = BridgeDevelopmentHTTPApplication.make(host: host)
             let body = ByteBuffer(
@@ -102,13 +155,7 @@ struct BridgeDevelopmentHTTPRoutingTests {
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
-        let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
-            ),
-            makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
-        )
+        let host = try await makeHTTPDevelopmentProductHost(worktreeRoot: repositoryURL)
         try await withDevelopmentHost(host) {
             let application = BridgeDevelopmentHTTPApplication.make(host: host)
 
@@ -248,6 +295,39 @@ struct BridgeDevelopmentHTTPRoutingTests {
             _ = try decodeHTTPBootstrapEnvelope(data)
         }
     }
+}
+
+private func makeHTTPDevelopmentProductHost(
+    worktreeRoot: URL
+) async throws -> BridgeDevelopmentProductHost {
+    let paneID = PaneId.generateUUIDv7().uuid
+    let canonicalWorktreeRoot = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
+    let source = BridgeDevelopmentProductSource(
+        paneID: paneID,
+        paneState: BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: canonicalWorktreeRoot.path, baseline: .ref(name: "HEAD"))
+        ),
+        repoID: PaneId.generateUUIDv7().uuid,
+        reviewedSubjectLabel: worktreeRoot.lastPathComponent,
+        worktreeID: PaneId.generateUUIDv7().uuid,
+        worktreeRoot: canonicalWorktreeRoot
+    )
+    return try await BridgeDevelopmentProductHost(
+        source: source,
+        contributionTargetCommit: { target in
+            .unchanged(
+                BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(
+                        rootPath: worktreeRoot.path,
+                        baseline: WorkspaceBaseline(contributionTarget: target)
+                    )
+                )
+            )
+        },
+        makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
+    )
 }
 
 private func withDevelopmentHost<Result>(

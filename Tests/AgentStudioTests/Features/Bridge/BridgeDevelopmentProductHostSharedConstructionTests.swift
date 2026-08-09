@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
@@ -7,6 +8,122 @@ import Testing
 
 @Suite("Bridge development product host shared construction")
 struct BridgeDevHostSharedConstructionTests {
+    @Test("committed comparison update captures and publishes a fresh generation before completion")
+    func committedComparisonUpdatePublishesFreshGenerationBeforeCompletion() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-comparison-update"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let initialPresentation = await host.diagnosticPanePresentation()
+            guard
+                case .current(let initialDisplayedSnapshot) =
+                    initialPresentation.reviewComparison?.displayedSnapshot
+            else {
+                Issue.record("Expected an initial committed Review snapshot")
+                return
+            }
+            let comparisonGate = BridgeComparisonGate()
+            await provider.setComparisonGate(comparisonGate)
+            let completionRecorder = BridgeComparisonUpdateCompletionRecorder()
+            let productAdmission = await host.productAdmission
+            let updatedTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
+            let update = Task {
+                await host.applyCommittedReviewComparisonUpdate(
+                    BridgeProductReviewComparisonUpdateRequest(target: updatedTarget),
+                    productAdmission: productAdmission
+                )
+                await completionRecorder.recordCompletion()
+            }
+            await comparisonGate.waitForStartedComparisonCount(1)
+
+            // Act
+            let pendingPresentation = await host.diagnosticPanePresentation()
+            let canonicalPaneState = await host.paneState
+            let canonicalTarget: WorkspaceReviewContributionTarget?
+            if case .workspace(_, let canonicalBaseline)? = canonicalPaneState.source {
+                canonicalTarget = canonicalBaseline?.contributionTarget
+            } else {
+                canonicalTarget = nil
+            }
+
+            // Assert
+            #expect(await completionRecorder.isComplete == false)
+            #expect(canonicalTarget == updatedTarget)
+            #expect(pendingPresentation.reviewComparison?.activeTarget == updatedTarget)
+            #expect(pendingPresentation.reviewComparison?.attempt == .pending(reviewGeneration: 2))
+            #expect(
+                pendingPresentation.reviewComparison?.displayedSnapshot
+                    == .stale(initialDisplayedSnapshot)
+            )
+
+            await comparisonGate.releaseAll()
+            await update.value
+
+            let settledPresentation = await host.diagnosticPanePresentation()
+            let activePublication = await host.diagnosticCommittedReviewPublication()
+            let providerSnapshot = await provider.snapshot()
+            #expect(await completionRecorder.isComplete)
+            #expect(activePublication?.package.reviewGeneration == 2)
+            #expect(activePublication?.package.packageId != initialDisplayedSnapshot.packageId)
+            #expect(settledPresentation.reviewComparison?.activeTarget == updatedTarget)
+            #expect(settledPresentation.reviewComparison?.attempt == .settled(reviewGeneration: 2))
+            #expect(
+                settledPresentation.reviewComparison?.displayedSnapshot
+                    == .current(
+                        BridgePaneReviewDisplayedSnapshotIdentity(
+                            packageId: activePublication?.package.packageId ?? "",
+                            reviewGeneration: 2,
+                            revision: activePublication?.package.revision ?? 0
+                        )
+                    )
+            )
+            #expect(providerSnapshot.contributionTargets == [.ref(name: "HEAD"), updatedTarget])
+            #expect(providerSnapshot.reviewGenerationValues == [1, 2])
+        }
+    }
+
+    @Test("initial Review bootstrap settles presentation for the restored symbolic target")
+    func initialReviewBootstrapSettlesRestoredTargetPresentation() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-initial-presentation"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            // Act
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let presentation = await host.diagnosticPanePresentation()
+
+            // Assert
+            #expect(presentation.reviewComparison?.activeTarget == .ref(name: "HEAD"))
+            #expect(presentation.reviewComparison?.attempt == .settled(reviewGeneration: 1))
+            guard case .current(let displayedSnapshot) = presentation.reviewComparison?.displayedSnapshot else {
+                Issue.record("Expected the initial package to become the displayed comparison snapshot")
+                return
+            }
+            #expect(displayedSnapshot.reviewGeneration == 1)
+        }
+    }
+
     @Test("Review bootstrap uses the existing shared construction authority")
     func reviewBootstrapUsesSharedConstructionAuthority() async throws {
         // Arrange
@@ -16,9 +133,9 @@ struct BridgeDevHostSharedConstructionTests {
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         let provider = BridgeDevelopmentSharedConstructionReviewProvider()
         let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -31,8 +148,9 @@ struct BridgeDevHostSharedConstructionTests {
 
             // Assert
             #expect(snapshot.regularComparisonCount == 0)
-            #expect(snapshot.sharedEndpointResolutionCount == 2)
-            #expect(snapshot.sharedComparisonCount == 1)
+            #expect(snapshot.contributionCaptureCount == 1)
+            #expect(snapshot.sharedEndpointResolutionCount == 0)
+            #expect(snapshot.sharedComparisonCount == 0)
             #expect(snapshot.sharedCaptureCount == 1)
             #expect(snapshot.sharedInstallCount == 1)
         }
@@ -50,9 +168,9 @@ struct BridgeDevHostSharedConstructionTests {
             comparisonGate: comparisonGate
         )
         let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
             ),
             makeReviewProvider: { _, _ in provider }
         )
@@ -88,11 +206,22 @@ struct BridgeDevHostSharedConstructionTests {
 }
 
 private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
+    let contributionCaptureCount: Int
+    let contributionTargets: [WorkspaceReviewContributionTarget]
     let regularComparisonCount: Int
     let sharedCaptureCount: Int
     let sharedComparisonCount: Int
     let sharedEndpointResolutionCount: Int
     let sharedInstallCount: Int
+    let reviewGenerationValues: [Int]
+}
+
+private actor BridgeComparisonUpdateCompletionRecorder {
+    private(set) var isComplete = false
+
+    func recordCompletion() {
+        isComplete = true
+    }
 }
 
 private actor BridgeDevelopmentSharedConstructionReviewProvider:
@@ -103,17 +232,38 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture
     {
-        throw BridgeProviderFailure.providerFailed(message: "Contribution capture not configured")
+        contributionCaptureCount += 1
+        contributionTargets.append(request.symbolicTarget)
+        reviewGenerationValues.append(request.reviewGenerationValue)
+        await comparisonGate?.waitUntilReleased()
+        let baseEndpoint = resolvedEndpoint(request.baseEndpoint)
+        return BridgeContributionComparisonCapture(
+            resolvedTargetOID: String(repeating: "a", count: 40),
+            reviewedHeadOID: String(repeating: "b", count: 40),
+            contributionBaseOID: String(repeating: "a", count: 40),
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: request.headEndpoint,
+                changedFiles: []
+            )
+        )
     }
 
-    private let comparisonGate: BridgeComparisonGate?
+    private var comparisonGate: BridgeComparisonGate?
+    private var contributionCaptureCount = 0
+    private var contributionTargets: [WorkspaceReviewContributionTarget] = []
     private var regularComparisonCount = 0
     private var sharedCaptureCount = 0
     private var sharedComparisonCount = 0
     private var sharedEndpointResolutionCount = 0
     private var sharedInstallCount = 0
+    private var reviewGenerationValues: [Int] = []
 
     init(comparisonGate: BridgeComparisonGate? = nil) {
+        self.comparisonGate = comparisonGate
+    }
+
+    func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {
         self.comparisonGate = comparisonGate
     }
 
@@ -224,11 +374,14 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
 
     func snapshot() -> BridgeDevSharedReviewProviderSnapshot {
         BridgeDevSharedReviewProviderSnapshot(
+            contributionCaptureCount: contributionCaptureCount,
+            contributionTargets: contributionTargets,
             regularComparisonCount: regularComparisonCount,
             sharedCaptureCount: sharedCaptureCount,
             sharedComparisonCount: sharedComparisonCount,
             sharedEndpointResolutionCount: sharedEndpointResolutionCount,
-            sharedInstallCount: sharedInstallCount
+            sharedInstallCount: sharedInstallCount,
+            reviewGenerationValues: reviewGenerationValues
         )
     }
 

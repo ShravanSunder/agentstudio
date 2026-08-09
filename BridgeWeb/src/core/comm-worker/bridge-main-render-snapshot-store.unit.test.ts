@@ -881,6 +881,7 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 					metadataWindowIdentity: 'metadata-window-package-1-r11',
 					packageId: 'package-1',
 					reviewGeneration: 1,
+					revision: 11,
 					status: 'loading',
 					summary: null,
 					totalItemCount: 1,

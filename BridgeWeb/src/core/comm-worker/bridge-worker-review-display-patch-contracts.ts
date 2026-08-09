@@ -79,6 +79,7 @@ const bridgeWorkerReviewSourceDisplayPayloadSchema = z
 		query: bridgeProductReviewQuerySchema.nullable(),
 		reviewGeneration: bridgeProductNonnegativeSequenceSchema,
 		reviewedSubjectLabel: z.string().min(1).nullable(),
+		revision: bridgeProductNonnegativeSequenceSchema,
 		status: z.enum(['loading', 'ready', 'stale']),
 		summary: bridgeProductReviewPackageSummarySchema.nullable(),
 		totalItemCount: bridgeProductNonnegativeSequenceSchema.nullable(),

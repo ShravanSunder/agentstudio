@@ -18,6 +18,7 @@ export function hierarchicalReviewDisplayEvent(): BridgeWorkerReviewDisplayPatch
 					metadataWindowIdentity: 'review-window-hierarchical',
 					packageId: 'review-hierarchical-package',
 					reviewGeneration: 1,
+					revision: 1,
 					status: 'ready',
 					summary: {
 						additions: 1,

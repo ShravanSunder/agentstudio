@@ -1,0 +1,171 @@
+import AgentStudioCore
+
+extension BridgeDevelopmentProductHost {
+    func diagnosticPanePresentation() async -> BridgePaneProductPresentationSnapshot {
+        await MainActor.run {
+            refreshAdmissionCoordinator.productPresentationSnapshot
+        }
+    }
+
+    func diagnosticCommittedReviewPublication() async -> BridgeReviewCommittedPublication? {
+        await MainActor.run {
+            reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        }
+    }
+
+    func applyCommittedReviewComparisonUpdate(
+        _ request: BridgeProductReviewComparisonUpdateRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard !isShutdown, productAdmission.withValidAdmission({ true }) == true else { return }
+        let mutationResult = await contributionTargetCommit(request.target)
+        guard productAdmission.withValidAdmission({ true }) == true else { return }
+        let canonicalState: BridgePaneState
+        switch mutationResult {
+        case .applied(let state), .unchanged(let state):
+            canonicalState = state
+        case .paneMissing, .notBridgePane, .notWorkspaceSource:
+            productAdmissionGate.close()
+            return
+        }
+        guard case .workspace(_, let baseline)? = canonicalState.source,
+            baseline?.contributionTarget == request.target
+        else {
+            productAdmissionGate.close()
+            return
+        }
+        paneState = canonicalState
+        let reviewGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = reviewGeneration
+        let foregroundWorkAdmission = await MainActor.run {
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: request.target,
+                reviewGeneration: reviewGeneration.rawValue
+            )
+            return refreshAdmissionCoordinator.acquireForegroundWork()
+        }
+        await publishCurrentPanePresentation()
+        guard let foregroundWorkAdmission else {
+            await failReviewComparisonAttempt(reviewGeneration, failureKind: "foreground_unavailable")
+            return
+        }
+
+        do {
+            let preparedPublication = try await constructReviewPublication(
+                target: request.target,
+                reviewGeneration: reviewGeneration
+            )
+            try await publishPreparedReviewComparison(
+                preparedPublication,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        } catch {
+            await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
+        }
+    }
+
+    private func publishPreparedReviewComparison(
+        _ preparedPublication: BridgeReviewPreparedPublication,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async throws {
+        guard productAdmission.withValidAdmission({ true }) == true,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true
+        else {
+            await preparedPublication.artifactPin?.releaseAndWait()
+            return
+        }
+        let stagedToken = await MainActor.run {
+            reviewPublicationCoordinator.stage(
+                preparedPublication,
+                productAdmission: productAdmission
+            )
+        }
+        guard let stagedToken else {
+            throw BridgeDevelopmentProductHostError.reviewPublicationFailed
+        }
+        let reservation: BridgeReviewMetadataPublicationReservation
+        do {
+            reservation = try await productProvider.reserveReviewPublication(
+                package: preparedPublication.package,
+                publicationId: stagedToken.publicationId,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        } catch {
+            _ = await MainActor.run {
+                reviewPublicationCoordinator.rejectReservation(
+                    stagedToken,
+                    productAdmission: productAdmission
+                )
+            }
+            throw error
+        }
+        let committedPublication = await MainActor.run {
+            () -> BridgeReviewCommittedPublication? in
+            guard
+                case .committed(let publication) = reviewPublicationCoordinator.commit(
+                    stagedToken,
+                    productAdmission: productAdmission,
+                    presentCommitted: { _ in }
+                )
+            else {
+                _ = reviewPublicationCoordinator.rejectReservation(
+                    stagedToken,
+                    productAdmission: productAdmission
+                )
+                return nil
+            }
+            refreshAdmissionCoordinator.settleReviewComparisonAttempt(
+                reviewGeneration: publication.package.reviewGeneration.rawValue,
+                displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                    packageId: publication.package.packageId,
+                    reviewGeneration: publication.package.reviewGeneration.rawValue,
+                    revision: publication.package.revision
+                )
+            )
+            return publication
+        }
+        guard let committedPublication else {
+            throw BridgeDevelopmentProductHostError.reviewPublicationFailed
+        }
+        await publishCurrentPanePresentation()
+        let delivery = await productProvider.deliverReviewPublication(
+            committedPublication,
+            reservation: reservation,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
+        _ = await MainActor.run {
+            reviewPublicationCoordinator.recordTransportDeliveryDisposition(
+                delivery,
+                publicationId: committedPublication.publicationId,
+                productAdmission: productAdmission
+            )
+        }
+    }
+
+    func failReviewComparisonAttempt(
+        _ reviewGeneration: BridgeReviewGeneration,
+        failureKind: String
+    ) async {
+        await MainActor.run {
+            refreshAdmissionCoordinator.failReviewComparisonAttempt(
+                reviewGeneration: reviewGeneration.rawValue,
+                failureKind: failureKind,
+                retryable: true
+            )
+        }
+        await publishCurrentPanePresentation()
+    }
+
+    func publishCurrentPanePresentation() async {
+        let snapshot = await MainActor.run {
+            refreshAdmissionCoordinator.productPresentationSnapshot
+        }
+        await productProvider.publishPanePresentation(snapshot)
+    }
+}

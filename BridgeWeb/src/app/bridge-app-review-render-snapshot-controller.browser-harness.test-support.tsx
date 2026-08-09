@@ -263,6 +263,7 @@ export function reviewDisplayEvent(props: {
 					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
 					packageId: 'review-browser-harness-package',
 					reviewGeneration: 1,
+					revision: props.projectionRevision,
 					status: 'ready',
 					summary: {
 						additions: 1,

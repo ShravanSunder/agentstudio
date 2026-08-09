@@ -266,6 +266,7 @@ let package = Package(
             name: "AgentStudioBridgeDevelopmentServer",
             dependencies: [
                 "AgentStudioBridge",
+                "AgentStudioCore",
                 .product(name: "Hummingbird", package: "hummingbird"),
                 .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
             ],
@@ -308,6 +309,7 @@ let package = Package(
             name: "AgentStudioBridgeDevelopmentServerTests",
             dependencies: [
                 "AgentStudioBridgeDevelopmentServer",
+                "AgentStudioCore",
                 "AgentStudioTestSupport",
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],

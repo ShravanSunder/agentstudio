@@ -35,7 +35,11 @@ describe('Bridge Review presentation adapter', () => {
 		const presentationSnapshot = bridgeReviewPresentationSnapshotForDisplay({
 			catalogSnapshot: catalogSnapshot({ itemCount: 1, revision: 7, treeRowCount: 2 }),
 			displayStore: displayStore({ items: [displayItem], rawTreeRows }),
-			reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, treeRowCount: 2 }),
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				revision: 101,
+				treeRowCount: 2,
+			}),
 		});
 
 		// Assert
@@ -79,6 +83,8 @@ describe('Bridge Review presentation adapter', () => {
 			presentationSnapshot?.presentationKey,
 		);
 		expect(presentationSnapshot?.reviewPackage.packageId).toBe('review-package-ready');
+		expect(presentationSnapshot?.reviewPackage.revision).toBe(101);
+		expect(presentationSnapshot?.reviewPackage.itemsById['item-source']?.itemVersion).toBe(7);
 		expect(presentationSnapshot?.reviewPackage).toMatchObject({
 			baseEndpoint: reviewBaseEndpoint,
 			comparisonOrigin: reviewComparisonOrigin,
@@ -131,6 +137,7 @@ describe('Bridge Review presentation adapter', () => {
 				query: null,
 				reviewGeneration: 1,
 				reviewedSubjectLabel: null,
+				revision: 0,
 				status: 'loading',
 				summary: null,
 				totalItemCount: null,
@@ -413,6 +420,7 @@ describe('Bridge Review presentation adapter', () => {
 			reviewSourceSlice: readyReviewSourceSlice({
 				itemCount: initialItemCount,
 				metadataWindowIdentity: 'review-window-source-revision-1',
+				revision: 101,
 				treeRowCount: initialItemCount,
 			}),
 		});
@@ -460,6 +468,7 @@ describe('Bridge Review presentation adapter', () => {
 			reviewSourceSlice: readyReviewSourceSlice({
 				itemCount: initialItemCount + appendedItemCount,
 				metadataWindowIdentity: 'review-window-source-revision-2',
+				revision: 102,
 				treeRowCount: initialItemCount + appendedItemCount,
 			}),
 		});
@@ -472,6 +481,12 @@ describe('Bridge Review presentation adapter', () => {
 		expect(appendedPresentation?.reviewPackage.packageId).toBe(
 			initialPresentation?.reviewPackage.packageId,
 		);
+		expect(initialPresentation?.reviewPackage.revision).toBe(101);
+		expect(appendedPresentation?.reviewPackage.revision).toBe(102);
+		expect(initialPresentation?.reviewPackage.itemsById[reviewItemId(0)]?.itemVersion).toBe(1);
+		expect(
+			appendedPresentation?.reviewPackage.itemsById[reviewItemId(initialItemCount)]?.itemVersion,
+		).toBe(2);
 		expect(appendedPresentation?.reviewPackage.orderedItemIds).toHaveLength(
 			initialItemCount + appendedItemCount,
 		);
@@ -529,6 +544,7 @@ function readyReviewSourceSlice(props: {
 	readonly itemCount: number;
 	readonly metadataWindowIdentity?: string;
 	readonly reviewGeneration?: number;
+	readonly revision?: number;
 	readonly treeRowCount: number;
 }): Exclude<BridgeMainReviewSourceDisplaySlice, { readonly status: 'failed' }> & {
 	readonly status: 'ready';
@@ -543,6 +559,7 @@ function readyReviewSourceSlice(props: {
 		query: reviewQuery,
 		reviewGeneration: props.reviewGeneration ?? 1,
 		reviewedSubjectLabel: 'feature/review-comments',
+		revision: props.revision ?? 1,
 		status: 'ready',
 		summary: {
 			additions: 1,

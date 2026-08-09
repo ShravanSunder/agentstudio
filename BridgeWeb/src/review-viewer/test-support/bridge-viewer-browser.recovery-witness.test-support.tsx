@@ -638,6 +638,7 @@ function reviewDisplayEvent(
 					metadataWindowIdentity,
 					packageId: 'review-recovery-witness-package',
 					reviewGeneration: 1,
+					revision: projectionRevision,
 					status: 'ready',
 					summary: {
 						additions: files.length,
@@ -714,6 +715,7 @@ function reviewDisplayAppendEvent(
 					metadataWindowIdentity: 'review-recovery-witness-window-r2',
 					packageId: 'review-recovery-witness-package',
 					reviewGeneration: 1,
+					revision: 2,
 					status: 'ready',
 					summary: {
 						additions: files.length,

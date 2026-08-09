@@ -278,6 +278,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 							metadataWindowIdentity: 'review-window-empty',
 							packageId: 'review-package-browser-test',
 							reviewGeneration: 1,
+							revision: 1,
 							status: 'ready',
 							summary: {
 								additions: 0,

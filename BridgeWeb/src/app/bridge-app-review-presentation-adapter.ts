@@ -161,7 +161,7 @@ function rebuildBridgeReviewPresentationLedger(props: {
 		presentationKey,
 		reviewGeneration: props.reviewSourceSlice.reviewGeneration,
 		reviewSourceSlice: props.reviewSourceSlice,
-		revision: props.catalogSnapshot.revision,
+		revision: props.reviewSourceSlice.revision,
 	});
 	const projection = presentationProjectionForDisplay({
 		orderedDisplayItems,
@@ -268,7 +268,7 @@ function applyBridgeReviewPresentationChanges(props: {
 			itemProjectionUpdates.itemsById,
 		),
 		orderedItemIds,
-		revision: props.catalogSnapshot.revision,
+		revision: props.reviewSourceSlice.revision,
 		summary: props.reviewSourceSlice.summary,
 	};
 	const projection: BridgeReviewProjectionResult = {

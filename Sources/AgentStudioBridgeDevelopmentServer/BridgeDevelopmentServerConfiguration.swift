@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 import Hummingbird
 
@@ -6,9 +7,11 @@ enum BridgeDevelopmentServerConfigurationError: Error, Equatable {
 }
 
 struct BridgeDevelopmentServerConfiguration: Sendable {
-    let worktreeRoot: URL
-    let reviewBase: String
+    let dataRoot: URL
+    let paneID: UUID
     let port: Int
+    let seedContributionTarget: WorkspaceReviewContributionTarget
+    let seedWorktreeRoot: URL
 
     var applicationConfiguration: ApplicationConfiguration {
         .init(
@@ -17,12 +20,20 @@ struct BridgeDevelopmentServerConfiguration: Sendable {
         )
     }
 
-    init(worktreeRoot: URL, reviewBase: String, port: Int) throws {
+    init(
+        dataRoot: URL,
+        paneID: UUID,
+        port: Int,
+        seedContributionTarget: WorkspaceReviewContributionTarget,
+        seedWorktreeRoot: URL
+    ) throws {
         guard (1...65_535).contains(port) else {
             throw BridgeDevelopmentServerConfigurationError.invalidPort
         }
-        self.worktreeRoot = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
-        self.reviewBase = reviewBase
+        self.dataRoot = dataRoot.standardizedFileURL.resolvingSymlinksInPath()
+        self.paneID = paneID
         self.port = port
+        self.seedContributionTarget = seedContributionTarget
+        self.seedWorktreeRoot = seedWorktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
     }
 }

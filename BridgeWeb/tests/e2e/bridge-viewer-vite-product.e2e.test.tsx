@@ -83,6 +83,14 @@ interface FileContentScrollProof {
 	readonly middleMarkerPainted: boolean;
 }
 
+interface ReviewComparisonBrowserProof {
+	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+	readonly symbolicTargetLabel: string;
+	readonly targetOID: string;
+}
+
 let disposeFixture: (() => Promise<void>) | null = null;
 let fixtureOracle: BridgeViewerViteProductFixtureOracle | null = null;
 let mutateLargeFileFixture: (() => Promise<BridgeViewerViteProductContentOracle>) | null = null;
@@ -338,7 +346,158 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			await browser.close();
 		}
 	});
+
+	test('restores a UI-committed symbolic comparison across backend restart and resolves the moved Git target', async () => {
+		// Arrange
+		const fixture = await createBridgeViewerViteProductFixture();
+		let serverA: BridgeViewerOwnedViteProductServer | null = null;
+		let serverB: BridgeViewerOwnedViteProductServer | null = null;
+		const browser = await chromium.launch({ channel: 'chrome', headless: true });
+		try {
+			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+			const pageA = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			await pageA.goto(productReviewUrl(serverA.origin), {
+				timeout: productJourneyTimeoutMilliseconds,
+				waitUntil: 'domcontentloaded',
+			});
+			await pageA.waitForSelector('[data-testid="review-viewer-shell"]', {
+				timeout: productJourneyTimeoutMilliseconds,
+			});
+			await waitForSettledReviewComparison({
+				expectedTargetLabel: 'Compare to: HEAD',
+				expectedTargetOID: fixture.oracle.baseRef,
+				page: pageA,
+			});
+
+			// Act: process A commits the symbolic target through the real Compare-to UI.
+			const comparisonContent = pageA.getByTestId('bridge-review-comparison-content');
+			await comparisonContent
+				.getByPlaceholder('branch or Git ref')
+				.fill(fixture.oracle.comparisonTargetName);
+			await comparisonContent.getByRole('button', { name: 'Apply' }).click();
+			const processAProof = await waitForSettledReviewComparison({
+				expectedTargetLabel: `Compare to: ${fixture.oracle.comparisonTargetName}`,
+				expectedTargetOID: fixture.oracle.baseRef,
+				page: pageA,
+			});
+			await pageA.close();
+
+			const processABackendPid = serverA.backendPid;
+			const processACleanup = await serverA.stop();
+			serverA = null;
+			expect(processACleanup.forcedTerminationRequired).toBe(false);
+			expect(processACleanup.ownedProcessAliveAfterStop).toBe(false);
+
+			const movedTargetOID = await fixture.advanceComparisonTarget();
+			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+			const pageB = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			await pageB.goto(productReviewUrl(serverB.origin), {
+				timeout: productJourneyTimeoutMilliseconds,
+				waitUntil: 'domcontentloaded',
+			});
+			const processBProof = await waitForSettledReviewComparison({
+				expectedTargetLabel: `Compare to: ${fixture.oracle.comparisonTargetName}`,
+				expectedTargetOID: movedTargetOID,
+				page: pageB,
+			});
+			await pageB.close();
+
+			const processBBackendPid = serverB.backendPid;
+			const processBCleanup = await serverB.stop();
+			serverB = null;
+
+			// Assert
+			const restartReceipt = {
+				processA: { backendPid: processABackendPid, proof: processAProof },
+				processB: { backendPid: processBBackendPid, proof: processBProof },
+			};
+			expect(restartReceipt.processA.backendPid).toBeGreaterThan(0);
+			expect(restartReceipt.processB.backendPid).toBeGreaterThan(0);
+			expect(restartReceipt.processB.backendPid).not.toBe(restartReceipt.processA.backendPid);
+			expect(processBCleanup.forcedTerminationRequired).toBe(false);
+			expect(processBCleanup.ownedProcessAliveAfterStop).toBe(false);
+			expect(restartReceipt.processA.proof.targetOID).toBe(fixture.oracle.baseRef);
+			expect(restartReceipt.processB.proof.targetOID).toBe(movedTargetOID);
+			expect(restartReceipt.processB.proof.targetOID).not.toBe(
+				restartReceipt.processA.proof.targetOID,
+			);
+			expect(restartReceipt.processB.proof.symbolicTargetLabel).toBe(
+				restartReceipt.processA.proof.symbolicTargetLabel,
+			);
+			expect(restartReceipt.processB.proof.packageId).not.toBe(
+				restartReceipt.processA.proof.packageId,
+			);
+		} finally {
+			await browser.close();
+			if (serverA !== null) await serverA.stop();
+			if (serverB !== null) await serverB.stop();
+			await fixture.dispose();
+		}
+	});
 });
+
+async function waitForSettledReviewComparison(props: {
+	readonly expectedTargetLabel: string;
+	readonly expectedTargetOID: string;
+	readonly page: Page;
+}): Promise<ReviewComparisonBrowserProof> {
+	const comparisonTrigger = props.page.getByTestId('bridge-review-comparison-trigger');
+	await expect
+		.poll(async (): Promise<string | null> => await comparisonTrigger.textContent(), {
+			timeout: productJourneyTimeoutMilliseconds,
+		})
+		.toBe(props.expectedTargetLabel);
+	let settledTargetOID = '';
+	try {
+		await expect
+			.poll(
+				async (): Promise<string | null> => {
+					const observedTargetOID = await props.page.evaluate(
+						(): string | null =>
+							document
+								.querySelector('[data-testid="bridge-review-comparison-target-revision"]')
+								?.getAttribute('title') ?? null,
+					);
+					if (observedTargetOID !== null) settledTargetOID = observedTargetOID;
+					if (
+						observedTargetOID === null &&
+						(await props.page.getByTestId('bridge-review-comparison-content').count()) === 0
+					) {
+						await comparisonTrigger.click();
+					}
+					return observedTargetOID;
+				},
+				{ timeout: productJourneyTimeoutMilliseconds },
+			)
+			.toBe(props.expectedTargetOID);
+	} catch (error: unknown) {
+		const comparisonState = await props.page.evaluate(
+			(): string | null =>
+				document.querySelector('[data-testid="bridge-review-comparison-content"]')?.textContent ??
+				null,
+		);
+		throw new Error(`Review comparison did not settle: ${comparisonState ?? '<missing>'}`, {
+			cause: error,
+		});
+	}
+	const reviewShell = props.page.getByTestId('review-viewer-shell');
+	const packageId = await reviewShell.getAttribute('data-review-metadata-id');
+	const reviewGeneration = Number(
+		await reviewShell.getAttribute('data-review-metadata-generation'),
+	);
+	const revision = Number(await reviewShell.getAttribute('data-review-metadata-revision'));
+	const symbolicTargetLabel = (await comparisonTrigger.textContent()) ?? '';
+	if (packageId === null || packageId.length === 0) {
+		throw new Error('Settled Review comparison is missing package identity.');
+	}
+	return {
+		packageId,
+		reviewGeneration,
+		revision,
+		symbolicTargetLabel,
+		targetOID: settledTargetOID,
+	};
+}
 
 function assertJourneyFreshness(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
