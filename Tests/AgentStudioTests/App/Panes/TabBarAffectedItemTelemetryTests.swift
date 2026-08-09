@@ -140,8 +140,8 @@ struct TabBarAffectedItemTelemetryTests {
             ]
             for eventBody in eventBodies {
                 #expect(
-                    tabBarTelemetryEventCount(for: eventBody, in: contents) == 3,
-                    "Expected active-selection, reorder, and removal publications for \(eventBody)"
+                    tabBarTelemetryEventCount(for: eventBody, in: contents) == 4,
+                    "Expected initial, active-selection, reorder, and removal publications for \(eventBody)"
                 )
             }
             let refreshSequences = try tabBarTelemetrySequences(
