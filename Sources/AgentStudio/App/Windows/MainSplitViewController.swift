@@ -70,6 +70,7 @@ class MainSplitViewController: NSSplitViewController {
     private var shouldExpandSidebarOnLoad = false
     private var shouldFocusSidebarWhenVisible = false
     private var didApplySidebarWidthAfterLayout = false
+    private var hasShutdown = false
 
     // MARK: - Dependencies (injected)
 
@@ -661,6 +662,8 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func shutdown() {
+        guard !hasShutdown else { return }
+        hasShutdown = true
         sidebarFocusTask?.cancel()
         sidebarWidthRestoreTask?.cancel()
         shouldFocusSidebarWhenVisible = false

@@ -80,6 +80,7 @@ debug
 debug.yaml
 plugin-tools.yaml
 workspace-state.json
+*.mindle.json
 Frameworks/GhosttyKit.xcframework
 .build-zmxe2e
 .build-*

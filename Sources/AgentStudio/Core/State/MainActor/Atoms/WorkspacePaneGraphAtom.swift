@@ -288,11 +288,11 @@ struct WorkspacePaneGraphReplacement: Equatable, Sendable {
 @MainActor
 @Observable
 package final class WorkspacePaneGraphAtom {
-    @ObservationIgnored private let paneStateMap = AtomEntityMap<UUID, PaneGraphState>(
+    @ObservationIgnored private let paneStateMap = AtomFamily<UUID, PaneGraphState>(
         telemetryLabel: "pane_graph_canonical",
         isContentEqual: ==
     )
-    @ObservationIgnored private let paneStructuralFactsMap = AtomEntityMap<UUID, PaneStructuralFacts>(
+    @ObservationIgnored private let paneStructuralFactsMap = AtomFamily<UUID, PaneStructuralFacts>(
         telemetryLabel: "pane_graph_structural",
         isContentEqual: ==
     )
@@ -302,7 +302,7 @@ package final class WorkspacePaneGraphAtom {
     package init() {}
 
     package var paneIDs: Set<UUID> {
-        _ = paneStateMap.membershipRevision.value
+        _ = paneStateMap.membershipRevision
         return paneStateMap.membershipKeys()
     }
 
@@ -334,8 +334,7 @@ package final class WorkspacePaneGraphAtom {
         let previousPaneStates = paneStateMap.snapshot()
         commitPaneStates(
             previousPaneStates: previousPaneStates,
-            nextPaneStates: replacement.paneStates,
-            pruneNilSlotsAfterCommit: true
+            nextPaneStates: replacement.paneStates
         )
     }
 
@@ -434,7 +433,7 @@ package final class WorkspacePaneGraphAtom {
     @discardableResult
     func deletePaneAndOwnedDrawerChildren(_ paneId: UUID) -> Bool {
         guard let paneState = paneStateMap.snapshotValue(for: paneId) else { return false }
-        mutatePaneStates(pruneNilSlotsAfterCommit: true) { paneStates in
+        mutatePaneStates { paneStates in
             if let drawer = paneState.drawer {
                 for childId in drawer.paneIds {
                     paneStates.removeValue(forKey: childId)
@@ -539,7 +538,7 @@ package final class WorkspacePaneGraphAtom {
             workspacePaneLogger.warning("purgeOrphanedPane: pane \(paneId) is not backgrounded")
             return
         }
-        _ = mutatePaneStates(pruneNilSlotsAfterCommit: true) { paneStates in
+        _ = mutatePaneStates { paneStates in
             paneStates.removeValue(forKey: paneId)
         }
     }
@@ -598,7 +597,7 @@ package final class WorkspacePaneGraphAtom {
             return
         }
 
-        mutatePaneStates(pruneNilSlotsAfterCommit: true) { paneStates in
+        mutatePaneStates { paneStates in
             paneStates[parentPaneId]?.withDrawer { drawer in
                 drawer.paneIds.removeAll { $0 == drawerPaneId }
             }
@@ -723,7 +722,6 @@ package final class WorkspacePaneGraphAtom {
     }
 
     private func mutatePaneStates<TMutationResult>(
-        pruneNilSlotsAfterCommit: Bool = false,
         _ transform: (inout [UUID: PaneGraphState]) -> TMutationResult
     ) -> TMutationResult {
         let previousPaneStates = paneStateMap.snapshot()
@@ -731,22 +729,21 @@ package final class WorkspacePaneGraphAtom {
         let result = transform(&nextPaneStates)
         commitPaneStates(
             previousPaneStates: previousPaneStates,
-            nextPaneStates: nextPaneStates,
-            pruneNilSlotsAfterCommit: pruneNilSlotsAfterCommit
+            nextPaneStates: nextPaneStates
         )
         return result
     }
 
     private func commitPaneStates(
         previousPaneStates: [UUID: PaneGraphState],
-        nextPaneStates: [UUID: PaneGraphState],
-        pruneNilSlotsAfterCommit: Bool
+        nextPaneStates: [UUID: PaneGraphState]
     ) {
         let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
         let previousPaneIDs = Set(previousPaneStates.keys)
         let nextPaneIDs = Set(nextPaneStates.keys)
+        let removedPaneIDs = previousPaneIDs.subtracting(nextPaneIDs)
 
-        for removedPaneID in previousPaneIDs.subtracting(nextPaneIDs) {
+        for removedPaneID in removedPaneIDs {
             paneStateMap.removeValue(for: removedPaneID, mutation: mutation)
             paneStructuralFactsMap.removeValue(for: removedPaneID, mutation: mutation)
         }
@@ -768,11 +765,6 @@ package final class WorkspacePaneGraphAtom {
             parentPaneIDByDrawerID = nextParentPaneIDByDrawerID
         }
         mutation.commit()
-
-        if pruneNilSlotsAfterCommit {
-            paneStateMap.pruneNilSlots(excluding: nextPaneIDs)
-            paneStructuralFactsMap.pruneNilSlots(excluding: nextPaneIDs)
-        }
 
         precondition(Set(paneStateMap.snapshot().keys) == nextPaneIDs)
         precondition(Set(paneStructuralFactsMap.snapshot().keys) == nextPaneIDs)

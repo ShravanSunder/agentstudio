@@ -96,7 +96,7 @@ Sources/AgentStudio/
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
 │   ├── AtomLib/                      # Generic observation primitives only: AtomValue,
-│   │                                 #   AtomEntityMap, revisions/mutation, DerivedValue.
+│   │                                 #   AtomFamily, revisions/mutation, DerivedAtom.
 │   ├── Diagnostics/                  # RestoreTrace
 │   ├── Extensions/                   # Foundation/AppKit extensions, UniformType, NSColor+Hex
 │   ├── Icons/                        # OcticonImage, OcticonLoader
