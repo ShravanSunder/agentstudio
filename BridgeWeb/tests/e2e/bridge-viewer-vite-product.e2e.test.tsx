@@ -23,6 +23,7 @@ import {
 import {
 	observeBrowserRuntimeDiagnostics,
 	waitForSettledReviewComparison,
+	waitForSettledReviewComparisonWithDiagnostics,
 } from './bridge-viewer-vite-review-comparison-proof.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
@@ -404,13 +405,16 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			const movedTargetOID = await fixture.advanceComparisonTarget();
 			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
 			const pageB = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			const pageBDiagnostics = observeBrowserRuntimeDiagnostics(pageB);
 			await pageB.goto(productReviewUrl(serverB.origin), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			const processBProof = await waitForSettledReviewComparison({
+			const processBProof = await waitForSettledReviewComparisonWithDiagnostics({
+				diagnostics: pageBDiagnostics,
 				expectedTargetLabel: `Compare: ${fixture.oracle.comparisonTargetName}`,
 				expectedTargetOID: movedTargetOID,
+				failureContext: (): string => `server=${serverB?.diagnostics() ?? '<stopped>'}`,
 				page: pageB,
 				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
 			});

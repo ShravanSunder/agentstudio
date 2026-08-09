@@ -133,3 +133,21 @@ export async function waitForSettledReviewComparison(props: {
 		targetOID: settledTargetOID,
 	};
 }
+
+export async function waitForSettledReviewComparisonWithDiagnostics(props: {
+	readonly diagnostics: BrowserRuntimeDiagnostics;
+	readonly expectedTargetLabel: string;
+	readonly expectedTargetOID: string;
+	readonly failureContext: () => string;
+	readonly page: Page;
+	readonly timeoutMilliseconds: number;
+}): Promise<ReviewComparisonBrowserProof> {
+	try {
+		return await waitForSettledReviewComparison(props);
+	} catch (error: unknown) {
+		throw new Error(
+			`Restarted Review comparison did not load: ${await props.diagnostics.describe()} ${props.failureContext()}`,
+			{ cause: error },
+		);
+	}
+}
