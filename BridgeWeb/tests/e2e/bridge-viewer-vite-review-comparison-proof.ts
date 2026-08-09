@@ -26,15 +26,18 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 		pageErrors.push(error.stack ?? error.message);
 	});
 	page.on('requestfailed', (request: Request): void => {
-		failedRequests.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'unknown'}`);
+		failedRequests.push(
+			`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? 'unknown'}`,
+		);
 	});
 	page.on('response', (response: Response): void => {
 		const path = new URL(response.url()).pathname;
 		if (!path.startsWith('/__bridge-product/')) return;
 		const requestBody = response.request().postData()?.slice(0, 1_000) ?? '';
-		const responseIndex = productResponses.push(
-			`${response.status()} ${response.request().method()} ${path} request=${requestBody}`,
-		) - 1;
+		const responseIndex =
+			productResponses.push(
+				`${response.status()} ${response.request().method()} ${path} request=${requestBody}`,
+			) - 1;
 		if (path !== '/__bridge-product/command' && response.status() < 400) return;
 		responseBodyReads.push(
 			response
@@ -51,7 +54,12 @@ export function observeBrowserRuntimeDiagnostics(page: Page): BrowserRuntimeDiag
 		describe: async (): Promise<string> => {
 			await Promise.allSettled(responseBodyReads);
 			return JSON.stringify({
-				bodyText: (await page.locator('body').textContent().catch((): null => null))?.slice(0, 2_000),
+				bodyText: (
+					await page
+						.locator('body')
+						.textContent()
+						.catch((): null => null)
+				)?.slice(0, 2_000),
 				consoleErrors,
 				failedRequests,
 				pageErrors,

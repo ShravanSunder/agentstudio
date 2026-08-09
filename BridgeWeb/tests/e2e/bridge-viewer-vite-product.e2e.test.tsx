@@ -364,7 +364,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 						(document.body.textContent ?? '').includes('Review metadata is unavailable'),
 					undefined,
 					{
-					timeout: productJourneyTimeoutMilliseconds,
+						timeout: productJourneyTimeoutMilliseconds,
 					},
 				);
 				if ((await pageA.getByTestId('review-viewer-shell').count()) === 0) {
@@ -374,7 +374,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				throw new Error(
 					`Review shell did not load: ${await pageADiagnostics.describe()} server=${serverA.diagnostics()}`,
 					{
-					cause: error,
+						cause: error,
 					},
 				);
 			}

@@ -211,9 +211,10 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(document.querySelector('[data-testid="bridge-review-comparison-content"]')).toBeNull();
 	});
 
-	test('applies a typed Git reference through the Review product command', async () => {
+	test('applies an exact commit through the Review product command', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();
+		const exactCommitOID = 'c'.repeat(40);
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive
@@ -233,8 +234,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Act
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-			await rendered.getByLabelText('Branch or Git reference').fill('feature/stack-base');
-			await rendered.getByRole('button', { name: 'Apply' }).click();
+			await rendered.getByRole('button', { name: 'Commit' }).click();
+			await rendered.getByRole('textbox', { name: 'Commit hash' }).fill(exactCommitOID);
+			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
 			await Promise.resolve();
 		});
 
@@ -242,7 +244,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(harness.sentCommands).toContainEqual(
 			expect.objectContaining({
 				command: 'reviewComparisonUpdate',
-				target: { kind: 'ref', name: 'feature/stack-base' },
+				target: { kind: 'ref', name: exactCommitOID },
 			}),
 		);
 	});
