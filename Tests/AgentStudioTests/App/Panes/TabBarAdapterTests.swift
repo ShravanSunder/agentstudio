@@ -585,6 +585,47 @@ final class TabBarAdapterTests {
         #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
     }
 
+    @Test
+    func test_enrichmentMutation_refreshesWorktreeBackedTabTitle() async throws {
+        resetFixture()
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/adapter-enrichment-refresh"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-name",
+            path: URL(filePath: "/tmp/adapter-enrichment-refresh/feature-name")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/before")
+        )
+        let pane = store.createPane(
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id, name: "Tab"))
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.displayTitle == "feature-name · feature/before")
+
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/after")
+        )
+
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.displayTitle == "feature-name · feature/after")
+    }
+
     // MARK: - Transient State
 
     @Test

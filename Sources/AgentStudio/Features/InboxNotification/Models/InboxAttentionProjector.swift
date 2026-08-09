@@ -28,30 +28,49 @@ package struct InboxAttentionFactSnapshot: Equatable, Sendable {
 }
 
 package enum InboxAttentionProjector: Sendable {
+    package nonisolated static func projectPaneLanes(
+        snapshot: InboxAttentionFactSnapshot
+    ) -> [UUID: InboxNotificationClaimLane] {
+        // The MainActor mutation path supplies no cancellation source.
+        try! projectPaneLanesCancellable(snapshot: snapshot, cancellationCheck: {})
+    }
+
+    package nonisolated static func projectPaneLanesCancellable(
+        snapshot: InboxAttentionFactSnapshot,
+        cancellationCheck: () throws(CancellationError) -> Void
+    ) throws(CancellationError) -> [UUID: InboxNotificationClaimLane] {
+        var lanesByPaneId: [UUID: InboxNotificationClaimLane] = [:]
+        for (factIndex, fact) in snapshot.facts.enumerated() {
+            if factIndex.isMultiple(of: 256) { try cancellationCheck() }
+            guard !fact.isRead, fact.lane != .activity else { continue }
+            lanesByPaneId[fact.paneId] = strongerLane(
+                lanesByPaneId[fact.paneId],
+                candidate: fact.lane
+            )
+        }
+        try cancellationCheck()
+        return lanesByPaneId
+    }
+
     package nonisolated static func project<GroupID: Hashable & Sendable>(
         snapshot: InboxAttentionFactSnapshot,
         groups: [GroupID: Set<UUID>],
         cancellationCheck: () throws(CancellationError) -> Void = checkCancellation
     ) throws(CancellationError) -> [GroupID: InboxNotificationClaimLane] {
-        var groupIdsByPaneId: [UUID: [GroupID]] = [:]
+        let lanesByPaneId = try projectPaneLanesCancellable(
+            snapshot: snapshot,
+            cancellationCheck: cancellationCheck
+        )
+
+        var lanesByGroupId: [GroupID: InboxNotificationClaimLane] = [:]
         for (groupIndex, group) in groups.enumerated() {
             if groupIndex.isMultiple(of: 256) { try cancellationCheck() }
             for (paneIndex, paneId) in group.value.enumerated() {
                 if paneIndex.isMultiple(of: 256) { try cancellationCheck() }
-                groupIdsByPaneId[paneId, default: []].append(group.key)
-            }
-        }
-
-        var lanesByGroupId: [GroupID: InboxNotificationClaimLane] = [:]
-        for (factIndex, fact) in snapshot.facts.enumerated() {
-            if factIndex.isMultiple(of: 256) { try cancellationCheck() }
-            guard !fact.isRead, fact.lane != .activity else { continue }
-            guard let groupIds = groupIdsByPaneId[fact.paneId] else { continue }
-            for (groupIndex, groupId) in groupIds.enumerated() {
-                if groupIndex.isMultiple(of: 256) { try cancellationCheck() }
-                lanesByGroupId[groupId] = strongerLane(
-                    lanesByGroupId[groupId],
-                    candidate: fact.lane
+                guard let lane = lanesByPaneId[paneId] else { continue }
+                lanesByGroupId[group.key] = strongerLane(
+                    lanesByGroupId[group.key],
+                    candidate: lane
                 )
             }
         }

@@ -171,6 +171,7 @@ final class TabBarAdapter {
                 activeTabId: store.tabShellAtom.activeTabId
             )
         } onChange: { [weak self] in
+            self?.projectionTelemetry.sourceDidInvalidate()
             Task { @MainActor [weak self] in
                 guard let self, !self.hasStopped else { return }
                 self.isObservingTabCollection = false
@@ -284,6 +285,10 @@ final class TabBarAdapter {
         let previousProjection = publishedProjection
         publishedProjection = candidate
         outputPublicationRevision &+= 1
+        projectionTelemetry.recordCollectionPublicationAdmissionIfNeeded(
+            current: candidate,
+            startedAt: refreshStartedAt
+        )
         projectionTelemetry.recordPublication(
             previous: previousProjection,
             current: candidate,
@@ -348,6 +353,7 @@ private final class TabBarProjectionTelemetry: Sendable {
 
     private struct State: Sendable {
         var admissionsBySequence: [UInt64: Admission] = [:]
+        var nextCollectionSequence: UInt64 = 1 << 62
         var pendingInteractionStartedAt: ContinuousClock.Instant?
         var pendingPublicationAdmission: Admission?
         var pendingVisibleAdmission: Admission?
@@ -469,12 +475,47 @@ private final class TabBarProjectionTelemetry: Sendable {
             }
             if didPublish {
                 state.pendingPublicationAdmission = admission
-                state.pendingVisibleAdmission = admission
             }
             return admission
         }
         guard let admission else { return }
         recordTerminal(admission, outcome: outcome, recorder: recorder)
+    }
+
+    @MainActor
+    func recordCollectionPublicationAdmissionIfNeeded(
+        current: TabBarProjection,
+        startedAt: ContinuousClock.Instant?
+    ) {
+        guard let recorder, recorder.isEnabled, let startedAt else { return }
+        let admission = state.withLock { state -> Admission? in
+            guard state.pendingPublicationAdmission == nil,
+                let interactionStartedAt = state.pendingInteractionStartedAt
+            else { return nil }
+            let admission = Admission(
+                sequence: state.nextCollectionSequence,
+                captureStartedAt: startedAt,
+                interactionStartedAt: interactionStartedAt,
+                tabCount: current.items.count,
+                sourceTabCount: current.items.count,
+                paneCount: current.items.reduce(into: 0) { count, item in
+                    count += item.panes.count
+                },
+                activeTabPresent: current.activeTabID != nil,
+                affectedItemCount: nil
+            )
+            state.nextCollectionSequence &+= 1
+            state.pendingInteractionStartedAt = nil
+            state.pendingPublicationAdmission = admission
+            return admission
+        }
+        guard let admission else { return }
+        recorder.recordDuration(
+            .tabBarCapture,
+            duration: admission.captureStartedAt.duration(to: clock.now),
+            attributes: Self.attributes(for: admission)
+        )
+        recordTerminal(admission, outcome: "published", recorder: recorder)
     }
 
     @MainActor

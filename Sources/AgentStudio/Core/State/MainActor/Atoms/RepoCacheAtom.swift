@@ -41,6 +41,10 @@ package final class RepoEnrichmentCacheAtom {
         worktreeEnrichmentRevisionAtom.value
     }
 
+    var repoEnrichmentRevision: Int {
+        repoEnrichmentRevisionAtom.value
+    }
+
     var repoEnrichmentByRepoId: [UUID: RepoEnrichment] {
         _ = repoEnrichmentRevisionAtom.value
         return repoEnrichmentSnapshot()
@@ -355,6 +359,10 @@ package final class RepoCacheAtom {
 
     var worktreeEnrichmentRevision: Int {
         enrichmentCacheAtom.worktreeEnrichmentRevision
+    }
+
+    package var repoEnrichmentRevision: Int {
+        enrichmentCacheAtom.repoEnrichmentRevision
     }
 
     package func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {

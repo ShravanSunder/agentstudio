@@ -144,6 +144,30 @@ struct InboxAttentionProjectorTests {
         }
     }
 
+    @Test("pane projection is the atom's canonical keyed attention policy")
+    func paneProjectionIsCanonicalAtomPolicy() throws {
+        let mixedPaneId = uuid("30000000-0000-7000-8000-000000000041")
+        let readPaneId = uuid("30000000-0000-7000-8000-000000000042")
+        let activityPaneId = uuid("30000000-0000-7000-8000-000000000043")
+        let atom = InboxNotificationAtom()
+        atom.replaceAll([
+            notification(paneId: mixedPaneId, lane: .settledAgent),
+            notification(paneId: mixedPaneId, lane: .safety),
+            notification(paneId: mixedPaneId, lane: .actionNeeded),
+            notification(paneId: readPaneId, lane: .actionNeeded, isRead: true),
+            notification(paneId: activityPaneId, lane: .activity),
+        ])
+
+        let projection = InboxAttentionProjector.projectPaneLanes(
+            snapshot: atom.captureAttentionFacts()
+        )
+
+        #expect(projection == [mixedPaneId: .actionNeeded])
+        for paneId in [mixedPaneId, readPaneId, activityPaneId] {
+            #expect(projection[paneId] == atom.attentionLane(forPaneIds: [paneId]))
+        }
+    }
+
     private func notification(
         paneId: UUID,
         lane: InboxNotificationClaimLane,

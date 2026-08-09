@@ -407,6 +407,24 @@ def regression_failures(
     return failures
 
 
+def coverage_failures(
+    before_values: dict[str, str],
+    after_values: dict[str, str],
+    surface: str,
+    regression_boundary_percent: float,
+) -> list[str]:
+    count_key = surface_key(surface, "victoria_metrics_count")
+    before = numeric(before_values, count_key)
+    after = numeric(after_values, count_key)
+    minimum_coverage = before * (1 - regression_boundary_percent / 100)
+    if before > 0 and after < minimum_coverage:
+        return [
+            f"{count_key} coverage collapsed ({before:g} -> {after:g}; "
+            f"minimum {minimum_coverage:g})"
+        ]
+    return []
+
+
 baseline_workload = parse_summary(baseline_workload_path)
 after_workload = parse_summary(after_workload_path)
 baseline_interaction = parse_summary(baseline_interaction_path)
@@ -485,6 +503,12 @@ failures.extend(validate_instrumentation_continuity(
 ))
 
 if regression_boundary_percent is not None:
+    failures.extend(coverage_failures(
+        baseline_workload,
+        after_workload,
+        "performance.tabbar.refresh",
+        regression_boundary_percent,
+    ))
     failures.extend(regression_failures(
         baseline_interaction,
         after_interaction,

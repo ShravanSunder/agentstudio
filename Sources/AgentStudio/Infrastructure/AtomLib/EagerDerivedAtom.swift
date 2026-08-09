@@ -82,7 +82,7 @@ package final class EagerDerivedAtom<
         unsettledProjectionTaskCount += 1
         // Detached execution is the primitive's off-MainActor projection guarantee.
         // swiftlint:disable:next no_task_detached
-        retainedTask = Task.detached(priority: .userInitiated) { [weak self] in
+        retainedTask = Task.detached(priority: .userInitiated) { [self] in
             do {
                 let candidate = try project(request)
                 let isEqualToPrevious =
@@ -90,7 +90,7 @@ package final class EagerDerivedAtom<
                         isValueEqual($0, candidate)
                     } ?? false
                 let wasCancelled = Task.isCancelled
-                await self?.acceptCompletion(
+                await acceptCompletion(
                     candidate,
                     isEqualToPrevious: isEqualToPrevious,
                     wasCancelled: wasCancelled,
@@ -99,7 +99,7 @@ package final class EagerDerivedAtom<
                     epoch: epoch
                 )
             } catch {
-                await self?.finishCancelledProjection(
+                await finishCancelledProjection(
                     generation: admittedGeneration,
                     identity: identity,
                     epoch: epoch

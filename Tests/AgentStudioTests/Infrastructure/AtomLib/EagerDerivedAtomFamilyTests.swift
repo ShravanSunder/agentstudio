@@ -398,6 +398,89 @@ struct EagerDerivedAtomFamilyTests {
     }
 
     @Test
+    func ownerReleaseRetainsStoppedChildUntilEveryOverlappingProjectionSettles() async {
+        let predecessorGate = EagerDerivedAtomProjectionGate()
+        let successorGate = EagerDerivedAtomProjectionGate()
+        defer {
+            predecessorGate.release()
+            successorGate.release()
+        }
+        let predecessorCancellation = EagerDerivedAtomTestSignal()
+        let successorCancellation = EagerDerivedAtomTestSignal()
+        let projectionCount = EagerDerivedAtomTestCounter()
+        var family: EagerDerivedAtomTestFamily? = makeEagerDerivedAtomTestFamily()
+        weak let stoppedChild = family?.materialize(for: 1)
+
+        family?.admit(
+            makeEagerDerivedAtomTestRequest(
+                identity: 1,
+                outputContent: 10,
+                gate: predecessorGate,
+                projectionCount: projectionCount,
+                observesCancellation: true,
+                cancellationSignal: predecessorCancellation
+            ),
+            for: 1
+        )
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "owner-release predecessor start",
+                wait: { await predecessorGate.waitUntilStarted() }
+            )
+        else { return }
+
+        family?.admit(
+            makeEagerDerivedAtomTestRequest(
+                identity: 2,
+                outputContent: 20,
+                gate: successorGate,
+                projectionCount: projectionCount,
+                observesCancellation: true,
+                cancellationSignal: successorCancellation
+            ),
+            for: 1
+        )
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "owner-release successor start",
+                wait: { await successorGate.waitUntilStarted() }
+            )
+        else { return }
+
+        family?.stop()
+        family = nil
+
+        #expect(stoppedChild?.freshness == .stopped)
+        #expect(stoppedChild?.value == nil)
+        #expect(stoppedChild?.hasUnsettledProjectionTasks == true)
+
+        predecessorGate.release()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "owner-release predecessor cancellation",
+                wait: { await predecessorCancellation.wait() }
+            )
+        else { return }
+        #expect(stoppedChild != nil)
+        #expect(stoppedChild?.freshness == .stopped)
+        #expect(stoppedChild?.value == nil)
+
+        successorGate.release()
+        guard
+            await requireEagerDerivedAtomTestEvent(
+                "owner-release successor cancellation",
+                wait: { await successorCancellation.wait() }
+            )
+        else { return }
+
+        for _ in 0..<1000 where stoppedChild != nil {
+            await Task.yield()
+        }
+        #expect(stoppedChild == nil)
+        #expect(projectionCount.count == 2)
+    }
+
+    @Test
     func stopAllIsIdempotentAndRejectsLaterMaterializationAndAdmission() async {
         let recorder = EagerDerivedAtomFamilyCompletionRecorder()
         let family = makeEagerDerivedAtomTestFamily(completionRecorder: recorder)

@@ -41,6 +41,8 @@ package struct CoreTabBarProjectionRequest: Sendable {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> Self? {
+        _ = repoCache.repoEnrichmentRevision
+        _ = repoCache.worktreeEnrichmentRevision
         guard let tabShell = store.tabShellAtom.tabShell(tabId),
             let tabGraphState = store.tabGraphAtom.tabState(tabId)
         else {

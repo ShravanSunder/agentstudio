@@ -100,6 +100,25 @@ struct GitRefreshPerformanceComparatorScriptTests {
         #expect(result.stderr.contains("workload issued_interaction_count drift exceeded 10%"))
     }
 
+    @Test("performance comparator rejects collapsed Tab Bar refresh coverage")
+    func performanceComparatorRejectsCollapsedTabBarRefreshCoverage() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        afterWorkloadValues["performance.tabbar.refresh.victoria_metrics_count"] = "1"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10),
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1),
+            afterInteractionValues: commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("performance.tabbar.refresh.victoria_metrics_count coverage collapsed"))
+    }
+
     @Test("performance comparator treats query-character maximum as informational")
     func performanceComparatorTreatsQueryCharacterMaximumAsInformational() throws {
         let fixtureRoot = try temporaryFixtureRoot()
@@ -188,9 +207,11 @@ struct GitRefreshPerformanceComparatorScriptTests {
             at: fixtureRoot.appendingPathComponent("baseline-workload.txt"),
             values: workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
         )
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
+        afterWorkloadValues["performance.tabbar.refresh.victoria_metrics_count"] = "10"
         let afterWorkload = try writeSummary(
             at: fixtureRoot.appendingPathComponent("after-workload.txt"),
-            values: workloadSummaryValues(fanoutCount: 4, fanoutP95: 10, fanoutMax: 9)
+            values: afterWorkloadValues
         )
         let baselineInteraction = try writeSummary(
             at: fixtureRoot.appendingPathComponent("baseline-interaction.txt"),

@@ -380,29 +380,13 @@ package final class InboxNotificationAtom {
     private func recalculateGlobalUnreadCount() {
         globalUnreadCount = unreadCount { _ in true }
         globalRollUpAlertCount = rollUpAlertCount { _ in true }
-        attentionFactSnapshot = InboxAttentionFactSnapshot(notifications: notifications)
-        recalculateAttentionLaneProjection()
+        let nextAttentionFactSnapshot = InboxAttentionFactSnapshot(notifications: notifications)
+        attentionFactSnapshot = nextAttentionFactSnapshot
+        recalculateAttentionLaneProjection(snapshot: nextAttentionFactSnapshot)
     }
 
-    private func recalculateAttentionLaneProjection() {
-        var nextAttentionLaneByPaneId: [UUID: InboxNotificationClaimLane] = [:]
-        for notification in notifications where notification.contributesToAttentionDot {
-            guard let paneId = notification.paneId else { continue }
-            switch notification.displayLane {
-            case .actionNeeded:
-                nextAttentionLaneByPaneId[paneId] = .actionNeeded
-            case .safety:
-                if nextAttentionLaneByPaneId[paneId] != .actionNeeded {
-                    nextAttentionLaneByPaneId[paneId] = .safety
-                }
-            case .settledAgent:
-                if nextAttentionLaneByPaneId[paneId] == nil {
-                    nextAttentionLaneByPaneId[paneId] = .settledAgent
-                }
-            case .activity:
-                break
-            }
-        }
+    private func recalculateAttentionLaneProjection(snapshot: InboxAttentionFactSnapshot) {
+        let nextAttentionLaneByPaneId = InboxAttentionProjector.projectPaneLanes(snapshot: snapshot)
 
         let mutation = AtomMutationContext(aggregateRevision: attentionProjectionRevision)
         let previousPaneIds = Set(attentionLaneSnapshotByPaneId.keys)
