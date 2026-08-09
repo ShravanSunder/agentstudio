@@ -261,7 +261,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    baseline: .ref(name: "HEAD~1"))
+                    baseline: .unstaged)
             ),
             reviewSourceProvider: provider
         )
@@ -332,7 +332,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    baseline: .ref(name: "HEAD~1"))
+                    baseline: .unstaged)
             ),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
@@ -503,7 +503,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    baseline: .ref(name: "HEAD~1"))
+                    baseline: .unstaged)
             ),
             reviewSourceProvider: provider
         )

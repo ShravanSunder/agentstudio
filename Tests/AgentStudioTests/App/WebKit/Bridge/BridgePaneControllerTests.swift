@@ -222,7 +222,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        baseline: .ref(name: "HEAD~1"))
+                        baseline: .unstaged)
                 ),
                 reviewSourceProvider: provider
             )
