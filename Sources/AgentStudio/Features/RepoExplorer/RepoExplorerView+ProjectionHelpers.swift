@@ -49,7 +49,6 @@ extension RepoExplorerView {
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         groupingMode: RepoExplorerGroupingMode,
         sortOrder: RepoExplorerSortOrder,
-        visibilityMode: RepoExplorerVisibilityMode,
         query: String
     ) -> RepoExplorerSnapshot {
         let workspaceTab = WorkspaceTabLayoutDerived(
@@ -66,7 +65,6 @@ extension RepoExplorerView {
             repoEnrichmentByRepoId: repoEnrichmentByRepoId,
             groupingMode: groupingMode,
             sortOrder: sortOrder,
-            visibilityMode: visibilityMode,
             query: query,
             paneLocationsByWorktreeId: paneLocationsByWorktreeId,
             bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId(
@@ -167,9 +165,6 @@ extension RepoExplorerView {
         }
         if previous.snapshot.query != next.snapshot.query {
             return .search
-        }
-        if previous.snapshot.visibilityMode != next.snapshot.visibilityMode {
-            return .visibilityMode
         }
         if previous.collapsedGroupIds != next.collapsedGroupIds {
             return .collapseToggle

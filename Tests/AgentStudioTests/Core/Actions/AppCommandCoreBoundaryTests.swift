@@ -28,6 +28,8 @@ struct AppCommandCoreBoundaryTests {
         #expect(!combinedSource.contains("IPCPrivilege"))
         #expect(!combinedSource.contains("RepoExplorerGroupingMode"))
         #expect(!combinedSource.contains("RepoExplorerVisibilityMode"))
+        #expect(!combinedSource.contains("setRepoSidebarVisibilityMode"))
+        #expect(!combinedSource.contains("repoSidebarVisibilityMode"))
         #expect(!combinedSource.contains("RepoExplorerSortOrder"))
         #expect(!combinedSource.contains("InboxNotificationRowStateFilter"))
         #expect(!combinedSource.contains("InboxNotificationContentMode"))

@@ -77,7 +77,6 @@ struct RepoExplorerViewProjectionHelperTests {
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: { [:] },
             commandDispatcher: dispatcher,
-            onSetVisibilityMode: { _ in },
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
@@ -112,7 +111,6 @@ struct RepoExplorerViewProjectionHelperTests {
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-            onSetVisibilityMode: { _ in },
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
@@ -172,7 +170,6 @@ struct RepoExplorerViewProjectionHelperTests {
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
                 bridgeAttendanceSnapshot: { [:] },
                 commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-                onSetVisibilityMode: { _ in },
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
@@ -186,7 +183,6 @@ struct RepoExplorerViewProjectionHelperTests {
                     repoEnrichmentByRepoId: [:],
                     groupingMode: .repo,
                     sortOrder: .ascending,
-                    visibilityMode: .all,
                     query: ""
                 )
             } onChange: {

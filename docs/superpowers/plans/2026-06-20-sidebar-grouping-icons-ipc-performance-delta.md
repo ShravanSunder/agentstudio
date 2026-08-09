@@ -1,9 +1,20 @@
 # Sidebar Grouping Icons, Command Specs, IPC, and Performance Delta Plan
 
-Status: plan-review re-check complete; ready as delta under the base plan
+Status: archived historical delta; not executable as a current plan
 Date: 2026-06-20
 Base plan: `docs/superpowers/plans/2026-06-20-sidebar-layout-grouping-offmain-search.md`
 Base spec: `docs/superpowers/specs/2026-06-20-sidebar-layout-grouping-offmain-search.md`
+
+> Historical delta. Its Repo Explorer visibility/filter command and telemetry
+> passages are superseded by the favorites-first contract in
+> [2026-08-08-repo-sidebar-favorites-first](../../specs/2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md).
+> Preserve the icon, IPC, and performance rationale as historical context; do
+> not execute the old visibility transitions.
+>
+> Archive boundary: all Repo Explorer favorite-visibility command, persistence,
+> IPC, and visibility-telemetry steps below are historical PR #190 context
+> only. The current behavior and proof obligations are defined by the
+> favorites-first Requirements, Specification, Program Design, and plan.
 
 ## Outcome
 

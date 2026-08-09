@@ -4,6 +4,12 @@
 
 **Goal:** Deliver fixed non-sliding one-second terminal title publication and proportional pane observation, prove both slices, complete one dual-review remediation cycle, and prepare one review-ready pull request without merging or releasing.
 
+> Repo Explorer note (2026-08-09): the visibility-mode presentation references
+> in this cross-cutting historical plan predate the favorites-first cutover.
+> Those passages are non-executable; use the current
+> [favorites-first Specification](../../2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md)
+> for Repo Explorer behavior.
+
 **Architecture:** Hard-cut the terminal accumulator and scheduler to independent immediate/title lanes with accumulator-owned absolute deadlines. Hard-cut pane storage to one canonical keyed entity map plus one equality-gated structural projection, explicit snapshots, a persistence revision, per-tab observation, title-insensitive fleet consumers, and an App-owned batched command-presentation observer. Keep current runtime events, persistence schema, command execution authority, and UI behavior.
 
 **Tech Stack:** Swift 6, Swift Observation, Swift Testing, SwiftPM, AppKit/SwiftUI, repo-owned architecture lint, Agent Studio trace runtime, OTLP/Victoria.
@@ -166,7 +172,6 @@ package func paneSnapshot() -> [UUID: Pane]
 ```swift
 package enum RepoExplorerCommandPresentationArguments: Hashable, Sendable {
     case noArguments
-    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
     case repoSidebarSortOrder(RepoExplorerSortOrder)
 }
 

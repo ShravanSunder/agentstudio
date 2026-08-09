@@ -10,6 +10,10 @@ struct RepoExplorerPaneListEntryIdentity: Equatable, Sendable {
 }
 
 enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
+    case sectionHeader(RepoExplorerSidebarSectionKind)
+    case groupSectionHeader(groupId: String, kind: RepoExplorerSidebarSectionKind)
+    case loadingSectionHeader(RepoExplorerSidebarSectionKind)
+    case loadingRepoRow(section: RepoExplorerSidebarSectionKind, repo: RepoPresentationItem)
     case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID, rowId: String)
     case resolvedPaneRow(groupId: String, identity: RepoExplorerPaneListEntryIdentity, rowId: String)
@@ -17,6 +21,14 @@ enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
 
     var id: String {
         switch self {
+        case .sectionHeader(let kind):
+            return "section-header:\(kind.rawValue)"
+        case .groupSectionHeader(let groupId, let kind):
+            return "group-section-header:\(groupId):\(kind.rawValue)"
+        case .loadingSectionHeader(let kind):
+            return "loading-header:\(kind.rawValue)"
+        case .loadingRepoRow(let section, let repo):
+            return "loading-repo:\(section.rawValue):\(repo.id.uuidString)"
         case .resolvedGroupHeader(let group):
             return "group:\(group.id)"
         case .resolvedWorktreeRow(_, _, _, let rowId):

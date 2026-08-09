@@ -68,11 +68,11 @@ package struct WorkspaceLocalRepository: Sendable {
         private init(
             groupingMode: String,
             sortOrder: String,
-            visibilityMode: String
+            visibilityMode _: String
         ) {
             self.groupingMode = groupingMode
             self.sortOrder = sortOrder
-            self.visibilityMode = visibilityMode
+            self.visibilityMode = SQLiteLocalUXStorage.repoExplorerVisibilityAll
         }
 
         package static let `default` = Self(
@@ -87,13 +87,12 @@ package struct WorkspaceLocalRepository: Sendable {
             visibilityMode: String
         ) -> Self? {
             guard SQLiteLocalUXStorage.isValidRepoExplorerGrouping(groupingMode),
-                SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder),
-                SQLiteLocalUXStorage.isValidRepoExplorerVisibility(visibilityMode)
+                SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder)
             else { return nil }
             return Self(
                 groupingMode: groupingMode,
                 sortOrder: sortOrder,
-                visibilityMode: visibilityMode
+                visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
             )
         }
     }

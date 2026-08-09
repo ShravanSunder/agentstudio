@@ -589,7 +589,6 @@ enum AppCommandIPCDurableTargetContract {
 
 enum AppCommandIPCArgumentContract {
     case noArguments
-    case repoSidebarVisibilityMode
     case repoSidebarSortOrder
     case inboxRowStateFilter
     case inboxContentMode
@@ -597,7 +596,6 @@ enum AppCommandIPCArgumentContract {
 
 enum AppCommandExecutionArguments {
     case noArguments
-    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
     case repoSidebarSortOrder(RepoExplorerSortOrder)
     case inboxRowStateFilter(InboxNotificationRowStateFilter)
     case inboxContentMode(InboxNotificationContentMode)

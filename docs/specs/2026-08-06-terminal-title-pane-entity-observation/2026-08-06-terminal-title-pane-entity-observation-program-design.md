@@ -1,12 +1,24 @@
 # Terminal Title Cadence And Pane Observation Proportionality — Program Design
 
 Date: 2026-08-06
+Status: archived historical cross-cutting design record; not current Repo Explorer guidance
 
 Requirements:
 [2026-08-06-terminal-title-pane-entity-observation-requirements.md](2026-08-06-terminal-title-pane-entity-observation-requirements.md)
 
 Specification:
 [2026-08-06-terminal-title-pane-entity-observation.md](2026-08-06-terminal-title-pane-entity-observation.md)
+
+> Historical cross-cutting design note. Its Repo Explorer visibility-command
+> discriminator is superseded by the current favorites-first contract in
+> [2026-08-08-repo-sidebar-favorites-first](../2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md).
+> The terminal and pane-observation design remains historical context; do not
+> reintroduce the removed visibility argument.
+>
+> Archive boundary: the Repo Explorer visibility-command passages in this
+> document are retained only to explain the historical cross-cutting change.
+> They are not current requirements, interfaces, or proof obligations; use the
+> linked favorites-first artifacts for Repo Explorer behavior.
 
 ## Structural Overview
 

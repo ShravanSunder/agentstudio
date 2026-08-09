@@ -32,7 +32,6 @@ struct RepoExplorerCommandPresentationBatchTests {
             let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
             visibleWorktrees.setVisibleWorktreeIds([])
             let expectedResolutionCount = RepoExplorerToolbarCommandPresentation.requests(
-                nextVisibilityMode: .favoritesOnly,
                 nextSortOrder: .default.toggled
             ).count
             let batch = RepoExplorerCommandPresentationBatch(

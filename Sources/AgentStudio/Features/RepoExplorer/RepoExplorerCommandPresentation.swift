@@ -3,7 +3,6 @@ import Foundation
 
 package enum RepoExplorerCommandPresentationArguments: Hashable, Sendable {
     case noArguments
-    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
     case repoSidebarSortOrder(RepoExplorerSortOrder)
 }
 
@@ -183,22 +182,18 @@ package struct RepoExplorerToolbarCommandPresentation {
         .setRepoSidebarGroupingRepo,
         .setRepoSidebarGroupingPane,
         .setRepoSidebarGroupingTab,
-        .setRepoSidebarVisibilityMode,
         .setRepoSidebarSortOrder,
     ]
 
     private let commandsByIdentity: [AppCommand: RepoExplorerPresentedCommand]
 
     package static func requests(
-        nextVisibilityMode: RepoExplorerVisibilityMode,
         nextSortOrder: RepoExplorerSortOrder
     ) -> Set<RepoExplorerCommandPresentationRequest> {
         Set(
             toolbarCommands.map { command in
                 let arguments: RepoExplorerCommandPresentationArguments =
                     switch command {
-                    case .setRepoSidebarVisibilityMode:
-                        .repoSidebarVisibilityMode(nextVisibilityMode)
                     case .setRepoSidebarSortOrder:
                         .repoSidebarSortOrder(nextSortOrder)
                     default:
@@ -215,12 +210,10 @@ package struct RepoExplorerToolbarCommandPresentation {
     }
 
     static func resolve(
-        nextVisibilityMode: RepoExplorerVisibilityMode,
         nextSortOrder: RepoExplorerSortOrder,
         snapshot: RepoExplorerCommandPresentationSnapshot
     ) -> Self {
         let presentedCommands = requests(
-            nextVisibilityMode: nextVisibilityMode,
             nextSortOrder: nextSortOrder
         ).compactMap { request in
             RepoExplorerCommandPresentation.presentedCommand(for: request, snapshot: snapshot)

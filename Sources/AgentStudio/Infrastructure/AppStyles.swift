@@ -97,6 +97,8 @@ package enum AppStyles {
             package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
             package static let sectionHeaderChevronLabelSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let sectionLabelTopPadding: CGFloat = AppStyles.General.Spacing.loose
+            package static let sectionLabelBottomPadding: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationMaxWidth: CGFloat = 120

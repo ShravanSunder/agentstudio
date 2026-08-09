@@ -119,8 +119,8 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             return
         }
 
-        self.entries = Self.buildListEntries(
-            groups: projection.resolvedGroups,
+        self.entries = Self.buildSectionedListEntries(
+            sections: projection.sections,
             projectedRowsByGroupId: projectedRowsByGroupId,
             projectedPaneRowsByGroupId: projection.paneRowsByGroupId,
             collapsedGroupIds: collapsedGroupIds,
@@ -215,14 +215,18 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             let shouldExpandGroup = isFiltering || !collapsedGroupIds.contains(group.id)
             guard shouldExpandGroup else { continue }
 
-            for row in projectedRowsByGroupId[group.id] ?? [] {
-                entries.append(
-                    .resolvedWorktreeRow(
-                        groupId: group.id,
-                        repoId: row.repo.id,
-                        worktreeId: row.worktree.id,
-                        rowId: row.rowId
-                    )
+            let worktreeRows = projectedRowsByGroupId[group.id] ?? []
+            if group.id.hasPrefix("tab:") {
+                appendTabSectionEntries(
+                    groupId: group.id,
+                    worktreeRows: worktreeRows,
+                    entries: &entries
+                )
+            } else {
+                appendWorktreeRows(
+                    groupId: group.id,
+                    worktreeRows: worktreeRows,
+                    entries: &entries
                 )
             }
             for row in projectedPaneRowsByGroupId[group.id] ?? [] {
@@ -241,6 +245,67 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         }
 
         return entries
+    }
+
+    private static func appendTabSectionEntries(
+        groupId: String,
+        worktreeRows: [RepoExplorerProjectedWorktreeRow],
+        entries: inout [RepoExplorerListEntry]
+    ) {
+        for (kind, rows) in [
+            (RepoExplorerSidebarSectionKind.favorites, worktreeRows.filter { $0.repo.isFavorite }),
+            (RepoExplorerSidebarSectionKind.repositories, worktreeRows.filter { !$0.repo.isFavorite }),
+        ] where !rows.isEmpty {
+            entries.append(.groupSectionHeader(groupId: groupId, kind: kind))
+            appendWorktreeRows(groupId: groupId, worktreeRows: rows, entries: &entries)
+        }
+    }
+
+    private static func appendWorktreeRows(
+        groupId: String,
+        worktreeRows: [RepoExplorerProjectedWorktreeRow],
+        entries: inout [RepoExplorerListEntry]
+    ) {
+        entries.append(
+            contentsOf: worktreeRows.map { row in
+                .resolvedWorktreeRow(
+                    groupId: groupId,
+                    repoId: row.repo.id,
+                    worktreeId: row.worktree.id,
+                    rowId: row.rowId
+                )
+            }
+        )
+    }
+
+    private static func buildSectionedListEntries(
+        sections: [RepoExplorerSidebarSection],
+        projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]],
+        projectedPaneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]],
+        collapsedGroupIds: Set<String>,
+        isFiltering: Bool
+    ) -> [RepoExplorerListEntry] {
+        sections.flatMap { section in
+            var entries: [RepoExplorerListEntry] = [.sectionHeader(section.kind)]
+            entries.append(
+                contentsOf: buildListEntries(
+                    groups: section.resolvedGroups,
+                    projectedRowsByGroupId: projectedRowsByGroupId,
+                    projectedPaneRowsByGroupId: projectedPaneRowsByGroupId,
+                    collapsedGroupIds: collapsedGroupIds,
+                    isFiltering: isFiltering
+                )
+            )
+            if !section.loadingRepos.isEmpty {
+                entries.append(.loadingSectionHeader(section.kind))
+                entries.append(
+                    contentsOf: section.loadingRepos.map {
+                        .loadingRepoRow(section: section.kind, repo: $0)
+                    }
+                )
+            }
+            return entries
+        }
     }
 
     static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {

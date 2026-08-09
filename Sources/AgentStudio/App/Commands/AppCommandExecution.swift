@@ -65,7 +65,6 @@ enum AppCommandExecutionContext: Equatable, Sendable {
 
 enum AppCommandExecutionArguments: Equatable, Sendable {
     case noArguments
-    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
     case repoSidebarSortOrder(RepoExplorerSortOrder)
     case inboxRowStateFilter(InboxNotificationRowStateFilter)
     case inboxContentMode(InboxNotificationContentMode)
@@ -83,14 +82,6 @@ enum AppCommandExecutionArguments: Equatable, Sendable {
         switch contract {
         case .noArguments:
             return .noArguments
-        case .repoSidebarVisibilityMode:
-            guard
-                let rawMode = rawArguments["mode"],
-                let mode = RepoExplorerVisibilityMode(rawValue: rawMode)
-            else {
-                throw AppCommandArgumentDecodingError.validationRejected
-            }
-            return .repoSidebarVisibilityMode(mode)
         case .repoSidebarSortOrder:
             guard
                 let rawOrder = rawArguments["order"],
@@ -199,8 +190,7 @@ extension ShellCommandHandling {
         switch request.arguments {
         case .noArguments:
             return execute(request.command) ? .applied : .unsupportedCommand
-        case .repoSidebarVisibilityMode, .repoSidebarSortOrder,
-            .inboxRowStateFilter, .inboxContentMode:
+        case .repoSidebarSortOrder, .inboxRowStateFilter, .inboxContentMode:
             return .unsupportedCommand
         }
     }

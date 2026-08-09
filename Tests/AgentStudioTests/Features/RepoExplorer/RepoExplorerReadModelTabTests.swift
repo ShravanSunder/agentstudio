@@ -1,0 +1,304 @@
+import AgentStudioCore
+import AgentStudioInfrastructure
+import Foundation
+import Testing
+
+@testable import AgentStudioRepoExplorer
+
+extension RepoExplorerReadModelTests {
+    @Test("tab header and partition label remain explicit for all favorite states")
+    func tabHeaderAndPartitionLabelRemainExplicitForAllFavoriteStates() {
+        for isFavorite in [false, true] {
+            let repoId = UUIDv7.generate()
+            let tabId = UUIDv7.generate()
+            let repository = repo(
+                id: repoId,
+                name: isFavorite ? "favorite" : "repository",
+                isFavorite: isFavorite,
+                worktrees: [worktree(repoId: repoId)]
+            )
+            let group = RepoPresentationGroup(
+                id: "tab:\(tabId.uuidString)",
+                repoTitle: "Tab 1",
+                organizationName: nil,
+                repos: [repository]
+            )
+            let projection = RepoExplorerSidebarProjection.ready(
+                RepoExplorerSidebarContent(
+                    sections: [
+                        RepoExplorerSidebarSection(kind: .tabs, resolvedGroups: [group], loadingRepos: [])
+                    ],
+                    resolvedGroups: [group],
+                    loadingRepos: [],
+                    emptyState: .content
+                )
+            )
+
+            let entries = RepoExplorerRowIndex(
+                projection: projection,
+                collapsedGroupIds: [],
+                isFiltering: false
+            ).entries
+
+            #expect(entries.first?.id == "section-header:tabs")
+            #expect(
+                entries.contains(
+                    .groupSectionHeader(
+                        groupId: group.id,
+                        kind: isFavorite ? .favorites : .repositories
+                    )
+                )
+            )
+            #expect(
+                !entries.contains(
+                    .groupSectionHeader(
+                        groupId: group.id,
+                        kind: isFavorite ? .repositories : .favorites
+                    )
+                )
+            )
+        }
+    }
+
+    @Test("descending sort is preserved inside mixed favorite tab partitions")
+    func descendingSortIsPreservedInsideMixedFavoriteTabPartitions() {
+        let favoriteZuluId = UUIDv7.generate()
+        let favoriteAlphaId = UUIDv7.generate()
+        let repositoryYankeeId = UUIDv7.generate()
+        let repositoryBravoId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let repositories = [
+            repo(
+                id: favoriteZuluId,
+                name: "zulu-favorite",
+                isFavorite: true,
+                worktrees: [worktree(repoId: favoriteZuluId, name: "zulu")]
+            ),
+            repo(
+                id: favoriteAlphaId,
+                name: "alpha-favorite",
+                isFavorite: true,
+                worktrees: [worktree(repoId: favoriteAlphaId, name: "alpha")]
+            ),
+            repo(
+                id: repositoryYankeeId,
+                name: "yankee-repository",
+                worktrees: [worktree(repoId: repositoryYankeeId, name: "yankee")]
+            ),
+            repo(
+                id: repositoryBravoId,
+                name: "bravo-repository",
+                worktrees: [worktree(repoId: repositoryBravoId, name: "bravo")]
+            ),
+        ]
+        let paneLocationsByWorktreeId = Dictionary(
+            uniqueKeysWithValues: repositories.map { repository in
+                (
+                    repository.worktrees[0].id,
+                    [
+                        WorkspacePaneLocation(
+                            paneId: UUIDv7.generate(),
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: false
+                        )
+                    ]
+                )
+            }
+        )
+        let enrichmentByRepoId = Dictionary(
+            uniqueKeysWithValues: repositories.map { repository in
+                (repository.id, resolvedRemote(repoId: repository.id, displayName: repository.name))
+            }
+        )
+
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: repositories,
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .tab,
+                sortOrder: .descending,
+                query: "",
+                paneLocationsByWorktreeId: paneLocationsByWorktreeId
+            )
+        )
+        let tabGroup = projection.resolvedGroups[0]
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+
+        #expect(tabGroup.repos.map(\.id) == [favoriteZuluId, favoriteAlphaId, repositoryYankeeId, repositoryBravoId])
+        #expect(
+            rowIndex.entries.map(\.id).prefix(3) == [
+                "section-header:tabs",
+                "group:tab:\(tabId.uuidString)",
+                "group-section-header:tab:\(tabId.uuidString):favorites",
+            ]
+        )
+        #expect(
+            rowIndex.entries.compactMap { entry -> UUID? in
+                guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return nil }
+                return repoId
+            } == [favoriteZuluId, favoriteAlphaId, repositoryYankeeId, repositoryBravoId]
+        )
+    }
+
+    @Test("tab groups keep unique stored order and stable favorite partitions")
+    func tabGroupsKeepUniqueStoredOrderAndStableFavoritePartitions() {
+        let fixture = makeTabPartitionFixture()
+        let projection = fixture.projection
+
+        #expect(
+            projection.resolvedGroups.map(\.id) == [
+                "tab:\(fixture.laterTabId.uuidString)",
+                "tab:\(fixture.earlierTabId.uuidString)",
+            ]
+        )
+        #expect(Set(projection.resolvedGroups.map(\.id)).count == 2)
+        #expect(projection.sections.map(\.title) == ["Tabs"])
+
+        let expectedRepoOrder = [
+            fixture.betaFavoriteRepoId,
+            fixture.zetaFavoriteRepoId,
+            fixture.alphaNormalRepoId,
+            fixture.gammaNormalRepoId,
+        ]
+        for group in projection.resolvedGroups {
+            #expect(group.repos.map(\.id) == expectedRepoOrder)
+        }
+
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        #expect(rowIndex.entries.first?.id == "section-header:tabs")
+        let worktreeRowIds = rowIndex.entries.compactMap { entry -> String? in
+            guard case .resolvedWorktreeRow(_, _, _, let rowId) = entry else { return nil }
+            return rowId
+        }
+        #expect(worktreeRowIds.count == 8)
+        #expect(Set(worktreeRowIds).count == worktreeRowIds.count)
+
+        let tabWorktreeIdsByRepoId = Dictionary(
+            uniqueKeysWithValues: fixture.repos.map { ($0.id, $0.worktrees[1].id) }
+        )
+        let earlierTabWorktreeIdsByRepoId = Dictionary(
+            uniqueKeysWithValues: fixture.repos.map { ($0.id, $0.worktrees[0].id) }
+        )
+        let flattenedTabEntries = rowIndex.entries.compactMap { entry -> String? in
+            switch entry {
+            case .groupSectionHeader(let groupId, let kind):
+                return "header|\(groupId)|\(kind.rawValue)"
+            case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, _):
+                return "row|\(groupId)|\(repoId.uuidString)|\(worktreeId.uuidString)"
+            default:
+                return nil
+            }
+        }
+        #expect(
+            flattenedTabEntries
+                == expectedTabEntries(
+                    fixture: fixture,
+                    tabWorktreeIdsByRepoId: tabWorktreeIdsByRepoId,
+                    earlierTabWorktreeIdsByRepoId: earlierTabWorktreeIdsByRepoId
+                )
+        )
+    }
+
+    private struct TabPartitionFixture {
+        let alphaNormalRepoId: UUID
+        let betaFavoriteRepoId: UUID
+        let gammaNormalRepoId: UUID
+        let zetaFavoriteRepoId: UUID
+        let earlierTabId: UUID
+        let laterTabId: UUID
+        let repos: [RepoPresentationItem]
+        let projection: RepoExplorerSidebarProjection
+    }
+
+    private func makeTabPartitionFixture() -> TabPartitionFixture {
+        let alphaNormalRepoId = UUIDv7.generate()
+        let betaFavoriteRepoId = UUIDv7.generate()
+        let gammaNormalRepoId = UUIDv7.generate()
+        let zetaFavoriteRepoId = UUIDv7.generate()
+        let earlierTabId = UUIDv7.generate()
+        let laterTabId = UUIDv7.generate()
+        let repos = [
+            repoWithTabWorktrees(id: gammaNormalRepoId, name: "gamma-normal"),
+            repoWithTabWorktrees(id: zetaFavoriteRepoId, name: "zeta-favorite", isFavorite: true),
+            repoWithTabWorktrees(id: alphaNormalRepoId, name: "alpha-normal"),
+            repoWithTabWorktrees(id: betaFavoriteRepoId, name: "beta-favorite", isFavorite: true),
+        ]
+        var paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
+        for repo in repos {
+            paneLocationsByWorktreeId[repo.worktrees[0].id] = [
+                WorkspacePaneLocation(
+                    paneId: UUIDv7.generate(),
+                    tabId: earlierTabId,
+                    tabIndex: 2,
+                    paneIndexInTab: 0,
+                    isActiveInTab: false
+                )
+            ]
+            paneLocationsByWorktreeId[repo.worktrees[1].id] = [
+                WorkspacePaneLocation(
+                    paneId: UUIDv7.generate(),
+                    tabId: laterTabId,
+                    tabIndex: 7,
+                    paneIndexInTab: 0,
+                    isActiveInTab: false
+                )
+            ]
+        }
+        let enrichmentByRepoId = Dictionary(
+            uniqueKeysWithValues: repos.map { repo in
+                (repo.id, resolvedRemote(repoId: repo.id, displayName: repo.name))
+            }
+        )
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: repos,
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .tab,
+                sortOrder: .ascending,
+                query: "",
+                paneLocationsByWorktreeId: paneLocationsByWorktreeId
+            )
+        )
+        return TabPartitionFixture(
+            alphaNormalRepoId: alphaNormalRepoId,
+            betaFavoriteRepoId: betaFavoriteRepoId,
+            gammaNormalRepoId: gammaNormalRepoId,
+            zetaFavoriteRepoId: zetaFavoriteRepoId,
+            earlierTabId: earlierTabId,
+            laterTabId: laterTabId,
+            repos: repos,
+            projection: projection
+        )
+    }
+
+    private func expectedTabEntries(
+        fixture: TabPartitionFixture,
+        tabWorktreeIdsByRepoId: [UUID: UUID],
+        earlierTabWorktreeIdsByRepoId: [UUID: UUID]
+    ) -> [String] {
+        [
+            "header|tab:\(fixture.laterTabId.uuidString)|favorites",
+            "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.betaFavoriteRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.betaFavoriteRepoId]!.uuidString)",
+            "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.zetaFavoriteRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.zetaFavoriteRepoId]!.uuidString)",
+            "header|tab:\(fixture.laterTabId.uuidString)|repositories",
+            "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.alphaNormalRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.alphaNormalRepoId]!.uuidString)",
+            "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.gammaNormalRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.gammaNormalRepoId]!.uuidString)",
+            "header|tab:\(fixture.earlierTabId.uuidString)|favorites",
+            "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.betaFavoriteRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.betaFavoriteRepoId]!.uuidString)",
+            "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.zetaFavoriteRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.zetaFavoriteRepoId]!.uuidString)",
+            "header|tab:\(fixture.earlierTabId.uuidString)|repositories",
+            "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.alphaNormalRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.alphaNormalRepoId]!.uuidString)",
+            "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.gammaNormalRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.gammaNormalRepoId]!.uuidString)",
+        ]
+    }
+}

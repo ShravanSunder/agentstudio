@@ -14,6 +14,18 @@ private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case grouping
 }
 
+private struct RepoExplorerSectionHeaderLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: AppStyles.CommandBar.Rows.groupHeaderFontSize, weight: .semibold))
+            .foregroundStyle(Color.accentColor.opacity(AppStyles.CommandBar.Rows.groupHeaderOpacity))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+}
+
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 package struct RepoExplorerView: View {
@@ -25,7 +37,6 @@ package struct RepoExplorerView: View {
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
     let commandDispatcher: any AppCommandDispatching
     let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
-    let onSetVisibilityMode: (RepoExplorerVisibilityMode) -> Void
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
     let onRefocusActivePane: () -> Void
     let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
@@ -46,7 +57,6 @@ package struct RepoExplorerView: View {
         bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot,
         commandDispatcher: any AppCommandDispatching,
         commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot = .empty,
-        onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void,
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void,
         onRefocusActivePane: @escaping () -> Void,
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
@@ -63,7 +73,6 @@ package struct RepoExplorerView: View {
         self.bridgeAttendanceSnapshot = bridgeAttendanceSnapshot
         self.commandDispatcher = commandDispatcher
         self.commandPresentationSnapshot = commandPresentationSnapshot
-        self.onSetVisibilityMode = onSetVisibilityMode
         self.onSetSortOrder = onSetSortOrder
         self.onRefocusActivePane = onRefocusActivePane
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
@@ -116,7 +125,6 @@ package struct RepoExplorerView: View {
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             groupingMode: repoExplorerPrefs.groupingMode,
             sortOrder: repoExplorerPrefs.sortOrder,
-            visibilityMode: repoExplorerPrefs.repoVisibilityMode,
             query: debouncedQuery
         )
     }
@@ -320,6 +328,32 @@ package struct RepoExplorerView: View {
         return List {
             ForEach(rowIndex.entries) { entry in
                 switch entry {
+                case .sectionHeader(let kind):
+                    sectionHeader(kind: kind, leadingInset: AppStyles.CommandBar.Panel.horizontalPadding)
+
+                case .groupSectionHeader(_, let kind):
+                    sectionHeader(kind: kind, leadingInset: AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
+
+                case .loadingSectionHeader:
+                    RepoExplorerLoadingSectionHeaderRow()
+                        .padding(.top, AppStyles.General.Spacing.standard)
+                        .padding(.bottom, AppStyles.General.Spacing.tight)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+
+                case .loadingRepoRow(_, let repo):
+                    RepoExplorerLoadingRepoRow(repoName: repo.name)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: 0,
+                                trailing: AppStyles.General.Spacing.loose
+                            )
+                        )
+                        .listRowBackground(Color.clear)
+                        .allowsHitTesting(false)
+
                 case .resolvedGroupHeader(let group):
                     let semanticRepo = Self.semanticRepoForHeader(
                         group,
@@ -506,27 +540,6 @@ package struct RepoExplorerView: View {
                 }
             }
 
-            if !rowIndex.projection.loadingRepos.isEmpty {
-                Section {
-                    ForEach(rowIndex.projection.loadingRepos, id: \.id) { repo in
-                        RepoExplorerLoadingRepoRow(repoName: repo.name)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 0,
-                                    leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
-                                    bottom: 0,
-                                    trailing: 8
-                                )
-                            )
-                            .listRowBackground(Color.clear)
-                            .allowsHitTesting(false)
-                    }
-                } header: {
-                    RepoExplorerLoadingSectionHeaderRow()
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                }
-            }
         }
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
         .scrollContentBackground(.hidden)
@@ -540,6 +553,23 @@ package struct RepoExplorerView: View {
         .transition(
             .opacity.animation(.easeInOut(duration: AppStyles.General.Animation.standard))
         )
+    }
+
+    private func sectionHeader(
+        kind: RepoExplorerSidebarSectionKind,
+        leadingInset: CGFloat
+    ) -> some View {
+        RepoExplorerSectionHeaderLabel(title: kind.title)
+            .padding(.leading, leadingInset)
+            .padding(.trailing, AppStyles.CommandBar.Panel.horizontalPadding)
+            .padding(.top, AppStyles.Shell.Sidebar.sectionLabelTopPadding)
+            .padding(.bottom, AppStyles.Shell.Sidebar.sectionLabelBottomPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityLabel(kind.title)
+            .accessibilityIdentifier("repoSidebarSectionHeader.\(kind.rawValue)")
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
     }
 
     private func colorForCheckout(hex colorHex: String) -> Color {
@@ -833,11 +863,8 @@ package struct RepoExplorerView: View {
 extension RepoExplorerView {
     @ViewBuilder
     private var repoToolbarRow: some View {
-        let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
-        let nextVisibilityMode: RepoExplorerVisibilityMode = isFavoritesOnly ? .all : .favoritesOnly
         let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
         let commandPresentation = RepoExplorerToolbarCommandPresentation.resolve(
-            nextVisibilityMode: nextVisibilityMode,
             nextSortOrder: nextSortOrder,
             snapshot: commandPresentationSnapshot
         )
@@ -848,16 +875,6 @@ extension RepoExplorerView {
 
         HStack(spacing: AppStyles.General.Spacing.standard) {
             Spacer(minLength: 0)
-
-            if let visibilityCommand = commandPresentation.command(.setRepoSidebarVisibilityMode) {
-                RepoExplorerVisibilityButton(
-                    octiconLoader: octiconLoader,
-                    isFavoritesOnly: isFavoritesOnly,
-                    commandPresentation: visibilityCommand
-                ) {
-                    onSetVisibilityMode(nextVisibilityMode)
-                }
-            }
 
             if let sortCommand = commandPresentation.command(.setRepoSidebarSortOrder) {
                 SidebarToolbarSortButton(
