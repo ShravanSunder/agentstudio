@@ -209,18 +209,22 @@ extension WorkspaceSurfaceCoordinator {
 
         for bridgeView in viewRegistry.allBridgeViews.values {
             let controller = bridgeView.controller
-            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
-                controller.runtime.metadata.worktreeId == worktreeId
-            else {
+            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId else {
                 continue
             }
+            let matchesPaneWorktree = controller.runtime.metadata.worktreeId == worktreeId
             switch worktreeEnvelope.event {
             case .filesystem(.filesChanged(let changeset)):
-                await controller.handleWorktreeProductInvalidation(
-                    .filesChanged(changeset)
-                )
+                let invalidation = BridgePaneWorktreeProductInvalidation.filesChanged(changeset)
+                guard matchesPaneWorktree || invalidation.isGitInternalFileInvalidation else {
+                    continue
+                }
+                await controller.handleWorktreeProductInvalidation(invalidation)
             case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
-                guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
+                guard matchesPaneWorktree,
+                    snapshot.worktreeId == worktreeId,
+                    snapshot.repoId == worktreeEnvelope.repoId
+                else {
                     continue
                 }
                 await controller.handleWorktreeProductInvalidation(

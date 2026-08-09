@@ -4,6 +4,16 @@ import Foundation
 package enum BridgePaneWorktreeProductInvalidation: Sendable {
     case filesChanged(FileChangeset)
     case statusChanged(GitWorkingTreeStatus)
+
+    package var isGitInternalFileInvalidation: Bool {
+        switch self {
+        case .filesChanged(let changeset):
+            changeset.containsGitInternalChanges
+                || changeset.suppressedGitInternalPathCount > 0
+        case .statusChanged:
+            false
+        }
+    }
 }
 
 @MainActor
@@ -76,11 +86,20 @@ extension BridgePaneController {
     ) async {
         switch invalidation {
         case .filesChanged(let changeset):
+            let matchesPaneWorktree = changeset.worktreeId == runtime.metadata.worktreeId
+            let admitsCrossWorktreeContributionRefresh: Bool
+            if case .workspace(_, let baseline) = bridgePaneState.source {
+                admitsCrossWorktreeContributionRefresh =
+                    invalidation.isGitInternalFileInvalidation
+                    && baseline?.contributionTarget != nil
+            } else {
+                admitsCrossWorktreeContributionRefresh = false
+            }
             guard changeset.repoId == runtime.metadata.repoId,
-                changeset.worktreeId == runtime.metadata.worktreeId
+                matchesPaneWorktree || admitsCrossWorktreeContributionRefresh
             else { return }
             refreshAdmissionCoordinator.recordInvalidation(
-                fileChangeset: changeset,
+                fileChangeset: matchesPaneWorktree ? changeset : nil,
                 requiresReviewRefresh: true
             )
         case .statusChanged(let status):
@@ -90,7 +109,25 @@ extension BridgePaneController {
                 requiresReviewRefresh: true
             )
         }
+        beginPendingContributionRefreshIfNeeded()
         scheduleWorktreeProductCatchUpIfPossible()
+    }
+
+    private func beginPendingContributionRefreshIfNeeded() {
+        guard refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed,
+            pendingComparisonReviewGeneration == nil,
+            case .workspace(_, let baseline) = bridgePaneState.source,
+            let activeTarget = baseline?.contributionTarget
+        else { return }
+
+        let reviewGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = reviewGeneration
+        pendingComparisonReviewGeneration = reviewGeneration
+        refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+            activeTarget: activeTarget,
+            reviewGeneration: reviewGeneration.rawValue
+        )
+        _ = scheduleProductPresentationPublication()
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {

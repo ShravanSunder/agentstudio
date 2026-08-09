@@ -137,7 +137,20 @@ func assertStaleContributionCaptureCannotCommit(
     #expect(fixture.controller.nextReviewGeneration == 3)
     let replacementCaptureGate = BridgeContributionCaptureGate()
     await fixture.provider.setContributionCaptureGate(replacementCaptureGate)
-    fixture.controller.nextReviewGeneration = fixture.controller.nextReviewGeneration.next()
+    await fixture.controller.handleWorktreeProductInvalidation(
+        .filesChanged(
+            FileChangeset(
+                worktreeId: fixture.worktreeId,
+                repoId: fixture.repoId,
+                rootPath: URL(fileURLWithPath: "/tmp/contribution-refresh"),
+                paths: [],
+                containsGitInternalChanges: true,
+                timestamp: .now,
+                batchSeq: 3
+            )
+        )
+    )
+    #expect(fixture.controller.nextReviewGeneration == 4)
     await staleCaptureGate.releaseAll()
     await replacementCaptureGate.waitForStart()
 
@@ -148,10 +161,10 @@ func assertStaleContributionCaptureCannotCommit(
     )
     #expect(publication == successor)
     #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-successor"])
-    #expect(fixture.controller.nextReviewGeneration == 5)
+    #expect(fixture.controller.nextReviewGeneration == 4)
     #expect(
         (await fixture.provider.recordedContributionRequests()).map { $0.reviewGenerationValue }
-            == [1, 2, 3, 5]
+            == [1, 2, 3, 4]
     )
     #expect(await fixture.provider.recordedComparisonRequestsCount() == 0)
     await replacementCaptureGate.releaseAll()
