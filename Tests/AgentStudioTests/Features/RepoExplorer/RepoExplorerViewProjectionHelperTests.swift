@@ -64,9 +64,102 @@ private final class PaneFocusRecordingDispatcher: AppCommandDispatching {
     func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }
 
+private final class RepoExplorerProjectionInputInvalidationCounter: @unchecked Sendable {
+    private(set) var count = 0
+    private(set) var didFire = false
+
+    func record() {
+        didFire = true
+        count += 1
+    }
+}
+
+@MainActor
+private func repoExplorerProjectionRequestKey(
+    worktreeIds: [UUID],
+    repoCache: RepoCacheAtom
+) -> RepoExplorerProjectionRequestKey {
+    RepoExplorerView.projectionRequestKey(
+        for: RepoExplorerProjectionRequest(
+            generation: 0,
+            snapshot: RepoExplorerSnapshot(
+                repos: [],
+                repoEnrichmentByRepoId: [:],
+                query: ""
+            ),
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .startupDiagnostic,
+            worktreeFactsByWorktreeId: RepoExplorerView.worktreeFactsByWorktreeId(
+                for: worktreeIds,
+                repoCache: repoCache
+            )
+        )
+    )
+}
+
 @MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("missing relevant worktree facts wake capture and change the admitted request key")
+    func missingRelevantWorktreeFactsWakeAndChangeRequestKeyWhenInserted() {
+        let cache = RepoCacheAtom()
+        let relevantWorktreeId = UUID()
+        let counter = RepoExplorerProjectionInputInvalidationCounter()
+
+        let initialRequestKey = withObservationTracking {
+            repoExplorerProjectionRequestKey(
+                worktreeIds: [relevantWorktreeId],
+                repoCache: cache
+            )
+        } onChange: {
+            counter.record()
+        }
+
+        cache.setPullRequestCount(1, for: relevantWorktreeId)
+        let changedRequestKey = repoExplorerProjectionRequestKey(
+            worktreeIds: [relevantWorktreeId],
+            repoCache: cache
+        )
+
+        #expect(counter.count == 1)
+        #expect(changedRequestKey != initialRequestKey)
+    }
+
+    @Test("unrelated worktree facts neither wake capture nor change the admitted request key")
+    func unrelatedWorktreeFactsDoNotWakeOrChangeRequestKey() {
+        let cache = RepoCacheAtom()
+        let relevantWorktreeId = UUID()
+        let unrelatedWorktreeId = UUID()
+        let counter = RepoExplorerProjectionInputInvalidationCounter()
+        cache.setPullRequestCount(1, for: relevantWorktreeId)
+
+        let initialRequestKey = withObservationTracking {
+            repoExplorerProjectionRequestKey(
+                worktreeIds: [relevantWorktreeId],
+                repoCache: cache
+            )
+        } onChange: {
+            counter.record()
+        }
+
+        cache.setPullRequestCount(2, for: unrelatedWorktreeId)
+        let requestKeyAfterUnrelatedChange = repoExplorerProjectionRequestKey(
+            worktreeIds: [relevantWorktreeId],
+            repoCache: cache
+        )
+        #expect(!counter.didFire)
+        #expect(requestKeyAfterUnrelatedChange == initialRequestKey)
+
+        cache.setPullRequestCount(3, for: relevantWorktreeId)
+        let requestKeyAfterRelevantChange = repoExplorerProjectionRequestKey(
+            worktreeIds: [relevantWorktreeId],
+            repoCache: cache
+        )
+        #expect(counter.count == 1)
+        #expect(requestKeyAfterRelevantChange != initialRequestKey)
+    }
+
     @Test("pane navigation dispatches exact focusPane target")
     func paneNavigationDispatchesExactFocusTarget() {
         let dispatcher = PaneFocusRecordingDispatcher()

@@ -34,7 +34,7 @@ package final class InboxNotificationAtom {
     package private(set) var globalUnreadCount = 0
     package private(set) var globalRollUpAlertCount = 0
 
-    @ObservationIgnored private let attentionLaneByPaneId = AtomEntityMap<
+    @ObservationIgnored private let attentionLaneByPaneId = AtomFamily<
         UUID,
         InboxNotificationClaimLane
     >(

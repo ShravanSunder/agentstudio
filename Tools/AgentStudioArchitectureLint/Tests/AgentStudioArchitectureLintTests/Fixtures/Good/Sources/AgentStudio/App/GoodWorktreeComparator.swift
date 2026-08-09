@@ -1,5 +1,5 @@
 func goodWorktreeComparator() {
-    _ = AtomEntityMap<UUID, WorktreeEnrichment>(
+    _ = AtomFamily<UUID, WorktreeEnrichment>(
         isContentEqual: { lhs, rhs in lhs.id == rhs.id && lhs.status == rhs.status }
     )
 }
