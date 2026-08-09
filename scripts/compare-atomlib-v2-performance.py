@@ -416,8 +416,11 @@ def coverage_failures(
     count_key = surface_key(surface, "victoria_metrics_count")
     before = numeric(before_values, count_key)
     after = numeric(after_values, count_key)
-    minimum_coverage = before * (1 - regression_boundary_percent / 100)
-    if before > 0 and after < minimum_coverage:
+    # Lower publication counts can be the intended result of coalescing. Treat
+    # only near-total disappearance as collapsed coverage: the candidate must
+    # retain more than the frozen regression-boundary fraction of the baseline.
+    minimum_coverage = before * (regression_boundary_percent / 100)
+    if before > 0 and after <= minimum_coverage:
         return [
             f"{count_key} coverage collapsed ({before:g} -> {after:g}; "
             f"minimum {minimum_coverage:g})"
