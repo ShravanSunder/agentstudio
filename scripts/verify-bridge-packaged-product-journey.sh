@@ -594,6 +594,9 @@ try:
     def read_package():
         return session.request("bridge.diff.getPackage", {"handle": review_handle})
 
+    def read_review_page():
+        return session.request("bridge.diff.renderState", {"handle": review_handle})
+
     initial_package = wait_for(
         "initial Review package",
         read_package,
@@ -604,6 +607,16 @@ try:
     generation_before = initial_package.get("reviewGeneration")
     if not isinstance(generation_before, int):
         fail("Initial Review package has no generation")
+    initial_review_page = wait_for(
+        "initial Review page metadata",
+        read_review_page,
+        lambda value: value.get("diagnostics", {}).get("evaluateSucceeded") is True
+        and value.get("diagnostics", {}).get("pageErrorCount") == 0
+        and value.get("summary", {}).get("activeViewerMode") == "review"
+        and value.get("summary", {}).get("reviewMetadataGeneration") == generation_before
+        and value.get("summary", {}).get("reviewMetadataItemCount")
+        == expected_review_diff_count,
+    )
 
     session.request("bridge.diff.refresh", {"handle": review_handle})
 
@@ -620,9 +633,6 @@ try:
     missing_paths = [path for path in sentinel_paths if path not in items_by_path]
     if missing_paths:
         fail(f"Review package omitted traversal sentinels: {missing_paths}")
-
-    def read_review_page():
-        return session.request("bridge.diff.renderState", {"handle": review_handle})
 
     review_page = wait_for(
         "refreshed Review page metadata",

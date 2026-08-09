@@ -187,6 +187,7 @@ struct BridgePackagedProductJourneyScriptTests {
         let initialReadyWait = "initial_package = wait_for("
         let initialGenerationCapture =
             #"generation_before = initial_package.get("reviewGeneration")"#
+        let initialPageReadyWait = "initial_review_page = wait_for("
         let refreshRequest =
             #"session.request("bridge.diff.refresh", {"handle": review_handle})"#
         let postRefreshReadyWait = "package = wait_for("
@@ -195,6 +196,7 @@ struct BridgePackagedProductJourneyScriptTests {
 
         let initialReadyWaitRange = source.range(of: initialReadyWait)
         let initialGenerationCaptureRange = source.range(of: initialGenerationCapture)
+        let initialPageReadyWaitRange = source.range(of: initialPageReadyWait)
         let refreshRequestRange = source.range(of: refreshRequest)
 
         #expect(
@@ -213,8 +215,21 @@ struct BridgePackagedProductJourneyScriptTests {
             #expect(initialReadinessBlock.contains(#"value.get("status") == "ready""#))
         }
 
-        if let initialGenerationCaptureRange, let refreshRequestRange {
-            #expect(initialGenerationCaptureRange.upperBound < refreshRequestRange.lowerBound)
+        if let initialGenerationCaptureRange, let initialPageReadyWaitRange,
+            let refreshRequestRange
+        {
+            #expect(initialGenerationCaptureRange.upperBound < initialPageReadyWaitRange.lowerBound)
+            #expect(initialPageReadyWaitRange.upperBound < refreshRequestRange.lowerBound)
+            let initialPageReadinessBlock = source[
+                initialPageReadyWaitRange.lowerBound..<refreshRequestRange.lowerBound
+            ]
+            #expect(
+                initialPageReadinessBlock.contains(
+                    #"value.get("summary", {}).get("reviewMetadataGeneration") == generation_before"#
+                )
+            )
+        } else {
+            Issue.record("verifier must wait for the initial Review page generation before refresh")
         }
 
         if let refreshRequestRange,
