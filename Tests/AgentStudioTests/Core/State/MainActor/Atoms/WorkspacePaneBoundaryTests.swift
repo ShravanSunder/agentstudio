@@ -76,8 +76,8 @@ struct WorkspacePaneBoundaryTests {
         #expect(graphAtom.paneStructuralFacts(paneA.id)?.paneID == paneA.id)
     }
 
-    @Test("Pane graph reconciles insertion removal replacement restore and pruning atomically")
-    func paneGraphReconcilesLifecycleAndPruningAtomically() throws {
+    @Test("Pane graph reconciles insertion removal replacement restore and retained missing slots atomically")
+    func paneGraphReconcilesLifecycleAndRetainedMissingSlotsAtomically() throws {
         let graphAtom = WorkspacePaneGraphAtom()
         let paneA = graphAtom.createPane(
             launchDirectory: URL(filePath: "/tmp/pane-lifecycle-a", directoryHint: .isDirectory),

@@ -2,7 +2,7 @@ import AgentStudioInfrastructure
 import Foundation
 import SwiftUI
 
-package struct PaneVisibilityInfo: Identifiable, Equatable {
+package struct PaneVisibilityInfo: Identifiable, Equatable, Sendable {
     package let id: UUID
     package let title: String
     package let isMinimized: Bool
@@ -30,7 +30,7 @@ package enum ArrangementPanelRole: Equatable, Sendable {
     case userLayout
 }
 
-package struct ArrangementInfo: Identifiable, Equatable {
+package struct ArrangementInfo: Identifiable, Equatable, Sendable {
     package let id: UUID
     package let name: String
     package let role: ArrangementPanelRole

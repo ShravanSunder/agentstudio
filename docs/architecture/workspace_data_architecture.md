@@ -180,12 +180,12 @@ struct WorkspaceCacheState: Codable {
 
 The live `RepoEnrichmentCacheAtom` does not expose those dictionaries as the
 hot observation surface. It owns each repo-cache lane through keyed
-`AtomEntityMap` slots:
+`AtomFamily` slots:
 
 ```swift
-AtomEntityMap<UUID, RepoEnrichment>       // keyed by CanonicalRepo.id
-AtomEntityMap<UUID, WorktreeEnrichment>   // keyed by CanonicalWorktree.id
-AtomEntityMap<UUID, Int>                  // pull request count keyed by CanonicalWorktree.id
+AtomFamily<UUID, RepoEnrichment>       // keyed by CanonicalRepo.id
+AtomFamily<UUID, WorktreeEnrichment>   // keyed by CanonicalWorktree.id
+AtomFamily<UUID, Int>                  // pull request count keyed by CanonicalWorktree.id
 ```
 
 `RepoWorktreeCacheFacts` is a composed read result for surfaces that really need

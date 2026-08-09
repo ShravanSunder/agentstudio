@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -17,35 +18,62 @@ struct ArrangementDrawerCursorState: Equatable, Hashable, Sendable {
 @MainActor
 @Observable
 package final class WorkspaceArrangementCursorAtom {
-    private(set) var activeArrangementIdsByTabId: [UUID: UUID] = [:]
-    private(set) var paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState] = [:]
-    private(set) var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] = [:]
+    @ObservationIgnored private let activeArrangementFamily = AtomFamily<UUID, UUID>(
+        telemetryLabel: "workspace_active_arrangement",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let paneCursorFamily = AtomFamily<UUID, ArrangementPaneCursorState>(
+        telemetryLabel: "workspace_arrangement_pane_cursor",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let drawerCursorFamily = AtomFamily<
+        ArrangementDrawerCursorKey,
+        ArrangementDrawerCursorState
+    >(
+        telemetryLabel: "workspace_arrangement_drawer_cursor",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
+
+    var activeArrangementIdsByTabId: [UUID: UUID] {
+        _ = acceptedCommitRevision.value
+        return activeArrangementFamily.snapshot()
+    }
+
+    var paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState] {
+        _ = acceptedCommitRevision.value
+        return paneCursorFamily.snapshot()
+    }
+
+    var drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState] {
+        _ = acceptedCommitRevision.value
+        return drawerCursorFamily.snapshot()
+    }
+
     func replaceCursors(
         activeArrangementIdsByTabId: [UUID: UUID],
         paneCursorsByArrangementId: [UUID: ArrangementPaneCursorState],
         drawerCursorsByKey: [ArrangementDrawerCursorKey: ArrangementDrawerCursorState]
     ) {
-        if self.activeArrangementIdsByTabId != activeArrangementIdsByTabId {
-            self.activeArrangementIdsByTabId = activeArrangementIdsByTabId
-        }
-        if self.paneCursorsByArrangementId != paneCursorsByArrangementId {
-            self.paneCursorsByArrangementId = paneCursorsByArrangementId
-        }
-        if self.drawerCursorsByKey != drawerCursorsByKey {
-            self.drawerCursorsByKey = drawerCursorsByKey
-        }
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        activeArrangementFamily.replaceAll(activeArrangementIdsByTabId, mutation: mutation)
+        paneCursorFamily.replaceAll(paneCursorsByArrangementId, mutation: mutation)
+        drawerCursorFamily.replaceAll(drawerCursorsByKey, mutation: mutation)
+        mutation.commit()
     }
 
     func activeArrangementId(forTab tabId: UUID) -> UUID? {
-        activeArrangementIdsByTabId[tabId]
+        activeArrangementFamily.value(for: tabId)
     }
 
     func activePaneId(forArrangement arrangementId: UUID) -> UUID? {
-        paneCursorsByArrangementId[arrangementId]?.activePaneId
+        paneCursorFamily.value(for: arrangementId)?.activePaneId
     }
 
     func activeChildId(forArrangement arrangementId: UUID, drawerId: UUID) -> UUID? {
-        drawerCursorsByKey[ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)]?.activeChildId
+        drawerCursorFamily.value(
+            for: ArrangementDrawerCursorKey(arrangementId: arrangementId, drawerId: drawerId)
+        )?.activeChildId
     }
 
 }
