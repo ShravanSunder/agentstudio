@@ -6,8 +6,8 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerReadModelTests {
-    @Test("tab header and partition label remain explicit for all favorite states")
-    func tabHeaderAndPartitionLabelRemainExplicitForAllFavoriteStates() {
+    @Test("tab section header remains explicit without nested partition labels")
+    func tabSectionHeaderRemainsExplicitWithoutNestedPartitionLabels() {
         for isFavorite in [false, true] {
             let repoId = UUIDv7.generate()
             let tabId = UUIDv7.generate()
@@ -41,22 +41,7 @@ extension RepoExplorerReadModelTests {
             ).entries
 
             #expect(entries.first?.id == "section-header:tabs")
-            #expect(
-                entries.contains(
-                    .groupSectionHeader(
-                        groupId: group.id,
-                        kind: isFavorite ? .favorites : .repositories
-                    )
-                )
-            )
-            #expect(
-                !entries.contains(
-                    .groupSectionHeader(
-                        groupId: group.id,
-                        kind: isFavorite ? .repositories : .favorites
-                    )
-                )
-            )
+            #expect(entries.count == 3)
         }
     }
 
@@ -130,12 +115,12 @@ extension RepoExplorerReadModelTests {
             isFiltering: false
         )
 
-        #expect(tabGroup.repos.map(\.id) == [favoriteZuluId, favoriteAlphaId, repositoryYankeeId, repositoryBravoId])
+        #expect(tabGroup.repos.map(\.id) == [favoriteZuluId, favoriteAlphaId])
+        #expect(projection.sections.map(\.kind) == [.favorites, .tabs])
         #expect(
-            rowIndex.entries.map(\.id).prefix(3) == [
-                "section-header:tabs",
-                "group:tab:\(tabId.uuidString)",
-                "group-section-header:tab:\(tabId.uuidString):favorites",
+            rowIndex.entries.map(\.id).prefix(2) == [
+                "section-header:favorites",
+                "group:tab:\(tabId.uuidString):favorites",
             ]
         )
         #expect(
@@ -153,12 +138,14 @@ extension RepoExplorerReadModelTests {
 
         #expect(
             projection.resolvedGroups.map(\.id) == [
+                "tab:\(fixture.laterTabId.uuidString):favorites",
+                "tab:\(fixture.earlierTabId.uuidString):favorites",
                 "tab:\(fixture.laterTabId.uuidString)",
                 "tab:\(fixture.earlierTabId.uuidString)",
             ]
         )
-        #expect(Set(projection.resolvedGroups.map(\.id)).count == 2)
-        #expect(projection.sections.map(\.title) == ["Tabs"])
+        #expect(Set(projection.resolvedGroups.map(\.id)).count == 4)
+        #expect(projection.sections.map(\.title) == ["Favorites", "Tabs"])
 
         let expectedRepoOrder = [
             fixture.betaFavoriteRepoId,
@@ -166,16 +153,17 @@ extension RepoExplorerReadModelTests {
             fixture.alphaNormalRepoId,
             fixture.gammaNormalRepoId,
         ]
-        for group in projection.resolvedGroups {
-            #expect(group.repos.map(\.id) == expectedRepoOrder)
-        }
+        #expect(projection.resolvedGroups[0].repos.map(\.id) == Array(expectedRepoOrder.prefix(2)))
+        #expect(projection.resolvedGroups[1].repos.map(\.id) == Array(expectedRepoOrder.prefix(2)))
+        #expect(projection.resolvedGroups[2].repos.map(\.id) == Array(expectedRepoOrder.suffix(2)))
+        #expect(projection.resolvedGroups[3].repos.map(\.id) == Array(expectedRepoOrder.suffix(2)))
 
         let rowIndex = RepoExplorerRowIndex(
             projection: projection,
             collapsedGroupIds: [],
             isFiltering: false
         )
-        #expect(rowIndex.entries.first?.id == "section-header:tabs")
+        #expect(rowIndex.entries.first?.id == "section-header:favorites")
         let worktreeRowIds = rowIndex.entries.compactMap { entry -> String? in
             guard case .resolvedWorktreeRow(_, _, _, let rowId) = entry else { return nil }
             return rowId
@@ -191,8 +179,8 @@ extension RepoExplorerReadModelTests {
         )
         let flattenedTabEntries = rowIndex.entries.compactMap { entry -> String? in
             switch entry {
-            case .groupSectionHeader(let groupId, let kind):
-                return "header|\(groupId)|\(kind.rawValue)"
+            case .sectionHeader(let kind):
+                return "section|\(kind.rawValue)"
             case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, _):
                 return "row|\(groupId)|\(repoId.uuidString)|\(worktreeId.uuidString)"
             default:
@@ -287,16 +275,14 @@ extension RepoExplorerReadModelTests {
         earlierTabWorktreeIdsByRepoId: [UUID: UUID]
     ) -> [String] {
         [
-            "header|tab:\(fixture.laterTabId.uuidString)|favorites",
-            "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.betaFavoriteRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.betaFavoriteRepoId]!.uuidString)",
-            "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.zetaFavoriteRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.zetaFavoriteRepoId]!.uuidString)",
-            "header|tab:\(fixture.laterTabId.uuidString)|repositories",
+            "section|favorites",
+            "row|tab:\(fixture.laterTabId.uuidString):favorites|\(fixture.betaFavoriteRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.betaFavoriteRepoId]!.uuidString)",
+            "row|tab:\(fixture.laterTabId.uuidString):favorites|\(fixture.zetaFavoriteRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.zetaFavoriteRepoId]!.uuidString)",
+            "row|tab:\(fixture.earlierTabId.uuidString):favorites|\(fixture.betaFavoriteRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.betaFavoriteRepoId]!.uuidString)",
+            "row|tab:\(fixture.earlierTabId.uuidString):favorites|\(fixture.zetaFavoriteRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.zetaFavoriteRepoId]!.uuidString)",
+            "section|tabs",
             "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.alphaNormalRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.alphaNormalRepoId]!.uuidString)",
             "row|tab:\(fixture.laterTabId.uuidString)|\(fixture.gammaNormalRepoId.uuidString)|\(tabWorktreeIdsByRepoId[fixture.gammaNormalRepoId]!.uuidString)",
-            "header|tab:\(fixture.earlierTabId.uuidString)|favorites",
-            "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.betaFavoriteRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.betaFavoriteRepoId]!.uuidString)",
-            "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.zetaFavoriteRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.zetaFavoriteRepoId]!.uuidString)",
-            "header|tab:\(fixture.earlierTabId.uuidString)|repositories",
             "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.alphaNormalRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.alphaNormalRepoId]!.uuidString)",
             "row|tab:\(fixture.earlierTabId.uuidString)|\(fixture.gammaNormalRepoId.uuidString)|\(earlierTabWorktreeIdsByRepoId[fixture.gammaNormalRepoId]!.uuidString)",
         ]

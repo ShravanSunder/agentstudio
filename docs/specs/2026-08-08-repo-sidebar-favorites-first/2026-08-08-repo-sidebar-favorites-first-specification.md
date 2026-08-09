@@ -6,25 +6,25 @@
 
 The repository sidebar MUST NOT expose a Show Favorites Only / Show All toggle. All matching content remains present in one normal view.
 
-### S2 — Repository-owned modes
+### S2 — Repository and pane modes
 
 In By Repo and By Pane:
 
 - when at least one visible favorite repository has a resolved group or is still loading, a non-collapsible `Favorites` section header appears first;
 - favorite repository groups appear under that header in the selected sort direction;
-- a non-collapsible `Repositories` section header follows when a visible non-favorite repository has a resolved group or is still loading;
-- favorite groups MUST NOT be repeated in `Repositories`;
-- a section with neither resolved groups nor loading repositories is omitted.
+- the normal non-collapsible header is always present after Favorites: `Repositories` in By Repo and `Panes` in By Pane;
+- non-favorite groups appear under the normal header and favorite groups MUST NOT be repeated there;
+- the `Favorites` section is omitted when it has neither resolved groups nor loading repositories, while the normal section remains visible when empty.
 
 Within each section, resolved groups appear first and loading repositories follow under the existing `Scanning…` status label. Loading rows are classified by the loading repository's favorite state; the unpartitioned global loading section is removed. Search can independently remove either partition and its loading rows.
 
-### S3 — Tab-owned mode
+### S3 — Tab mode
 
-In the normal By Tab content state, a non-collapsible `Tabs` section header always appears, including when the tab list has no visible groups. Each visible tab group appears exactly once in existing tab order beneath that header. Within each tab, favorite-backed worktree occurrences appear before non-favorite occurrences. A `Favorites` label precedes the favorite-backed occurrences when that partition is non-empty, and a `Repositories` label precedes the non-favorite occurrences when that partition is non-empty. Each partition preserves the configured repository/worktree ordering. The labels are inside the existing tab group; they do not repartition tabs or duplicate destinations. The existing no-results and degraded states continue to replace the list when applicable.
+In the normal By Tab content state, a top-level non-collapsible `Favorites` section appears first when favorite-backed worktree occurrences are visible. A top-level non-collapsible `Tabs` section always follows, including when no non-favorite tab rows are visible. Favorites MUST NOT be nested inside a tab group. Each favorite-backed leaf appears exactly once under Favorites, each remaining leaf appears exactly once under Tabs, and each partition preserves existing tab and repository/worktree ordering. A mixed tab may therefore have a group presentation in each top-level section, with distinct section-qualified group and row identities, but no destination is duplicated. The existing no-results and degraded states continue to replace the list when applicable.
 
 ### S4 — Search and disclosure
 
-Search applies before favorite section presentation. Empty sections disappear as the query changes. Filtering continues to force matching repository groups open. Clearing the query restores stored group disclosure. Section headers are labels, not another disclosure tier.
+Search applies before favorite section presentation. An empty Favorites section disappears as the query changes; the normal Repositories, Panes, or Tabs header remains present in normal content. Filtering continues to force matching repository groups open. Clearing the query restores stored group disclosure. Section headers are labels, not another disclosure tier.
 
 ### S5 — Favorite mutation
 
@@ -35,8 +35,8 @@ The existing bookmark and context-menu actions remain available with Add Favorit
 - No favorite-specific empty screen exists because non-favorites remain visible.
 - A query with no matches retains the existing no-results state.
 - A repository collection with no favorites shows no `Favorites` header.
-- A collection containing only favorites shows no empty `Repositories` header.
-- By Tab retains its `Tabs` header in the normal content state even when no tab group is visible; the existing no-results and degraded states remain headerless replacement views.
+- A collection containing only favorites still shows its empty normal `Repositories`, `Panes`, or `Tabs` header after Favorites.
+- Every grouping mode retains its normal header in the normal content state even when that section has no visible group; the existing no-results and degraded states remain headerless replacement views.
 - A loading-only partition remains visible under its corresponding section header and `Scanning…` label.
 - Degraded topology behavior remains unchanged.
 
@@ -46,7 +46,7 @@ The favorites-only visibility enum/state, toolbar control, command catalog entry
 
 ### S8 — Visual and accessibility quality
 
-Section headers use the existing sidebar section-header typography and insets, with enough vertical separation to distinguish them from repository disclosure headers without introducing a card or divider-heavy visual language. They expose meaningful accessibility labels. Native visual proof MUST cover no favorites, mixed favorites, all favorites, search, and all three grouping modes at normal sidebar width.
+Sidebar and Command Bar subheadings use one shared component: system 13-point semibold small caps, the app accent color at the shared secondary foreground opacity, 12-point horizontal padding, 8-point top padding, and 4-point bottom padding. Sidebar headers expose meaningful accessibility labels. Native visual proof MUST cover no favorites, mixed favorites, all favorites, search, all three grouping modes, and Command Bar at normal widths.
 
 ## Proof obligations
 

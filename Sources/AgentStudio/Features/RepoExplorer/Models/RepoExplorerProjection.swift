@@ -10,12 +10,14 @@ enum RepoExplorerEmptyState: Equatable, Sendable {
 
 enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
     case favorites
+    case panes
     case repositories
     case tabs
 
     var title: String {
         switch self {
         case .favorites: "Favorites"
+        case .panes: "Panes"
         case .repositories: "Repositories"
         case .tabs: "Tabs"
         }
@@ -319,8 +321,12 @@ enum RepoExplorerProjection {
                 checkoutColorHexByRepoId: checkoutColorHexByRepoId,
                 cancellationCheck: cancellationCheck
             )
-            resolvedGroups = placementProjection.groups
-            projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
+            let partitionedProjection = partitionTabGroups(
+                groups: placementProjection.groups,
+                worktreeRowsByGroupId: placementProjection.worktreeRowsByGroupId
+            )
+            resolvedGroups = partitionedProjection.groups
+            projectedRowsByGroupId = partitionedProjection.worktreeRowsByGroupId
             projectedPaneRowsByGroupId = [:]
         }
 
@@ -355,29 +361,90 @@ enum RepoExplorerProjection {
         resolvedGroups: [RepoPresentationGroup],
         loadingRepos: [RepoPresentationItem]
     ) -> [RepoExplorerSidebarSection] {
-        if groupingMode == .tab {
-            return [
-                RepoExplorerSidebarSection(
-                    kind: .tabs,
-                    resolvedGroups: resolvedGroups,
-                    loadingRepos: loadingRepos
-                )
-            ]
+        let favoriteGroups = resolvedGroups.filter { group in
+            !group.repos.isEmpty && group.repos.allSatisfy(\.isFavorite)
         }
-
-        return [RepoExplorerSidebarSectionKind.favorites, .repositories].compactMap { kind in
-            let expectsFavorite = kind == .favorites
-            let matchingGroups = resolvedGroups.filter { group in
-                group.repos.first?.isFavorite == expectsFavorite
+        let favoriteLoadingRepos = loadingRepos.filter(\.isFavorite)
+        let regularGroups = resolvedGroups.filter { group in
+            group.repos.contains { !$0.isFavorite }
+        }
+        let regularLoadingRepos = loadingRepos.filter { !$0.isFavorite }
+        let normalSectionKind: RepoExplorerSidebarSectionKind =
+            switch groupingMode {
+            case .repo: .repositories
+            case .pane: .panes
+            case .tab: .tabs
             }
-            let matchingLoadingRepos = loadingRepos.filter { $0.isFavorite == expectsFavorite }
-            guard !matchingGroups.isEmpty || !matchingLoadingRepos.isEmpty else { return nil }
-            return RepoExplorerSidebarSection(
-                kind: kind,
-                resolvedGroups: matchingGroups,
-                loadingRepos: matchingLoadingRepos
+
+        var sections: [RepoExplorerSidebarSection] = []
+        if !favoriteGroups.isEmpty || !favoriteLoadingRepos.isEmpty {
+            sections.append(
+                RepoExplorerSidebarSection(
+                    kind: .favorites,
+                    resolvedGroups: favoriteGroups,
+                    loadingRepos: favoriteLoadingRepos
+                )
             )
         }
+        sections.append(
+            RepoExplorerSidebarSection(
+                kind: normalSectionKind,
+                resolvedGroups: regularGroups,
+                loadingRepos: regularLoadingRepos
+            )
+        )
+        return sections
+    }
+
+    private static func partitionTabGroups(
+        groups: [RepoPresentationGroup],
+        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
+    ) -> (groups: [RepoPresentationGroup], worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]) {
+        var favoriteGroups: [RepoPresentationGroup] = []
+        var regularGroups: [RepoPresentationGroup] = []
+        var partitionedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:]
+
+        for group in groups {
+            let rows = worktreeRowsByGroupId[group.id, default: []]
+            let favoriteRows = rows.filter { $0.repo.isFavorite }
+            let regularRows = rows.filter { !$0.repo.isFavorite }
+
+            if !favoriteRows.isEmpty {
+                let favoriteGroupId = "\(group.id):favorites"
+                favoriteGroups.append(
+                    RepoPresentationGroup(
+                        id: favoriteGroupId,
+                        repoTitle: group.repoTitle,
+                        organizationName: group.organizationName,
+                        repos: group.repos.filter(\.isFavorite)
+                    )
+                )
+                partitionedRowsByGroupId[favoriteGroupId] = favoriteRows.map { row in
+                    RepoExplorerProjectedWorktreeRow(
+                        groupId: favoriteGroupId,
+                        repo: row.repo,
+                        worktree: row.worktree,
+                        rowId: "\(row.rowId):favorites",
+                        checkoutColorHex: row.checkoutColorHex,
+                        placementContext: row.placementContext
+                    )
+                }
+            }
+
+            if !regularRows.isEmpty {
+                regularGroups.append(
+                    RepoPresentationGroup(
+                        id: group.id,
+                        repoTitle: group.repoTitle,
+                        organizationName: group.organizationName,
+                        repos: group.repos.filter { !$0.isFavorite }
+                    )
+                )
+                partitionedRowsByGroupId[group.id] = regularRows
+            }
+        }
+
+        return (favoriteGroups + regularGroups, partitionedRowsByGroupId)
     }
 
     private static func emptyState(

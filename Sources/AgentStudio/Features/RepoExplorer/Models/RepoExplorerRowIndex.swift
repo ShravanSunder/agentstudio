@@ -216,19 +216,11 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             guard shouldExpandGroup else { continue }
 
             let worktreeRows = projectedRowsByGroupId[group.id] ?? []
-            if group.id.hasPrefix("tab:") {
-                appendTabSectionEntries(
-                    groupId: group.id,
-                    worktreeRows: worktreeRows,
-                    entries: &entries
-                )
-            } else {
-                appendWorktreeRows(
-                    groupId: group.id,
-                    worktreeRows: worktreeRows,
-                    entries: &entries
-                )
-            }
+            appendWorktreeRows(
+                groupId: group.id,
+                worktreeRows: worktreeRows,
+                entries: &entries
+            )
             for row in projectedPaneRowsByGroupId[group.id] ?? [] {
                 entries.append(
                     .resolvedPaneRow(
@@ -245,20 +237,6 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         }
 
         return entries
-    }
-
-    private static func appendTabSectionEntries(
-        groupId: String,
-        worktreeRows: [RepoExplorerProjectedWorktreeRow],
-        entries: inout [RepoExplorerListEntry]
-    ) {
-        for (kind, rows) in [
-            (RepoExplorerSidebarSectionKind.favorites, worktreeRows.filter { $0.repo.isFavorite }),
-            (RepoExplorerSidebarSectionKind.repositories, worktreeRows.filter { !$0.repo.isFavorite }),
-        ] where !rows.isEmpty {
-            entries.append(.groupSectionHeader(groupId: groupId, kind: kind))
-            appendWorktreeRows(groupId: groupId, worktreeRows: rows, entries: &entries)
-        }
     }
 
     private static func appendWorktreeRows(

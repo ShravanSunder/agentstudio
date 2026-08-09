@@ -27,6 +27,145 @@ extension RepoExplorerReadModelTests {
         #expect(rowIndex.entries.map(\.id) == ["section-header:tabs"])
     }
 
+    @Test("all grouping modes keep their normal section header after favorites")
+    func allGroupingModesKeepTheirNormalSectionHeaderAfterFavorites() {
+        let repoId = UUIDv7.generate()
+        let favoriteWorktree = worktree(repoId: repoId)
+        let favoriteRepository = repo(
+            id: repoId,
+            name: "favorite-repository",
+            isFavorite: true,
+            worktrees: [favoriteWorktree]
+        )
+        let tabId = UUIDv7.generate()
+        let location = WorkspacePaneLocation(
+            paneId: UUIDv7.generate(),
+            tabId: tabId,
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: true
+        )
+        let enrichment = [repoId: resolvedRemote(repoId: repoId, displayName: favoriteRepository.name)]
+
+        let projections = [
+            RepoExplorerProjection.project(
+                RepoExplorerSnapshot(
+                    repos: [favoriteRepository],
+                    repoEnrichmentByRepoId: enrichment,
+                    groupingMode: .repo,
+                    query: ""
+                )
+            ),
+            RepoExplorerProjection.project(
+                RepoExplorerSnapshot(
+                    repos: [favoriteRepository],
+                    repoEnrichmentByRepoId: enrichment,
+                    groupingMode: .pane,
+                    query: "",
+                    paneLocationsByWorktreeId: [favoriteWorktree.id: [location]]
+                )
+            ),
+            RepoExplorerProjection.project(
+                RepoExplorerSnapshot(
+                    repos: [favoriteRepository],
+                    repoEnrichmentByRepoId: enrichment,
+                    groupingMode: .tab,
+                    query: "",
+                    paneLocationsByWorktreeId: [favoriteWorktree.id: [location]]
+                )
+            ),
+        ]
+
+        #expect(projections[0].sections.map(\.kind) == [.favorites, .repositories])
+        #expect(projections[1].sections.map(\.kind) == [.favorites, .panes])
+        #expect(projections[2].sections.map(\.kind) == [.favorites, .tabs])
+        #expect(projections.allSatisfy { $0.sections.last?.resolvedGroups.isEmpty == true })
+    }
+
+    @Test("tab favorites are a top-level partition instead of nested section headers")
+    func tabFavoritesAreTopLevelInsteadOfNestedSectionHeaders() {
+        let favoriteRepoId = UUIDv7.generate()
+        let regularRepoId = UUIDv7.generate()
+        let favoriteWorktree = worktree(repoId: favoriteRepoId, name: "favorite")
+        let regularWorktree = worktree(repoId: regularRepoId, name: "regular")
+        let repositories = [
+            repo(
+                id: favoriteRepoId,
+                name: "favorite-repository",
+                isFavorite: true,
+                worktrees: [favoriteWorktree]
+            ),
+            repo(id: regularRepoId, name: "regular-repository", worktrees: [regularWorktree]),
+        ]
+        let tabId = UUIDv7.generate()
+        let locations = Dictionary(
+            uniqueKeysWithValues: [favoriteWorktree, regularWorktree].enumerated().map { index, worktree in
+                (
+                    worktree.id,
+                    [
+                        WorkspacePaneLocation(
+                            paneId: UUIDv7.generate(),
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: index,
+                            isActiveInTab: index == 0
+                        )
+                    ]
+                )
+            }
+        )
+        let enrichment = Dictionary(
+            uniqueKeysWithValues: repositories.map {
+                ($0.id, resolvedRemote(repoId: $0.id, displayName: $0.name))
+            }
+        )
+
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: repositories,
+                repoEnrichmentByRepoId: enrichment,
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: locations
+            )
+        )
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+
+        #expect(projection.sections.map(\.kind) == [.favorites, .tabs])
+        #expect(rowIndex.entries.first?.id == "section-header:favorites")
+        #expect(rowIndex.entries.allSatisfy { !$0.id.hasPrefix("group-section-header:") })
+        #expect(
+            rowIndex.entries.compactMap { entry -> UUID? in
+                guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return nil }
+                return repoId
+            } == [favoriteRepoId, regularRepoId]
+        )
+
+        let favoriteEntry = rowIndex.entries.first { entry in
+            guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return false }
+            return repoId == favoriteRepoId
+        }
+        guard
+            let favoriteEntry,
+            case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, let rowId) = favoriteEntry
+        else {
+            Issue.record("Expected the favorite tab row")
+            return
+        }
+        #expect(
+            rowIndex.resolve(
+                groupId: groupId,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                rowId: rowId
+            )?.placementContext?.tabId == tabId
+        )
+    }
+
     @Test("repository-owned modes omit empty favorite partitions")
     func repositoryOwnedModesOmitEmptyFavoritePartitions() {
         let repoId = UUIDv7.generate()
@@ -64,13 +203,13 @@ extension RepoExplorerReadModelTests {
         )
 
         #expect(repoProjection.sections.map(\.kind) == [.repositories])
-        #expect(paneProjection.sections.map(\.kind) == [.repositories])
+        #expect(paneProjection.sections.map(\.kind) == [.panes])
         #expect(repoProjection.sections.allSatisfy { $0.kind != .favorites })
         #expect(paneProjection.sections.allSatisfy { $0.kind != .favorites })
     }
 
-    @Test("repository-owned modes omit empty repository partitions")
-    func repositoryOwnedModesOmitEmptyRepositoryPartitions() {
+    @Test("repository-owned modes keep empty normal partitions after favorites")
+    func repositoryOwnedModesKeepEmptyNormalPartitionsAfterFavorites() {
         let repoId = UUIDv7.generate()
         let worktree = worktree(repoId: repoId)
         let repository = repo(
@@ -106,14 +245,14 @@ extension RepoExplorerReadModelTests {
             )
         )
 
-        #expect(repoProjection.sections.map(\.kind) == [.favorites])
-        #expect(paneProjection.sections.map(\.kind) == [.favorites])
-        #expect(repoProjection.sections.allSatisfy { $0.kind != .repositories })
-        #expect(paneProjection.sections.allSatisfy { $0.kind != .repositories })
+        #expect(repoProjection.sections.map(\.kind) == [.favorites, .repositories])
+        #expect(paneProjection.sections.map(\.kind) == [.favorites, .panes])
+        #expect(repoProjection.sections.last?.resolvedGroups.isEmpty == true)
+        #expect(paneProjection.sections.last?.resolvedGroups.isEmpty == true)
     }
 
-    @Test("search removes empty partitions and their loading rows")
-    func searchRemovesEmptyPartitionsAndTheirLoadingRows() {
+    @Test("search preserves the normal header while removing unmatched loading rows")
+    func searchPreservesTheNormalHeaderWhileRemovingUnmatchedLoadingRows() {
         let favoriteId = UUIDv7.generate()
         let loadingId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: favoriteId, name: "target")
@@ -147,13 +286,14 @@ extension RepoExplorerReadModelTests {
             isFiltering: true
         )
 
-        #expect(projection.sections.map(\.kind) == [.favorites])
+        #expect(projection.sections.map(\.kind) == [.favorites, .repositories])
         #expect(projection.loadingRepos.isEmpty)
         #expect(
             rowIndex.entries.map(\.id) == [
                 "section-header:favorites",
                 "group:repo:\(favoriteId.uuidString)",
                 "worktree:repo:\(favoriteId.uuidString):\(favoriteId.uuidString):\(favoriteWorktree.id.uuidString):inactive",
+                "section-header:repositories",
             ])
     }
 

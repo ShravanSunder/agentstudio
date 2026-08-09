@@ -11,7 +11,6 @@ struct RepoExplorerPaneListEntryIdentity: Equatable, Sendable {
 
 enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
     case sectionHeader(RepoExplorerSidebarSectionKind)
-    case groupSectionHeader(groupId: String, kind: RepoExplorerSidebarSectionKind)
     case loadingSectionHeader(RepoExplorerSidebarSectionKind)
     case loadingRepoRow(section: RepoExplorerSidebarSectionKind, repo: RepoPresentationItem)
     case resolvedGroupHeader(RepoPresentationGroup)
@@ -23,8 +22,6 @@ enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
         switch self {
         case .sectionHeader(let kind):
             return "section-header:\(kind.rawValue)"
-        case .groupSectionHeader(let groupId, let kind):
-            return "group-section-header:\(groupId):\(kind.rawValue)"
         case .loadingSectionHeader(let kind):
             return "loading-header:\(kind.rawValue)"
         case .loadingRepoRow(let section, let repo):

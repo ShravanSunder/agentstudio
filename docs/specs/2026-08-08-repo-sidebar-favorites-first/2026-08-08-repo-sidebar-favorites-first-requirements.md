@@ -12,13 +12,15 @@ People with many repositories need their deliberately favorited repositories to 
 - U4 (high): Favorite and unfavorite actions remain direct, legible, and accessible.
 - U5 (high): Search, sort direction, group disclosure, loading, empty, keyboard, and command behavior remain coherent after the favorites-only path is removed.
 - U6 (high): The resulting sidebar must match Agent Studio's existing native visual system and be verified in the running macOS app.
+- U7 (high): Every grouping mode always shows its normal top-level subheading; Favorites is an optional top-level sibling above it and is never nested inside a repository, pane, or tab.
+- U8 (high): Sidebar and Command Bar subheadings share the same typography, accent color, and spacing, with a small-caps treatment that does not overpower row content.
 
 ## Boundaries
 
 - Favorite state remains repository-owned and persisted by the existing topology owner.
 - The feature does not add manual favorite ordering, recency ordering, drag-and-drop, new persistence, or a fourth grouping mode.
 - A worktree or pane destination appears only once in a view.
-- Existing By Tab order remains tab-owned; favorites may reorder rows within a tab but may not duplicate or repartition the tab itself.
+- Existing By Tab order remains tab-owned. Favorites may partition leaf occurrences into a top-level Favorites section, but no leaf destination is duplicated.
 - This is a hard cutover from favorites-only visibility. No hidden compatibility UI, alias command, or parallel projection path remains.
 
 ## Evidence

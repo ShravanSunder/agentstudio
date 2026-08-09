@@ -14,18 +14,6 @@ private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case grouping
 }
 
-private struct RepoExplorerSectionHeaderLabel: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: AppStyles.CommandBar.Rows.groupHeaderFontSize, weight: .semibold))
-            .foregroundStyle(Color.accentColor.opacity(AppStyles.CommandBar.Rows.groupHeaderOpacity))
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-}
-
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 package struct RepoExplorerView: View {
@@ -329,10 +317,7 @@ package struct RepoExplorerView: View {
             ForEach(rowIndex.entries) { entry in
                 switch entry {
                 case .sectionHeader(let kind):
-                    sectionHeader(kind: kind, leadingInset: AppStyles.CommandBar.Panel.horizontalPadding)
-
-                case .groupSectionHeader(_, let kind):
-                    sectionHeader(kind: kind, leadingInset: AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
+                    sectionHeader(kind: kind)
 
                 case .loadingSectionHeader:
                     RepoExplorerLoadingSectionHeaderRow()
@@ -555,15 +540,11 @@ package struct RepoExplorerView: View {
         )
     }
 
-    private func sectionHeader(
-        kind: RepoExplorerSidebarSectionKind,
-        leadingInset: CGFloat
-    ) -> some View {
-        RepoExplorerSectionHeaderLabel(title: kind.title)
-            .padding(.leading, leadingInset)
-            .padding(.trailing, AppStyles.CommandBar.Panel.horizontalPadding)
-            .padding(.top, AppStyles.Shell.Sidebar.sectionLabelTopPadding)
-            .padding(.bottom, AppStyles.Shell.Sidebar.sectionLabelBottomPadding)
+    private func sectionHeader(kind: RepoExplorerSidebarSectionKind) -> some View {
+        SectionSubheadingLabel(kind.title)
+            .padding(.horizontal, AppStyles.Components.SectionSubheading.horizontalPadding)
+            .padding(.top, AppStyles.Components.SectionSubheading.topPadding)
+            .padding(.bottom, AppStyles.Components.SectionSubheading.bottomPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
             .accessibilityLabel(kind.title)

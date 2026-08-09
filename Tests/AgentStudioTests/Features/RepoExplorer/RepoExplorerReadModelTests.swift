@@ -133,9 +133,10 @@ extension RepoExplorerReadModelTests {
         )
         #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
         #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [normalRepoId])
-        #expect(paneProjection.sections.map(\.kind) == [.favorites, .repositories])
-        #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
-        #expect(tabProjection.sections.map(\.kind) == [.tabs])
+        #expect(paneProjection.sections.map(\.kind) == [.favorites, .panes])
+        #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
+        #expect(tabProjection.resolvedGroups.last?.repos.map(\.id) == [normalRepoId])
+        #expect(tabProjection.sections.map(\.kind) == [.favorites, .tabs])
     }
 
     @Test("projection separates resolved and loading repos while preserving filter semantics")
@@ -563,12 +564,12 @@ extension RepoExplorerReadModelTests {
         )
 
         let rowIndex = RepoExplorerRowIndex(projection: projection, collapsedGroupIds: [], isFiltering: false)
-        #expect(rowIndex.entries.count == 4)
+        #expect(rowIndex.entries.count == 3)
         guard
             case .resolvedWorktreeRow(let groupId, let rowRepoId, let worktreeId, let rowId) =
-                rowIndex.entries[3]
+                rowIndex.entries[2]
         else {
-            Issue.record("Expected one located worktree row after the Tabs, tab, and section headers")
+            Issue.record("Expected one located worktree row after the Tabs and tab headers")
             return
         }
         let context = try #require(

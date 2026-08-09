@@ -49,7 +49,6 @@ struct RepoExplorerVisibleRowsTests {
         let entries: [RepoExplorerListEntry] = [
             .sectionHeader(.tabs),
             .resolvedGroupHeader(group),
-            .groupSectionHeader(groupId: groupId, kind: .favorites),
             .resolvedWorktreeRow(
                 groupId: groupId,
                 repoId: firstRepoId,
@@ -58,7 +57,6 @@ struct RepoExplorerVisibleRowsTests {
             ),
             .loadingSectionHeader(.repositories),
             .loadingRepoRow(section: .repositories, repo: loadingRepo),
-            .groupSectionHeader(groupId: groupId, kind: .repositories),
             .resolvedWorktreeRow(
                 groupId: groupId,
                 repoId: secondRepoId,
@@ -85,13 +83,13 @@ struct RepoExplorerVisibleRowsTests {
         #expect(
             RepoExplorerVisibleRows.worktreeIds(
                 in: entries,
-                rowRange: NSRange(location: 4, length: 3)
+                rowRange: NSRange(location: 3, length: 2)
             ).isEmpty
         )
         #expect(
             RepoExplorerVisibleRows.worktreeIds(
                 in: entries,
-                rowRange: NSRange(location: 6, length: 2)
+                rowRange: NSRange(location: 5, length: 2)
             ) == [secondWorktreeId]
         )
     }

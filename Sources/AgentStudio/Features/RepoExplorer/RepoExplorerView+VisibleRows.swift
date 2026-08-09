@@ -198,7 +198,7 @@ enum RepoExplorerVisibleRows {
             switch entry {
             case .resolvedWorktreeRow(_, _, let worktreeId, _):
                 result.insert(worktreeId)
-            case .sectionHeader, .groupSectionHeader, .loadingSectionHeader, .loadingRepoRow, .resolvedPaneRow,
+            case .sectionHeader, .loadingSectionHeader, .loadingRepoRow, .resolvedPaneRow,
                 .resolvedGroupHeader,
                 .topologyFault:
                 break

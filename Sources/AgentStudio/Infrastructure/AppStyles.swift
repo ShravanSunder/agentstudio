@@ -97,8 +97,6 @@ package enum AppStyles {
             package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
             package static let sectionHeaderChevronLabelSpacing: CGFloat = AppStyles.General.Spacing.tight
-            package static let sectionLabelTopPadding: CGFloat = AppStyles.General.Spacing.loose
-            package static let sectionLabelBottomPadding: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationMaxWidth: CGFloat = 120
@@ -360,8 +358,6 @@ package enum AppStyles {
             package static let secondaryLineOpacity: Double = 0.58
             package static let selectedSecondaryLineOpacity: Double = 0.72
             package static let shortcutSpacing: CGFloat = 4
-            package static let groupHeaderFontSize: CGFloat = AppStyles.General.Typography.textBase
-            package static let groupHeaderOpacity: Double = 0.70
             package static let rowTitleOpacity: Double = 0.92
             package static let selectedRowTitleOpacity: Double = 0.95
             package static let dimmedRowTitleOpacity: Double = 0.40
@@ -396,6 +392,14 @@ package enum AppStyles {
     }
 
     package enum Components {
+        package enum SectionSubheading {
+            package static let fontSize: CGFloat = AppStyles.General.Typography.textBase
+            package static let foregroundOpacity: Double = AppStyles.General.Foreground.secondary
+            package static let horizontalPadding: CGFloat = 12
+            package static let topPadding: CGFloat = AppStyles.General.Spacing.loose
+            package static let bottomPadding: CGFloat = AppStyles.General.Spacing.tight
+        }
+
         package enum EditorChooser {
             package static let menuWidth: CGFloat = 220
             package static let outerPadding: CGFloat = AppStyles.General.Spacing.standard

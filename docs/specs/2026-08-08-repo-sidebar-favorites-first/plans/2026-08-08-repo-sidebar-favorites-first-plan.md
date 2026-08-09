@@ -6,15 +6,15 @@ Implement the reviewed behavior defined by the sibling Requirements, Specificati
 
 ## Task 1 — Establish red projection and row-index proof
 
-- Replace favorites-do-not-reorder and favorites-only tests with failing expectations for By Repo/By Pane sections and By Tab stable favorite-first row partition.
-- Cover no favorites, all favorites, mixed loading state, search removal of empty sections, descending sort, stable IDs, and visible-row indexing.
+- Replace favorites-do-not-reorder and favorites-only tests with failing expectations for optional top-level Favorites and required Repositories, Panes, or Tabs sections.
+- Cover no favorites, all favorites, mixed loading state, search behavior, descending sort, section-qualified favorite tab IDs, fail-closed row resolution, and visible-row indexing.
 - Run the focused RepoExplorer model tests and retain the expected red receipt.
 
 ## Task 2 — Implement projection and list-entry structure
 
 - Add the minimal section descriptor/list entry under RepoExplorer models.
-- Partition repository-owned groups after existing mode projection; stable-partition tab rows without changing tab/group IDs, add a non-collapsible `Tabs` heading, and add per-tab Favorites/Repositories labels around the two row partitions.
-- Render non-interactive section labels using existing sidebar typography/insets.
+- Partition repository-owned groups after existing mode projection; stable-partition tab rows into top-level Favorites and Tabs sections with distinct favorite group/row IDs.
+- Render Sidebar and Command Bar subheadings through one shared small-caps component and AppStyles-owned typography, accent color, and insets.
 - Re-run focused model/view tests green.
 
 ## Task 3 — Hard-cut the favorites-only path
@@ -31,7 +31,7 @@ Implement the reviewed behavior defined by the sibling Requirements, Specificati
 ## Task 5 — Native visual iteration
 
 - Start the shared observability stack and standard isolated debug app.
-- Use Peekaboo/Computer Use with the exact app/PID to capture and inspect By Repo, By Pane, By Tab, no-favorites, mixed-favorites, all-favorites, and search states at normal sidebar width.
+- Use Computer Use with the exact background app/PID to capture and inspect By Repo, By Pane, By Tab, no-favorites, mixed-favorites, all-favorites, search, and Command Bar states at normal widths. Never activate or raise the app.
 - Adjust only existing style-token-owned spacing/presentation values or a narrowly owned RepoExplorer section wrapper. Re-run focused proof after each adjustment.
 
 ## Task 6 — Full proof, independent review, and PR
