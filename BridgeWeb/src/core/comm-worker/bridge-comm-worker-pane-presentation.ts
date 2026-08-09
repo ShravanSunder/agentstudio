@@ -105,6 +105,7 @@ function immutableReviewComparison(
 	reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'],
 ): BridgeProductPanePresentationFrame['reviewComparison'] {
 	if (reviewComparison === null) return null;
+	const targetCatalog = immutableTargetCatalog(reviewComparison.targetCatalog);
 	return Object.freeze({
 		activeTarget:
 			reviewComparison.activeTarget === null
@@ -112,6 +113,24 @@ function immutableReviewComparison(
 				: Object.freeze({ ...reviewComparison.activeTarget }),
 		attempt: Object.freeze({ ...reviewComparison.attempt }),
 		displayedSnapshot: Object.freeze({ ...reviewComparison.displayedSnapshot }),
+		targetCatalog,
+	});
+}
+
+function immutableTargetCatalog(
+	targetCatalog: NonNullable<
+		BridgeProductPanePresentationFrame['reviewComparison']
+	>['targetCatalog'],
+): NonNullable<BridgeProductPanePresentationFrame['reviewComparison']>['targetCatalog'] {
+	if (targetCatalog === null) return null;
+	const branches = targetCatalog.branches.map((branch) => Object.freeze({ ...branch }));
+	Object.freeze(branches);
+	return Object.freeze({
+		branches,
+		defaultTarget:
+			targetCatalog.defaultTarget === null
+				? null
+				: Object.freeze({ ...targetCatalog.defaultTarget }),
 	});
 }
 

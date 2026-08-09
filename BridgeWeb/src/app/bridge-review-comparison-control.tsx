@@ -4,10 +4,11 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactElement }
 import { Button } from '../components/ui/button.js';
 import { Input } from '../components/ui/input.js';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.js';
-import { bridgeProductOpaqueReferenceSchema } from '../core/comm-worker/bridge-product-contract-primitives.js';
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
 import { bridgeViewerChromeButtonClassName } from './bridge-viewer-chrome.js';
 import { bridgeViewerFilterMenuSurfaceClassName } from './bridge-viewer-filter-menu.js';
 import { cn } from './class-name.js';
@@ -24,8 +25,9 @@ export function BridgeReviewComparisonControl(
 ): ReactElement | null {
 	const descriptionId = useId();
 	const isActive = props.isActive ?? true;
-	const [draftTarget, setDraftTarget] = useState('');
+	const [commitOID, setCommitOID] = useState('');
 	const [open, setOpen] = useState(false);
+	const [selectionMode, setSelectionMode] = useState<'branch' | 'commit'>('branch');
 	const [validationMessage, setValidationMessage] = useState<string | null>(null);
 	const displayedReviewPackage = displayedReviewPackageForComparison(props);
 	const precedingDisplayedPackageRef = useRef<BridgeReviewPackage | null>(null);
@@ -63,14 +65,15 @@ export function BridgeReviewComparisonControl(
 			: activeTarget === null
 				? 'Choose a local branch, remote-tracking branch, or Git reference for this review.'
 				: `Shows committed and uncommitted changes since this worktree's latest shared commit with ${activeTargetLabel}. Changes only on ${activeTargetLabel} are excluded.`;
-	const applyDraftTarget = (event: FormEvent<HTMLFormElement>): void => {
+	const targetCatalog = props.comparisonPresentation?.targetCatalog ?? null;
+	const applyCommitOID = (event: FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
-		const normalizedTarget = draftTarget.trim();
-		if (!bridgeProductOpaqueReferenceSchema.safeParse(normalizedTarget).success) {
-			setValidationMessage('Enter a Git reference up to 256 ASCII characters without spaces.');
+		const normalizedOID = commitOID.trim();
+		if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(normalizedOID)) {
+			setValidationMessage('Enter a full 40- or 64-character hexadecimal commit hash.');
 			return;
 		}
-		props.onApplyTarget({ kind: 'ref', name: normalizedTarget });
+		props.onApplyTarget({ kind: 'ref', name: normalizedOID });
 		setValidationMessage(null);
 		setOpen(false);
 	};
@@ -82,7 +85,8 @@ export function BridgeReviewComparisonControl(
 			onOpenChange={(nextOpen): void => {
 				setOpen(nextOpen);
 				if (nextOpen) {
-					setDraftTarget(narrowComparisonLabel === null ? activeTargetLabel : '');
+					setCommitOID('');
+					setSelectionMode('branch');
 					setValidationMessage(null);
 				}
 			}}
@@ -109,14 +113,64 @@ export function BridgeReviewComparisonControl(
 				data-testid="bridge-review-comparison-content"
 				sideOffset={6}
 			>
-				<header>
+				<header className="flex items-center justify-between gap-3">
 					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
-						Compare worktree to
+						Compare Worktree
 					</p>
-					<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
-						{sharedHistoryDescription}
-					</p>
+					<ToggleGroup aria-label="Comparison target kind" size="sm">
+						<ToggleGroupItem
+							onClick={(): void => {
+								setSelectionMode('branch');
+								setValidationMessage(null);
+							}}
+							pressed={selectionMode === 'branch'}
+						>
+							Branch
+						</ToggleGroupItem>
+						<ToggleGroupItem
+							onClick={(): void => {
+								setSelectionMode('commit');
+								setValidationMessage(null);
+							}}
+							pressed={selectionMode === 'commit'}
+						>
+							Commit
+						</ToggleGroupItem>
+					</ToggleGroup>
 				</header>
+				{selectionMode === 'branch' ? (
+					<BridgeReviewComparisonBranchSelector
+						activeTarget={activeTarget}
+						onSelectTarget={(target): void => {
+							props.onApplyTarget(target);
+							setOpen(false);
+						}}
+						targetCatalog={targetCatalog}
+					/>
+				) : (
+					<form className="flex items-start gap-2" onSubmit={applyCommitOID}>
+						<div className="min-w-0 flex-1">
+							<label className="sr-only" htmlFor={`${descriptionId}-commit-input`}>
+								Commit hash
+							</label>
+							<Input
+								aria-invalid={validationMessage === null ? undefined : true}
+								id={`${descriptionId}-commit-input`}
+								onChange={(event): void => setCommitOID(event.currentTarget.value)}
+								placeholder="Enter a full commit hash…"
+								value={commitOID}
+							/>
+							{validationMessage === null ? null : (
+								<p className="mt-1 text-[11px] text-destructive" role="alert">
+									{validationMessage}
+								</p>
+							)}
+						</div>
+						<Button size="sm" type="submit">
+							Compare to this commit
+						</Button>
+					</form>
+				)}
 				{statePresentation === null ? null : (
 					<section aria-live="polite">
 						<p className="text-[11px] font-medium text-[var(--bridge-text-secondary)]">
@@ -174,28 +228,6 @@ export function BridgeReviewComparisonControl(
 				{movementSummary === null ? null : (
 					<ComparisonMovementSummaryView summary={movementSummary} />
 				)}
-				<form className="flex items-start gap-2" onSubmit={applyDraftTarget}>
-					<div className="min-w-0 flex-1">
-						<label className="sr-only" htmlFor={`${descriptionId}-target-input`}>
-							Branch or Git reference
-						</label>
-						<Input
-							aria-invalid={validationMessage === null ? undefined : true}
-							id={`${descriptionId}-target-input`}
-							onChange={(event): void => setDraftTarget(event.currentTarget.value)}
-							placeholder="branch or Git ref"
-							value={draftTarget}
-						/>
-						{validationMessage === null ? null : (
-							<p className="mt-1 text-[11px] text-destructive" role="alert">
-								{validationMessage}
-							</p>
-						)}
-					</div>
-					<Button size="sm" type="submit">
-						Apply
-					</Button>
-				</form>
 			</PopoverContent>
 		</Popover>
 	);
@@ -491,7 +523,7 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 	if (activeTarget === undefined || activeTarget === null) {
 		return 'Choose target';
 	}
-	return `Compare to: ${comparisonTargetLabel(activeTarget)}`;
+	return `Compare: ${comparisonTargetLabel(activeTarget)}`;
 }
 
 function narrowComparisonLabelForPackage(

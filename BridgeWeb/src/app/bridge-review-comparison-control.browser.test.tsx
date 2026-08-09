@@ -116,7 +116,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: feature/new-target');
+			.toHaveTextContent('Compare: feature/new-target');
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
 		await expect
 			.element(
@@ -225,17 +225,19 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const content = rendered.getByTestId('bridge-review-comparison-content');
 		expect(content.element().textContent).not.toContain('master');
 		await expect
-			.element(rendered.getByRole('textbox', { name: 'Branch or Git reference' }))
+			.element(rendered.getByRole('combobox', { name: 'Search branches' }))
 			.toHaveValue('');
 	});
 
-	test('rejects invalid and oversized refs without dispatching them', async () => {
+	test('shows searchable default, local, and remote-tracking branch choices', async () => {
 		// Arrange
 		const applyTarget = vi.fn();
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
+					activeTarget: { branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
 					displayedSnapshot: { status: 'none' },
+					targetCatalog: targetCatalog(),
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
@@ -244,58 +246,112 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
-		const input = rendered.getByRole('textbox', { name: 'Branch or Git reference' });
+
+		// Assert
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveTextContent('Compare: origin/main');
+		await expect.element(rendered.getByText('Compare Worktree')).toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Branch' }))
+			.toHaveAttribute('aria-pressed', 'true');
+		await expect.element(rendered.getByRole('button', { name: 'Commit' })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('comparison-branch-origin-main'))
+			.toHaveTextContent(/origin\/main.*DEFAULT.*REMOTE-TRACKING.*bbbbbbbbbbbb/u);
+		await expect
+			.element(rendered.getByTestId('comparison-branch-main'))
+			.toHaveTextContent(/main.*LOCAL.*aaaaaaaaaaaa/u);
+		await expect.element(rendered.getByText('b'.repeat(40), { exact: true })).toBeInTheDocument();
 
 		// Act
 		await act(async (): Promise<void> => {
-			await input.fill('feature branch');
-			await rendered.getByRole('button', { name: 'Apply' }).click();
+			await rendered.getByRole('combobox', { name: 'Search branches' }).fill('feature');
+		});
+
+		// Assert
+		await expect.element(rendered.getByTestId('comparison-branch-feature-stack')).toBeVisible();
+		expect(document.querySelector('[data-testid="comparison-branch-main"]')).toBeNull();
+		expect(document.querySelector('[data-testid="comparison-branch-origin-main"]')).toBeNull();
+	});
+
+	test.each([
+		{
+			expectedTarget: { branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
+			rowTestId: 'comparison-branch-origin-main',
+		},
+		{
+			expectedTarget: { kind: 'branch', name: 'main' },
+			rowTestId: 'comparison-branch-main',
+		},
+		{
+			expectedTarget: { kind: 'ref', name: 'upstream/release' },
+			rowTestId: 'comparison-branch-upstream-release',
+		},
+	])('applies $rowTestId immediately', async (scenario) => {
+		// Arrange
+		const applyTarget = vi.fn();
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({
+					displayedSnapshot: { status: 'none' },
+					targetCatalog: targetCatalog(),
+				})}
+				displayedReviewPackage={null}
+				onApplyTarget={applyTarget}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+			await rendered.getByTestId(scenario.rowTestId).click();
+		});
+
+		// Assert
+		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(scenario.expectedTarget);
+	});
+
+	test('accepts only a full hexadecimal commit OID', async () => {
+		// Arrange
+		const applyTarget = vi.fn();
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({
+					displayedSnapshot: { status: 'none' },
+					targetCatalog: targetCatalog(),
+				})}
+				displayedReviewPackage={null}
+				onApplyTarget={applyTarget}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+			await rendered.getByRole('button', { name: 'Commit' }).click();
+		});
+		const commitInput = rendered.getByRole('textbox', { name: 'Commit hash' });
+
+		// Act
+		await act(async (): Promise<void> => {
+			await commitInput.fill('abc123');
+			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
 		});
 
 		// Assert
 		await expect
 			.element(rendered.getByRole('alert'))
-			.toHaveTextContent('Enter a Git reference up to 256 ASCII characters without spaces.');
+			.toHaveTextContent('Enter a full 40- or 64-character hexadecimal commit hash.');
 		expect(applyTarget).not.toHaveBeenCalled();
 
 		// Act
+		const fullOID = 'c'.repeat(40);
 		await act(async (): Promise<void> => {
-			await input.fill('x'.repeat(257));
-			await rendered.getByRole('button', { name: 'Apply' }).click();
+			await commitInput.fill(fullOID);
+			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
 		});
 
 		// Assert
-		await expect.element(rendered.getByRole('alert')).toBeVisible();
-		expect(applyTarget).not.toHaveBeenCalled();
-	});
-
-	test('applies an arbitrary valid symbolic ref', async () => {
-		// Arrange
-		const applyTarget = vi.fn();
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={comparisonPresentation({
-					displayedSnapshot: { status: 'none' },
-				})}
-				displayedReviewPackage={null}
-				onApplyTarget={applyTarget}
-			/>,
-		);
-
-		// Act
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-			await rendered
-				.getByRole('textbox', { name: 'Branch or Git reference' })
-				.fill('feature/stack-base');
-			await rendered.getByRole('button', { name: 'Apply' }).click();
-		});
-
-		// Assert
-		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({
-			kind: 'ref',
-			name: 'feature/stack-base',
-		});
+		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({ kind: 'ref', name: fullOID });
 	});
 
 	test('explains target-only movement from the directly preceding displayed origin', async () => {
@@ -620,6 +676,9 @@ function comparisonPresentation(props: {
 	readonly displayedSnapshot: NonNullable<
 		BridgeWorkerPanelChromePatchPayload['reviewComparison']
 	>['displayedSnapshot'];
+	readonly targetCatalog?: NonNullable<
+		BridgeWorkerPanelChromePatchPayload['reviewComparison']
+	>['targetCatalog'];
 }): NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']> {
 	return {
 		activeTarget:
@@ -628,6 +687,36 @@ function comparisonPresentation(props: {
 				: props.activeTarget,
 		attempt: props.attempt ?? { reviewGeneration: 1, status: 'settled' },
 		displayedSnapshot: props.displayedSnapshot,
+		targetCatalog: props.targetCatalog ?? null,
+	};
+}
+
+function targetCatalog(): NonNullable<
+	NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']>['targetCatalog']
+> {
+	return {
+		branches: [
+			{ branchName: 'main', kind: 'local', oid: 'a'.repeat(40) },
+			{ branchName: 'feature/stack', kind: 'local', oid: 'f'.repeat(40) },
+			{
+				branchName: 'main',
+				kind: 'remoteTracking',
+				oid: 'b'.repeat(40),
+				remoteName: 'origin',
+			},
+			{
+				branchName: 'release',
+				kind: 'remoteTracking',
+				oid: 'd'.repeat(40),
+				remoteName: 'upstream',
+			},
+		],
+		defaultTarget: {
+			branchName: 'main',
+			kind: 'remoteTracking',
+			oid: 'b'.repeat(40),
+			remoteName: 'origin',
+		},
 	};
 }
 
