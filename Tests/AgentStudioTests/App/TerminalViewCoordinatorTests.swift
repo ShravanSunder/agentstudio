@@ -392,8 +392,7 @@ extension WebKitSerializedTests {
                         panelKind: .diffViewer,
                         source: .workspace(
                             rootPath: worktree.path.path,
-                            comparisonIntent: .init(
-                                activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
+                            baseline: .localDefaultBranch(branchName: "main")
                         )
                     )
                 ),
@@ -471,8 +470,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: rootPath.path,
-                        comparisonIntent: .init(
-                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")))
+                        baseline: .localDefaultBranch(branchName: "main"))
                 ),
                 telemetryScopeGate: BridgeTelemetryScopeGate(enabledScopes: []),
                 bridgeWorld: .page
@@ -491,8 +489,7 @@ extension WebKitSerializedTests {
                 panelKind: .fileViewer,
                 source: .workspace(
                     rootPath: rootPath.path,
-                    comparisonIntent: .init(
-                        activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")))
+                    baseline: .localDefaultBranch(branchName: "main"))
             )
 
             let artifacts = BridgePaneController.makeBootstrapArtifacts(

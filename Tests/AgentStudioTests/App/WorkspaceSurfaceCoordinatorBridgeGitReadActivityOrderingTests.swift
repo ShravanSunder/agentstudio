@@ -295,7 +295,7 @@ private func makeBridgePane(
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: worktree.path.path,
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             )
         ),
         metadata: PaneMetadata(

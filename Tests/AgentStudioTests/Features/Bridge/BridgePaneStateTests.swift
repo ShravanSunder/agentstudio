@@ -50,10 +50,7 @@ final class BridgePaneStateTests {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/repo",
-                comparisonIntent: .init(
-                    activeKind: .contribution,
-                    contributionTarget: .ref(name: "HEAD~1")
-                )
+                baseline: .ref(name: "HEAD~1")
             )
         )
         let data = try JSONEncoder().encode(state)
@@ -62,26 +59,22 @@ final class BridgePaneStateTests {
     }
 
     @Test
-    func test_codable_roundTrip_preservesActiveKindAndRetainedContributionTarget() throws {
-        let targets: [WorkspaceReviewContributionTarget] = [
+    func test_codable_roundTrip_preservesContributionTargetsAndNarrowBaselines() throws {
+        let baselines: [WorkspaceBaseline?] = [
             .localDefaultBranch(branchName: "main"),
             .originDefaultBranch(remoteName: "origin", branchName: "main"),
             .branch(name: "feature/review"),
             .ref(name: "v1.2.3"),
+            .headMinusOne,
+            .staged,
+            .unstaged,
+            nil,
         ]
-        let states = WorkspaceReviewComparisonIntent.ActiveKind.allCases.flatMap { activeKind in
-            targets.map { target in
-                BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(
-                        rootPath: "/tmp/repo",
-                        comparisonIntent: .init(
-                            activeKind: activeKind,
-                            contributionTarget: target
-                        )
-                    )
-                )
-            }
+        let states = baselines.map { baseline in
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(rootPath: "/tmp/repo", baseline: baseline)
+            )
         }
 
         for state in states {
@@ -92,15 +85,12 @@ final class BridgePaneStateTests {
     }
 
     @Test
-    func test_codable_emitsOnlyComparisonIntentWorkspacePayload() throws {
+    func test_codable_emitsTargetOnlyWorkspacePayloadForSelectedContribution() throws {
         let state = BridgePaneState(
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/repo",
-                comparisonIntent: .init(
-                    activeKind: .stagedOnly,
-                    contributionTarget: .branch(name: "stack/base")
-                )
+                baseline: .localDefaultBranch(branchName: "develop")
             )
         )
 
@@ -109,14 +99,16 @@ final class BridgePaneStateTests {
         let source = try #require(json["source"] as? [String: Any])
         let workspace = try #require(source["workspace"] as? [String: Any])
 
-        #expect(workspace["comparisonIntent"] != nil)
+        let target = try #require(workspace["comparisonTarget"] as? [String: Any])
+        #expect(target["kind"] as? String == "localDefaultBranch")
+        #expect(target["branchName"] as? String == "develop")
         #expect(workspace["baseline"] == nil)
     }
 
     @Test(arguments: legacyWorkspaceIntentCases)
     func test_codable_decodesLegacyWorkspacePayload(
         legacyJSON: String,
-        expectedIntent: WorkspaceReviewComparisonIntent
+        expectedBaseline: WorkspaceBaseline?
     ) throws {
         let json = """
             {
@@ -134,7 +126,7 @@ final class BridgePaneStateTests {
 
         #expect(
             decoded.source
-                == .workspace(rootPath: "/tmp/repo", comparisonIntent: expectedIntent)
+                == .workspace(rootPath: "/tmp/repo", baseline: expectedBaseline)
         )
     }
 
@@ -244,80 +236,74 @@ final class BridgePaneStateTests {
     }
 }
 
-private let legacyWorkspaceIntentCases: [(String, WorkspaceReviewComparisonIntent)] = [
+private let legacyWorkspaceIntentCases: [(String, WorkspaceBaseline?)] = [
     (
         #"{"kind":"localDefaultBranch","branchName":"hotfix/urgent"}"#,
-        .init(activeKind: .contribution, contributionTarget: nil)
+        nil
     ),
     (
         #"{"kind":"originDefaultBranch","remoteName":"origin","branchName":"master"}"#,
-        .init(
-            activeKind: .contribution,
-            contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "master")
-        )
+        .originDefaultBranch(remoteName: "origin", branchName: "master")
     ),
     (
         #"{"kind":"branch","name":"stack/base"}"#,
-        .init(activeKind: .contribution, contributionTarget: .branch(name: "stack/base"))
+        .branch(name: "stack/base")
     ),
     (
         #"{"kind":"ref","name":"refs/tags/v1.2.3"}"#,
-        .init(activeKind: .contribution, contributionTarget: .ref(name: "refs/tags/v1.2.3"))
+        .ref(name: "refs/tags/v1.2.3")
     ),
     (
         #"{"kind":"ref","name":"HEAD"}"#,
-        .init(activeKind: .contribution, contributionTarget: nil)
+        nil
     ),
     (
         #"{"kind":"headMinusOne"}"#,
-        .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1"))
+        .headMinusOne
     ),
     (
         #"{"kind":"staged"}"#,
-        .init(activeKind: .stagedOnly, contributionTarget: nil)
+        .staged
     ),
     (
         #"{"kind":"unstaged"}"#,
-        .init(activeKind: .unstagedOnly, contributionTarget: nil)
+        .unstaged
     ),
     (
         #""localDefaultBranch""#,
-        .init(activeKind: .contribution, contributionTarget: nil)
+        nil
     ),
     (
         #""originDefaultBranch""#,
-        .init(
-            activeKind: .contribution,
-            contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "main")
-        )
+        .originDefaultBranch(remoteName: "origin", branchName: "main")
     ),
     (
         #""branch""#,
-        .init(activeKind: .contribution, contributionTarget: .ref(name: "branch"))
+        .ref(name: "branch")
     ),
     (
         #""ref""#,
-        .init(activeKind: .contribution, contributionTarget: .ref(name: "ref"))
+        .ref(name: "ref")
     ),
     (
         #""headMinusOne""#,
-        .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1"))
+        .headMinusOne
     ),
     (
         #""HEAD""#,
-        .init(activeKind: .contribution, contributionTarget: nil)
+        nil
     ),
     (
         #""main""#,
-        .init(activeKind: .contribution, contributionTarget: .ref(name: "main"))
+        .ref(name: "main")
     ),
     (
         #""staged""#,
-        .init(activeKind: .stagedOnly, contributionTarget: nil)
+        .staged
     ),
     (
         #""unstaged""#,
-        .init(activeKind: .unstagedOnly, contributionTarget: nil)
+        .unstaged
     ),
 ]
 

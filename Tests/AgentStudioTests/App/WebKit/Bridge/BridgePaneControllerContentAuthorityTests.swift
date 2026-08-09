@@ -97,7 +97,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 reviewSourceProvider: provider
             )
@@ -183,7 +183,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 reviewSourceProvider: provider
             )
@@ -374,7 +374,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 reviewSourceProvider: provider
             )
@@ -435,7 +435,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 reviewSourceProvider: provider
             )

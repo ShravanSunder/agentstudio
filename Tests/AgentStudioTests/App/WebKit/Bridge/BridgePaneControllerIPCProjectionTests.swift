@@ -42,7 +42,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -92,7 +92,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -461,7 +461,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -519,7 +519,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -636,7 +636,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -694,7 +694,7 @@ private func makeIPCReviewSelectionController() async throws -> BridgePaneContro
         state: BridgePaneState(
             panelKind: .diffViewer,
             source: .workspace(
-                rootPath: "/tmp/worktree", comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                rootPath: "/tmp/worktree", baseline: .unstaged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(

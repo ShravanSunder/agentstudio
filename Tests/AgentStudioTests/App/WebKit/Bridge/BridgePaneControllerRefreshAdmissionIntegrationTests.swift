@@ -583,7 +583,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/bridge-refresh-teardown",
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             )
         )
         controller.applyBridgePaneActivity(.foreground)

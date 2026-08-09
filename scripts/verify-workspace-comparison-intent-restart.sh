@@ -45,8 +45,8 @@ if ! rg -q 'COMPARISON_INTENT_PROCESS_A_FLUSH=persisted' "$process_a_log"; then
   echo "comparison-intent restart: process A did not report a persisted flush" >&2
   exit 1
 fi
-if ! rg -q 'COMPARISON_INTENT_PROCESS_A_TRANSITION=contribution>stagedOnly>contribution' "$process_a_log"; then
-  echo "comparison-intent restart: process A did not report the retained-target transition" >&2
+if ! rg -q 'COMPARISON_INTENT_PROCESS_A_SELECTION=contribution-target' "$process_a_log"; then
+  echo "comparison-intent restart: process A did not report the selected contribution target" >&2
   exit 1
 fi
 
@@ -89,11 +89,11 @@ echo "  pane UUID: $pane_id"
 echo "  process A invocation PID: $process_a_invocation_pid"
 echo "  process A Swift test PID: $process_a_test_pid"
 echo "  process A exit: normal ($process_a_exit_code)"
-echo "  process A transition: contribution > stagedOnly > contribution (target retained)"
+echo "  process A selection: contribution target"
 echo "  process A flush: persisted"
 echo "  process B invocation PID: $process_b_invocation_pid"
 echo "  process B Swift test PID: $process_b_test_pid"
 echo "  process B exit: normal ($process_b_exit_code)"
-echo "  process B restore: exact pane UUID and symbolic contribution intent"
-echo "  persisted payload: exact intent-only shape"
+echo "  process B restore: exact pane UUID and symbolic contribution target"
+echo "  persisted payload: exact target-only shape"
 echo "  calculated target/HEAD/base/snapshot origin persisted: false"

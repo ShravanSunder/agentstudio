@@ -8,10 +8,7 @@ extension BridgePaneController {
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
-        guard case .workspace(_, let initialIntent) = bridgePaneState.source,
-            initialIntent.activeKind == .contribution,
-            initialIntent.contributionTarget == nil
-        else { return }
+        guard case .workspace(_, nil) = bridgePaneState.source else { return }
         guard let branchName = try await reviewSourceProvider.localDefaultBranch() else { return }
         guard
             isReviewPackageLoadCurrent(
@@ -42,14 +39,13 @@ extension BridgePaneController {
     func resolveContributionRequestIfNeeded(
         _ request: BridgeReviewPipelineRequest
     ) async throws -> BridgeReviewPipelineRequest {
-        guard case .workspace(_, let comparisonIntent) = bridgePaneState.source,
-            comparisonIntent.activeKind == .contribution
-        else { return request }
-        guard let symbolicTarget = comparisonIntent.contributionTarget else {
+        guard case .workspace(_, let baseline) = bridgePaneState.source else { return request }
+        guard let baseline else {
             throw BridgeProviderFailure.providerFailed(
                 message: "Contribution target selection required"
             )
         }
+        guard let symbolicTarget = baseline.contributionTarget else { return request }
         let capture = try await reviewSourceProvider.captureContributionComparison(
             BridgeContributionComparisonRequest(
                 symbolicTarget: symbolicTarget,
@@ -60,7 +56,7 @@ extension BridgePaneController {
         )
         return try BridgeResolvedContributionRequestBuilder.build(
             request: request,
-            intent: comparisonIntent,
+            symbolicTarget: symbolicTarget,
             capture: capture,
             reviewedSubjectLabel: reviewedSubjectLabel
         )

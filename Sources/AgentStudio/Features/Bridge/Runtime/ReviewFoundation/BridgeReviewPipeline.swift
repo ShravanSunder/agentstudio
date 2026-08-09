@@ -37,13 +37,6 @@ actor BridgeReviewPipeline {
             BridgeEndpointResolutionRequest(endpoint: request.headEndpoint),
             freshnessKey: freshnessKey
         )
-        let comparisonOrigin =
-            try request.comparisonOrigin
-            ?? narrowComparisonOrigin(
-                query: request.query,
-                baseEndpoint: baseEndpoint,
-                headEndpoint: headEndpoint
-            )
         let query = BridgeReviewQuery(
             queryId: request.query.queryId,
             queryKind: request.query.queryKind,
@@ -67,7 +60,7 @@ actor BridgeReviewPipeline {
             reviewGeneration: request.reviewGeneration,
             generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds,
             preparedComparison: request.preparedComparison,
-            comparisonOrigin: comparisonOrigin,
+            comparisonOrigin: request.comparisonOrigin,
             reviewedSubjectLabel: request.reviewedSubjectLabel
         )
     }
@@ -240,11 +233,7 @@ actor BridgeReviewPipeline {
         request: BridgeReviewPipelineRequest,
         comparison: BridgeEndpointComparison
     ) throws -> BridgeReviewPackage {
-        let comparisonOrigin = try comparisonOrigin(
-            request: request,
-            comparison: comparison
-        )
-        return try BridgeReviewPackageBuilder.build(
+        try BridgeReviewPackageBuilder.build(
             request: BridgeReviewPackageBuildRequest(
                 packageId: request.packageId,
                 query: request.query,
@@ -252,48 +241,10 @@ actor BridgeReviewPipeline {
                 checkpointIds: request.checkpointIds,
                 reviewGeneration: request.reviewGeneration,
                 generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds,
-                comparisonOrigin: comparisonOrigin,
+                comparisonOrigin: request.comparisonOrigin,
                 reviewedSubjectLabel: request.reviewedSubjectLabel
             )
         )
-    }
-
-    private func comparisonOrigin(
-        request: BridgeReviewPipelineRequest,
-        comparison: BridgeEndpointComparison
-    ) throws -> BridgeReviewComparisonOrigin? {
-        if let comparisonOrigin = request.comparisonOrigin {
-            return comparisonOrigin
-        }
-        return try narrowComparisonOrigin(
-            query: request.query,
-            baseEndpoint: comparison.baseEndpoint,
-            headEndpoint: comparison.headEndpoint
-        )
-    }
-
-    private func narrowComparisonOrigin(
-        query: BridgeReviewQuery,
-        baseEndpoint: BridgeSourceEndpoint,
-        headEndpoint: BridgeSourceEndpoint
-    ) throws -> BridgeReviewComparisonOrigin? {
-        switch (query.comparisonSemantics, baseEndpoint.kind, headEndpoint.kind) {
-        case (.indexDelta, .gitRef, .index):
-            guard let reviewedHeadOID = baseEndpoint.contentSetHash,
-                !reviewedHeadOID.isEmpty
-            else {
-                throw BridgeProviderFailure.providerFailed(
-                    message: "Staged comparison requires a resolved reviewed HEAD OID"
-                )
-            }
-            return .stagedOnly(
-                BridgeReviewStagedOnlyOrigin(reviewedHeadOID: reviewedHeadOID)
-            )
-        case (.workingTreeDelta, .index, .workingTree):
-            return .unstagedOnly(BridgeReviewUnstagedOnlyOrigin())
-        default:
-            return nil
-        }
     }
 
     private func buildDescriptorPackage(

@@ -27,7 +27,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewFixture.sourceProvider,
@@ -181,7 +181,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(
                     panelKind: .fileViewer,
                     source: .workspace(
-                        rootPath: "Sources", comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)
+                        rootPath: "Sources", baseline: .unstaged
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -248,7 +248,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(
                     panelKind: .diffViewer,
                     source: .workspace(
-                        rootPath: "Sources", comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)
+                        rootPath: "Sources", baseline: .unstaged
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -319,7 +319,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(
                     panelKind: .diffViewer,
                     source: .workspace(
-                        rootPath: "Sources", comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)
+                        rootPath: "Sources", baseline: .unstaged
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -422,7 +422,7 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(
                     panelKind: .diffViewer,
                     source: .workspace(
-                        rootPath: "Sources", comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)
+                        rootPath: "Sources", baseline: .unstaged
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -578,7 +578,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(

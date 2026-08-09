@@ -295,7 +295,7 @@ struct WorkspacePaneBoundaryTests {
                         panelKind: .fileViewer,
                         source: .workspace(
                             rootPath: bridgeRoot.path,
-                            comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1"))
+                            baseline: .ref(name: "HEAD~1")
                         )
                     )
                 ),

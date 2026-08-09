@@ -141,11 +141,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
 
             await harness.coordinator.shutdown()
@@ -179,11 +175,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
 
             await harness.coordinator.shutdown()

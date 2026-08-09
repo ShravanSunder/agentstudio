@@ -67,7 +67,7 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/contribution-refresh",
-                comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "target"))
+                baseline: .ref(name: "target")
             )
         ),
         appRootURL: testBridgeAppRootURL(),

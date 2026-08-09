@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite("Workspace comparison-intent process restart", .serialized)
 struct WorkspaceComparisonIntentProcessRestartTests {
-    @Test("process A commits and flushes one symbolic comparison intent")
+    @Test("process A commits and flushes one symbolic comparison target")
     func workspaceComparisonIntentRestartProcessACommits() async throws {
         guard let fixture = try restartFixtureFromEnvironment() else { return }
 
@@ -32,10 +32,7 @@ struct WorkspaceComparisonIntentProcessRestartTests {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: fixture.reviewedWorktreeRoot.path,
-                comparisonIntent: .init(
-                    activeKind: .contribution,
-                    contributionTarget: nil
-                )
+                baseline: nil
             )
         )
         let pane = Pane(
@@ -55,17 +52,7 @@ struct WorkspaceComparisonIntentProcessRestartTests {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: fixture.reviewedWorktreeRoot.path,
-                comparisonIntent: fixture.expectedIntent
-            )
-        )
-        let narrowState = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(
-                rootPath: fixture.reviewedWorktreeRoot.path,
-                comparisonIntent: .init(
-                    activeKind: .stagedOnly,
-                    contributionTarget: fixture.expectedTarget
-                )
+                baseline: fixture.expectedBaseline
             )
         )
 
@@ -74,23 +61,13 @@ struct WorkspaceComparisonIntentProcessRestartTests {
             fixture.paneID,
             target: fixture.expectedTarget
         )
-        let narrowMutationResult = store.paneAtom.updateBridgePaneState(
-            fixture.paneID,
-            state: narrowState
-        )
-        let contributionMutationResult = store.paneAtom.updateBridgePaneState(
-            fixture.paneID,
-            state: committedState
-        )
         let flushOutcome = await store.flushAsync()
 
         // Assert
         #expect(initialTargetResult == .applied(committedState))
-        #expect(narrowMutationResult == .applied(narrowState))
-        #expect(contributionMutationResult == .applied(committedState))
         #expect(flushOutcome == .persisted)
         print("COMPARISON_INTENT_PROCESS_A_TEST_PID=\(ProcessInfo.processInfo.processIdentifier)")
-        print("COMPARISON_INTENT_PROCESS_A_TRANSITION=contribution>stagedOnly>contribution")
+        print("COMPARISON_INTENT_PROCESS_A_SELECTION=contribution-target")
         print("COMPARISON_INTENT_PROCESS_A_FLUSH=persisted")
         print("COMPARISON_INTENT_PROCESS_A_PANE_ID=\(fixture.paneID.uuidString)")
     }
@@ -126,7 +103,7 @@ struct WorkspaceComparisonIntentProcessRestartTests {
             restoredState.source
                 == .workspace(
                     rootPath: fixture.reviewedWorktreeRoot.path,
-                    comparisonIntent: fixture.expectedIntent
+                    baseline: fixture.expectedBaseline
                 )
         )
         let payloadObject = try #require(
@@ -141,19 +118,14 @@ struct WorkspaceComparisonIntentProcessRestartTests {
         let sourceObject = try #require(stateObject["source"] as? [String: Any])
         #expect(Set(sourceObject.keys) == ["workspace"])
         let workspaceObject = try #require(sourceObject["workspace"] as? [String: Any])
-        #expect(Set(workspaceObject.keys) == ["rootPath", "comparisonIntent"])
+        #expect(Set(workspaceObject.keys) == ["rootPath", "comparisonTarget"])
         #expect(workspaceObject["rootPath"] as? String == fixture.reviewedWorktreeRoot.path)
-        let comparisonIntentObject = try #require(
-            workspaceObject["comparisonIntent"] as? [String: Any]
+        let comparisonTargetObject = try #require(
+            workspaceObject["comparisonTarget"] as? [String: Any]
         )
-        #expect(Set(comparisonIntentObject.keys) == ["activeKind", "contributionTarget"])
-        #expect(comparisonIntentObject["activeKind"] as? String == "contribution")
-        let contributionTargetObject = try #require(
-            comparisonIntentObject["contributionTarget"] as? [String: Any]
-        )
-        #expect(Set(contributionTargetObject.keys) == ["kind", "name"])
-        #expect(contributionTargetObject["kind"] as? String == "ref")
-        #expect(contributionTargetObject["name"] as? String == "refs/remotes/origin/review-base")
+        #expect(Set(comparisonTargetObject.keys) == ["kind", "name"])
+        #expect(comparisonTargetObject["kind"] as? String == "ref")
+        #expect(comparisonTargetObject["name"] as? String == "refs/remotes/origin/review-base")
         print("COMPARISON_INTENT_PROCESS_B_TEST_PID=\(ProcessInfo.processInfo.processIdentifier)")
         print("COMPARISON_INTENT_PROCESS_B_RESTORED_PANE_ID=\(restoredPane.id.uuidString)")
         print("COMPARISON_INTENT_PROCESS_B_RESTORED_TARGET=refs/remotes/origin/review-base")
@@ -170,11 +142,8 @@ private struct WorkspaceComparisonIntentRestartFixture {
         dataRoot.appending(path: "reviewed-worktree", directoryHint: .isDirectory)
     }
 
-    var expectedIntent: WorkspaceReviewComparisonIntent {
-        WorkspaceReviewComparisonIntent(
-            activeKind: .contribution,
-            contributionTarget: expectedTarget
-        )
+    var expectedBaseline: WorkspaceBaseline {
+        WorkspaceBaseline(contributionTarget: expectedTarget)
     }
 
     var expectedTarget: WorkspaceReviewContributionTarget {

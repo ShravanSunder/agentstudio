@@ -3,19 +3,13 @@ import Foundation
 
 package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
     case contribution(BridgeReviewContributionOrigin)
-    case stagedOnly(BridgeReviewStagedOnlyOrigin)
-    case unstagedOnly(BridgeReviewUnstagedOnlyOrigin)
 
     private enum Kind: String, Codable {
         case contribution
-        case stagedOnly
-        case unstagedOnly
     }
 
     private enum EndpointRole: String, Codable {
         case contributionBase
-        case reviewedHead
-        case capturedIndex
         case capturedWorkingTree
     }
 
@@ -77,37 +71,6 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
                     )
                 )
             )
-        case .stagedOnly:
-            try Self.requireKeys(
-                Set(container.allKeys),
-                equalTo: [.kind, .baseRole, .comparedRole, .reviewedHeadOID],
-                decoder: decoder
-            )
-            try Self.requireRole(.reviewedHead, forKey: .baseRole, in: container, decoder: decoder)
-            try Self.requireRole(.capturedIndex, forKey: .comparedRole, in: container, decoder: decoder)
-            self = .stagedOnly(
-                BridgeReviewStagedOnlyOrigin(
-                    reviewedHeadOID: try Self.nonemptyOID(
-                        from: container,
-                        forKey: .reviewedHeadOID,
-                        decoder: decoder
-                    )
-                )
-            )
-        case .unstagedOnly:
-            try Self.requireKeys(
-                Set(container.allKeys),
-                equalTo: [.kind, .baseRole, .comparedRole],
-                decoder: decoder
-            )
-            try Self.requireRole(.capturedIndex, forKey: .baseRole, in: container, decoder: decoder)
-            try Self.requireRole(
-                .capturedWorkingTree,
-                forKey: .comparedRole,
-                in: container,
-                decoder: decoder
-            )
-            self = .unstagedOnly(BridgeReviewUnstagedOnlyOrigin())
         }
     }
 
@@ -125,16 +88,6 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
             try container.encode(origin.resolvedTargetOID, forKey: .resolvedTargetOID)
             try container.encode(origin.reviewedHeadOID, forKey: .reviewedHeadOID)
             try container.encode(origin.contributionBaseOID, forKey: .contributionBaseOID)
-        case .stagedOnly(let origin):
-            try Self.validateNonemptyOID(origin.reviewedHeadOID, encoder: encoder)
-            try container.encode(Kind.stagedOnly, forKey: .kind)
-            try container.encode(EndpointRole.reviewedHead, forKey: .baseRole)
-            try container.encode(EndpointRole.capturedIndex, forKey: .comparedRole)
-            try container.encode(origin.reviewedHeadOID, forKey: .reviewedHeadOID)
-        case .unstagedOnly:
-            try container.encode(Kind.unstagedOnly, forKey: .kind)
-            try container.encode(EndpointRole.capturedIndex, forKey: .baseRole)
-            try container.encode(EndpointRole.capturedWorkingTree, forKey: .comparedRole)
         }
     }
 
@@ -218,18 +171,6 @@ package struct BridgeReviewContributionOrigin: Codable, Equatable, Sendable {
     }
 }
 
-package struct BridgeReviewStagedOnlyOrigin: Codable, Equatable, Sendable {
-    package let reviewedHeadOID: String
-
-    package init(reviewedHeadOID: String) {
-        self.reviewedHeadOID = reviewedHeadOID
-    }
-}
-
-package struct BridgeReviewUnstagedOnlyOrigin: Codable, Equatable, Sendable {
-    package init() {}
-}
-
 package struct BridgeContributionComparisonRequest: Equatable, Sendable {
     package let symbolicTarget: WorkspaceReviewContributionTarget
     package let baseEndpoint: BridgeSourceEndpoint
@@ -271,17 +212,10 @@ package struct BridgeContributionComparisonCapture: Equatable, Sendable {
 enum BridgeResolvedContributionRequestBuilder {
     static func build(
         request: BridgeReviewPipelineRequest,
-        intent: WorkspaceReviewComparisonIntent,
+        symbolicTarget: WorkspaceReviewContributionTarget,
         capture: BridgeContributionComparisonCapture,
         reviewedSubjectLabel: String?
     ) throws -> BridgeReviewPipelineRequest {
-        guard intent.activeKind == .contribution,
-            let symbolicTarget = intent.contributionTarget
-        else {
-            throw BridgeProviderFailure.providerFailed(
-                message: "Prepared contribution requires committed contribution target intent"
-            )
-        }
         guard capture.comparison.baseEndpoint.repoId == request.query.repoId,
             capture.comparison.headEndpoint.repoId == request.query.repoId,
             capture.comparison.baseEndpoint.worktreeId == request.query.worktreeId,

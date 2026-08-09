@@ -645,8 +645,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) -> BridgeReviewGeneration? {
         foregroundWorkAdmission.withValidAdmission {
             productAdmission.withValidAdmission {
-                guard case .workspace(_, let comparisonIntent) = bridgePaneState.source,
-                    comparisonIntent.activeKind == .contribution
+                guard case .workspace(_, let baseline) = bridgePaneState.source,
+                    baseline?.contributionTarget != nil
                 else {
                     return currentPackage.reviewGeneration
                 }
@@ -692,8 +692,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         currentPackage: BridgeReviewPackage,
         reviewGeneration: BridgeReviewGeneration
     ) -> BridgeReviewPipelineRequest {
-        guard case .workspace(_, let comparisonIntent) = bridgePaneState.source,
-            comparisonIntent.activeKind == .contribution
+        guard case .workspace(_, let baseline) = bridgePaneState.source,
+            baseline?.contributionTarget != nil
         else {
             return BridgeReviewPipelineRequest(
                 packageId: currentPackage.packageId,
@@ -791,14 +791,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func makeReviewPipelineRequest(
         artifact: DiffArtifact,
-        reviewGeneration: BridgeReviewGeneration,
-        activeKindOverride: WorkspaceReviewComparisonIntent.ActiveKind? = nil
+        reviewGeneration: BridgeReviewGeneration
     ) -> BridgeReviewPipelineRequest {
         let repoId = reviewRepoId(for: artifact)
         let endpoints = makeReviewEndpoints(
             for: artifact,
-            repoId: repoId,
-            activeKindOverride: activeKindOverride
+            repoId: repoId
         )
         let query = BridgeReviewQuery(
             queryId: reviewSourceIdentity(for: artifact),

@@ -854,10 +854,6 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
         packageId: String,
         generation: BridgeReviewGeneration
     ) async throws -> BridgeReviewPipelineRequest {
-        let intent = WorkspaceReviewComparisonIntent(
-            activeKind: .contribution,
-            contributionTarget: .ref(name: "target")
-        )
         let capture = try await firstProvider.captureContributionComparison(
             BridgeContributionComparisonRequest(
                 symbolicTarget: .ref(name: "target"),
@@ -868,7 +864,7 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
         )
         return try BridgeResolvedContributionRequestBuilder.build(
             request: request(packageId: packageId, generation: generation),
-            intent: intent,
+            symbolicTarget: .ref(name: "target"),
             capture: capture,
             reviewedSubjectLabel: "feature-review"
         )

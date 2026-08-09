@@ -105,7 +105,7 @@ extension WebKitSerializedTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: worktree.path.path,
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             )
             let pane = makeBridgePane(
                 title: "Create-before-tab Review",
@@ -200,11 +200,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
             #expect(harness.coordinator.bridgePaneActivity(for: pane.id) == .foreground)
             #expect(controller.refreshAdmissionCoordinator.diagnosticSnapshot.activity == .foreground)
@@ -246,11 +242,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
 
             await harness.finish()
@@ -269,7 +261,7 @@ extension WebKitSerializedTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: repositoryURL.path,
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             )
             let pane = harness.store.createPane(
                 content: .bridgePanel(state),
@@ -611,7 +603,7 @@ private func makeTwoPaneWorktreeSetup(
         panelKind: .diffViewer,
         source: .workspace(
             rootPath: worktree.path.path,
-            comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+            baseline: .ref(name: "HEAD~1"))
     )
     let firstPane = makeBridgePane(
         title: "First shared construction pane",

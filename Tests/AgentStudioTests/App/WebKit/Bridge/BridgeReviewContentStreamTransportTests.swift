@@ -59,7 +59,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,

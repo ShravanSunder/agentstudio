@@ -101,8 +101,7 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: cwd.path,
-                        comparisonIntent: .init(
-                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")))
+                        baseline: .localDefaultBranch(branchName: "main"))
                 )
             ),
             metadata: PaneMetadata(

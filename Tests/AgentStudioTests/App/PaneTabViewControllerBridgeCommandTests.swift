@@ -188,9 +188,7 @@ extension WebKitSerializedTests {
                                 panelKind: .fileViewer,
                                 source: .workspace(
                                     rootPath: worktree.path.path,
-                                    comparisonIntent: .init(
-                                        activeKind: .contribution,
-                                        contributionTarget: .localDefaultBranch(branchName: "main"))
+                                    baseline: .localDefaultBranch(branchName: "main")
                                 )
                             )
                         ),

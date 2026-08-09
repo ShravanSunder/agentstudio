@@ -41,35 +41,18 @@ package enum BridgePaneSource: Codable, Hashable, Sendable {
     case commit(sha: String)
     /// Diff between two branches.
     case branchDiff(head: String, base: String)
-    /// Working directory changes for one durable comparison intent.
-    case workspace(rootPath: String, comparisonIntent: WorkspaceReviewComparisonIntent)
+    /// Working directory changes relative to a baseline.
+    ///
+    /// A nil baseline means the initial contribution target still needs to be
+    /// designated. Staged and unstaged remain the pre-existing narrow modes.
+    case workspace(rootPath: String, baseline: WorkspaceBaseline?)
     /// Snapshot from an agent task at a specific point in time.
     case agentSnapshot(taskId: UUID, timestamp: Date)
 }
 
-// MARK: - Workspace Review Comparison Intent
+// MARK: - Workspace Review Contribution Target
 
-/// Durable symbolic intent for a workspace-backed Review surface.
-package struct WorkspaceReviewComparisonIntent: Codable, Hashable, Sendable {
-    package enum ActiveKind: String, CaseIterable, Codable, Hashable, Sendable {
-        case contribution
-        case stagedOnly
-        case unstagedOnly
-    }
-
-    package let activeKind: ActiveKind
-    package let contributionTarget: WorkspaceReviewContributionTarget?
-
-    package init(
-        activeKind: ActiveKind,
-        contributionTarget: WorkspaceReviewContributionTarget?
-    ) {
-        self.activeKind = activeKind
-        self.contributionTarget = contributionTarget
-    }
-}
-
-/// A symbolic target retained while contribution or a narrow comparison is active.
+/// A symbolic target accepted by the complete-worktree contribution path.
 package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
     case localDefaultBranch(branchName: String)
     case originDefaultBranch(remoteName: String, branchName: String)
@@ -130,6 +113,141 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Workspace Baseline
+
+/// Persisted workspace review baseline.
+///
+/// Target-bearing cases select a complete-worktree contribution comparison.
+/// Staged and unstaged retain their pre-existing narrow meanings.
+package enum WorkspaceBaseline: Codable, Hashable, Sendable {
+    case localDefaultBranch(branchName: String)
+    case originDefaultBranch(remoteName: String, branchName: String)
+    case branch(name: String)
+    case ref(name: String)
+    case headMinusOne
+    case staged
+    case unstaged
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case branchName
+        case remoteName
+        case name
+    }
+
+    private enum Kind: String, Codable {
+        case localDefaultBranch
+        case originDefaultBranch
+        case branch
+        case ref
+        case headMinusOne
+        case staged
+        case unstaged
+    }
+
+    package init(from decoder: Decoder) throws {
+        if let legacyValue = try? decoder.singleValueContainer().decode(String.self) {
+            self = Self.legacyValue(legacyValue)
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .localDefaultBranch:
+            self = .localDefaultBranch(
+                branchName: try container.decode(String.self, forKey: .branchName)
+            )
+        case .originDefaultBranch:
+            self = .originDefaultBranch(
+                remoteName: try container.decode(String.self, forKey: .remoteName),
+                branchName: try container.decode(String.self, forKey: .branchName)
+            )
+        case .branch:
+            self = .branch(name: try container.decode(String.self, forKey: .name))
+        case .ref:
+            self = .ref(name: try container.decode(String.self, forKey: .name))
+        case .headMinusOne:
+            self = .headMinusOne
+        case .staged:
+            self = .staged
+        case .unstaged:
+            self = .unstaged
+        }
+    }
+
+    package func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .localDefaultBranch(let branchName):
+            try container.encode(Kind.localDefaultBranch, forKey: .kind)
+            try container.encode(branchName, forKey: .branchName)
+        case .originDefaultBranch(let remoteName, let branchName):
+            try container.encode(Kind.originDefaultBranch, forKey: .kind)
+            try container.encode(remoteName, forKey: .remoteName)
+            try container.encode(branchName, forKey: .branchName)
+        case .branch(let name):
+            try container.encode(Kind.branch, forKey: .kind)
+            try container.encode(name, forKey: .name)
+        case .ref(let name):
+            try container.encode(Kind.ref, forKey: .kind)
+            try container.encode(name, forKey: .name)
+        case .headMinusOne:
+            try container.encode(Kind.headMinusOne, forKey: .kind)
+        case .staged:
+            try container.encode(Kind.staged, forKey: .kind)
+        case .unstaged:
+            try container.encode(Kind.unstaged, forKey: .kind)
+        }
+    }
+
+    package init(contributionTarget: WorkspaceReviewContributionTarget) {
+        switch contributionTarget {
+        case .localDefaultBranch(let branchName):
+            self = .localDefaultBranch(branchName: branchName)
+        case .originDefaultBranch(let remoteName, let branchName):
+            self = .originDefaultBranch(remoteName: remoteName, branchName: branchName)
+        case .branch(let name):
+            self = .branch(name: name)
+        case .ref(let name):
+            self = .ref(name: name)
+        }
+    }
+
+    package var contributionTarget: WorkspaceReviewContributionTarget? {
+        switch self {
+        case .localDefaultBranch(let branchName):
+            .localDefaultBranch(branchName: branchName)
+        case .originDefaultBranch(let remoteName, let branchName):
+            .originDefaultBranch(remoteName: remoteName, branchName: branchName)
+        case .branch(let name):
+            .branch(name: name)
+        case .ref(let name):
+            .ref(name: name)
+        case .headMinusOne:
+            .ref(name: "HEAD~1")
+        case .staged, .unstaged:
+            nil
+        }
+    }
+
+    private static func legacyValue(_ value: String) -> Self {
+        switch value {
+        case Kind.localDefaultBranch.rawValue:
+            .localDefaultBranch(branchName: "main")
+        case Kind.originDefaultBranch.rawValue:
+            .originDefaultBranch(remoteName: "origin", branchName: "main")
+        case Kind.headMinusOne.rawValue:
+            .headMinusOne
+        case Kind.staged.rawValue:
+            .staged
+        case Kind.unstaged.rawValue:
+            .unstaged
+        default:
+            .ref(name: value)
+        }
+    }
+}
+
 extension BridgePaneSource {
     private enum CodingKeys: String, CodingKey {
         case commit
@@ -149,8 +267,8 @@ extension BridgePaneSource {
 
     private enum WorkspaceCodingKeys: String, CodingKey {
         case rootPath
-        case comparisonIntent
         case baseline
+        case comparisonTarget
     }
 
     private enum AgentSnapshotCodingKeys: String, CodingKey {
@@ -187,18 +305,25 @@ extension BridgePaneSource {
                 keyedBy: WorkspaceCodingKeys.self,
                 forKey: .workspace
             )
-            let comparisonIntent: WorkspaceReviewComparisonIntent
-            if workspace.contains(.comparisonIntent) {
-                comparisonIntent = try workspace.decode(
-                    WorkspaceReviewComparisonIntent.self,
-                    forKey: .comparisonIntent
+            let baseline: WorkspaceBaseline?
+            if workspace.contains(.comparisonTarget) {
+                baseline = WorkspaceBaseline(
+                    contributionTarget: try workspace.decode(
+                        WorkspaceReviewContributionTarget.self,
+                        forKey: .comparisonTarget
+                    )
                 )
+            } else if let legacyBaseline = try workspace.decodeIfPresent(
+                WorkspaceBaseline.self,
+                forKey: .baseline
+            ) {
+                baseline = Self.canonicalBaseline(fromLegacy: legacyBaseline)
             } else {
-                comparisonIntent = try Self.decodeLegacyComparisonIntent(from: workspace)
+                baseline = nil
             }
             self = .workspace(
                 rootPath: try workspace.decode(String.self, forKey: .rootPath),
-                comparisonIntent: comparisonIntent
+                baseline: baseline
             )
         case .agentSnapshot:
             let snapshot = try container.nestedContainer(
@@ -225,13 +350,23 @@ extension BridgePaneSource {
             )
             try branchDiff.encode(head, forKey: .head)
             try branchDiff.encode(base, forKey: .base)
-        case .workspace(let rootPath, let comparisonIntent):
+        case .workspace(let rootPath, let baseline):
             var workspace = container.nestedContainer(
                 keyedBy: WorkspaceCodingKeys.self,
                 forKey: .workspace
             )
             try workspace.encode(rootPath, forKey: .rootPath)
-            try workspace.encode(comparisonIntent, forKey: .comparisonIntent)
+            switch baseline {
+            case .staged, .unstaged, .headMinusOne:
+                try workspace.encode(baseline, forKey: .baseline)
+            case .localDefaultBranch, .originDefaultBranch, .branch, .ref:
+                try workspace.encode(
+                    baseline?.contributionTarget,
+                    forKey: .comparisonTarget
+                )
+            case nil:
+                break
+            }
         case .agentSnapshot(let taskId, let timestamp):
             var snapshot = container.nestedContainer(
                 keyedBy: AgentSnapshotCodingKeys.self,
@@ -242,107 +377,17 @@ extension BridgePaneSource {
         }
     }
 
-    private static func decodeLegacyComparisonIntent(
-        from container: KeyedDecodingContainer<WorkspaceCodingKeys>
-    ) throws -> WorkspaceReviewComparisonIntent {
-        if let legacyValue = try? container.decode(String.self, forKey: .baseline) {
-            return legacySingleValueComparisonIntent(legacyValue)
-        }
-
-        let baseline = try container.nestedContainer(
-            keyedBy: LegacyBaselineCodingKeys.self,
-            forKey: .baseline
-        )
-        let kind = try baseline.decode(LegacyBaselineKind.self, forKey: .kind)
-        return try legacyKeyedComparisonIntent(kind: kind, from: baseline)
-    }
-
-    private enum LegacyBaselineCodingKeys: String, CodingKey {
-        case kind
-        case branchName
-        case remoteName
-        case name
-    }
-
-    private enum LegacyBaselineKind: String, Decodable {
-        case localDefaultBranch
-        case originDefaultBranch
-        case branch
-        case ref
-        case headMinusOne
-        case staged
-        case unstaged
-    }
-
-    private static func legacyKeyedComparisonIntent(
-        kind: LegacyBaselineKind,
-        from container: KeyedDecodingContainer<LegacyBaselineCodingKeys>
-    ) throws -> WorkspaceReviewComparisonIntent {
-        switch kind {
+    private static func canonicalBaseline(
+        fromLegacy baseline: WorkspaceBaseline
+    ) -> WorkspaceBaseline? {
+        switch baseline {
         case .localDefaultBranch:
-            _ = try container.decode(String.self, forKey: .branchName)
-            return .init(activeKind: .contribution, contributionTarget: nil)
-        case .originDefaultBranch:
-            return .init(
-                activeKind: .contribution,
-                contributionTarget: .originDefaultBranch(
-                    remoteName: try container.decode(String.self, forKey: .remoteName),
-                    branchName: try container.decode(String.self, forKey: .branchName)
-                )
-            )
-        case .branch:
-            return .init(
-                activeKind: .contribution,
-                contributionTarget: .branch(
-                    name: try container.decode(String.self, forKey: .name)
-                )
-            )
-        case .headMinusOne:
-            return .init(
-                activeKind: .contribution,
-                contributionTarget: .ref(name: "HEAD~1")
-            )
-        case .staged:
-            return .init(activeKind: .stagedOnly, contributionTarget: nil)
-        case .unstaged:
-            return .init(activeKind: .unstagedOnly, contributionTarget: nil)
-        case .ref:
-            return legacyRefIntent(try container.decode(String.self, forKey: .name))
+            nil
+        case .ref(let name) where name == "HEAD":
+            nil
+        case .originDefaultBranch, .branch, .ref, .headMinusOne, .staged, .unstaged:
+            baseline
         }
     }
 
-    private static func legacySingleValueComparisonIntent(
-        _ value: String
-    ) -> WorkspaceReviewComparisonIntent {
-        switch value {
-        case LegacyBaselineKind.localDefaultBranch.rawValue:
-            return .init(activeKind: .contribution, contributionTarget: nil)
-        case LegacyBaselineKind.originDefaultBranch.rawValue:
-            return .init(
-                activeKind: .contribution,
-                contributionTarget: .originDefaultBranch(
-                    remoteName: "origin",
-                    branchName: "main"
-                )
-            )
-        case LegacyBaselineKind.headMinusOne.rawValue:
-            return .init(
-                activeKind: .contribution,
-                contributionTarget: .ref(name: "HEAD~1")
-            )
-        case LegacyBaselineKind.staged.rawValue:
-            return .init(activeKind: .stagedOnly, contributionTarget: nil)
-        case LegacyBaselineKind.unstaged.rawValue:
-            return .init(activeKind: .unstagedOnly, contributionTarget: nil)
-        default:
-            return legacyRefIntent(value)
-        }
-    }
-
-    private static func legacyRefIntent(_ name: String) -> WorkspaceReviewComparisonIntent {
-        WorkspaceReviewComparisonIntent(
-            activeKind: .contribution,
-            contributionTarget: name == "HEAD" ? nil : .ref(name: name)
-        )
-    }
 }

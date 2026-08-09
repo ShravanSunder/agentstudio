@@ -27,19 +27,7 @@ struct BridgeReviewFoundationContractTests {
                 expectedKind: "contribution",
                 expectedBaseRole: "contributionBase",
                 expectedComparedRole: "capturedWorkingTree"
-            ),
-            ComparisonOriginEncodingCase(
-                origin: .stagedOnly(BridgeReviewStagedOnlyOrigin(reviewedHeadOID: "head-oid")),
-                expectedKind: "stagedOnly",
-                expectedBaseRole: "reviewedHead",
-                expectedComparedRole: "capturedIndex"
-            ),
-            ComparisonOriginEncodingCase(
-                origin: .unstagedOnly(BridgeReviewUnstagedOnlyOrigin()),
-                expectedKind: "unstagedOnly",
-                expectedBaseRole: "capturedIndex",
-                expectedComparedRole: "capturedWorkingTree"
-            ),
+            )
         ]
 
         for testCase in cases {
@@ -58,8 +46,7 @@ struct BridgeReviewFoundationContractTests {
     @Test("comparison origin rejects fields and roles from another kind")
     func comparisonOriginRejectsFieldsAndRolesFromAnotherKind() {
         let invalidOrigins = [
-            #"{"kind":"unstagedOnly","baseRole":"capturedIndex","comparedRole":"capturedWorkingTree","reviewedHeadOID":"head-oid"}"#,
-            #"{"kind":"stagedOnly","baseRole":"capturedIndex","comparedRole":"capturedWorkingTree","reviewedHeadOID":"head-oid"}"#,
+            #"{"kind":"unknown","baseRole":"contributionBase","comparedRole":"capturedWorkingTree"}"#,
             #"{"kind":"contribution","baseRole":"contributionBase","comparedRole":"capturedWorkingTree","symbolicTarget":{"branch":{"name":"main"}},"resolvedTargetOID":"","reviewedHeadOID":"head-oid","contributionBaseOID":"base-oid"}"#,
         ]
 

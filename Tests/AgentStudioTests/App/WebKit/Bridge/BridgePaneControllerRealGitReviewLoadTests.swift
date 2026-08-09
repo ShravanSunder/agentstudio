@@ -351,8 +351,7 @@ private struct RealGitReviewLoadHarness {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: repositoryURL.path,
-                    comparisonIntent: .init(
-                        activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
+                    baseline: .localDefaultBranch(branchName: "main")
                 )
             ),
             appRootURL: testBridgeAppRootURL(),

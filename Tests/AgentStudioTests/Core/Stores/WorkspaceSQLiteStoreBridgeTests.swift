@@ -607,8 +607,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 panelKind: .fileViewer,
                 source: .workspace(
                     rootPath: bridgeFilesRoot.path,
-                    comparisonIntent: .init(
-                        activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
+                    baseline: .localDefaultBranch(branchName: "main")
                 )
             )
         )
@@ -617,9 +616,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: bridgeReviewRoot.path,
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "main"))
+                    baseline: .originDefaultBranch(remoteName: "origin", branchName: "main")
                 )
             )
         )

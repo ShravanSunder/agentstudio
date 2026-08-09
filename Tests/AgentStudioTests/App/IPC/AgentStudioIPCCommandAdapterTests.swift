@@ -508,7 +508,7 @@ struct AgentStudioIPCCommandAdapterTests {
                     panelKind: .fileViewer,
                     source: .workspace(
                         rootPath: "/tmp/agentstudio-ipc-bridge-reload",
-                        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1"))
+                        baseline: .ref(name: "HEAD~1")
                     )
                 )
             ),

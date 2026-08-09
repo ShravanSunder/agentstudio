@@ -5,16 +5,14 @@ import Foundation
 extension BridgePaneController {
     func makeReviewEndpoints(
         for artifact: DiffArtifact,
-        repoId: UUID,
-        activeKindOverride: WorkspaceReviewComparisonIntent.ActiveKind? = nil
+        repoId: UUID
     ) -> ReviewEndpointSelection {
-        guard case .workspace(_, let comparisonIntent) = bridgePaneState.source else {
+        guard case .workspace(_, let baseline) = bridgePaneState.source else {
             return makeFallbackReviewEndpoints(for: artifact, repoId: repoId)
         }
 
         let selection = makeWorkspaceEndpointSelection(
-            comparisonIntent: comparisonIntent,
-            activeKindOverride: activeKindOverride,
+            baseline: baseline,
             worktreeId: artifact.worktreeId,
             repoId: repoId
         )
@@ -53,8 +51,7 @@ extension BridgePaneController {
     }
 
     private func makeWorkspaceEndpointSelection(
-        comparisonIntent: WorkspaceReviewComparisonIntent,
-        activeKindOverride: WorkspaceReviewComparisonIntent.ActiveKind?,
+        baseline: WorkspaceBaseline?,
         worktreeId: UUID,
         repoId: UUID
     ) -> (
@@ -62,14 +59,14 @@ extension BridgePaneController {
         head: BridgeSourceEndpoint,
         comparisonSemantics: BridgeReviewQuery.ComparisonSemantics
     ) {
-        switch activeKindOverride ?? comparisonIntent.activeKind {
-        case .contribution:
+        switch baseline {
+        case nil:
             return makeContributionEndpointSelection(
-                target: comparisonIntent.contributionTarget,
+                target: nil,
                 worktreeId: worktreeId,
                 repoId: repoId
             )
-        case .stagedOnly:
+        case .staged:
             return (
                 base: makeGitRefEndpoint(
                     endpointId: "baseline-head",
@@ -80,11 +77,17 @@ extension BridgePaneController {
                 head: makeIndexEndpoint(worktreeId: worktreeId, repoId: repoId),
                 comparisonSemantics: .indexDelta
             )
-        case .unstagedOnly:
+        case .unstaged:
             return (
                 base: makeIndexEndpoint(worktreeId: worktreeId, repoId: repoId),
                 head: makeWorkingTreeEndpoint(worktreeId: worktreeId, repoId: repoId),
                 comparisonSemantics: .workingTreeDelta
+            )
+        case .localDefaultBranch, .originDefaultBranch, .branch, .ref, .headMinusOne:
+            return makeContributionEndpointSelection(
+                target: baseline?.contributionTarget,
+                worktreeId: worktreeId,
+                repoId: repoId
             )
         }
     }

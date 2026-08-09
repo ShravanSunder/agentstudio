@@ -21,10 +21,7 @@ struct WorkspacePaneComparisonIntentTests {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/comparison-intent",
-                comparisonIntent: .init(
-                    activeKind: .stagedOnly,
-                    contributionTarget: .branch(name: "stack/base")
-                )
+                baseline: .staged
             )
         )
 
@@ -46,15 +43,15 @@ struct WorkspacePaneComparisonIntentTests {
                 metadata: bridgePaneMetadata
             )
         )
-        let reviewerIntent = WorkspaceReviewComparisonIntent(
-            activeKind: .contribution,
-            contributionTarget: .originDefaultBranch(remoteName: "upstream", branchName: "release")
+        let reviewerBaseline = WorkspaceBaseline.originDefaultBranch(
+            remoteName: "upstream",
+            branchName: "release"
         )
         let reviewerState = BridgePaneState(
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/comparison-intent",
-                comparisonIntent: reviewerIntent
+                baseline: reviewerBaseline
             )
         )
         #expect(
@@ -90,10 +87,7 @@ struct WorkspacePaneComparisonIntentTests {
             panelKind: .fileViewer,
             source: .workspace(
                 rootPath: "/tmp/comparison-intent",
-                comparisonIntent: .init(
-                    activeKind: .contribution,
-                    contributionTarget: initialTarget
-                )
+                baseline: WorkspaceBaseline(contributionTarget: initialTarget)
             )
         )
 
@@ -118,10 +112,7 @@ struct WorkspacePaneComparisonIntentTests {
             panelKind: .fileViewer,
             source: .workspace(
                 rootPath: "/tmp/comparison-intent",
-                comparisonIntent: .init(
-                    activeKind: .contribution,
-                    contributionTarget: nil
-                )
+                baseline: nil
             )
         )
     }

@@ -38,7 +38,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)),
+                    baseline: .unstaged),
                 repoId: repoId,
                 worktreeId: worktreeId,
                 provider: provider
@@ -55,10 +55,7 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.diff.packageMetadata?.query.repoId == repoId)
             #expect(controller.paneState.diff.packageMetadata?.query.worktreeId == worktreeId)
             #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-source"])
-            #expect(
-                controller.paneState.diff.packageMetadata?.comparisonOrigin
-                    == BridgeReviewComparisonOrigin.unstagedOnly(BridgeReviewUnstagedOnlyOrigin())
-            )
+            #expect(controller.paneState.diff.packageMetadata?.comparisonOrigin == nil)
             let request = try #require(await provider.recordedComparisonRequests().first)
             #expect(request.query.repoId == repoId)
             #expect(request.query.worktreeId == worktreeId)
@@ -81,10 +78,7 @@ extension WebKitSerializedTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: .branch(name: "reviewer-selected")
-                    )
+                    baseline: .branch(name: "reviewer-selected")
                 )
             )
             let controller = BridgePaneController(
@@ -93,10 +87,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: WorkspaceReviewComparisonIntent(
-                            activeKind: .contribution,
-                            contributionTarget: nil
-                        )
+                        baseline: nil
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -133,11 +124,11 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(origin.symbolicTarget == .branch(name: "reviewer-selected"))
-            guard case .workspace(_, let canonicalIntent) = controller.bridgePaneState.source else {
+            guard case .workspace(_, let canonicalBaseline) = controller.bridgePaneState.source else {
                 Issue.record("Expected workspace canonical state")
                 return
             }
-            #expect(canonicalIntent.contributionTarget == .branch(name: "reviewer-selected"))
+            #expect(canonicalBaseline?.contributionTarget == .branch(name: "reviewer-selected"))
         }
 
         @Test("workspace review compare targets select git ref baseline against working tree")
@@ -169,7 +160,7 @@ extension WebKitSerializedTests {
                 let controller = makeController(
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        comparisonIntent: testCase.comparisonIntent
+                        baseline: testCase.baseline
                     ),
                     repoId: repoId,
                     worktreeId: worktreeId,
@@ -195,7 +186,7 @@ extension WebKitSerializedTests {
                 #expect(request.headEndpoint.label == "Working tree")
                 #expect(request.headEndpoint.repoId == repoId)
                 #expect(request.headEndpoint.worktreeId == worktreeId)
-                #expect(request.symbolicTarget == testCase.comparisonIntent.contributionTarget)
+                #expect(request.symbolicTarget == testCase.baseline.contributionTarget)
                 #expect(request.reviewGenerationValue == 1)
                 #expect(await provider.recordedComparisonRequestsCount() == 0)
             }
@@ -222,10 +213,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                    baseline: nil
                 ),
                 worktreeId: worktreeId,
                 provider: provider
@@ -257,10 +245,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .ref(name: "HEAD")
-                    )
+                    baseline: .ref(name: "HEAD")
                 ),
                 worktreeId: UUIDv7.generate(),
                 provider: provider
@@ -291,10 +276,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .ref(name: "main")
-                    )
+                    baseline: .ref(name: "main")
                 ),
                 worktreeId: UUIDv7.generate(),
                 provider: provider
@@ -328,10 +310,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .branch(name: "main")
-                    )
+                    baseline: .branch(name: "main")
                 ),
                 worktreeId: UUIDv7.generate(),
                 provider: provider
@@ -424,7 +403,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)),
+                    baseline: .unstaged),
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
@@ -459,7 +438,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)),
+                    baseline: .unstaged),
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
@@ -492,7 +471,7 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)),
+                    baseline: .unstaged),
                 worktreeId: UUIDv7.generate(),
                 provider: provider
             )
@@ -530,8 +509,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: repoURL.path,
-                        comparisonIntent: .init(
-                            activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main"))
+                        baseline: .localDefaultBranch(branchName: "main")
                     )
                 ),
                 appRootURL: testBridgeAppRootURL(),
@@ -638,7 +616,7 @@ extension WebKitSerializedTests {
                 panelKind: .fileViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil)),
+                    baseline: .unstaged),
                 worktreeId: worktreeId,
                 provider: provider
             )
@@ -751,7 +729,7 @@ extension WebKitSerializedTests {
 }
 
 private struct ReviewContributionEndpointCase {
-    let comparisonIntent: WorkspaceReviewComparisonIntent
+    let baseline: WorkspaceBaseline
     let expectedEndpointId: String
     let expectedLabel: String
     let expectedProviderIdentity: String
@@ -759,37 +737,31 @@ private struct ReviewContributionEndpointCase {
 
 private let reviewContributionEndpointCases = [
     ReviewContributionEndpointCase(
-        comparisonIntent: .init(
-            activeKind: .contribution,
-            contributionTarget: .localDefaultBranch(branchName: "main")
-        ),
+        baseline: .localDefaultBranch(branchName: "main"),
         expectedEndpointId: "baseline-local-default",
         expectedLabel: "main",
         expectedProviderIdentity: "main"
     ),
     ReviewContributionEndpointCase(
-        comparisonIntent: .init(
-            activeKind: .contribution,
-            contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "main")
-        ),
+        baseline: .originDefaultBranch(remoteName: "origin", branchName: "main"),
         expectedEndpointId: "baseline-origin-default",
         expectedLabel: "origin/main",
         expectedProviderIdentity: "origin/main"
     ),
     ReviewContributionEndpointCase(
-        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .branch(name: "release/next")),
+        baseline: .branch(name: "release/next"),
         expectedEndpointId: "baseline-branch-release-next",
         expectedLabel: "release/next",
         expectedProviderIdentity: "release/next"
     ),
     ReviewContributionEndpointCase(
-        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "v1.2.3")),
+        baseline: .ref(name: "v1.2.3"),
         expectedEndpointId: "baseline-ref-v1-2-3",
         expectedLabel: "v1.2.3",
         expectedProviderIdentity: "v1.2.3"
     ),
     ReviewContributionEndpointCase(
-        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD")),
+        baseline: .ref(name: "HEAD"),
         expectedEndpointId: "baseline-ref-HEAD",
         expectedLabel: "HEAD",
         expectedProviderIdentity: "HEAD"

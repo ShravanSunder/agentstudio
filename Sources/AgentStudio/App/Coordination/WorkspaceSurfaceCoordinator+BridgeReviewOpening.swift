@@ -257,10 +257,7 @@ extension WorkspaceSurfaceCoordinator {
             metadata,
             .workspace(
                 rootPath: worktree.path.path,
-                comparisonIntent: WorkspaceReviewComparisonIntent(
-                    activeKind: .contribution,
-                    contributionTarget: nil
-                )
+                baseline: nil
             )
         )
     }

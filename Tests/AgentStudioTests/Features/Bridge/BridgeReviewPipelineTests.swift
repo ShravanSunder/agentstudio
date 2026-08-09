@@ -6,13 +6,12 @@ import Testing
 @testable import AgentStudioCore
 
 struct BridgeReviewPipelineTests {
-    @Test("shared construction build and bind preserve staged and unstaged origins")
-    func sharedConstructionBuildAndBindPreserveStagedAndUnstagedOrigins() async throws {
+    @Test("shared construction build and bind leave staged and unstaged origins absent")
+    func sharedConstructionBuildAndBindLeaveStagedAndUnstagedOriginsAbsent() async throws {
         struct Case {
             let baseEndpoint: BridgeSourceEndpoint
             let headEndpoint: BridgeSourceEndpoint
             let comparisonSemantics: BridgeReviewQuery.ComparisonSemantics
-            let expectedOrigin: BridgeReviewComparisonOrigin
         }
 
         let reviewedHeadEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .gitRef)
@@ -22,18 +21,12 @@ struct BridgeReviewPipelineTests {
             Case(
                 baseEndpoint: reviewedHeadEndpoint,
                 headEndpoint: indexEndpoint,
-                comparisonSemantics: .indexDelta,
-                expectedOrigin: .stagedOnly(
-                    BridgeReviewStagedOnlyOrigin(
-                        reviewedHeadOID: try #require(reviewedHeadEndpoint.contentSetHash)
-                    )
-                )
+                comparisonSemantics: .indexDelta
             ),
             Case(
                 baseEndpoint: indexEndpoint,
                 headEndpoint: workingTreeEndpoint,
-                comparisonSemantics: .workingTreeDelta,
-                expectedOrigin: .unstagedOnly(BridgeReviewUnstagedOnlyOrigin())
+                comparisonSemantics: .workingTreeDelta
             ),
         ]
 
@@ -79,13 +72,13 @@ struct BridgeReviewPipelineTests {
                 request: resolvedRequest
             )
 
-            #expect(resolvedRequest.comparisonOrigin == testCase.expectedOrigin)
-            #expect(result.package.comparisonOrigin == testCase.expectedOrigin)
+            #expect(resolvedRequest.comparisonOrigin == nil)
+            #expect(result.package.comparisonOrigin == nil)
         }
     }
 
-    @Test("staged comparison publishes reviewed HEAD origin from resolved HEAD to index roles")
-    func stagedComparisonPublishesReviewedHeadOriginFromResolvedHeadToIndexRoles() async throws {
+    @Test("staged comparison loads from resolved HEAD to index without an origin")
+    func stagedComparisonLoadsFromResolvedHeadToIndexWithoutOrigin() async throws {
         let reviewedHeadEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .gitRef)
         let indexEndpoint = makeBridgeEndpoint(endpointId: "index", kind: .index)
         let provider = BridgeReviewSourceProviderFake(
@@ -112,19 +105,12 @@ struct BridgeReviewPipelineTests {
 
         let result = try await BridgeReviewPipeline(provider: provider).loadPackage(request)
 
-        #expect(
-            result.package.comparisonOrigin
-                == BridgeReviewComparisonOrigin.stagedOnly(
-                    BridgeReviewStagedOnlyOrigin(
-                        reviewedHeadOID: try #require(reviewedHeadEndpoint.contentSetHash)
-                    )
-                )
-        )
+        #expect(result.package.comparisonOrigin == nil)
         #expect(await provider.recordedComparisonRequestsCount() == 1)
     }
 
-    @Test("unstaged comparison publishes index to working-tree origin without contribution identity")
-    func unstagedComparisonPublishesIndexToWorkingTreeOriginWithoutContributionIdentity() async throws {
+    @Test("unstaged comparison loads from index to working tree without an origin")
+    func unstagedComparisonLoadsFromIndexToWorkingTreeWithoutOrigin() async throws {
         let indexEndpoint = makeBridgeEndpoint(endpointId: "index", kind: .index)
         let workingTreeEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
         let provider = BridgeReviewSourceProviderFake(
@@ -151,10 +137,7 @@ struct BridgeReviewPipelineTests {
 
         let result = try await BridgeReviewPipeline(provider: provider).loadPackage(request)
 
-        #expect(
-            result.package.comparisonOrigin
-                == BridgeReviewComparisonOrigin.unstagedOnly(BridgeReviewUnstagedOnlyOrigin())
-        )
+        #expect(result.package.comparisonOrigin == nil)
         #expect(await provider.recordedComparisonRequestsCount() == 1)
     }
 
@@ -174,10 +157,7 @@ struct BridgeReviewPipelineTests {
             reviewGeneration: 7,
             generatedAtUnixMilliseconds: 8
         )
-        let intent = WorkspaceReviewComparisonIntent(
-            activeKind: .contribution,
-            contributionTarget: .branch(name: "integration")
-        )
+        let symbolicTarget = WorkspaceReviewContributionTarget.branch(name: "integration")
         let invalidComparisons = [
             BridgeEndpointComparison(
                 baseEndpoint: makeBridgeEndpoint(endpointId: "target", kind: .index),
@@ -195,7 +175,7 @@ struct BridgeReviewPipelineTests {
             #expect(throws: BridgeProviderFailure.self) {
                 _ = try BridgeResolvedContributionRequestBuilder.build(
                     request: request,
-                    intent: intent,
+                    symbolicTarget: symbolicTarget,
                     capture: BridgeContributionComparisonCapture(
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
@@ -228,10 +208,7 @@ struct BridgeReviewPipelineTests {
         #expect(throws: BridgeProviderFailure.self) {
             _ = try BridgeResolvedContributionRequestBuilder.build(
                 request: request,
-                intent: WorkspaceReviewComparisonIntent(
-                    activeKind: .contribution,
-                    contributionTarget: .branch(name: "integration")
-                ),
+                symbolicTarget: .branch(name: "integration"),
                 capture: BridgeContributionComparisonCapture(
                     resolvedTargetOID: "target-oid",
                     reviewedHeadOID: "head-oid",
@@ -268,10 +245,6 @@ struct BridgeReviewPipelineTests {
                 changedFiles: []
             )
         )
-        let intent = WorkspaceReviewComparisonIntent(
-            activeKind: .contribution,
-            contributionTarget: .branch(name: "integration")
-        )
         let request = try BridgeResolvedContributionRequestBuilder.build(
             request: BridgeReviewPipelineRequest(
                 packageId: "package-contribution",
@@ -285,7 +258,7 @@ struct BridgeReviewPipelineTests {
                 reviewGeneration: 7,
                 generatedAtUnixMilliseconds: 8
             ),
-            intent: intent,
+            symbolicTarget: .branch(name: "integration"),
             capture: BridgeContributionComparisonCapture(
                 resolvedTargetOID: "target-oid",
                 reviewedHeadOID: "head-oid",

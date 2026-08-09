@@ -124,28 +124,14 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             commandId: fixture.commandId,
             correlationId: nil
         )
-        #expect(
-            fixture.controller.paneState.diff.packageMetadata?.comparisonOrigin
-                == BridgeReviewComparisonOrigin.stagedOnly(
-                    BridgeReviewStagedOnlyOrigin(
-                        reviewedHeadOID: try #require(fixture.baseEndpoint.contentSetHash)
-                    )
-                )
-        )
+        #expect(fixture.controller.paneState.diff.packageMetadata?.comparisonOrigin == nil)
 
         await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
         await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 10)
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
         #expect(loadResult == .success(commandId: fixture.commandId))
         #expect(fixture.controller.paneState.diff.status == .ready)
-        #expect(
-            fixture.controller.paneState.diff.packageMetadata?.comparisonOrigin
-                == BridgeReviewComparisonOrigin.stagedOnly(
-                    BridgeReviewStagedOnlyOrigin(
-                        reviewedHeadOID: try #require(fixture.baseEndpoint.contentSetHash)
-                    )
-                )
-        )
+        #expect(fixture.controller.paneState.diff.packageMetadata?.comparisonOrigin == nil)
         expectRefreshPackageState(
             fixture,
             itemId: "item-new",
@@ -275,7 +261,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             ),
             reviewSourceProvider: provider
         )
@@ -346,7 +332,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             ),
             appRootURL: testBridgeAppRootURL(),
             reviewSourceProvider: reviewSourceProvider,
@@ -449,10 +435,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/contribution-generation-fence",
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .ref(name: "target")
-                    )
+                    baseline: .ref(name: "target")
                 )
             ),
             appRootURL: testBridgeAppRootURL(),
@@ -520,7 +503,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             ),
             reviewSourceProvider: provider
         )
@@ -551,7 +534,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: "/tmp/worktree",
-                    comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                    baseline: .ref(name: "HEAD~1"))
             ),
             appRootURL: testBridgeAppRootURL(),
             initialPaneActivity: .foreground

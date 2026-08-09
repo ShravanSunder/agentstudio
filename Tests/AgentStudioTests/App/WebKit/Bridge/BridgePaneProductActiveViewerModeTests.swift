@@ -488,7 +488,7 @@ extension WebKitSerializedTests {
                     panelKind: .fileViewer,
                     source: .workspace(
                         rootPath: "/tmp/product-file-viewer",
-                        comparisonIntent: .init(activeKind: .unstagedOnly, contributionTarget: nil))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground

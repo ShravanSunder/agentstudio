@@ -564,10 +564,10 @@ package final class WorkspacePaneGraphAtom {
             guard case .bridgePanel(let currentState) = paneState.content else {
                 return .notBridgePane
             }
-            guard case .workspace(let rootPath, let comparisonIntent) = currentState.source else {
+            guard case .workspace(let rootPath, let baseline) = currentState.source else {
                 return .notWorkspaceSource
             }
-            guard comparisonIntent.contributionTarget == nil else {
+            guard baseline == nil else {
                 return .unchanged(currentState)
             }
 
@@ -575,10 +575,7 @@ package final class WorkspacePaneGraphAtom {
                 panelKind: currentState.panelKind,
                 source: .workspace(
                     rootPath: rootPath,
-                    comparisonIntent: WorkspaceReviewComparisonIntent(
-                        activeKind: comparisonIntent.activeKind,
-                        contributionTarget: target
-                    )
+                    baseline: WorkspaceBaseline(contributionTarget: target)
                 )
             )
             paneStates[paneId]?.content = .bridgePanel(updatedState)

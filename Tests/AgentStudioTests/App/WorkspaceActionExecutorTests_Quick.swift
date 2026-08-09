@@ -64,11 +64,7 @@ private func assertFileViewPane(
     }
     #expect(rootPath == worktree.path.path)
     #expect(
-        comparisonIntent
-            == WorkspaceReviewComparisonIntent(
-                activeKind: .contribution,
-                contributionTarget: nil
-            )
+        comparisonIntent == nil
     )
     guard let script = bridgeView?.controller.bootstrapScriptSourceForTesting else {
         Issue.record("Expected mounted Bridge file-viewer bootstrap script")
@@ -158,11 +154,7 @@ extension WebKitSerializedTests {
             }
             #expect(rootPath == worktree.path.path)
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
         }
 
@@ -201,11 +193,7 @@ extension WebKitSerializedTests {
             }
             #expect(rootPath == worktree.path.path)
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
         }
 
@@ -238,11 +226,7 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
         }
 
@@ -283,11 +267,7 @@ extension WebKitSerializedTests {
             }
             #expect(rootPath == worktree.path.path)
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
         }
 
@@ -330,11 +310,7 @@ extension WebKitSerializedTests {
             }
             #expect(rootPath == worktree.path.path)
             #expect(
-                comparisonIntent
-                    == WorkspaceReviewComparisonIntent(
-                        activeKind: .contribution,
-                        contributionTarget: nil
-                    )
+                comparisonIntent == nil
             )
         }
 
