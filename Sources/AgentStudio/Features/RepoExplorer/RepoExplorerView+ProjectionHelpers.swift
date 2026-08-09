@@ -195,6 +195,20 @@ extension RepoExplorerView {
     }
 
     static func projectionFingerprint(for projection: SidebarProjection) -> String {
+        let sectionsFingerprint = projection.sections.enumerated().map { sectionIndex, section in
+            let resolvedGroups = section.resolvedGroups.map { group in
+                let repos = group.repos.map { repo in
+                    "\(repo.id.uuidString):\(repo.isFavorite)"
+                }.joined(separator: ",")
+                return "\(group.id):\(repos)"
+            }.joined(separator: ";")
+            let loadingRepos = section.loadingRepos.map { repo in
+                "\(repo.id.uuidString):\(repo.isFavorite)"
+            }.joined(separator: ",")
+            return "\(sectionIndex):\(section.kind.rawValue):\(resolvedGroups):\(loadingRepos)"
+        }
+        .joined(separator: "|")
+
         let resolvedGroupsFingerprint = projection.resolvedGroups.enumerated().map { groupIndex, group in
             let reposFingerprint = group.repos.map { repo in
                 let worktreesFingerprint = repo.worktrees.map { worktree in
@@ -255,7 +269,8 @@ extension RepoExplorerView {
             .joined(separator: "|")
 
         return """
-            resolved[\(resolvedGroupsFingerprint)]\
+            sections[\(sectionsFingerprint)]\
+            /resolved[\(resolvedGroupsFingerprint)]\
             /loading[\(loadingFingerprint)]\
             /rows[\(projectedRowsFingerprint)]\
             /paneRows[\(projectedPaneRowsFingerprint)]\

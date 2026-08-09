@@ -542,7 +542,8 @@ package struct RepoExplorerView: View {
 
     private func sectionHeader(kind: RepoExplorerSidebarSectionKind) -> some View {
         SectionSubheadingLabel(kind.title)
-            .padding(.horizontal, AppStyles.Components.SectionSubheading.horizontalPadding)
+            .padding(.leading, Self.sectionHeaderLeadingInset)
+            .padding(.trailing, AppStyles.Components.SectionSubheading.horizontalPadding)
             .padding(.top, AppStyles.Components.SectionSubheading.topPadding)
             .padding(.bottom, AppStyles.Components.SectionSubheading.bottomPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -551,6 +552,10 @@ package struct RepoExplorerView: View {
             .accessibilityIdentifier("repoSidebarSectionHeader.\(kind.rawValue)")
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+    }
+
+    package static var sectionHeaderLeadingInset: CGFloat {
+        AppStyles.Shell.Sidebar.listRowLeadingInset
     }
 
     private func colorForCheckout(hex colorHex: String) -> Color {
