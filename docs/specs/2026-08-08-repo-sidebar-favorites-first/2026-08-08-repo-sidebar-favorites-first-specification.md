@@ -20,7 +20,7 @@ Within each section, resolved groups appear first and loading repositories follo
 
 ### S3 — Tab-owned mode
 
-In By Tab, a non-collapsible `Tabs` section header appears when at least one tab group or loading repository is visible. Each tab group appears exactly once in existing tab order beneath that header. Within each tab, favorite-backed worktree occurrences appear before non-favorite occurrences. A `Favorites` label precedes the favorite-backed occurrences when that partition is non-empty, and a `Repositories` label precedes the non-favorite occurrences when that partition is non-empty. Each partition preserves the configured repository/worktree ordering. The labels are inside the existing tab group; they do not repartition tabs or duplicate destinations.
+In By Tab, a non-collapsible `Tabs` section header always appears, including when the tab list has no visible groups. Each visible tab group appears exactly once in existing tab order beneath that header. Within each tab, favorite-backed worktree occurrences appear before non-favorite occurrences. A `Favorites` label precedes the favorite-backed occurrences when that partition is non-empty, and a `Repositories` label precedes the non-favorite occurrences when that partition is non-empty. Each partition preserves the configured repository/worktree ordering. The labels are inside the existing tab group; they do not repartition tabs or duplicate destinations.
 
 ### S4 — Search and disclosure
 
@@ -36,6 +36,7 @@ The existing bookmark and context-menu actions remain available with Add Favorit
 - A query with no matches retains the existing no-results state.
 - A repository collection with no favorites shows no `Favorites` header.
 - A collection containing only favorites shows no empty `Repositories` header.
+- By Tab retains its `Tabs` header even when no tab group is visible.
 - A loading-only partition remains visible under its corresponding section header and `Scanning…` label.
 - Degraded topology behavior remains unchanged.
 

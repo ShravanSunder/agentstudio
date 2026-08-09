@@ -6,6 +6,27 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 extension RepoExplorerReadModelTests {
+    @Test("By Tab keeps its section header when the tab list is empty")
+    func tabModeKeepsSectionHeaderWhenEmpty() {
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [],
+                repoEnrichmentByRepoId: [:],
+                groupingMode: .tab,
+                query: ""
+            )
+        )
+
+        #expect(projection.sections.map(\.kind) == [.tabs])
+
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        #expect(rowIndex.entries.map(\.id) == ["section-header:tabs"])
+    }
+
     @Test("repository-owned modes omit empty favorite partitions")
     func repositoryOwnedModesOmitEmptyFavoritePartitions() {
         let repoId = UUIDv7.generate()

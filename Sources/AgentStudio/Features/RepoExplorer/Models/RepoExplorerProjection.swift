@@ -356,7 +356,6 @@ enum RepoExplorerProjection {
         loadingRepos: [RepoPresentationItem]
     ) -> [RepoExplorerSidebarSection] {
         if groupingMode == .tab {
-            guard !resolvedGroups.isEmpty || !loadingRepos.isEmpty else { return [] }
             return [
                 RepoExplorerSidebarSection(
                     kind: .tabs,
