@@ -187,6 +187,8 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("agentstudio_performance_trace_queue_high_watermark"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE"))
         #expect(source.contains("AGENTSTUDIO_OBSERVABILITY_LAUNCH_METHOD"))
+        #expect(source.contains("tabbar_lifecycle_continuity=query_failed"))
+        #expect(!source.contains("tabbar_lifecycle_continuity=not_available"))
     }
 
     private static func expectJSONLProofGuard(_ source: String) {
@@ -251,7 +253,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
                 "AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL": "http://127.0.0.1:1/select/logsql/query",
                 "AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL": "http://127.0.0.1:1/api/v1/query",
                 "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE":
-                    #"{"status":"success","data":{"result":[{"value":[0,"7"]}]}}"#,
+                    #"{"status":"success","data":{"result":[{"value":[0,"0"]}]}}"#,
                 "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
                     #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.elapsed_ms":"3","agentstudio.performance.commandbar.query_character.count":"3"}"#
                     + "\n"
@@ -268,10 +270,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
             .appendingPathComponent("summary.txt")
         let summary = try String(contentsOf: summaryURL, encoding: .utf8)
         for eventName in Self.comparablePerformanceEventNames {
-            #expect(summary.contains("\(eventName).victoria_metrics_count=7"))
+            #expect(summary.contains("\(eventName).victoria_metrics_count=0"))
             #expect(summary.contains("\(eventName).victoria_logs_count=2"))
             #expect(summary.contains("\(eventName).elapsed_ms.max=7"))
-            #expect(summary.contains("\(eventName).elapsed_ms.p95=7"))
+            #expect(summary.contains("\(eventName).elapsed_ms.p95=0"))
             #expect(summary.contains("\(eventName).elapsed_ms.p95_unavailable=false"))
         }
         #expect(summary.contains("performance.commandbar.filter.query_character.max=7"))
@@ -317,6 +319,66 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(result.exitCode != 0)
         #expect(result.stderr.contains("duplicate capture sequences"))
         #expect(result.stderr.contains("missing terminal sequences"))
+    }
+
+    @Test("prepare-only workload proof rejects missing trace queue completeness metrics")
+    func prepareOnlyWorkloadProofRejectsMissingTraceQueueCompletenessMetrics() throws {
+        let proofRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-workload-trace-queue-rejection-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: proofRoot) }
+
+        let result = try runScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
+                "AGENTSTUDIO_TRACE_NAME": "missing-trace-queue-test",
+                "AGENTSTUDIO_PERF_REPO_COUNT": "1",
+                "AGENTSTUDIO_PERF_WORKTREE_COUNT": "1",
+                "AGENTSTUDIO_PERF_ACTIVE_PANES": "1",
+                "AGENTSTUDIO_PERF_WRITER_COUNT": "1",
+                "AGENTSTUDIO_PERF_DURATION_SECONDS": "1",
+                "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR": "0",
+                "AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES": "1",
+                "AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL": "http://127.0.0.1:1/select/logsql/query",
+                "AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL": "http://127.0.0.1:1/api/v1/query",
+                "AGENTSTUDIO_PERF_TEST_METRICS_RESPONSE": "",
+                "AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE":
+                    #"{"_msg":"performance.tabbar.capture","agentstudio.performance.tabbar.sequence":"1"}"#
+                    + "\n"
+                    + #"{"_msg":"performance.tabbar.terminal","agentstudio.performance.tabbar.sequence":"1","agentstudio.performance.tabbar.terminal.outcome":"published"}"#
+                    + "\n",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("trace queue completeness metrics are missing"))
+    }
+
+    @Test("prepare-only workload proof reports lifecycle query transport failure")
+    func prepareOnlyWorkloadProofReportsLifecycleQueryTransportFailure() throws {
+        let proofRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-workload-lifecycle-transport-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: proofRoot) }
+
+        let result = try runScript(
+            arguments: [scriptPath, "--prepare-only"],
+            environment: [
+                "AGENTSTUDIO_PERF_PROOF_ROOT": proofRoot.path,
+                "AGENTSTUDIO_TRACE_NAME": "lifecycle-transport-test",
+                "AGENTSTUDIO_PERF_REPO_COUNT": "1",
+                "AGENTSTUDIO_PERF_WORKTREE_COUNT": "1",
+                "AGENTSTUDIO_PERF_ACTIVE_PANES": "1",
+                "AGENTSTUDIO_PERF_WRITER_COUNT": "1",
+                "AGENTSTUDIO_PERF_DURATION_SECONDS": "1",
+                "AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR": "0",
+                "AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES": "1",
+                "AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL": "http://127.0.0.1:1/select/logsql/query",
+                "AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL": "http://127.0.0.1:1/api/v1/query",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("VictoriaLogs Tab Bar capture query failed"))
     }
 
     @Test("workload proof rejects canned query responses outside prepare-only tests")

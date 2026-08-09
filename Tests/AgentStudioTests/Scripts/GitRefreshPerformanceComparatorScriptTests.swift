@@ -36,7 +36,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("ready"))
+        #expect(comparison.split(separator: "\n").contains("ready"))
         #expect(comparison.contains("frozen regression boundary: 10%"))
         #expect(!comparison.contains("threshold met"))
     }
@@ -117,6 +117,57 @@ struct GitRefreshPerformanceComparatorScriptTests {
 
         #expect(result.exitCode != 0)
         #expect(result.stderr.contains("performance.tabbar.refresh.victoria_metrics_count coverage collapsed"))
+    }
+
+    @Test("performance comparator coverage floor is independent from the latency regression boundary")
+    func performanceComparatorCoverageFloorIsIndependentFromLatencyRegressionBoundary() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        var baselineInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        var afterInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        baselineWorkloadValues["regression_boundary_percent"] = "50"
+        afterWorkloadValues["regression_boundary_percent"] = "50"
+        baselineInteractionValues["regression_boundary_percent"] = "50"
+        afterInteractionValues["regression_boundary_percent"] = "50"
+        afterWorkloadValues["performance.tabbar.refresh.victoria_metrics_count"] = "4"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: baselineWorkloadValues,
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: baselineInteractionValues,
+            afterInteractionValues: afterInteractionValues
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
+    @Test("performance comparator interaction drift tolerance is independent from the latency regression boundary")
+    func performanceComparatorInteractionDriftToleranceIsIndependentFromLatencyRegressionBoundary() throws {
+        let fixtureRoot = try temporaryFixtureRoot()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        var baselineWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        var afterWorkloadValues = workloadSummaryValues(fanoutCount: 10, fanoutP95: 10, fanoutMax: 10)
+        var baselineInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        var afterInteractionValues = commandBarSummaryValues(itemsCount: 10, itemsP95: 10, itemsMax: 1)
+        baselineWorkloadValues["regression_boundary_percent"] = "50"
+        afterWorkloadValues["regression_boundary_percent"] = "50"
+        baselineInteractionValues["regression_boundary_percent"] = "50"
+        afterInteractionValues["regression_boundary_percent"] = "50"
+        afterWorkloadValues["issued_interaction_count"] = "28"
+
+        let result = try runComparator(
+            fixtureRoot: fixtureRoot,
+            baselineWorkloadValues: baselineWorkloadValues,
+            afterWorkloadValues: afterWorkloadValues,
+            baselineInteractionValues: baselineInteractionValues,
+            afterInteractionValues: afterInteractionValues
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.stderr.contains("workload issued_interaction_count drift exceeded 10%"))
     }
 
     @Test("performance comparator rejects a changed command-bar interaction fingerprint")
@@ -250,7 +301,7 @@ struct GitRefreshPerformanceComparatorScriptTests {
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
         let comparison = try String(contentsOf: output, encoding: .utf8)
-        #expect(comparison.contains("ready"))
+        #expect(comparison.split(separator: "\n").contains("ready"))
         #expect(comparison.contains("frozen regression boundary: 10%"))
         #expect(comparison.contains("performance.commandbar.filter.elapsed_ms.max is informational"))
     }

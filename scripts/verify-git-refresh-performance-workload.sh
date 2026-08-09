@@ -1306,7 +1306,10 @@ wait_for_tab_bar_lifecycle_continuity() {
   local deadline=$((SECONDS + METRICS_EXPORT_TIMEOUT_SECONDS))
   : >"$continuity_log"
   while [ "$SECONDS" -lt "$deadline" ]; do
-    capture_tab_bar_lifecycle_snapshot
+    if ! capture_tab_bar_lifecycle_snapshot; then
+      echo "tabbar_lifecycle_continuity=query_failed" >>"$continuity_log"
+      return 1
+    fi
     printf 'observed_at=%s capture_count=%s terminal_count=%s exact=%s duplicate_capture=%s duplicate_terminal=%s missing_terminal=%s unexpected_terminal=%s invalid_outcome=%s\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       "$TAB_BAR_CAPTURE_COUNT" \
@@ -1317,13 +1320,14 @@ wait_for_tab_bar_lifecycle_continuity() {
       "$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" \
       "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" \
       "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >>"$continuity_log"
-    if [ "$TAB_BAR_CAPTURE_COUNT" = "0" ] && [ "$TAB_BAR_TERMINAL_COUNT" = "0" ]; then
-      echo "tabbar_lifecycle_continuity=not_available" >>"$continuity_log"
-      return 0
-    fi
     if [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]; then
       echo "tabbar_lifecycle_continuity=succeeded" >>"$continuity_log"
       return 0
+    fi
+    if tab_bar_lifecycle_has_irrecoverable_failure; then
+      report_tab_bar_lifecycle_errors
+      echo "tabbar_lifecycle_continuity=invalid" >>"$continuity_log"
+      return 1
     fi
     sleep 1
   done
@@ -1333,16 +1337,22 @@ wait_for_tab_bar_lifecycle_continuity() {
 
 capture_tab_bar_lifecycle_snapshot() {
   local capture_response terminal_response snapshot
-  capture_response="$(
+  if ! capture_response="$(
     query_victoria_logs \
       "$(victoria_event_query performance.tabbar.capture) | fields _msg, agentstudio.performance.tabbar.sequence | limit 10000" \
-      2>/dev/null || true
-  )"
-  terminal_response="$(
+      2>&1
+  )"; then
+    echo "VictoriaLogs Tab Bar capture query failed: $capture_response" >&2
+    return 1
+  fi
+  if ! terminal_response="$(
     query_victoria_logs \
       "$(victoria_event_query performance.tabbar.terminal) | fields _msg, agentstudio.performance.tabbar.sequence, agentstudio.performance.tabbar.terminal.outcome | limit 10000" \
-      2>/dev/null || true
-  )"
+      2>&1
+  )"; then
+    echo "VictoriaLogs Tab Bar terminal query failed: $terminal_response" >&2
+    return 1
+  fi
   snapshot="$(
     /usr/bin/python3 - \
       <(printf '%s\n' "$capture_response") \
@@ -1429,8 +1439,14 @@ PY
   TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT="$(sed -n 's/^invalid_terminal_outcome_count=//p' <<<"$snapshot")"
 }
 
-require_exact_tab_bar_lifecycle() {
-  capture_tab_bar_lifecycle_snapshot
+tab_bar_lifecycle_has_irrecoverable_failure() {
+  [ "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" != "0" ] \
+    || [ "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" != "0" ] \
+    || [ "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" != "0" ] \
+    || [ "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" != "0" ]
+}
+
+report_tab_bar_lifecycle_errors() {
   [ "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" = "0" ] \
     || echo "Tab Bar lifecycle has duplicate capture sequences: $TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" >&2
   [ "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" = "0" ] \
@@ -1441,6 +1457,11 @@ require_exact_tab_bar_lifecycle() {
     || echo "Tab Bar lifecycle has unexpected terminal sequences: $TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" >&2
   [ "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" = "0" ] \
     || echo "Tab Bar lifecycle has invalid terminal outcomes: $TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >&2
+}
+
+require_exact_tab_bar_lifecycle() {
+  capture_tab_bar_lifecycle_snapshot || return 1
+  report_tab_bar_lifecycle_errors
   [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]
 }
 
@@ -1462,9 +1483,6 @@ require_trace_queue_completeness() {
       trace_queue_metric_query agentstudio_performance_trace_queue_high_watermark
     )"
   )"
-  if [ -z "$TRACE_QUEUE_DROPPED_RECORD_COUNT" ] && [ -z "$TRACE_QUEUE_HIGH_WATERMARK" ]; then
-    return 0
-  fi
   /usr/bin/python3 - "$TRACE_QUEUE_DROPPED_RECORD_COUNT" "$TRACE_QUEUE_HIGH_WATERMARK" <<'PY'
 import math
 import sys
@@ -1908,8 +1926,13 @@ prepare_fixture
 } >"$ARTIFACT/observability-state.env"
 
 if [ "$prepare_only" = true ]; then
-  if test_responses_enabled && [ -n "${AGENTSTUDIO_PERF_TEST_LOGS_RESPONSE+x}" ]; then
-    if ! require_exact_tab_bar_lifecycle; then
+  if test_responses_enabled; then
+    if ! wait_for_tab_bar_lifecycle_continuity; then
+      echo "Tab Bar capture/terminal continuity did not settle within $METRICS_EXPORT_TIMEOUT_SECONDS seconds" >&2
+      summarize_traces
+      exit 1
+    fi
+    if ! require_trace_queue_completeness; then
       summarize_traces
       exit 1
     fi

@@ -92,11 +92,11 @@ final class TabBarAdapter {
     @ObservationIgnored private var orderedTabIds: [UUID] = []
     @ObservationIgnored private var requestedActiveTabId: UUID?
     @ObservationIgnored private var nextTabObservationGeneration: UInt64 = 0
-    private var projectionGeneration: UInt64 = 0
-    private var isObservingManagementLayer = false
-    private var isObservingTabCollection = false
+    @ObservationIgnored private var projectionGeneration: UInt64 = 0
+    @ObservationIgnored private var isObservingManagementLayer = false
+    @ObservationIgnored private var isObservingTabCollection = false
     private var publishedProjection: TabBarProjection?
-    private var hasStopped = false
+    @ObservationIgnored private var hasStopped = false
 
     var materializedProjections: [TabBarMaterializedProjection] {
         materializedProjectionFamily.atoms

@@ -37,6 +37,8 @@ REQUIRED_NUMERIC_FIELDS = [
 REQUIRED_BOOLEAN_FIELDS = [
     "elapsed_ms.p95_unavailable",
 ]
+MINIMUM_COVERAGE_PERCENT = 10.0
+MAX_INTERACTION_COUNT_DRIFT_PERCENT = 10.0
 
 
 def parse_summary(path: pathlib.Path) -> dict[str, str]:
@@ -275,12 +277,12 @@ def validate_provenance_matches(
         ))
         baseline_count = numeric(baseline, "issued_interaction_count")
         candidate_count = numeric(candidate, "issued_interaction_count")
-        boundary = numeric(baseline, "regression_boundary_percent")
         if baseline_count > 0 and candidate_count > 0:
             drift_percent = abs(candidate_count - baseline_count) / baseline_count * 100
-            if drift_percent > boundary:
+            if drift_percent > MAX_INTERACTION_COUNT_DRIFT_PERCENT:
                 failures.append(
-                    f"{lane} issued_interaction_count drift exceeded {boundary:g}%: "
+                    f"{lane} issued_interaction_count drift exceeded "
+                    f"{MAX_INTERACTION_COUNT_DRIFT_PERCENT:g}%: "
                     f"{baseline_count:g} -> {candidate_count:g} ({drift_percent:.1f}%)"
                 )
 
@@ -414,15 +416,14 @@ def coverage_failures(
     before_values: dict[str, str],
     after_values: dict[str, str],
     surface: str,
-    regression_boundary_percent: float,
 ) -> list[str]:
     count_key = surface_key(surface, "victoria_metrics_count")
     before = numeric(before_values, count_key)
     after = numeric(after_values, count_key)
     # Lower publication counts can be the intended result of coalescing. Treat
     # only near-total disappearance as collapsed coverage: the candidate must
-    # retain more than the frozen regression-boundary fraction of the baseline.
-    minimum_coverage = before * (regression_boundary_percent / 100)
+    # retain more than the dedicated coverage-floor fraction of the baseline.
+    minimum_coverage = before * (MINIMUM_COVERAGE_PERCENT / 100)
     if before > 0 and after <= minimum_coverage:
         return [
             f"{count_key} coverage collapsed ({before:g} -> {after:g}; "
@@ -509,13 +510,12 @@ failures.extend(validate_instrumentation_continuity(
     [*REPO_FANOUT_SURFACES, *COORDINATOR_SURFACES, *CANDIDATE_TAB_BAR_PHASE_SURFACES],
 ))
 
+failures.extend(coverage_failures(
+    baseline_workload,
+    after_workload,
+    "performance.tabbar.refresh",
+))
 if regression_boundary_percent is not None:
-    failures.extend(coverage_failures(
-        baseline_workload,
-        after_workload,
-        "performance.tabbar.refresh",
-        regression_boundary_percent,
-    ))
     failures.extend(regression_failures(
         baseline_interaction,
         after_interaction,
