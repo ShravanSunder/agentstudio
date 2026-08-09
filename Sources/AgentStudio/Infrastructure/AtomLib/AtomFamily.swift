@@ -159,34 +159,6 @@ package final class AtomFamily<Key: Hashable, Value> {
         )
     }
 
-    package func removeValueAndRetireSlot(for key: Key, mutation: AtomMutationContext) {
-        mutation.assertMutable()
-        guard cachedValues.removeValue(forKey: key) != nil else {
-            retireSlot(for: key)
-            AtomPerformanceTelemetry.shared.recordMutation(
-                kind: "entity_map",
-                label: telemetryLabel,
-                operation: "remove_missing_and_retire_slot",
-                acceptedChangeCount: 0,
-                slotCount: slots.count,
-                cachedKeyCount: cachedValues.count
-            )
-            return
-        }
-
-        retireSlot(for: key)
-        mutation.recordAcceptedChange()
-        membershipRevisionAtom.bump()
-        AtomPerformanceTelemetry.shared.recordMutation(
-            kind: "entity_map",
-            label: telemetryLabel,
-            operation: "remove_and_retire_slot",
-            acceptedChangeCount: 1,
-            slotCount: slots.count,
-            cachedKeyCount: cachedValues.count
-        )
-    }
-
     package func replaceAll(_ newValues: [Key: Value], mutation: AtomMutationContext) {
         mutation.assertMutable()
         let previousCachedKeys = Set(cachedValues.keys)
@@ -244,32 +216,6 @@ package final class AtomFamily<Key: Hashable, Value> {
             slotCount: slots.count,
             cachedKeyCount: cachedValues.count
         )
-    }
-
-    @discardableResult
-    package func pruneNilSlots(excluding retainedKeys: Set<Key>) -> Int {
-        let keysToPrune = slots.keys.filter { key in
-            cachedValues[key] == nil && !retainedKeys.contains(key)
-        }
-        for key in keysToPrune {
-            retireSlot(for: key)
-        }
-        if !keysToPrune.isEmpty {
-            AtomPerformanceTelemetry.shared.recordMutation(
-                kind: "entity_map",
-                label: telemetryLabel,
-                operation: "prune_nil_slots",
-                acceptedChangeCount: 0,
-                slotCount: slots.count,
-                cachedKeyCount: cachedValues.count
-            )
-        }
-        return keysToPrune.count
-    }
-
-    private func retireSlot(for key: Key) {
-        guard let retiredSlot = slots.removeValue(forKey: key) else { return }
-        retiredSlot.acceptValue(nil)
     }
 
     private func slot(for key: Key) -> AtomFamilySlot<Value> {
