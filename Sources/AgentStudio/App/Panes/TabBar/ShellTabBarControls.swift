@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
@@ -82,106 +81,6 @@ enum ShellTabBarCommandContext {
             focusedPane: focusedPane,
             workspacePanePresentation: atom(\.workspacePanePresentation)
         )
-    }
-}
-
-struct SidebarSurfaceToolbarButton: View {
-    enum Surface {
-        case repos
-        case inbox
-    }
-
-    let surface: Surface
-    let inboxAtom: InboxNotificationAtom
-
-    private var sidebarState: WorkspaceSidebarState {
-        atom(\.workspaceSidebarState)
-    }
-
-    private var isSidebarOpen: Bool {
-        !sidebarState.sidebarCollapsed
-    }
-
-    var body: some View {
-        let commandContext = ShellTabBarCommandContext.current()
-
-        switch surface {
-        case .repos:
-            toolbarButton(
-                command: .showWorktreeSidebar,
-                symbolName: "square.stack.3d.down.right",
-                selectedSymbolName: "square.stack.3d.down.right.fill",
-                isSelected: isSidebarOpen && sidebarState.sidebarSurface == .repos,
-                badgeCount: 0,
-                commandContext: commandContext
-            )
-        case .inbox:
-            toolbarButton(
-                command: .showInboxNotifications,
-                symbolName: "bell",
-                selectedSymbolName: "bell.fill",
-                isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox,
-                badgeCount: inboxAtom.globalRollUpAlertCount,
-                commandContext: commandContext
-            )
-        }
-    }
-
-    @ViewBuilder
-    private func toolbarButton(
-        command: AppCommand,
-        symbolName: String,
-        selectedSymbolName: String,
-        isSelected: Bool,
-        badgeCount: Int,
-        commandContext: CommandContext
-    ) -> some View {
-        if let presentation = ShellTabBarCommandPresentation(
-            command: command,
-            surface: .toolbar(.app),
-            commandContext: commandContext
-        ) {
-            SidebarSurfaceTabBarButton(
-                presentation: presentation,
-                symbolName: symbolName,
-                selectedSymbolName: selectedSymbolName,
-                isSelected: isSelected,
-                badgeCount: badgeCount
-            )
-        }
-    }
-}
-
-private struct SidebarSurfaceTabBarButton: View {
-    let presentation: ShellTabBarCommandPresentation
-    let symbolName: String
-    let selectedSymbolName: String
-    let isSelected: Bool
-    var badgeCount = 0
-
-    @State private var isHovered = false
-
-    private var command: AppCommand {
-        presentation.command
-    }
-
-    var body: some View {
-        Button {
-            presentation.perform()
-        } label: {
-            ChromeToolbarButtonLabel(
-                symbolName: symbolName,
-                selectedSymbolName: selectedSymbolName,
-                isSelected: isSelected,
-                isHovered: isHovered,
-                badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil,
-                showsBackground: false
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .disabled(!presentation.isEnabled)
-        .help(presentation.controlToolTip)
     }
 }
 

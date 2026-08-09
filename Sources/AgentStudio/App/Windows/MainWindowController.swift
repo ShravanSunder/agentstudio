@@ -9,12 +9,6 @@ import AppKit
 import Observation
 import SwiftUI
 
-enum InboxToolbarUnreadBadgeText {
-    static func text(for unreadCount: Int) -> String {
-        unreadCount > 99 ? "99+" : "\(unreadCount)"
-    }
-}
-
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
@@ -61,7 +55,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = AppStyles.Shell.TabBar.titlebarBackground
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isMovable = false
+        window.isMovable = true
         window.isMovableByWindowBackground = false
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(buttonType)?.isHidden = false
@@ -346,6 +340,7 @@ extension MainWindowController: NSToolbarDelegate {
             .arrangement,
             .workspaceTabs,
             .selectTab,
+            .tabActionsDivider,
             .newTab,
         ]
     }
@@ -386,7 +381,7 @@ extension MainWindowController: NSToolbarDelegate {
             inboxItem.badge = unread > 0 ? .count(unread) : nil
             item = inboxItem
         case .sidebarDivider:
-            item = makeToolbarDividerItem(identifier: itemIdentifier)
+            item = makeToolbarDividerItem(identifier: itemIdentifier, label: "Sidebar Divider")
         case .watchFolder:
             item = makeControlToolbarItem(
                 identifier: itemIdentifier,
@@ -418,6 +413,8 @@ extension MainWindowController: NSToolbarDelegate {
                 label: "Select Tab",
                 control: .selectTab
             )
+        case .tabActionsDivider:
+            item = makeToolbarDividerItem(identifier: itemIdentifier, label: "Tab Actions Divider")
         case .newTab:
             item = makeControlToolbarItem(
                 identifier: itemIdentifier,
@@ -476,6 +473,8 @@ extension MainWindowController: NSToolbarDelegate {
         let symbolConfiguration = NSImage.SymbolConfiguration(
             pointSize: AppStyles.Shell.Chrome.ToolbarButton.iconSize,
             weight: .medium
+        ).applying(
+            NSImage.SymbolConfiguration(paletteColors: [AppStyles.Shell.Chrome.ToolbarButton.iconForegroundNSColor])
         )
         item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)?
             .withSymbolConfiguration(symbolConfiguration)
@@ -490,12 +489,13 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func makeToolbarDividerItem(
-        identifier: NSToolbarItem.Identifier
+        identifier: NSToolbarItem.Identifier,
+        label: String
     ) -> NSToolbarItem {
         let dividerView = ToolbarDividerView()
         let item = NSToolbarItem(itemIdentifier: identifier)
-        item.label = "Sidebar Divider"
-        item.paletteLabel = "Sidebar Divider"
+        item.label = label
+        item.paletteLabel = label
         item.visibilityPriority = .high
         item.isBordered = false
         item.view = dividerView
@@ -542,11 +542,11 @@ extension MainWindowController: NSToolbarDelegate {
             pointSize: AppStyles.Shell.Chrome.ToolbarButton.iconSize,
             weight: .medium
         )
-        if isSelected {
-            configuration = configuration.applying(
-                NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor])
-            )
-        }
+        let paletteColor: NSColor =
+            isSelected ? .controlAccentColor : AppStyles.Shell.Chrome.ToolbarButton.iconForegroundNSColor
+        configuration = configuration.applying(
+            NSImage.SymbolConfiguration(paletteColors: [paletteColor])
+        )
         let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)?
             .withSymbolConfiguration(configuration)
         item.image = image

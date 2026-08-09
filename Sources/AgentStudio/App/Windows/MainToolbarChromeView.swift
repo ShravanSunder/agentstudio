@@ -1,9 +1,8 @@
 import AgentStudioInfrastructure
 import AppKit
+import SwiftUI
 
 enum MainToolbarControl: String, CaseIterable {
-    case worktree = "worktreeToolbarControl"
-    case inbox = "inboxToolbarControl"
     case watchFolder = "watchFolderToolbarControl"
     case managementLayer = "managementLayerToolbarControl"
     case arrangement = "arrangementToolbarControl"
@@ -15,15 +14,16 @@ enum MainToolbarControl: String, CaseIterable {
     }
 }
 
-/// AppKit-owned host for the app's composed tab and window-drag chrome.
+/// AppKit-owned host for the app's composed tab chrome.
 ///
 /// The toolbar item owns placement and overflow. This view only supplies the
-/// existing tab surface and its explicit draggable gap as one flexible item.
+/// existing tab surface as one flexible item. Window-drag handling lives on
+/// `DraggableTabBarHostingView` itself, which owns the tab-pill hit testing
+/// needed to tell a drag gesture apart from a tab click.
 final class MainToolbarChromeView: NSView {
     static let viewIdentifier = NSUserInterfaceItemIdentifier("workspaceTabsToolbarControl")
 
     private let tabBarHostingView: DraggableTabBarHostingView
-    private let dragRegionView = ShellChromeDragRegionView()
 
     init(tabBarHostingView: DraggableTabBarHostingView) {
         self.tabBarHostingView = tabBarHostingView
@@ -46,26 +46,38 @@ final class MainToolbarChromeView: NSView {
         tabBarHostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(tabBarHostingView)
 
-        dragRegionView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(dragRegionView, positioned: .above, relativeTo: tabBarHostingView)
-
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
             tabBarHostingView.topAnchor.constraint(equalTo: topAnchor),
             tabBarHostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             tabBarHostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
-            dragRegionView.topAnchor.constraint(equalTo: topAnchor),
-            dragRegionView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            dragRegionView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            dragRegionView.heightAnchor.constraint(
-                equalToConstant: AppStyles.Shell.Chrome.windowDragRegionHeight
-            ),
+            tabBarHostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
+    }
+}
+
+/// Hosts SwiftUI toolbar-control content and snaps its frame to the nearest
+/// backing-store pixel boundary after every layout pass.
+///
+/// NSToolbar positions and sizes a custom item's view through its own internal
+/// layout, not through App-owned constraints, and can land that frame at a
+/// fractional point (e.g. when centering a fixed-height control within a
+/// non-integral toolbar row). A fractional origin spreads hairline strokes —
+/// circle and capsule outlines in these controls — across two physical pixels
+/// instead of one, rendering as a visibly smeared edge on one side of the
+/// shape. Re-aligning after every layout pass tolerates the toolbar re-framing
+/// this view on subsequent passes.
+final class ToolbarControlHostingView<Content: View>: NSHostingView<Content> {
+    override func layout() {
+        super.layout()
+        guard let superview else { return }
+        let aligned = superview.backingAlignedRect(frame, options: .alignAllEdgesNearest)
+        if aligned != frame {
+            frame = aligned
+        }
     }
 }

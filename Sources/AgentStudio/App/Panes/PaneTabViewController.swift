@@ -421,10 +421,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     func makeToolbarControlView(_ control: MainToolbarControl) -> NSView {
         let content: AnyView =
             switch control {
-            case .worktree:
-                AnyView(SidebarSurfaceToolbarButton(surface: .repos, inboxAtom: inboxAtom))
-            case .inbox:
-                AnyView(SidebarSurfaceToolbarButton(surface: .inbox, inboxAtom: inboxAtom))
             case .watchFolder:
                 AnyView(WatchFolderTabBarMenu())
             case .managementLayer:
@@ -458,7 +454,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 AnyView(NewTabButton())
             }
 
-        let hostingView = NSHostingView(rootView: content)
+        let hostingView = ToolbarControlHostingView(rootView: content)
         hostingView.identifier = control.viewIdentifier
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.safeAreaRegions = []

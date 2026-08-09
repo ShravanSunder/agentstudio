@@ -24,5 +24,6 @@ extension NSToolbarItem.Identifier {
     package static let arrangement = NSToolbarItem.Identifier("arrangement")
     package static let workspaceTabs = NSToolbarItem.Identifier("workspaceTabs")
     package static let selectTab = NSToolbarItem.Identifier("selectTab")
+    package static let tabActionsDivider = NSToolbarItem.Identifier("tabActionsDivider")
     package static let newTab = NSToolbarItem.Identifier("newTab")
 }

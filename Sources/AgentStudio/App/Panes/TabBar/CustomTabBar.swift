@@ -196,6 +196,7 @@ struct CustomTabBar: View {
                         }
                     }
                     .frame(height: AppStyles.Shell.TabBar.tabPillHeight, alignment: .center)
+                    .offset(y: AppStyles.Shell.TabBar.tabStripPillVerticalNudge)
 
                     // Left gradient fade
                     if showLeftFade {
@@ -232,7 +233,7 @@ struct CustomTabBar: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .center)
                 .background(
                     GeometryReader { geo in
                         let frame = geo.frame(in: .named("tabBar"))
@@ -248,11 +249,11 @@ struct CustomTabBar: View {
                             trailingChromeControl(control)
                         }
                     }
-                    .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+                    .frame(maxHeight: .infinity, alignment: .center)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: AppStyles.Shell.TabBar.height)
+            .frame(maxHeight: .infinity, alignment: .center)
             .background(Color.clear)
             .coordinateSpace(name: "tabBar")
             .onAppear {
@@ -262,7 +263,7 @@ struct CustomTabBar: View {
                 adapter.availableWidth = newWidth
             }
         }
-        .frame(height: AppStyles.Shell.TabBar.height)
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     @ViewBuilder

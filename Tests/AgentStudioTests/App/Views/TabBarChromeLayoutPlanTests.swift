@@ -7,61 +7,30 @@ import Testing
 
 @Suite("Tab bar chrome layout plan")
 struct TabBarChromeLayoutPlanTests {
-    @Test("places plus after tab strip divider")
-    func placesPlusAfterTabStripDivider() {
-        let plan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: false)
-
-        #expect(plan.workspaceTabControls == [.tabStrip, .divider, .newTab])
-        #expect(plan.trailingControls == [.divider, .newTab])
-    }
-
-    @Test("omits plus when the add action is unavailable")
-    func omitsPlusWhenAddActionUnavailable() {
-        let plan = TabBarChromeLayoutPlan(hasNewTab: false, isOverflowing: false)
+    @Test("workspace tab controls are just the tab strip when not overflowing")
+    func workspaceTabControlsAreJustTabStripWhenNotOverflowing() {
+        let plan = TabBarChromeLayoutPlan(isOverflowing: false)
 
         #expect(plan.workspaceTabControls == [.tabStrip])
+        #expect(!plan.showsTrailingControls)
         #expect(plan.trailingControls.isEmpty)
     }
 
-    @Test("places overflow before divider and plus")
-    func placesOverflowBeforeDividerAndPlus() {
-        let normalPlan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: false)
-        let overflowPlan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: true)
+    @Test("overflow adds scroll chevrons as trailing controls after the tab strip")
+    func overflowAddsScrollChevronsAsTrailingControlsAfterTabStrip() {
+        let plan = TabBarChromeLayoutPlan(isOverflowing: true)
 
-        #expect(normalPlan.showsTrailingControls)
-        #expect(normalPlan.workspaceTabControls == [.tabStrip, .divider, .newTab])
-        #expect(overflowPlan.showsTrailingControls)
-        #expect(
-            overflowPlan.workspaceTabControls == [
-                .tabStrip, .overflowLeft, .overflowRight, .overflowMenu, .divider, .newTab,
-            ])
-        #expect(overflowPlan.trailingControls == [.overflowLeft, .overflowRight, .overflowMenu, .divider, .newTab])
-    }
-
-    @Test("workspace tab layout excludes fixed native toolbar controls")
-    func workspaceTabLayoutExcludesFixedNativeToolbarControls() {
-        let plan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: true)
-
-        #expect(
-            plan.workspaceTabControls == [
-                .tabStrip,
-                .overflowLeft,
-                .overflowRight,
-                .overflowMenu,
-                .divider,
-                .newTab,
-            ])
+        #expect(plan.showsTrailingControls)
+        #expect(plan.workspaceTabControls == [.tabStrip, .overflowLeft, .overflowRight])
+        #expect(plan.trailingControls == [.overflowLeft, .overflowRight])
     }
 
     @Test("classifies toolbar control styles")
     func classifiesToolbarControlStyles() {
-        let plan = TabBarChromeLayoutPlan(hasNewTab: true, isOverflowing: true)
+        let plan = TabBarChromeLayoutPlan(isOverflowing: true)
 
-        #expect(plan.controlStyles[.newTab] == .toolbarButton)
         #expect(plan.controlStyles[.overflowLeft] == .plainIcon)
         #expect(plan.controlStyles[.overflowRight] == .plainIcon)
-        #expect(plan.controlStyles[.overflowMenu] == .plainIcon)
-        #expect(plan.controlStyles[.divider] == .divider)
         #expect(plan.controlStyles[.tabStrip] == .tabStrip)
     }
 

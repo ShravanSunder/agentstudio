@@ -208,6 +208,11 @@ package enum AppStyles {
         package enum TabBar {
             package static let height: CGFloat = 40
             package static let tabPillHeight: CGFloat = 32
+            /// Optical compensation for NSToolbar row headroom above the tabs item.
+            /// Value derived from pixel measurement, not from the row's own geometry —
+            /// AppKit reserves headroom above this toolbar item that we can't remove,
+            /// so the pill strip nudges up to visually re-center within the strip.
+            package static let tabStripPillVerticalNudge: CGFloat = -3
             package static let tabPillSpacing: CGFloat = 2
             package static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
@@ -216,9 +221,7 @@ package enum AppStyles {
             package static let circledControlSpacing: CGFloat = 12
             package static let plainToolbarIconSpacing: CGFloat = 0
             package static let dividerHeight: CGFloat = 18
-            package static let dividerHorizontalPadding: CGFloat = 12
-            package static let windowDragRegionHeight: CGFloat =
-                AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
+            package static let dividerHorizontalPadding: CGFloat = 0
 
             package enum PlainToolbarIcon {
                 package static let buttonSize: CGFloat = 24
@@ -233,8 +236,8 @@ package enum AppStyles {
                 package static let hoverFillColor = Color(
                     nsColor: NSColor(hex: "#242428") ?? NSColor(white: 0.14, alpha: 1))
                 package static let pressedFillColor = hoverFillColor
-                package static let iconForegroundColor = Color(
-                    nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
+                package static let iconForegroundNSColor = NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1)
+                package static let iconForegroundColor = Color(nsColor: iconForegroundNSColor)
                 package static let hoverIconForegroundColor = Color.white
                 package static let selectedFillOpacity: CGFloat = 0.20
                 package static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted

@@ -68,21 +68,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
             let workspaceTabsView = try #require(workspaceTabsItem.view)
             #expect(workspaceTabsView.identifier == NSUserInterfaceItemIdentifier("workspaceTabsToolbarControl"))
             #expect(workspaceTabsView is MainToolbarChromeView)
-            #expect(workspaceTabsView.frame.height == AppStyles.Shell.TabBar.height)
-            #expect(
-                findDescendant(
-                    in: workspaceTabsView,
-                    identifier: ShellChromeDragRegionView.viewIdentifier.rawValue
-                ) != nil
-            )
-            #expect(
-                window.contentView.flatMap {
-                    findDescendant(
-                        in: $0,
-                        identifier: ShellChromeDragRegionView.viewIdentifier.rawValue
-                    )
-                } == nil
-            )
             #expect(window.standardWindowButton(.closeButton)?.isHidden == false)
             #expect(window.standardWindowButton(.miniaturizeButton)?.isHidden == false)
             #expect(window.standardWindowButton(.zoomButton)?.isHidden == false)
@@ -120,21 +105,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(!layoutSource.contains(".arrangement"))
     }
 
-    @Test("native toolbar installs distinct worktree and inbox views")
-    func nativeToolbarInstallsDistinctWorktreeAndInboxViews() throws {
-        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
-
-        #expect(source.contains("struct SidebarSurfaceToolbarButton: View"))
-        #expect(source.contains("case repos"))
-        #expect(source.contains("case inbox"))
-        #expect(source.contains("command: .showWorktreeSidebar"))
-        #expect(source.contains("symbolName: \"square.stack.3d.down.right\""))
-        #expect(source.contains("selectedSymbolName: \"square.stack.3d.down.right.fill\""))
-        #expect(source.contains("command: .showInboxNotifications"))
-        #expect(source.contains("symbolName: \"bell\""))
-        #expect(source.contains("selectedSymbolName: \"bell.fill\""))
-    }
-
     @Test("top chrome sidebar buttons use command specs and dispatch through shared commands")
     func topChromeSidebarButtonsUseCommandSpecsAndDispatchThroughSharedCommands() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
@@ -143,24 +113,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(source.contains("presentation.perform()"))
         #expect(source.contains(".disabled(!presentation.isEnabled)"))
         #expect(source.contains(".help(presentation.controlToolTip)"))
-    }
-
-    @Test("top chrome sidebar icons track open active surface")
-    func topChromeSidebarIconsTrackOpenActiveSurface() throws {
-        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
-
-        #expect(source.contains("!sidebarState.sidebarCollapsed"))
-        #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .repos"))
-        #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox"))
-    }
-
-    @Test("top chrome inbox badge reads the injected global roll-up count")
-    func topChromeInboxBadgeReadsInjectedGlobalRollUpCount() throws {
-        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
-
-        #expect(source.contains("let inboxAtom: InboxNotificationAtom"))
-        #expect(source.contains("badgeCount: inboxAtom.globalRollUpAlertCount"))
-        #expect(source.contains("badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil"))
     }
 
     @Test("watch folder uses the shared top chrome button")
@@ -188,13 +140,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
     @Test("watch folder presentation is filtered by app toolbar surface and command context")
     func watchFolderPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
         expectAppToolbarPresentationFiltering(for: .watchFolder)
-    }
-
-    @Test("bell unread badge text caps at ninety nine plus")
-    func bellUnreadBadgeTextCapsAtNinetyNinePlus() {
-        #expect(InboxToolbarUnreadBadgeText.text(for: 1) == "1")
-        #expect(InboxToolbarUnreadBadgeText.text(for: 99) == "99")
-        #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
     }
 
     @Test("window frame changes update workspace-local memory without legacy defaults")
