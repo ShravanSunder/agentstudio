@@ -245,7 +245,7 @@ struct AtomFamilyObservationTests {
     }
 
     @Test
-    func retiringRemovedSlotWakesOnceAndPreservesActiveResubscription() {
+    func removedSlotRetainsIdentityAndActiveResubscription() {
         let aggregateRevision = AtomRevision()
         let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let repoACounter = AtomFamilyObservationCounter()
@@ -257,12 +257,12 @@ struct AtomFamilyObservationTests {
         observeRepoA(in: map, counter: repoACounter)
 
         let removeMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
-        map.removeValueAndRetireSlot(for: "repo-a", mutation: removeMutation)
-        map.removeValueAndRetireSlot(for: "repo-b", mutation: removeMutation)
+        map.removeValue(for: "repo-a", mutation: removeMutation)
+        map.removeValue(for: "repo-b", mutation: removeMutation)
         removeMutation.commit()
 
         #expect(repoACounter.count == 1)
-        #expect(map.storageSlotCount == 1)
+        #expect(map.storageSlotCount == 2)
 
         let reinsertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(3, for: "repo-a", mutation: reinsertMutation)
@@ -273,21 +273,51 @@ struct AtomFamilyObservationTests {
     }
 
     @Test
-    func pruningMissingSlotsPreservesActiveResubscription() {
+    func removalAndReinsertionCannotReuseRevisionTupleOrReturnStaleDerivedValue() {
+        let aggregateRevision = AtomRevision()
+        let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
+
+        let insertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(1, for: "repo-a", mutation: insertMutation)
+        insertMutation.commit()
+        let insertedRevision = map.revision(for: "repo-a")
+
+        let derived = DerivedAtom<Int?>(
+            inputRevisions: { [map.revision(for: "repo-a")] },
+            isContentEqual: ==,
+            compute: { map.value(for: "repo-a") }
+        )
+        #expect(derived.value == 1)
+
+        let removeMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.removeValue(for: "repo-a", mutation: removeMutation)
+        removeMutation.commit()
+        let removedRevision = map.revision(for: "repo-a")
+
+        let reinsertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
+        map.setValue(2, for: "repo-a", mutation: reinsertMutation)
+        reinsertMutation.commit()
+        let reinsertedRevision = map.revision(for: "repo-a")
+
+        #expect(removedRevision > insertedRevision)
+        #expect(reinsertedRevision > removedRevision)
+        #expect(derived.value == 2)
+    }
+
+    @Test
+    func missingSlotsRemainRetainedForFamilyLifetime() {
         let aggregateRevision = AtomRevision()
         let map = AtomFamily<String, Int>(telemetryLabel: "observation_test", isContentEqual: ==)
         let repoACounter = AtomFamilyObservationCounter()
         observeRepoA(in: map, counter: repoACounter)
 
-        #expect(map.pruneNilSlots(excluding: []) == 1)
-        #expect(repoACounter.count == 1)
         #expect(map.storageSlotCount == 1)
 
         let insertMutation = AtomMutationContext(aggregateRevision: aggregateRevision)
         map.setValue(1, for: "repo-a", mutation: insertMutation)
         insertMutation.commit()
 
-        #expect(repoACounter.count == 2)
+        #expect(repoACounter.count == 1)
     }
 
     @Test
