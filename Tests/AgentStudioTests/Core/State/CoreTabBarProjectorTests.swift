@@ -1,6 +1,8 @@
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
+import Observation
+import Synchronization
 import Testing
 
 @testable import AgentStudioCore
@@ -97,6 +99,51 @@ final class CoreTabBarProjectorTests {
             #expect(projection.items[0].displayTitle == "agent-studio-feature · feature/off-main-title")
             #expect(projection.items[1].displayTitle == mainWorktree.path.lastPathComponent)
             assertCurrentReaderParity(projection)
+        }
+    }
+
+    @Test
+    func keyedCaptureIgnoresUnrelatedEnrichmentAndInvalidatesForItsWorktree() throws {
+        try withTestCoreAtoms(using: coreAtoms) { _ in
+            let observedRepo = store.addRepo(at: URL(filePath: "/tmp/core-tab-bar-observed-enrichment"))
+            let observedWorktree = try #require(observedRepo.worktrees.first)
+            let unrelatedRepo = store.addRepo(at: URL(filePath: "/tmp/core-tab-bar-unrelated-enrichment"))
+            let unrelatedWorktree = try #require(unrelatedRepo.worktrees.first)
+            let pane = store.createPane(
+                launchDirectory: observedWorktree.path,
+                facets: PaneContextFacets(cwd: observedWorktree.path)
+            )
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            let invalidation = CoreTabBarProjectionObservationFlag()
+
+            withObservationTracking {
+                _ = CoreTabBarProjectionRequest.capture(
+                    tabId: tab.id,
+                    store: store,
+                    repoCache: coreAtoms.repoCache
+                )
+            } onChange: {
+                invalidation.record()
+            }
+
+            coreAtoms.repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: unrelatedWorktree.id,
+                    repoId: unrelatedRepo.id,
+                    branch: "unrelated/change"
+                )
+            )
+            #expect(!invalidation.didFire)
+
+            coreAtoms.repoCache.setWorktreeEnrichment(
+                WorktreeEnrichment(
+                    worktreeId: observedWorktree.id,
+                    repoId: observedRepo.id,
+                    branch: "observed/change"
+                )
+            )
+            #expect(invalidation.didFire)
         }
     }
 
@@ -429,4 +476,16 @@ final class CoreTabBarProjectorTests {
         #expect(projection.activeTabId == (store.tabLayoutAtom.activeTabId ?? projection.items.last?.id))
     }
 
+}
+
+private final class CoreTabBarProjectionObservationFlag: Sendable {
+    private let state = Mutex(false)
+
+    var didFire: Bool {
+        state.withLock { $0 }
+    }
+
+    func record() {
+        state.withLock { $0 = true }
+    }
 }

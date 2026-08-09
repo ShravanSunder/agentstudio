@@ -41,8 +41,6 @@ package struct CoreTabBarProjectionRequest: Sendable {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> Self? {
-        _ = repoCache.repoEnrichmentRevision
-        _ = repoCache.worktreeEnrichmentRevision
         guard let tabShell = store.tabShellAtom.tabShell(tabId),
             let tabGraphState = store.tabGraphAtom.tabState(tabId)
         else {
@@ -79,6 +77,12 @@ package struct CoreTabBarProjectionRequest: Sendable {
                 store.paneGraphAtom.paneState(paneId).map { (paneId, $0) }
             }
         )
+        let topologySnapshot = store.repositoryTopologyAtom.captureReadSnapshot()
+        let enrichmentSnapshots = captureEnrichmentSnapshots(
+            paneStates: paneStates,
+            topologySnapshot: topologySnapshot,
+            repoCache: repoCache
+        )
 
         return Self(
             tabShells: [tabShell],
@@ -90,12 +94,44 @@ package struct CoreTabBarProjectionRequest: Sendable {
             drawerCursorsByKey: drawerCursorsByKey,
             paneStates: paneStates,
             expandedDrawerId: store.drawerCursorAtom.expandedDrawerId,
-            topologySnapshot: store.repositoryTopologyAtom.captureReadSnapshot(),
-            repoEnrichmentSnapshot: repoCache.repoEnrichmentSnapshot(),
-            worktreeEnrichmentSnapshot: repoCache.worktreeEnrichmentSnapshot(),
+            topologySnapshot: topologySnapshot,
+            repoEnrichmentSnapshot: enrichmentSnapshots.reposById,
+            worktreeEnrichmentSnapshot: enrichmentSnapshots.worktreesById,
             zoomPresentationsByTabId: store.panePresentationAtom.zoomPresentation(forTab: tabId)
                 .map { [tabId: $0] } ?? [:]
         )
+    }
+
+    @MainActor
+    private static func captureEnrichmentSnapshots(
+        paneStates: [UUID: PaneGraphState],
+        topologySnapshot: RepositoryTopologyReadSnapshot,
+        repoCache: RepoCacheAtom
+    ) -> (reposById: [UUID: RepoEnrichment], worktreesById: [UUID: WorktreeEnrichment]) {
+        var repoIds: Set<UUID> = []
+        var worktreeIds: Set<UUID> = []
+
+        for paneState in paneStates.values {
+            guard
+                let resolvedContext = topologySnapshot.repoAndWorktree(
+                    containing: paneState.metadata.facets.cwd
+                )
+            else { continue }
+            repoIds.insert(resolvedContext.repo.id)
+            worktreeIds.insert(resolvedContext.worktree.id)
+        }
+
+        let reposById = Dictionary(
+            uniqueKeysWithValues: repoIds.compactMap { repoId in
+                repoCache.repoEnrichment(for: repoId).map { (repoId, $0) }
+            }
+        )
+        let worktreesById = Dictionary(
+            uniqueKeysWithValues: worktreeIds.compactMap { worktreeId in
+                repoCache.worktreeEnrichment(for: worktreeId).map { (worktreeId, $0) }
+            }
+        )
+        return (reposById, worktreesById)
     }
 
     package var paneIds: [UUID] {

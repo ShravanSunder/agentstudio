@@ -766,6 +766,16 @@ final class TabBarAdapterMaterializationTests {
         adapter = nil
 
         #expect(weakAdapter == nil)
+        #expect(weakMaterializedProjection != nil)
+
+        projectionGate.release()
+        for _ in 0..<1000 where weakMaterializedProjection?.hasUnsettledProjectionTasks == true {
+            await Task.yield()
+        }
+        #expect(weakMaterializedProjection?.hasUnsettledProjectionTasks != true)
+        for _ in 0..<1000 where weakMaterializedProjection != nil {
+            await Task.yield()
+        }
         #expect(weakMaterializedProjection == nil)
     }
 
