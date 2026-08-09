@@ -262,6 +262,7 @@ final class TabBarAdapter {
     }
 
     private func publishProjectionIfReady() {
+        let refreshStartedAt = projectionTelemetry.refreshStartedAt()
         var items: [TabBarItem] = []
         items.reserveCapacity(orderedTabIds.count)
         for tabId in orderedTabIds {
@@ -283,7 +284,11 @@ final class TabBarAdapter {
         let previousProjection = publishedProjection
         publishedProjection = candidate
         outputPublicationRevision &+= 1
-        projectionTelemetry.recordPublication(previous: previousProjection, current: candidate)
+        projectionTelemetry.recordPublication(
+            previous: previousProjection,
+            current: candidate,
+            refreshStartedAt: refreshStartedAt
+        )
         updateOverflow()
     }
 
@@ -357,6 +362,12 @@ private final class TabBarProjectionTelemetry: Sendable {
     }
 
     func captureStartedAt() -> ContinuousClock.Instant? {
+        guard recorder?.isEnabled == true else { return nil }
+        return clock.now
+    }
+
+    @MainActor
+    func refreshStartedAt() -> ContinuousClock.Instant? {
         guard recorder?.isEnabled == true else { return nil }
         return clock.now
     }
@@ -469,9 +480,10 @@ private final class TabBarProjectionTelemetry: Sendable {
     @MainActor
     func recordPublication(
         previous: TabBarProjection?,
-        current: TabBarProjection
+        current: TabBarProjection,
+        refreshStartedAt: ContinuousClock.Instant?
     ) {
-        guard let recorder, recorder.isEnabled else { return }
+        guard let recorder, recorder.isEnabled, let refreshStartedAt else { return }
         let admission = state.withLock { state -> Admission? in
             defer { state.pendingPublicationAdmission = nil }
             guard var admission = state.pendingPublicationAdmission else { return nil }
@@ -491,7 +503,7 @@ private final class TabBarProjectionTelemetry: Sendable {
         guard let admission else { return }
         recorder.recordDuration(
             .tabBarRefresh,
-            duration: admission.captureStartedAt.duration(to: clock.now),
+            duration: refreshStartedAt.duration(to: clock.now),
             attributes: Self.attributes(for: admission)
         )
         recorder.recordDuration(

@@ -636,6 +636,15 @@ final class TabBarAdapterMaterializationTests {
         )
         let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let completionRecorder = TabBarAdapterProjectionCompletionRecorder()
+        let measuredProject: @Sendable (TabBarProjectionRequest) throws(CancellationError) -> TabBarProjection =
+            { request in
+                var projectionWorkChecksum: UInt64 = 0
+                for workIndex in 0..<200_000 {
+                    projectionWorkChecksum &+= UInt64(workIndex)
+                }
+                _ = projectionWorkChecksum
+                return try TabBarProjector.project(request)
+            }
         let pane = store.createPane(title: "Measured")
         let tab = Tab(paneId: pane.id, name: "Measured")
         store.appendTab(tab)
@@ -645,6 +654,7 @@ final class TabBarAdapterMaterializationTests {
             repoCache: repoCache,
             inboxAtom: inboxAtom,
             performanceTraceRecorder: performanceTraceRecorder,
+            project: measuredProject,
             onProjectionCompletion: completionRecorder.record
         )
         #expect(await completionRecorder.wait(for: .published(.init(value: 1))))
@@ -666,6 +676,18 @@ final class TabBarAdapterMaterializationTests {
         #expect(contents.contains("\"agentstudio.performance.tabbar.pane.count\":1"))
         #expect(contents.contains("\"agentstudio.performance.tabbar.terminal.outcome\":\"published\""))
         #expect(contents.contains("\"agentstudio.performance.tabbar.active_tab.present\":true"))
+        let refreshElapsedMilliseconds = try tabBarTelemetryElapsedMilliseconds(
+            for: "performance.tabbar.refresh",
+            in: contents
+        )
+        let workerElapsedMilliseconds = try tabBarTelemetryElapsedMilliseconds(
+            for: "performance.tabbar.worker",
+            in: contents
+        )
+        #expect(
+            refreshElapsedMilliseconds < workerElapsedMilliseconds,
+            "Tab Bar refresh must measure MainActor publication work, not include off-main projection"
+        )
     }
 
     @Test("stop immediately settles an admitted projection exactly once")
@@ -793,179 +815,11 @@ final class TabBarAdapterMaterializationTests {
     ) async -> Bool {
         await TabBarAdapterConditionWaiter(condition: predicate).wait()
     }
+
 }
 
 extension String {
     fileprivate func occurrenceCount(of substring: String) -> Int {
         components(separatedBy: substring).count - 1
-    }
-}
-
-final class TabBarAdapterTestSignal: Sendable {
-    private struct State {
-        var didSignal = false
-        var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
-    }
-
-    private let state = Mutex(State())
-
-    func signal() {
-        let waiters = state.withLock { state in
-            guard !state.didSignal else { return [CheckedContinuation<Bool, Never>]() }
-            state.didSignal = true
-            let waiters = Array(state.waiters.values)
-            state.waiters.removeAll()
-            return waiters
-        }
-        for waiter in waiters {
-            waiter.resume(returning: true)
-        }
-    }
-
-    func wait() async -> Bool {
-        let waiterID = UUID()
-        return await withCheckedContinuation { continuation in
-            let shouldResumeImmediately = state.withLock { state in
-                guard !state.didSignal else { return true }
-                state.waiters[waiterID] = continuation
-                return false
-            }
-            if shouldResumeImmediately {
-                continuation.resume(returning: true)
-                return
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) { [weak self] in
-                let timedOutContinuation = self?.state.withLock { state in
-                    state.waiters.removeValue(forKey: waiterID)
-                }
-                timedOutContinuation?.resume(returning: false)
-            }
-        }
-    }
-}
-
-private final class TabBarAdapterProjectionGate: Sendable {
-    private let started = TabBarAdapterTestSignal()
-    private let releaseSemaphore = DispatchSemaphore(value: 0)
-    private let didRelease = Mutex(false)
-
-    func hold() throws(CancellationError) {
-        started.signal()
-        guard releaseSemaphore.wait(timeout: .now() + .seconds(5)) == .success else {
-            throw CancellationError()
-        }
-    }
-
-    func waitUntilStarted() async -> Bool {
-        await started.wait()
-    }
-
-    func release() {
-        let shouldRelease = didRelease.withLock { didRelease in
-            guard !didRelease else { return false }
-            didRelease = true
-            return true
-        }
-        if shouldRelease {
-            releaseSemaphore.signal()
-        }
-    }
-}
-
-private final class TabBarAdapterProjectionController: Sendable {
-    private struct State {
-        var projectedGenerations: [UInt64] = []
-        var projectedTabIDs: [UUID] = []
-        var firstProjectionByTabID: [UUID: TabBarProjection] = [:]
-    }
-
-    private let gatesByGeneration: [UInt64: TabBarAdapterProjectionGate]
-    private let returnsFirstProjection: Bool
-    private let returnsFirstProjectionForGenerations: Set<UInt64>
-    private let state = Mutex(State())
-
-    init(
-        gatesByGeneration: [UInt64: TabBarAdapterProjectionGate] = [:],
-        returnsFirstProjection: Bool = false,
-        returnsFirstProjectionForGenerations: Set<UInt64> = []
-    ) {
-        self.gatesByGeneration = gatesByGeneration
-        self.returnsFirstProjection = returnsFirstProjection
-        self.returnsFirstProjectionForGenerations = returnsFirstProjectionForGenerations
-    }
-
-    var projectionCount: Int {
-        state.withLock { $0.projectedGenerations.count }
-    }
-
-    var projectedGenerations: [UInt64] {
-        state.withLock { $0.projectedGenerations }
-    }
-
-    var projectedTabIDs: [UUID] {
-        state.withLock { $0.projectedTabIDs }
-    }
-
-    func project(
-        _ request: TabBarProjectionRequest
-    ) throws(CancellationError) -> TabBarProjection {
-        let generation = request.generation.value
-        state.withLock { $0.projectedGenerations.append(generation) }
-        try gatesByGeneration[generation]?.hold()
-        let candidate = try TabBarProjector.project(request)
-        return state.withLock { state in
-            state.projectedTabIDs.append(contentsOf: candidate.items.map(\.id))
-            guard let tabID = candidate.items.first?.id else { return candidate }
-            if let firstProjection = state.firstProjectionByTabID[tabID],
-                returnsFirstProjection || returnsFirstProjectionForGenerations.contains(generation)
-            {
-                return firstProjection
-            }
-            state.firstProjectionByTabID[tabID] = candidate
-            return candidate
-        }
-    }
-}
-
-private final class TabBarAdapterTestCounter: Sendable {
-    private let countState = Mutex(0)
-
-    var didIncrement: Bool {
-        countState.withLock { $0 > 0 }
-    }
-
-    func increment() {
-        countState.withLock { $0 += 1 }
-    }
-}
-
-@MainActor
-private final class TabBarAdapterProjectionCompletionRecorder {
-    private var completions: [TabBarMaterializedProjection.ProjectionCompletion] = []
-    private var waiters:
-        [(
-            completion: TabBarMaterializedProjection.ProjectionCompletion,
-            signal: TabBarAdapterTestSignal
-        )] = []
-
-    func record(_ completion: TabBarMaterializedProjection.ProjectionCompletion) {
-        completions.append(completion)
-        for waiter in waiters where waiter.completion == completion {
-            waiter.signal.signal()
-        }
-    }
-
-    func wait(
-        for completion: TabBarMaterializedProjection.ProjectionCompletion
-    ) async -> Bool {
-        if completions.contains(completion) {
-            return true
-        }
-        if let existingWaiter = waiters.first(where: { $0.completion == completion }) {
-            return await existingWaiter.signal.wait()
-        }
-        let signal = TabBarAdapterTestSignal()
-        waiters.append((completion: completion, signal: signal))
-        return await signal.wait()
     }
 }
