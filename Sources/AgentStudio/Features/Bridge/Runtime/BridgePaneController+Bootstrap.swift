@@ -87,7 +87,7 @@ final class BridgePaneProductCommittedCallTarget {
     private let productAdmissionGate: BridgeProductAdmissionGate
     weak var controller: BridgePaneController?
 
-    init(productAdmissionGate: BridgeProductAdmissionGate = BridgeProductAdmissionGate()) {
+    init(productAdmissionGate: BridgeProductAdmissionGate) {
         self.productAdmissionGate = productAdmissionGate
     }
 

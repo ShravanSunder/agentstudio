@@ -395,13 +395,14 @@ extension WebKitSerializedTests {
                 worktreeId: worktreeId
             )
             let reviewMetadataSource = BridgeWebKitFailingReviewMetadataSource()
+            let productAdmissionGate = BridgeProductAdmissionGate()
             let (productProvider, committedCallTarget) = makeTransactionalProductProvider(
                 controllerTarget: controllerTarget,
                 fileMetadataSource: fileMetadataSource,
                 reviewMetadataSource: reviewMetadataSource,
+                productAdmissionGate: productAdmissionGate,
                 traceRecorder: traceRecorder
             )
-            let productAdmissionGate = BridgeProductAdmissionGate()
             let installation = BridgePaneController.makeInitialProductSessionInstallation(
                 paneSessionId: paneId.uuidString,
                 provider: productProvider,
@@ -459,9 +460,12 @@ extension WebKitSerializedTests {
             controllerTarget: BridgeProductWebKitCarrierControllerTarget,
             fileMetadataSource: BridgeWebKitTrackingFileMetadataSource,
             reviewMetadataSource: BridgeWebKitFailingReviewMetadataSource,
+            productAdmissionGate: BridgeProductAdmissionGate,
             traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         ) -> (BridgePaneProductSchemeProvider, BridgePaneProductCommittedCallTarget) {
-            let committedCallTarget = BridgePaneProductCommittedCallTarget()
+            let committedCallTarget = BridgePaneProductCommittedCallTarget(
+                productAdmissionGate: productAdmissionGate
+            )
             let refreshWorkAdmission =
                 BridgePaneRefreshWorkAdmissionTestContext.foregroundOnMainActor()
             let provider = BridgePaneProductSchemeProvider(
