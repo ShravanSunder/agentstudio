@@ -1,6 +1,9 @@
 import Foundation
 
 protocol BridgeGitReviewDataClient: Sendable {
+    func localDefaultBranch() async throws -> String?
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult
@@ -48,6 +51,16 @@ actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
 
     init(client: any BridgeGitReviewDataClient) {
         self.client = client
+    }
+
+    func localDefaultBranch() async throws -> String? {
+        try await client.localDefaultBranch()
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        try await client.captureContributionComparison(request)
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {

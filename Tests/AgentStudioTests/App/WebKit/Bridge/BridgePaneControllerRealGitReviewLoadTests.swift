@@ -101,6 +101,221 @@ extension WebKitSerializedTests {
             #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
             #expect(harness.sharedContentBackingChildren().isEmpty)
         }
+
+        @Test("a real contribution publishes complete dirty state and excludes target-only movement")
+        func realContributionPublishesCompleteDirtyStateAndExcludesTargetOnlyMovement() async throws {
+            // Arrange
+            let repoURL = try FilesystemTestGitRepo.create(named: "bridge-review-contribution")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            let fixture = try seedCompleteContribution(at: repoURL)
+            let harness = try await RealGitReviewLoadHarness.make(repositoryURL: repoURL)
+            defer {
+                harness.controller.teardown()
+                harness.removeSharedContentRoot()
+            }
+            let metadataLease = try await harness.openReviewMetadataSubscription()
+            let initialEventsTask = Task { @MainActor in
+                let sourceAccepted = try await harness.nextReviewMetadataEvent(for: metadataLease)
+                let snapshot = try await harness.nextReviewMetadataEvent(for: metadataLease)
+                return (sourceAccepted, snapshot)
+            }
+
+            // Act
+            let initialResult = try #require(
+                await harness.controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            )
+            guard case .success = initialResult else {
+                Issue.record("Expected the real contribution package to load: \(initialResult)")
+                return
+            }
+            let (initialSourceAcceptedEvent, initialSnapshotEvent) = try await initialEventsTask.value
+            let initialPackage = try #require(harness.controller.paneState.diff.packageMetadata)
+
+            // Assert
+            guard case .sourceAccepted = initialSourceAcceptedEvent,
+                case .snapshot(let initialSnapshot) = initialSnapshotEvent,
+                case .contribution(let initialOrigin) = initialPackage.comparisonOrigin
+            else {
+                Issue.record("Expected contribution source acceptance, snapshot, and origin")
+                return
+            }
+            #expect(initialSnapshot.comparisonOrigin == initialPackage.comparisonOrigin)
+            #expect(initialSnapshot.reviewedSubjectLabel == "real-git-review")
+            #expect(initialOrigin.symbolicTarget == .localDefaultBranch(branchName: "main"))
+            #expect(initialOrigin.resolvedTargetOID == fixture.initialTargetOID)
+            #expect(initialOrigin.reviewedHeadOID == fixture.reviewedHeadOID)
+            #expect(initialOrigin.contributionBaseOID == fixture.sharedBaseOID)
+            let initialPaths = Set(initialPackage.itemsById.values.compactMap(\.headPath))
+            #expect(initialPaths.isSuperset(of: fixture.expectedContributionPaths))
+            #expect(!initialPaths.contains("target-only.txt"))
+            try await assertCompleteContributionContent(
+                package: initialPackage,
+                provider: harness.reviewSourceProvider
+            )
+
+            let successorTargetOID = try advanceTargetOnlyHistory(at: repoURL)
+            let successorEventsTask = Task { @MainActor in
+                let reset = try await harness.nextReviewMetadataEvent(for: metadataLease)
+                let sourceAccepted = try await harness.nextReviewMetadataEvent(for: metadataLease)
+                let snapshot = try await harness.nextReviewMetadataEvent(for: metadataLease)
+                return (reset, sourceAccepted, snapshot)
+            }
+            let foregroundWorkAdmission = try #require(
+                harness.controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
+
+            let refreshOutcome = await harness.controller.refreshCurrentReviewPackage(
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                productAdmission: harness.productAdmission
+            )
+            let (resetEvent, successorSourceAcceptedEvent, successorSnapshotEvent) =
+                try await successorEventsTask.value
+            let successorPackage = try #require(harness.controller.paneState.diff.packageMetadata)
+
+            #expect(refreshOutcome == .succeeded)
+            guard case .reset(let reset) = resetEvent,
+                case .sourceAccepted = successorSourceAcceptedEvent,
+                case .snapshot(let successorSnapshot) = successorSnapshotEvent,
+                case .contribution(let successorOrigin) = successorPackage.comparisonOrigin
+            else {
+                Issue.record("Expected target movement to reset and publish a successor contribution snapshot")
+                return
+            }
+            #expect(successorPackage.reviewGeneration == initialPackage.reviewGeneration.next())
+            #expect(successorPackage != initialPackage)
+            #expect(successorOrigin.resolvedTargetOID == successorTargetOID)
+            #expect(successorOrigin.reviewedHeadOID == initialOrigin.reviewedHeadOID)
+            #expect(successorOrigin.contributionBaseOID == initialOrigin.contributionBaseOID)
+            #expect(successorPackage.itemsById.keys == initialPackage.itemsById.keys)
+            #expect(!successorPackage.itemsById.values.compactMap(\.headPath).contains("target-only.txt"))
+            #expect(reset.comparisonOrigin == successorPackage.comparisonOrigin)
+            #expect(successorSnapshot.comparisonOrigin == successorPackage.comparisonOrigin)
+            #expect(successorSnapshot.identity.publicationId != initialSnapshot.identity.publicationId)
+            #expect(initialPackage.comparisonOrigin == .contribution(initialOrigin))
+            #expect(initialPackage.itemsById.values.compactMap(\.headPath).contains("target-only.txt") == false)
+
+            #expect(await harness.controller.teardown().value)
+            #expect((await harness.installation.session.producerSnapshot()).hasZeroResidue)
+            await assertBridgeConstructionCoordinatorDrained(harness.constructionCoordinator)
+            #expect(await harness.reviewDataClient.registeredContentLocatorCount() == 0)
+            #expect(harness.sharedContentBackingChildren().isEmpty)
+        }
+    }
+}
+
+private struct CompleteContributionFixture {
+    let expectedContributionPaths: Set<String>
+    let initialTargetOID: String
+    let reviewedHeadOID: String
+    let sharedBaseOID: String
+}
+
+private func seedCompleteContribution(at repositoryURL: URL) throws -> CompleteContributionFixture {
+    try "initial\n".write(
+        to: repositoryURL.appending(path: "tracked.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "tracked.txt"])
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "shared base"])
+    let sharedBaseOID = try normalizedGitOID(
+        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
+    )
+
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "-c", "feature/review"])
+    try "committed\n".write(
+        to: repositoryURL.appending(path: "committed.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "committed.txt"])
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "reviewed commit"])
+    let reviewedHeadOID = try normalizedGitOID(
+        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
+    )
+
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "main"])
+    try "target only\n".write(
+        to: repositoryURL.appending(path: "target-only.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "target-only.txt"])
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["commit", "-m", "target-only commit"])
+    let initialTargetOID = try normalizedGitOID(
+        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "HEAD"])
+    )
+
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["switch", "feature/review"])
+    try "staged\n".write(
+        to: repositoryURL.appending(path: "staged.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["add", "staged.txt"])
+    try "initial\nunstaged\n".write(
+        to: repositoryURL.appending(path: "tracked.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "untracked\n".write(
+        to: repositoryURL.appending(path: "untracked.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    return CompleteContributionFixture(
+        expectedContributionPaths: ["committed.txt", "staged.txt", "tracked.txt", "untracked.txt"],
+        initialTargetOID: initialTargetOID,
+        reviewedHeadOID: reviewedHeadOID,
+        sharedBaseOID: sharedBaseOID
+    )
+}
+
+private func advanceTargetOnlyHistory(at repositoryURL: URL) throws -> String {
+    let targetTreeOID = try normalizedGitOID(
+        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "main^{tree}"])
+    )
+    let targetParentOID = try normalizedGitOID(
+        FilesystemTestGitRepo.runGit(at: repositoryURL, args: ["rev-parse", "main"])
+    )
+    let successorTargetOID = try normalizedGitOID(
+        FilesystemTestGitRepo.runGit(
+            at: repositoryURL,
+            args: ["commit-tree", targetTreeOID, "-p", targetParentOID, "-m", "advance target only"]
+        )
+    )
+    try FilesystemTestGitRepo.runGit(
+        at: repositoryURL,
+        args: ["update-ref", "refs/heads/main", successorTargetOID, targetParentOID]
+    )
+    return successorTargetOID
+}
+
+private func normalizedGitOID(_ output: String) throws -> String {
+    let oid = output.trimmingCharacters(in: .whitespacesAndNewlines)
+    return try #require(oid.isEmpty ? nil : oid)
+}
+
+private func assertCompleteContributionContent(
+    package: BridgeReviewPackage,
+    provider: BridgeGitReviewSourceProvider
+) async throws {
+    let expectedContentByPath: [String: String] = [
+        "committed.txt": "committed\n",
+        "staged.txt": "staged\n",
+        "tracked.txt": "initial\nunstaged\n",
+        "untracked.txt": "untracked\n",
+    ]
+    for (path, expectedContent) in expectedContentByPath {
+        let item = try #require(package.itemsById.values.first { $0.headPath == path })
+        let headHandle = try #require(item.contentRoles.head)
+        let loadedContent = try await provider.loadContent(
+            BridgeContentLoadRequest(
+                handle: headHandle,
+                requestedGeneration: package.reviewGeneration
+            )
+        )
+        #expect(loadedContent.data == Data(expectedContent.utf8))
     }
 }
 

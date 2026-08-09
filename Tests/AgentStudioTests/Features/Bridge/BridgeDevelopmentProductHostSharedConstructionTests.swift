@@ -98,6 +98,14 @@ private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
 private actor BridgeDevelopmentSharedConstructionReviewProvider:
     BridgeSharedReviewConstructionSourceProvider
 {
+    func localDefaultBranch() async throws -> String? { nil }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        throw BridgeProviderFailure.providerFailed(message: "Contribution capture not configured")
+    }
+
     private let comparisonGate: BridgeComparisonGate?
     private var regularComparisonCount = 0
     private var sharedCaptureCount = 0

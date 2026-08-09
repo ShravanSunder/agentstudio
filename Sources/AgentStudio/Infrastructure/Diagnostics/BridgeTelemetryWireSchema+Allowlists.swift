@@ -199,7 +199,6 @@ extension BridgeTelemetryWireSchema {
             "programmatic",
         ],
         "agentstudio.bridge.package_build.reason": [
-            "fallback_unresolved_head",
             "filesystem_refresh",
             "initial_intake",
             "intake_reannounce",

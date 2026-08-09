@@ -237,20 +237,24 @@ struct BridgeProductReviewSourceAcceptedEvent: Codable, Equatable, Sendable {
 struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case baseEndpoint
+        case comparisonOrigin
         case headEndpoint
         case itemWindow
         case query
+        case reviewedSubjectLabel
         case treeWindow
     }
 
     let identity: BridgeProductReviewMetadataIdentity
     let baseEndpoint: BridgeProductReviewSourceEndpointValue
+    let comparisonOrigin: BridgeReviewComparisonOrigin?
     let contentSources: [BridgeProductReviewContentSourceDescriptor]
     let extentFacts: [BridgeProductReviewExtentFactValue]
     let headEndpoint: BridgeProductReviewSourceEndpointValue
     let itemMetadata: [BridgeProductReviewItemMetadataValue]
     let itemWindow: BridgeProductReviewItemWindow
     let query: BridgeProductReviewQueryValue
+    let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
     let treeRows: [BridgeProductReviewTreeRowValue]
     let treeWindow: BridgeProductReviewTreeWindow
@@ -258,24 +262,28 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
     init(
         identity: BridgeProductReviewMetadataIdentity,
         baseEndpoint: BridgeProductReviewSourceEndpointValue,
+        comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
         contentSources: [BridgeProductReviewContentSourceDescriptor],
         extentFacts: [BridgeProductReviewExtentFactValue],
         headEndpoint: BridgeProductReviewSourceEndpointValue,
         itemMetadata: [BridgeProductReviewItemMetadataValue],
         itemWindow: BridgeProductReviewItemWindow,
         query: BridgeProductReviewQueryValue,
+        reviewedSubjectLabel: String? = nil,
         summary: BridgeProductReviewPackageSummaryValue,
         treeRows: [BridgeProductReviewTreeRowValue],
         treeWindow: BridgeProductReviewTreeWindow
     ) throws {
         self.identity = identity
         self.baseEndpoint = baseEndpoint
+        self.comparisonOrigin = comparisonOrigin
         self.contentSources = contentSources
         self.extentFacts = extentFacts
         self.headEndpoint = headEndpoint
         self.itemMetadata = itemMetadata
         self.itemWindow = itemWindow
         self.query = query
+        self.reviewedSubjectLabel = reviewedSubjectLabel
         self.summary = summary
         self.treeRows = treeRows
         self.treeWindow = treeWindow
@@ -305,12 +313,17 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         let payload = try BridgeProductReviewMetadataPayload(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.baseEndpoint = try container.decode(BridgeProductReviewSourceEndpointValue.self, forKey: .baseEndpoint)
+        self.comparisonOrigin = try container.decodeIfPresent(
+            BridgeReviewComparisonOrigin.self,
+            forKey: .comparisonOrigin
+        )
         self.contentSources = payload.contentSources
         self.extentFacts = payload.extentFacts
         self.headEndpoint = try container.decode(BridgeProductReviewSourceEndpointValue.self, forKey: .headEndpoint)
         self.itemMetadata = payload.itemMetadata
         self.itemWindow = try container.decode(BridgeProductReviewItemWindow.self, forKey: .itemWindow)
         self.query = try container.decode(BridgeProductReviewQueryValue.self, forKey: .query)
+        self.reviewedSubjectLabel = try container.decodeIfPresent(String.self, forKey: .reviewedSubjectLabel)
         self.summary = payload.summary
         self.treeRows = payload.treeRows
         self.treeWindow = try container.decode(BridgeProductReviewTreeWindow.self, forKey: .treeWindow)
@@ -331,9 +344,11 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         try eventContainer.encode("review.snapshot", forKey: .eventKind)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(baseEndpoint, forKey: .baseEndpoint)
+        try container.encodeIfPresent(comparisonOrigin, forKey: .comparisonOrigin)
         try container.encode(headEndpoint, forKey: .headEndpoint)
         try container.encode(itemWindow, forKey: .itemWindow)
         try container.encode(query, forKey: .query)
+        try container.encodeIfPresent(reviewedSubjectLabel, forKey: .reviewedSubjectLabel)
         try container.encode(treeWindow, forKey: .treeWindow)
     }
 

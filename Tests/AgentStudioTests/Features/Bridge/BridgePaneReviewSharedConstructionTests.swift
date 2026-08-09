@@ -716,14 +716,15 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
 
     static func make(
         baseRef: String = String(repeating: "a", count: 40),
+        contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
         contentReadGateByLocator: [GitContentLocator: BridgeGitContentReadGate] = [:],
         revisionResolutionGate: BridgeGitContentReadGate? = nil,
         schedulerEventSink: BridgeGitReadSchedulerEventSink? = nil
     ) throws -> Self {
         let (testRoot, repositoryPath, backingRoot) = try makeFixturePaths()
         let baseOID = String(repeating: "a", count: 40)
-        let endpointRepoId = UUID()
-        let endpointWorktreeId = UUID()
+        let endpointRepoId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let endpointWorktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let baseEndpoint = BridgeSourceEndpoint(
             endpointId: "base",
             kind: .gitRef,
@@ -745,6 +746,7 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
             providerIdentity: "working-tree"
         )
         let gitClient = AgentStudioGitLocalClientFake(
+            contributionDiffSnapshot: contributionDiffSnapshot,
             diffSnapshot: Self.diffSnapshot(headContent: "head-a"),
             contentByLocator: [
                 GitContentLocator(target: .commit(baseOID), path: "Sources/App.swift"):
@@ -845,6 +847,30 @@ struct BridgeSharedReviewConstructionFixture: @unchecked Sendable {
             checkpointIds: [],
             reviewGeneration: generation,
             generatedAtUnixMilliseconds: Int64(generation.rawValue)
+        )
+    }
+
+    func preparedContributionRequest(
+        packageId: String,
+        generation: BridgeReviewGeneration
+    ) async throws -> BridgeReviewPipelineRequest {
+        let intent = WorkspaceReviewComparisonIntent(
+            activeKind: .contribution,
+            contributionTarget: .ref(name: "target")
+        )
+        let capture = try await firstProvider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .ref(name: "target"),
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                reviewGenerationValue: generation.rawValue
+            )
+        )
+        return try BridgeResolvedContributionRequestBuilder.build(
+            request: request(packageId: packageId, generation: generation),
+            intent: intent,
+            capture: capture,
+            reviewedSubjectLabel: "feature-review"
         )
     }
 

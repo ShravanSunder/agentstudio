@@ -1,7 +1,20 @@
 import AgentStudioGit
+import CryptoKit
 import Foundation
 
 @testable import AgentStudioBridge
+
+extension AgentStudioGitLocalClient {
+    func localDefaultBranch(for _: URL) async throws(GitDataPlaneError) -> GitLocalDefaultBranch? {
+        throw GitDataPlaneError.unsupported(message: "local default branch not configured")
+    }
+
+    func contributionDiff(_: GitContributionDiffRequest) async throws(GitDataPlaneError)
+        -> GitContributionDiffSnapshot
+    {
+        throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
+    }
+}
 
 struct GitContentLocator: Hashable, Sendable {
     let target: GitDiffTarget
@@ -9,6 +22,8 @@ struct GitContentLocator: Hashable, Sendable {
 }
 
 actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
+    private let localDefaultBranchResult: GitLocalDefaultBranch?
+    private var contributionDiffSnapshot: GitContributionDiffSnapshot?
     private var diffSnapshot: GitDiffSnapshot
     private let diffFailure: GitDataPlaneError?
     private var contentByLocator: [GitContentLocator: GitContentPayload]
@@ -28,8 +43,12 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private var treeRequests: [GitTreeReadRequest] = []
     private var statusRequests: [(URL, GitStatusOptions)] = []
     private var revisionResolutionRequests: [GitRevisionResolutionRequest] = []
+    private var localDefaultBranchRequests: [URL] = []
+    private var contributionDiffRequests: [GitContributionDiffRequest] = []
 
     init(
+        localDefaultBranchResult: GitLocalDefaultBranch? = nil,
+        contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
         diffFailure: GitDataPlaneError? = nil,
         contentByLocator: [GitContentLocator: GitContentPayload] = [:],
@@ -45,6 +64,8 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionGate: BridgeGitContentReadGate? = nil,
         revisionResolutionFailure: GitDataPlaneError? = nil
     ) {
+        self.localDefaultBranchResult = localDefaultBranchResult
+        self.contributionDiffSnapshot = contributionDiffSnapshot
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
         self.contentByLocator = contentByLocator
@@ -128,6 +149,13 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
+    func localDefaultBranch(for repositoryPath: URL) async throws(GitDataPlaneError)
+        -> GitLocalDefaultBranch?
+    {
+        localDefaultBranchRequests.append(repositoryPath)
+        return localDefaultBranchResult
+    }
+
     func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
         -> GitResolvedRevision
     {
@@ -184,6 +212,16 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         return diffSnapshot
     }
 
+    func contributionDiff(_ request: GitContributionDiffRequest) async throws(GitDataPlaneError)
+        -> GitContributionDiffSnapshot
+    {
+        contributionDiffRequests.append(request)
+        guard let contributionDiffSnapshot else {
+            throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
+        }
+        return contributionDiffSnapshot
+    }
+
     func content(_ request: GitContentRequest) async throws(GitDataPlaneError) -> GitContentPayload {
         contentRequests.append(request)
         let locator = GitContentLocator(target: request.target, path: request.path)
@@ -223,8 +261,20 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionRequests
     }
 
+    func recordedLocalDefaultBranchRequests() -> [URL] {
+        localDefaultBranchRequests
+    }
+
+    func recordedContributionDiffRequests() -> [GitContributionDiffRequest] {
+        contributionDiffRequests
+    }
+
     func replaceDiffSnapshot(_ snapshot: GitDiffSnapshot) {
         diffSnapshot = snapshot
+    }
+
+    func replaceContributionDiffSnapshot(_ snapshot: GitContributionDiffSnapshot) {
+        contributionDiffSnapshot = snapshot
     }
 
     func replaceContent(_ content: GitContentPayload, for locator: GitContentLocator) {
@@ -269,4 +319,20 @@ actor BridgeGitContentReadGate {
         releaseWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume() }
     }
+}
+
+func gitContentPayload(_ content: String) -> GitContentPayload {
+    GitContentPayload(
+        data: Data(content.utf8),
+        contentHash: bridgeSHA256ContentHash(content),
+        contentHashAlgorithm: "sha256",
+        isBinary: false
+    )
+}
+
+func gitBlobSHA1ContentHash(_ content: String) -> String {
+    let data = Data(content.utf8)
+    var blobData = Data("blob \(data.count)\0".utf8)
+    blobData.append(data)
+    return Insecure.SHA1.hash(data: blobData).map { String(format: "%02x", $0) }.joined()
 }

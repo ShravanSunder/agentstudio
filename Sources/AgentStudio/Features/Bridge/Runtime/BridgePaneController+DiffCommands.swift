@@ -119,7 +119,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }
     }
 
-    private struct ReviewPackageLoadReset {
+    struct ReviewPackageLoadReset {
         let reviewGeneration: BridgeReviewGeneration
     }
 
@@ -151,9 +151,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         else {
             return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
-        var reviewLoadStage = "request"
+        var reviewLoadStage = "designation"
         let buildReason = consumePendingReviewPackageBuildReason(default: .initialIntake)
         do {
+            try await adoptInitialContributionTargetIfEligible(
+                reset: reset,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
             let constructionResult = try await loadReviewPackageResult(
                 artifact: artifact,
                 reviewGeneration: reset.reviewGeneration,
@@ -314,7 +319,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }.flatMap { $0 } == true
     }
 
-    private func isReviewPackageLoadCurrent(
+    func isReviewPackageLoadCurrent(
         reset: ReviewPackageLoadReset,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -331,6 +336,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) async -> BridgeReviewPackageLoadCommitDisposition {
         let commitDisposition = await commitReviewPackageLoad(
             request.load,
+            expectedReviewGeneration: request.reset.reviewGeneration,
             productAdmission: request.productAdmission,
             traceContext: request.traceContext,
             foregroundWorkAdmission: request.foregroundWorkAdmission
@@ -382,36 +388,22 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         reviewLoadStage: inout String,
         packageTraceContext: BridgeTraceContext?
     ) async throws -> BridgeReviewPackageConstructionResult {
-        let request = makeReviewPipelineRequest(artifact: artifact, reviewGeneration: reviewGeneration)
+        let unresolvedRequest = makeReviewPipelineRequest(
+            artifact: artifact,
+            reviewGeneration: reviewGeneration
+        )
         let packageBuildStart = ContinuousClock.now
         let constructionResult: BridgeReviewPackageConstructionResult
-        var telemetryReason = buildReason
-        do {
-            reviewLoadStage = "package"
-            constructionResult = try await acquireReviewPackage(request)
-        } catch {
-            guard shouldRetrySelectionRequiredContribution(after: error) else {
-                throw error
-            }
-            bridgeDiffCommandLogger.warning(
-                "Retrying Bridge review package load with unstaged baseline after unresolved HEAD"
-            )
-            let fallbackRequest = makeReviewPipelineRequest(
-                artifact: artifact,
-                reviewGeneration: reviewGeneration,
-                activeKindOverride: .unstagedOnly
-            )
-            reviewLoadStage = "packageFallback"
-            constructionResult = try await acquireReviewPackage(fallbackRequest)
-            telemetryReason = .fallbackUnresolvedHead
-        }
+        reviewLoadStage = "package"
+        let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
+        constructionResult = try await acquireReviewPackage(request)
         await recordSwiftTelemetry(
             name: "performance.bridge.swift.package_build",
             phase: "package_build",
             priorityHint: .cold,
             traceContext: packageTraceContext,
             stringAttributes: [
-                "agentstudio.bridge.package_build.reason": telemetryReason.rawValue
+                "agentstudio.bridge.package_build.reason": buildReason.rawValue
             ],
             durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                 from: packageBuildStart.duration(to: ContinuousClock.now)
@@ -553,14 +545,25 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return .succeeded
         }
         let currentPackage = currentPublication.package
+        guard
+            let refreshGeneration = beginReviewPackageRefresh(
+                currentPackage: currentPackage,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        else {
+            return .stale
+        }
         do {
             let (constructionResult, packageTraceContext) = try await loadReviewPackageForRefresh(
-                currentPackage
+                currentPackage,
+                reviewGeneration: refreshGeneration
             )
             let result = constructionResult.result
             guard
                 !Task.isCancelled,
                 foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                refreshGeneration == nextReviewGeneration,
                 reviewPublicationCoordinator.committedPublicationForReplay(
                     productAdmission: productAdmission
                 )?.publicationId == currentPublication.publicationId,
@@ -585,6 +588,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             guard
                 !Task.isCancelled,
                 foregroundWorkAdmission.withValidAdmission({ true }) == true,
+                refreshGeneration == nextReviewGeneration,
                 reviewPublicationCoordinator.isCurrentPublication(
                     publicationId: currentPublication.publicationId,
                     productAdmission: productAdmission
@@ -610,6 +614,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             let disposition = await commitReviewPackageLoad(
                 load,
+                expectedReviewGeneration: refreshGeneration,
                 productAdmission: productAdmission,
                 traceContext: packageTraceContext,
                 foregroundWorkAdmission: foregroundWorkAdmission
@@ -629,14 +634,32 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             bridgeDiffCommandLogger.debug(
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
-            return foregroundWorkAdmission.withValidAdmission({ true }) == nil
-                ? .stale
-                : .failed
+            return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
         }
     }
 
+    private func beginReviewPackageRefresh(
+        currentPackage: BridgeReviewPackage,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) -> BridgeReviewGeneration? {
+        foregroundWorkAdmission.withValidAdmission {
+            productAdmission.withValidAdmission {
+                guard case .workspace(_, let comparisonIntent) = bridgePaneState.source,
+                    comparisonIntent.activeKind == .contribution
+                else {
+                    return currentPackage.reviewGeneration
+                }
+                let reviewGeneration = nextReviewGeneration.next()
+                nextReviewGeneration = reviewGeneration
+                return reviewGeneration
+            }
+        }.flatMap { $0 }
+    }
+
     private func loadReviewPackageForRefresh(
-        _ currentPackage: BridgeReviewPackage
+        _ currentPackage: BridgeReviewPackage,
+        reviewGeneration: BridgeReviewGeneration
     ) async throws -> (
         result: BridgeReviewPackageConstructionResult,
         traceContext: BridgeTraceContext?
@@ -644,17 +667,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         let packageTraceContext = makeRootTraceContext()
         let packageBuildStart = ContinuousClock.now
         let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
-        let result = try await acquireReviewPackage(
-            BridgeReviewPipelineRequest(
-                packageId: currentPackage.packageId,
-                query: currentPackage.query,
-                baseEndpoint: currentPackage.baseEndpoint,
-                headEndpoint: currentPackage.headEndpoint,
-                checkpointIds: currentPackage.groups.map(\.groupId),
-                reviewGeneration: currentPackage.reviewGeneration,
-                generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
-            )
+        let unresolvedRequest = makeReviewRefreshPipelineRequest(
+            currentPackage: currentPackage,
+            reviewGeneration: reviewGeneration
         )
+        let request = try await resolveContributionRequestIfNeeded(unresolvedRequest)
+        let result = try await acquireReviewPackage(request)
         await recordSwiftTelemetry(
             name: "performance.bridge.swift.package_build",
             phase: "package_build",
@@ -668,6 +686,58 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
         )
         return (result, packageTraceContext)
+    }
+
+    private func makeReviewRefreshPipelineRequest(
+        currentPackage: BridgeReviewPackage,
+        reviewGeneration: BridgeReviewGeneration
+    ) -> BridgeReviewPipelineRequest {
+        guard case .workspace(_, let comparisonIntent) = bridgePaneState.source,
+            comparisonIntent.activeKind == .contribution
+        else {
+            return BridgeReviewPipelineRequest(
+                packageId: currentPackage.packageId,
+                query: currentPackage.query,
+                baseEndpoint: currentPackage.baseEndpoint,
+                headEndpoint: currentPackage.headEndpoint,
+                checkpointIds: currentPackage.groups.map(\.groupId),
+                reviewGeneration: reviewGeneration,
+                generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
+            )
+        }
+
+        let artifact = DiffArtifact(
+            diffId: UUIDv7.generate(),
+            worktreeId: currentPackage.query.worktreeId,
+            patchData: Data()
+        )
+        let endpoints = makeReviewEndpoints(
+            for: artifact,
+            repoId: currentPackage.query.repoId
+        )
+        let query = BridgeReviewQuery(
+            queryId: currentPackage.query.queryId,
+            queryKind: currentPackage.query.queryKind,
+            repoId: currentPackage.query.repoId,
+            worktreeId: currentPackage.query.worktreeId,
+            baseEndpointId: endpoints.base.endpointId,
+            headEndpointId: endpoints.head.endpointId,
+            comparisonSemantics: endpoints.comparisonSemantics,
+            pathScope: currentPackage.query.pathScope,
+            fileTarget: currentPackage.query.fileTarget,
+            viewFilter: currentPackage.query.viewFilter,
+            grouping: currentPackage.query.grouping,
+            provenanceFilter: currentPackage.query.provenanceFilter
+        )
+        return BridgeReviewPipelineRequest(
+            packageId: currentPackage.packageId,
+            query: query,
+            baseEndpoint: endpoints.base,
+            headEndpoint: endpoints.head,
+            checkpointIds: currentPackage.groups.map(\.groupId),
+            reviewGeneration: reviewGeneration,
+            generatedAtUnixMilliseconds: Int64(Date().timeIntervalSince1970 * 1000)
+        )
     }
 
     private static func isUnchangedSameLineageLoad(
@@ -783,17 +853,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func reviewRepoId(for artifact: DiffArtifact) -> UUID {
         runtime.metadata.facets.repoId ?? artifact.worktreeId
-    }
-
-    private func shouldRetrySelectionRequiredContribution(after error: Error) -> Bool {
-        guard case .workspace(_, let comparisonIntent) = bridgePaneState.source,
-            comparisonIntent.activeKind == .contribution,
-            comparisonIntent.contributionTarget == nil,
-            case BridgeProviderFailure.unavailableEndpoint = error
-        else {
-            return false
-        }
-        return true
     }
 
 }

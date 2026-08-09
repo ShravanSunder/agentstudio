@@ -62,6 +62,16 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
         self.base = base
     }
 
+    func localDefaultBranch() async throws -> String? {
+        try await base.localDefaultBranch()
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        try await base.captureContributionComparison(request)
+    }
+
     func armNextComparison() {
         isNextComparisonArmed = true
     }

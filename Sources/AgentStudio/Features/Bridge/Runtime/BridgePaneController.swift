@@ -52,9 +52,12 @@ package final class BridgePaneController {
     let telemetrySessionOwner: BridgePaneTelemetrySessionOwner?
     let productSchemeProvider: BridgePaneProductSchemeProvider?
     let reviewPipeline: BridgeReviewPipeline
+    let reviewSourceProvider: any BridgeReviewSourceProvider
     let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
     let reviewChangeIndex = BridgeChangeIndex()
-    let bridgePaneState: BridgePaneState
+    package var bridgePaneState: BridgePaneState
+    let initialContributionTargetCommit:
+        (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)?
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
@@ -114,7 +117,9 @@ package final class BridgePaneController {
         productSessionBootstrapSink: @escaping BridgeProductSessionBootstrapSink =
             BridgePaneController.dispatchProductSessionBootstrap,
         telemetrySessionBootstrapSink: @escaping BridgeTelemetrySessionBootstrapSink =
-            BridgePaneController.dispatchTelemetrySessionBootstrap
+            BridgePaneController.dispatchTelemetrySessionBootstrap,
+        initialContributionTargetCommit:
+            (@MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult)? = nil
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
@@ -130,6 +135,8 @@ package final class BridgePaneController {
         self.telemetrySessionOwner = telemetryDependencies.sessionDependencies?.owner
         self.traceContextFactory = traceContextFactory
         let resolvedReviewSourceProvider = reviewSourceProvider ?? BridgeUnavailableReviewSourceProvider()
+        self.reviewSourceProvider = resolvedReviewSourceProvider
+        self.initialContributionTargetCommit = initialContributionTargetCommit
         let resolvedReviewContentLoaderCache = BridgeReviewContentLoaderCache(
             provider: resolvedReviewSourceProvider
         )
@@ -184,16 +191,14 @@ package final class BridgePaneController {
         self.userContentController = config.userContentController
 
         // Register only the closed bootstrap handler in the bridge content world.
-        let readyMessageHandler = BridgeReadyMessageHandler()
-        userContentController.add(
-            readyMessageHandler,
+        let readyMessageHandler = Self.registerReadyMessageHandler(
+            in: userContentController,
             contentWorld: bridgeWorld,
-            name: "rpc"
         )
 
         let bootstrapArtifacts = Self.makeBootstrapArtifacts(
             paneId: paneId,
-            state: bridgePaneState,
+            state: state,
             telemetryScopeGate: telemetryDependencies.scopeGate,
             bridgeWorld: bridgeWorld
         )

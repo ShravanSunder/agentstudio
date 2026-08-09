@@ -76,9 +76,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -113,9 +115,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let initialPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = initialPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: initialPackage, delta: nil),
+                    expectedReviewGeneration: initialPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -132,10 +136,12 @@ extension WebKitSerializedTests {
                 )
             )
             let successorPackage = productActiveViewerSuccessorReviewPackage(from: initialPackage)
+            controller.nextReviewGeneration = successorPackage.reviewGeneration
 
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: successorPackage, delta: nil),
+                    expectedReviewGeneration: successorPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -154,9 +160,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -188,9 +196,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -233,8 +243,10 @@ extension WebKitSerializedTests {
                 package: reviewPackage,
                 delta: reviewDelta
             )
+            harness.controller.nextReviewGeneration = reviewPackage.reviewGeneration
             let commitDisposition = await harness.controller.commitReviewPackageLoad(
                 load,
+                expectedReviewGeneration: load.package.reviewGeneration,
                 productAdmission: openedSubscription.productAdmission,
                 traceContext: nil,
                 foregroundWorkAdmission: openedSubscription.foregroundWorkAdmission
@@ -273,6 +285,7 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             controller.productAdmissionGate.close()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
 
             // Act
             let commitDisposition = await controller.commitReviewPackageLoad(
@@ -280,6 +293,7 @@ extension WebKitSerializedTests {
                     package: reviewPackage,
                     delta: reviewDelta
                 ),
+                expectedReviewGeneration: reviewPackage.reviewGeneration,
                 productAdmission: productAdmission,
                 traceContext: nil,
                 foregroundWorkAdmission: foregroundWorkAdmission

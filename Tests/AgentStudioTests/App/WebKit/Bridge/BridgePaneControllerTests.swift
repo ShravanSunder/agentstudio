@@ -30,6 +30,14 @@ extension WebKitSerializedTests {
                 self.laterGenerationComparison = laterGenerationComparison
             }
 
+            func localDefaultBranch() async throws -> String? { nil }
+
+            func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+                -> BridgeContributionComparisonCapture
+            {
+                throw BridgeProviderFailure.providerFailed(message: "Contribution capture not configured")
+            }
+
             func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
                 request.endpoint
             }

@@ -9,6 +9,7 @@ enum BridgeReviewPackageLoadCommitDisposition: Equatable, Sendable {
 extension BridgePaneController {
     func commitReviewPackageLoad(
         _ load: BridgeReviewPackageLoadData,
+        expectedReviewGeneration: BridgeReviewGeneration,
         productAdmission: BridgeProductAdmissionContext,
         traceContext: BridgeTraceContext?,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -56,8 +57,10 @@ extension BridgePaneController {
             return .rejected
         }
 
-        let commitPublication = {
-            self.reviewPublicationCoordinator.commit(
+        let commitResult = foregroundWorkAdmission.withValidAdmission {
+            () -> BridgeReviewPublicationCommitResult? in
+            guard expectedReviewGeneration == self.nextReviewGeneration else { return nil }
+            return self.reviewPublicationCoordinator.commit(
                 publicationToken,
                 productAdmission: productAdmission
             ) { committedPublication in
@@ -65,8 +68,8 @@ extension BridgePaneController {
                 self.paneState.diff.setPackageDelta(committedPublication.delta)
                 self.paneState.diff.setStatus(.ready)
             }
-        }
-        guard let commitResult = foregroundWorkAdmission.withValidAdmission(commitPublication)
+        }.flatMap { $0 }
+        guard let commitResult
         else {
             _ = reviewPublicationCoordinator.rejectReservation(
                 publicationToken,

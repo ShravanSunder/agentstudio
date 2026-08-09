@@ -55,6 +55,10 @@ extension WebKitSerializedTests {
             #expect(controller.paneState.diff.packageMetadata?.query.repoId == repoId)
             #expect(controller.paneState.diff.packageMetadata?.query.worktreeId == worktreeId)
             #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-source"])
+            #expect(
+                controller.paneState.diff.packageMetadata?.comparisonOrigin
+                    == BridgeReviewComparisonOrigin.unstagedOnly(BridgeReviewUnstagedOnlyOrigin())
+            )
             let request = try #require(await provider.recordedComparisonRequests().first)
             #expect(request.query.repoId == repoId)
             #expect(request.query.worktreeId == worktreeId)
@@ -68,76 +72,99 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
+        @Test("late automatic default adopts the canonical reviewer target and captures contribution once")
+        func lateAutomaticDefaultAdoptsCanonicalReviewerTargetAndCapturesContributionOnce() async throws {
+            let repoId = UUIDv7.generate()
+            let worktreeId = UUIDv7.generate()
+            let provider = CanonicalContributionReviewSourceProvider()
+            let reviewerState = BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    comparisonIntent: WorkspaceReviewComparisonIntent(
+                        activeKind: .contribution,
+                        contributionTarget: .branch(name: "reviewer-selected")
+                    )
+                )
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        comparisonIntent: WorkspaceReviewComparisonIntent(
+                            activeKind: .contribution,
+                            contributionTarget: nil
+                        )
+                    )
+                ),
+                appRootURL: testBridgeAppRootURL(),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        worktreeName: "feature-worktree"
+                    ),
+                    checkoutRef: "feature/ref"
+                ),
+                reviewSourceProvider: provider,
+                initialPaneActivity: .foreground,
+                initialContributionTargetCommit: { _ in .unchanged(reviewerState) }
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .success = result else {
+                Issue.record("Expected canonical reviewer target contribution load to succeed")
+                return
+            }
+            #expect(await provider.recordedLocalDefaultBranchReadCount() == 1)
+            #expect(await provider.recordedComparisonReadCount() == 0)
+            let contributionRequest = try #require(await provider.recordedContributionRequests().first)
+            #expect(contributionRequest.symbolicTarget == .branch(name: "reviewer-selected"))
+            let package = try #require(controller.paneState.diff.packageMetadata)
+            #expect(package.reviewedSubjectLabel == "feature-worktree")
+            guard case .contribution(let origin) = package.comparisonOrigin else {
+                Issue.record("Expected contribution origin")
+                return
+            }
+            #expect(origin.symbolicTarget == .branch(name: "reviewer-selected"))
+            guard case .workspace(_, let canonicalIntent) = controller.bridgePaneState.source else {
+                Issue.record("Expected workspace canonical state")
+                return
+            }
+            #expect(canonicalIntent.contributionTarget == .branch(name: "reviewer-selected"))
+        }
+
         @Test("workspace review compare targets select git ref baseline against working tree")
         func workspaceReviewCompareTargetsSelectGitRefBaselineAgainstWorkingTree() async throws {
-            struct Case {
-                let comparisonIntent: WorkspaceReviewComparisonIntent
-                let expectedEndpointId: String
-                let expectedLabel: String
-                let expectedProviderIdentity: String
-            }
-
-            let cases = [
-                Case(
-                    comparisonIntent: .init(
-                        activeKind: .contribution, contributionTarget: .localDefaultBranch(branchName: "main")),
-                    expectedEndpointId: "baseline-local-default",
-                    expectedLabel: "main",
-                    expectedProviderIdentity: "main"
-                ),
-                Case(
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "main")),
-                    expectedEndpointId: "baseline-origin-default",
-                    expectedLabel: "origin/main",
-                    expectedProviderIdentity: "origin/main"
-                ),
-                Case(
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .branch(name: "release/next")
-                    ),
-                    expectedEndpointId: "baseline-branch-release-next",
-                    expectedLabel: "release/next",
-                    expectedProviderIdentity: "release/next"
-                ),
-                Case(
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .ref(name: "v1.2.3")
-                    ),
-                    expectedEndpointId: "baseline-ref-v1-2-3",
-                    expectedLabel: "v1.2.3",
-                    expectedProviderIdentity: "v1.2.3"
-                ),
-                Case(
-                    comparisonIntent: .init(
-                        activeKind: .contribution,
-                        contributionTarget: .ref(name: "HEAD")
-                    ),
-                    expectedEndpointId: "baseline-ref-HEAD",
-                    expectedLabel: "HEAD",
-                    expectedProviderIdentity: "HEAD"
-                ),
-            ]
-
-            for testCase in cases {
+            for testCase in reviewContributionEndpointCases {
                 let repoId = UUIDv7.generate()
                 let worktreeId = UUIDv7.generate()
+                let comparison = BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100
+                        )
+                    ]
+                )
                 let provider = BridgeReviewSourceProviderFake(
-                    comparison: BridgeEndpointComparison(
-                        baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
-                        headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
-                        changedFiles: [
-                            makeBridgeEndpointChangedFile(
-                                fileId: "source",
-                                path: "Sources/App/View.swift",
-                                sizeBytes: 100
-                            )
-                        ]
+                    comparison: comparison,
+                    contentByHandleId: [:],
+                    contributionCapture: BridgeContributionComparisonCapture(
+                        resolvedTargetOID: "resolved-target-oid",
+                        reviewedHeadOID: "reviewed-head-oid",
+                        contributionBaseOID: "contribution-base-oid",
+                        comparison: comparison
                     ),
-                    contentByHandleId: [:]
                 )
                 let controller = makeController(
                     source: .workspace(
@@ -156,7 +183,7 @@ extension WebKitSerializedTests {
                     Issue.record("Expected initial Bridge review package load to succeed")
                     return
                 }
-                let requests = await provider.recordedComparisonRequests()
+                let requests = await provider.recordedContributionRequests()
                 let request = try #require(requests.first)
                 #expect(request.baseEndpoint.endpointId == testCase.expectedEndpointId)
                 #expect(request.baseEndpoint.kind == .gitRef)
@@ -168,14 +195,14 @@ extension WebKitSerializedTests {
                 #expect(request.headEndpoint.label == "Working tree")
                 #expect(request.headEndpoint.repoId == repoId)
                 #expect(request.headEndpoint.worktreeId == worktreeId)
-                #expect(request.query.repoId == repoId)
-                #expect(request.query.worktreeId == worktreeId)
-                #expect(request.query.comparisonSemantics == .workingTreeDelta)
+                #expect(request.symbolicTarget == testCase.comparisonIntent.contributionTarget)
+                #expect(request.reviewGenerationValue == 1)
+                #expect(await provider.recordedComparisonRequestsCount() == 0)
             }
         }
 
-        @Test("workspace review falls back to unstaged comparison when HEAD is unresolved")
-        func workspaceReviewFallsBackToUnstagedComparisonWhenHeadIsUnresolved() async throws {
+        @Test("workspace contribution without a target requires selection and does not fabricate HEAD")
+        func workspaceContributionWithoutTargetRequiresSelectionAndDoesNotFabricateHead() async throws {
             let worktreeId = UUIDv7.generate()
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
@@ -190,9 +217,7 @@ extension WebKitSerializedTests {
                     ]
                 ),
                 contentByHandleId: [:],
-                comparisonFailureByBaseProviderIdentity: [
-                    "HEAD": .unavailableEndpoint(endpointId: "baseline-head")
-                ]
+                comparisonFailureByBaseProviderIdentity: [:]
             )
             let controller = makeController(
                 source: .workspace(
@@ -209,24 +234,17 @@ extension WebKitSerializedTests {
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
-            guard case .success = result else {
-                Issue.record("Expected HEAD fallback review package load to succeed")
+            guard case .failure = result else {
+                Issue.record("Expected targetless contribution load to require selection")
                 return
             }
-            let requests = await provider.recordedComparisonRequests()
-            #expect(requests.count == 2)
-            let headRequest = try #require(requests.first)
-            #expect(headRequest.baseEndpoint.kind == .gitRef)
-            #expect(headRequest.baseEndpoint.providerIdentity == "HEAD")
-            let fallbackRequest = try #require(requests.last)
-            #expect(fallbackRequest.baseEndpoint.kind == .index)
-            #expect(fallbackRequest.headEndpoint.kind == .workingTree)
-            #expect(fallbackRequest.query.comparisonSemantics == .workingTreeDelta)
-            #expect(controller.paneState.diff.status == .ready)
+            #expect(await provider.recordedContributionRequests().isEmpty)
+            #expect(await provider.recordedComparisonRequests().isEmpty)
+            #expect(controller.paneState.diff.status == .error)
         }
 
-        @Test("workspace review does not infer HEAD fallback from provider prose")
-        func workspaceReviewDoesNotInferHeadFallbackFromProviderProse() async throws {
+        @Test("contribution failure prose does not trigger narrow fallback")
+        func contributionFailureProseDoesNotTriggerNarrowFallback() async throws {
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
@@ -234,16 +252,14 @@ extension WebKitSerializedTests {
                     changedFiles: []
                 ),
                 contentByHandleId: [:],
-                comparisonFailureByBaseProviderIdentity: [
-                    "HEAD": .providerFailed(message: "revspec 'HEAD' not found")
-                ]
+                contributionFailure: .providerFailed(message: "revspec 'HEAD' not found")
             )
             let controller = makeController(
                 source: .workspace(
                     rootPath: "/tmp/worktree",
                     comparisonIntent: .init(
                         activeKind: .contribution,
-                        contributionTarget: nil
+                        contributionTarget: .ref(name: "HEAD")
                     )
                 ),
                 worktreeId: UUIDv7.generate(),
@@ -257,7 +273,8 @@ extension WebKitSerializedTests {
                 Issue.record("Expected raw provider prose to remain a failure")
                 return
             }
-            #expect(await provider.recordedComparisonRequests().count == 1)
+            #expect(await provider.recordedContributionRequests().count == 1)
+            #expect(await provider.recordedComparisonRequests().isEmpty)
         }
 
         @Test("workspace review does not fallback for a named ref")
@@ -269,9 +286,7 @@ extension WebKitSerializedTests {
                     changedFiles: []
                 ),
                 contentByHandleId: [:],
-                comparisonFailureByBaseProviderIdentity: [
-                    "main": .unavailableEndpoint(endpointId: "baseline-main")
-                ]
+                contributionFailure: .unavailableEndpoint(endpointId: "baseline-main")
             )
             let controller = makeController(
                 source: .workspace(
@@ -292,7 +307,8 @@ extension WebKitSerializedTests {
                 Issue.record("Expected named-ref failure without fallback")
                 return
             }
-            #expect(await provider.recordedComparisonRequests().count == 1)
+            #expect(await provider.recordedContributionRequests().count == 1)
+            #expect(await provider.recordedComparisonRequests().isEmpty)
         }
 
         @Test("workspace review exposes scrubbed git data-plane package load failures")
@@ -304,12 +320,10 @@ extension WebKitSerializedTests {
                     changedFiles: []
                 ),
                 contentByHandleId: [:],
-                comparisonFailureByBaseProviderIdentity: [
-                    "main": .providerFailed(
-                        message:
-                            "gitDataPlane:libgit2Failure:code=-1:klass=2:reason=operationNotPermitted"
-                    )
-                ]
+                contributionFailure: .providerFailed(
+                    message:
+                        "gitDataPlane:libgit2Failure:code=-1:klass=2:reason=operationNotPermitted"
+                )
             )
             let controller = makeController(
                 source: .workspace(
@@ -354,8 +368,7 @@ extension WebKitSerializedTests {
         func reviewPackageFailureSummariesClassifyTimeoutShapedProviderMessages() {
             let summary = BridgePaneController.reviewPackageLoadFailureSummary(
                 for: BridgeProviderFailure.providerFailed(
-                    message:
-                        "The operation couldn’t be completed. (AgentStudio.BridgeGitReadSchedulerError error 0.)"
+                    message: "Bridge Git data plane read timed out"
                 ),
                 stage: "package"
             )
@@ -735,4 +748,130 @@ extension WebKitSerializedTests {
             )
         }
     }
+}
+
+private struct ReviewContributionEndpointCase {
+    let comparisonIntent: WorkspaceReviewComparisonIntent
+    let expectedEndpointId: String
+    let expectedLabel: String
+    let expectedProviderIdentity: String
+}
+
+private let reviewContributionEndpointCases = [
+    ReviewContributionEndpointCase(
+        comparisonIntent: .init(
+            activeKind: .contribution,
+            contributionTarget: .localDefaultBranch(branchName: "main")
+        ),
+        expectedEndpointId: "baseline-local-default",
+        expectedLabel: "main",
+        expectedProviderIdentity: "main"
+    ),
+    ReviewContributionEndpointCase(
+        comparisonIntent: .init(
+            activeKind: .contribution,
+            contributionTarget: .originDefaultBranch(remoteName: "origin", branchName: "main")
+        ),
+        expectedEndpointId: "baseline-origin-default",
+        expectedLabel: "origin/main",
+        expectedProviderIdentity: "origin/main"
+    ),
+    ReviewContributionEndpointCase(
+        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .branch(name: "release/next")),
+        expectedEndpointId: "baseline-branch-release-next",
+        expectedLabel: "release/next",
+        expectedProviderIdentity: "release/next"
+    ),
+    ReviewContributionEndpointCase(
+        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "v1.2.3")),
+        expectedEndpointId: "baseline-ref-v1-2-3",
+        expectedLabel: "v1.2.3",
+        expectedProviderIdentity: "v1.2.3"
+    ),
+    ReviewContributionEndpointCase(
+        comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD")),
+        expectedEndpointId: "baseline-ref-HEAD",
+        expectedLabel: "HEAD",
+        expectedProviderIdentity: "HEAD"
+    ),
+]
+
+private actor CanonicalContributionReviewSourceProvider: BridgeReviewSourceProvider {
+    private var localDefaultBranchReadCount = 0
+    private var comparisonReadCount = 0
+    private var contributionRequests: [BridgeContributionComparisonRequest] = []
+
+    func localDefaultBranch() async throws -> String? {
+        localDefaultBranchReadCount += 1
+        return "main"
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        contributionRequests.append(request)
+        let baseEndpoint = BridgeSourceEndpoint(
+            endpointId: request.baseEndpoint.endpointId,
+            kind: .gitRef,
+            repoId: request.baseEndpoint.repoId,
+            worktreeId: request.baseEndpoint.worktreeId,
+            label: request.baseEndpoint.label,
+            createdAtUnixMilliseconds: request.baseEndpoint.createdAtUnixMilliseconds,
+            contentSetHash: "base-oid",
+            providerIdentity: "base-oid"
+        )
+        return BridgeContributionComparisonCapture(
+            resolvedTargetOID: "target-oid",
+            reviewedHeadOID: "head-oid",
+            contributionBaseOID: "base-oid",
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: request.headEndpoint,
+                changedFiles: [
+                    makeBridgeEndpointChangedFile(
+                        fileId: "source",
+                        path: "Sources/App/View.swift",
+                        sizeBytes: 100
+                    )
+                ]
+            )
+        )
+    }
+
+    func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
+        request.endpoint
+    }
+
+    func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
+        comparisonReadCount += 1
+        return BridgeEndpointComparison(
+            baseEndpoint: request.baseEndpoint,
+            headEndpoint: request.headEndpoint,
+            changedFiles: []
+        )
+    }
+
+    func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
+        BridgeTreeReadResult(endpoint: request.endpoint, descriptors: [])
+    }
+
+    func readReviewItemDescriptor(_ request: BridgeReviewItemDescriptorRequest) async throws
+        -> BridgeReviewItemDescriptor
+    {
+        makeBridgeReviewItemDescriptor(itemId: "item-\(request.path)", path: request.path, fileClass: .source)
+    }
+
+    func resolveCheckpointEndpoint(_ request: BridgeCheckpointEndpointRequest) async throws
+        -> BridgeSourceEndpoint
+    {
+        makeBridgeEndpoint(endpointId: request.checkpointId, kind: .promptCheckpoint)
+    }
+
+    func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
+        throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
+    }
+
+    func recordedLocalDefaultBranchReadCount() -> Int { localDefaultBranchReadCount }
+    func recordedComparisonReadCount() -> Int { comparisonReadCount }
+    func recordedContributionRequests() -> [BridgeContributionComparisonRequest] { contributionRequests }
 }

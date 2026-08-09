@@ -130,8 +130,8 @@ extension BridgePaneController {
             )
         case nil:
             return makeGitRefAgainstWorkingTreeSelection(
-                endpointId: "baseline-ref-HEAD",
-                refName: "HEAD",
+                endpointId: "selection-required",
+                refName: "Choose target",
                 worktreeId: worktreeId,
                 repoId: repoId
             )

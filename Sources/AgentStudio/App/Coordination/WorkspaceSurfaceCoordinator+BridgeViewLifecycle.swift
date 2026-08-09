@@ -18,7 +18,14 @@ extension WorkspaceSurfaceCoordinator {
             gitReadContext: bridgeGitReadContext(for: pane, state: state),
             worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
             traceRuntime: traceRuntime,
-            initialPaneActivity: .dormant
+            initialPaneActivity: .dormant,
+            initialContributionTargetCommit: { [weak self] target in
+                guard let self else { return .paneMissing }
+                return store.paneAtom.setInitialBridgeContributionTargetIfAbsent(
+                    pane.id,
+                    target: target
+                )
+            }
         )
         let view = BridgePaneMountView(paneId: pane.id, controller: controller)
         registerHostedView(mountedView: view, for: pane.id)

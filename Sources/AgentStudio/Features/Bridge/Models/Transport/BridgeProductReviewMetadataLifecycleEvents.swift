@@ -200,16 +200,27 @@ struct BridgeProductReviewResetEvent: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case comparisonOrigin
         case eventKind
         case reason
+        case reviewedSubjectLabel
     }
 
     let identity: BridgeProductReviewMetadataIdentity
+    let comparisonOrigin: BridgeReviewComparisonOrigin?
     let reason: Reason
+    let reviewedSubjectLabel: String?
 
-    init(identity: BridgeProductReviewMetadataIdentity, reason: Reason) {
+    init(
+        identity: BridgeProductReviewMetadataIdentity,
+        comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+        reason: Reason,
+        reviewedSubjectLabel: String? = nil
+    ) {
         self.identity = identity
+        self.comparisonOrigin = comparisonOrigin
         self.reason = reason
+        self.reviewedSubjectLabel = reviewedSubjectLabel
     }
 
     init(from decoder: Decoder) throws {
@@ -226,14 +237,21 @@ struct BridgeProductReviewResetEvent: Codable, Equatable, Sendable {
             )
         }
         self.identity = try BridgeProductReviewMetadataIdentity(from: decoder)
+        self.comparisonOrigin = try container.decodeIfPresent(
+            BridgeReviewComparisonOrigin.self,
+            forKey: .comparisonOrigin
+        )
         self.reason = try container.decode(Reason.self, forKey: .reason)
+        self.reviewedSubjectLabel = try container.decodeIfPresent(String.self, forKey: .reviewedSubjectLabel)
     }
 
     func encode(to encoder: Encoder) throws {
         try identity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(comparisonOrigin, forKey: .comparisonOrigin)
         try container.encode("review.reset", forKey: .eventKind)
         try container.encode(reason, forKey: .reason)
+        try container.encodeIfPresent(reviewedSubjectLabel, forKey: .reviewedSubjectLabel)
     }
 }
 

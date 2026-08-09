@@ -145,6 +145,19 @@ private enum CommittedReviewIntakeSchedulingDecision {
 
 @MainActor
 extension BridgePaneController {
+    static func registerReadyMessageHandler(
+        in userContentController: WKUserContentController,
+        contentWorld: WKContentWorld
+    ) -> BridgeReadyMessageHandler {
+        let readyMessageHandler = BridgeReadyMessageHandler()
+        userContentController.add(
+            readyMessageHandler,
+            contentWorld: contentWorld,
+            name: "rpc"
+        )
+        return readyMessageHandler
+    }
+
     func handleCommittedProductReviewIntakeReady(
         _ request: BridgeProductReviewIntakeReadyRequest,
         productAdmission: BridgeProductAdmissionContext

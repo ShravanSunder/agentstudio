@@ -9,6 +9,105 @@ import Testing
 
 extension WebKitSerializedTests.BridgePaneControllerTests {
 
+    @Test("contribution refresh captures fresh truth under a successor generation without endpoint replay")
+    func contributionRefreshCapturesFreshTruthUnderSuccessorGenerationWithoutEndpointReplay() async throws {
+        let fixture = makeContributionRefreshFixture()
+        let controller = fixture.controller
+        let provider = fixture.provider
+        let paneId = fixture.paneId
+        let repoId = fixture.repoId
+        let worktreeId = fixture.worktreeId
+        defer { fixture.controller.teardown() }
+
+        let initialCommandId = UUIDv7.generate()
+        let initialResult = await controller.handleDiffCommand(
+            DiffCommand.loadDiff(
+                DiffArtifact(diffId: UUIDv7.generate(), worktreeId: worktreeId, patchData: Data())
+            ),
+            commandId: initialCommandId,
+            correlationId: nil
+        )
+        let productAdmission = try #require(controller.productAdmissionGate.acquire())
+        let predecessor = try #require(
+            controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+
+        let captureGate = BridgeContributionCaptureGate()
+        await provider.setContributionCapture(fixture.successorCapture)
+        await provider.setContributionCaptureGate(captureGate)
+        await controller.handlePaneFilesystemContextEvent(
+            PaneFilesystemContextEvent.cwdSubtreeChanged(
+                context: PaneFilesystemContext(
+                    paneId: PaneId(existingUUID: paneId),
+                    repoId: repoId,
+                    cwd: URL(fileURLWithPath: "/tmp/contribution-refresh"),
+                    worktreeId: worktreeId
+                ),
+                paths: ["Sources/App/Successor.swift"],
+                batchSeq: 1
+            )
+        )
+        await captureGate.waitForStart()
+        let visibleWhilePending = try #require(
+            controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+        #expect(controller.nextReviewGeneration == 2)
+        #expect(visibleWhilePending == predecessor)
+        #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-initial"])
+        await captureGate.releaseAll()
+        await waitForActiveReviewRefreshTaskToFinish(controller)
+
+        let successor = try #require(
+            controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            )
+        )
+        let requests = await provider.recordedContributionRequests()
+        #expect(initialResult == .success(commandId: initialCommandId))
+        #expect(await provider.recordedComparisonRequestsCount() == 0)
+        #expect(requests.map { $0.reviewGenerationValue } == [1, 2])
+        #expect(requests[1].baseEndpoint.providerIdentity == "target")
+        #expect(requests[1].baseEndpoint.providerIdentity != predecessor.package.baseEndpoint.providerIdentity)
+        #expect(predecessor.package.reviewGeneration == 1)
+        #expect(successor.package.reviewGeneration == 2)
+        #expect(predecessor.publicationId != successor.publicationId)
+        #expect(
+            predecessor.package.comparisonOrigin
+                == BridgeReviewComparisonOrigin.contribution(
+                    BridgeReviewContributionOrigin(
+                        symbolicTarget: .ref(name: "target"),
+                        resolvedTargetOID: "target-oid-1",
+                        reviewedHeadOID: "head-oid-1",
+                        contributionBaseOID: "base-oid-1"
+                    )
+                )
+        )
+        #expect(
+            successor.package.comparisonOrigin
+                == BridgeReviewComparisonOrigin.contribution(
+                    BridgeReviewContributionOrigin(
+                        symbolicTarget: .ref(name: "target"),
+                        resolvedTargetOID: "target-oid-2",
+                        reviewedHeadOID: "head-oid-2",
+                        contributionBaseOID: "base-oid-2"
+                    )
+                )
+        )
+        #expect(predecessor.package.reviewedSubjectLabel == "feature-review")
+        #expect(successor.package.reviewedSubjectLabel == "feature-review")
+        #expect(successor.package.orderedItemIds == ["item-successor"])
+
+        try await assertStaleContributionCaptureCannotCommit(
+            fixture: fixture,
+            productAdmission: productAdmission,
+            successor: successor
+        )
+    }
+
     @Test("filesystem context refresh preserves revisions across changed and no-op packages")
     func filesystemContextRefreshPreservesRevisionsAcrossChangedAndNoOpPackages() async throws {
         let fixture = makeRefreshRevisionFixture()
@@ -25,12 +124,28 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
             commandId: fixture.commandId,
             correlationId: nil
         )
+        #expect(
+            fixture.controller.paneState.diff.packageMetadata?.comparisonOrigin
+                == BridgeReviewComparisonOrigin.stagedOnly(
+                    BridgeReviewStagedOnlyOrigin(
+                        reviewedHeadOID: try #require(fixture.baseEndpoint.contentSetHash)
+                    )
+                )
+        )
 
         await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
         await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 10)
         await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
         #expect(loadResult == .success(commandId: fixture.commandId))
         #expect(fixture.controller.paneState.diff.status == .ready)
+        #expect(
+            fixture.controller.paneState.diff.packageMetadata?.comparisonOrigin
+                == BridgeReviewComparisonOrigin.stagedOnly(
+                    BridgeReviewStagedOnlyOrigin(
+                        reviewedHeadOID: try #require(fixture.baseEndpoint.contentSetHash)
+                    )
+                )
+        )
         expectRefreshPackageState(
             fixture,
             itemId: "item-new",
@@ -288,6 +403,101 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(await controller.productSessionOwner.snapshot().hasZeroResidue)
     }
 
+    @Test("contribution load cannot commit after its expected generation advances during reservation")
+    func contributionLoadCannotCommitAfterGenerationAdvancesDuringReservation() async throws {
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "contribution-base", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
+        let changedFile = makeBridgeEndpointChangedFile(
+            fileId: "generation-a",
+            path: "Sources/App/GenerationA.swift",
+            sizeBytes: 100
+        )
+        let contributionCapture = BridgeContributionComparisonCapture(
+            resolvedTargetOID: "target-a",
+            reviewedHeadOID: "head-a",
+            contributionBaseOID: "base-a",
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: [changedFile]
+            )
+        )
+        let reviewSourceProvider = BridgeReviewSourceProviderFake(
+            comparison: contributionCapture.comparison,
+            contentByHandleId: [:],
+            contributionCapture: contributionCapture
+        )
+        let reservationGate = DiffLoadReviewReservationGate()
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let productProvider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: reservationGate,
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        let paneId = UUIDv7.generate()
+        let productAdmissionGate = BridgeProductAdmissionGate()
+        let installation = BridgePaneController.makeInitialProductSessionInstallation(
+            paneSessionId: paneId.uuidString,
+            provider: productProvider,
+            productAdmissionGate: productAdmissionGate
+        )
+        let controller = BridgePaneController(
+            paneId: paneId,
+            state: BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/contribution-generation-fence",
+                    comparisonIntent: .init(
+                        activeKind: .contribution,
+                        contributionTarget: .ref(name: "target")
+                    )
+                )
+            ),
+            appRootURL: testBridgeAppRootURL(),
+            reviewSourceProvider: reviewSourceProvider,
+            initialPaneActivity: .foreground,
+            productSessionDependencies: BridgePaneProductSessionDependencies(
+                installation: installation,
+                owner: BridgePaneController.makeProductSessionOwner(
+                    paneSessionId: paneId.uuidString,
+                    provider: productProvider,
+                    productAdmissionGate: productAdmissionGate,
+                    activeInstallation: installation
+                ),
+                productProvider: productProvider
+            )
+        )
+        defer { controller.teardown() }
+        let commandId = UUIDv7.generate()
+        async let commandResult = controller.handleDiffCommand(
+            .loadDiff(
+                DiffArtifact(
+                    diffId: UUIDv7.generate(),
+                    worktreeId: headEndpoint.worktreeId,
+                    patchData: Data()
+                )
+            ),
+            commandId: commandId,
+            correlationId: nil
+        )
+        await reservationGate.waitUntilReservationStarted()
+
+        controller.nextReviewGeneration = controller.nextReviewGeneration.next()
+        await reservationGate.releaseReservation()
+
+        #expect(await commandResult != .success(commandId: commandId))
+        let productAdmission = try #require(productAdmissionGate.acquire())
+        #expect(
+            controller.reviewPublicationCoordinator.committedPublicationForReplay(
+                productAdmission: productAdmission
+            ) == nil
+        )
+        #expect(controller.paneState.diff.packageMetadata == nil)
+        #expect(controller.reviewPublicationCoordinator.diagnosticSnapshot.pending == nil)
+    }
+
     @Test("loadDiff does not leak absolute workspace root in review package")
     func loadDiff_does_not_leak_absolute_workspace_root_in_review_package() async throws {
         let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
@@ -440,6 +650,75 @@ private actor DiffLoadReadyPublicationGate: BridgePaneProductReviewMetadataProdu
     func releaseReadyPublication() {
         readyPublicationRelease?.resume()
         readyPublicationRelease = nil
+    }
+}
+
+private actor DiffLoadReviewReservationGate: BridgePaneProductReviewMetadataProducing {
+    private var reservationRelease: CheckedContinuation<Void, Never>?
+    private var reservationStarted = false
+    private var reservationStartedWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func open(
+        subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
+        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+    ) async throws {}
+
+    func update(
+        subscription _: BridgeProductSubscriptionSnapshot,
+        productAdmission _: BridgeProductAdmissionContext,
+        emit _: @escaping BridgePaneProductReviewMetadataEventSink
+    ) async throws {}
+
+    func reserve(
+        package: BridgeReviewPackage,
+        publicationId: UUID,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> BridgeReviewMetadataPublicationReservation {
+        reservationStarted = true
+        let waiters = reservationStartedWaiters
+        reservationStartedWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
+        await withCheckedContinuation { continuation in
+            reservationRelease = continuation
+        }
+        return BridgeReviewMetadataPublicationReservation(
+            reservationId: UUIDv7.generate(),
+            packageId: package.packageId,
+            publicationId: publicationId,
+            reviewGeneration: package.reviewGeneration,
+            revision: package.revision
+        )
+    }
+
+    func deliver(
+        package _: BridgeReviewPackage,
+        reservation _: BridgeReviewMetadataPublicationReservation,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        .delivered(
+            BridgeReviewMetadataPublicationReceipt(
+                retained: 0,
+                publishedSubscriptions: 0,
+                emittedEvents: 0,
+                superseded: 0,
+                finalFrames: []
+            )
+        )
+    }
+
+    func cancel(subscriptionId _: String) {}
+
+    func waitUntilReservationStarted() async {
+        guard !reservationStarted else { return }
+        await withCheckedContinuation { continuation in
+            reservationStartedWaiters.append(continuation)
+        }
+    }
+
+    func releaseReservation() {
+        reservationRelease?.resume()
+        reservationRelease = nil
     }
 }
 

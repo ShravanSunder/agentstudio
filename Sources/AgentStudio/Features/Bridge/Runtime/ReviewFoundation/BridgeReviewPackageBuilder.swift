@@ -7,6 +7,28 @@ struct BridgeReviewPackageBuildRequest: Equatable, Sendable {
     let checkpointIds: [String]
     let reviewGeneration: BridgeReviewGeneration
     let generatedAtUnixMilliseconds: Int64
+    let comparisonOrigin: BridgeReviewComparisonOrigin?
+    let reviewedSubjectLabel: String?
+
+    init(
+        packageId: String,
+        query: BridgeReviewQuery,
+        comparison: BridgeEndpointComparison,
+        checkpointIds: [String],
+        reviewGeneration: BridgeReviewGeneration,
+        generatedAtUnixMilliseconds: Int64,
+        comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+        reviewedSubjectLabel: String? = nil
+    ) {
+        self.packageId = packageId
+        self.query = query
+        self.comparison = comparison
+        self.checkpointIds = checkpointIds
+        self.reviewGeneration = reviewGeneration
+        self.generatedAtUnixMilliseconds = generatedAtUnixMilliseconds
+        self.comparisonOrigin = comparisonOrigin
+        self.reviewedSubjectLabel = reviewedSubjectLabel
+    }
 }
 
 struct BridgeReviewDescriptorPackageBuildRequest: Equatable, Sendable {
@@ -18,6 +40,32 @@ struct BridgeReviewDescriptorPackageBuildRequest: Equatable, Sendable {
     let checkpointIds: [String]
     let reviewGeneration: BridgeReviewGeneration
     let generatedAtUnixMilliseconds: Int64
+    let comparisonOrigin: BridgeReviewComparisonOrigin?
+    let reviewedSubjectLabel: String?
+
+    init(
+        packageId: String,
+        query: BridgeReviewQuery,
+        baseEndpoint: BridgeSourceEndpoint,
+        headEndpoint: BridgeSourceEndpoint,
+        descriptors: [BridgeReviewItemDescriptor],
+        checkpointIds: [String],
+        reviewGeneration: BridgeReviewGeneration,
+        generatedAtUnixMilliseconds: Int64,
+        comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+        reviewedSubjectLabel: String? = nil
+    ) {
+        self.packageId = packageId
+        self.query = query
+        self.baseEndpoint = baseEndpoint
+        self.headEndpoint = headEndpoint
+        self.descriptors = descriptors
+        self.checkpointIds = checkpointIds
+        self.reviewGeneration = reviewGeneration
+        self.generatedAtUnixMilliseconds = generatedAtUnixMilliseconds
+        self.comparisonOrigin = comparisonOrigin
+        self.reviewedSubjectLabel = reviewedSubjectLabel
+    }
 }
 
 enum BridgeReviewPackageBuilder {
@@ -40,7 +88,9 @@ enum BridgeReviewPackageBuilder {
                 descriptors: descriptors,
                 checkpointIds: request.checkpointIds,
                 reviewGeneration: request.reviewGeneration,
-                generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds,
+                comparisonOrigin: request.comparisonOrigin,
+                reviewedSubjectLabel: request.reviewedSubjectLabel
             )
         )
     }
@@ -79,7 +129,9 @@ enum BridgeReviewPackageBuilder {
             groups: groups,
             summary: BridgeChangeCollator.summary(for: descriptors, visibleDescriptors: visibleDescriptors),
             filterState: request.query.viewFilter,
-            generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+            generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds,
+            comparisonOrigin: request.comparisonOrigin,
+            reviewedSubjectLabel: request.reviewedSubjectLabel
         )
     }
 

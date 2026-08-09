@@ -51,7 +51,7 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/worktree",
-                comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                comparisonIntent: .init(activeKind: .stagedOnly, contributionTarget: .ref(name: "HEAD~1")))
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -301,7 +301,7 @@ func makeRefreshAdmissionIntegrationFixture(
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/bridge-refresh-admission",
-                comparisonIntent: .init(activeKind: .contribution, contributionTarget: .ref(name: "HEAD~1")))
+                comparisonIntent: .init(activeKind: .stagedOnly, contributionTarget: .ref(name: "HEAD~1")))
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(

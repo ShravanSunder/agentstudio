@@ -115,7 +115,12 @@ var reviewMetadataTestPublicationId: UUID {
     UUID(uuidString: "11111111-1111-7111-8111-111111111111")!
 }
 
-func makeReviewPackage(itemCount: Int, includesContentRoles: Bool = true) -> BridgeReviewPackage {
+func makeReviewPackage(
+    itemCount: Int,
+    includesContentRoles: Bool = true,
+    comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+    reviewedSubjectLabel: String? = nil
+) -> BridgeReviewPackage {
     let repoId = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!
     let worktreeId = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
     let items = (0..<itemCount).map { index in
@@ -169,7 +174,9 @@ func makeReviewPackage(itemCount: Int, includesContentRoles: Bool = true) -> Bri
             hiddenFileCount: 0
         ),
         filterState: BridgeViewFilter(showBinaryFiles: true, showLargeFiles: true),
-        generatedAtUnixMilliseconds: 100
+        generatedAtUnixMilliseconds: 100,
+        comparisonOrigin: comparisonOrigin,
+        reviewedSubjectLabel: reviewedSubjectLabel
     )
 }
 
@@ -188,5 +195,96 @@ private func reviewMetadataTestEndpoint(
         createdAtUnixMilliseconds: 100,
         contentSetHash: nil,
         providerIdentity: "provider:\(endpointId)"
+    )
+}
+
+func replacingReviewSource(
+    _ package: BridgeReviewPackage,
+    packageId: String,
+    queryId: String,
+    generation: Int
+) -> BridgeReviewPackage {
+    let query = BridgeReviewQuery(
+        queryId: queryId,
+        queryKind: package.query.queryKind,
+        repoId: package.query.repoId,
+        worktreeId: package.query.worktreeId,
+        baseEndpointId: package.query.baseEndpointId,
+        headEndpointId: package.query.headEndpointId,
+        comparisonSemantics: package.query.comparisonSemantics,
+        pathScope: package.query.pathScope,
+        fileTarget: package.query.fileTarget,
+        viewFilter: package.query.viewFilter,
+        grouping: package.query.grouping,
+        provenanceFilter: package.query.provenanceFilter
+    )
+    return BridgeReviewPackage(
+        packageId: packageId,
+        schemaVersion: package.schemaVersion,
+        reviewGeneration: BridgeReviewGeneration(generation),
+        revision: 0,
+        query: query,
+        baseEndpoint: package.baseEndpoint,
+        headEndpoint: package.headEndpoint,
+        orderedItemIds: package.orderedItemIds,
+        itemsById: package.itemsById,
+        groups: package.groups,
+        summary: package.summary,
+        filterState: package.filterState,
+        generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
+        changesetCluster: package.changesetCluster,
+        comparisonOrigin: package.comparisonOrigin,
+        reviewedSubjectLabel: package.reviewedSubjectLabel
+    )
+}
+
+func replacingReviewPackage(
+    _ package: BridgeReviewPackage,
+    revision: Int,
+    itemsById: [String: BridgeReviewItemDescriptor]
+) -> BridgeReviewPackage {
+    BridgeReviewPackage(
+        packageId: package.packageId,
+        schemaVersion: package.schemaVersion,
+        reviewGeneration: package.reviewGeneration,
+        revision: revision,
+        query: package.query,
+        baseEndpoint: package.baseEndpoint,
+        headEndpoint: package.headEndpoint,
+        orderedItemIds: package.orderedItemIds,
+        itemsById: itemsById,
+        groups: package.groups,
+        summary: package.summary,
+        filterState: package.filterState,
+        generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
+        changesetCluster: package.changesetCluster,
+        comparisonOrigin: package.comparisonOrigin,
+        reviewedSubjectLabel: package.reviewedSubjectLabel
+    )
+}
+
+func replacingReviewOrigin(
+    _ package: BridgeReviewPackage,
+    revision: Int,
+    comparisonOrigin: BridgeReviewComparisonOrigin,
+    reviewedSubjectLabel: String?
+) -> BridgeReviewPackage {
+    BridgeReviewPackage(
+        packageId: package.packageId,
+        schemaVersion: package.schemaVersion,
+        reviewGeneration: package.reviewGeneration,
+        revision: revision,
+        query: package.query,
+        baseEndpoint: package.baseEndpoint,
+        headEndpoint: package.headEndpoint,
+        orderedItemIds: package.orderedItemIds,
+        itemsById: package.itemsById,
+        groups: package.groups,
+        summary: package.summary,
+        filterState: package.filterState,
+        generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
+        changesetCluster: package.changesetCluster,
+        comparisonOrigin: comparisonOrigin,
+        reviewedSubjectLabel: reviewedSubjectLabel
     )
 }

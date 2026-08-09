@@ -70,7 +70,9 @@ extension BridgeSharedReviewPackageTemplate {
                 descriptors: descriptors,
                 checkpointIds: request.checkpointIds,
                 reviewGeneration: request.reviewGeneration,
-                generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds,
+                comparisonOrigin: request.comparisonOrigin,
+                reviewedSubjectLabel: request.reviewedSubjectLabel
             )
         )
         return BridgeReviewPipelineResult(

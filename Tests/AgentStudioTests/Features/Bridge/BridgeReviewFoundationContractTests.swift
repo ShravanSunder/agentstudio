@@ -5,6 +5,74 @@ import Testing
 @testable import AgentStudioBridge
 
 struct BridgeReviewFoundationContractTests {
+    private struct ComparisonOriginEncodingCase {
+        let origin: BridgeReviewComparisonOrigin
+        let expectedKind: String
+        let expectedBaseRole: String
+        let expectedComparedRole: String
+    }
+
+    @Test("comparison origins encode discriminated kinds and endpoint roles")
+    func comparisonOriginsEncodeDiscriminatedKindsAndEndpointRoles() throws {
+        let cases = [
+            ComparisonOriginEncodingCase(
+                origin: .contribution(
+                    BridgeReviewContributionOrigin(
+                        symbolicTarget: .branch(name: "main"),
+                        resolvedTargetOID: "target-oid",
+                        reviewedHeadOID: "head-oid",
+                        contributionBaseOID: "base-oid"
+                    )
+                ),
+                expectedKind: "contribution",
+                expectedBaseRole: "contributionBase",
+                expectedComparedRole: "capturedWorkingTree"
+            ),
+            ComparisonOriginEncodingCase(
+                origin: .stagedOnly(BridgeReviewStagedOnlyOrigin(reviewedHeadOID: "head-oid")),
+                expectedKind: "stagedOnly",
+                expectedBaseRole: "reviewedHead",
+                expectedComparedRole: "capturedIndex"
+            ),
+            ComparisonOriginEncodingCase(
+                origin: .unstagedOnly(BridgeReviewUnstagedOnlyOrigin()),
+                expectedKind: "unstagedOnly",
+                expectedBaseRole: "capturedIndex",
+                expectedComparedRole: "capturedWorkingTree"
+            ),
+        ]
+
+        for testCase in cases {
+            let data = try JSONEncoder().encode(testCase.origin)
+            let object = try #require(
+                JSONSerialization.jsonObject(with: data) as? [String: Any]
+            )
+
+            #expect(object["kind"] as? String == testCase.expectedKind)
+            #expect(object["baseRole"] as? String == testCase.expectedBaseRole)
+            #expect(object["comparedRole"] as? String == testCase.expectedComparedRole)
+            #expect(try JSONDecoder().decode(BridgeReviewComparisonOrigin.self, from: data) == testCase.origin)
+        }
+    }
+
+    @Test("comparison origin rejects fields and roles from another kind")
+    func comparisonOriginRejectsFieldsAndRolesFromAnotherKind() {
+        let invalidOrigins = [
+            #"{"kind":"unstagedOnly","baseRole":"capturedIndex","comparedRole":"capturedWorkingTree","reviewedHeadOID":"head-oid"}"#,
+            #"{"kind":"stagedOnly","baseRole":"capturedIndex","comparedRole":"capturedWorkingTree","reviewedHeadOID":"head-oid"}"#,
+            #"{"kind":"contribution","baseRole":"contributionBase","comparedRole":"capturedWorkingTree","symbolicTarget":{"branch":{"name":"main"}},"resolvedTargetOID":"","reviewedHeadOID":"head-oid","contributionBaseOID":"base-oid"}"#,
+        ]
+
+        for invalidOrigin in invalidOrigins {
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(
+                    BridgeReviewComparisonOrigin.self,
+                    from: Data(invalidOrigin.utf8)
+                )
+            }
+        }
+    }
+
     @Test("valid bridge review package fixture decodes and round trips")
     func validBridgeReviewPackageFixtureDecodesAndRoundTrips() throws {
         let package = try decodeFixture(

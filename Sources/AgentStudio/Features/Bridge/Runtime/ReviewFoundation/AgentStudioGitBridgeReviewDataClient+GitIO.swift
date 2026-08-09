@@ -5,6 +5,60 @@ import Foundation
 private let libGit2NotFoundErrorCode: Int32 = -3
 
 extension AgentStudioGitBridgeReviewDataClient {
+    func loadGitLocalDefaultBranch(
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitLocalDefaultBranch? {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(
+                    domain: "local-default-branch",
+                    request: repositoryPath
+                ),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.localDefaultBranch(for: self.repositoryPath)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
+    func loadGitContributionDiff(
+        _ request: GitContributionDiffRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitContributionDiffSnapshot {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "contribution-diff", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.contributionDiff(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitResolvedRevision(
         _ request: GitRevisionResolutionRequest,
         unavailableEndpointId: String,
@@ -215,6 +269,16 @@ extension AgentStudioGitBridgeReviewDataClient {
             return .providerFailed(message: "gitDataPlane:contentTooLarge:sizeBytes=\(sizeBytes)")
         case .pathEscapesRepository:
             return .providerFailed(message: "gitDataPlane:pathEscapesRepository")
+        case .revisionUnavailable:
+            return .providerFailed(message: "gitDataPlane:revisionUnavailable")
+        case .headUnavailable:
+            return .providerFailed(message: "gitDataPlane:headUnavailable")
+        case .requiredObjectNotFound:
+            return .providerFailed(message: "gitDataPlane:requiredObjectNotFound")
+        case .noSharedHistory:
+            return .providerFailed(message: "gitDataPlane:noSharedHistory")
+        case .multipleBestMergeBases:
+            return .providerFailed(message: "gitDataPlane:multipleBestMergeBases")
         case .libgit2Failure(let code, let klass, let message):
             return .providerFailed(
                 message:

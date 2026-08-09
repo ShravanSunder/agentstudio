@@ -332,7 +332,14 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         }
         let identity = try identity(for: nextPublication)
         return [
-            .reset(.init(identity: identity, reason: .sourceChanged)),
+            .reset(
+                .init(
+                    identity: identity,
+                    comparisonOrigin: nextPackage.comparisonOrigin,
+                    reason: .sourceChanged,
+                    reviewedSubjectLabel: nextPackage.reviewedSubjectLabel
+                )
+            ),
             try sourceAcceptedEvent(for: nextPublication),
         ] + (try windowEvents(for: nextPublication))
     }
@@ -493,6 +500,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             && currentPackage.query == nextPackage.query
             && currentPackage.baseEndpoint == nextPackage.baseEndpoint
             && currentPackage.headEndpoint == nextPackage.headEndpoint
+            && currentPackage.comparisonOrigin == nextPackage.comparisonOrigin
+            && currentPackage.reviewedSubjectLabel == nextPackage.reviewedSubjectLabel
     }
 
     fileprivate static func orderedItemIds(in package: BridgeReviewPackage) -> [String] {
@@ -534,10 +543,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
 
 private struct ReviewPackageProjection {
     let baseEndpoint: BridgeProductReviewSourceEndpointValue
+    let comparisonOrigin: BridgeReviewComparisonOrigin?
     let headEndpoint: BridgeProductReviewSourceEndpointValue
     let identity: BridgeProductReviewMetadataIdentity
     let items: [ReviewProjectedItem]
     let query: BridgeProductReviewQueryValue
+    let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
     let treeRows: [BridgeProductReviewTreeRowValue]
 
@@ -546,10 +557,12 @@ private struct ReviewPackageProjection {
         let itemIds = BridgePaneProductReviewMetadataSource.orderedItemIds(in: package)
         let reviewItems = itemIds.compactMap { package.itemsById[$0] }
         self.baseEndpoint = try productEndpoint(package.baseEndpoint)
+        self.comparisonOrigin = package.comparisonOrigin
         self.headEndpoint = try productEndpoint(package.headEndpoint)
         self.identity = try BridgePaneProductReviewMetadataSource.identity(for: publication)
         self.items = try reviewItems.map { try ReviewProjectedItem(item: $0, package: package) }
         self.query = try productQuery(package.query)
+        self.reviewedSubjectLabel = package.reviewedSubjectLabel
         self.summary = try productSummary(package.summary)
         self.treeRows = try productTreeRows(for: reviewItems, loadedBy: .startupWindow)
     }
@@ -580,12 +593,14 @@ private struct ReviewPackageProjection {
                 try .init(
                     identity: identity,
                     baseEndpoint: baseEndpoint,
+                    comparisonOrigin: comparisonOrigin,
                     contentSources: itemSlice.flatMap(\.contentSources),
                     extentFacts: itemSlice.flatMap(\.extentFacts),
                     headEndpoint: headEndpoint,
                     itemMetadata: itemSlice.map(\.metadata),
                     itemWindow: itemWindow,
                     query: query,
+                    reviewedSubjectLabel: reviewedSubjectLabel,
                     summary: summary,
                     treeRows: treeSlice,
                     treeWindow: treeWindow
