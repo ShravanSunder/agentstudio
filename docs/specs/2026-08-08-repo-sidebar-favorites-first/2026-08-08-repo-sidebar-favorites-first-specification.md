@@ -24,11 +24,11 @@ In the normal By Tab content state, a top-level non-collapsible `Favorites` sect
 
 ### S4 — Search and disclosure
 
-Search applies before favorite section presentation. An empty Favorites section disappears as the query changes; the normal Repositories, Panes, or Tabs header remains present in normal content. Filtering continues to force matching repository groups open. Clearing the query restores stored group disclosure. Section headers are labels, not another disclosure tier.
+Search applies before favorite section presentation. An empty Favorites section disappears as the query changes; the normal Repositories, Panes, or Tabs header remains present in normal content. Filtering continues to force matching repository groups open. Clearing the query restores stored group disclosure. Section headers are labels, not another disclosure tier. When a mixed tab is presented in both Favorites and Tabs, each presentation has independent disclosure state keyed by its section-qualified group identity.
 
 ### S5 — Favorite mutation
 
-The existing bookmark and context-menu actions remain available with Add Favorite / Remove Favorite accessibility labels. A favorite-state mutation updates ordering/sections without changing the selected grouping mode, sort direction, search query, or group collapse identity.
+The existing bookmark and context-menu actions remain available with Add Favorite / Remove Favorite accessibility labels. A favorite-state mutation updates ordering/sections without changing the selected grouping mode, sort direction, or search query. Favorites and Tabs presentations keep independent section-qualified collapse identities; moving a repository between them does not transfer collapse state between sections.
 
 ### S6 — Empty and boundary states
 
@@ -50,7 +50,7 @@ Sidebar and Command Bar subheadings use one shared component: system 13-point se
 
 ## Proof obligations
 
-- Projection tests prove partitioning, ordering, mixed-tab uniqueness, search, loading, and empty boundaries.
+- Projection and row-index tests prove partitioning, ordering, mixed-tab uniqueness, search, loading, empty boundaries, and that favorite/unfavorite transitions obey the destination presentation's existing collapse key without transferring disclosure state.
 - Command/persistence/IPC tests prove removal of the active favorites-only contract.
 - Focused Swift and architecture checks pass.
 - The complete `mise run test` PR gate passes on current HEAD.

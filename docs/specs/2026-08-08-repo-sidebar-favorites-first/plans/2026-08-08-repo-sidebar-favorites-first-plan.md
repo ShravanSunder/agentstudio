@@ -7,7 +7,7 @@ Implement the reviewed behavior defined by the sibling Requirements, Specificati
 ## Task 1 — Establish red projection and row-index proof
 
 - Replace favorites-do-not-reorder and favorites-only tests with failing expectations for optional top-level Favorites and required Repositories, Panes, or Tabs sections.
-- Cover no favorites, all favorites, mixed loading state, search behavior, descending sort, section-qualified favorite tab IDs, fail-closed row resolution, and visible-row indexing.
+- Cover no favorites, all favorites, mixed loading state, search behavior, descending sort, independent section-qualified favorite/tab disclosure IDs across favorite-state transitions, fail-closed row resolution, and visible-row indexing.
 - Run the focused RepoExplorer model tests and retain the expected red receipt.
 
 ## Task 2 — Implement projection and list-entry structure

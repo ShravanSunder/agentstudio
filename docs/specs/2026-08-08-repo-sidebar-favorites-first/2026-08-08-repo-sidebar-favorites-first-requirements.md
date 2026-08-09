@@ -21,6 +21,7 @@ People with many repositories need their deliberately favorited repositories to 
 - The feature does not add manual favorite ordering, recency ordering, drag-and-drop, new persistence, or a fourth grouping mode.
 - A worktree or pane destination appears only once in a view.
 - Existing By Tab order remains tab-owned. Favorites may partition leaf occurrences into a top-level Favorites section, but no leaf destination is duplicated.
+- Favorites and Tabs presentations of the same mixed tab keep independent disclosure state because they are separate visible groups.
 - This is a hard cutover from favorites-only visibility. No hidden compatibility UI, alias command, or parallel projection path remains.
 
 ## Evidence

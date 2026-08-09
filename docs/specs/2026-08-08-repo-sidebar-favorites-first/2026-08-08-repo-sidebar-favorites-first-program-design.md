@@ -9,6 +9,22 @@ RepositoryTopologyAtom.isFavorite
 RepoExplorerSnapshot (repos + grouping + sort + query)
              │
              ▼
+RepoExplorerView projection request owner
+  ├─ increments generation
+  ├─ cancels the prior request task
+  └─ submits the current request
+             │
+             ▼
+RepoExplorerProjectionWorker
+  ├─ forwards caller cancellation to detached computation
+  ├─ RepoExplorerProjection + RepoExplorerRowIndex off-main
+  └─ returns request generation with projected result
+             │
+             ▼
+RepoExplorerView generation gate
+  └─ rejects stale results before main-actor apply
+             │
+             ▼
 RepoExplorerProjection
   ├─ By Repo ─────────────► optional Favorites + required Repositories
   ├─ By Pane ─────────────► optional Favorites + required Panes
@@ -36,7 +52,7 @@ RepoExplorerView List
 
 Add a small RepoExplorer-owned section descriptor with stable identity (`favorites`, `repositories`, `panes`, `tabs`), resolved groups, and loading repositories. Favorites exists only when its collection is non-empty. Every grouping mode always emits its normal descriptor so normal content retains an explicit heading even when that section is empty. The existing no-results and degraded states still replace the list before list entries render. Flattening order is section header, resolved group/expanded-leaf runs, then the existing `Scanning…` label and loading rows. Section identity is distinct from semantic group identity. Existing `repo:` and `pane-repo:` group IDs remain unchanged. Non-favorite tab groups retain `tab:` IDs; favorite tab groups use a `:favorites` suffix so the two top-level presentations cannot collide and row resolution remains fail-closed.
 
-For By Repo and By Pane, classify a group by its single semantic repository's `isFavorite`. For By Tab, stable-partition each tab's projected rows by `row.repo.isFavorite`, create section-qualified favorite group and row identities, and place those group presentations in the top-level Favorites section. The remaining tab groups appear under Tabs. Every leaf destination occurs once.
+For By Repo and By Pane, classify a group by its single semantic repository's `isFavorite`. For By Tab, stable-partition each tab's projected rows by `row.repo.isFavorite`, create section-qualified favorite group and row identities, and place those group presentations in the top-level Favorites section. The remaining tab groups appear under Tabs. Every leaf destination occurs once. The section-qualified group identity is also the disclosure identity: a mixed tab's Favorites and Tabs presentations collapse independently, and collapse state does not transfer when a repository moves between sections.
 
 ## List-entry cutover
 
@@ -50,7 +66,7 @@ entries exactly as it ignores group headers.
 
 ## Removed path
 
-The current active path is:
+The pre-cutover predecessor path was:
 
 ```text
 toolbar / command / IPC request
@@ -63,7 +79,7 @@ toolbar / command / IPC request
   → RepoExplorerProjection favorite filter + favorite-only empty state
 ```
 
-The target removes every edge in that path:
+Current HEAD realizes removal of every active edge in that path:
 
 - delete `RepoExplorerVisibilityMode` and `RepoExplorerVisibilityButton`;
 - delete the callback/injection and presentation-batch edges from `SidebarSurfaceHost`, `RepoExplorerView`, and RepoExplorer command presentation;
@@ -72,16 +88,17 @@ The target removes every edge in that path:
 - delete the snapshot field, projection filter branch, favorites-only empty state, and the global UI empty-state branch;
 - delete or replace performance/smoke script invocations and source-architecture assertions that use the command as an automation trigger.
 
-The projection always consumes all repositories before query filtering. If the current SQLite preferences record contains `visibility_mode`, the column and decoded storage DTO field may remain solely to read the existing row shape without a table rewrite; application hydration ignores it and writes a fixed legacy-compatible `all` token only when the existing upsert requires the column. No application preference, command, projection, or observable behavior reads it. If the repository layer can omit the column without migration or destructive rewrite, remove the DTO/write field too. Tests must distinguish inert schema compatibility from active runtime behavior.
+The projection always consumes all repositories before query filtering. The current SQLite schema retains its non-null `visibility_mode` column and the repository DTO retains the corresponding storage field solely for row-shape compatibility. Application hydration ignores it, repository reads clamp it to `all`, and writes persist the fixed legacy-compatible `all` token. No application preference, command, projection, or observable behavior reads it. Tests distinguish inert schema compatibility from active runtime behavior.
 
 ## State and failure behavior
 
-Favorite mutation continues through the existing command dispatcher to topology state. Projection regeneration atomically replaces the rendered ordering. No new state, lifecycle, cache, coordinator, or async lane is added. Cancellation and topology-degraded behavior remain on the existing projection path.
+Favorite mutation continues through the existing command dispatcher to topology state. `RepoExplorerView` increments the existing projection request generation, cancels its prior request task, and sends the current snapshot through `RepoExplorerProjectionWorker`. The worker forwards caller cancellation to its detached computation. The main-actor apply gate independently rejects results whose generation or request facts no longer match. Only the newest matching result atomically replaces rendered ordering. No new state, lifecycle, cache, coordinator, or async lane is added. Projection failure retains the existing last-good/degraded disposition.
 
 ## Proof seams
 
 - Pure projection tests inspect section identities, group membership, within-section sort, and By Tab stable partition.
-- Row-index tests inspect flattened entry order and stable group/leaf resolution.
+- Row-index tests inspect flattened entry order, stable group/leaf resolution, and favorite-mutation transitions against distinct stored Favorites and normal-section collapse keys.
+- Projection-worker tests observe cancellation forwarding. View-level projection tests exercise generation and request-fact rejection before main-actor apply without adding worker-owned task state.
 - Existing command exhaustiveness, IPC, settings, script, and architecture tests are updated to prove the removed path has no active residue.
 - Native UI proof uses the standard debug observability launcher and Peekaboo/Computer Use against the exact debug PID.
 
