@@ -588,16 +588,18 @@ struct RepoExplorerViewTests {
                 != RepoExplorerView.projectionFingerprint(for: changed))
     }
 
-    @Test("projection fingerprint includes visible empty state")
-    func projectionFingerprintIncludesVisibleEmptyState() {
+    @Test("projection fingerprint includes search no-results state")
+    func projectionFingerprintIncludesSearchNoResultsState() {
         let content = RepoExplorerSidebarProjection(
+            sections: [],
             resolvedGroups: [], loadingRepos: [], emptyState: .content)
-        let favoritesEmpty = RepoExplorerSidebarProjection(
-            resolvedGroups: [], loadingRepos: [], emptyState: .favoritesOnlyEmpty)
+        let searchNoResults = RepoExplorerSidebarProjection(
+            sections: [],
+            resolvedGroups: [], loadingRepos: [], emptyState: .searchNoResults)
 
         #expect(
             RepoExplorerView.projectionFingerprint(for: content)
-                != RepoExplorerView.projectionFingerprint(for: favoritesEmpty))
+                != RepoExplorerView.projectionFingerprint(for: searchNoResults))
     }
 
     @Test("projection fingerprint includes deterministic projected row placement")
@@ -615,10 +617,25 @@ struct RepoExplorerViewTests {
             placementContext: RepoExplorerPlacementContext(
                 paneId: first.placementContext!.paneId, tabId: first.placementContext!.tabId,
                 tabIndex: 1, paneIndexInTab: 0, isActiveInTab: true))
+        let group = RepoPresentationGroup(
+            id: "group",
+            repoTitle: repo.name,
+            organizationName: nil,
+            repos: [repo]
+        )
+        let sections = [
+            RepoExplorerSidebarSection(
+                kind: .repositories,
+                resolvedGroups: [group],
+                loadingRepos: []
+            )
+        ]
         let firstProjection = RepoExplorerSidebarProjection(
-            resolvedGroups: [], worktreeRowsByGroupId: ["group": [first]], loadingRepos: [], emptyState: .content)
+            sections: sections,
+            resolvedGroups: [group], worktreeRowsByGroupId: ["group": [first]], loadingRepos: [], emptyState: .content)
         let secondProjection = RepoExplorerSidebarProjection(
-            resolvedGroups: [], worktreeRowsByGroupId: ["group": [second]], loadingRepos: [], emptyState: .content)
+            sections: sections,
+            resolvedGroups: [group], worktreeRowsByGroupId: ["group": [second]], loadingRepos: [], emptyState: .content)
 
         #expect(
             RepoExplorerView.projectionFingerprint(for: firstProjection)

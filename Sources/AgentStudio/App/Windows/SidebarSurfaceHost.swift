@@ -88,14 +88,6 @@ struct SidebarSurfaceHost: View {
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
                 commandPresentationSnapshot: repoCommandPresentationBatch?.snapshot ?? .empty,
-                onSetVisibilityMode: { mode in
-                    AppCommandDispatcher.shared.dispatch(
-                        AppCommandExecutionRequest(
-                            command: .setRepoSidebarVisibilityMode,
-                            arguments: .repoSidebarVisibilityMode(mode)
-                        )
-                    )
-                },
                 onSetSortOrder: { order in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(

@@ -85,9 +85,35 @@ struct RepoExplorerPanePresentationTests {
         repoId: UUID,
         destination: RepoExplorerPaneDestination
     ) -> RepoExplorerSidebarProjection {
-        .ready(
+        let worktree = Worktree(
+            id: destination.worktreeId,
+            repoId: repoId,
+            name: destination.worktreeLabel,
+            path: URL(fileURLWithPath: "/tmp/\(destination.worktreeLabel)")
+        )
+        let repo = RepoPresentationItem(
+            id: repoId,
+            name: "repo",
+            repoPath: worktree.path,
+            stableKey: "repo",
+            worktrees: [worktree]
+        )
+        let group = RepoPresentationGroup(
+            id: groupId,
+            repoTitle: repo.name,
+            organizationName: nil,
+            repos: [repo]
+        )
+        return .ready(
             RepoExplorerSidebarContent(
-                resolvedGroups: [],
+                sections: [
+                    RepoExplorerSidebarSection(
+                        kind: .repositories,
+                        resolvedGroups: [group],
+                        loadingRepos: []
+                    )
+                ],
+                resolvedGroups: [group],
                 paneRowsByGroupId: [
                     groupId: [
                         RepoExplorerProjectedPaneRow(

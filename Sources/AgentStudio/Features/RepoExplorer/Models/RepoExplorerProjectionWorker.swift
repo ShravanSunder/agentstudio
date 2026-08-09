@@ -51,6 +51,7 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             query: ""
         )
         let projection = RepoExplorerSidebarProjection(
+            sections: [],
             resolvedGroups: [],
             loadingRepos: [],
             showsNoResults: false

@@ -9,7 +9,6 @@ package enum SQLiteLocalUXStorage {
     package static let repoExplorerSortAscending = "ascending"
     package static let repoExplorerSortDescending = "descending"
     package static let repoExplorerVisibilityAll = "all"
-    package static let repoExplorerVisibilityFavoritesOnly = "favoritesOnly"
     package static let inboxNotificationGroupingByTab = "byTab"
     package static let inboxNotificationGroupingByRepo = "byRepo"
     package static let inboxNotificationGroupingByPane = "byPane"
@@ -30,10 +29,6 @@ package enum SQLiteLocalUXStorage {
     private static let repoExplorerSortValues: Set<String> = [
         repoExplorerSortAscending,
         repoExplorerSortDescending,
-    ]
-    private static let repoExplorerVisibilityValues: Set<String> = [
-        repoExplorerVisibilityAll,
-        repoExplorerVisibilityFavoritesOnly,
     ]
     private static let inboxNotificationGroupingValues: Set<String> = [
         inboxNotificationGroupingByTab,
@@ -81,10 +76,6 @@ package enum SQLiteLocalUXStorage {
 
     package static func isValidRepoExplorerSort(_ rawValue: String) -> Bool {
         repoExplorerSortValues.contains(rawValue)
-    }
-
-    package static func isValidRepoExplorerVisibility(_ rawValue: String) -> Bool {
-        repoExplorerVisibilityValues.contains(rawValue)
     }
 
     package static func isValidInboxNotificationGrouping(_ rawValue: String) -> Bool {

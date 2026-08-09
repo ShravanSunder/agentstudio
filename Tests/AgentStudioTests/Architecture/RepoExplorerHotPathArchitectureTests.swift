@@ -79,8 +79,8 @@ struct RepoExplorerHotPathArchitectureTests {
         )
     }
 
-    @Test("visibility mode changes stay in measured projection worker path")
-    func visibilityModeChangesStayInMeasuredProjectionWorkerPath() throws {
+    @Test("projection inputs exclude removed Repo Explorer visibility semantics")
+    func projectionInputsExcludeRemovedRepoExplorerVisibilitySemantics() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoExplorerViewSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
@@ -97,13 +97,32 @@ struct RepoExplorerHotPathArchitectureTests {
                 path: "Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioOTLPPerformanceMetrics.swift"),
             encoding: .utf8
         )
+        let snapshotSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerSnapshot.swift"
+            ),
+            encoding: .utf8
+        )
+        let commandPresentationSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerCommandPresentation.swift"
+            ),
+            encoding: .utf8
+        )
 
-        #expect(
-            repoExplorerViewHelperSource.contains("previous.snapshot.visibilityMode != next.snapshot.visibilityMode"))
-        #expect(!repoExplorerViewSource.contains(".onChange(of: repoExplorerPrefs.repoVisibilityMode)"))
-        #expect(!repoExplorerViewSource.contains(#"refreshProjection(force: true, trigger: "visibility_mode")"#))
-        #expect(repoExplorerViewHelperSource.contains(".visibilityMode"))
-        #expect(performanceMetricsSource.contains("case visibilityMode = \"visibility_mode\""))
+        #expect(repoExplorerViewHelperSource.contains("previous.snapshot.groupingMode != next.snapshot.groupingMode"))
+        #expect(repoExplorerViewHelperSource.contains("previous.snapshot.sortOrder != next.snapshot.sortOrder"))
+        for source in [
+            repoExplorerViewSource,
+            repoExplorerViewHelperSource,
+            performanceMetricsSource,
+            snapshotSource,
+            commandPresentationSource,
+        ] {
+            #expect(!source.contains("RepoExplorerVisibilityMode"))
+            #expect(!source.contains("visibilityMode"))
+            #expect(!source.contains("setRepoSidebarVisibilityMode"))
+        }
     }
 
     @Test("repo rows render from cached projection facts instead of recomputing all worktree status")
@@ -172,24 +191,20 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         #expect(!featureSource.contains("repoExplorerPrefs.setRepoVisibilityMode"))
+        #expect(!featureSource.contains("RepoExplorerVisibilityButton"))
+        #expect(!featureSource.contains("onSetVisibilityMode"))
         #expect(!featureSource.contains("repoExplorerPrefs.toggleSortOrder"))
         #expect(!featureSource.contains("repoExplorerPrefs.setGroupingMode(candidate)"))
-        #expect(
-            featureSource.contains(
-                "let nextVisibilityMode: RepoExplorerVisibilityMode = isFavoritesOnly ? .all : .favoritesOnly"
-            )
-        )
         #expect(featureSource.contains("let nextSortOrder = repoExplorerPrefs.sortOrder.toggled"))
-        #expect(featureSource.contains("onSetVisibilityMode(nextVisibilityMode)"))
         #expect(featureSource.contains("onSetSortOrder(nextSortOrder)"))
         #expect(featureSource.contains("let command = groupingCommand(for: candidate)"))
         #expect(featureSource.contains("commandPresentation.command(command)?.isEnabled == true"))
         #expect(featureSource.contains("commandDispatcher.dispatch(command)"))
         #expect(!featureSource.contains("AppCommandDispatcher.shared"))
-        #expect(appCompositionSource.contains("command: .setRepoSidebarVisibilityMode"))
-        #expect(appCompositionSource.contains("arguments: .repoSidebarVisibilityMode(mode)"))
         #expect(appCompositionSource.contains("command: .setRepoSidebarSortOrder"))
         #expect(appCompositionSource.contains("arguments: .repoSidebarSortOrder(order)"))
+        #expect(!appCompositionSource.contains("setRepoSidebarVisibilityMode"))
+        #expect(!appCompositionSource.contains("repoSidebarVisibilityMode"))
     }
 
     @Test("Repo Explorer body consumes immutable command presentation without live capability reads")
@@ -206,7 +221,7 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         #expect(featureSource.contains("commandPresentationSnapshot"))
-        #expect(!featureSource.contains("canSetVisibilityMode"))
+        #expect(!featureSource.contains("visibilityCommand"))
         #expect(!featureSource.contains("canSetSortOrder"))
         #expect(!presentationSource.contains("dispatcher.canDispatch"))
     }

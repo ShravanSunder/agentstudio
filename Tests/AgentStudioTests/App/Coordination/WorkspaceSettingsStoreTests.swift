@@ -29,7 +29,6 @@ struct WorkspaceSettingsStoreTests {
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPreferences.setGroupingMode(.tab)
         repoExplorerPreferences.setSortOrder(.descending)
-        repoExplorerPreferences.setRepoVisibilityMode(.favoritesOnly)
         inboxPreferences.setGrouping(.byRepo)
         inboxPreferences.setSort(.oldestFirst)
         inboxPreferences.setBellEnabled(true)
@@ -53,7 +52,6 @@ struct WorkspaceSettingsStoreTests {
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
         #expect(restoredRepoExplorerPreferences.groupingMode == .tab)
         #expect(restoredRepoExplorerPreferences.sortOrder == .descending)
-        #expect(restoredRepoExplorerPreferences.repoVisibilityMode == .favoritesOnly)
         #expect(restoredInboxPreferences.grouping == .byRepo)
         #expect(restoredInboxPreferences.sort == .oldestFirst)
         #expect(restoredInboxPreferences.bellEnabled)
@@ -61,6 +59,15 @@ struct WorkspaceSettingsStoreTests {
         #expect(restoredInboxPreferences.globalInboxRowStateFilter == .all)
         #expect(restoredInboxPreferences.paneInboxContentMode == .all)
         #expect(restoredInboxPreferences.paneInboxRowStateFilter == .unreadOnly)
+
+        let repository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: fixture.localDatabaseQueue
+        )
+        #expect(
+            try repository.fetchRepoExplorerPreferences().visibilityMode
+                == SQLiteLocalUXStorage.repoExplorerVisibilityAll
+        )
     }
 
     @Test
@@ -72,7 +79,6 @@ struct WorkspaceSettingsStoreTests {
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPreferences.setGroupingMode(.pane)
         repoExplorerPreferences.setSortOrder(.descending)
-        repoExplorerPreferences.setRepoVisibilityMode(.favoritesOnly)
         inboxPreferences.setGrouping(.byRepo)
         inboxPreferences.setSort(.oldestFirst)
         inboxPreferences.setBellEnabled(true)
@@ -113,7 +119,7 @@ struct WorkspaceSettingsStoreTests {
                 WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
                     groupingMode: SQLiteLocalUXStorage.repoExplorerGroupingPane,
                     sortOrder: SQLiteLocalUXStorage.repoExplorerSortDescending,
-                    visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityFavoritesOnly
+                    visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
                 )
             ),
             updatedAt: Date(timeIntervalSince1970: 1)
@@ -210,7 +216,6 @@ struct WorkspaceSettingsStoreTests {
         #expect(editorPreference.bookmarkedEditorId == "cursor")
         #expect(repoExplorerPreferences.groupingMode == .repo)
         #expect(repoExplorerPreferences.sortOrder == .ascending)
-        #expect(repoExplorerPreferences.repoVisibilityMode == .all)
         #expect(inboxPreferences.grouping == .byRepo)
         #expect(inboxPreferences.sort == .oldestFirst)
         #expect(inboxPreferences.bellEnabled)
@@ -224,6 +229,14 @@ struct WorkspaceSettingsStoreTests {
             databaseQueue: fixture.localDatabaseQueue
         )
         #expect(groupingAfterHydration == "unsupported")
+        let repository = WorkspaceLocalRepository(
+            workspaceId: workspaceId,
+            databaseWriter: fixture.localDatabaseQueue
+        )
+        #expect(
+            try repository.fetchRepoExplorerPreferences().visibilityMode
+                == SQLiteLocalUXStorage.repoExplorerVisibilityAll
+        )
 
         editorPreference.setBookmarkedEditor("zed")
         try await store.flush(for: workspaceId)
@@ -233,11 +246,11 @@ struct WorkspaceSettingsStoreTests {
             databaseQueue: fixture.localDatabaseQueue
         )
         #expect(groupingAfterSave == "repo")
-        let repository = WorkspaceLocalRepository(
-            workspaceId: workspaceId,
-            databaseWriter: fixture.localDatabaseQueue
-        )
         #expect(try repository.fetchEditorPreferences().bookmarkedEditorId == "zed")
+        #expect(
+            try repository.fetchRepoExplorerPreferences().visibilityMode
+                == SQLiteLocalUXStorage.repoExplorerVisibilityAll
+        )
         #expect(
             try repository.fetchInboxNotificationPreferences().grouping
                 == SQLiteLocalUXStorage.inboxNotificationGroupingByRepo
@@ -431,7 +444,6 @@ struct WorkspaceSettingsStoreTests {
         #expect(editorPreference.bookmarkedEditorId == nil)
         #expect(repoExplorerPreferences.groupingMode == .repo)
         #expect(repoExplorerPreferences.sortOrder == .ascending)
-        #expect(repoExplorerPreferences.repoVisibilityMode == .all)
         #expect(inboxPreferences.grouping == .byTab)
         #expect(inboxPreferences.sort == .newestFirst)
         #expect(!inboxPreferences.bellEnabled)

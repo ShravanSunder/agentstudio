@@ -7,21 +7,21 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation")
 struct RepoExplorerCommandPresentationTests {
-    @Test("typed presentation requests keep visibility and sort choices distinct")
+    @Test("typed presentation requests keep grouping and sort choices distinct")
     func typedPresentationRequestsKeepArgumentChoicesDistinct() {
-        let visibilityAll = RepoExplorerCommandPresentationRequest(
-            command: .setRepoSidebarVisibilityMode,
+        let groupingRepo = RepoExplorerCommandPresentationRequest(
+            command: .setRepoSidebarGroupingRepo,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
-            arguments: .repoSidebarVisibilityMode(.all)
+            arguments: .noArguments
         )
-        let visibilityFavorites = RepoExplorerCommandPresentationRequest(
-            command: .setRepoSidebarVisibilityMode,
+        let groupingPane = RepoExplorerCommandPresentationRequest(
+            command: .setRepoSidebarGroupingPane,
             surface: .inlineControl,
             target: nil,
             targetType: nil,
-            arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+            arguments: .noArguments
         )
         let sortName = RepoExplorerCommandPresentationRequest(
             command: .setRepoSidebarSortOrder,
@@ -38,7 +38,7 @@ struct RepoExplorerCommandPresentationTests {
             arguments: .repoSidebarSortOrder(.descending)
         )
 
-        #expect(Set([visibilityAll, visibilityFavorites, sortName, sortRecent]).count == 4)
+        #expect(Set([groupingRepo, groupingPane, sortName, sortRecent]).count == 4)
     }
 
     @Test("one visible worktree row produces one bounded request set")

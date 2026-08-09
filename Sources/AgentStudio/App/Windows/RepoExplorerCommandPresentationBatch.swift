@@ -98,11 +98,8 @@ final class RepoExplorerCommandPresentationBatch {
     }
 
     private func commandPresentationRequests() -> Set<RepoExplorerCommandPresentationRequest> {
-        let nextVisibilityMode: RepoExplorerVisibilityMode =
-            repoExplorerPrefs.repoVisibilityMode == .favoritesOnly ? .all : .favoritesOnly
         let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
         var requests = RepoExplorerToolbarCommandPresentation.requests(
-            nextVisibilityMode: nextVisibilityMode,
             nextSortOrder: nextSortOrder
         )
 

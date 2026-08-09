@@ -64,14 +64,14 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.generation == 3)
         #expect(result.snapshot == snapshot)
         #expect(result.trigger == .search)
-        #expect(result.rowIndex.entries.count == 2)
+        #expect(result.rowIndex.entries.count == 3)
         let visibleWorktreeIds = result.projection.resolvedGroups.first?.repos.first?.worktrees.map { $0.id }
         #expect(visibleWorktreeIds == [matchingWorktree.id])
         #expect(result.branchNameByWorktreeId[matchingWorktree.id] == "Unknown branch")
     }
 
-    @Test("worker carries visibility mode through snapshot and filters off caller isolation")
-    func workerCarriesVisibilityModeAndFilters() async throws {
+    @Test("worker preserves favorites-first section ordering off caller isolation")
+    func workerPreservesFavoritesFirstSectionOrdering() async throws {
         let normalRepoId = UUID()
         let favoriteRepoId = UUID()
         let normalRepo = repo(id: normalRepoId, name: "alpha-normal")
@@ -84,7 +84,6 @@ struct RepoExplorerProjectionWorkerTests {
             ],
             groupingMode: .repo,
             sortOrder: .ascending,
-            visibilityMode: .favoritesOnly,
             query: ""
         )
         let request = RepoExplorerProjectionRequest(
@@ -92,16 +91,17 @@ struct RepoExplorerProjectionWorkerTests {
             snapshot: snapshot,
             collapsedGroupIds: [],
             isFiltering: false,
-            trigger: .visibilityMode
+            trigger: .startupDiagnostic
         )
 
         let result = try await RepoExplorerProjectionWorker().project(request)
 
         #expect(result.generation == 4)
-        #expect(result.snapshot.visibilityMode == .favoritesOnly)
-        #expect(result.projection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
-        #expect(result.projection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
-        #expect(result.rowIndex.entries.count == 2)
+        #expect(result.snapshot == snapshot)
+        #expect(result.projection.sections.map(\.kind) == [.favorites, .repositories])
+        #expect(result.projection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite", "alpha-normal"])
+        #expect(result.projection.resolvedGroups.flatMap(\.repos).map(\.id) == [favoriteRepoId, normalRepoId])
+        #expect(result.rowIndex.entries.count == 6)
     }
 
     @Test("projection checks cancellation periodically within placement work")

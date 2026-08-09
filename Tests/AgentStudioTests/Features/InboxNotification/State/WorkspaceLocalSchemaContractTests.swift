@@ -30,8 +30,8 @@ struct WorkspaceLocalSchemaContractTests {
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
     }
 
-    @Test("validated raw preference tokens round trip and malformed rows use defaults")
-    func validatedRawPreferenceTokensRoundTripAndMalformedRowsUseDefaults() throws {
+    @Test("legacy repo visibility tokens are inert while other preferences round trip")
+    func legacyRepoVisibilityTokensAreInertWhileOtherPreferencesRoundTrip() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let workspaceId = UUID()
@@ -40,7 +40,7 @@ struct WorkspaceLocalSchemaContractTests {
             WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
                 groupingMode: "pane",
                 sortOrder: "descending",
-                visibilityMode: "favoritesOnly"
+                visibilityMode: "legacy-favorites-only"
             )
         )
         let inboxPreferences = try #require(
