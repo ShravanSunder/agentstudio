@@ -40,6 +40,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
                 "watchFolder",
                 "managementLayer",
                 "arrangement",
+                "arrangementDivider",
                 "workspaceTabs",
                 "selectTab",
                 "tabActionsDivider",
