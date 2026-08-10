@@ -3,13 +3,30 @@
 This folder is the sole current design entry point for the Worktree
 Annotations delivery sequence.
 
-The first bounded design cycle is the Review comparison prerequisite:
+The first bounded design cycle is the Review comparison prerequisite. Its core
+comparison contract, accepted basis delta, and focused target-loading correction
+are:
 
 ```text
-PR0 Requirements          PR0 Specification          PR0 Program Design
-pr0-user-requirements.md → pr0-specification.md     → pr0-program-design.md
-why and for whom          what must be observable     how Agent Studio realizes it
+core comparison contract
+  Requirements → Specification → Program Design
+
+accepted comparison-basis delta
+
+target-loading correction
+  Requirements → Specification → Program Design
 ```
+
+- Core comparison contract:
+  [`pr0-user-requirements.md`](./pr0-user-requirements.md) →
+  [`pr0-specification.md`](./pr0-specification.md) →
+  [`pr0-program-design.md`](./pr0-program-design.md)
+- Accepted comparison-basis delta:
+  [`2026-08-10-pr0-review-comparison-basis.md`](../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md)
+- Target-loading correction:
+  [`user-requirements.md`](../2026-08-10-bridge-review-comparison-target-loading/user-requirements.md) →
+  [`specification.md`](../2026-08-10-bridge-review-comparison-target-loading/specification.md) →
+  [`program-design.md`](../2026-08-10-bridge-review-comparison-target-loading/program-design.md)
 
 PR0 makes Review View show the work attributable to the selected worktree
 against a visible, reviewer-selectable target. It also exposes trustworthy
@@ -27,16 +44,14 @@ PR1 and PR2 require their own current Requirements identities and bounded
 design cycles. The deprecated drafts below remain source material until those
 cycles create new authoritative records.
 
-## Deferred comparison-selector efficiency
+## Comparison-selector loading boundary
 
-PR0 loads branch candidates when the Compare Worktree control opens and filters
-them locally. After PR0, consider sharing that transient catalog per worktree
-instead of requesting it independently for each pane.
+Review initialization does not load branch candidates. Activating Branch mode
+requests one recent, bounded catalog through the existing command/content path
+and filters that finite response locally.
 
-- Share one ref catalog per worktree across its tabs and panes.
-- Coalesce concurrent requests for the same worktree.
-- Refresh or invalidate through the existing Git refresh ownership.
-- Do not introduce a separate watcher, cache service, or persistence system.
+- Do not share, persist, prefetch, or subscribe to the catalog.
+- Do not introduce a watcher, cache service, or new transport.
 - Keep searchable commit history separate; PR0 accepts an exact commit OID.
 
 The earlier folders are deprecated source material only:

@@ -1,9 +1,15 @@
 # PR0 Review Comparison — Specification
 
 > Comparison-basis and popup details were updated by
-> [`../../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md`](../../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md).
+> [`../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md`](../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md).
 > That focused delta governs where this document still assumes a
 > common-commit-only comparison or the older popup.
+>
+> Comparison-target discovery, loading, bounded candidate presentation, and
+> picker-query failure behavior are governed by
+> [`../2026-08-10-bridge-review-comparison-target-loading/specification.md`](../2026-08-10-bridge-review-comparison-target-loading/specification.md).
+> The selected-target, comparison-basis, comparison-result, and origin contracts
+> in this document remain authoritative.
 
 ## Authority and scope
 

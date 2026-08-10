@@ -17,8 +17,8 @@ reviewer opens Review View
         ├─ current comparison appears from compact current state
         │
         └─ reviewer opens Compare Worktree
-                 │
-                 └─ recent branch choices load on demand
+                 ├─ remembered Commit mode → focus commit input
+                 └─ activates Branch mode → recent choices load on demand
                     without freezing Review or losing the current comparison
 ```
 
@@ -41,12 +41,14 @@ enumeration, transfer, worker materialization, or row-rendering work.
 
 Priority: must.
 
-### CT-U2 — Comparison choices appear when requested
+### CT-U2 — Branch choices appear when requested
 
-Opening the comparison picker must load locally available branch choices and
-place keyboard focus in search. Search, keyboard navigation, pointer selection,
-and the existing Branch/Commit modes must remain usable while the result set is
-large.
+Activating the Branch selection surface in an open comparison picker must load
+locally available branch choices and place keyboard focus in branch search.
+Opening in the remembered Commit mode must focus commit entry without loading
+the branch catalog. Search, keyboard navigation, pointer selection, and the
+existing remembered Branch/Commit modes must remain usable while the result set
+is large.
 
 Priority: must.
 
@@ -58,12 +60,20 @@ always retaining the repository default target and the current selected branch
 when they can be resolved. The result must also have hard capacity bounds so
 pathological repositories cannot overwhelm Bridge.
 
+This deliberately narrows PR0's earlier promise that every resolvable branch is
+available in Branch mode. A branch older than the recent window is absent unless
+it is the repository default or current selection. Exact commit entry remains
+available, but it is a pinned commit choice rather than a living replacement for
+an omitted branch. The picker must make that recent-window boundary visible even
+when the returned result did not hit a capacity limit.
+
 Priority: must.
 
 ### CT-U4 — Current comparison truth remains pushed and compact
 
-The active comparison target, its attempt/current/stale state, and invalidation
-or movement notifications must remain available without opening the picker.
+The active comparison target, whether it is the currently resolvable repository
+default target, its attempt/current/stale state, and invalidation or movement
+notifications must remain available without activating Branch selection.
 Available target choices must not be mixed into that continuously pushed state.
 
 Priority: must.
@@ -107,8 +117,9 @@ Out of scope:
 
 ## Success
 
-The correction succeeds when Review loads from compact current state, opening
-the picker performs one bounded foreground query through the established
-command/content path, a production-scale catalog remains searchable and
-keyboard operable without rendering the complete list, and cancellation or
-failure leaves the displayed comparison untouched.
+The correction succeeds when Review loads from compact current state,
+activating Branch selection performs one bounded foreground query through the
+established command/content path, Commit mode performs no branch query, a
+production-scale catalog remains searchable and keyboard operable without
+rendering the complete list, and cancellation or failure leaves the displayed
+comparison untouched.

@@ -1,5 +1,11 @@
 # PR0 Review Comparison — Program Design
 
+> Comparison-target discovery, catalog transport, bounded candidate production,
+> and selector materialization are superseded by
+> [`../2026-08-10-bridge-review-comparison-target-loading/program-design.md`](../2026-08-10-bridge-review-comparison-target-loading/program-design.md).
+> This document remains authoritative for durable target intent, comparison
+> calculation, publication, invalidation, and comparison-origin realization.
+
 ## What this design realizes
 
 This Program Design realizes the observable contract in

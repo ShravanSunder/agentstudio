@@ -2,10 +2,15 @@
 
 Authority: [User Requirements](./user-requirements.md).
 
-This Specification replaces the comparison-target catalog loading and
-presentation obligations in the older PR0 design. It does not change the
-selected-target, comparison-basis, durable SQLite, comparison calculation, or
-comparison-origin contracts.
+This Specification replaces the comparison-target discovery, loading, and
+catalog-presentation obligations in the older
+[PR0 Specification](../2026-08-06-worktree-annotations/pr0-specification.md)
+and companion
+[Program Design](../2026-08-06-worktree-annotations/pr0-program-design.md).
+It does not change the selected-target, comparison-basis, durable SQLite,
+comparison calculation, or comparison-origin contracts. The focused
+[comparison-basis delta](../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md)
+remains authoritative for the current-state popup and basis choices.
 
 ## Observable product model
 
@@ -13,7 +18,9 @@ comparison-origin contracts.
 flowchart LR
     Review[Review opens] --> Current[Current comparison appears]
     Current --> Open[Reviewer opens picker]
-    Open --> Loading[Recent targets loading]
+    Open --> Commit[Remembered Commit mode focuses entry]
+    Open --> Branch[Reviewer activates Branch mode]
+    Branch --> Loading[Recent targets loading]
     Loading --> Ready[Searchable bounded choices]
     Loading --> Failed[Retryable picker error]
     Ready --> Select[Reviewer selects target]
@@ -25,8 +32,8 @@ Current comparison state and available comparison choices are independent:
 
 | Information | Availability | Failure scope |
 | --- | --- | --- |
-| Active target, basis, attempt, displayed snapshot, stale/current state | pushed while Review is active | Review comparison lifecycle |
-| Branch choices and repository default candidate | requested when the picker opens | that picker query only |
+| Active target, compact repository-default symbolic identity, basis, attempt, displayed snapshot, stale/current state | pushed while Review is active | Review comparison lifecycle |
+| Branch choices and repository default candidate | requested while Branch selection is active | that picker query only |
 
 ## CT-R1 — Review does not preload the branch catalog
 
@@ -34,15 +41,25 @@ Opening, restoring, refreshing, or changing the viewport of Review View MUST
 NOT enumerate or transfer the selectable branch catalog unless a target query
 is currently requested.
 
-Automatic initial-target selection remains required. When no durable target
-intent exists, Agent Studio MAY resolve only the repository-designated default
-remote-tracking reference needed to initialize the comparison. That constant
-scope lookup MUST NOT enumerate the branch catalog.
+Agent Studio MAY resolve the repository-designated default remote-tracking
+reference as one constant-scope lookup without enumerating selectable branches.
+That lookup has exactly two observable purposes:
+
+1. when no durable target intent exists, initialize the comparison from the
+   resolvable repository default target; and
+2. publish that currently resolvable default's compact symbolic identity so the
+   current-state block can truthfully classify whichever active or displayed
+   symbolic target it renders as `Default`.
+
+If the repository default cannot be resolved, Agent Studio MUST NOT mark the
+active or displayed target as `Default`. The compact default identity is current
+presentation truth, not durable target intent, and contains no branch catalog.
 
 ```text
 Review initialization
-  ├─ durable target exists → use it
-  └─ no durable target     → resolve designated default only
+  ├─ resolve designated default only; never enumerate choices
+  ├─ durable target exists → use it and publish the compact default identity
+  └─ no durable target     → initialize from the resolvable default
 
 No branch catalog is loaded on either path.
 ```
@@ -51,11 +68,12 @@ Traces to: CT-U1, CT-U4.
 
 ## CT-R2 — The picker requests choices through the on-demand product path
 
-When the Branch selection surface opens, BridgeWeb MUST issue the typed product
-call `review.comparisonTargets.query`. A successful call MUST return an
-authorized descriptor for one finite `review.comparisonTargets` content
-response. BridgeWeb MUST obtain the catalog by opening that descriptor through
-the existing content route.
+When the Branch selection surface becomes active in an open picker, BridgeWeb
+MUST issue the typed product call `review.comparisonTargets.query`. Opening the
+picker in remembered Commit mode MUST NOT issue that query. A successful call
+MUST return an authorized descriptor for one finite
+`review.comparisonTargets` content response. BridgeWeb MUST obtain the catalog
+by opening that descriptor through the existing content route.
 
 The catalog MUST NOT appear in `pane.presentation`, File metadata, Review
 metadata, or any new metadata subscription. Packaged transport uses
@@ -80,7 +98,7 @@ Traces to: CT-U2, CT-U4, CT-U6.
 ## CT-R3 — Candidate production is recent and bounded
 
 The returned catalog MUST include resolvable local and remote-tracking branches
-whose tip commit time falls within the rolling 30 days preceding query capture.
+whose tip commit time is at or after the cutoff and no later than query capture.
 It MUST also include, when resolvable:
 
 1. the repository-designated default remote-tracking target; and
@@ -89,11 +107,11 @@ It MUST also include, when resolvable:
 Those two retained targets may be older than the cutoff but count toward the
 hard result capacity. Symbolic remote `HEAD` aliases MUST NOT appear as choices.
 
-The response MUST have deterministic ordering, a hard row limit, and a hard
-encoded-byte limit no greater than the existing content-stream ceiling. If
-eligible rows exceed either limit, the response MUST set `isTruncated: true`.
-The default and current retained targets take precedence over ordinary recent
-rows during truncation.
+The response MUST have deterministic ordering, a fixed product row limit, and
+a fixed product encoded-byte limit independent of the transport's theoretical
+maximum stream size. If eligible rows exceed either product limit, the response
+MUST set `isTruncated: true`. The default and current retained targets take
+precedence over ordinary recent rows during truncation.
 
 The catalog MUST report its capture time, cutoff time, and truncation state so
 the UI can explain that it is a recent bounded list. No network fetch occurs.
@@ -117,14 +135,25 @@ list primitives and their Agent Studio theme tokens. It MUST use Base UI's
 external-virtualization contract so only the visible rows plus a bounded
 overscan are mounted.
 
+Each row MUST preserve its unambiguous displayed branch name, local or
+remote-tracking kind, current abbreviated target revision, full revision for
+assistive technology, and `Default` marker when its symbolic identity matches
+the catalog's designated default. Same-short-name local and remote-tracking rows
+MUST remain distinguishable.
+
 Filtering MUST operate over the complete returned catalog. Keyboard highlight,
 selection, active-descendant semantics, and scrolling to the highlighted item
 MUST continue to work across rows that are not currently mounted. Opening the
-picker and switching to Branch or Commit MUST focus that mode's input.
+picker MUST focus the remembered mode's input; switching to Branch or Commit
+MUST focus the newly active mode's input.
 
-An empty eligible set MUST be distinguishable from query failure. A truncated
-result MUST explain that only recent choices are shown without presenting the
-picker as a complete branch browser.
+An empty eligible set MUST be distinguishable from query failure. Every ready or
+empty result MUST explain adjacent to the branch results that choices are
+limited to branches updated in the previous 30 days, apart from the default and
+current exceptions. A truncated result MUST additionally explain that capacity
+limited the result and that exact commit entry remains available. It MUST NOT
+present the picker as a complete branch browser or imply that exact commit entry
+preserves an omitted branch's living-target behavior.
 
 Traces to: CT-U2, CT-U3.
 
@@ -145,11 +174,12 @@ stateDiagram-v2
     [*] --> Idle
     Idle --> Loading: Branch surface opens
     Loading --> Ready: newest query completes
+    Loading --> Empty: newest query has no choices
     Loading --> Failed: newest query fails
     Loading --> Idle: close or leave Branch
     Loading --> Loading: newer query supersedes old
+    Empty --> Idle: close or leave Branch
     Failed --> Loading: retry
-    Ready --> Loading: refresh choices
     Ready --> Idle: close or leave Branch
 ```
 
@@ -161,6 +191,8 @@ Removing the catalog from metadata MUST NOT change:
 
 - durable selected target and basis in `core.sqlite`;
 - automatic default-target initialization;
+- the `Default` marker on an active or displayed symbolic target whose identity
+  matches the compact currently resolvable repository default;
 - common-commit, branch-tip, or exact-commit comparison semantics;
 - displayed target/attempt/snapshot status;
 - comparison invalidation and stale-result behavior;
@@ -206,10 +238,10 @@ again before producing a Review result.
 
 | Obligation | Required evidence |
 | --- | --- |
-| CT-R1, CT-R6 | Native/integration evidence that Review initialization resolves at most the single default target and publishes current comparison without a catalog |
+| CT-R1, CT-R6 | Native/integration evidence that Review initialization resolves at most the single default target, publishes only its compact symbolic identity, and renders the correct `Default` marker for restored, initial, pending, and displayed symbolic targets without a catalog |
 | CT-R2 | Contract and production-backed integration evidence for command descriptor followed by content frames; metadata corpus rejects `targetCatalog` |
 | CT-R3 | Real-Git behavior evidence for cutoff, mandatory exceptions, deterministic truncation, row/byte bounds, and no fetch |
-| CT-R4 | Browser interaction and manual visual evidence with a production-scale catalog, bounded mounted rows, search, focus, keyboard navigation, and selection |
+| CT-R4 | Browser interaction and manual visual evidence with remembered Branch/Commit mode, no query in Commit mode, preserved row content and accessibility, a production-scale catalog, bounded mounted rows, search, focus, keyboard navigation, selection, always-visible recency explanation, and conditional truncation explanation |
 | CT-R5 | Automated cancellation/latest-request evidence showing no comparison mutation or late-result application |
 | CT-R6 | Durable SQLite restart evidence plus existing comparison behavior regression coverage in the Swift development backend and packaged app |
 
