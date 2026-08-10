@@ -238,12 +238,21 @@ extension E2ESerializedTests {
                 attributes: nil
             )
 
+            var bodyError: (any Error)?
             do {
                 try await test(harness, backend)
-                await harness.cleanup()
             } catch {
-                await harness.cleanup()
-                throw error
+                bodyError = error
+            }
+            let cleanupOutcome = await harness.cleanup()
+            if let bodyError {
+                if !cleanupOutcome.succeeded {
+                    Issue.record("zmx cleanup also failed: \(cleanupOutcome.diagnostics)")
+                }
+                throw bodyError
+            }
+            if !cleanupOutcome.succeeded {
+                throw ZmxTestHarness.CleanupError(outcome: cleanupOutcome)
             }
         }
     }

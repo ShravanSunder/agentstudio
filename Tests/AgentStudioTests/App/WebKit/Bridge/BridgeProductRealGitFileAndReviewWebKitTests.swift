@@ -817,7 +817,7 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func makeController(
+        func makeController(
             repoURL: URL,
             traceRecorder: BridgeProductWebKitCarrierTraceRecorder
         ) -> BridgePaneController {
