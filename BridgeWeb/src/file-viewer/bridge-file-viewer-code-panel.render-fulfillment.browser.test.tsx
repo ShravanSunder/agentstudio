@@ -3,7 +3,6 @@ import {
 	type CodeViewFileItem,
 	type CodeViewItem,
 	type CodeViewOptions,
-	type CodeViewScrollListener,
 	type CodeViewScrollTarget,
 	type PostRenderPhase,
 } from '@pierre/diffs';
@@ -432,31 +431,29 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 		}
 	});
 
-	test('keeps same-path scroll through a loading reset and equivalent ready rerender', async () => {
-		// Arrange: retain the real React CodeView subscription seam while capturing the exact
-		// public scrollTo command received by Pierre.
+	test('lets stable same-file items preserve scroll without app-owned retargeting', async () => {
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const mountedCodeViewRoot: { current: HTMLElement | null } = { current: null };
-		const codeViewScrollListener: { current: CodeViewScrollListener<undefined> | null } = {
-			current: null,
-		};
+		const setItemReceipts: CodeViewItem<undefined>[][] = [];
 		const scrollToReceipts: CodeViewScrollTarget[] = [];
+		let setupCount = 0;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalSetup = CodeView.prototype.setup;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
-		const originalSubscribeToScroll = CodeView.prototype.subscribeToScroll;
+		const originalSetItems = CodeView.prototype.setItems;
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
 		const originalScrollTo = CodeView.prototype.scrollTo;
 		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			setupCount += 1;
 			mountedCodeView.current = this;
 			mountedCodeViewRoot.current = root;
 			originalSetup.call(this, root);
 		};
-		CodeView.prototype.subscribeToScroll = function captureCodeViewScrollListener(
-			listener: CodeViewScrollListener<undefined>,
-		): () => void {
-			codeViewScrollListener.current = listener;
-			return originalSubscribeToScroll.call(this, listener);
+		CodeView.prototype.setItems = function captureCodeViewItems(
+			items: readonly CodeViewItem<undefined>[],
+		): void {
+			setItemReceipts.push([...items]);
+			originalSetItems.call(this, items);
 		};
 		CodeView.prototype.scrollTo = function captureCodeViewScrollToReceipt(
 			target: CodeViewScrollTarget,
@@ -482,13 +479,6 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				version: 2,
 			}).job.payload.item,
 		);
-		const secondRefreshedItem = requireExactFilePierreItem(
-			makeFilePublication({
-				contentsMarker: 'scroll-refreshed-again',
-				publicationSequence: 3,
-				version: 3,
-			}).job.payload.item,
-		);
 		const initialOpenFileState = {
 			displayItem: null,
 			fileId: 'file-1',
@@ -511,130 +501,63 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 					requestAnimationFrame((): void => resolve());
 				});
 			});
+			setItemReceipts.length = 0;
 			scrollToReceipts.length = 0;
 
-			const capturedScrollListener = codeViewScrollListener.current;
 			const capturedCodeView = mountedCodeView.current;
-			if (capturedScrollListener === null || capturedCodeView === null) {
-				throw new Error('Expected the mounted CodeView to subscribe the panel onScroll callback.');
+			const capturedCodeViewRoot = mountedCodeViewRoot.current;
+			if (capturedCodeView === null || capturedCodeViewRoot === null) {
+				throw new Error('Expected the mounted CodeView and its connected scroll owner.');
 			}
-			capturedScrollListener(247, capturedCodeView);
-
-			const pendingAnimationFrames: PendingAnimationFrame[] = [];
-			let nextFrameHandle = 1;
-			const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
-			globalThis.requestAnimationFrame = (callback): number => {
-				const frameHandle = nextFrameHandle;
-				nextFrameHandle += 1;
-				pendingAnimationFrames.push({ callback, frameHandle });
-				return frameHandle;
-			};
-			try {
-				const loadingOpenFileState = {
-					...initialOpenFileState,
-					status: 'loading',
-				} satisfies BridgeFileViewerCodePanelState;
-				await rendered.rerender(
-					<BridgeFileViewerCodePanel
-						codeViewWorkerPoolEnabled={false}
-						openFileState={loadingOpenFileState}
-						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-						selectedCodeViewItem={null}
-						totalHeightPixels={null}
-					/>,
-				);
-				const loadingScrollListener = codeViewScrollListener.current;
-				if (loadingScrollListener === null) {
-					throw new Error('Expected the loading CodeView to retain its scroll subscription.');
-				}
-				loadingScrollListener(0, capturedCodeView);
-
-				const refreshedOpenFileState = { ...initialOpenFileState };
-				await rendered.rerender(
-					<BridgeFileViewerCodePanel
-						codeViewWorkerPoolEnabled={false}
-						openFileState={refreshedOpenFileState}
-						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-						selectedCodeViewItem={refreshedItem}
-						totalHeightPixels={null}
-					/>,
-				);
-				await rendered.rerender(
-					<BridgeFileViewerCodePanel
-						codeViewWorkerPoolEnabled={false}
-						openFileState={{ ...refreshedOpenFileState }}
-						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-						selectedCodeViewItem={refreshedItem}
-						totalHeightPixels={null}
-					/>,
-				);
-
-				await act(async (): Promise<void> => {
-					while (pendingAnimationFrames.length > 0) {
-						const pendingFrame = pendingAnimationFrames.shift();
-						pendingFrame?.callback(performance.now());
-					}
-					await Promise.resolve();
-				});
-
-				const restoreCountBeforeLatePierreReset = scrollToReceipts.length;
-				const capturedCodeViewRoot = mountedCodeViewRoot.current;
-				if (capturedCodeViewRoot === null) {
-					throw new Error('Expected the mounted CodeView root.');
-				}
-				await act(async (): Promise<void> => {
-					capturedCodeViewRoot.scrollTop = 0;
-					capturedCodeViewRoot.dispatchEvent(new Event('scroll'));
-					while (pendingAnimationFrames.length > 0) {
-						const pendingFrame = pendingAnimationFrames.shift();
-						pendingFrame?.callback(performance.now());
-					}
-					await Promise.resolve();
-				});
-				expect(scrollToReceipts.length).toBeGreaterThan(restoreCountBeforeLatePierreReset);
-
-				await rendered.rerender(
-					<BridgeFileViewerCodePanel
-						codeViewWorkerPoolEnabled={false}
-						openFileState={{ ...initialOpenFileState, status: 'loading' }}
-						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-						selectedCodeViewItem={null}
-						totalHeightPixels={null}
-					/>,
-				);
-				await rendered.rerender(
-					<BridgeFileViewerCodePanel
-						codeViewWorkerPoolEnabled={false}
-						openFileState={{ ...initialOpenFileState }}
-						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-						selectedCodeViewItem={secondRefreshedItem}
-						totalHeightPixels={null}
-					/>,
-				);
-				const restoreCountBeforeUserScrollToTop = scrollToReceipts.length;
-				await act(async (): Promise<void> => {
-					capturedCodeViewRoot.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
-					capturedCodeViewRoot.scrollTop = 0;
-					capturedCodeViewRoot.dispatchEvent(new Event('scroll'));
-					while (pendingAnimationFrames.length > 0) {
-						const pendingFrame = pendingAnimationFrames.shift();
-						pendingFrame?.callback(performance.now());
-					}
-					await Promise.resolve();
-				});
-				expect(scrollToReceipts).toHaveLength(restoreCountBeforeUserScrollToTop);
-			} finally {
-				globalThis.requestAnimationFrame = originalRequestAnimationFrame;
-			}
-
-			expect(scrollToReceipts.at(-1)).toEqual({
-				behavior: 'instant',
-				position: 247,
-				type: 'position',
+			await act(async (): Promise<void> => {
+				capturedCodeViewRoot.scrollTop = 247;
+				capturedCodeViewRoot.dispatchEvent(new Event('scroll'));
+				await Promise.resolve();
 			});
+
+			await rendered.rerender(
+				<BridgeFileViewerCodePanel
+					codeViewWorkerPoolEnabled={false}
+					openFileState={{ ...initialOpenFileState, status: 'loading' }}
+					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+					selectedCodeViewItem={initialItem}
+					totalHeightPixels={null}
+				/>,
+			);
+			await rendered.rerender(
+				<BridgeFileViewerCodePanel
+					codeViewWorkerPoolEnabled={false}
+					openFileState={{ ...initialOpenFileState }}
+					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+					selectedCodeViewItem={refreshedItem}
+					totalHeightPixels={null}
+				/>,
+			);
+			await act(async (): Promise<void> => {
+				await new Promise<void>((resolve): void => {
+					requestAnimationFrame((): void => resolve());
+				});
+			});
+
+			expect(setItemReceipts.map((items) => items.map((item) => item.id))).toEqual([
+				['file:file-1'],
+			]);
+			expect(setItemReceipts.some((items) => items.length === 0)).toBe(false);
+			expect(mountedCodeView.current).toBe(capturedCodeView);
+			expect(setupCount).toBe(1);
+			expect(scrollToReceipts).toEqual([]);
+
+			await act(async (): Promise<void> => {
+				capturedCodeViewRoot.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+				capturedCodeViewRoot.scrollTop = 0;
+				capturedCodeViewRoot.dispatchEvent(new Event('scroll'));
+				await Promise.resolve();
+			});
+			expect(capturedCodeViewRoot.scrollTop).toBe(0);
+			expect(scrollToReceipts).toEqual([]);
 		} finally {
 			CodeView.prototype.setup = originalSetup;
-			CodeView.prototype.subscribeToScroll = originalSubscribeToScroll;
+			CodeView.prototype.setItems = originalSetItems;
 			CodeView.prototype.scrollTo = originalScrollTo;
 		}
 	});

@@ -26,6 +26,7 @@ import {
 import type { BridgeWorkerRenderRejectionReason } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
+import type { BridgeFileViewerSelection } from './bridge-file-viewer-display-model.js';
 import {
 	applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore as applyProductionBridgeWorkerMessagesToFileViewerRenderSnapshotStore,
 	BridgeFileViewerSurfaceClientProvider,
@@ -305,7 +306,7 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(store.getSnapshot().selectionSlice.selectedItemId).toBeNull();
 	});
 
-	test('clears File Pierre and availability residue on an accepted source reset', () => {
+	test('retains only selected File Pierre while clearing availability at a source replacement commit', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
 			messages: [fileDisplayEvent({ epoch: 3, projectionRevision: 1, sequence: 1 })],
@@ -336,16 +337,92 @@ describe('Bridge File viewer render snapshot controller', () => {
 						},
 						{ operation: 'reset', slice: 'fileItem' },
 						{ operation: 'reset', slice: 'fileStatus' },
+						{
+							operation: 'replacementCommit',
+							payload: { sourceGeneration: 2, sourceId: 'source-2' },
+							slice: 'fileTree',
+						},
 					],
 				},
 			],
 			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
 		});
 
-		expect(store.getSnapshot().codeViewItemsById).toEqual({});
+		expect(store.getSnapshot().codeViewItemsById).toEqual({ 'file-1': selectedItem });
 		expect(store.getSnapshot().contentAvailabilityById).toEqual({});
 		expect(store.getSnapshot().rowPaintById).toEqual({});
 		expect(store.getSnapshot().fileTreeSlice.sourceId).toBe('source-2');
+	});
+
+	test('preserves only the exact selected CodeView item across a same-file source replacement', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileDisplayEvent({ epoch: 1, projectionRevision: 1, sequence: 1 })],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+		const unselectedItem = {
+			...selectedItem,
+			id: 'file:file-2',
+			file: { ...selectedItem.file, name: 'OTHER.md' },
+			bridgeMetadata: {
+				...selectedItem.bridgeMetadata,
+				displayPath: 'OTHER.md',
+				itemId: 'file-2',
+			},
+		} satisfies BridgeWorkerCodeViewFileItem;
+		store.setLocalSelection({ selectedItemId: 'file-1', source: 'user' });
+		store.setWorkerCodeViewItem({ item: selectedItem, itemId: 'file-1' });
+		store.setWorkerCodeViewItem({ item: unselectedItem, itemId: 'file-2' });
+		store.applySnapshotUpdate({
+			workerPatches: [
+				{
+					itemId: 'file-1',
+					operation: 'upsert',
+					payload: { contentCacheKey: 'cache-file-1' },
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'file-1',
+					operation: 'upsert',
+					payload: { state: 'ready' },
+					slice: 'contentAvailability',
+				},
+			],
+		});
+
+		const replacementEvent = fileDisplayEvent({ epoch: 2, projectionRevision: 1, sequence: 2 });
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [
+				{
+					...replacementEvent,
+					patches: [
+						{
+							operation: 'reset',
+							payload: { sourceGeneration: 2, sourceId: 'source-2' },
+							slice: 'fileTree',
+						},
+						{ operation: 'reset', slice: 'fileItem' },
+						{ operation: 'reset', slice: 'fileStatus' },
+						...replacementEvent.patches.filter((patch): boolean => patch.slice === 'fileItem'),
+					],
+				},
+			],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+
+		expect(store.getSnapshot().codeViewItemsById).toEqual({ 'file-1': selectedItem });
+		expect(store.getSnapshot().contentAvailabilityById).toEqual({});
+		expect(store.getSnapshot().rowPaintById).toEqual({});
+		expect(store.getSnapshot().fileItemById.get('file-1')?.displayPath).toBe('README.md');
+		expect(
+			selectedBridgeFileViewerCodeViewItemForSnapshot({
+				renderSnapshot: store.getSnapshot(),
+				selection: { fileId: 'file-1', path: 'README.md' },
+			}),
+		).toEqual(selectedItem);
 	});
 
 	test('rejects stale File render publications after a same-id source reset', () => {
@@ -513,7 +590,7 @@ describe('Bridge File viewer render snapshot controller', () => {
 		expect(store.getSnapshot().fileTreeSlice.sourceId).toBe('source-1');
 	});
 
-	test('gates selected Pierre content on the current File display item', () => {
+	test('keeps exact selected Pierre content eligible while File metadata is temporarily absent', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		store.setWorkerCodeViewItem({ item: selectedItem, itemId: 'file-1' });
 
@@ -521,6 +598,12 @@ describe('Bridge File viewer render snapshot controller', () => {
 			selectedBridgeFileViewerCodeViewItemForSnapshot({
 				renderSnapshot: store.getSnapshot(),
 				selection: { fileId: 'file-1', path: 'README.md' },
+			}),
+		).toEqual(selectedItem);
+		expect(
+			selectedBridgeFileViewerCodeViewItemForSnapshot({
+				renderSnapshot: store.getSnapshot(),
+				selection: { fileId: 'file-1', path: 'OTHER.md' },
 			}),
 		).toBeNull();
 
@@ -577,12 +660,14 @@ function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: {
 		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
 	>;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
+	readonly selection?: BridgeFileViewerSelection | null;
 }): void {
 	applyProductionBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
 		messages: props.messages,
 		renderFulfillmentCoordinator:
 			props.renderFulfillmentCoordinator ?? makeFilePublicationAdmissionRecorder().coordinator,
 		renderSnapshotStore: props.renderSnapshotStore,
+		...(props.selection === undefined ? {} : { selection: props.selection }),
 	});
 }
 

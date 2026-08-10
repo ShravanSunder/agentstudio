@@ -1,10 +1,16 @@
 import { describe, expect, test } from 'vitest';
 
+import { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-worker-file-display-event-authority.js';
 import {
+	applyBridgeCommWorkerFileQueryUpdateCommand,
 	BridgeCommWorkerFileQueryProjection,
 	type BridgeCommWorkerFileQueryProjectionResult,
 } from './bridge-comm-worker-file-query-projection.js';
-import type { BridgeWorkerFileDisplayPatch } from './bridge-worker-contracts.js';
+import { encodeBridgeWorkerFileQueryUpdateCommand } from './bridge-comm-worker-protocol.js';
+import type {
+	BridgeWorkerFileDisplayPatch,
+	BridgeWorkerServerToMainWireMessage,
+} from './bridge-worker-contracts.js';
 import type { BridgeWorkerFileQuery } from './bridge-worker-file-query-contracts.js';
 
 describe('Bridge comm worker File query projection', () => {
@@ -129,7 +135,9 @@ describe('Bridge comm worker File query projection', () => {
 			publish: (result): void => {
 				publishedResults.push(result);
 			},
+			publishOutcome: (): void => {},
 			query: query({ searchText: 'readme' }),
+			requestId: 'duplicate-query',
 		});
 		const empty = projection.applyDisplayPatches([]);
 
@@ -184,7 +192,9 @@ describe('Bridge comm worker File query projection', () => {
 			publish: (result): void => {
 				publishedResults.push(result);
 			},
+			publishOutcome: (): void => {},
 			query: query({ searchText: 'File-099999' }),
+			requestId: 'large-query-superseded',
 		});
 
 		scheduler.runNext();
@@ -195,7 +205,9 @@ describe('Bridge comm worker File query projection', () => {
 			publish: (result): void => {
 				publishedResults.push(result);
 			},
+			publishOutcome: (): void => {},
 			query: query({ searchText: 'File-000001' }),
+			requestId: 'large-query-projected',
 		});
 		scheduler.runAll();
 
@@ -205,6 +217,70 @@ describe('Bridge comm worker File query projection', () => {
 			searchText: 'File-000001',
 			projectedRowCount: 1,
 			totalRowCount: 100_000,
+		});
+	});
+
+	test('reports unchanged, superseded, and projected outcomes for each exact request', () => {
+		// Arrange
+		const scheduler = new DeterministicFileQueryScheduler();
+		const projection = makeProjection(scheduler);
+		projection.applyDisplayPatches(baseDisplayPatches());
+		const publishedMessages: BridgeWorkerServerToMainWireMessage[] = [];
+		let nextSequence = 0;
+		const eventAuthority = new BridgeCommWorkerFileDisplayEventAuthority({
+			createSequence: (): number => {
+				nextSequence += 1;
+				return nextSequence;
+			},
+		});
+		const applyQueryCommand = (requestId: string, fileQuery: BridgeWorkerFileQuery): void => {
+			applyBridgeCommWorkerFileQueryUpdateCommand({
+				command: encodeBridgeWorkerFileQueryUpdateCommand({
+					...fileQuery,
+					epoch: 1,
+					requestId,
+				}),
+				eventAuthority,
+				getWorkerDerivationEpoch: (): number => 7,
+				projection,
+				publishMessages: (messages): void => {
+					publishedMessages.push(...messages);
+				},
+			});
+		};
+
+		// Act / Assert: the already-published default query is explicitly unchanged.
+		applyQueryCommand('query-unchanged', query());
+		expect(publishedMessages.splice(0)).toEqual([
+			expect.objectContaining({
+				kind: 'fileQueryOutcome',
+				outcome: { kind: 'unchanged' },
+				requestId: 'query-unchanged',
+			}),
+		]);
+
+		// Act / Assert: replacing pending work rejects only the older request.
+		applyQueryCommand('query-superseded', query({ searchText: 'logo' }));
+		expect(publishedMessages).toEqual([]);
+		applyQueryCommand('query-projected', query({ searchText: 'readme' }));
+		expect(publishedMessages.splice(0)).toEqual([
+			expect.objectContaining({
+				kind: 'fileQueryOutcome',
+				outcome: { kind: 'superseded' },
+				requestId: 'query-superseded',
+			}),
+		]);
+
+		// Act / Assert: projection publishes its transaction before its exact correlation receipt.
+		scheduler.runAll();
+		expect(publishedMessages.at(-2)).toMatchObject({
+			kind: 'fileDisplayPatch',
+			queryTransaction: { phase: 'batch', transactionId: 'file-query-2' },
+		});
+		expect(publishedMessages.at(-1)).toMatchObject({
+			kind: 'fileQueryOutcome',
+			outcome: { kind: 'projected', transactionId: 'file-query-2' },
+			requestId: 'query-projected',
 		});
 	});
 
@@ -320,7 +396,9 @@ function applyQueryAndDrain(
 		publish: (result): void => {
 			results.push(result);
 		},
+		publishOutcome: (): void => {},
 		query: fileQuery,
+		requestId: 'test-query',
 	});
 	if (!scheduled) throw new Error('Expected File query projection to be scheduled.');
 	scheduler.runAll();

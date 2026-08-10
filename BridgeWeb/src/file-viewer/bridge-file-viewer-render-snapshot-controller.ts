@@ -86,6 +86,8 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 	const requestSequenceRef = useRef(0);
 	const latestFileSelectRequestIdRef = useRef<string | null>(null);
 	const workerEpochRef = useRef(0);
+	const selectionRef = useRef(props.selection);
+	selectionRef.current = props.selection;
 	const renderSnapshotStore = fileViewClient.renderStore;
 	const renderSnapshot = useSyncExternalStore(
 		renderSnapshotStore.subscribe,
@@ -98,6 +100,7 @@ export function useBridgeFileViewerRenderSnapshotController(props: {
 				messages,
 				renderFulfillmentCoordinator: fileViewClient.renderFulfillmentCoordinator,
 				renderSnapshotStore,
+				selection: selectionRef.current,
 			});
 		},
 		[fileViewClient.renderFulfillmentCoordinator, renderSnapshotStore],
@@ -277,20 +280,43 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
 	>;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
+	readonly selection?: BridgeFileViewerSelection | null;
 }): void {
 	for (const message of props.messages) {
 		switch (message.kind) {
 			case 'fileDisplayPatch': {
-				const currentFreshness = props.renderSnapshotStore.getSnapshot().fileDisplayFreshness;
+				const currentSnapshot = props.renderSnapshotStore.getSnapshot();
+				const currentFreshness = currentSnapshot.fileDisplayFreshness;
+				const selection = props.selection ?? null;
 				if (
 					bridgeFileDisplayEventIsAccepted(currentFreshness, message) &&
 					(message.epoch > (currentFreshness?.epoch ?? message.epoch) ||
 						message.patches.some(
-							(patch): boolean => patch.slice === 'fileTree' && patch.operation === 'reset',
-						))
+							(patch): boolean =>
+								patch.slice === 'fileTree' &&
+								(patch.operation === 'reset' || patch.operation === 'replacementCommit'),
+						) ||
+						fileDisplayPatchDeletesSelection(message, selection))
 				) {
+					const retainedSelectedItem = fileDisplayPatchRetainsSelection(message, selection)
+						? selectedBridgeFileViewerCodeViewItemForSnapshot({
+								renderSnapshot: currentSnapshot,
+								selection,
+							})
+						: null;
 					props.renderSnapshotStore.applySnapshotUpdate({
-						codeViewItemPatches: [{ operation: 'reset' }],
+						codeViewItemPatches: [
+							{ operation: 'reset' },
+							...(retainedSelectedItem === null
+								? []
+								: [
+										{
+											item: retainedSelectedItem,
+											itemId: retainedSelectedItem.bridgeMetadata.itemId,
+											operation: 'upsert' as const,
+										},
+									]),
+						],
 						workerPatches: [
 							{ operation: 'reset', slice: 'contentAvailability' },
 							{ operation: 'reset', slice: 'rowPaint' },
@@ -353,6 +379,48 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				assertNeverBridgeFileViewerWorkerServerMessage(message);
 		}
 	}
+}
+
+function fileDisplayPatchRetainsSelection(
+	message: Extract<BridgeWorkerServerToMainMessage, { readonly kind: 'fileDisplayPatch' }>,
+	selection: BridgeFileViewerSelection | null,
+): boolean {
+	if (selection === null) return false;
+	const deletesSelectedItem = message.patches.some(
+		(patch): boolean =>
+			patch.slice === 'fileItem' &&
+			patch.operation === 'delete' &&
+			patch.itemId === selection.fileId,
+	);
+	if (deletesSelectedItem) return false;
+	const selectedItemUpsert = message.patches.find(
+		(patch) =>
+			patch.slice === 'fileItem' &&
+			patch.operation === 'upsert' &&
+			patch.itemId === selection.fileId,
+	);
+	if (selectedItemUpsert?.slice === 'fileItem' && selectedItemUpsert.operation === 'upsert')
+		return selectedItemUpsert.payload.displayPath === selection.path;
+	const beginsSourceReplacement = message.patches.some(
+		(patch): boolean => patch.slice === 'fileTree' && patch.operation === 'reset',
+	);
+	const commitsSourceReplacement = message.patches.some(
+		(patch): boolean => patch.slice === 'fileTree' && patch.operation === 'replacementCommit',
+	);
+	return beginsSourceReplacement || commitsSourceReplacement;
+}
+
+function fileDisplayPatchDeletesSelection(
+	message: Extract<BridgeWorkerServerToMainMessage, { readonly kind: 'fileDisplayPatch' }>,
+	selection: BridgeFileViewerSelection | null,
+): boolean {
+	if (selection === null) return false;
+	return message.patches.some(
+		(patch): boolean =>
+			patch.slice === 'fileItem' &&
+			((patch.operation === 'delete' && patch.itemId === selection.fileId) ||
+				patch.operation === 'reset'),
+	);
 }
 
 type BridgeProductMetadataStreamHealthDiagnostic = NonNullable<
@@ -426,10 +494,7 @@ export function selectedBridgeFileViewerCodeViewItemForSnapshot(props: {
 		return null;
 	}
 	const item = props.renderSnapshot.codeViewItemsById[props.selection.fileId];
-	const displayItem = props.renderSnapshot.fileItemById.get(props.selection.fileId);
 	if (
-		displayItem === undefined ||
-		displayItem.displayPath !== props.selection.path ||
 		item === undefined ||
 		item.type !== 'file' ||
 		item.bridgeMetadata.itemId !== props.selection.fileId ||
