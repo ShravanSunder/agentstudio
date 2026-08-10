@@ -105,7 +105,7 @@ extension WebKitSerializedTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: worktree.path.path,
-                    baseline: .ref(name: "HEAD~1"))
+                    baseline: .unstaged)
             )
             let pane = makeBridgePane(
                 title: "Create-before-tab Review",
@@ -176,6 +176,18 @@ extension WebKitSerializedTests {
             )
             defer { FilesystemTestGitRepo.destroy(repositoryURL) }
             try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+            let defaultTargetOID = try FilesystemTestGitRepo.runGit(
+                at: repositoryURL,
+                args: ["rev-parse", "HEAD"]
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+            try FilesystemTestGitRepo.runGit(
+                at: repositoryURL,
+                args: ["update-ref", "refs/remotes/origin/main", defaultTargetOID]
+            )
+            try FilesystemTestGitRepo.runGit(
+                at: repositoryURL,
+                args: ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]
+            )
             let harness = makeBridgePaneActivityTestHarness()
             let repo = harness.store.addRepo(at: repositoryURL)
             let worktree = try #require(
@@ -207,6 +219,7 @@ extension WebKitSerializedTests {
             let admittedReviewTask = controller.activeReviewRefreshTask
             #expect(admittedReviewTask != nil)
             await admittedReviewTask?.value
+            await waitForActiveReviewRefreshTaskToFinish(controller)
             #expect(controller.paneState.diff.status == .ready)
             #expect(controller.paneState.diff.packageMetadata != nil)
 
@@ -261,7 +274,7 @@ extension WebKitSerializedTests {
                 panelKind: .diffViewer,
                 source: .workspace(
                     rootPath: repositoryURL.path,
-                    baseline: .ref(name: "HEAD~1"))
+                    baseline: .unstaged)
             )
             let pane = harness.store.createPane(
                 content: .bridgePanel(state),
@@ -360,6 +373,7 @@ extension WebKitSerializedTests {
                 for: setup.secondPane,
                 state: setup.state
             )
+            await waitForActiveReviewRefreshTaskToFinish(secondView.controller)
             let owner = BridgeWorktreeProductOwnerKey(
                 repoIdentity: setup.repoId.uuidString,
                 worktreeIdentity: setup.worktree.id.uuidString,
@@ -603,7 +617,7 @@ private func makeTwoPaneWorktreeSetup(
         panelKind: .diffViewer,
         source: .workspace(
             rootPath: worktree.path.path,
-            baseline: .ref(name: "HEAD~1"))
+            baseline: .unstaged)
     )
     let firstPane = makeBridgePane(
         title: "First shared construction pane",
