@@ -29,7 +29,6 @@ struct AppStylesNamespaceTests {
     func shellNamespaceOwnsCompactTitlebarDensityTokens() {
         #expect(AppStyles.Shell.TabBar.height == 40)
         #expect(AppStyles.Shell.TabBar.tabPillHeight == 32)
-        #expect(AppStyles.Shell.Chrome.windowDragRegionHeight == 8)
         #expect(AppStyles.Shell.Chrome.ToolbarButton.size == 28)
         #expect(AppStyles.Shell.Chrome.ToolbarButton.iconSize == 12)
         #expect(AppStyles.Shell.Titlebar.iconSize == 14)

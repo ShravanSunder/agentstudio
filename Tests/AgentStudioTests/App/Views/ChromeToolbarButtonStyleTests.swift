@@ -14,54 +14,35 @@ struct ChromeToolbarButtonStyleTests {
         #expect(AppStyles.Shell.Chrome.ToolbarButton.iconSize == 12)
     }
 
-    @Test("sidebar nav chrome owns icon and divider spacing")
-    func sidebarNavChromeOwnsIconAndDividerSpacing() throws {
-        let appStylesSource = try sourceFile("Sources/AgentStudio/Infrastructure/AppStyles.swift")
-        let shellControlsSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
+    @Test("native fixed controls are excluded from custom tab bar spacing")
+    func nativeFixedControlsAreExcludedFromCustomTabBarSpacing() throws {
         let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
 
-        #expect(AppStyles.Shell.Chrome.SidebarNav.iconSpacing == AppStyles.Shell.Chrome.iconClusterSpacing)
-        #expect(AppStyles.Shell.Chrome.SidebarNav.dividerLeadingPadding == 14)
-        #expect(AppStyles.Shell.Chrome.SidebarNav.dividerTrailingPadding == 24)
-
-        #expect(appStylesSource.contains("enum SidebarNav"))
-        #expect(shellControlsSource.contains("struct SidebarNavDivider"))
-        #expect(shellControlsSource.contains("AppStyles.Shell.Chrome.SidebarNav.iconSpacing"))
-        #expect(shellControlsSource.contains("AppStyles.Shell.Chrome.SidebarNav.dividerLeadingPadding"))
-        #expect(shellControlsSource.contains("AppStyles.Shell.Chrome.SidebarNav.dividerTrailingPadding"))
-
-        let leadingDividerSection = try section(
-            in: customTabBarSource,
-            from: "case .divider:",
-            to: "case .watchFolder:"
-        )
-        #expect(leadingDividerSection.contains("SidebarNavDivider()"))
+        #expect(!customTabBarSource.contains("leadingChromeControl"))
+        #expect(!customTabBarSource.contains("tabBarContentLeadingPadding"))
+        #expect(!customTabBarSource.contains("tabStripLeadingPadding"))
+        #expect(!customTabBarSource.contains("ToolbarButton.verticalOffset"))
     }
 
-    @Test("top chrome separates circled control and plain toolbar icon spacing")
-    func topChromeSeparatesCircledControlAndPlainToolbarIconSpacing() throws {
+    @Test("top chrome defines circled control and plain toolbar icon spacing tokens")
+    func topChromeDefinesCircledControlAndPlainToolbarIconSpacingTokens() throws {
         let appStylesSource = try sourceFile("Sources/AgentStudio/Infrastructure/AppStyles.swift")
         let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
 
         #expect(AppStyles.Shell.Chrome.circledControlSpacing == 12)
-        #expect(AppStyles.Shell.Chrome.tabStripLeadingPadding == 10)
         #expect(AppStyles.Shell.Chrome.plainToolbarIconSpacing == 0)
         #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize == 24)
         #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.iconSize == AppStyles.Shell.Chrome.ToolbarButton.iconSize)
 
         #expect(appStylesSource.contains("static let circledControlSpacing: CGFloat = 12"))
-        #expect(appStylesSource.contains("static let tabStripLeadingPadding: CGFloat = 10"))
         #expect(appStylesSource.contains("static let plainToolbarIconSpacing: CGFloat = 0"))
         #expect(appStylesSource.contains("enum PlainToolbarIcon"))
 
-        let leadingControlsSection = try section(
-            in: customTabBarSource,
-            from: "private func leadingChromeControl",
-            to: "private func trailingChromeControl"
-        )
-        #expect(leadingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)"))
-        #expect(!leadingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)"))
-
+        // The overflow chevrons are the only remaining plain-icon controls left inside
+        // CustomTabBar itself; the circled controls (watch folder, management mode, new
+        // tab) and the tab selector now live as independent native toolbar items wired
+        // from ShellTabBarControls, so circledControlSpacing has no application site here
+        // anymore — that spacing comes from the toolbar's own inter-item layout instead.
         let trailingControlsSection = try section(
             in: customTabBarSource,
             from: "private func trailingChromeControl",
@@ -69,16 +50,13 @@ struct ChromeToolbarButtonStyleTests {
         )
         #expect(trailingControlsSection.contains("buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize"))
         #expect(trailingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.plainToolbarIconSpacing)"))
-        #expect(
-            trailingControlsSection.contains(".padding(.horizontal, AppStyles.Shell.Chrome.plainToolbarIconSpacing)"))
-        #expect(trailingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)"))
+        #expect(trailingControlsSection.contains("showsBackground: false"))
     }
 
     @Test("circular toolbar controls use the shared AppStyles backed label path")
     func circularToolbarControlsUseSharedLabelPath() throws {
         let sharedLabelSource = try sourceFile("Sources/AgentStudio/SharedComponents/ChromeToolbarButtonLabel.swift")
         let shellControlsSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
-        let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
 
         #expect(sharedLabelSource.contains("struct ChromeToolbarCircleBackground"))
         #expect(sharedLabelSource.contains("AppStyles.Shell.Chrome.ToolbarButton.baseFillColor"))
@@ -87,35 +65,22 @@ struct ChromeToolbarButtonStyleTests {
         #expect(sharedLabelSource.contains("AppStyles.Shell.Chrome.ToolbarButton.iconForegroundColor"))
         #expect(sharedLabelSource.contains("AppStyles.Shell.Chrome.ToolbarButton.hoverIconForegroundColor"))
 
-        let sidebarSection = try section(
-            in: shellControlsSource,
-            from: "private struct SidebarSurfaceTabBarButton",
-            to: "struct WatchFolderTabBarMenu"
-        )
         let watchSection = try section(
             in: shellControlsSource,
             from: "struct WatchFolderTabBarMenu",
-            to: "struct TabBarDivider"
+            to: "struct TabBarManagementLayerButton"
         )
         let managementSection = try section(
             in: shellControlsSource,
             from: "struct TabBarManagementLayerButton",
-            to: "/// Circular \"+\" button"
+            to: "struct TabSelectionToolbarMenu"
         )
-        let newTabSection = try section(
+        let selectTabSection = try section(
             in: shellControlsSource,
-            from: "struct NewTabButton",
-            to: "struct SidebarNavDivider"
+            from: "struct TabSelectionToolbarMenu",
+            to: "struct NewTabButton"
         )
-        let overflowMenuSection = try section(
-            in: customTabBarSource,
-            from: "case .overflowMenu:",
-            to: "case .newTab:"
-        )
-
-        #expect(sidebarSection.contains("showsBackground: false"))
-        #expect(!sidebarSection.contains("usesToolbarForeground"))
-        #expect(!sidebarSection.contains("ChromeToolbarCircleBackground"))
+        let newTabSection = try section(in: shellControlsSource, from: "struct NewTabButton")
 
         for circularSection in [watchSection, managementSection, newTabSection] {
             #expect(circularSection.contains("ChromeToolbarButtonLabel("))
@@ -131,10 +96,13 @@ struct ChromeToolbarButtonStyleTests {
             #expect(!circularSection.contains("ChromeToolbarCircleBackground"))
         }
 
-        #expect(overflowMenuSection.contains("ChromeToolbarButtonLabel("))
-        #expect(overflowMenuSection.contains("symbolName: \"rectangle.stack\""))
-        #expect(overflowMenuSection.contains("showsBackground: false"))
-        #expect(!overflowMenuSection.contains("Image(systemName: \"rectangle.stack\")"))
+        // The tab selector is the flat/plain successor to the old overflow menu — it
+        // renders through the same shared label path but explicitly opts out of the
+        // circle background, and legitimately uses Menu (unlike the circular buttons).
+        #expect(selectTabSection.contains("ChromeToolbarButtonLabel("))
+        #expect(selectTabSection.contains("symbolName: \"rectangle.stack\""))
+        #expect(selectTabSection.contains("showsBackground: false"))
+        #expect(containsMenuInitializer(in: selectTabSection))
     }
 
     @Test("arrangement capsule uses the shared toolbar palette for every state")
@@ -161,9 +129,12 @@ struct ChromeToolbarButtonStyleTests {
         )
     }
 
-    private func section(in source: String, from startMarker: String, to endMarker: String) throws -> String {
+    private func section(in source: String, from startMarker: String, to endMarker: String? = nil) throws -> String {
         guard let startRange = source.range(of: startMarker) else {
             throw ChromeToolbarButtonStyleTestError.missingMarker(startMarker)
+        }
+        guard let endMarker else {
+            return String(source[startRange.lowerBound...])
         }
         guard let endRange = source.range(of: endMarker, range: startRange.upperBound..<source.endIndex) else {
             throw ChromeToolbarButtonStyleTestError.missingMarker(endMarker)
