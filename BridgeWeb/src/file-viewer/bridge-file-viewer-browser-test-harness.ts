@@ -9,9 +9,13 @@ import {
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import {
+	beginBridgeFileViewerBrowserInteractionAct,
+	beginBridgeFileViewerBrowserPublicationAct,
 	createBridgeFileViewerBrowserTestPaneSessionFactory,
+	prepareNextBridgeFileViewerBrowserQueryCompletion,
 	type BridgeFileViewerBrowserTestPaneSessionFactory,
 	waitForBridgeFileViewerWorkerMessageDrain,
+	waitForBridgeFileViewerWorkerPublicationQueue,
 } from './bridge-file-viewer-browser-test-comm-worker.js';
 import type { PublishFileMetadataEvents } from './bridge-file-viewer-browser-test-fixtures.js';
 
@@ -38,6 +42,32 @@ export async function settleBridgeFileViewerBrowserInteraction(): Promise<void> 
 	await waitForBridgeFileViewerWorkerMessageDrain();
 	await actFrame();
 	await waitForBridgeFileViewerWorkerMessageDrain();
+}
+
+export async function interactAndWaitForBridgeFileViewerQueryCompletion(
+	actScopedInteraction: () => void | Promise<void>,
+): Promise<void> {
+	const completion = prepareNextBridgeFileViewerBrowserQueryCompletion();
+	const endInteractionAct = beginBridgeFileViewerBrowserInteractionAct();
+	try {
+		await act(async (): Promise<void> => {
+			await actScopedInteraction();
+		});
+		endInteractionAct();
+		await act(async (): Promise<void> => {
+			const endPublicationAct = beginBridgeFileViewerBrowserPublicationAct();
+			try {
+				await completion.promise;
+				await waitForBridgeFileViewerWorkerPublicationQueue();
+			} finally {
+				endPublicationAct();
+			}
+		});
+	} catch (error: unknown) {
+		endInteractionAct();
+		completion.cancel();
+		throw error;
+	}
 }
 
 export function installBridgeFileViewerNoopResizeObserver(): void {
@@ -431,6 +461,13 @@ export function selectedDisplayPath(): string | null {
 export function visibleCodeText(): string {
 	const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
 	if (!(canvas instanceof HTMLElement)) {
+		return '';
+	}
+	const codeViewContainer = canvas.querySelector('[data-testid="bridge-file-viewer-code-view"]');
+	if (
+		codeViewContainer instanceof HTMLElement &&
+		getComputedStyle(codeViewContainer).visibility === 'hidden'
+	) {
 		return '';
 	}
 	const renderedText = Array.from(canvas.querySelectorAll('diffs-container'))

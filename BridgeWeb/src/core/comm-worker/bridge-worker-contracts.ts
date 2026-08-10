@@ -755,6 +755,25 @@ export const bridgeWorkerFileDisplayPatchEventSchema = bridgeWorkerServerToMainB
 		}
 	});
 
+const bridgeWorkerFileQueryOutcomeSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('unchanged') }).strict(),
+	z.object({ kind: z.literal('superseded') }).strict(),
+	z
+		.object({
+			kind: z.literal('projected'),
+			transactionId: bridgeProductIdentifierSchema,
+		})
+		.strict(),
+]);
+
+export const bridgeWorkerFileQueryOutcomeEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		kind: z.literal('fileQueryOutcome'),
+		outcome: bridgeWorkerFileQueryOutcomeSchema,
+		requestId: bridgeWorkerRequestIdSchema,
+	})
+	.strict();
+
 export const bridgeWorkerReviewDisplayPatchEventSchema = bridgeWorkerServerToMainBaseSchema
 	.extend({
 		kind: z.literal('reviewDisplayPatch'),
@@ -916,10 +935,27 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerFilePierreRenderJobEventSchema,
 ]);
 
+export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerHealthEventSchema,
+	bridgeWorkerSlicePatchEventSchema,
+	bridgeWorkerFileDisplayPatchEventSchema,
+	bridgeWorkerFileQueryOutcomeEventSchema,
+	bridgeWorkerReviewDisplayPatchEventSchema,
+	bridgeWorkerFileRenderPatchEventSchema,
+	bridgeWorkerReviewRenderPatchEventSchema,
+	bridgeWorkerSubscriptionEventSchema,
+	bridgeWorkerNativeSurfaceSelectionRequestSchema,
+	bridgeWorkerReviewPierreRenderJobEventSchema,
+	bridgeWorkerFilePierreRenderJobEventSchema,
+]);
+
 export type BridgeWorkerHealthEvent = z.infer<typeof bridgeWorkerHealthEventSchema>;
 export type BridgeWorkerSlicePatchEvent = z.infer<typeof bridgeWorkerSlicePatchEventSchema>;
 export type BridgeWorkerFileDisplayPatchEvent = z.infer<
 	typeof bridgeWorkerFileDisplayPatchEventSchema
+>;
+export type BridgeWorkerFileQueryOutcomeEvent = z.infer<
+	typeof bridgeWorkerFileQueryOutcomeEventSchema
 >;
 export type BridgeWorkerReviewDisplayPatchEvent = z.infer<
 	typeof bridgeWorkerReviewDisplayPatchEventSchema
@@ -957,3 +993,6 @@ export type BridgeWorkerFilePierreRenderJobEvent = BridgeWorkerSurfacePublicatio
 	BridgeWorkerFilePierreRenderJobEventValue
 >;
 export type BridgeWorkerServerToMainMessage = z.infer<typeof bridgeWorkerServerToMainMessageSchema>;
+export type BridgeWorkerServerToMainWireMessage = z.infer<
+	typeof bridgeWorkerServerToMainWireMessageSchema
+>;

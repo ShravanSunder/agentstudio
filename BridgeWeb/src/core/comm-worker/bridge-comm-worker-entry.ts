@@ -24,12 +24,13 @@ import {
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
 	type BridgeWorkerServerToMainMessage,
+	type BridgeWorkerServerToMainWireMessage,
 } from './bridge-worker-contracts.js';
 import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
 export interface BridgeCommWorkerPort {
-	postMessage(message: BridgeWorkerServerToMainMessage): void;
-	postMessage(message: BridgeWorkerServerToMainMessage, transferList: Transferable[]): void;
+	postMessage(message: BridgeWorkerServerToMainWireMessage): void;
+	postMessage(message: BridgeWorkerServerToMainWireMessage, transferList: Transferable[]): void;
 	readonly addEventListener: (
 		type: 'message',
 		listener: (event: MessageEvent<unknown>) => void,
@@ -39,8 +40,8 @@ export interface BridgeCommWorkerPort {
 }
 
 export interface BridgeCommWorkerGlobalScope {
-	postMessage(message: BridgeWorkerServerToMainMessage): void;
-	postMessage(message: BridgeWorkerServerToMainMessage, transferList: Transferable[]): void;
+	postMessage(message: BridgeWorkerServerToMainWireMessage): void;
+	postMessage(message: BridgeWorkerServerToMainWireMessage, transferList: Transferable[]): void;
 	readonly addEventListener: (
 		type: 'message',
 		listener: (event: MessageEvent<unknown>) => void,
