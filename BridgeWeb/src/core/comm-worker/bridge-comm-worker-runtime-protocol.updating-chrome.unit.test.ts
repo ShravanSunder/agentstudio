@@ -19,6 +19,50 @@ import type {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker updating panel chrome', () => {
+	test('reopens failed File metadata after the coalesced native File refresh settles', async () => {
+		// Arrange — removing refresh-settlement recovery makes this test fail.
+		const firstFileEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(16);
+		const replacementFileEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(16);
+		const presentation = createPanePresentationTestTransport({
+			fileEvents: firstFileEvents,
+			replacementFileEvents,
+			reviewEvents,
+		});
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: presentation.productTransport,
+			sendProductControl: async (): Promise<void> => {},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		firstFileEvents.fail(new Error('construction invalidated'), true);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Act
+		presentation.publish({
+			presentationRevision: 1,
+			nativeActivity: 'foreground',
+			refreshingLanes: ['file'],
+		});
+		presentation.publish({
+			presentationRevision: 2,
+			nativeActivity: 'foreground',
+			refreshingLanes: [],
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		expect(presentation.fileSubscriptionCount()).toBe(2);
+	});
+
 	test('publishes updating state only for the native-foreground active surface', async () => {
 		// Arrange
 		const fileEvents = new BridgeProductBoundedAsyncQueue<
@@ -191,23 +235,37 @@ function createPanePresentationTestTransport(props: {
 	readonly fileEvents: BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'file.metadata'>
 	>;
+	readonly replacementFileEvents?: BridgeProductBoundedAsyncQueue<
+		BridgeProductSubscriptionEvent<'file.metadata'>
+	>;
 	readonly reviewEvents: BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'review.metadata'>
 	>;
 }): {
 	readonly productTransport: BridgeProductTransportSession;
+	readonly fileSubscriptionCount: () => number;
 	readonly publish: (publication: PanePresentationPublicationProps) => void;
 } {
 	let fileEpoch = 0;
+	let fileSubscriptionCount = 0;
 	let reviewEpoch = 0;
 	let panePresentationSink: ((frame: BridgeProductPanePresentationFrame) => void) | null = null;
-	const fileSubscription: BridgeProductSubscription<'file.metadata'> = {
-		cancel: async (): Promise<void> => {},
-		events: props.fileEvents,
-		subscriptionId: 'file-subscription-updating-chrome',
-		subscriptionKind: 'file.metadata',
-		update: async (): Promise<void> => {},
-	};
+	const fileSubscriptions: readonly BridgeProductSubscription<'file.metadata'>[] = [
+		{
+			cancel: async (): Promise<void> => {},
+			events: props.fileEvents,
+			subscriptionId: 'file-subscription-updating-chrome',
+			subscriptionKind: 'file.metadata',
+			update: async (): Promise<void> => {},
+		},
+		{
+			cancel: async (): Promise<void> => {},
+			events: props.replacementFileEvents ?? props.fileEvents,
+			subscriptionId: 'file-subscription-updating-chrome-replacement',
+			subscriptionKind: 'file.metadata',
+			update: async (): Promise<void> => {},
+		},
+	];
 	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
 		cancel: async (): Promise<void> => {},
 		events: props.reviewEvents,
@@ -235,13 +293,19 @@ function createPanePresentationTestTransport(props: {
 		setPanePresentationFrameSink: (sink): void => {
 			panePresentationSink = sink;
 		},
-		subscribe: ((subscriptionKind: string): never =>
-			(subscriptionKind === 'file.metadata'
-				? fileSubscription
-				: reviewSubscription) as never) as BridgeProductTransportSession['subscribe'],
+		subscribe: ((subscriptionKind: string): never => {
+			if (subscriptionKind !== 'file.metadata') return reviewSubscription as never;
+			const subscription = fileSubscriptions[fileSubscriptionCount];
+			if (subscription === undefined) {
+				throw new Error('Unexpected third File metadata subscription.');
+			}
+			fileSubscriptionCount += 1;
+			return subscription as never;
+		}) as BridgeProductTransportSession['subscribe'],
 		workerDerivationEpoch: (surface): number => (surface === 'file' ? fileEpoch : reviewEpoch),
 	};
 	return {
+		fileSubscriptionCount: (): number => fileSubscriptionCount,
 		productTransport,
 		publish: (publication): void => {
 			if (panePresentationSink === null) {

@@ -418,18 +418,28 @@ export class BridgeCommWorkerProductController {
 				}
 			}
 		} catch (error) {
-			if (subscription === this.#fileSubscription) {
-				this.#fileSubscription = null;
+			if (this.#retireFailedFileMetadataSubscription(subscription)) {
 				this.#onFileMetadataFailure(error, workerDerivationEpoch);
 				throw error;
 			}
 		}
-		if (subscription === this.#fileSubscription) {
+		if (this.#retireFailedFileMetadataSubscription(subscription)) {
 			const error = new Error('Bridge File metadata subscription ended unexpectedly.');
-			this.#fileSubscription = null;
 			this.#onFileMetadataFailure(error, workerDerivationEpoch);
 			throw error;
 		}
+	}
+
+	#retireFailedFileMetadataSubscription(subscription: FileMetadataSubscription): boolean {
+		if (subscription !== this.#fileSubscription) return false;
+		this.#fileSubscription = null;
+		this.#fileSource = null;
+		this.#fileSourceEnsure = null;
+		this.#fileDesiredInterestSignature = null;
+		this.#hasPublishedFileMetadataInterests = false;
+		this.#fileInterestUpdate = Promise.resolve();
+		this.#fileInterestUpdateFailed = false;
+		return true;
 	}
 
 	#scheduleFileMetadataInterestPublication(): void {

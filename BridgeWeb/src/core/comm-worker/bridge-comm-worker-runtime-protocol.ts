@@ -478,7 +478,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			port.postMessage(bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame(frame));
 		});
 		productTransport.setPanePresentationFrameSink?.((frame): void => {
+			const wasRefreshingFile =
+				panePresentationAuthority.snapshot.refreshingLanes.includes('file');
 			const application = panePresentationAuthority.apply(frame);
+			const fileRefreshSettled =
+				wasRefreshingFile &&
+				application.snapshot.nativeActivity === 'foreground' &&
+				!application.snapshot.refreshingLanes.includes('file');
 			if (application.leftForeground) {
 				abortAllFileContentPreparations();
 				reviewDemandScheduling.suspend();
@@ -488,6 +494,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				if (activeViewerMode === 'file') {
 					resumeLatestSelectedFileViewContentReadyPreparation();
 				}
+			}
+			if (fileRefreshSettled) {
+				void productController?.ensureFileSource().catch((): void => {});
 			}
 			publishUpdatingChrome();
 		});

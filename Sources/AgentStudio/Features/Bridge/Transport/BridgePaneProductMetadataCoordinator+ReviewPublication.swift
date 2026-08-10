@@ -169,7 +169,7 @@ extension BridgePaneProductMetadataCoordinator {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
             guard case .enqueued = resetResult else { continue }
-            await retireReviewSubscriptionAfterReset(subscriptionId: subscriptionId)
+            await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
         }
     }
 

@@ -546,10 +546,11 @@ actor BridgePaneProductMetadataCoordinator {
                 productAdmission: productAdmission,
                 session: activeStream.session
             ),
-            taskFinished: { [weak self] subscriptionId, taskId in
+            taskFinished: { [weak self] subscriptionId, taskId, shouldRetireSubscription in
                 await self?.bootstrapProducerTaskFinished(
                     subscriptionId: subscriptionId,
-                    taskId: taskId
+                    taskId: taskId,
+                    shouldRetireSubscription: shouldRetireSubscription
                 )
             },
             operation: { traceContext in
@@ -638,10 +639,11 @@ actor BridgePaneProductMetadataCoordinator {
                 productAdmission: productAdmission,
                 session: activeStream.session
             ),
-            taskFinished: { [weak self] subscriptionId, taskId in
+            taskFinished: { [weak self] subscriptionId, taskId, shouldRetireSubscription in
                 await self?.interestProducerTaskFinished(
                     subscriptionId: subscriptionId,
-                    taskId: taskId
+                    taskId: taskId,
+                    shouldRetireSubscription: shouldRetireSubscription
                 )
             },
             operation: { traceContext in
@@ -704,18 +706,32 @@ actor BridgePaneProductMetadataCoordinator {
         )
     }
 
-    private func bootstrapProducerTaskFinished(subscriptionId: String, taskId: UUID) {
+    private func bootstrapProducerTaskFinished(
+        subscriptionId: String,
+        taskId: UUID,
+        shouldRetireSubscription: Bool
+    ) async {
         producerTaskLifecycle.bootstrapTaskFinished(
             subscriptionId: subscriptionId,
             taskId: taskId
         )
+        if shouldRetireSubscription {
+            await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
+        }
     }
 
-    private func interestProducerTaskFinished(subscriptionId: String, taskId: UUID) {
+    private func interestProducerTaskFinished(
+        subscriptionId: String,
+        taskId: UUID,
+        shouldRetireSubscription: Bool
+    ) async {
         producerTaskLifecycle.interestTaskFinished(
             subscriptionId: subscriptionId,
             taskId: taskId
         )
+        if shouldRetireSubscription {
+            await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
+        }
     }
 
     private func recordEnqueued(
@@ -742,7 +758,9 @@ actor BridgePaneProductMetadataCoordinator {
         openedSourceSubscriptionIds.insert(subscriptionId)
         deferredOpenSubscriptionIds.remove(subscriptionId)
     }
+}
 
+extension BridgePaneProductMetadataCoordinator {
     func publish(
         status: GitWorkingTreeStatus,
         productAdmission: BridgeProductAdmissionContext,
@@ -887,11 +905,16 @@ extension BridgePaneProductMetadataCoordinator {
         }.sorted()
     }
 
-    func retireReviewSubscriptionAfterReset(subscriptionId: String) async {
+    func retireSubscriptionAfterReset(subscriptionId: String) async {
         let producerTasks = producerTaskLifecycle.takeAndCancelProducerTasks(
             subscriptionId: subscriptionId
         )
-        await reviewMetadataSource.cancel(subscriptionId: subscriptionId)
+        if let subscriptionKind = subscriptionKindById[subscriptionId] {
+            await cancelSource(
+                subscriptionId: subscriptionId,
+                subscriptionKind: subscriptionKind
+            )
+        }
         await BridgePaneProductMetadataProducerTaskLifecycle.drain(producerTasks)
         removeSubscriptionLifecycleState(subscriptionId: subscriptionId)
     }
