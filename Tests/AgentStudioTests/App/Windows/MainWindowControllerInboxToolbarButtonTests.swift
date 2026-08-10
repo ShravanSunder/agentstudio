@@ -36,19 +36,23 @@ struct MainWindowControllerInboxToolbarButtonTests {
             let expectedItemIdentifiers = [
                 "worktreeSidebar",
                 "inboxSidebar",
+                "sidebarDivider",
                 "watchFolder",
                 "managementLayer",
                 "arrangement",
                 "workspaceTabs",
+                "selectTab",
+                "tabActionsDivider",
+                "newTab",
             ]
             #expect(toolbar.items.map(\.itemIdentifier.rawValue) == expectedItemIdentifiers)
 
             let expectedFixedControlViews = [
-                "worktreeSidebar": "worktreeToolbarControl",
-                "inboxSidebar": "inboxToolbarControl",
                 "watchFolder": "watchFolderToolbarControl",
                 "managementLayer": "managementLayerToolbarControl",
                 "arrangement": "arrangementToolbarControl",
+                "selectTab": "selectTabToolbarControl",
+                "newTab": "newTabToolbarControl",
             ]
             for (itemIdentifier, viewIdentifier) in expectedFixedControlViews {
                 let item = try #require(
@@ -58,6 +62,18 @@ struct MainWindowControllerInboxToolbarButtonTests {
                 )
                 #expect(item.view?.identifier?.rawValue == viewIdentifier)
                 #expect(!(item.view is MainToolbarChromeView))
+                #expect(!item.isBordered)
+            }
+
+            for itemIdentifier in ["worktreeSidebar", "inboxSidebar"] {
+                let item = try #require(
+                    toolbar.items.first(where: {
+                        $0.itemIdentifier.rawValue == itemIdentifier
+                    })
+                )
+                #expect(item.view == nil)
+                #expect(item.image != nil)
+                #expect(!item.isBordered)
             }
 
             let workspaceTabsItem = try #require(
@@ -86,8 +102,8 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("workspace tabs keep overflow and new-tab controls but exclude fixed toolbar controls")
-    func workspaceTabsKeepTabUtilitiesButExcludeFixedToolbarControls() throws {
+    @Test("workspace tabs keep overflow controls but exclude native toolbar controls")
+    func workspaceTabsKeepOverflowControlsButExcludeNativeToolbarControls() throws {
         let tabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
         let layoutSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/TabBarChromeLayoutPlan.swift")
 
@@ -97,12 +113,29 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(layoutSource.contains(".tabStrip"))
         #expect(layoutSource.contains(".overflowLeft"))
         #expect(layoutSource.contains(".overflowRight"))
-        #expect(layoutSource.contains(".overflowMenu"))
-        #expect(layoutSource.contains(".newTab"))
+        #expect(!layoutSource.contains(".overflowMenu"))
+        #expect(!layoutSource.contains(".newTab"))
         #expect(!layoutSource.contains(".sidebarSurfaces"))
         #expect(!layoutSource.contains(".watchFolder"))
         #expect(!layoutSource.contains(".managementLayer"))
         #expect(!layoutSource.contains(".arrangement"))
+    }
+
+    @Test("native sidebar toolbar icons follow programmatic sidebar state changes")
+    func nativeSidebarToolbarIconsFollowProgrammaticSidebarStateChanges() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let toolbar = try #require(harness.window.toolbar)
+            let inboxItem = try #require(
+                toolbar.items.first(where: { $0.itemIdentifier.rawValue == "inboxSidebar" })
+            )
+            let initialImage = try #require(inboxItem.image)
+
+            harness.atoms.core.workspaceSidebarState.setSidebarSurface(.inbox)
+
+            await assertEventuallyMain("inbox toolbar icon should follow sidebar atom changes") {
+                inboxItem.image !== initialImage
+            }
+        }
     }
 
     @Test("top chrome sidebar buttons use command specs and dispatch through shared commands")
