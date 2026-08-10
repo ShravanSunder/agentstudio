@@ -60,20 +60,16 @@ struct RepoExplorerViewInjectionTests {
         #expect(view.repoExplorerPrefs.groupingMode == .pane)
     }
 
-    @Test("typed command callbacks preserve Feature values")
-    func typedCommandCallbacksPreserveFeatureValues() {
-        var visibilityModes: [RepoExplorerVisibilityMode] = []
+    @Test("typed sort callback preserves the Feature value")
+    func typedSortCallbackPreservesFeatureValue() {
         var sortOrders: [RepoExplorerSortOrder] = []
         let view = makeRepoExplorerView(
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            onSetVisibilityMode: { visibilityModes.append($0) },
             onSetSortOrder: { sortOrders.append($0) }
         )
 
-        view.onSetVisibilityMode(.favoritesOnly)
         view.onSetSortOrder(.descending)
 
-        #expect(visibilityModes == [.favoritesOnly])
         #expect(sortOrders == [.descending])
     }
 
@@ -81,7 +77,6 @@ struct RepoExplorerViewInjectionTests {
         store: WorkspaceStore = WorkspaceStore(startsObserving: false),
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping @MainActor () -> [UUID: UInt64] = { [:] },
-        onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void = { _ in },
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in }
     ) -> RepoExplorerView {
         RepoExplorerView(
@@ -90,7 +85,6 @@ struct RepoExplorerViewInjectionTests {
             repoExplorerPrefs: repoExplorerPrefs,
             bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-            onSetVisibilityMode: onSetVisibilityMode,
             onSetSortOrder: onSetSortOrder,
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},

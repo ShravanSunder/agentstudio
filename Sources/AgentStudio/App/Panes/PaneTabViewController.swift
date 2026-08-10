@@ -113,6 +113,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private var hasShutdown = false
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
@@ -368,9 +369,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
-            arrangementInlineRenameState: arrangementInlineRenameState,
-            inboxAtom: inboxAtom,
-            octiconLoader: octiconLoader,
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
             },
@@ -394,11 +392,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             },
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
-            },
-            onPaneAction: { [weak self] action in
-                self?.dispatchAction(action)
-            },
-            workspaceWindowId: workspaceWindowId
+            }
         )
         let hostingView = DraggableTabBarHostingView(rootView: tabBar)
         hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
@@ -422,6 +416,51 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             self?.dispatchAction(.toggleDrawer(paneId: drawerParentPaneId))
         }
         tabBarHostingView = hostingView
+        return hostingView
+    }
+
+    func makeToolbarControlView(_ control: MainToolbarControl) -> NSView {
+        let content: AnyView =
+            switch control {
+            case .watchFolder:
+                AnyView(WatchFolderTabBarMenu())
+            case .managementLayer:
+                AnyView(TabBarManagementLayerButton())
+            case .arrangement:
+                AnyView(
+                    TabBarArrangementButton(
+                        adapter: tabBarAdapter,
+                        arrangementInlineRenameState: arrangementInlineRenameState,
+                        octiconLoader: octiconLoader,
+                        onCommand: { command, tabId in
+                            AppCommandDispatcher.shared.dispatch(
+                                command,
+                                target: tabId,
+                                targetType: .tab
+                            )
+                        },
+                        onPaneAction: { [weak self] action in
+                            self?.dispatchAction(action)
+                        },
+                        workspaceWindowId: workspaceWindowId
+                    )
+                )
+            case .selectTab:
+                AnyView(
+                    TabSelectionToolbarMenu(adapter: tabBarAdapter) { [weak self] tabId in
+                        self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
+                    }
+                )
+            case .newTab:
+                AnyView(NewTabButton())
+            }
+
+        let hostingView = ToolbarControlHostingView(rootView: content)
+        hostingView.identifier = control.viewIdentifier
+        hostingView.sizingOptions = [.intrinsicContentSize]
+        hostingView.safeAreaRegions = []
+        hostingView.setContentHuggingPriority(.required, for: .horizontal)
+        hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
         return hostingView
     }
 
@@ -505,6 +544,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func shutdown() {
+        guard !hasShutdown else { return }
+        hasShutdown = true
+        tabBarAdapter.stop()
         pendingVisibleViewRestoreTask?.cancel()
         pendingVisibleViewRestoreTask = nil
         if let monitor = arrangementBarEventMonitor {

@@ -1,5 +1,4 @@
 import AgentStudioCore
-import AgentStudioInboxNotification
 import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import SwiftUI
@@ -85,84 +84,6 @@ enum ShellTabBarCommandContext {
     }
 }
 
-struct SidebarSurfaceTabBarControls: View {
-    let inboxAtom: InboxNotificationAtom
-
-    private var sidebarState: WorkspaceSidebarState {
-        atom(\.workspaceSidebarState)
-    }
-
-    private var isSidebarOpen: Bool {
-        !sidebarState.sidebarCollapsed
-    }
-
-    var body: some View {
-        let commandContext = ShellTabBarCommandContext.current()
-
-        HStack(spacing: AppStyles.Shell.Chrome.SidebarNav.iconSpacing) {
-            if let presentation = ShellTabBarCommandPresentation(
-                command: .showWorktreeSidebar,
-                surface: .toolbar(.app),
-                commandContext: commandContext
-            ) {
-                SidebarSurfaceTabBarButton(
-                    presentation: presentation,
-                    symbolName: "square.stack.3d.down.right",
-                    selectedSymbolName: "square.stack.3d.down.right.fill",
-                    isSelected: isSidebarOpen && sidebarState.sidebarSurface == .repos
-                )
-            }
-
-            if let presentation = ShellTabBarCommandPresentation(
-                command: .showInboxNotifications,
-                surface: .toolbar(.app),
-                commandContext: commandContext
-            ) {
-                SidebarSurfaceTabBarButton(
-                    presentation: presentation,
-                    symbolName: "bell",
-                    selectedSymbolName: "bell.fill",
-                    isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox,
-                    badgeCount: inboxAtom.globalRollUpAlertCount
-                )
-            }
-        }
-    }
-}
-
-private struct SidebarSurfaceTabBarButton: View {
-    let presentation: ShellTabBarCommandPresentation
-    let symbolName: String
-    let selectedSymbolName: String
-    let isSelected: Bool
-    var badgeCount = 0
-
-    @State private var isHovered = false
-
-    private var command: AppCommand {
-        presentation.command
-    }
-
-    var body: some View {
-        Button {
-            presentation.perform()
-        } label: {
-            ChromeToolbarButtonLabel(
-                symbolName: symbolName,
-                selectedSymbolName: selectedSymbolName,
-                isSelected: isSelected,
-                isHovered: isHovered,
-                badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil,
-                showsBackground: false
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .disabled(!presentation.isEnabled)
-        .help(presentation.controlToolTip)
-    }
-}
-
 struct WatchFolderTabBarMenu: View {
     @State private var isHovered = false
 
@@ -178,7 +99,8 @@ struct WatchFolderTabBarMenu: View {
             } label: {
                 ChromeToolbarButtonLabel(
                     symbolName: "folder.badge.plus",
-                    isHovered: isHovered
+                    isHovered: isHovered,
+                    showsBackground: true
                 )
             }
             .buttonStyle(.plain)
@@ -208,7 +130,8 @@ struct TabBarManagementLayerButton: View {
                     symbolName: "rectangle.split.2x2",
                     selectedSymbolName: "rectangle.split.2x2.fill",
                     isSelected: isManagementLayerActive,
-                    isHovered: isHovered
+                    isHovered: isHovered,
+                    showsBackground: true
                 )
             }
             .buttonStyle(.plain)
@@ -219,7 +142,51 @@ struct TabBarManagementLayerButton: View {
     }
 }
 
-/// Circular "+" button for creating a new tab.
+struct TabSelectionToolbarMenu: View {
+    @Bindable var adapter: TabBarAdapter
+    let onSelect: (UUID) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Menu {
+            ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
+                Button {
+                    onSelect(tab.id)
+                } label: {
+                    HStack {
+                        if tab.id == adapter.activeTabId {
+                            Image(systemName: "checkmark")
+                        }
+                        Text(tab.displayTitle)
+                        if index < 9 {
+                            Text("  \u{2318}\(index + 1)")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
+                ChromeToolbarButtonLabel(
+                    symbolName: "rectangle.stack",
+                    isHovered: isHovered,
+                    showsBackground: false
+                )
+                Text("\(adapter.tabs.count)")
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { isHovered = $0 }
+        .help("Select Tab")
+    }
+}
+
+/// "+" button for creating a new tab.
 /// Click = empty terminal (existing behavior). Right-click = menu with options.
 struct NewTabButton: View {
     @State private var isHovered = false
@@ -248,7 +215,8 @@ struct NewTabButton: View {
                 Button(action: newTabToolbarPresentation.perform) {
                     ChromeToolbarButtonLabel(
                         symbolName: "plus",
-                        isHovered: isHovered
+                        isHovered: isHovered,
+                        showsBackground: true
                     )
                 }
                 .buttonStyle(.plain)
@@ -274,24 +242,5 @@ struct NewTabButton: View {
             .onHover { isHovered = $0 }
             .help(newTabToolbarPresentation.controlToolTip)
         }
-    }
-}
-
-struct SidebarNavDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.white.opacity(AppStyles.General.Fill.hover))
-            .frame(width: 1, height: AppStyles.Shell.Chrome.dividerHeight)
-            .padding(.leading, AppStyles.Shell.Chrome.SidebarNav.dividerLeadingPadding)
-            .padding(.trailing, AppStyles.Shell.Chrome.SidebarNav.dividerTrailingPadding)
-    }
-}
-
-struct TabBarDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.white.opacity(AppStyles.General.Fill.hover))
-            .frame(width: 1, height: AppStyles.Shell.Chrome.dividerHeight)
-            .padding(.horizontal, AppStyles.Shell.Chrome.dividerHorizontalPadding)
     }
 }

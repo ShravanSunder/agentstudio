@@ -89,7 +89,6 @@ enum AppCommandIPCDurableTargetContract: Equatable, Sendable {
 
 enum AppCommandIPCArgumentContract: Equatable, Sendable {
     case noArguments
-    case repoSidebarVisibilityMode
     case repoSidebarSortOrder
     case inboxRowStateFilter
     case inboxContentMode
@@ -98,14 +97,6 @@ enum AppCommandIPCArgumentContract: Equatable, Sendable {
         switch self {
         case .noArguments:
             []
-        case .repoSidebarVisibilityMode:
-            [
-                IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: RepoExplorerVisibilityMode.allCases.map(\.rawValue)),
-                    isRequired: true
-                )
-            ]
         case .repoSidebarSortOrder:
             [
                 IPCCommandArgumentSchema(
@@ -153,8 +144,6 @@ extension AppCommand {
     var ipcSpec: AppCommandIPCSpec {
         let argumentContract: AppCommandIPCArgumentContract =
             switch self {
-            case .setRepoSidebarVisibilityMode:
-                .repoSidebarVisibilityMode
             case .setRepoSidebarSortOrder:
                 .repoSidebarSortOrder
             case .setInboxRowStateFilter:
@@ -226,7 +215,7 @@ extension AppCommand {
                     requiredPrivilege: ipcRequiredPrivilege
                 )
             case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-                .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+                .setRepoSidebarSortOrder,
                 .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
                 .setInboxRowStateFilter, .setInboxContentMode:
                 .headless(
@@ -326,7 +315,7 @@ extension AppCommand {
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane,
-            .setRepoSidebarGroupingTab, .setRepoSidebarVisibilityMode,
+            .setRepoSidebarGroupingTab,
             .setRepoSidebarSortOrder, .setInboxGroupingTab, .setInboxGroupingRepo,
             .setInboxGroupingPane, .setInboxGroupingNone, .setInboxRowStateFilter,
             .setInboxContentMode, .newFloatingTerminal, .newWindow, .closeWindow,
@@ -348,7 +337,7 @@ extension AppCommand {
             return .terminalInputWrite
         case .showInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane,
-            .setRepoSidebarGroupingTab, .setRepoSidebarVisibilityMode,
+            .setRepoSidebarGroupingTab,
             .setRepoSidebarSortOrder, .setInboxGroupingTab, .setInboxGroupingRepo,
             .setInboxGroupingPane, .setInboxGroupingNone, .setInboxRowStateFilter,
             .setInboxContentMode, .addRepoFavorite, .removeRepoFavorite:

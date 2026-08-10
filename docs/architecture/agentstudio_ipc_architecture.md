@@ -216,8 +216,7 @@ error until a semantic method with explicit parameters exists. Commands execute
 only when their `AppCommandSpec` is explicitly marked headless-executable, and
 the adapter validates the typed argument schema from that spec before active
 window lookup or shell-owner dispatch. The initial narrow argument shape is a
-string enum, used by `setRepoSidebarVisibilityMode` with `mode = all |
-favoritesOnly` and `setRepoSidebarSortOrder` with `order = ascending |
+string enum, used by `setRepoSidebarSortOrder` with `order = ascending |
 descending`; broader JSON Schema, nested objects, or command-bar selection state
 require a new spec/design pass. The public command-id wrapper remains open so
 future command ids and version-skewed clients can fail with `unsupported
@@ -500,8 +499,7 @@ version-skewed clients get `unsupported capability` instead of parameter decode
 failure, but only allowlisted headless semantic ids may execute. Current
 command-bar-backed rows return `requires presentation`. Direct JSON-RPC clients
 can pass headless command arguments through the `arguments` object, for example
-`{"commandId":"setRepoSidebarVisibilityMode","arguments":{"mode":"favoritesOnly"}}`
-or `{"commandId":"setRepoSidebarSortOrder","arguments":{"order":"descending"}}`.
+`{"commandId":"setRepoSidebarSortOrder","arguments":{"order":"descending"}}`.
 They can also call the app-level method registry, including
 `ui.commandBar.open`, `pane.split`, `pane.close`, `drawer.addPane`, and
 `drawer.toggle`, subject to authentication and authorization.

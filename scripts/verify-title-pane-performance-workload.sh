@@ -306,16 +306,16 @@ request("command.execute", {"commandId":"showWorktreeSidebar","targetHandle":Non
 pane = wait_for_terminal_pane()
 wait_for_startup_diagnostic_completion()
 handle = f"pane:{pane['id']}"
-visibility_baseline_result = request(
+repo_sort_baseline_result = request(
     "command.execute",
     {
-        "commandId":"setRepoSidebarVisibilityMode",
+        "commandId":"setRepoSidebarSortOrder",
         "targetHandle":None,
-        "arguments":{"mode":"all"},
+        "arguments":{"order":"ascending"},
     },
 )
-if visibility_baseline_result.get("applied") is not True:
-    raise RuntimeError(f"visibility baseline did not apply: {visibility_baseline_result}")
+if repo_sort_baseline_result.get("applied") is not True:
+    raise RuntimeError(f"repo sort baseline did not apply: {repo_sort_baseline_result}")
 title_baseline = quiescent_snapshot()
 private_title = "cadence-private-title"
 private_payload = "printf-private-payload"
@@ -377,13 +377,13 @@ capability_baseline = quiescent_snapshot()
 capability_result = request(
     "command.execute",
     {
-        "commandId":"setRepoSidebarVisibilityMode",
+        "commandId":"setRepoSidebarSortOrder",
         "targetHandle":None,
-        "arguments":{"mode":"favoritesOnly"},
+        "arguments":{"order":"descending"},
     },
 )
 if capability_result.get("applied") is not True:
-    raise RuntimeError(f"visibility change did not apply: {capability_result}")
+    raise RuntimeError(f"repo sort change did not apply: {capability_result}")
 capability_delta = wait_for_delta(capability_baseline, lambda value: value["repo_events"] >= 1, "capability presentation telemetry")
 capability_after = quiescent_snapshot()
 capability_delta = delta(capability_baseline, capability_after)

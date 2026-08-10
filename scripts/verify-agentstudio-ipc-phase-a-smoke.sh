@@ -265,30 +265,6 @@ try:
     if command_bar_entry.get("title") != "Command Palette":
         print(f"showCommandBarCommands title mismatch: {command_bar_entry}", file=sys.stderr)
         sys.exit(1)
-    repo_visibility_entry = next(
-        (
-            command
-            for command in commands
-            if command.get("id") == "setRepoSidebarVisibilityMode"
-        ),
-        None,
-    )
-    if repo_visibility_entry is None:
-        print("command.list did not include setRepoSidebarVisibilityMode", file=sys.stderr)
-        sys.exit(1)
-    repo_visibility_arguments = repo_visibility_entry.get("argumentSchema", [])
-    if repo_visibility_arguments != [
-        {
-            "name": "mode",
-            "kind": {"type": "stringEnum", "values": ["all", "favoritesOnly"]},
-            "isRequired": True,
-        }
-    ]:
-        print(
-            f"setRepoSidebarVisibilityMode argument schema mismatch: {repo_visibility_entry}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
     repo_sort_entry = next(
         (
             command
@@ -341,56 +317,9 @@ try:
         "requires presentation",
     )
 
-    repo_visibility_favorites = require_success(
-        session.request(
-            8,
-            "command.execute",
-            {
-                "commandId": "setRepoSidebarVisibilityMode",
-                "targetHandle": None,
-                "arguments": {"mode": "favoritesOnly"},
-            },
-        ),
-        "command.execute setRepoSidebarVisibilityMode favoritesOnly",
-    )
-    if repo_visibility_favorites.get("applied") is not True:
-        print(f"repo visibility favoritesOnly command did not apply: {repo_visibility_favorites}", file=sys.stderr)
-        sys.exit(1)
-
-    repo_visibility_all = require_success(
-        session.request(
-            9,
-            "command.execute",
-            {
-                "commandId": "setRepoSidebarVisibilityMode",
-                "targetHandle": None,
-                "arguments": {"mode": "all"},
-            },
-        ),
-        "command.execute setRepoSidebarVisibilityMode all",
-    )
-    if repo_visibility_all.get("applied") is not True:
-        print(f"repo visibility all command did not apply: {repo_visibility_all}", file=sys.stderr)
-        sys.exit(1)
-
-    require_error(
-        session.request(
-            10,
-            "command.execute",
-            {
-                "commandId": "setRepoSidebarVisibilityMode",
-                "targetHandle": None,
-                "arguments": {"mode": "recent"},
-            },
-        ),
-        "command.execute setRepoSidebarVisibilityMode invalid mode",
-        -32007,
-        "validation rejected",
-    )
-
     repo_sort_descending = require_success(
         session.request(
-            101,
+            8,
             "command.execute",
             {
                 "commandId": "setRepoSidebarSortOrder",
@@ -406,7 +335,7 @@ try:
 
     repo_sort_ascending = require_success(
         session.request(
-            102,
+            9,
             "command.execute",
             {
                 "commandId": "setRepoSidebarSortOrder",
@@ -422,7 +351,7 @@ try:
 
     require_error(
         session.request(
-            103,
+            10,
             "command.execute",
             {
                 "commandId": "setRepoSidebarSortOrder",

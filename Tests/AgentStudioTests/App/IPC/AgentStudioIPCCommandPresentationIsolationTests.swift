@@ -21,7 +21,7 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
 
         #expect(
             encodedCommandListSHA256
-                == "3e816abba4d5324d88634e140e8f106038c081ca93d8fa5137d6183b000a2093"
+                == "a29b876ce228cb11e1fc33c931d784d4408d8490768f8acbabb53a28d9315a81"
         )
     }
 
@@ -60,10 +60,6 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
 
         #expect(AppCommand.closePane.ipcSpec.argumentContract == .noArguments)
         #expect(
-            AppCommand.setRepoSidebarVisibilityMode.ipcSpec.argumentContract
-                == .repoSidebarVisibilityMode
-        )
-        #expect(
             AppCommand.setRepoSidebarSortOrder.ipcSpec.argumentContract
                 == .repoSidebarSortOrder
         )
@@ -85,15 +81,15 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
             rawArguments: [:],
             argumentsContainOnlyStrings: true
         )
-        let visibilityMode = try AppCommandExecutionArguments.commandOwnedArguments(
-            contract: .repoSidebarVisibilityMode,
-            rawArguments: ["mode": "favoritesOnly"],
+        let sortOrder = try AppCommandExecutionArguments.commandOwnedArguments(
+            contract: .repoSidebarSortOrder,
+            rawArguments: ["order": "descending"],
             argumentsContainOnlyStrings: true
         )
 
         #expect(defaultRequest.arguments == .noArguments)
         #expect(noArguments == .noArguments)
-        #expect(visibilityMode == .repoSidebarVisibilityMode(.favoritesOnly))
+        #expect(sortOrder == .repoSidebarSortOrder(.descending))
     }
 
     // Mutation caught: the presentation-policy migration changes accepted public command metadata or encoding.
@@ -116,20 +112,6 @@ struct AgentStudioIPCCommandPresentationIsolationTests {
                 executionModes: [.requiresInteractiveInput],
                 targetKinds: [.pane],
                 requiredPrivileges: [.layoutMutate]
-            ),
-            IPCCommandListEntry(
-                id: IPCCommandIdentifier(rawValue: "setRepoSidebarVisibilityMode"),
-                title: "Set Repo Sidebar Visibility Mode",
-                executionModes: [.headless],
-                targetKinds: [],
-                requiredPrivileges: [.sidebarStateMutate],
-                argumentSchema: [
-                    IPCCommandArgumentSchema(
-                        name: "mode",
-                        kind: .stringEnum(values: ["all", "favoritesOnly"]),
-                        isRequired: true
-                    )
-                ]
             ),
             IPCCommandListEntry(
                 id: IPCCommandIdentifier(rawValue: "showCommandBarEverything"),

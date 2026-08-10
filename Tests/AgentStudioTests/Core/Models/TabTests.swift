@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -8,6 +9,18 @@ import Testing
 final class TabTests {
 
     // MARK: - Init
+
+    @Test
+    func newTabUsesUUIDv7Identity() {
+        // Arrange
+        let paneId = UUID()
+
+        // Act
+        let tab = Tab(paneId: paneId)
+
+        // Assert
+        #expect(UUIDv7.isV7(tab.id))
+    }
 
     @Test
 

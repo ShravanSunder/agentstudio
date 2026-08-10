@@ -24,7 +24,6 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         atomStore.editorPreference.setBookmarkedEditor("cursor")
         atomStore.repoExplorerSidebarPrefs.setGroupingMode(.pane)
         atomStore.repoExplorerSidebarPrefs.setSortOrder(.descending)
-        atomStore.repoExplorerSidebarPrefs.setRepoVisibilityMode(.favoritesOnly)
         atomStore.inboxNotificationPrefs.setGrouping(.byRepo)
         atomStore.inboxNotificationPrefs.setBellEnabled(true)
 
@@ -33,7 +32,7 @@ struct WorkspaceSettingsStoreRootIdentityTests {
         #expect(try fixture.repository.fetchEditorPreferences().bookmarkedEditorId == "cursor")
         #expect(try fixture.repository.fetchRepoExplorerPreferences().groupingMode == "pane")
         #expect(try fixture.repository.fetchRepoExplorerPreferences().sortOrder == "descending")
-        #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == "favoritesOnly")
+        #expect(try fixture.repository.fetchRepoExplorerPreferences().visibilityMode == "all")
         #expect(try fixture.repository.fetchInboxNotificationPreferences().grouping == "byRepo")
         #expect(try fixture.repository.fetchInboxNotificationPreferences().bellEnabled)
     }

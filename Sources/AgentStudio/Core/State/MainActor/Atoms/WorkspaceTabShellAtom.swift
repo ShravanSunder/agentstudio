@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -13,8 +14,14 @@ enum WorkspaceTabShellAtomError: Error, Equatable {
 @Observable
 package final class WorkspaceTabShellAtom {
     let cursorAtom: WorkspaceTabCursorAtom
-    private(set) var tabShells: [TabShell] = []
+    @ObservationIgnored private let shellFamily = AtomFamily<UUID, TabShell>(
+        telemetryLabel: "workspace_tab_shell",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
+    private var tabOrder: [UUID] = []
     private var tabIndexByID: [UUID: Int] = [:]
+
     package init(cursorAtom: WorkspaceTabCursorAtom = WorkspaceTabCursorAtom()) {
         self.cursorAtom = cursorAtom
     }
@@ -23,8 +30,16 @@ package final class WorkspaceTabShellAtom {
         cursorAtom.activeTabId
     }
 
+    package var orderedTabIds: [UUID] {
+        tabOrder
+    }
+
+    var tabShells: [TabShell] {
+        tabOrder.compactMap { shellFamily.value(for: $0) }
+    }
+
     var tabCount: Int {
-        tabShells.count
+        tabOrder.count
     }
 
     func containsTab(_ id: UUID) -> Bool {
@@ -34,12 +49,18 @@ package final class WorkspaceTabShellAtom {
     func replaceTabShells(_ shells: [TabShell]) {
         let replacementIndex = Self.makeUniqueIndex(shells)
         guard tabShells != shells else { return }
-        tabShells = shells
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        shellFamily.replaceAll(
+            Dictionary(uniqueKeysWithValues: shells.map { ($0.id, $0) }),
+            mutation: mutation
+        )
+        tabOrder = shells.map(\.id)
         tabIndexByID = replacementIndex
+        mutation.commit()
     }
 
     func tabShell(_ id: UUID) -> TabShell? {
-        tabIndexByID[id].map { tabShells[$0] }
+        shellFamily.value(for: id)
     }
 
     func tabIndex(for tabID: UUID) -> Int? {
@@ -48,23 +69,32 @@ package final class WorkspaceTabShellAtom {
 
     func appendTabShell(_ shell: TabShell) {
         guard tabIndexByID[shell.id] == nil else { return }
-        tabShells.append(shell)
-        tabIndexByID[shell.id] = tabShells.count - 1
-        cursorAtom.selectTab(shell.id, availableTabIds: tabShells.map(\.id))
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        shellFamily.setValue(shell, for: shell.id, mutation: mutation)
+        tabOrder.append(shell.id)
+        tabIndexByID[shell.id] = tabOrder.count - 1
+        mutation.commit()
+        cursorAtom.selectTab(shell.id, availableTabIds: tabOrder)
     }
 
     func removeTabShell(_ tabId: UUID) {
         guard let removedIndex = tabIndexByID.removeValue(forKey: tabId) else { return }
-        tabShells.remove(at: removedIndex)
-        reindexTabs(in: removedIndex..<tabShells.count)
-        cursorAtom.removeTab(tabId, remainingTabIds: tabShells.map(\.id))
+        tabOrder.remove(at: removedIndex)
+        reindexTabs(in: removedIndex..<tabOrder.count)
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        shellFamily.removeValue(for: tabId, mutation: mutation)
+        mutation.commit()
+        cursorAtom.removeTab(tabId, remainingTabIds: tabOrder)
     }
 
     func insertTabShell(_ shell: TabShell, at index: Int) {
         guard tabIndexByID[shell.id] == nil else { return }
-        let clampedIndex = min(index, tabShells.count)
-        tabShells.insert(shell, at: clampedIndex)
-        reindexTabs(in: clampedIndex..<tabShells.count)
+        let clampedIndex = min(index, tabOrder.count)
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        shellFamily.setValue(shell, for: shell.id, mutation: mutation)
+        tabOrder.insert(shell.id, at: clampedIndex)
+        reindexTabs(in: clampedIndex..<tabOrder.count)
+        mutation.commit()
     }
 
     func moveTab(fromId: UUID, toIndex: Int) {
@@ -72,11 +102,11 @@ package final class WorkspaceTabShellAtom {
             workspaceTabShellLogger.warning("moveTab: tab \(fromId) not found")
             return
         }
-        let shell = tabShells.remove(at: fromIndex)
+        let tabId = tabOrder.remove(at: fromIndex)
         let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
-        let clampedIndex = max(0, min(adjustedIndex, tabShells.count))
-        tabShells.insert(shell, at: clampedIndex)
-        reindexTabs(in: min(fromIndex, clampedIndex)..<tabShells.count)
+        let clampedIndex = max(0, min(adjustedIndex, tabOrder.count))
+        tabOrder.insert(tabId, at: clampedIndex)
+        reindexTabs(in: min(fromIndex, clampedIndex)..<tabOrder.count)
     }
 
     func moveTabByDelta(tabId: UUID, delta: Int) {
@@ -84,7 +114,7 @@ package final class WorkspaceTabShellAtom {
             workspaceTabShellLogger.warning("moveTabByDelta: tab \(tabId) not found")
             return
         }
-        let count = tabShells.count
+        let count = tabOrder.count
         guard count > 1 else { return }
 
         let finalIndex: Int
@@ -97,17 +127,17 @@ package final class WorkspaceTabShellAtom {
         }
         guard finalIndex != fromIndex else { return }
 
-        let shell = tabShells.remove(at: fromIndex)
-        tabShells.insert(shell, at: finalIndex)
-        reindexTabs(in: min(fromIndex, finalIndex)..<tabShells.count)
+        let movedTabId = tabOrder.remove(at: fromIndex)
+        tabOrder.insert(movedTabId, at: finalIndex)
+        reindexTabs(in: min(fromIndex, finalIndex)..<tabOrder.count)
     }
 
     func setActiveTab(_ tabId: UUID?) {
-        cursorAtom.selectTab(tabId, availableTabIds: tabShells.map(\.id))
+        cursorAtom.selectTab(tabId, availableTabIds: tabOrder)
     }
 
     func renameTab(_ tabId: UUID, name: String) {
-        guard let tabIndex = tabIndexByID[tabId] else {
+        guard var shell = shellFamily.snapshotValue(for: tabId) else {
             workspaceTabShellLogger.warning("renameTab: tab \(tabId) not found")
             return
         }
@@ -115,21 +145,27 @@ package final class WorkspaceTabShellAtom {
             workspaceTabShellLogger.warning("renameTab: empty name rejected for tab \(tabId)")
             return
         }
-        guard tabShells[tabIndex].name != Tab.normalizedName(name) else { return }
-        tabShells[tabIndex].rename(to: name)
+        guard shell.name != Tab.normalizedName(name) else { return }
+        shell.rename(to: name)
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        shellFamily.setValue(shell, for: tabId, mutation: mutation)
+        mutation.commit()
     }
 
     func setTabColorHex(_ colorHex: String?, tabId: UUID) throws {
-        guard let tabIndex = tabIndexByID[tabId] else {
+        guard var shell = shellFamily.snapshotValue(for: tabId) else {
             throw WorkspaceTabShellAtomError.tabNotFound(tabId)
         }
         let canonicalColorHex = try colorHex.map(Self.validatedTabColorHex(_:))
-        guard tabShells[tabIndex].colorHex != canonicalColorHex else { return }
-        tabShells[tabIndex].setColorHex(canonicalColorHex)
+        guard shell.colorHex != canonicalColorHex else { return }
+        shell.setColorHex(canonicalColorHex)
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        shellFamily.setValue(shell, for: tabId, mutation: mutation)
+        mutation.commit()
     }
 
     private func reindexTabs(in range: Range<Int>) {
-        for index in range { tabIndexByID[tabShells[index].id] = index }
+        for index in range { tabIndexByID[tabOrder[index]] = index }
     }
 
     private static func makeUniqueIndex(_ shells: [TabShell]) -> [UUID: Int] {

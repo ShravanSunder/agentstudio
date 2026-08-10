@@ -76,8 +76,8 @@ struct WorkspacePaneBoundaryTests {
         #expect(graphAtom.paneStructuralFacts(paneA.id)?.paneID == paneA.id)
     }
 
-    @Test("Pane graph reconciles insertion removal replacement restore and pruning atomically")
-    func paneGraphReconcilesLifecycleAndPruningAtomically() throws {
+    @Test("Pane graph reconciles insertion removal replacement restore and retained missing slots atomically")
+    func paneGraphReconcilesLifecycleAndRetainedMissingSlotsAtomically() throws {
         let graphAtom = WorkspacePaneGraphAtom()
         let paneA = graphAtom.createPane(
             launchDirectory: URL(filePath: "/tmp/pane-lifecycle-a", directoryHint: .isDirectory),
@@ -142,20 +142,20 @@ struct WorkspacePaneBoundaryTests {
         #expect(replacementRevision.invalidationCount == 1)
         #expect(graphAtom.paneIDs == Set([paneA.id, restoredPaneID]))
 
-        let missingPrunedID = UUIDv7.generate()
-        let prunedCanonical = observe { _ = graphAtom.paneState(missingPrunedID) }
-        let prunedStructural = observe { _ = graphAtom.paneStructuralFacts(missingPrunedID) }
-        let pruneRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
-        let revisionBeforePruning = graphAtom.paneAcceptedCommitRevision
+        let retainedMissingID = UUIDv7.generate()
+        let retainedCanonical = observe { _ = graphAtom.paneState(retainedMissingID) }
+        let retainedStructural = observe { _ = graphAtom.paneStructuralFacts(retainedMissingID) }
+        let unchangedRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+        let revisionBeforeReplacement = graphAtom.paneAcceptedCommitRevision
 
         graphAtom.replacePaneStates(
             try requirePaneGraphReplacement(graphAtom.paneStateSnapshot())
         )
 
-        #expect(prunedCanonical.invalidationCount == 1)
-        #expect(prunedStructural.invalidationCount == 1)
-        #expect(pruneRevision.invalidationCount == 0)
-        #expect(graphAtom.paneAcceptedCommitRevision == revisionBeforePruning)
+        #expect(retainedCanonical.invalidationCount == 0)
+        #expect(retainedStructural.invalidationCount == 0)
+        #expect(unchangedRevision.invalidationCount == 0)
+        #expect(graphAtom.paneAcceptedCommitRevision == revisionBeforeReplacement)
     }
 
     @Test("Pane graph state strips drawer expansion and display facets")

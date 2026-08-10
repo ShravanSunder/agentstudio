@@ -1,10 +1,21 @@
 # Sidebar Layout, Grouping, and Off-Main Search Implementation Plan
 
-Status: plan-review re-check complete; ready for implementation-execute-plan
+Status: archived historical plan; not executable as a current plan
 Date: 2026-06-20
 Goal id: `2026-07-04-sidebar-ipc-command-proof`
 Spec: `docs/superpowers/specs/2026-06-20-sidebar-layout-grouping-offmain-search.md`
 Goal details: `tmp/workflow-state/2026-07-04-sidebar-ipc-command-proof/details.md`
+
+> Historical plan. The Repo Explorer favorite-visibility work described here
+> was superseded by the favorites-first implementation plan at
+> [2026-08-08-repo-sidebar-favorites-first](../../specs/2026-08-08-repo-sidebar-favorites-first/plans/2026-08-08-repo-sidebar-favorites-first-plan.md).
+> Keep this plan for its completed PR #190 provenance, not as an executable
+> current plan.
+>
+> Archive boundary: every Repo Explorer favorite-visibility, toolbar,
+> persistence, IPC, and visibility-telemetry step below is historical PR #190
+> context only. The current implementation plan is the favorites-first plan
+> linked above.
 
 ## Outcome
 

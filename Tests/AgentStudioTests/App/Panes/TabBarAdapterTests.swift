@@ -1,38 +1,11 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
-@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
-
-private final class TabBarPublicationCounter: @unchecked Sendable {
-    private(set) var publicationCount = 0
-
-    func record() {
-        publicationCount += 1
-    }
-}
-
-@MainActor
-private final class TabBarNotificationDotDerivationRecorder {
-    private var derivationCountByPaneID: [UUID: Int] = [:]
-
-    func record(paneIDs: [UUID]) {
-        for paneID in paneIDs {
-            derivationCountByPaneID[paneID, default: 0] += 1
-        }
-    }
-
-    func reset() {
-        derivationCountByPaneID.removeAll()
-    }
-
-    func derivationCount(for paneID: UUID) -> Int {
-        derivationCountByPaneID[paneID, default: 0]
-    }
-}
 
 @MainActor
 @Suite(.serialized)
@@ -43,6 +16,7 @@ final class TabBarAdapterTests {
     private var inboxAtom: InboxNotificationAtom!
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
+    private var lastObservedOutputPublicationRevision: UInt64 = 0
 
     init() {
         installTestCoreAtomsIfNeeded()
@@ -57,9 +31,7 @@ final class TabBarAdapterTests {
         repoCache = nil
     }
 
-    private func resetFixture(
-        notificationDotDerivationRecorder: TabBarNotificationDotDerivationRecorder? = nil
-    ) {
+    private func resetFixture() {
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
         }
@@ -72,21 +44,19 @@ final class TabBarAdapterTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            notificationDotColorProvider: { paneIds in
-                notificationDotDerivationRecorder?.record(paneIDs: paneIds)
-                return AppDelegate.tabNotificationDotColor(
-                    for: notificationAtom.attentionLane(forPaneIds: paneIds)
-                )
-            }
+            inboxAtom: notificationAtom
         )
+        lastObservedOutputPublicationRevision = 0
     }
 
     // MARK: - Initial State
 
     @Test
 
-    func test_initialState_empty() {
+    func test_initialState_empty() async {
         resetFixture()
+        await waitForAdapterRefresh()
+
         // Assert
         #expect(adapter.tabs.isEmpty)
         #expect((adapter.activeTabId) == nil)
@@ -313,137 +283,6 @@ final class TabBarAdapterTests {
         let secondTab = try #require(adapter.tabs[safe: 1], "Expected two derived tabs to exist")
         #expect(firstTab.id == tab1.id)
         #expect(secondTab.id == tab2.id)
-    }
-
-    @Test("notification mutation rederives only the tab containing its pane")
-    func notificationMutationRederivesOnlyOwningTab() async throws {
-        let derivationRecorder = TabBarNotificationDotDerivationRecorder()
-        resetFixture(notificationDotDerivationRecorder: derivationRecorder)
-        let paneA = store.createPane(title: "Pane A")
-        let paneB = store.createPane(title: "Pane B")
-        let tabA = Tab(paneId: paneA.id)
-        let tabB = Tab(paneId: paneB.id)
-        store.appendTab(tabA)
-        store.appendTab(tabB)
-        await waitForAdapterRefresh()
-        #expect(adapter.tabs.count == 2)
-        derivationRecorder.reset()
-
-        inboxAtom.append(
-            InboxNotification(
-                id: UUIDv7.generate(),
-                timestamp: Date(timeIntervalSince1970: 100),
-                kind: .approvalRequested,
-                title: "Approval requested",
-                body: nil,
-                source: .pane(.init(paneId: paneA.id)),
-                claimKey: .init(
-                    paneId: paneA.id,
-                    lane: .actionNeeded,
-                    semantic: .approvalRequested,
-                    sessionId: nil
-                ),
-                isRead: false,
-                isDismissedFromPaneInbox: false
-            )
-        )
-        await waitForAdapterRefresh()
-
-        #expect(derivationRecorder.derivationCount(for: paneA.id) == 1)
-        #expect(derivationRecorder.derivationCount(for: paneB.id) == 0)
-        #expect(adapter.tabs.first { $0.id == tabA.id }?.notificationDotColor == .red)
-        #expect(adapter.tabs.first { $0.id == tabB.id }?.notificationDotColor == nil)
-
-        derivationRecorder.reset()
-        inboxAtom.append(
-            InboxNotification(
-                id: UUIDv7.generate(),
-                timestamp: Date(timeIntervalSince1970: 101),
-                kind: .approvalRequested,
-                title: "Another approval requested",
-                body: nil,
-                source: .pane(.init(paneId: paneA.id)),
-                claimKey: .init(
-                    paneId: paneA.id,
-                    lane: .actionNeeded,
-                    semantic: .approvalRequested,
-                    sessionId: nil
-                ),
-                isRead: false,
-                isDismissedFromPaneInbox: false
-            )
-        )
-        await waitForAdapterRefresh()
-
-        #expect(derivationRecorder.derivationCount(for: paneA.id) == 0)
-        #expect(derivationRecorder.derivationCount(for: paneB.id) == 0)
-        #expect(adapter.tabs.first { $0.id == tabA.id }?.notificationDotColor == .red)
-    }
-
-    @Test("pane title mutation updates only its dependent cached tab item")
-    func paneTitleMutationUpdatesOnlyDependentTabItem() async throws {
-        resetFixture()
-        let paneA = store.createPane(title: "Pane A")
-        let paneB = store.createPane(title: "Pane B")
-        let tabA = Tab(paneId: paneA.id)
-        let tabB = Tab(paneId: paneB.id)
-        store.appendTab(tabA)
-        store.appendTab(tabB)
-        await waitForAdapterRefresh()
-        let tabBBeforeMutation = try #require(adapter.tabs.first { $0.id == tabB.id })
-
-        store.updatePaneTitle(paneA.id, title: "Pane A renamed")
-        await waitForAdapterRefresh()
-
-        #expect(adapter.tabs.first { $0.id == tabA.id }?.displayTitle == "Pane A renamed")
-        #expect(adapter.tabs.first { $0.id == tabB.id } == tabBBeforeMutation)
-    }
-
-    @Test("equal derived item suppresses tabs publication after pane title mutation")
-    func equalDerivedItemSuppressesTabsPublication() async {
-        resetFixture()
-        let pane = store.createPane(title: "Ephemeral")
-        store.updatePaneCWD(pane.id, cwd: URL(filePath: "/tmp/stable-folder"))
-        store.appendTab(Tab(paneId: pane.id, name: "Review Queue"))
-        await waitForAdapterRefresh()
-        let publicationCounter = observeTabsPublication()
-
-        store.updatePaneTitle(pane.id, title: "Another ephemeral title")
-        await waitForAdapterRefresh()
-
-        #expect(publicationCounter.publicationCount == 0)
-    }
-
-    @Test("removed tab invalidates its pane observation before cache removal")
-    func removedTabInvalidatesPaneObservation() async {
-        resetFixture()
-        let pane = store.createPane(title: "Retired")
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        await waitForAdapterRefresh()
-        store.removeTab(tab.id)
-        await waitForAdapterRefresh()
-        let publicationCounter = observeTabsPublication()
-
-        store.updatePaneTitle(pane.id, title: "Must not republish")
-        await waitForAdapterRefresh()
-
-        #expect(publicationCounter.publicationCount == 0)
-    }
-
-    @Test("inserted tab owns one pane observation publication")
-    func insertedTabOwnsOnePaneObservationPublication() async {
-        resetFixture()
-        let pane = store.createPane(title: "Inserted")
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        await waitForAdapterRefresh()
-        let publicationCounter = observeTabsPublication()
-
-        store.updatePaneTitle(pane.id, title: "Inserted renamed")
-        await waitForAdapterRefresh()
-
-        #expect(publicationCounter.publicationCount == 1)
     }
 
     @Test
@@ -746,6 +585,47 @@ final class TabBarAdapterTests {
         #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
     }
 
+    @Test
+    func test_enrichmentMutation_refreshesWorktreeBackedTabTitle() async throws {
+        resetFixture()
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/adapter-enrichment-refresh"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-name",
+            path: URL(filePath: "/tmp/adapter-enrichment-refresh/feature-name")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/before")
+        )
+        let pane = store.createPane(
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id, name: "Tab"))
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.displayTitle == "feature-name · feature/before")
+
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/after")
+        )
+
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.displayTitle == "feature-name · feature/after")
+    }
+
     // MARK: - Transient State
 
     @Test
@@ -814,8 +694,6 @@ final class TabBarAdapterTests {
         // Act
         adapter.availableWidth = 600
 
-        await waitForAdapterRefresh()
-
         // Assert
         #expect(adapter.tabs.count == 2)
         #expect(!(adapter.isOverflowing))
@@ -836,8 +714,6 @@ final class TabBarAdapterTests {
 
         // Act
         adapter.availableWidth = 600
-
-        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 8)
@@ -893,8 +769,6 @@ final class TabBarAdapterTests {
         // Act — set content width wider than available
         adapter.contentWidth = 700
 
-        await waitForAdapterRefresh()
-
         // Assert
         #expect(adapter.isOverflowing)
     }
@@ -917,8 +791,6 @@ final class TabBarAdapterTests {
         // Still within hysteresis buffer (600 - 50 = 550, and 570 > 550)
         adapter.contentWidth = 570
 
-        await waitForAdapterRefresh()
-
         // Assert — should remain overflowing due to hysteresis
         #expect(adapter.isOverflowing)
     }
@@ -939,8 +811,6 @@ final class TabBarAdapterTests {
 
         // Act — reduce well below hysteresis threshold (600 - 50 = 550)
         adapter.contentWidth = 500
-
-        await waitForAdapterRefresh()
 
         // Assert
         #expect(!(adapter.isOverflowing))
@@ -976,24 +846,48 @@ final class TabBarAdapterTests {
         #expect(!(adapter.isOverflowing))
     }
     private func waitForAdapterRefresh() async {
-        for _ in 0..<8 {
-            await Task.yield()
+        let expectedTabIds = store.tabs.map(\.id)
+        let previousPublicationRevision = lastObservedOutputPublicationRevision
+        let waiter = TabBarAdapterConditionWaiter {
+            self.adapter.tabs.map(\.id) == expectedTabIds
+                && self.adapter.outputPublicationRevision > previousPublicationRevision
         }
-    }
-
-    private func observeTabsPublication() -> TabBarPublicationCounter {
-        let counter = TabBarPublicationCounter()
-        withObservationTracking {
-            _ = adapter.tabs
-        } onChange: {
-            counter.record()
-        }
-        return counter
+        #expect(await waiter.wait(), "Timed out waiting for current tab bar items")
+        lastObservedOutputPublicationRevision = adapter.outputPublicationRevision
     }
 }
 
 extension Array {
     fileprivate subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+@MainActor
+final class TabBarAdapterConditionWaiter {
+    private let condition: @MainActor () -> Bool
+    private let didMeetCondition = TabBarAdapterTestSignal()
+
+    init(condition: @escaping @MainActor () -> Bool) {
+        self.condition = condition
+    }
+
+    func wait() async -> Bool {
+        observeCondition()
+        return await didMeetCondition.wait()
+    }
+
+    private func observeCondition() {
+        if condition() {
+            didMeetCondition.signal()
+            return
+        }
+        withObservationTracking {
+            _ = condition()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeCondition()
+            }
+        }
     }
 }

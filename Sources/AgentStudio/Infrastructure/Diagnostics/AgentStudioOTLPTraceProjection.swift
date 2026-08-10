@@ -145,6 +145,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.surface",
         "agentstudio.performance.sidebar.trigger",
         "agentstudio.performance.sidebar.toggle.intent",
+        "agentstudio.performance.tabbar.terminal.outcome",
         "agentstudio.performance.terminal.accumulator.drain.class",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
@@ -468,8 +469,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
         "agentstudio.performance.tabbar.affected_item.count",
+        "agentstudio.performance.tabbar.sequence",
         "agentstudio.performance.tabbar.source_tab.count",
         "agentstudio.performance.tabbar.tab.count",
+        "agentstudio.performance.trace_queue.dropped_record.count",
+        "agentstudio.performance.trace_queue.high_watermark",
         "agentstudio.performance.terminal.accumulator.equal_suppressed.count",
         "agentstudio.performance.terminal.accumulator.follow_up_drain.count",
         "agentstudio.performance.terminal.accumulator.mainactor_task.count",
@@ -690,6 +694,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.is_filtering",
         "agentstudio.performance.sidebar.was_empty",
         "agentstudio.performance.sidebar.was_collapsed",
+        "agentstudio.performance.tabbar.active_tab.present",
         "agentstudio.performance.terminal.activity_projection.submitted",
         "agentstudio.performance.terminal.surface.dedup_likely",
         "agentstudio.performance.terminal.surface.hidden",
@@ -754,19 +759,6 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
 
-    private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
-        "agentstudio.release_channel",
-        "agentstudio.runtime_flavor",
-        "agent.proof.launch",
-        "agent.proof.marker",
-        "dev.release.channel",
-        "dev.repo.hash",
-        "dev.runtime.flavor",
-        "dev.worktree.hash",
-        "dev.branch.name",
-        "service.version",
-    ]
-
     private static func safeResource(_ resource: [String: String]) -> [String: String] {
         var projected: [String: String] = [:]
         for (key, value) in resource where allowedSafeResourceKeys.contains(key) && isSafeResourceValue(value) {
@@ -830,6 +822,19 @@ package enum AgentStudioOTLPTraceProjection {
 // MARK: - Value Validation
 
 extension AgentStudioOTLPTraceProjection {
+    private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
+        "agentstudio.release_channel",
+        "agentstudio.runtime_flavor",
+        "agent.proof.launch",
+        "agent.proof.marker",
+        "dev.release.channel",
+        "dev.repo.hash",
+        "dev.runtime.flavor",
+        "dev.worktree.hash",
+        "dev.branch.name",
+        "service.version",
+    ]
+
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
     }
@@ -899,10 +904,12 @@ extension AgentStudioOTLPTraceProjection {
             return ["repo", "pane", "tab", "none", "not_applicable"].contains(value)
         case "agentstudio.performance.sidebar.trigger":
             return [
-                "grouping_switch", "surface_switch", "search", "sort_order", "visibility_mode", "collapse_toggle",
+                "grouping_switch", "surface_switch", "search", "sort_order", "collapse_toggle",
                 "data_refresh", "startup_diagnostic",
             ]
             .contains(value)
+        case "agentstudio.performance.tabbar.terminal.outcome":
+            return ["published", "equal", "superseded", "cancelled"].contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",

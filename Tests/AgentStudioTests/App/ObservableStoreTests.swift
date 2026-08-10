@@ -4,6 +4,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
 @testable import AgentStudioTestSupport
 
 /// Thread-safe flag for use in @Sendable `withObservationTracking` onChange closures.
@@ -205,7 +206,11 @@ final class ObservableStoreTests {
     @Test
     func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() async throws {
         // Arrange
-        let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
+        let adapter = TabBarAdapter(
+            store: store,
+            repoCache: RepoCacheAtom(),
+            inboxAtom: InboxNotificationAtom()
+        )
         #expect(adapter.tabs.isEmpty)
 
         let pane = store.createPane(
@@ -215,11 +220,12 @@ final class ObservableStoreTests {
 
         // Act — mutate store directly (no manual objectWillChange.send())
         store.appendTab(tab)
-
-        // Wait for async bridge (Task { @MainActor } fires on next runloop)
-        await awaitTaskBoundary()
+        let didPublishTab = await TabBarAdapterConditionWaiter {
+            adapter.tabs.first?.id == tab.id && adapter.activeTabId == tab.id
+        }.wait()
 
         // Assert — adapter derived state updated
+        #expect(didPublishTab, "Timed out waiting for TabBarAdapter projection")
         #expect(adapter.tabs.count == 1, "TabBarAdapter must auto-refresh via observation bridge")
         let firstTab = try #require(adapter.tabs.first, "Expected derived tab to exist")
         #expect(firstTab.title == "AutoRefresh")
@@ -230,7 +236,11 @@ final class ObservableStoreTests {
 
     func test_tabBarAdapter_bridgeAutoRefreshes_onDrawerChange() async {
         // Arrange
-        let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
+        let adapter = TabBarAdapter(
+            store: store,
+            repoCache: RepoCacheAtom(),
+            inboxAtom: InboxNotificationAtom()
+        )
         let pane = store.createPane(
             title: "WithDrawer"
         )
@@ -238,16 +248,23 @@ final class ObservableStoreTests {
         store.appendTab(tab)
 
         // Wait for initial sync
-        await awaitTaskBoundary()
+        let didPublishTab = await TabBarAdapterConditionWaiter {
+            adapter.tabs.first?.id == tab.id
+        }.wait()
+        #expect(didPublishTab, "Timed out waiting for initial TabBarAdapter projection")
         #expect(adapter.tabs.count == 1)
+        let generationBeforeDrawerMutation = adapter.materializedProjection(for: tab.id)?.freshness
 
         // Act — add drawer (struct-in-dictionary mutation)
         _ = store.addDrawerPane(to: pane.id)
 
         // Wait for bridge
-        await awaitTaskBoundary()
+        let didProcessDrawerMutation = await TabBarAdapterConditionWaiter {
+            adapter.materializedProjection(for: tab.id)?.freshness != generationBeforeDrawerMutation
+        }.wait()
 
         // Assert — panes mutation triggered re-derive
+        #expect(didProcessDrawerMutation, "Timed out waiting for drawer projection")
         #expect(adapter.tabs.count == 1, "Adapter should still have 1 tab after drawer change")
     }
 

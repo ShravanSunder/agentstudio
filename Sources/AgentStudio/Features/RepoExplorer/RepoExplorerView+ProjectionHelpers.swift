@@ -11,6 +11,18 @@ struct RepoExplorerProjectionRequestKey: Equatable {
 }
 
 extension RepoExplorerView {
+    static func worktreeFactsByWorktreeId(
+        for worktreeIds: [UUID],
+        repoCache: RepoCacheAtom
+    ) -> [UUID: RepoWorktreeCacheFacts] {
+        var factsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
+        factsByWorktreeId.reserveCapacity(worktreeIds.count)
+        for worktreeId in worktreeIds {
+            factsByWorktreeId[worktreeId] = repoCache.worktreeFacts(for: worktreeId)
+        }
+        return factsByWorktreeId
+    }
+
     static func projectionRequestKey(
         for request: RepoExplorerProjectionRequest
     ) -> RepoExplorerProjectionRequestKey {
@@ -49,7 +61,6 @@ extension RepoExplorerView {
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         groupingMode: RepoExplorerGroupingMode,
         sortOrder: RepoExplorerSortOrder,
-        visibilityMode: RepoExplorerVisibilityMode,
         query: String
     ) -> RepoExplorerSnapshot {
         let workspaceTab = WorkspaceTabLayoutDerived(
@@ -66,7 +77,6 @@ extension RepoExplorerView {
             repoEnrichmentByRepoId: repoEnrichmentByRepoId,
             groupingMode: groupingMode,
             sortOrder: sortOrder,
-            visibilityMode: visibilityMode,
             query: query,
             paneLocationsByWorktreeId: paneLocationsByWorktreeId,
             bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId(
@@ -168,9 +178,6 @@ extension RepoExplorerView {
         if previous.snapshot.query != next.snapshot.query {
             return .search
         }
-        if previous.snapshot.visibilityMode != next.snapshot.visibilityMode {
-            return .visibilityMode
-        }
         if previous.collapsedGroupIds != next.collapsedGroupIds {
             return .collapseToggle
         }
@@ -200,6 +207,20 @@ extension RepoExplorerView {
     }
 
     static func projectionFingerprint(for projection: SidebarProjection) -> String {
+        let sectionsFingerprint = projection.sections.enumerated().map { sectionIndex, section in
+            let resolvedGroups = section.resolvedGroups.map { group in
+                let repos = group.repos.map { repo in
+                    "\(repo.id.uuidString):\(repo.isFavorite)"
+                }.joined(separator: ",")
+                return "\(group.id):\(repos)"
+            }.joined(separator: ";")
+            let loadingRepos = section.loadingRepos.map { repo in
+                "\(repo.id.uuidString):\(repo.isFavorite)"
+            }.joined(separator: ",")
+            return "\(sectionIndex):\(section.kind.rawValue):\(resolvedGroups):\(loadingRepos)"
+        }
+        .joined(separator: "|")
+
         let resolvedGroupsFingerprint = projection.resolvedGroups.enumerated().map { groupIndex, group in
             let reposFingerprint = group.repos.map { repo in
                 let worktreesFingerprint = repo.worktrees.map { worktree in
@@ -260,7 +281,8 @@ extension RepoExplorerView {
             .joined(separator: "|")
 
         return """
-            resolved[\(resolvedGroupsFingerprint)]\
+            sections[\(sectionsFingerprint)]\
+            /resolved[\(resolvedGroupsFingerprint)]\
             /loading[\(loadingFingerprint)]\
             /rows[\(projectedRowsFingerprint)]\
             /paneRows[\(projectedPaneRowsFingerprint)]\

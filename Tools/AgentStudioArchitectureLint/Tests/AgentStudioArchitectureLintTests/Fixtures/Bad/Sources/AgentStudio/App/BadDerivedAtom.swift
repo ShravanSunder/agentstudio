@@ -1,5 +1,5 @@
-func badDerivedValue() {
-    _ = DerivedValue<Int>(
+func badDerivedAtom() {
+    _ = DerivedAtom<Int>(
         inputRevisions: { [0] },
         isContentEqual: ==,
         compute: { hiddenRepoCacheRead() }

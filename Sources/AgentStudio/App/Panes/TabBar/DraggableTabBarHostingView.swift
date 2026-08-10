@@ -12,12 +12,18 @@ import UniformTypeIdentifiers
 /// interactions (clicks, close buttons, right-clicks, hover).
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private static let paneDragHoverDwellDuration: TimeInterval = 0.1
+    private static let doubleClickActionDefaultsKey = "AppleActionOnDoubleClick"
 
     // MARK: - Properties
 
     private var hostingView: NSHostingView<CustomTabBar>!
     weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
+    /// Injection seams for window-drag handling on clicks that land outside any
+    /// tab pill. Default to the real AppKit calls; tests substitute closures.
+    var performWindowDrag: ((NSEvent) -> Void)?
+    var performWindowZoom: (() -> Void)?
+    var performWindowMiniaturize: (() -> Void)?
     /// Called when a tab is clicked (mouse down + up without drag) during management layer.
     /// The pan gesture recognizer consumes mouse events, preventing SwiftUI's
     /// onTapGesture from firing. This callback forwards the click as a selection.
@@ -55,7 +61,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         hostingView = NSHostingView(rootView: rootView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
-        hostingView.sizingOptions = [.preferredContentSize]
+        hostingView.sizingOptions = []
         hostingView.safeAreaRegions = []
         addSubview(hostingView)
 
@@ -197,6 +203,50 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // Past the last tab
         return orderedTabIds.count
+    }
+
+    // MARK: - Window Drag
+
+    /// A click that lands on a tab pill keeps existing tab selection / drag-reorder
+    /// behavior — the pill's own hit testing wins. Anything else in the strip is
+    /// empty chrome: a single click starts a native window drag, a double click
+    /// performs the user's configured system titlebar double-click action.
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        guard tabAtPoint(location) == nil else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        if event.clickCount == 2 {
+            performSystemDoubleClickAction()
+            return
+        }
+
+        if let performWindowDrag {
+            performWindowDrag(event)
+        } else {
+            window?.performDrag(with: event)
+        }
+    }
+
+    private func performSystemDoubleClickAction() {
+        switch UserDefaults.standard.string(forKey: Self.doubleClickActionDefaultsKey) {
+        case "Maximize":
+            if let performWindowZoom {
+                performWindowZoom()
+            } else {
+                window?.performZoom(nil)
+            }
+        case "Minimize":
+            if let performWindowMiniaturize {
+                performWindowMiniaturize()
+            } else {
+                window?.performMiniaturize(nil)
+            }
+        default:
+            break
+        }
     }
 
     private func clearDropTargetIndicator() {
