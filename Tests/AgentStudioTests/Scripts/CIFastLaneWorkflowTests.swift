@@ -50,6 +50,7 @@ struct CIFastLaneWorkflowTests {
 
         #expect(workflow.contains("  code-quality:\n    name: Code quality"))
         #expect(workflow.contains("  bridge-web-validation:\n    name: BridgeWeb validation"))
+        #expect(workflow.contains("  bridge-web-swift-backend:\n    name: BridgeWeb Swift backend"))
         #expect(workflow.contains("  swift-test-suite:\n    name: Swift test suite"))
         #expect(!workflow.contains("  static:"))
         #expect(!workflow.contains("  test:"))
@@ -59,7 +60,12 @@ struct CIFastLaneWorkflowTests {
     func ciCheckoutsDoNotPersistWorkflowCredentials() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
 
-        for jobName in ["code-quality", "bridge-web-validation", "swift-test-suite"] {
+        for jobName in [
+            "code-quality",
+            "bridge-web-validation",
+            "bridge-web-swift-backend",
+            "swift-test-suite",
+        ] {
             let job = try workflowJob(named: jobName, in: workflow)
             let checkoutStep = try workflowStep(named: "Checkout", in: job)
 
@@ -67,52 +73,77 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
-    @Test("BridgeWeb Swift-backend lanes run only after Swift vendor setup")
-    func bridgeWebSwiftBackendLanesRunOnlyAfterSwiftVendorSetup() throws {
+    @Test("BridgeWeb Swift-backend lanes run in their isolated job")
+    func bridgeWebSwiftBackendLanesRunInTheirIsolatedJob() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let bridgeWebJob = try workflowJob(named: "bridge-web-validation", in: workflow)
+        let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: workflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
         let bridgeWebLaneStep = try workflowStep(named: "Run BridgeWeb lanes", in: bridgeWebJob)
-        let copyXCFrameworkStep = try workflowStep(named: "Copy XCFramework", in: swiftJob)
-        let setupDevResourcesStep = try workflowStep(named: "Setup dev resources", in: swiftJob)
-        let swiftBackendLaneStep = try workflowStep(
-            named: "Test BridgeWeb Swift development backend",
-            in: swiftJob
+        let resourceParallelRange = try #require(
+            backendJob.range(of: "      - parallel:\n          - name: Copy XCFramework")
         )
-
-        let copyXCFrameworkRange = try #require(swiftJob.range(of: copyXCFrameworkStep))
-        let setupDevResourcesRange = try #require(swiftJob.range(of: setupDevResourcesStep))
-        let swiftBackendLaneRange = try #require(swiftJob.range(of: swiftBackendLaneStep))
+        let backendBuildRange = try #require(
+            backendJob.range(of: "      - name: Build BridgeWeb Swift development backend")
+        )
+        let integrationRange = try #require(
+            backendJob.range(of: "      - name: Test BridgeWeb Swift integration")
+        )
+        let e2eRange = try #require(
+            backendJob.range(of: "      - name: Test BridgeWeb Swift E2E")
+        )
 
         #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run check"))
         #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:unit"))
         #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:browser:integration"))
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:integration\n"))
         #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
-        #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:integration:node"))
-        #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
-        #expect(copyXCFrameworkRange.upperBound < swiftBackendLaneRange.lowerBound)
-        #expect(setupDevResourcesRange.upperBound < swiftBackendLaneRange.lowerBound)
+        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:integration:node:prepared"))
+        #expect(backendJob.contains("pnpm --dir BridgeWeb run test:e2e:prepared"))
+        #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:integration:node\n"))
+        #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:e2e\n"))
+        #expect(!swiftJob.contains("test:integration:node"))
+        #expect(!swiftJob.contains("test:e2e"))
+        #expect(resourceParallelRange.upperBound < backendBuildRange.lowerBound)
+        #expect(backendBuildRange.upperBound < integrationRange.lowerBound)
+        #expect(integrationRange.upperBound < e2eRange.lowerBound)
+    }
+
+    @Test("backend job restores but does not save the Swift test cache")
+    func backendJobRestoresButDoesNotSaveSwiftTestCache() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: workflow)
+        let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
+
+        #expect(backendJob.contains("Restore backend Swift cache seed"))
+        #expect(backendJob.contains("actions/cache/restore@v4"))
+        #expect(backendJob.contains("path: .build-ci"))
+        #expect(backendJob.contains("swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"))
+        #expect(!backendJob.contains("actions/cache/save@v4"))
+        #expect(!backendJob.contains("Save Swift build cache"))
+        #expect(swiftJob.contains("Save Swift build cache"))
+        #expect(swiftJob.contains("actions/cache/save@v4"))
     }
 
     @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
     func swiftBuildCacheIsContentAddressedAndSkipsExactHitPrebuilds() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let swiftJob = try workflowJob(named: "swift-test-suite", in: ciWorkflow)
         let fingerprintStep = try workflowStep(
             named: "Compute Swift build input fingerprint",
-            in: ciWorkflow
+            in: swiftJob
         )
-        let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: ciWorkflow)
-        let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: ciWorkflow)
-        let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: ciWorkflow)
+        let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: swiftJob)
+        let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: swiftJob)
+        let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: swiftJob)
 
-        let fingerprintStepRange = try #require(ciWorkflow.range(of: fingerprintStep))
-        let restoreCacheStepRange = try #require(ciWorkflow.range(of: restoreCacheStep))
+        let fingerprintStepRange = try #require(swiftJob.range(of: fingerprintStep))
+        let restoreCacheStepRange = try #require(swiftJob.range(of: restoreCacheStep))
         let bridgeBuildStepRange = try #require(
-            ciWorkflow.range(of: "          - name: BridgeWeb packaged build")
+            swiftJob.range(of: "          - name: BridgeWeb packaged build")
         )
         let resourceSetupStepRange = try #require(
-            ciWorkflow.range(of: "      - name: Setup dev resources")
+            swiftJob.range(of: "      - name: Setup dev resources")
         )
 
         #expect(fingerprintStep.contains("id: swift-build-inputs"))
@@ -156,20 +187,23 @@ struct CIFastLaneWorkflowTests {
     @Test("Swift preparation preserves independent parallel phases")
     func swiftPreparationPreservesIndependentParallelPhases() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let swiftJob = try workflowJob(named: "swift-test-suite", in: ciWorkflow)
         let restoreParallelBlock = try namedBlock(
             startingWith: "      - parallel:\n",
             endingBefore: "\n      - parallel:\n",
-            in: ciWorkflow
+            in: swiftJob
         )
         let buildParallelBlock = try namedBlock(
             startingWith: "      - parallel:\n          - name: BridgeWeb packaged build\n",
-            endingBefore: "\n      - name: Copy XCFramework",
-            in: ciWorkflow
+            endingBefore: "\n      - parallel:\n          - name: Copy XCFramework",
+            in: swiftJob
         )
 
-        let restoreParallelRange = try #require(ciWorkflow.range(of: restoreParallelBlock))
-        let buildParallelRange = try #require(ciWorkflow.range(of: buildParallelBlock))
-        let copyResourcesRange = try #require(ciWorkflow.range(of: "      - name: Copy XCFramework"))
+        let restoreParallelRange = try #require(swiftJob.range(of: restoreParallelBlock))
+        let buildParallelRange = try #require(swiftJob.range(of: buildParallelBlock))
+        let copyResourcesRange = try #require(
+            swiftJob.range(of: "      - parallel:\n          - name: Copy XCFramework")
+        )
 
         #expect(restoreParallelRange.lowerBound < buildParallelRange.lowerBound)
         #expect(buildParallelRange.upperBound < copyResourcesRange.lowerBound)
