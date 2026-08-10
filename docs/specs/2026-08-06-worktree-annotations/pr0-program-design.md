@@ -12,9 +12,10 @@ PR1 consumes the origin contract added here to implement them. The design
 keeps three kinds of state separate:
 
 ```text
-┌─ Persisted pane intent ──────────────────────────────────────────┐
-│ active comparison kind + last selected full-worktree target     │
-│ lifetime: survives workspace restore                            │
+┌─ Selected target intent ─────────────────────────────────────────┐
+│ durable pane: BridgePaneState in core.sqlite                    │
+│ Zoom companion: BridgePaneState in its retained controller      │
+│ lifetime: pane restore, or retained Zoom companion lifetime      │
 └──────────────────────────────────────────────────────────────────┘
 
 ┌─ Transient comparison attempt ──────────────────────────────────┐
@@ -30,7 +31,8 @@ keeps three kinds of state separate:
 
 The smallest sufficient structure is:
 
-1. persist comparison intent in the existing Bridge pane payload;
+1. keep comparison intent in the existing Bridge pane state, persisted when
+   that pane belongs to the durable workspace graph;
 2. add one bounded Review-target catalog read and one correlated contribution
    read to `agentstudio-git`;
 3. carry captured comparison origin in the existing Review package and
@@ -154,7 +156,8 @@ Agent Studio App
 ├─ WorkspaceSurfaceCoordinator                     App composition owner
 │    owns: Review-capable pane construction and Core mutation injection
 │    adds: selection-required initial intent, injected commit callback,
-│          and repository-wide Git invalidation routing
+│          controller-lifetime Zoom callback, and repository-wide Git
+│          invalidation routing
 │    changes when: App-level pane/runtime composition changes
 │
 ├─ BridgePaneController                            active runtime coordinator
@@ -222,18 +225,22 @@ Agent Studio App
 
 Dependency rules:
 
-- BridgeWeb requests changes; it never becomes the durable comparison owner.
-- `BridgePaneController` may mirror only an App-committed pane intent. It must
-  not maintain a second independently writable target.
+- BridgeWeb requests changes; it never becomes the comparison owner.
+- For a durable pane, `BridgePaneController` may mirror only an App-committed
+  pane intent. It must not maintain a second independently writable target.
+  A Zoom companion has no durable pane-graph member, so its retained controller
+  owns that companion's target for the same lifetime as the companion.
 - `BridgePaneProductCommittedCallTarget` forwards a committed call; it does not
   validate targets, write pane state, or own refresh policy.
 - `BridgePaneRefreshAdmissionCoordinator` orders the combined presentation;
   it does not decide comparison meaning or persist intent.
-- `WorkspaceSurfaceCoordinator` and the focused development host write through
-  `WorkspacePaneAtom`, which forwards to canonical `WorkspacePaneGraphAtom`;
-  neither Bridge runtime may bypass that path to claim persistence. The
-  initial-default write evaluates target absence inside the pane-graph mutation;
-  a controller-side check followed by an unconditional callback is forbidden.
+- For durable panes, `WorkspaceSurfaceCoordinator` and the focused development
+  host write through `WorkspacePaneAtom`, which forwards to canonical
+  `WorkspacePaneGraphAtom`; neither Bridge runtime may bypass that path to
+  claim persistence. The initial-default write evaluates target absence inside
+  the pane-graph mutation; a controller-side check followed by an unconditional
+  durable write is forbidden. Zoom supplies an explicit transient callback
+  instead of treating a missing pane-graph member as a persistence failure.
 - dedicated Review, ordinary File View, and Zoom-companion creation all start
   with no fabricated target. No pane creator may write a literal `main`, the
   main worktree's current checkout, or automatic `HEAD` into durable comparison
@@ -287,25 +294,32 @@ Review-package-load trigger used for every foreground workspace-backed Bridge
 pane, `BridgePaneController` asks its existing Git provider for the repository's
 designated remote-tracking default. This includes File View panes because their webview can
 switch to Review and the current controller deliberately prepares Review before
-that switch. If one is identified, the controller asks App/Core to conditionally
-commit its `origin/<branch>` target. If no designation or matching
+that switch. If one is identified, a durable pane asks App/Core to conditionally
+commit its `origin/<branch>` target; a Zoom companion adopts it in its retained
+controller state. If no designation or matching
 remote-tracking branch exists, the intent remains selection-required. PR0 adds
 no separate Review-surface-activation hook.
 
 The initial lookup is asynchronous and carries the controller's current intent
 generation. Before requesting its write, the controller requires that the pane
-still exists and the lookup generation is current. The App/Core callback then
-atomically writes only if contribution target intent is still absent and returns
-the canonical intent or an explicit not-applied disposition. A reviewer
-selection, restore with a retained target, pane retirement, or a newer lookup
-makes the result ineligible without a check-then-write race. This reuses the
+admission and lookup generation are current. For a durable pane, the App/Core
+callback atomically writes only if contribution target intent is still absent
+and returns the canonical intent or an explicit not-applied disposition. For a
+Zoom companion, the injected callback returns canonical controller-local state;
+the same controller admission prevents a retired companion from accepting it.
+A reviewer selection, restore with a retained durable target, pane or companion
+retirement, or a newer lookup makes the result ineligible. This reuses the
 controller's existing task/admission lifetime and the existing Bridge Git-read
 scheduler; PR0 adds no App task registry, default-branch cache, watcher, or
 background service.
 
-This is durable product intent because restore behavior depends on it. Menu
-open/closed state, highlighted control options, draft text, focus, and
-temporary selection are BridgeWeb-local UI state and are not persisted.
+For a stored File or Review pane this is durable product intent because restore
+behavior depends on it. A Zoom companion is intentionally absent from the
+durable pane graph: its selected target survives hide and re-entry while the
+companion controller is retained, then disappears when that companion is
+retired. Menu open/closed state, highlighted control options, draft text,
+focus, and temporary selection are BridgeWeb-local UI state and are not
+persisted.
 
 The selected target is the only Git selection persisted with the pane: branch
 and ref variants retain symbolic names, while the commit variant retains its
@@ -316,10 +330,11 @@ plane uses an internal cache, that cache is a disposable calculation
 optimization, not pane authority or snapshot evidence; PR0 adds no Git-result
 cache.
 
-The intent stays inside the existing `BridgePaneState` payload stored by the
-workspace Core repository. PR0 adds a typed `updateBridgePaneState` mutation to
-`WorkspacePaneGraphAtom` and exposes it through `WorkspacePaneAtom`; it adds no
-SQL table or migration.
+The intent stays inside the existing `BridgePaneState`: the workspace Core
+repository stores it for durable panes, while the retained Zoom controller
+holds the same state shape without joining the pane graph. PR0 adds a typed
+`updateBridgePaneState` mutation to `WorkspacePaneGraphAtom` and exposes it
+through `WorkspacePaneAtom`; it adds no SQL table or migration.
 
 The comparison intent belongs to the shared Bridge pane source because a File
 View pane can enter its Review surface. File View continues to browse and
@@ -589,11 +604,12 @@ PROPOSED CONTRIBUTION PATH
   → [=] BridgePaneProductSchemeProvider.applyCommittedControlEffect
   → [+] BridgePaneProductCommittedCallTarget
   → [+] BridgePaneController committed-call handler
-  → [+] injected WorkspaceSurfaceCoordinator commit callback
-  → [+] WorkspacePaneAtom.updateBridgePaneState
-      → WorkspacePaneGraphAtom.updateBridgePaneState
-  ← canonical committed pane intent or pane/admission error
-  → [+] controller adopts only the canonical committed intent
+  → [+] injected WorkspaceSurfaceCoordinator callback
+      ├─ durable pane → WorkspacePaneAtom.updateBridgePaneState
+      │                  → WorkspacePaneGraphAtom.updateBridgePaneState
+      └─ Zoom companion → canonical controller-lifetime BridgePaneState
+  ← canonical pane intent or pane/admission error
+  → [+] controller adopts only the returned canonical intent
   ← [=] product-call dispatcher returns after the committed handler completes
 
 [~] BridgePaneController begins a new contribution generation
@@ -646,10 +662,12 @@ intent. A successful return only acknowledges that the exact validated request
 completed the committed native effect; the pane graph remains authoritative
 and the existing pane-presentation stream publishes the canonical active
 intent.
-The App callback returns the resulting canonical intent to the controller. The
-controller adopts and refreshes only for `applied` or exact `unchanged`; if the
-pane no longer exists, it retires the pane admission so the dispatcher cannot
-return a successful acknowledgement for an unapplied intent.
+The injected callback returns the resulting canonical intent to the controller.
+For a durable pane it commits through App/Core; for a Zoom companion it returns
+controller-lifetime state without consulting the durable pane graph. The
+controller adopts and refreshes only for `applied` or exact `unchanged`; closed
+pane or companion admission prevents a successful acknowledgement for an
+ineligible intent.
 
 The target catalog is transient worker/UI data. The native controller reads it
 during the existing initial Review-package load, retains it in the existing
@@ -1152,10 +1170,12 @@ On restore:
   in the affected repository and is coalesced per pane.
 - Accessibility: the owned menu primitive provides keyboard operation, focus,
   accessible name/current value, and existing Review header visual scale.
-- Data lifecycle: only selected-target intent joins durable pane content.
-  Branches/refs persist symbolically and commits persist as pinned OIDs.
-  Resolved branch OIDs and file content identities live in immutable runtime
-  snapshots; PR0 adds no historical retention.
+- Data lifecycle: selected-target intent joins durable pane content only for
+  stored File and Review panes. Branches/refs persist symbolically and commits
+  persist as pinned OIDs. A Zoom companion retains the same intent only in its
+  controller and loses it when the companion is retired. Resolved branch OIDs
+  and file content identities live in immutable runtime snapshots; PR0 adds no
+  historical retention.
 - Security/privacy: all reads remain local and use existing repo/worktree
   authority. There is no new actor, network transport, secret, privilege, or
   externally callable IPC surface.
@@ -1174,8 +1194,9 @@ P0-R1  agentstudio-git designation read + controller guard + pane intent
        + Review control
        contract: every Review-capable pane creator starts without a fabricated
                  target; the existing initial Review-package-load trigger
-                 conditionally commits the remote-tracking branch designated by
-                 refs/remotes/origin/HEAD; absent or late results remain
+                 adopts the remote-tracking branch designated by
+                 refs/remotes/origin/HEAD; durable panes commit it through Core,
+                 while Zoom retains it for the companion lifetime; absent or late results remain
                  selection-required; none uses another worktree's checkout,
                  literal main, or HEAD
        proof: designated master while the canonical main worktree is on a hotfix;
@@ -1185,7 +1206,8 @@ P0-R1  agentstudio-git designation read + controller guard + pane intent
               wins a late default result; dedicated Review, File View→Review,
               and Zoom-companion initial Review-package loads
 
-P0-R2  pane facade/graph + committed-call target + controller
+P0-R2  pane facade/graph for durable panes + controller-lifetime Zoom target
+       + committed-call target + controller
        + target catalog in pane presentation + Branch/Commit Review control
        + existing pane metadata → package subject-label projection
        contract: commit before acknowledgement; header names subject and target;

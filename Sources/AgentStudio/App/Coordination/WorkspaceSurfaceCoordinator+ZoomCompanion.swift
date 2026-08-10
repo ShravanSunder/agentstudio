@@ -217,7 +217,7 @@ extension WorkspaceSurfaceCoordinator {
         )
 
         viewRegistry.ensureSlot(for: companionPaneId)
-        _ = createBridgePaneView(for: companionPane, state: companionState)
+        _ = createZoomCompanionBridgePaneView(for: companionPane, state: companionState)
         guard viewerSurfaceRequest(continuity.surface, companionPaneId) else {
             teardownView(for: companionPaneId)
             retireBridgePaneActivityAuthority(for: companionPaneId)
@@ -246,6 +246,34 @@ extension WorkspaceSurfaceCoordinator {
         case .visible:
             return .retainedVisible(companionPaneId: companionPaneId)
         }
+    }
+
+    private func createZoomCompanionBridgePaneView(
+        for companionPane: Pane,
+        state companionState: BridgePaneState
+    ) -> BridgePaneMountView {
+        let transientContributionTargetCommit:
+            @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult =
+                { target in
+                    guard case .workspace(let rootPath, _) = companionState.source else {
+                        return .notWorkspaceSource
+                    }
+                    return .applied(
+                        BridgePaneState(
+                            panelKind: companionState.panelKind,
+                            source: .workspace(
+                                rootPath: rootPath,
+                                baseline: WorkspaceBaseline(contributionTarget: target)
+                            )
+                        )
+                    )
+                }
+        return createBridgePaneView(
+            for: companionPane,
+            state: companionState,
+            initialContributionTargetCommit: transientContributionTargetCommit,
+            contributionTargetCommit: transientContributionTargetCommit
+        )
     }
 
     private func retainedZoomCompanionPresentation(

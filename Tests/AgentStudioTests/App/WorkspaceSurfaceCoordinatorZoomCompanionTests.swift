@@ -98,6 +98,62 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
+        @Test("Zoom companion retains its selected comparison while hidden")
+        func zoomCompanionRetainsSelectedComparisonWhileHidden() async throws {
+            // Arrange
+            let harness = makeZoomCompanionHarness()
+            defer { try? FileManager.default.removeItem(at: harness.root) }
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: sourceTab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .retryable
+            )
+            let presentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+            let companionPaneId = try #require(presentation.companionPaneId)
+            let mountedView = try #require(harness.viewRegistry.allBridgeViews[companionPaneId])
+            let productAdmission = try #require(
+                mountedView.controller.productAdmissionGate.acquire()
+            )
+            let selectedTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
+
+            // Act
+            let didApplyTarget = await mountedView.controller
+                .handleCommittedProductReviewComparisonUpdate(
+                    BridgeProductReviewComparisonUpdateRequest(target: selectedTarget),
+                    productAdmission: productAdmission
+                )
+            #expect(
+                harness.store.panePresentationAtom.setZoomViewerVisible(
+                    false,
+                    forSourcePane: sourcePane.id
+                )
+            )
+            let hiddenPresentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+
+            // Assert
+            #expect(didApplyTarget)
+            #expect(hiddenPresentation == .retainedHidden(companionPaneId: companionPaneId))
+            #expect(
+                mountedView.controller.bridgePaneState.source
+                    == .workspace(
+                        rootPath: harness.worktree.path.path,
+                        baseline: WorkspaceBaseline(contributionTarget: selectedTarget)
+                    )
+            )
+            #expect(harness.store.pane(companionPaneId) == nil)
+
+            await harness.coordinator.shutdown()
+        }
+
         @Test("Zoom companion ignores cached checkout and starts without a comparison target")
         func zoomCompanionStartsWithoutTargetWhenCheckoutIsCached() async throws {
             let harness = makeZoomCompanionHarness()
