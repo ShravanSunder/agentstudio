@@ -136,6 +136,43 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 			.toHaveAttribute('aria-pressed', 'true');
 		await expect.element(rendered.getByRole('textbox', { name: 'Commit hash' })).toHaveFocus();
 	});
+
+	test('focuses the active text field when the comparison target kind changes', async () => {
+		// Arrange
+		const rendered = await renderComparisonTargetPicker();
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Commit' }).click();
+		});
+
+		// Assert
+		await expect.element(rendered.getByRole('textbox', { name: 'Commit hash' })).toHaveFocus();
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Branch' }).click();
+		});
+
+		// Assert
+		await expect.element(rendered.getByRole('combobox', { name: 'Search branches' })).toHaveFocus();
+	});
+
+	test('uses the neutral themed action for an explicit commit comparison', async () => {
+		// Arrange
+		const rendered = await renderComparisonTargetPicker();
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+			await rendered.getByRole('button', { name: 'Commit' }).click();
+		});
+
+		// Assert
+		const compareButton = rendered.getByRole('button', { name: 'Compare to this commit' });
+		expect(getComputedStyle(compareButton.element()).backgroundColor).toBe('rgb(49, 50, 68)');
+	});
 });
 
 async function renderComparisonTargetPicker(): ReturnType<typeof render> {

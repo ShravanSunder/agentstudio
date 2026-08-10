@@ -1,5 +1,13 @@
 import { ChevronDownIcon } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactElement } from 'react';
+import {
+	useEffect,
+	useId,
+	useLayoutEffect,
+	useRef,
+	useState,
+	type FormEvent,
+	type ReactElement,
+} from 'react';
 
 import { Button } from '../components/ui/button.js';
 import { Input } from '../components/ui/input.js';
@@ -54,6 +62,12 @@ export function BridgeReviewComparisonControl(
 			setOpen(false);
 		}
 	}, [isActive]);
+	useLayoutEffect((): void => {
+		if (!open) return;
+		const activeInput =
+			selectionMode === 'branch' ? branchSearchInputRef.current : commitInputRef.current;
+		activeInput?.focus();
+	}, [open, selectionMode]);
 	const label = closedComparisonLabel(props);
 	const narrowComparisonLabel = narrowComparisonLabelForPackage(props.displayedReviewPackage);
 	const activeTarget = props.comparisonPresentation?.activeTarget ?? null;
@@ -197,7 +211,7 @@ export function BridgeReviewComparisonControl(
 								</p>
 							)}
 						</div>
-						<Button className="self-end" size="sm" type="submit">
+						<Button className="self-end" size="sm" type="submit" variant="secondary">
 							Compare to this commit
 						</Button>
 					</form>
