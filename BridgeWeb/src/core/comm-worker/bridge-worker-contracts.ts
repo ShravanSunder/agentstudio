@@ -18,10 +18,7 @@ import {
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
 } from './bridge-product-review-primitives.js';
-import {
-	bridgeProductNavigationCommandSchema,
-	bridgeProductReviewComparisonPresentationSchema,
-} from './bridge-product-session-contracts.js';
+import { bridgeProductNavigationCommandSchema } from './bridge-product-session-contracts.js';
 import {
 	bridgeProductFileTruncationKindSchema,
 	bridgeProductFileVirtualizedExtentKindSchema,
@@ -31,6 +28,7 @@ import {
 	bridgeWorkerFileDisplayPatchSchema,
 } from './bridge-worker-file-display-patch-contracts.js';
 import { bridgeWorkerFileQuerySchema } from './bridge-worker-file-query-contracts.js';
+import { bridgeWorkerPanelChromePatchSchema } from './bridge-worker-panel-chrome-contracts.js';
 import {
 	bridgeWorkerDemandRankSchema,
 	bridgeWorkerPierreRenderBudgetSchema,
@@ -60,6 +58,7 @@ export type {
 	BridgeWorkerReviewDisplayPatch,
 	BridgeWorkerReviewSourceDisplayPayload,
 } from './bridge-worker-review-display-patch-contracts.js';
+export type { BridgeWorkerPanelChromePatchPayload } from './bridge-worker-panel-chrome-contracts.js';
 
 const bridgeWorkerRequestIdSchema = z.string().min(1);
 const bridgeWorkerEpochSchema = z.number().int().nonnegative();
@@ -441,14 +440,6 @@ export const bridgeCommWorkerBootstrapRequestSchema = z
 	})
 	.strict();
 
-export const bridgeWorkerPanelChromePatchPayloadSchema = z
-	.object({
-		isLoading: z.boolean().optional(),
-		message: z.string().min(1).nullable().optional(),
-		reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable().optional(),
-	})
-	.strict();
-
 const bridgeWorkerSelectionPatchSchema = z.discriminatedUnion('operation', [
 	z
 		.object({
@@ -541,28 +532,6 @@ const bridgeWorkerContentAvailabilityPatchSchema = z.discriminatedUnion('operati
 		.strict(),
 ]);
 
-const bridgeWorkerPanelChromePatchSchema = z.discriminatedUnion('operation', [
-	z
-		.object({
-			slice: z.literal('panelChrome'),
-			operation: z.literal('upsert'),
-			payload: bridgeWorkerPanelChromePatchPayloadSchema,
-		})
-		.strict(),
-	z
-		.object({
-			slice: z.literal('panelChrome'),
-			operation: z.literal('reset'),
-		})
-		.strict(),
-	z
-		.object({
-			slice: z.literal('panelChrome'),
-			operation: z.literal('delete'),
-		})
-		.strict(),
-]);
-
 export const bridgeWorkerSlicePatchSchema = z.discriminatedUnion('slice', [
 	bridgeWorkerSelectionPatchSchema,
 	bridgeWorkerViewportPatchSchema,
@@ -606,9 +575,6 @@ export function isBridgeWorkerFileViewContentMetadata(
 }
 export type BridgeCommWorkerBootstrapRequest = z.infer<
 	typeof bridgeCommWorkerBootstrapRequestSchema
->;
-export type BridgeWorkerPanelChromePatchPayload = z.infer<
-	typeof bridgeWorkerPanelChromePatchPayloadSchema
 >;
 export type BridgeWorkerSlicePatch = z.infer<typeof bridgeWorkerSlicePatchSchema>;
 export type BridgeWorkerSurfacePublicationEnvelope<
