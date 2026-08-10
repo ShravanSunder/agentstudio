@@ -172,6 +172,10 @@ final class BridgePaneRefreshAdmissionCoordinator {
         presentationRevision += 1
     }
 
+    func isReviewComparisonAttemptPending(reviewGeneration: Int) -> Bool {
+        reviewComparison?.attempt == .pending(reviewGeneration: reviewGeneration)
+    }
+
     func settleReviewComparisonAttempt(
         reviewGeneration: Int,
         displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity

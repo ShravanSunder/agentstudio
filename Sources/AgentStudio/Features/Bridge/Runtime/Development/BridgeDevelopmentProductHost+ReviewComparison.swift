@@ -39,8 +39,9 @@ extension BridgeDevelopmentProductHost {
         paneState = canonicalState
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
-        activeReviewComparisonTask?.cancel()
+        let supersededReviewComparisonTask = activeReviewComparisonTask
         await MainActor.run {
+            supersededReviewComparisonTask?.cancel()
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
                 activeTarget: request.target,
                 reviewGeneration: reviewGeneration.rawValue
@@ -144,6 +145,17 @@ extension BridgeDevelopmentProductHost {
         }
         let committedPublication = await MainActor.run {
             () -> BridgeReviewCommittedPublication? in
+            guard
+                refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
+                    reviewGeneration: preparedPublication.package.reviewGeneration.rawValue
+                )
+            else {
+                _ = reviewPublicationCoordinator.rejectReservation(
+                    stagedToken,
+                    productAdmission: productAdmission
+                )
+                return nil
+            }
             guard
                 case .committed(let publication) = reviewPublicationCoordinator.commit(
                     stagedToken,

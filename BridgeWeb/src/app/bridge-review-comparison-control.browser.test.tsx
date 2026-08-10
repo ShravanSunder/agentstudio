@@ -9,6 +9,19 @@ import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-rev
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 
+const narrowComparisonScenarios = [
+	{
+		description: 'Shows changes added to the staging area.',
+		label: 'Staged only',
+		reviewPackage: stagedOnlyPackage(),
+	},
+	{
+		description: 'Shows tracked working tree changes that have not been staged.',
+		label: 'Unstaged only',
+		reviewPackage: unstagedOnlyPackage(),
+	},
+] as const;
+
 describe('BridgeReviewComparisonControl Browser Mode', () => {
 	test('shows exact current target and shared-start facts without Git implementation vocabulary', async () => {
 		// Arrange
@@ -217,63 +230,58 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(activeTarget);
 	});
 
-	test.each([
-		{ label: 'Staged only', reviewPackage: stagedOnlyPackage() },
-		{ label: 'Unstaged only', reviewPackage: unstagedOnlyPackage() },
-	])('hides the retained contribution target for $label comparisons', async (scenario) => {
-		// Arrange
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={comparisonPresentation({
-					displayedSnapshot: {
-						packageId: scenario.reviewPackage.packageId,
-						reviewGeneration: scenario.reviewPackage.reviewGeneration,
-						revision: scenario.reviewPackage.revision,
-						status: 'current',
-					},
-				})}
-				displayedReviewPackage={scenario.reviewPackage}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
+	test.each(narrowComparisonScenarios)(
+		'hides the retained contribution target for $label comparisons',
+		async (scenario) => {
+			// Arrange
+			const rendered = await render(
+				<BridgeReviewComparisonControl
+					comparisonPresentation={comparisonPresentation({
+						displayedSnapshot: {
+							packageId: scenario.reviewPackage.packageId,
+							reviewGeneration: scenario.reviewPackage.reviewGeneration,
+							revision: scenario.reviewPackage.revision,
+							status: 'current',
+						},
+					})}
+					displayedReviewPackage={scenario.reviewPackage}
+					onApplyTarget={vi.fn()}
+				/>,
+			);
 
-		// Assert
-		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
-		await expect.element(trigger).toHaveTextContent(scenario.label);
-		expect(trigger.element().textContent).not.toContain('master');
-	});
+			// Assert
+			const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
+			await expect.element(trigger).toHaveTextContent(scenario.label);
+			expect(trigger.element().textContent).not.toContain('master');
+		},
+	);
 
-	test('does not expose the retained contribution target through narrow-mode accessibility or input', async () => {
-		// Arrange
-		const reviewPackage = stagedOnlyPackage();
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(reviewPackage)}
-				displayedReviewPackage={reviewPackage}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
-		const descriptionId = trigger.element().getAttribute('aria-describedby');
+	test.each(narrowComparisonScenarios)(
+		'does not offer a selectable target for a $label narrow comparison',
+		async (scenario) => {
+			// Arrange
+			const rendered = await render(
+				<BridgeReviewComparisonControl
+					comparisonPresentation={currentPresentationForPackage(scenario.reviewPackage)}
+					displayedReviewPackage={scenario.reviewPackage}
+					onApplyTarget={vi.fn()}
+				/>,
+			);
+			const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
+			const descriptionId = trigger.element().getAttribute('aria-describedby');
 
-		// Assert
-		expect(descriptionId).not.toBeNull();
-		expect(document.getElementById(descriptionId ?? '')?.textContent).toBe(
-			'Shows changes added to the staging area.',
-		);
+			// Assert
+			expect(trigger.element().textContent).toContain(scenario.label);
+			expect(descriptionId).not.toBeNull();
+			expect(document.getElementById(descriptionId ?? '')?.textContent).toBe(scenario.description);
 
-		// Act
-		await act(async (): Promise<void> => {
-			await trigger.click();
-		});
-
-		// Assert
-		const content = rendered.getByTestId('bridge-review-comparison-content');
-		expect(content.element().textContent).not.toContain('master');
-		await expect
-			.element(rendered.getByRole('combobox', { name: 'Search branches' }))
-			.toHaveValue('');
-	});
+			// Assert
+			expect(trigger.element().getAttribute('aria-haspopup')).toBeNull();
+			expect(document.querySelector('[data-testid="bridge-review-comparison-content"]')).toBeNull();
+			expect(document.querySelector('[role="combobox"]')).toBeNull();
+			expect(document.querySelector('[role="button"][aria-label="Commit"]')).toBeNull();
+		},
+	);
 
 	test('shows searchable default, local, and remote-tracking branch choices', async () => {
 		// Arrange

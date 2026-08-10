@@ -84,6 +84,23 @@ export function BridgeReviewComparisonControl(
 	if (!isActive) {
 		return null;
 	}
+	if (narrowComparisonLabel !== null) {
+		return (
+			<span
+				aria-describedby={descriptionId}
+				className={cn(
+					bridgeViewerChromeButtonClassName,
+					'inline-flex max-w-56 items-center border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)] px-2 text-[var(--bridge-text-secondary)]',
+				)}
+				data-testid="bridge-review-comparison-trigger"
+			>
+				<span className="truncate">{label}</span>
+				<span className="sr-only" id={descriptionId}>
+					{sharedHistoryDescription}
+				</span>
+			</span>
+		);
+	}
 	return (
 		<Popover
 			onOpenChange={(nextOpen): void => {

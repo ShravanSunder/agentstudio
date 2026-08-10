@@ -7,6 +7,30 @@ import Testing
 @Suite("Bridge pane refresh admission coordinator")
 @MainActor
 struct BridgePaneRefreshAdmissionCoordinatorTests {
+    @Test("only the pending comparison attempt is current for publication")
+    func onlyPendingComparisonAttemptIsCurrentForPublication() {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+
+        // Act
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/first"),
+            reviewGeneration: 8
+        )
+        let firstAttemptWasPending = coordinator.isReviewComparisonAttemptPending(
+            reviewGeneration: 8
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/second"),
+            reviewGeneration: 9
+        )
+
+        // Assert
+        #expect(firstAttemptWasPending)
+        #expect(!coordinator.isReviewComparisonAttemptPending(reviewGeneration: 8))
+        #expect(coordinator.isReviewComparisonAttemptPending(reviewGeneration: 9))
+    }
+
     @Test("successor comparison keeps the displayed predecessor stale until settlement")
     func successorComparisonKeepsDisplayedPredecessorStaleUntilSettlement() throws {
         // Arrange

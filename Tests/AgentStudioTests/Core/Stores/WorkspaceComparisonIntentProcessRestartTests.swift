@@ -7,7 +7,15 @@ import Testing
 @testable import AgentStudioCore
 
 @MainActor
-@Suite("Workspace comparison-intent process restart", .serialized)
+@Suite(
+    "Workspace comparison-intent process restart",
+    .serialized,
+    .enabled(
+        if: ProcessInfo.processInfo.environment["AGENTSTUDIO_COMPARISON_INTENT_RESTART_ROOT"]
+            != nil,
+        "Run through scripts/verify-workspace-comparison-intent-restart.sh"
+    )
+)
 struct WorkspaceComparisonIntentProcessRestartTests {
     @Test("process A commits and flushes one symbolic comparison target")
     func workspaceComparisonIntentRestartProcessACommits() async throws {
