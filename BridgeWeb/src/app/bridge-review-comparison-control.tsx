@@ -132,16 +132,17 @@ export function BridgeReviewComparisonControl(
 				{sharedHistoryDescription}
 			</span>
 			<PopoverContent
+				aria-describedby={descriptionId}
 				align="end"
-				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-96 gap-3')}
+				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-96 gap-2.5')}
 				data-testid="bridge-review-comparison-content"
 				initialFocus={(): HTMLElement | null =>
 					selectionMode === 'branch' ? branchSearchInputRef.current : commitInputRef.current
 				}
 				sideOffset={6}
 			>
-				<header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-1 pt-0.5">
-					<PopoverTitle className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
+				<header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1 pt-0.5">
+					<PopoverTitle className="text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-primary)]">
 						Compare Worktree
 					</PopoverTitle>
 					<ToggleGroup aria-label="Comparison target kind" role="group" size="sm">
@@ -164,9 +165,6 @@ export function BridgeReviewComparisonControl(
 							Commit
 						</ToggleGroupItem>
 					</ToggleGroup>
-					<p className="col-span-2 text-[11px] text-[var(--bridge-text-muted)]">
-						{sharedHistoryDescription}
-					</p>
 				</header>
 				{selectionMode === 'branch' ? (
 					<BridgeReviewComparisonBranchSelector
@@ -236,30 +234,29 @@ export function BridgeReviewComparisonControl(
 					</section>
 				)}
 				{displayedContribution === null ? null : (
-					<section aria-label={displayedContribution.heading}>
-						<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
-							{displayedContribution.heading}
+					<section aria-label={displayedContribution.heading} className="space-y-0.5">
+						{displayedContribution.heading === 'Previous comparison' ? (
+							<p className="text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
+								Previous comparison
+							</p>
+						) : null}
+						<p className="flex min-w-0 items-baseline gap-1 text-[11px]">
+							<span className="truncate text-[var(--bridge-text-secondary)]">
+								{comparisonTargetLabel(displayedContribution.origin.symbolicTarget)} @
+							</span>
+							<ComparisonRevision
+								testId="bridge-review-comparison-target-revision"
+								value={displayedContribution.origin.resolvedTargetOID}
+							/>
 						</p>
-						<dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
-							<dt className="text-[var(--bridge-text-muted)]">Target</dt>
-							<dd>
-								<span className="mr-1 text-[var(--bridge-text-secondary)]">
-									{comparisonTargetLabel(displayedContribution.origin.symbolicTarget)} @
-								</span>
-								<ComparisonRevision
-									testId="bridge-review-comparison-target-revision"
-									value={displayedContribution.origin.resolvedTargetOID}
-								/>
-							</dd>
-							<dt className="text-[var(--bridge-text-muted)]">Review starts from</dt>
-							<dd>
-								<ComparisonRevision
-									testId="bridge-review-comparison-shared-start-revision"
-									value={displayedContribution.origin.contributionBaseOID}
-								/>
-							</dd>
-						</dl>
-						<p className="mt-1 text-[11px] text-[var(--bridge-text-muted)]">
+						<p className="text-[11px] text-[var(--bridge-text-muted)]">
+							<span className="mr-1">Review starts from</span>
+							<ComparisonRevision
+								testId="bridge-review-comparison-shared-start-revision"
+								value={displayedContribution.origin.contributionBaseOID}
+							/>
+						</p>
+						<p className="text-[11px] text-[var(--bridge-text-muted)]">
 							{sharedStartRelationshipDescription(
 								displayedContribution.origin.symbolicTarget,
 								targetCatalog,

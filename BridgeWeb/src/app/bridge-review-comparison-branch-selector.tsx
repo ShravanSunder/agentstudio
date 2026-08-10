@@ -50,53 +50,56 @@ export function BridgeReviewComparisonBranchSelector(props: {
 			open={true}
 			value={selectedBranch}
 		>
-			<ComboboxInput
-				aria-label="Search branches"
-				placeholder="Search branches…"
-				ref={props.searchInputRef}
-			/>
-			<ComboboxList>
-				{branches.map((branch, index) => (
-					<ComboboxItem
-						data-testid={`comparison-branch-${branchTargetTestId(branch)}`}
-						index={index}
-						key={branchTargetKey(branch)}
-						value={branch}
-					>
-						<CheckIcon
-							aria-hidden="true"
-							className={cn(
-								'mr-2 size-3 shrink-0',
-								branchTargetsEqual(branch, selectedBranch) ? 'opacity-100' : 'opacity-0',
-							)}
-						/>
-						<span className="min-w-0 flex-1">
-							<span className="flex items-center gap-1.5">
+			<div
+				className="overflow-hidden rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)]"
+				data-testid="bridge-review-comparison-branch-selector"
+			>
+				<ComboboxInput
+					aria-label="Search branches"
+					className="rounded-none border-x-0 border-t-0 border-b border-[var(--bridge-border-subtle)] bg-transparent"
+					placeholder="Search branches…"
+					ref={props.searchInputRef}
+				/>
+				<ComboboxList className="m-0 py-1">
+					{branches.map((branch, index) => (
+						<ComboboxItem
+							data-testid={`comparison-branch-${branchTargetTestId(branch)}`}
+							index={index}
+							key={branchTargetKey(branch)}
+							value={branch}
+						>
+							<CheckIcon
+								aria-hidden="true"
+								className={cn(
+									'mr-2 size-3 shrink-0',
+									branchTargetsEqual(branch, selectedBranch) ? 'opacity-100' : 'opacity-0',
+								)}
+							/>
+							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 								<span className="truncate text-[var(--bridge-text-primary)]">
 									{branchTargetLabel(branch)}
 								</span>
-								{branchTargetsEqual(branch, props.targetCatalog?.defaultTarget ?? null) ? (
-									<span className="text-[10px] font-medium text-[var(--bridge-text-muted)]">
-										DEFAULT
-									</span>
-								) : null}
-								<span className="text-[10px] text-[var(--bridge-text-muted)]">
-									{branch.kind === 'local' ? 'LOCAL' : 'REMOTE-TRACKING'}
+								<span className="flex min-w-0 items-baseline gap-1.5 text-[10px] uppercase text-[var(--bridge-text-muted)]">
+									{branchTargetsEqual(branch, props.targetCatalog?.defaultTarget ?? null) ? (
+										<span className="font-medium">Default</span>
+									) : null}
+									<span>{branch.kind === 'local' ? 'Local' : 'Remote-tracking'}</span>
+									<span aria-hidden="true">·</span>
+									<BranchRevision value={branch.oid} />
 								</span>
 							</span>
-							<BranchRevision value={branch.oid} />
-						</span>
-					</ComboboxItem>
-				))}
-			</ComboboxList>
-			{props.targetCatalog !== null && branches.length === 0 ? (
-				<ComboboxEmpty>No matching branches.</ComboboxEmpty>
-			) : null}
-			{props.targetCatalog === null ? (
-				<ComboboxEmpty>
-					Branch choices are unavailable. Refresh the review and try again.
-				</ComboboxEmpty>
-			) : null}
+						</ComboboxItem>
+					))}
+				</ComboboxList>
+				{props.targetCatalog !== null && branches.length === 0 ? (
+					<ComboboxEmpty>No matching branches.</ComboboxEmpty>
+				) : null}
+				{props.targetCatalog === null ? (
+					<ComboboxEmpty>
+						Branch choices are unavailable. Refresh the review and try again.
+					</ComboboxEmpty>
+				) : null}
+			</div>
 		</Combobox>
 	);
 }

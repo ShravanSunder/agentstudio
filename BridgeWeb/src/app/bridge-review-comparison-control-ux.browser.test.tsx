@@ -15,7 +15,7 @@ type ReviewComparisonPresentation = NonNullable<
 type ReviewComparisonTargetCatalog = NonNullable<ReviewComparisonPresentation['targetCatalog']>;
 
 describe('BridgeReviewComparisonControl UX Browser Mode', () => {
-	test('separates a remote-tracking target from its resolved revision with an at sign', async () => {
+	test('presents exact current comparison facts without redundant headings or explanation', async () => {
 		// Arrange
 		const symbolicTarget = {
 			branchName: 'journey-integration',
@@ -67,6 +67,10 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
 			.toHaveTextContent('51d3e39cffa1');
+		const popupText =
+			rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? '';
+		expect(popupText).not.toContain('Current comparison');
+		expect(popupText).not.toContain('Shows committed and uncommitted changes');
 	});
 
 	test('focuses branch search when the comparison popover opens', async () => {
@@ -80,6 +84,35 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		await expect.element(rendered.getByRole('combobox', { name: 'Search branches' })).toHaveFocus();
+	});
+
+	test('presents branch search and choices inside one bounded selector surface', async () => {
+		// Arrange
+		const rendered = await renderComparisonTargetPicker();
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const selectorSurface = rendered.getByTestId('bridge-review-comparison-branch-selector');
+		await expect.element(selectorSurface).toBeVisible();
+		expect(getComputedStyle(selectorSurface.element()).borderTopWidth).toBe('1px');
+	});
+
+	test('uses the product small-caps treatment for the popup title', async () => {
+		// Arrange
+		const rendered = await renderComparisonTargetPicker();
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const title = rendered.getByRole('heading', { name: 'Compare Worktree' });
+		expect(getComputedStyle(title.element()).textTransform).toBe('uppercase');
 	});
 
 	test('remembers commit mode when the comparison popover reopens', async () => {

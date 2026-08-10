@@ -55,7 +55,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		const content = rendered.getByTestId('bridge-review-comparison-content');
 		await expect.element(content).toBeVisible();
-		await expect.element(rendered.getByText('Current comparison')).toBeVisible();
+		await expect
+			.element(rendered.getByRole('region', { name: 'Current comparison' }))
+			.toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
 			.toHaveTextContent('mmmmmmmmmmmm');
@@ -312,10 +314,10 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect.element(rendered.getByRole('button', { name: 'Commit' })).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('comparison-branch-origin-main'))
-			.toHaveTextContent(/origin\/main.*DEFAULT.*REMOTE-TRACKING.*bbbbbbbbbbbb/u);
+			.toHaveTextContent(/origin\/main.*Default.*Remote-tracking.*bbbbbbbbbbbb/u);
 		await expect
 			.element(rendered.getByTestId('comparison-branch-main'))
-			.toHaveTextContent(/main.*LOCAL.*aaaaaaaaaaaa/u);
+			.toHaveTextContent(/main.*Local.*aaaaaaaaaaaa/u);
 		await expect.element(rendered.getByText('b'.repeat(40), { exact: true })).toBeInTheDocument();
 
 		// Act
@@ -671,7 +673,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
 			.toHaveTextContent('Compare: feature/new-target');
-		await expect.element(rendered.getByText('Current comparison')).toBeVisible();
+		await expect
+			.element(rendered.getByRole('region', { name: 'Current comparison' }))
+			.toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
 			.toHaveTextContent('222222222222');
