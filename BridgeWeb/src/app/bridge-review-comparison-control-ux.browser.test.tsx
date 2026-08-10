@@ -84,11 +84,13 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const currentState = rendered.getByTestId('bridge-review-comparison-current-state');
 		const selectionState = rendered.getByTestId('bridge-review-comparison-target-selection');
 		const sectionDivider = rendered.getByTestId('bridge-review-comparison-section-divider');
+		const currentStateBounds = currentState.element().getBoundingClientRect();
+		const dividerBounds = sectionDivider.element().getBoundingClientRect();
+		const selectionStateBounds = selectionState.element().getBoundingClientRect();
 		expect(getComputedStyle(currentState.element()).borderTopWidth).toBe('0px');
 		expect(getComputedStyle(sectionDivider.element()).height).toBe('1px');
-		expect(selectionState.element().getBoundingClientRect().top).toBeGreaterThan(
-			currentState.element().getBoundingClientRect().bottom,
-		);
+		expect(dividerBounds.top - currentStateBounds.bottom).toBeGreaterThanOrEqual(10);
+		expect(selectionStateBounds.top - dividerBounds.bottom).toBeGreaterThanOrEqual(10);
 		const popupText =
 			rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? '';
 		expect(popupText).not.toContain('Current comparison');
@@ -302,6 +304,13 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const selectorSurface = rendered.getByTestId('bridge-review-comparison-branch-selector');
 		await expect.element(selectorSurface).toBeVisible();
 		expect(getComputedStyle(selectorSurface.element()).borderTopWidth).toBe('1px');
+		expect(selectorSurface.element().querySelector('[data-slot="combobox-input"]')).not.toBeNull();
+		expect(
+			rendered
+				.getByTestId('bridge-review-comparison-content')
+				.element()
+				.querySelector('[data-slot="toggle-group"]'),
+		).not.toBeNull();
 	});
 
 	test('uses the product small-caps treatment for the popup title', async () => {
