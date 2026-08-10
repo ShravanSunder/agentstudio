@@ -549,13 +549,16 @@ function targetMatchesCatalogDefault(
 	if (defaultTarget.kind === 'local') {
 		return (
 			(target.kind === 'localDefaultBranch' && target.branchName === defaultTarget.branchName) ||
-			(target.kind === 'branch' && target.name === defaultTarget.branchName)
+			(target.kind === 'branch' && target.name === defaultTarget.branchName) ||
+			(target.kind === 'ref' && target.name === defaultTarget.branchName)
 		);
 	}
 	return (
-		target.kind === 'originDefaultBranch' &&
-		target.remoteName === defaultTarget.remoteName &&
-		target.branchName === defaultTarget.branchName
+		(target.kind === 'originDefaultBranch' &&
+			target.remoteName === defaultTarget.remoteName &&
+			target.branchName === defaultTarget.branchName) ||
+		(target.kind === 'ref' &&
+			target.name === `${defaultTarget.remoteName}/${defaultTarget.branchName}`)
 	);
 }
 

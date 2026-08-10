@@ -19,9 +19,8 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Arrange
 		const symbolicTarget = {
 			basis: 'commonCommit',
-			branchName: 'journey-integration',
-			kind: 'originDefaultBranch',
-			remoteName: 'origin',
+			kind: 'ref',
+			name: 'origin/journey-integration',
 		} as const;
 		const baseReviewPackage = makeBridgeReviewPackage();
 		const reviewPackage: BridgeReviewPackage = {
