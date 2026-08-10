@@ -10,11 +10,13 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     @Test("workload proof script has stable safety contract and bash syntax")
     func workloadProofScriptHasStableSafetyContractAndBashSyntax() throws {
         let syntax = try runScript(arguments: ["-n", scriptPath])
+        let cleanupSyntax = try runScript(arguments: ["-n", cleanupScriptPath])
         let comparisonSyntax = try runScript(arguments: ["-n", comparisonScriptPath])
         let comparisonPythonSyntax = try runScript(arguments: [
             "-c", "/usr/bin/python3 -m py_compile \(comparisonPythonScriptPath)",
         ])
         #expect(syntax.exitCode == 0)
+        #expect(cleanupSyntax.exitCode == 0)
         #expect(comparisonSyntax.exitCode == 0, Comment(rawValue: comparisonSyntax.stderr))
         #expect(comparisonPythonSyntax.exitCode == 0, Comment(rawValue: comparisonPythonSyntax.stderr))
 
@@ -25,6 +27,67 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         Self.expectJSONLProofGuard(source)
         Self.expectFixtureAndCleanupContract(source)
         Self.expectStrictSQLiteFixtureAndQuiescenceContract(source)
+    }
+
+    @Test("owned zmx cleanup kills exact IDs and fails closed on prefix collisions")
+    func ownedZmxCleanupKillsExactIDsAndFailsClosedOnPrefixCollisions() throws {
+        let fixtureRoot = URL(fileURLWithPath: "/tmp/asw.test-\(UUID().uuidString)")
+        let fakeZmx = fixtureRoot.appendingPathComponent("zmx")
+        let inventory = fixtureRoot.appendingPathComponent("inventory")
+        let calls = fixtureRoot.appendingPathComponent("calls")
+        let artifact = fixtureRoot.appendingPathComponent("cleanup.env")
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        try "owned\nowned-suffix\nindependent\n".write(to: inventory, atomically: true, encoding: .utf8)
+        try "".write(to: calls, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/bash
+        set -euo pipefail
+        case "$1" in
+          list)
+            sed 's/^/name=/; s/$/\\tpid=1/' "$FAKE_ZMX_INVENTORY"
+            ;;
+          kill)
+            printf '%s\\n' "$2" >>"$FAKE_ZMX_CALLS"
+            grep -vxF "$2" "$FAKE_ZMX_INVENTORY" >"$FAKE_ZMX_INVENTORY.next" || true
+            mv "$FAKE_ZMX_INVENTORY.next" "$FAKE_ZMX_INVENTORY"
+            ;;
+        esac
+        """.write(to: fakeZmx, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeZmx.path)
+
+        let result = try runScript(
+            arguments: [cleanupScriptPath, fakeZmx.path, fixtureRoot.path, artifact.path, "owned", "independent"],
+            environment: [
+                "FAKE_ZMX_INVENTORY": inventory.path,
+                "FAKE_ZMX_CALLS": calls.path,
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(try String(contentsOf: calls, encoding: .utf8) == "independent\n")
+        let cleanupArtifact = try String(contentsOf: artifact, encoding: .utf8)
+        #expect(cleanupArtifact.contains("collision_owned_id=owned"))
+        #expect(cleanupArtifact.contains("collision_session_name=owned-suffix"))
+        #expect(cleanupArtifact.contains("unresolved_session_id=owned"))
+    }
+
+    @Test("owned zmx cleanup rejects production beta and ordinary debug roots before inspection")
+    func ownedZmxCleanupRejectsProtectedRootsBeforeInspection() throws {
+        for protectedRoot in [
+            "/Users/test/.agentstudio/z",
+            "/Users/test/.agent-studio-b/z",
+            "/Users/test/.agentstudio-db/abcd/z",
+        ] {
+            let result = try runScript(
+                arguments: [
+                    cleanupScriptPath, "/must-not-run/zmx", protectedRoot, "/tmp/protected-root-cleanup.env", "owned",
+                ]
+            )
+
+            #expect(result.exitCode == 2)
+            #expect(result.stderr.contains("refusing zmx cleanup outside a disposable workload root"))
+        }
     }
 
     @Test("required performance metric inventory includes topology lookups")
@@ -73,8 +136,10 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     private static func expectDebugRunnerContract(_ source: String) {
         #expect(source.contains("load_debug_identity_for_workload()"))
         #expect(source.contains("\"$PROJECT_ROOT/scripts/run-debug-observability.sh\" --print-identity"))
-        #expect(source.contains("APP_DATA_DIR=\"$(decode_env_file_value"))
-        #expect(source.contains("TRACE_DIR=\"$APP_DATA_DIR/traces\""))
+        #expect(source.contains("DEBUG_IDENTITY_DATA_DIR=\"$(decode_env_file_value"))
+        #expect(source.contains("RUNTIME_DATA_ROOT=\"$(mktemp -d /tmp/asw.XXXXXX)\""))
+        #expect(source.contains("WORKLOAD_ZMX_DIR=\"$RUNTIME_DATA_ROOT/z\""))
+        #expect(source.contains("TRACE_DIR=\"$ARTIFACT/traces\""))
         #expect(source.contains("launch_debug_observability_app()"))
         #expect(source.contains("\"$PROJECT_ROOT/scripts/run-debug-observability.sh\" --detach"))
         #expect(source.contains("\"$PROJECT_ROOT/scripts/verify-debug-observability.sh\""))
@@ -84,6 +149,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=$WORKLOAD_TRACE_TAGS"))
         #expect(source.contains("AGENTSTUDIO_TRACE_NAME=$TRACE_NAME"))
         #expect(source.contains("AGENTSTUDIO_TRACE_DIR=$TRACE_DIR"))
+        #expect(source.contains("AGENTSTUDIO_DEBUG_DATA_DIR=$RUNTIME_DATA_ROOT"))
         #expect(source.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter"))
         #expect(source.contains("APP_PID=\"$(decode_env_file_value"))
         #expect(source.contains("DEBUG_STATE_COPY=\"$ARTIFACT/debug-observability.env\""))
@@ -226,6 +292,8 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("commit.gpgsign false"))
         #expect(source.contains("tag.gpgsign false"))
         #expect(source.contains("stop_pid \"$APP_PID\""))
+        #expect(source.contains("$ZMX_CLEANUP_SCRIPT"))
+        #expect(source.contains("${ZMX_SESSION_IDS[@]}"))
         #expect(source.contains("pkill") == false)
         #expect(source.contains("AGENTSTUDIO_PERF_ACTIVE_PANES"))
     }
@@ -482,6 +550,7 @@ struct GitRefreshPerformanceWorkloadScriptTests {
     }
 
     private let scriptPath = "scripts/verify-git-refresh-performance-workload.sh"
+    private let cleanupScriptPath = "scripts/cleanup-owned-zmx-sessions.sh"
     private let comparisonScriptPath = "scripts/compare-atomlib-v2-performance.sh"
     private let comparisonPythonScriptPath = "scripts/compare-atomlib-v2-performance.py"
 
