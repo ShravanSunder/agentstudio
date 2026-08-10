@@ -12,6 +12,7 @@ struct ZoomRuntimeDispatchTests {
     func runtimeToggleSplitZoomDispatchesTargetedZoomPane() async throws {
         installTestAtomRegistryIfNeeded()
         let store = WorkspaceStore()
+        let paneEventBus = makeTestPaneRuntimeEventBus()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -19,7 +20,8 @@ struct ZoomRuntimeDispatchTests {
             surfaceManager: MockPaneTabCommandSurfaceManager(
                 createSurfaceResult: .failure(.ghosttyNotInitialized)
             ),
-            runtimeRegistry: RuntimeRegistry()
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: paneEventBus
         )
         let sourcePane = store.createPane()
         let sourceTab = Tab(paneId: sourcePane.id)
@@ -28,6 +30,7 @@ struct ZoomRuntimeDispatchTests {
         let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
         let commandHandler = RuntimeZoomCommandHandlerProbe()
+        defer { commandHandler.finish() }
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -48,19 +51,15 @@ struct ZoomRuntimeDispatchTests {
                     )
                 )
 
-                await eventually("toggleSplitZoom should dispatch targeted semantic Pane Zoom") {
-                    commandHandler.targetedCommands.count == 1
-                }
-
-                #expect(
-                    commandHandler.targetedCommands == [
-                        RuntimeZoomCommandHandlerProbe.TargetedCommand(
-                            command: .zoomPane,
-                            target: sourcePane.id,
-                            targetType: .pane
-                        )
-                    ]
+                let targetedCommand = await commandHandler.nextTargetedCommand()
+                let expectedTargetedCommand = RuntimeZoomCommandHandlerProbe.TargetedCommand(
+                    command: .zoomPane,
+                    target: sourcePane.id,
+                    targetType: .pane
                 )
+
+                #expect(targetedCommand == expectedTargetedCommand)
+                #expect(commandHandler.targetedCommands == [expectedTargetedCommand])
             }
         )
 
@@ -77,17 +76,43 @@ private final class RuntimeZoomCommandHandlerProbe: WorkspaceCommandHandling {
     }
 
     private(set) var targetedCommands: [TargetedCommand] = []
+    private var targetedCommandWaiter: CheckedContinuation<TargetedCommand?, Never>?
 
     func execute(_: AppCommand) {}
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        targetedCommands.append(
-            TargetedCommand(
-                command: command,
-                target: target,
-                targetType: targetType
-            )
-        )
+        let targetedCommand = TargetedCommand(command: command, target: target, targetType: targetType)
+        targetedCommands.append(targetedCommand)
+        resolveTargetedCommandWaiter(with: targetedCommand)
+    }
+
+    func nextTargetedCommand() async -> TargetedCommand? {
+        if let targetedCommand = targetedCommands.first {
+            return targetedCommand
+        }
+
+        let boundedFailureTask = Task { @MainActor [weak self] in
+            for _ in 0..<1000 {
+                guard !Task.isCancelled else { return }
+                await Task.yield()
+            }
+            self?.resolveTargetedCommandWaiter(with: nil)
+        }
+        defer { boundedFailureTask.cancel() }
+        return await withCheckedContinuation { continuation in
+            precondition(targetedCommandWaiter == nil)
+            targetedCommandWaiter = continuation
+        }
+    }
+
+    func finish() {
+        resolveTargetedCommandWaiter(with: nil)
+    }
+
+    private func resolveTargetedCommandWaiter(with targetedCommand: TargetedCommand?) {
+        guard let targetedCommandWaiter else { return }
+        self.targetedCommandWaiter = nil
+        targetedCommandWaiter.resume(returning: targetedCommand)
     }
 
     func canExecute(_: AppCommand) -> Bool {

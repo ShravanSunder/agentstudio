@@ -83,6 +83,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         )
 
         await source.waitForOperation(.assertTopology)
+        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         let bootstrapFullReconciliationCount = coordinator.filesystemFullReconciliationRequestCount
         await source.resetOperations()
 

@@ -97,6 +97,152 @@ jobs:
           pnpm --dir BridgeWeb run build
           test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 
+  bridge-web-swift-backend:
+    name: BridgeWeb Swift backend
+    runs-on: macos-26
+    env:
+      SWIFT_BUILD_DIR: .build-ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Setup mise
+        uses: jdx/mise-action@v3
+        with:
+          # Restore the shared mise tool cache without adding another competing saver
+          # from this new runner.
+          cache_save: false
+
+      - name: Get submodule SHAs
+        id: submodules
+        run: |
+          GHOSTTY_SHA=$(git -C vendor/ghostty rev-parse HEAD)
+          ZMX_SHA=$(git -C vendor/zmx rev-parse HEAD)
+          echo "ghostty_sha=$GHOSTTY_SHA" >> "$GITHUB_OUTPUT"
+          echo "zmx_sha=$ZMX_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.14.0
+
+      - name: Setup Node for BridgeWeb
+        uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+
+      - parallel:
+          - name: Install BridgeWeb dependencies
+            run: pnpm --dir BridgeWeb install --frozen-lockfile
+
+          - name: Cache Zig compilation
+            id: cache-zig-compilation
+            uses: actions/cache/restore@v4
+            with:
+              path: |
+                ~/.cache/zig
+                vendor/ghostty/.zig-cache
+                vendor/zmx/.zig-cache
+              key: zig-compile-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}-${{ steps.submodules.outputs.zmx_sha }}
+              restore-keys: |
+                zig-compile-${{ runner.os }}-
+
+          - name: Cache Ghostty artifacts
+            id: cache-ghostty
+            uses: actions/cache/restore@v4
+            with:
+              path: |
+                vendor/ghostty/macos/GhosttyKit.xcframework
+                vendor/ghostty/zig-out/share
+              key: ghostty-${{ runner.os }}-${{ steps.submodules.outputs.ghostty_sha }}
+
+          - name: Cache zmx artifacts
+            id: cache-zmx
+            uses: actions/cache/restore@v4
+            with:
+              path: vendor/zmx/zig-out
+              key: zmx-${{ runner.os }}-${{ steps.submodules.outputs.zmx_sha }}
+
+      - parallel:
+          - name: BridgeWeb packaged build
+            run: pnpm --dir BridgeWeb run build
+
+          - name: Build Ghostty XCFramework
+            if: steps.cache-ghostty.outputs.cache-hit != 'true'
+            run: |
+              cd vendor/ghostty
+              zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native
+
+          - name: Build zmx
+            if: steps.cache-zmx.outputs.cache-hit != 'true'
+            run: |
+              cd vendor/zmx
+              zig build -Doptimize=ReleaseFast
+
+      - parallel:
+          - name: Copy XCFramework
+            run: |
+              mkdir -p Frameworks
+              if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
+                cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+              fi
+
+          - name: Setup dev resources
+            run: |
+              SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+              SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
+              if [ ! -d "$SHELL_DST" ]; then
+                mkdir -p "$(dirname "$SHELL_DST")"
+                cp -R "$SHELL_SRC" "$SHELL_DST"
+              fi
+              TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+              TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
+              if [ ! -d "$TERMINFO_DST/78" ]; then
+                mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
+                [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
+                [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
+              fi
+
+      - name: Compute Swift build input fingerprint
+        id: swift-build-inputs
+        run: |
+          fingerprint="$(scripts/swift-build-input-fingerprint.sh)"
+          toolchain_fingerprint="$({
+            xcodebuild -version 2>&1
+            swift --version 2>&1
+            xcrun --sdk macosx --show-sdk-version 2>&1
+          } | /usr/bin/shasum -a 256 | /usr/bin/awk '{ print $1 }')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$toolchain_fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore backend Swift cache seed
+        id: swift-build-cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .build-ci
+          # This job restores the Swift test cache as a private build seed but never saves it.
+          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
+          restore-keys: |
+            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-
+
+      - name: Build BridgeWeb Swift development backend
+        run: pnpm --dir BridgeWeb run build:swift-dev-server
+
+      - name: Test BridgeWeb Swift integration
+        run: pnpm --dir BridgeWeb run test:integration:node:prepared
+
+      - name: Test BridgeWeb Swift E2E
+        run: pnpm --dir BridgeWeb run test:e2e:prepared
+
   swift-test-suite:
     name: Swift test suite
     runs-on: macos-26
@@ -202,33 +348,29 @@ jobs:
 
       # --- Setup resources + build + test (delegated to mise) ---
 
-      - name: Copy XCFramework
-        run: |
-          mkdir -p Frameworks
-          if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
-            cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
-          fi
+      - parallel:
+          - name: Copy XCFramework
+            run: |
+              mkdir -p Frameworks
+              if [ ! -d "Frameworks/GhosttyKit.xcframework" ]; then
+                cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+              fi
 
-      - name: Setup dev resources
-        run: |
-          SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
-          SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
-          if [ ! -d "$SHELL_DST" ]; then
-            mkdir -p "$(dirname "$SHELL_DST")"
-            cp -R "$SHELL_SRC" "$SHELL_DST"
-          fi
-          TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
-          TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
-          if [ ! -d "$TERMINFO_DST/78" ]; then
-            mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
-            [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
-            [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
-          fi
-
-      - name: Test BridgeWeb Swift development backend
-        run: |
-          pnpm --dir BridgeWeb run test:integration:node
-          pnpm --dir BridgeWeb run test:e2e
+          - name: Setup dev resources
+            run: |
+              SHELL_SRC="vendor/ghostty/zig-out/share/ghostty/shell-integration"
+              SHELL_DST="Sources/AgentStudio/Resources/ghostty/shell-integration"
+              if [ ! -d "$SHELL_DST" ]; then
+                mkdir -p "$(dirname "$SHELL_DST")"
+                cp -R "$SHELL_SRC" "$SHELL_DST"
+              fi
+              TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
+              TERMINFO_DST="Sources/AgentStudio/Resources/terminfo"
+              if [ ! -d "$TERMINFO_DST/78" ]; then
+                mkdir -p "$TERMINFO_DST/78" "$TERMINFO_DST/67"
+                [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DST/78/"
+                [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
+              fi
 
       - name: Compute Swift build input fingerprint
         id: swift-build-inputs
@@ -273,6 +415,14 @@ jobs:
           SWIFT_TEST_NUM_WORKERS: "4"
           _XCB_BYPASS: "1"
         run: mise run --skip-deps --raw test:swift:fast
+
+      - name: Test large lane
+        env:
+          SWIFT_TEST_SKIP_PREBUILD: "1"
+          SWIFT_TEST_TIMEOUT_SECONDS: "300"
+          SWIFT_TEST_NUM_WORKERS: "4"
+          _XCB_BYPASS: "1"
+        run: mise run --skip-deps --raw test:swift:large
 
       - name: Test WebKit lane
         env:

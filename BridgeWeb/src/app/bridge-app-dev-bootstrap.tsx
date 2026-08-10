@@ -38,9 +38,11 @@ if (rootElement !== null) {
 	const paneRuntime = createBridgePaneRuntime({
 		sessionProps: { workerFactory: createBridgeCommWorkerModuleWorker },
 	});
+	const root = createRoot(rootElement);
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
+			root.unmount();
 			paneRuntime.dispose();
 			productSessionHost.dispose();
 			telemetryHost.dispose();
@@ -49,7 +51,7 @@ if (rootElement !== null) {
 		{ once: true },
 	);
 
-	createRoot(rootElement).render(
+	root.render(
 		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled
 			markdownWorkerClient={markdownWorkerClient}

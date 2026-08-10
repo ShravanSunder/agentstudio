@@ -15,8 +15,11 @@ export class BridgeViewerProductOnlyJourneyFailure extends Error {
 				(entry) =>
 					`${entry.ordinal}:g${entry.documentGeneration}:${entry.path}:${entry.requestKind ?? 'unknown'}:${entry.streamKind ?? entry.contentKind ?? 'unknown'}`,
 			);
+		const browserDiagnostics = props.checkpoint.browserDiagnostics
+			.slice(0, 3)
+			.map((diagnostic) => `${diagnostic.type}:${diagnostic.path ?? 'page'}:${diagnostic.text}`);
 		super(
-			`${causeMessage} [failureCode=${props.checkpoint.failureCode} unfinished=${props.checkpoint.transport.unfinishedRequestOrdinals.join(',') || 'none'} unresolved=${unresolvedEntries.join(',') || 'none'}]`,
+			`${causeMessage} [failureCode=${props.checkpoint.failureCode} unfinished=${props.checkpoint.transport.unfinishedRequestOrdinals.join(',') || 'none'} unresolved=${unresolvedEntries.join(',') || 'none'} browserDiagnostics=${browserDiagnostics.join(' | ') || 'none'} failedResponses=${props.checkpoint.failedResponses.length}]`,
 		);
 		this.name = 'BridgeViewerProductOnlyJourneyFailure';
 		this.checkpoint = props.checkpoint;

@@ -30,6 +30,7 @@ import {
 import {
 	actFrame,
 	actUpdate,
+	actUpdateAndWaitForBridgeFileViewerWorkerPublication,
 	makeDeferredContent,
 	makeGeneratedFileBody,
 	openFileBodyPreview,
@@ -532,7 +533,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForOpenFileState('loading');
-		await actUpdate((): void => {
+		await actUpdateAndWaitForBridgeFileViewerWorkerPublication((): void => {
 			const publisher = publishWorkerMessages;
 			if (publisher === null) throw new Error('Expected File worker message publisher.');
 			publisher([
