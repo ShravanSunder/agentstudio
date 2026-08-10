@@ -9,6 +9,19 @@ import Foundation
 /// Isolated zmx environment for integration tests.
 /// Each test run uses a unique ZMX_DIR (temp directory) to prevent cross-test interference.
 final class ZmxTestHarness: @unchecked Sendable {
+    struct CleanupOutcome: Sendable {
+        let attemptedSessionNames: [String]
+        let remainingSessionNames: [String]
+        let diagnostics: String
+        let succeeded: Bool
+    }
+
+    struct CleanupError: Error, LocalizedError {
+        let outcome: CleanupOutcome
+
+        var errorDescription: String? { outcome.diagnostics }
+    }
+
     private struct SpawnedProcess {
         let process: Process
         let processID: pid_t
@@ -16,7 +29,7 @@ final class ZmxTestHarness: @unchecked Sendable {
 
     let zmxDir: String
     let zmxPath: String?
-    private let executor: DefaultProcessExecutor
+    private let executor: any ProcessExecutor
     private var spawnedProcesses: [SpawnedProcess] = []
     private let clock = ContinuousClock()
 
@@ -63,6 +76,12 @@ final class ZmxTestHarness: @unchecked Sendable {
         }
     }
 
+    init(zmxDir: String, zmxPath: String?, executor: any ProcessExecutor) {
+        self.zmxDir = zmxDir
+        self.zmxPath = zmxPath
+        self.executor = executor
+    }
+
     /// Create a ZmxBackend configured with the test-isolated ZMX_DIR.
     func createBackend() -> ZmxBackend? {
         guard let zmxPath else { return nil }
@@ -76,45 +95,119 @@ final class ZmxTestHarness: @unchecked Sendable {
     }
 
     /// Clean up all sessions in the test ZMX_DIR and remove the temp directory.
-    func cleanup() async {
-        // Always attempt process + directory cleanup, even when zmx isn't available.
-        defer {
-            try? FileManager.default.removeItem(atPath: zmxDir)
+    func cleanup() async -> CleanupOutcome {
+        defer { terminateSpawnedProcesses() }
+
+        guard let zmxPath else {
+            return CleanupOutcome(
+                attemptedSessionNames: [],
+                remainingSessionNames: [],
+                diagnostics: "zmx cleanup could not resolve the zmx executable; retained \(zmxDir)",
+                succeeded: false
+            )
         }
 
-        guard let zmxPath else { return }
-
-        // Kill all sessions in our isolated ZMX_DIR
+        var attemptedSessionNames: [String] = []
+        var diagnostics: [String] = []
         do {
-            let result = try await executor.execute(
-                command: zmxPath,
-                args: ["list"],
-                cwd: nil,
-                environment: ["ZMX_DIR": zmxDir]
-            )
-            if result.succeeded {
-                let sessions = result.stdout
-                    .components(separatedBy: "\n")
-                    .filter { !$0.isEmpty }
-                for session in sessions {
-                    // Parse both full list output (`session_name=<id> ...`) and short output (`<id>`).
-                    if let name = Self.extractSessionName(from: session) {
-                        _ = try? await executor.execute(
-                            command: zmxPath,
-                            args: ["kill", name],
-                            cwd: nil,
-                            environment: ["ZMX_DIR": zmxDir]
-                        )
+            let initialInventory = try await listSessions(zmxPath: zmxPath)
+            guard initialInventory.result.succeeded else {
+                return cleanupFailure(
+                    attemptedSessionNames: [],
+                    remainingSessionNames: [],
+                    diagnostics: "zmx list failed: \(initialInventory.result.stderr)"
+                )
+            }
+
+            attemptedSessionNames = initialInventory.sessionNames
+            for sessionName in attemptedSessionNames {
+                do {
+                    let killResult = try await executor.execute(
+                        command: zmxPath,
+                        args: ["kill", sessionName],
+                        cwd: nil,
+                        environment: ["ZMX_DIR": zmxDir]
+                    )
+                    if !killResult.succeeded {
+                        diagnostics.append("zmx kill failed for \(sessionName): \(killResult.stderr)")
                     }
+                } catch {
+                    diagnostics.append("zmx kill failed for \(sessionName): \(error)")
                 }
             }
+
+            let deadline = clock.now.advanced(by: .seconds(5))
+            var remainingSessionNames = attemptedSessionNames
+            repeat {
+                let verification = try await listSessions(zmxPath: zmxPath)
+                guard verification.result.succeeded else {
+                    diagnostics.append("zmx verification list failed: \(verification.result.stderr)")
+                    return cleanupFailure(
+                        attemptedSessionNames: attemptedSessionNames,
+                        remainingSessionNames: remainingSessionNames,
+                        diagnostics: diagnostics.joined(separator: "\n")
+                    )
+                }
+                remainingSessionNames = verification.sessionNames
+                if remainingSessionNames.isEmpty {
+                    if diagnostics.isEmpty {
+                        terminateSpawnedProcesses()
+                        try? FileManager.default.removeItem(atPath: zmxDir)
+                        return CleanupOutcome(
+                            attemptedSessionNames: attemptedSessionNames,
+                            remainingSessionNames: [],
+                            diagnostics: "zmx cleanup verified zero sessions",
+                            succeeded: true
+                        )
+                    }
+                    return cleanupFailure(
+                        attemptedSessionNames: attemptedSessionNames,
+                        remainingSessionNames: [],
+                        diagnostics: diagnostics.joined(separator: "\n")
+                    )
+                }
+                try? await clock.sleep(for: .milliseconds(50))
+            } while clock.now < deadline
+
+            diagnostics.append("zmx cleanup timed out with sessions: \(remainingSessionNames.joined(separator: ", "))")
+            return cleanupFailure(
+                attemptedSessionNames: attemptedSessionNames,
+                remainingSessionNames: remainingSessionNames,
+                diagnostics: diagnostics.joined(separator: "\n")
+            )
         } catch {
-            // zmx not found or other error — nothing to clean up
+            return cleanupFailure(
+                attemptedSessionNames: attemptedSessionNames,
+                remainingSessionNames: attemptedSessionNames,
+                diagnostics: "zmx cleanup command failed: \(error)"
+            )
         }
+    }
 
-        terminateSpawnedProcesses()
+    private func listSessions(zmxPath: String) async throws -> (result: ProcessResult, sessionNames: [String]) {
+        let result = try await executor.execute(
+            command: zmxPath,
+            args: ["list"],
+            cwd: nil,
+            environment: ["ZMX_DIR": zmxDir]
+        )
+        let sessionNames = result.stdout
+            .split(whereSeparator: \.isNewline)
+            .compactMap { Self.extractSessionName(from: String($0)) }
+        return (result, sessionNames)
+    }
 
-        // Remove the temp directory in defer.
+    private func cleanupFailure(
+        attemptedSessionNames: [String],
+        remainingSessionNames: [String],
+        diagnostics: String
+    ) -> CleanupOutcome {
+        CleanupOutcome(
+            attemptedSessionNames: attemptedSessionNames,
+            remainingSessionNames: remainingSessionNames,
+            diagnostics: "\(diagnostics)\nretained zmx root: \(zmxDir)",
+            succeeded: false
+        )
     }
 
     func sessionSocketPath(for sessionId: String) -> String {

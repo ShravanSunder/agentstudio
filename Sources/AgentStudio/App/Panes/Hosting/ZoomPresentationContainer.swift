@@ -236,6 +236,7 @@ struct ZoomPresentationContainer: View {
                 leadingToolbarActions: [],
                 contextToolbarActions: [zoomAction, toolbarModel.viewerAction].compactMap(\.self),
                 store: store,
+                repoCache: repoCache,
                 octiconLoader: octiconLoader,
                 editorChooser: editorChooser,
                 paneInboxPresentation: paneInboxPresentation,

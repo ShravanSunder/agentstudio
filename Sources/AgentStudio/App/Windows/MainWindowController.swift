@@ -347,6 +347,7 @@ extension MainWindowController: NSToolbarDelegate {
             .watchFolder,
             .managementLayer,
             .arrangement,
+            .arrangementDivider,
             .workspaceTabs,
             .selectTab,
             .tabActionsDivider,
@@ -409,6 +410,8 @@ extension MainWindowController: NSToolbarDelegate {
                 label: "Arrangements",
                 control: .arrangement
             )
+        case .arrangementDivider:
+            item = makeToolbarDividerItem(identifier: itemIdentifier, label: "Arrangement Divider")
         case .workspaceTabs:
             let workspaceTabsItem = NSToolbarItem(itemIdentifier: itemIdentifier)
             workspaceTabsItem.label = "Workspace Tabs"

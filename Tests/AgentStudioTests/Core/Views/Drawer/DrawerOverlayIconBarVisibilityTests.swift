@@ -146,6 +146,44 @@ struct DrawerOverlayIconBarVisibilityTests {
         }
     }
 
+    @Test("PR action precedes the separator before pane fullscreen controls")
+    func pullRequestActionPrecedesPaneContextActions() throws {
+        let zoomAction = makePaneSurfaceAction(
+            label: "Pane Zoom",
+            identifier: "paneSurfaceToolbar.zoom"
+        )
+        let pullRequestAction = makePaneSurfaceAction(
+            label: "Open PR",
+            identifier: "paneSurfaceToolbar.pullRequest"
+        )
+        let mount = mountDrawerOverlay(
+            isIconBarVisible: true,
+            trailingActions: makeTrailingActions(openPullRequestAction: pullRequestAction),
+            paneContextActions: [zoomAction],
+            width: 640
+        )
+        defer {
+            mount.window.orderOut(nil)
+            mount.window.close()
+        }
+
+        let orderedIdentifiers = [
+            "paneSurfaceToolbar.drawerToggle",
+            "paneSurfaceToolbar.drawerAdd",
+            "paneSurfaceToolbar.pullRequest",
+            "paneSurfaceToolbar.zoom",
+            "paneSurfaceToolbar.editor",
+        ]
+        let orderedFrames = try orderedIdentifiers.map { identifier in
+            let view = try #require(findView(in: mount.hostingView, identifier: identifier))
+            return view.convert(view.bounds, to: mount.hostingView)
+        }
+
+        for (leftFrame, rightFrame) in zip(orderedFrames, orderedFrames.dropFirst()) {
+            #expect(leftFrame.maxX < rightFrame.minX)
+        }
+    }
+
     @Test("toolbar group separators use standard horizontal spacing")
     func toolbarGroupSeparatorsUseStandardHorizontalSpacing() throws {
         let mount = mountDrawerOverlay(isIconBarVisible: true)
@@ -255,11 +293,14 @@ struct DrawerOverlayIconBarVisibilityTests {
         return DrawerOverlayMount(hostingView: hostingView, window: window)
     }
 
-    private func makeTrailingActions() -> DrawerOverlay.TrailingActions {
+    private func makeTrailingActions(
+        openPullRequestAction: PaneSurfaceToolbarAction? = nil
+    ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
             openEditorMenuAction: makeTargetedAction(.openPaneLocationInEditorMenu),
             openFinderAction: makeTargetedAction(.openPaneLocationInFinder),
             copyPathAction: makeTargetedAction(.copyCurrentPanePath),
+            openPullRequestAction: openPullRequestAction,
             showPaneInboxAction: makeTargetedAction(.showPaneInboxNotifications),
             editorMenuContent: AnyView(EmptyView()),
             editorMenuPresented: .constant(false),

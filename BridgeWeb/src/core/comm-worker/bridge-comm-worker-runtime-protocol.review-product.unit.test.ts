@@ -195,6 +195,72 @@ describe('Bridge comm worker Review product runtime', () => {
 		);
 	});
 
+	test('publishes a ready empty Review source when the snapshot has no changed files', async () => {
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(64);
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
+			cancel: async (): Promise<void> => {},
+			events,
+			subscriptionId: 'review-subscription-empty-source',
+			subscriptionKind: 'review.metadata',
+			update: async (): Promise<void> => {},
+		};
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: makeProductTransport({ reviewSubscription, subscribedKinds: [] }),
+			schedulePreparationDrain: (drain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+		activateBridgeCommWorkerReviewViewerMode(dispatch, 'empty-source');
+
+		dispatch.message(
+			encodeBridgeWorkerMetadataInterestUpdateCommand({
+				epoch: 1,
+				request: {
+					generation: 7,
+					itemIds: [],
+					lane: 'foreground',
+					loaded_by: 'foreground',
+					protocol: 'review',
+					streamId: 'review-stream-empty-source',
+				},
+				requestId: 'request-review-interest-empty-source',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		events.push(reviewEmptySnapshotEvent);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		const reviewDisplayEvents = postedMessages
+			.map(({ message }) => message as unknown as Readonly<Record<string, unknown>>)
+			.filter((message) => message['kind'] === 'reviewDisplayPatch');
+		expect(scheduledDrains).toHaveLength(1);
+		expect(reviewDisplayEvents).toHaveLength(1);
+		expect(reviewDisplayEvents[0]).toMatchObject({
+			kind: 'reviewDisplayPatch',
+			patches: [
+				{
+					operation: 'upsert',
+					payload: {
+						status: 'ready',
+						totalItemCount: 0,
+						totalTreeRowCount: 0,
+					},
+					slice: 'reviewSource',
+				},
+				{ operation: 'batch', payload: { items: [], operations: [], reset: true }, slice: 'reviewItem' },
+				{ operation: 'batch', payload: { reset: true, windows: [{ rows: [] }] }, slice: 'reviewTree' },
+			],
+			epoch: 1,
+			surface: 'review',
+		});
+	});
+
 	test('publishes a bounded Review display failure when the product subscription fails', async () => {
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
@@ -908,6 +974,23 @@ const reviewSnapshotEvent = {
 		},
 	],
 	treeWindow: { finalWindow: true, rowCount: 1, startIndex: 0, totalRowCount: 1 },
+} satisfies BridgeProductSubscriptionEvent<'review.metadata'>;
+
+const reviewEmptySnapshotEvent = {
+	...reviewSnapshotEvent,
+	contentSources: [],
+	extentFacts: [],
+	itemMetadata: [],
+	itemWindow: { finalWindow: true, itemCount: 0, startIndex: 0, totalItemCount: 0 },
+	summary: {
+		additions: 0,
+		deletions: 0,
+		filesChanged: 0,
+		hiddenFileCount: 0,
+		visibleFileCount: 0,
+	},
+	treeRows: [],
+	treeWindow: { finalWindow: true, rowCount: 0, startIndex: 0, totalRowCount: 0 },
 } satisfies BridgeProductSubscriptionEvent<'review.metadata'>;
 
 const reviewContentSource = {

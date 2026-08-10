@@ -161,7 +161,7 @@ final class BridgePaneProductCommittedCallTarget {
 private enum CommittedReviewIntakeSchedulingDecision {
     case initialPackageLoad
     case productResync
-    case noScheduling
+    case replayCommittedPublication
 }
 
 @MainActor
@@ -206,7 +206,7 @@ extension BridgePaneController {
                 if request.reason == "sequence_gap" {
                     return CommittedReviewIntakeSchedulingDecision.productResync
                 }
-                return CommittedReviewIntakeSchedulingDecision.noScheduling
+                return CommittedReviewIntakeSchedulingDecision.replayCommittedPublication
             })
         else {
             return
@@ -217,8 +217,13 @@ extension BridgePaneController {
             scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
         case .productResync:
             scheduleReviewPackageReloadForProductResync(reason: .productResync)
-        case .noScheduling:
-            break
+        case .replayCommittedPublication:
+            let productSchemeProvider = productSchemeProvider
+            Task { [productSchemeProvider] in
+                await productSchemeProvider?.replayCommittedReviewPublicationIfPresent(
+                    productAdmission: productAdmission
+                )
+            }
         }
     }
 }
