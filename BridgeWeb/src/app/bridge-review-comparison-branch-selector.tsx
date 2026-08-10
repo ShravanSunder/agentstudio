@@ -43,9 +43,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 			onInputValueChange={setSearch}
 			onValueChange={(branch): void => {
 				if (branch !== null) {
-					props.onSelectTarget(
-						comparisonTargetForBranch(branch, props.targetCatalog?.defaultTarget ?? null),
-					);
+					props.onSelectTarget(comparisonTargetForBranch(branch));
 				}
 			}}
 			open={true}
@@ -109,17 +107,13 @@ function BranchRevision(props: { readonly value: string }): ReactElement {
 
 function comparisonTargetForBranch(
 	branch: ReviewComparisonBranchTarget,
-	defaultTarget: ReviewComparisonBranchTarget | null,
 ): BridgeWorkerReviewComparisonUpdateCommand['target'] {
 	if (branch.kind === 'local') return { kind: 'branch', name: branch.branchName };
-	if (branchTargetsEqual(branch, defaultTarget)) {
-		return {
-			branchName: branch.branchName,
-			kind: 'originDefaultBranch',
-			remoteName: branch.remoteName,
-		};
-	}
-	return { kind: 'ref', name: branchTargetLabel(branch) };
+	return {
+		branchName: branch.branchName,
+		kind: 'originDefaultBranch',
+		remoteName: branch.remoteName,
+	};
 }
 
 function branchMatchesTarget(

@@ -339,7 +339,11 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			rowTestId: 'comparison-branch-main',
 		},
 		{
-			expectedTarget: { kind: 'ref', name: 'upstream/release' },
+			expectedTarget: {
+				branchName: 'release',
+				kind: 'originDefaultBranch',
+				remoteName: 'upstream',
+			},
 			rowTestId: 'comparison-branch-upstream-release',
 		},
 	])('applies $rowTestId immediately', async (scenario) => {
