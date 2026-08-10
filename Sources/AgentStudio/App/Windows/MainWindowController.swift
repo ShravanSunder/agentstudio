@@ -242,6 +242,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         splitViewController?.updateWindowContentSafeArea()
         window?.contentView?.layoutSubtreeIfNeeded()
         refreshToolbarToggleState()
+        observeToolbarPresentationState()
     }
 
     // MARK: - Actions
@@ -403,9 +404,10 @@ extension MainWindowController: NSToolbarDelegate {
                 control: .managementLayer
             )
         case .arrangement:
-            item = makeToolbarItem(
+            item = makeControlToolbarItem(
                 identifier: itemIdentifier,
-                label: "Arrangements"
+                label: "Arrangements",
+                control: .arrangement
             )
         case .workspaceTabs:
             let workspaceTabsItem = NSToolbarItem(itemIdentifier: itemIdentifier)
@@ -437,18 +439,6 @@ extension MainWindowController: NSToolbarDelegate {
         if let item {
             toolbarItems[itemIdentifier] = item
         }
-        return item
-    }
-
-    private func makeToolbarItem(
-        identifier: NSToolbarItem.Identifier,
-        label: String
-    ) -> NSToolbarItem {
-        let item = NSToolbarItem(itemIdentifier: identifier)
-        item.label = label
-        item.paletteLabel = label
-        item.visibilityPriority = .high
-        item.view = splitViewController?.makeToolbarControlView(.arrangement)
         return item
     }
 
@@ -513,7 +503,6 @@ extension MainWindowController: NSToolbarDelegate {
     func refreshToolbarToggleState() {
         let sidebarState = atom(\.workspaceSidebarState)
         let sidebarOpen = !sidebarState.sidebarCollapsed
-        let managementActive = atom(\.managementLayer).isActive
         setToggleImage(
             identifier: .worktreeSidebar,
             baseSymbol: "square.stack.3d.down.right",
@@ -528,13 +517,24 @@ extension MainWindowController: NSToolbarDelegate {
             label: "Inbox",
             isSelected: sidebarOpen && sidebarState.sidebarSurface == .inbox
         )
-        setToggleImage(
-            identifier: .managementLayer,
-            baseSymbol: "rectangle.split.2x2",
-            selectedSymbol: "rectangle.split.2x2.fill",
-            label: "Management Mode",
-            isSelected: managementActive
-        )
+        let unread = inboxAtom.globalRollUpAlertCount
+        toolbarItems[.inboxSidebar]?.badge = unread > 0 ? .count(unread) : nil
+    }
+
+    private func observeToolbarPresentationState() {
+        guard !hasShutdown else { return }
+        withObservationTracking {
+            let sidebarState = atom(\.workspaceSidebarState)
+            _ = sidebarState.sidebarCollapsed
+            _ = sidebarState.sidebarSurface
+            _ = inboxAtom.globalRollUpAlertCount
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.hasShutdown else { return }
+                self.refreshToolbarToggleState()
+                self.observeToolbarPresentationState()
+            }
+        }
     }
 
     private func setToggleImage(
