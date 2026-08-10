@@ -66,6 +66,19 @@ enum RepoExplorerCommandPresentation {
 }
 
 package struct RepoExplorerWorktreeCommandPresentation {
+    package static func createNewLeafLabel(for command: AppCommand) -> String? {
+        switch command {
+        case .openNewTerminalInTab, .openWorktreeInPane:
+            return "Terminal"
+        case .openBridgeReviewInNewTab, .showBridgeReview:
+            return "Review"
+        case .openBridgeFilesInNewTab, .showBridgeFiles:
+            return "Files"
+        default:
+            return nil
+        }
+    }
+
     package static let notPresented = Self(
         contextMenuCommandsByIdentity: [:],
         inlineCommandsByIdentity: [:]

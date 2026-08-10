@@ -7,6 +7,37 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation")
 struct RepoExplorerCommandPresentationTests {
+    @Test("Create New leaves use concise destination-local labels")
+    func createNewLeavesUseConciseDestinationLocalLabels() {
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .openNewTerminalInTab)
+                == "Terminal"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .openWorktreeInPane)
+                == "Terminal"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .openBridgeReviewInNewTab)
+                == "Review"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .showBridgeReview)
+                == "Review"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .openBridgeFilesInNewTab)
+                == "Files"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .showBridgeFiles)
+                == "Files"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(for: .openWorktree) == nil
+        )
+    }
+
     @Test("typed presentation requests keep grouping and sort choices distinct")
     func typedPresentationRequestsKeepArgumentChoicesDistinct() {
         let groupingRepo = RepoExplorerCommandPresentationRequest(

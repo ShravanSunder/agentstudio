@@ -3,7 +3,17 @@ import Foundation
 import os
 
 package protocol ForgeStatusProvider: Sendable {
-    func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int]
+    func pullRequests(origin: String, branches: Set<String>) async throws -> [String: [ForgePullRequest]]
+}
+
+package struct ForgePullRequest: Equatable, Sendable {
+    package let url: URL
+    package let isOpen: Bool
+
+    package init(url: URL, isOpen: Bool) {
+        self.url = url
+        self.isOpen = isOpen
+    }
 }
 
 enum ForgeStatusProviderError: Error, Sendable {
@@ -13,8 +23,10 @@ enum ForgeStatusProviderError: Error, Sendable {
 }
 
 package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
-    private struct PullRequestHead: Decodable {
+    private struct PullRequestRecord: Decodable {
         let headRefName: String
+        let url: String
+        let state: String
     }
 
     private let processExecutor: any ProcessExecutor
@@ -23,7 +35,7 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
         self.processExecutor = processExecutor
     }
 
-    package func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
+    package func pullRequests(origin: String, branches: Set<String>) async throws -> [String: [ForgePullRequest]] {
         let trackedBranches = Set(branches.filter { !$0.isEmpty })
         guard !trackedBranches.isEmpty else { return [:] }
 
@@ -31,35 +43,44 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
             throw ForgeStatusProviderError.unsupportedRemote(origin)
         }
 
-        let result = try await processExecutor.execute(
-            command: "gh",
-            args: [
-                "pr",
-                "list",
-                "--repo", repoSlug,
-                "--state", "open",
-                "--json", "headRefName",
-                "--limit", "200",
-            ],
-            cwd: nil,
-            environment: nil
-        )
+        var pullRequestsByBranch = Dictionary(uniqueKeysWithValues: trackedBranches.map { ($0, [ForgePullRequest]()) })
+        for branch in trackedBranches.sorted() {
+            let result = try await processExecutor.execute(
+                command: "gh",
+                args: [
+                    "pr",
+                    "list",
+                    "--repo", repoSlug,
+                    "--head", branch,
+                    "--state", "all",
+                    "--json", "headRefName,url,state",
+                    "--limit", "200",
+                ],
+                cwd: nil,
+                environment: nil
+            )
 
-        guard result.succeeded else {
-            let message = result.stderr.isEmpty ? result.stdout : result.stderr
-            throw ForgeStatusProviderError.commandFailed(message: message)
-        }
+            guard result.succeeded else {
+                let message = result.stderr.isEmpty ? result.stdout : result.stderr
+                throw ForgeStatusProviderError.commandFailed(message: message)
+            }
 
-        guard let data = result.stdout.data(using: .utf8) else {
-            throw ForgeStatusProviderError.invalidResponse("gh output is not valid UTF-8")
+            guard let data = result.stdout.data(using: .utf8) else {
+                throw ForgeStatusProviderError.invalidResponse("gh output is not valid UTF-8")
+            }
+            let pullRequests = try JSONDecoder().decode([PullRequestRecord].self, from: data)
+            for pullRequest in pullRequests where pullRequest.headRefName == branch {
+                guard let url = URL(string: pullRequest.url) else {
+                    throw ForgeStatusProviderError.invalidResponse(
+                        "gh returned an invalid pull request URL for branch \(pullRequest.headRefName)"
+                    )
+                }
+                pullRequestsByBranch[branch, default: []].append(
+                    ForgePullRequest(url: url, isOpen: pullRequest.state == "OPEN")
+                )
+            }
         }
-        let pullRequests = try JSONDecoder().decode([PullRequestHead].self, from: data)
-        var counts = Dictionary(uniqueKeysWithValues: trackedBranches.map { ($0, 0) })
-        for pullRequest in pullRequests {
-            guard trackedBranches.contains(pullRequest.headRefName) else { continue }
-            counts[pullRequest.headRefName, default: 0] += 1
-        }
-        return counts
+        return pullRequestsByBranch
     }
 }
 
@@ -79,6 +100,7 @@ package actor ForgeActor {
     private var nextEnvelopeSequence: UInt64 = 0
     private var repoOriginByRepoId: [UUID: String] = [:]
     private var branchesByRepoId: [UUID: Set<String>] = [:]
+    private var refreshGenerationByRepoId: [UUID: UInt64] = [:]
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -149,20 +171,23 @@ package actor ForgeActor {
             return
         }
 
+        let generation = advanceRefreshGeneration(for: repoId)
         repoOriginByRepoId[repoId] = trimmedRemote
         if branchesByRepoId[repoId] == nil {
             branchesByRepoId[repoId] = []
         }
-        await refresh(repo: repoId)
+        await refreshRepo(repoId: repoId, correlationId: nil, generation: generation)
     }
 
     package func unregister(repo repoId: UUID) async {
+        _ = advanceRefreshGeneration(for: repoId)
         repoOriginByRepoId.removeValue(forKey: repoId)
         branchesByRepoId.removeValue(forKey: repoId)
     }
 
     package func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
-        await refreshRepo(repoId: repoId, correlationId: correlationId)
+        let generation = advanceRefreshGeneration(for: repoId)
+        await refreshRepo(repoId: repoId, correlationId: correlationId, generation: generation)
     }
 
     package func shutdown() async {
@@ -183,6 +208,7 @@ package actor ForgeActor {
 
         repoOriginByRepoId.removeAll(keepingCapacity: false)
         branchesByRepoId.removeAll(keepingCapacity: false)
+        refreshGenerationByRepoId.removeAll(keepingCapacity: false)
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -217,7 +243,7 @@ package actor ForgeActor {
         case .originChanged(_, _, let to):
             await register(repo: repoId, remote: to)
         case .originUnavailable:
-            return
+            await unregister(repo: repoId)
         case .worktreeDiscovered(_, _, let branch, _):
             if !branch.isEmpty {
                 branchesByRepoId[repoId, default: []].insert(branch)
@@ -235,28 +261,37 @@ package actor ForgeActor {
         }
     }
 
-    private func refreshRepo(repoId: UUID, correlationId: UUID?) async {
+    private func refreshRepo(repoId: UUID, correlationId: UUID?, generation: UInt64) async {
         guard !Task.isCancelled else { return }
+        guard refreshGenerationByRepoId[repoId] == generation else { return }
         guard let origin = repoOriginByRepoId[repoId], !origin.isEmpty else { return }
         let trackedBranches = branchesByRepoId[repoId] ?? []
 
         do {
-            let countsByBranch = try await statusProvider.pullRequestCounts(
+            let pullRequestsByBranch = try await statusProvider.pullRequests(
                 origin: origin,
                 branches: trackedBranches
             )
+            guard !Task.isCancelled, refreshGenerationByRepoId[repoId] == generation else { return }
             await emitForgeEvent(
                 repoId: repoId,
                 correlationId: correlationId,
-                event: .pullRequestCountsChanged(repoId: repoId, countsByBranch: countsByBranch)
+                event: .pullRequestsChanged(repoId: repoId, pullRequestsByBranch: pullRequestsByBranch)
             )
         } catch {
+            guard !Task.isCancelled, refreshGenerationByRepoId[repoId] == generation else { return }
             await emitForgeEvent(
                 repoId: repoId,
                 correlationId: correlationId,
                 event: .refreshFailed(repoId: repoId, error: String(describing: error))
             )
         }
+    }
+
+    private func advanceRefreshGeneration(for repoId: UUID) -> UInt64 {
+        let generation = (refreshGenerationByRepoId[repoId] ?? 0) &+ 1
+        refreshGenerationByRepoId[repoId] = generation
+        return generation
     }
 
     private func emitForgeEvent(

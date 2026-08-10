@@ -489,10 +489,13 @@ final class WorkspaceCacheCoordinator {
                         repoId: repoId,
                         branch: to
                     )
+                repoCache.removePullRequestCount(for: worktreeId)
+                repoCache.removePullRequestURL(for: worktreeId)
                 enrichment.updateBranch(to)
                 repoCache.setWorktreeEnrichment(enrichment)
                 refreshTraceIdentity()
             case .originChanged(let repoId, _, let to):
+                clearPullRequestFacts(forRepoId: repoId)
                 let trimmedOrigin = to.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmedOrigin.isEmpty else {
                     Self.logger.error(
@@ -529,6 +532,7 @@ final class WorkspaceCacheCoordinator {
                 }
                 repoCache.setRepoEnrichment(enrichment)
             case .originUnavailable(let repoId):
+                clearPullRequestFacts(forRepoId: repoId)
                 let repoName =
                     workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId })?.name
                     ?? repoId.uuidString
@@ -544,14 +548,8 @@ final class WorkspaceCacheCoordinator {
             }
         case .forge(let forgeEvent):
             switch forgeEvent {
-            case .pullRequestCountsChanged(let repoId, let countsByBranch):
-                // Branch-to-worktree mapping is resolved through current enrichment branch values.
-                for (worktreeId, enrichment) in repoCache.worktreeEnrichmentSnapshot()
-                where enrichment.repoId == repoId {
-                    if let count = countsByBranch[enrichment.branch] {
-                        repoCache.setPullRequestCount(count, for: worktreeId)
-                    }
-                }
+            case .pullRequestsChanged(let repoId, let pullRequestsByBranch):
+                handlePullRequestsChanged(repoId: repoId, pullRequestsByBranch: pullRequestsByBranch)
             case .refreshFailed(let repoId, let error):
                 Self.logger.error(
                     "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"
@@ -567,6 +565,34 @@ final class WorkspaceCacheCoordinator {
             }
         case .filesystem, .security:
             break
+        }
+    }
+
+    private func clearPullRequestFacts(forRepoId repoId: UUID) {
+        for (worktreeId, enrichment) in repoCache.worktreeEnrichmentSnapshot()
+        where enrichment.repoId == repoId {
+            repoCache.removePullRequestCount(for: worktreeId)
+            repoCache.removePullRequestURL(for: worktreeId)
+        }
+    }
+
+    private func handlePullRequestsChanged(
+        repoId: UUID,
+        pullRequestsByBranch: [String: [ForgePullRequest]]
+    ) {
+        // Branch-to-worktree mapping is resolved through current enrichment branch values.
+        for (worktreeId, enrichment) in repoCache.worktreeEnrichmentSnapshot()
+        where enrichment.repoId == repoId {
+            let pullRequests = pullRequestsByBranch[enrichment.branch] ?? []
+            repoCache.setPullRequestCount(
+                pullRequests.filter(\.isOpen).count,
+                for: worktreeId
+            )
+            if let pullRequest = pullRequests.first(where: { $0.isOpen }) ?? pullRequests.first {
+                repoCache.setPullRequestURL(pullRequest.url, for: worktreeId)
+            } else {
+                repoCache.removePullRequestURL(for: worktreeId)
+            }
         }
     }
 

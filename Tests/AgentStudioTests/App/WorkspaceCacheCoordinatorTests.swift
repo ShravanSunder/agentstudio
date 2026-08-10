@@ -545,6 +545,9 @@ final class WorkspaceCacheCoordinatorTests {
                 snapshot: snapshot
             )
         )
+        repoCache.setPullRequestCount(1, for: worktreeId)
+        let previousPullRequestURL = URL(string: "https://github.com/example/repo/pull/1")!
+        repoCache.setPullRequestURL(previousPullRequestURL, for: worktreeId)
 
         coordinator.handleEnrichment(
             WorktreeEnvelope.test(
@@ -559,10 +562,12 @@ final class WorkspaceCacheCoordinatorTests {
 
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "feature/new")
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot == snapshot)
+        #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
+        #expect(repoCache.pullRequestURL(for: worktreeId) == nil)
     }
 
     @Test
-    func enrichment_pullRequestCountsChanged_mapsByBranch() {
+    func enrichment_pullRequestsChanged_mapsByBranchAndURL() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -592,7 +597,27 @@ final class WorkspaceCacheCoordinatorTests {
         )
 
         let envelope = WorktreeEnvelope.test(
-            event: .forge(.pullRequestCountsChanged(repoId: repoId, countsByBranch: ["feature/runtime": 3])),
+            event: .forge(
+                .pullRequestsChanged(
+                    repoId: repoId,
+                    pullRequestsByBranch: [
+                        "feature/runtime": [
+                            ForgePullRequest(
+                                url: URL(string: "https://github.com/ShravanSunder/agentstudio/pull/10")!,
+                                isOpen: true
+                            ),
+                            ForgePullRequest(
+                                url: URL(string: "https://github.com/ShravanSunder/agentstudio/pull/11")!,
+                                isOpen: true
+                            ),
+                            ForgePullRequest(
+                                url: URL(string: "https://github.com/ShravanSunder/agentstudio/pull/12")!,
+                                isOpen: true
+                            ),
+                        ]
+                    ]
+                )
+            ),
             repoId: repoId,
             worktreeId: nil,
             source: .system(.service(.gitForge(provider: "github")))
@@ -601,6 +626,10 @@ final class WorkspaceCacheCoordinatorTests {
         coordinator.handleEnrichment(envelope)
 
         #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == 3)
+        #expect(
+            repoCache.pullRequestURL(for: worktreeId)
+                == URL(string: "https://github.com/ShravanSunder/agentstudio/pull/10")
+        )
         #expect(repoCache.pullRequestCountByWorktreeId[otherWorktreeId] == nil)
     }
 

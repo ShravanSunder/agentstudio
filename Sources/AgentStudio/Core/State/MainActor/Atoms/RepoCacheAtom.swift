@@ -25,11 +25,16 @@ package final class RepoEnrichmentCacheAtom {
         telemetryLabel: "pull_request_count",
         isContentEqual: ==
     )
+    @ObservationIgnored private let pullRequestURLMap = AtomFamily<UUID, URL>(
+        telemetryLabel: "pull_request_url",
+        isContentEqual: ==
+    )
     @ObservationIgnored private var worktreeFactsNodesByWorktreeId: [UUID: DerivedAtom<RepoWorktreeCacheFacts?>] = [:]
     @ObservationIgnored private let cacheRevisionAtom = AtomRevision()
     @ObservationIgnored private let repoEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let worktreeEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let pullRequestCountRevisionAtom = AtomRevision()
+    @ObservationIgnored private let pullRequestURLRevisionAtom = AtomRevision()
     private(set) var sourceRevision: UInt64 = 0
     private(set) var lastRebuiltAt: Date?
 
@@ -82,6 +87,11 @@ package final class RepoEnrichmentCacheAtom {
 
     func pullRequestCount(for worktreeId: UUID) -> Int? {
         pullRequestCountMap.value(for: worktreeId)
+    }
+
+    func pullRequestURL(for worktreeId: UUID) -> URL? {
+        _ = pullRequestURLRevisionAtom.value
+        return pullRequestURLMap.value(for: worktreeId)
     }
 
     func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
@@ -151,17 +161,50 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
+    func removePullRequestCount(for worktreeId: UUID) {
+        mutate { mutation in
+            guard pullRequestCountMap.snapshotValue(for: worktreeId) != nil else { return }
+            pullRequestCountMap.removeValue(for: worktreeId, mutation: mutation)
+            pullRequestCountRevisionAtom.bump()
+        }
+    }
+
+    func setPullRequestURL(_ url: URL, for worktreeId: UUID) {
+        mutate { mutation in
+            let shouldBumpRevision = pullRequestURLMap.snapshotValue(for: worktreeId) != url
+            pullRequestURLMap.setValue(url, for: worktreeId, mutation: mutation)
+            if shouldBumpRevision {
+                pullRequestURLRevisionAtom.bump()
+            }
+        }
+    }
+
+    func removePullRequestURL(for worktreeId: UUID) {
+        mutate { mutation in
+            let hadPullRequestURL = pullRequestURLMap.snapshotValue(for: worktreeId) != nil
+            pullRequestURLMap.removeValue(for: worktreeId, mutation: mutation)
+            if hadPullRequestURL {
+                pullRequestURLRevisionAtom.bump()
+            }
+        }
+    }
+
     func removeWorktree(_ worktreeId: UUID) {
         mutate { mutation in
             let hadWorktreeEnrichment = worktreeEnrichmentMap.snapshotValue(for: worktreeId) != nil
             let hadPullRequestCount = pullRequestCountMap.snapshotValue(for: worktreeId) != nil
+            let hadPullRequestURL = pullRequestURLMap.snapshotValue(for: worktreeId) != nil
             worktreeEnrichmentMap.removeValue(for: worktreeId, mutation: mutation)
             pullRequestCountMap.removeValue(for: worktreeId, mutation: mutation)
+            pullRequestURLMap.removeValue(for: worktreeId, mutation: mutation)
             if hadWorktreeEnrichment {
                 worktreeEnrichmentRevisionAtom.bump()
             }
             if hadPullRequestCount {
                 pullRequestCountRevisionAtom.bump()
+            }
+            if hadPullRequestURL {
+                pullRequestURLRevisionAtom.bump()
             }
         }
     }
@@ -174,11 +217,15 @@ package final class RepoEnrichmentCacheAtom {
         let pullRequestIdsToRemove = worktreeIdsToRemove.filter {
             pullRequestCountMap.snapshotValue(for: $0) != nil
         }
+        let pullRequestURLIdsToRemove = worktreeIdsToRemove.filter {
+            pullRequestURLMap.snapshotValue(for: $0) != nil
+        }
         mutate { mutation in
             repoEnrichmentMap.removeValue(for: repoId, mutation: mutation)
             for worktreeId in worktreeIdsToRemove {
                 worktreeEnrichmentMap.removeValue(for: worktreeId, mutation: mutation)
                 pullRequestCountMap.removeValue(for: worktreeId, mutation: mutation)
+                pullRequestURLMap.removeValue(for: worktreeId, mutation: mutation)
             }
             if hadRepoEnrichment {
                 repoEnrichmentRevisionAtom.bump()
@@ -188,6 +235,9 @@ package final class RepoEnrichmentCacheAtom {
             }
             if !pullRequestIdsToRemove.isEmpty {
                 pullRequestCountRevisionAtom.bump()
+            }
+            if !pullRequestURLIdsToRemove.isEmpty {
+                pullRequestURLRevisionAtom.bump()
             }
         }
     }
@@ -215,6 +265,10 @@ package final class RepoEnrichmentCacheAtom {
             repoEnrichmentMap.replaceAll(state.repoEnrichmentByRepoId, mutation: mutation)
             worktreeEnrichmentMap.replaceAll(state.worktreeEnrichmentByWorktreeId, mutation: mutation)
             pullRequestCountMap.replaceAll(state.pullRequestCountByWorktreeId, mutation: mutation)
+            if !pullRequestURLMap.snapshot().isEmpty {
+                pullRequestURLMap.removeAll(mutation: mutation)
+                pullRequestURLRevisionAtom.bump()
+            }
             if sourceRevision != state.sourceRevision || lastRebuiltAt != state.lastRebuiltAt {
                 sourceRevision = state.sourceRevision
                 lastRebuiltAt = state.lastRebuiltAt
@@ -237,9 +291,11 @@ package final class RepoEnrichmentCacheAtom {
             let hadRepoEnrichment = !repoEnrichmentMap.snapshot().isEmpty
             let hadWorktreeEnrichment = !worktreeEnrichmentMap.snapshot().isEmpty
             let hadPullRequestCount = !pullRequestCountMap.snapshot().isEmpty
+            let hadPullRequestURL = !pullRequestURLMap.snapshot().isEmpty
             repoEnrichmentMap.removeAll(mutation: mutation)
             worktreeEnrichmentMap.removeAll(mutation: mutation)
             pullRequestCountMap.removeAll(mutation: mutation)
+            pullRequestURLMap.removeAll(mutation: mutation)
             if sourceRevision != 0 || lastRebuiltAt != nil {
                 sourceRevision = 0
                 lastRebuiltAt = nil
@@ -253,6 +309,9 @@ package final class RepoEnrichmentCacheAtom {
             }
             if hadPullRequestCount {
                 pullRequestCountRevisionAtom.bump()
+            }
+            if hadPullRequestURL {
+                pullRequestURLRevisionAtom.bump()
             }
         }
     }
@@ -377,6 +436,10 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.pullRequestCount(for: worktreeId)
     }
 
+    package func pullRequestURL(for worktreeId: UUID) -> URL? {
+        enrichmentCacheAtom.pullRequestURL(for: worktreeId)
+    }
+
     package func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
         enrichmentCacheAtom.worktreeFacts(for: worktreeId)
     }
@@ -407,6 +470,18 @@ package final class RepoCacheAtom {
 
     package func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
         enrichmentCacheAtom.setPullRequestCount(count, for: worktreeId)
+    }
+
+    package func removePullRequestCount(for worktreeId: UUID) {
+        enrichmentCacheAtom.removePullRequestCount(for: worktreeId)
+    }
+
+    package func setPullRequestURL(_ url: URL, for worktreeId: UUID) {
+        enrichmentCacheAtom.setPullRequestURL(url, for: worktreeId)
+    }
+
+    package func removePullRequestURL(for worktreeId: UUID) {
+        enrichmentCacheAtom.removePullRequestURL(for: worktreeId)
     }
 
     package func removeWorktree(_ worktreeId: UUID) {

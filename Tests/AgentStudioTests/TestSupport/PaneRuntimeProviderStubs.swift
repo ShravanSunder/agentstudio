@@ -47,13 +47,32 @@ extension GitWorkingTreeStatusProvider where Self == StubGitWorkingTreeStatusPro
 }
 
 package struct StubForgeStatusProvider: ForgeStatusProvider {
-    package let handler: @Sendable (String, Set<String>) async throws -> [String: Int]
+    package let handler: @Sendable (String, Set<String>) async throws -> [String: [ForgePullRequest]]
 
     package init(handler: @escaping @Sendable (String, Set<String>) async throws -> [String: Int]) {
-        self.handler = handler
+        self.handler = { origin, branches in
+            let countsByBranch = try await handler(origin, branches)
+            return Dictionary(
+                uniqueKeysWithValues: branches.map { branch in
+                    let count = countsByBranch[branch] ?? 0
+                    let pullRequests = (0..<count).map { index in
+                        ForgePullRequest(
+                            url: URL(string: "https://github.com/test/repository/pull/\(index + 1)")!,
+                            isOpen: true
+                        )
+                    }
+                    return (branch, pullRequests)
+                })
+        }
     }
 
-    package func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
+    package init(
+        pullRequestHandler: @escaping @Sendable (String, Set<String>) async throws -> [String: [ForgePullRequest]]
+    ) {
+        handler = pullRequestHandler
+    }
+
+    package func pullRequests(origin: String, branches: Set<String>) async throws -> [String: [ForgePullRequest]] {
         try await handler(origin, branches)
     }
 }
@@ -63,5 +82,11 @@ extension ForgeStatusProvider where Self == StubForgeStatusProvider {
         _ handler: @escaping @Sendable (String, Set<String>) async throws -> [String: Int]
     ) -> StubForgeStatusProvider {
         StubForgeStatusProvider(handler: handler)
+    }
+
+    package static func stubPullRequests(
+        _ handler: @escaping @Sendable (String, Set<String>) async throws -> [String: [ForgePullRequest]]
+    ) -> StubForgeStatusProvider {
+        StubForgeStatusProvider(pullRequestHandler: handler)
     }
 }

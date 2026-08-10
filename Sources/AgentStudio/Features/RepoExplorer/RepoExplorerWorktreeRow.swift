@@ -333,7 +333,12 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenNew()
                         } label: {
-                            menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)
+                            menuLabel(
+                                actionSpec: openNewTerminal.commandSpec.actionSpec,
+                                label: RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(
+                                    for: openNewTerminal.command
+                                )
+                            )
                         }
                         .disabled(!openNewTerminal.isEnabled)
                     }
@@ -344,7 +349,12 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenReviewInNewTab()
                         } label: {
-                            menuLabel(actionSpec: openReviewInNewTab.commandSpec.actionSpec)
+                            menuLabel(
+                                actionSpec: openReviewInNewTab.commandSpec.actionSpec,
+                                label: RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(
+                                    for: openReviewInNewTab.command
+                                )
+                            )
                         }
                         .disabled(!openReviewInNewTab.isEnabled)
                     }
@@ -355,7 +365,12 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenFilesInNewTab()
                         } label: {
-                            menuLabel(actionSpec: openFilesInNewTab.commandSpec.actionSpec)
+                            menuLabel(
+                                actionSpec: openFilesInNewTab.commandSpec.actionSpec,
+                                label: RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(
+                                    for: openFilesInNewTab.command
+                                )
+                            )
                         }
                         .disabled(!openFilesInNewTab.isEnabled)
                     }
@@ -370,7 +385,12 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenInPane()
                         } label: {
-                            menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)
+                            menuLabel(
+                                actionSpec: openWorktreeInPane.commandSpec.actionSpec,
+                                label: RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(
+                                    for: openWorktreeInPane.command
+                                )
+                            )
                         }
                         .disabled(!openWorktreeInPane.isEnabled)
                     }
@@ -379,7 +399,12 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onReview()
                         } label: {
-                            menuLabel(actionSpec: showBridgeReview.commandSpec.actionSpec)
+                            menuLabel(
+                                actionSpec: showBridgeReview.commandSpec.actionSpec,
+                                label: RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(
+                                    for: showBridgeReview.command
+                                )
+                            )
                         }
                         .disabled(!showBridgeReview.isEnabled)
                     }
@@ -388,7 +413,12 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenFiles()
                         } label: {
-                            menuLabel(actionSpec: showBridgeFiles.commandSpec.actionSpec)
+                            menuLabel(
+                                actionSpec: showBridgeFiles.commandSpec.actionSpec,
+                                label: RepoExplorerWorktreeCommandPresentation.createNewLeafLabel(
+                                    for: showBridgeFiles.command
+                                )
+                            )
                         }
                         .disabled(!showBridgeFiles.isEnabled)
                     }
@@ -476,19 +506,19 @@ package struct RepoExplorerWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(actionSpec: ActionSpec) -> some View {
+    private func menuLabel(actionSpec: ActionSpec, label: String? = nil) -> some View {
         switch actionSpec.icon {
         case .system(let systemSymbol):
-            Label(actionSpec.label, systemImage: systemSymbol.rawValue)
+            Label(label ?? actionSpec.label, systemImage: systemSymbol.rawValue)
         case .octicon(let octiconSymbol):
             if let image = octiconLoader.image(named: octiconSymbol.rawValue) {
                 Label {
-                    Text(actionSpec.label)
+                    Text(label ?? actionSpec.label)
                 } icon: {
                     Image(nsImage: image)
                 }
             } else {
-                Label(actionSpec.label, systemImage: "questionmark.square.dashed")
+                Label(label ?? actionSpec.label, systemImage: "questionmark.square.dashed")
             }
         }
     }

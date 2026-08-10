@@ -47,8 +47,17 @@ enum GitHubWebviewLaunchResolver {
         guard
             let pane = store.paneAtom.pane(paneId),
             let context = repoContext(for: pane, store: store),
+            let worktreeId = context.worktreeId
+        else {
+            return nil
+        }
+
+        if let pullRequestURL = repoCache.pullRequestURL(for: worktreeId) {
+            return pullRequestURL
+        }
+
+        guard
             let slug = repoCache.repoEnrichment(for: context.repo.id)?.remoteSlug,
-            let worktreeId = context.worktreeId,
             (repoCache.pullRequestCount(for: worktreeId) ?? 0) > 0
         else {
             return nil
@@ -72,6 +81,12 @@ enum GitHubWebviewLaunchResolver {
                 "Falling back to GitHub home because repo slug is unavailable for repoId=\(context.repo.id.uuidString, privacy: .public)"
             )
             return fallbackURL
+        }
+
+        if let worktreeId = context.worktreeId,
+            let pullRequestURL = repoCache.pullRequestURL(for: worktreeId)
+        {
+            return pullRequestURL
         }
 
         let path =

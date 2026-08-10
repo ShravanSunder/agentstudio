@@ -318,10 +318,13 @@ package final class EventReplayBuffer {
 
     private static func estimateSize(of event: ForgeEvent) -> Int {
         switch event {
-        case .pullRequestCountsChanged(_, let countsByBranch):
+        case .pullRequestsChanged(_, let pullRequestsByBranch):
             return 24
-                + countsByBranch.keys.reduce(into: 0) { partial, key in
+                + pullRequestsByBranch.keys.reduce(into: 0) { partial, key in
                     partial += key.utf8.count
+                }
+                + pullRequestsByBranch.values.flatMap { $0 }.reduce(into: 0) { partial, pullRequest in
+                    partial += pullRequest.url.absoluteString.utf8.count
                 }
         case .checksUpdated:
             return 32
