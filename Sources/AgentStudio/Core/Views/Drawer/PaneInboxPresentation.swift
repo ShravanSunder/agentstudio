@@ -93,6 +93,7 @@ package struct PaneInboxPresentation {
             openEditorMenuAction: baseTrailingActions.openEditorMenuAction,
             openFinderAction: baseTrailingActions.openFinderAction,
             copyPathAction: baseTrailingActions.copyPathAction,
+            openPullRequestAction: baseTrailingActions.openPullRequestAction,
             showPaneInboxAction: showPaneInboxAction,
             editorMenuContent: baseTrailingActions.editorMenuContent,
             editorMenuPresented: baseTrailingActions.editorMenuPresented,

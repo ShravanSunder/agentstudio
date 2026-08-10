@@ -425,7 +425,7 @@ package final class CommandBarPanelController {
         let placement: CommandBarWorktreeTerminalPlacement
         switch modifier {
         case .plain:
-            placement = canOpenInCurrentTab ? .currentTabPane : .newTab
+            placement = .newTab
         case .command:
             placement = .newTab
         case .option:

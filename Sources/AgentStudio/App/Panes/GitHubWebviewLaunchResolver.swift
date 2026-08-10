@@ -39,6 +39,24 @@ enum GitHubWebviewLaunchResolver {
         return url(for: activePaneId, store: store, repoCache: repoCache)
     }
 
+    static func pullRequestsURL(
+        for paneId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> URL? {
+        guard
+            let pane = store.paneAtom.pane(paneId),
+            let context = repoContext(for: pane, store: store),
+            let slug = repoCache.repoEnrichment(for: context.repo.id)?.remoteSlug,
+            let worktreeId = context.worktreeId,
+            (repoCache.pullRequestCount(for: worktreeId) ?? 0) > 0
+        else {
+            return nil
+        }
+
+        return githubURL(path: "/\(slug)/pulls")
+    }
+
     private static func url(
         for pane: Pane,
         store: WorkspaceStore,
@@ -65,15 +83,18 @@ enum GitHubWebviewLaunchResolver {
                 "/\(slug)"
             }
 
-        var components = URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)
-        components?.path = path
-
-        guard let url = components?.url else {
+        guard let url = githubURL(path: path) else {
             logger.error("Failed to build GitHub URL for path=\(path, privacy: .public)")
             return fallbackURL
         }
 
         return url
+    }
+
+    private static func githubURL(path: String) -> URL? {
+        var components = URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)
+        components?.path = path
+        return components?.url
     }
 
     private static func repoContext(
