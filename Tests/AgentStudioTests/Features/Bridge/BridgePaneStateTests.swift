@@ -259,6 +259,10 @@ private let legacyWorkspaceIntentCases: [(String, WorkspaceBaseline?)] = [
         .ref(name: "refs/tags/v1.2.3")
     ),
     (
+        #"{"kind":"ref","name":"main"}"#,
+        .ref(name: "main")
+    ),
+    (
         #"{"kind":"ref","name":"HEAD"}"#,
         nil
     ),
@@ -300,7 +304,7 @@ private let legacyWorkspaceIntentCases: [(String, WorkspaceBaseline?)] = [
     ),
     (
         #""main""#,
-        .ref(name: "main")
+        nil
     ),
     (
         #""staged""#,

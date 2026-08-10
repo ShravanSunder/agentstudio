@@ -256,7 +256,7 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
 
     private static func legacyValue(_ value: String) -> Self {
         switch value {
-        case Kind.localDefaultBranch.rawValue:
+        case Kind.localDefaultBranch.rawValue, "main":
             .localDefaultBranch(branchName: "main")
         case Kind.originDefaultBranch.rawValue:
             .originDefaultBranch(remoteName: "origin", branchName: "main")
