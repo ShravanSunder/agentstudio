@@ -74,7 +74,11 @@ extension BridgePaneController {
             let initialContributionTargetCommit
         else { return }
         let mutationResult = initialContributionTargetCommit(
-            .originDefaultBranch(remoteName: remoteName, branchName: branchName)
+            .originDefaultBranch(
+                remoteName: remoteName,
+                branchName: branchName,
+                basis: .commonCommit
+            )
         )
         guard
             isReviewPackageLoadCurrent(

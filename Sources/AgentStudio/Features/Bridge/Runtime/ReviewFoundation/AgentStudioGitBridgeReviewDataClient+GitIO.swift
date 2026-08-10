@@ -59,6 +59,32 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
+    func loadGitDirectReviewComparison(
+        _ request: GitDirectReviewComparisonRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitDirectReviewComparisonSnapshot {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "direct-review-comparison", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.directReviewComparison(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitResolvedRevision(
         _ request: GitRevisionResolutionRequest,
         unavailableEndpointId: String,

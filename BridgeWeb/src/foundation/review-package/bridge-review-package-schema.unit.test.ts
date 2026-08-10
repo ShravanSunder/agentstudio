@@ -8,9 +8,9 @@ describe('Bridge review package schema', () => {
 		const reviewPackage = {
 			...makeBridgeReviewPackage(),
 			comparisonOrigin: {
-				baseRole: 'contributionBase',
+				baseOID: 'contribution-base-oid',
+				baseRole: 'selectedTarget',
 				comparedRole: 'capturedWorkingTree',
-				contributionBaseOID: 'contribution-base-oid',
 				kind: 'contribution',
 				resolvedTargetOID: 'resolved-target-oid',
 				reviewedHeadOID: 'reviewed-head-oid',
@@ -99,9 +99,9 @@ describe('Bridge review package schema', () => {
 		const result = bridgeReviewPackageSchema.safeParse({
 			...reviewPackage,
 			comparisonOrigin: {
-				baseRole: 'contributionBase',
+				baseOID: 'contribution-base-oid',
+				baseRole: 'selectedTarget',
 				comparedRole: 'capturedWorkingTree',
-				contributionBaseOID: 'contribution-base-oid',
 				kind: 'contribution',
 				resolvedTargetOID: 'resolved-target-oid',
 				reviewedHeadOID: 'reviewed-head-oid',

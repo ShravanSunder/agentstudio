@@ -179,7 +179,7 @@ struct BridgeReviewPipelineTests {
                     capture: BridgeContributionComparisonCapture(
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
-                        contributionBaseOID: "base-oid",
+                        baseOID: "base-oid",
                         comparison: invalidComparison
                     ),
                     reviewedSubjectLabel: nil
@@ -212,7 +212,7 @@ struct BridgeReviewPipelineTests {
                 capture: BridgeContributionComparisonCapture(
                     resolvedTargetOID: "target-oid",
                     reviewedHeadOID: "head-oid",
-                    contributionBaseOID: "base-oid",
+                    baseOID: "base-oid",
                     comparison: BridgeEndpointComparison(
                         baseEndpoint: makeBridgeEndpoint(endpointId: "other-target", kind: .gitRef),
                         headEndpoint: requestHead,
@@ -262,7 +262,7 @@ struct BridgeReviewPipelineTests {
             capture: BridgeContributionComparisonCapture(
                 resolvedTargetOID: "target-oid",
                 reviewedHeadOID: "head-oid",
-                contributionBaseOID: "base-oid",
+                baseOID: "base-oid",
                 comparison: preparedComparison
             ),
             reviewedSubjectLabel: "feature/stack"
@@ -288,7 +288,7 @@ struct BridgeReviewPipelineTests {
                         symbolicTarget: .branch(name: "integration"),
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
-                        contributionBaseOID: "base-oid"
+                        baseOID: "base-oid"
                     )
                 )
         )

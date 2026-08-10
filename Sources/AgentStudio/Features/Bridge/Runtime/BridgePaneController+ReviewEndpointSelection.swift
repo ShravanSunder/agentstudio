@@ -102,14 +102,14 @@ extension BridgePaneController {
         comparisonSemantics: BridgeReviewQuery.ComparisonSemantics
     ) {
         switch target {
-        case .localDefaultBranch(let branchName):
+        case .localDefaultBranch(let branchName, _):
             return makeGitRefAgainstWorkingTreeSelection(
                 endpointId: "baseline-local-default",
                 refName: branchName,
                 worktreeId: worktreeId,
                 repoId: repoId
             )
-        case .originDefaultBranch(let remoteName, let branchName):
+        case .originDefaultBranch(let remoteName, let branchName, _):
             let providerIdentity = "\(remoteName)/\(branchName)"
             return makeGitRefAgainstWorkingTreeSelection(
                 endpointId: "baseline-origin-default",
@@ -117,7 +117,7 @@ extension BridgePaneController {
                 worktreeId: worktreeId,
                 repoId: repoId
             )
-        case .branch(let name):
+        case .branch(let name, _):
             return makeGitRefAgainstWorkingTreeSelection(
                 endpointId: "baseline-branch-\(Self.endpointComponent(from: name))",
                 refName: name,
@@ -131,7 +131,7 @@ extension BridgePaneController {
                 worktreeId: worktreeId,
                 repoId: repoId
             )
-        case .ref(let name):
+        case .ref(let name, _):
             return makeGitRefAgainstWorkingTreeSelection(
                 endpointId: "baseline-ref-\(Self.endpointComponent(from: name))",
                 refName: name,

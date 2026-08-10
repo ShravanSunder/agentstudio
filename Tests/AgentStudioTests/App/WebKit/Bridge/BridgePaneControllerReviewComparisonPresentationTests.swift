@@ -207,7 +207,7 @@ extension WebKitSerializedTests {
                 contributionCapture: BridgeContributionComparisonCapture(
                     resolvedTargetOID: "resolved-target-oid",
                     reviewedHeadOID: "reviewed-head-oid",
-                    contributionBaseOID: "contribution-base-oid",
+                    baseOID: "contribution-base-oid",
                     comparison: comparison
                 ),
                 reviewComparisonTargetCatalog: targetCatalog

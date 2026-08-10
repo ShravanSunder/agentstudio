@@ -57,17 +57,12 @@ struct BridgeIPCResponseBudget: Sendable {
         _ origin: IPCBridgeReviewComparisonOrigin
     ) -> Int {
         switch origin {
-        case .contribution(
-            let symbolicTarget,
-            let resolvedTargetOID,
-            let reviewedHeadOID,
-            let contributionBaseOID
-        ):
+        case .contribution(let contribution):
             160
-                + estimatedPayloadBytes(symbolicTarget)
-                + estimatedJSONStringBytes(resolvedTargetOID)
-                + estimatedJSONStringBytes(reviewedHeadOID)
-                + estimatedJSONStringBytes(contributionBaseOID)
+                + estimatedPayloadBytes(contribution.symbolicTarget)
+                + estimatedJSONStringBytes(contribution.resolvedTargetOID)
+                + estimatedJSONStringBytes(contribution.reviewedHeadOID)
+                + estimatedJSONStringBytes(contribution.baseOID)
         }
     }
 
@@ -75,11 +70,13 @@ struct BridgeIPCResponseBudget: Sendable {
         _ target: IPCBridgeReviewComparisonTarget
     ) -> Int {
         switch target {
-        case .localDefaultBranch(let branchName), .branch(let branchName), .ref(let branchName):
+        case .localDefaultBranch(let branchName, _):
             48 + estimatedJSONStringBytes(branchName)
+        case .branch(let name, _), .ref(let name, _):
+            48 + estimatedJSONStringBytes(name)
         case .commit(let oid):
             48 + estimatedJSONStringBytes(oid)
-        case .originDefaultBranch(let remoteName, let branchName):
+        case .originDefaultBranch(let remoteName, let branchName, _):
             64 + estimatedJSONStringBytes(remoteName) + estimatedJSONStringBytes(branchName)
         }
     }

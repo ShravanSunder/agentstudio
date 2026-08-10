@@ -32,13 +32,13 @@ export const workerDerivationEpoch = 31;
 export const activeIdentity = reviewIdentity('active', 7, 11);
 export const candidateIdentity = reviewIdentity('candidate', 8, 21);
 export const reviewComparisonOrigin = {
-	baseRole: 'contributionBase',
+	baseOID: 'contribution-base-oid',
+	baseRole: 'commonCommit',
 	comparedRole: 'capturedWorkingTree',
-	contributionBaseOID: 'contribution-base-oid',
 	kind: 'contribution',
 	resolvedTargetOID: 'resolved-target-oid',
 	reviewedHeadOID: 'reviewed-head-oid',
-	symbolicTarget: { kind: 'branch', name: 'integration' },
+	symbolicTarget: { basis: 'commonCommit', kind: 'branch', name: 'integration' },
 } as const;
 
 export function makeApplicatorHarness(

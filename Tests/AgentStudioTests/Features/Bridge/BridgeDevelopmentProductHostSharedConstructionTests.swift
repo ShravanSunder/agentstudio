@@ -365,7 +365,7 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
         return BridgeContributionComparisonCapture(
             resolvedTargetOID: String(repeating: "a", count: 40),
             reviewedHeadOID: String(repeating: "b", count: 40),
-            contributionBaseOID: String(repeating: "a", count: 40),
+            baseOID: String(repeating: "a", count: 40),
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,
                 headEndpoint: request.headEndpoint,

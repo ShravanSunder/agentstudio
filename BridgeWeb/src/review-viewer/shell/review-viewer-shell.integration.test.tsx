@@ -169,13 +169,17 @@ describe('review viewer shell', () => {
 		const reviewPackage = {
 			...basePackage,
 			comparisonOrigin: {
-				baseRole: 'contributionBase' as const,
+				baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				baseRole: 'commonCommit' as const,
 				comparedRole: 'capturedWorkingTree' as const,
-				contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 				kind: 'contribution' as const,
 				resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
 				reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
-				symbolicTarget: { branchName: 'master', kind: 'localDefaultBranch' as const },
+				symbolicTarget: {
+					basis: 'commonCommit' as const,
+					branchName: 'master',
+					kind: 'localDefaultBranch' as const,
+				},
 			},
 			query: {
 				...basePackage.query,

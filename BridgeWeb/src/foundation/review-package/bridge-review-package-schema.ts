@@ -2,30 +2,52 @@ import { z } from 'zod';
 
 export const bridgeReviewGenerationSchema = z.number().int().nonnegative();
 
+export const bridgeReviewComparisonBasisSchema = z.enum(['commonCommit', 'branchTip']);
+export const bridgeReviewComparisonBaseRoleSchema = z.enum(['commonCommit', 'selectedTarget']);
+
 export const bridgeReviewComparisonTargetSchema = z.discriminatedUnion('kind', [
-	z.object({ branchName: z.string().min(1), kind: z.literal('localDefaultBranch') }).strict(),
 	z
 		.object({
+			basis: bridgeReviewComparisonBasisSchema,
+			branchName: z.string().min(1),
+			kind: z.literal('localDefaultBranch'),
+		})
+		.strict(),
+	z
+		.object({
+			basis: bridgeReviewComparisonBasisSchema,
 			branchName: z.string().min(1),
 			kind: z.literal('originDefaultBranch'),
 			remoteName: z.string().min(1),
 		})
 		.strict(),
-	z.object({ kind: z.literal('branch'), name: z.string().min(1) }).strict(),
+	z
+		.object({
+			basis: bridgeReviewComparisonBasisSchema,
+			kind: z.literal('branch'),
+			name: z.string().min(1),
+		})
+		.strict(),
 	z
 		.object({
 			kind: z.literal('commit'),
 			oid: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
 		})
 		.strict(),
-	z.object({ kind: z.literal('ref'), name: z.string().min(1) }).strict(),
+	z
+		.object({
+			basis: bridgeReviewComparisonBasisSchema,
+			kind: z.literal('ref'),
+			name: z.string().min(1),
+		})
+		.strict(),
 ]);
 
 export const bridgeReviewComparisonOriginSchema = z
 	.object({
-		baseRole: z.literal('contributionBase'),
+		baseOID: z.string().min(1),
+		baseRole: bridgeReviewComparisonBaseRoleSchema,
 		comparedRole: z.literal('capturedWorkingTree'),
-		contributionBaseOID: z.string().min(1),
 		kind: z.literal('contribution'),
 		resolvedTargetOID: z.string().min(1),
 		reviewedHeadOID: z.string().min(1),

@@ -272,7 +272,7 @@ describe('Bridge worker RPC client', () => {
 		const comparisonUpdate = {
 			command: 'reviewComparisonUpdate',
 			epoch: 11,
-			target: { kind: 'ref', name: 'release-candidate' },
+			target: { basis: 'commonCommit', kind: 'ref', name: 'release-candidate' },
 		} as const satisfies BridgeWorkerRpcCommandInput;
 
 		expect(() => fileClient.send(comparisonUpdate)).toThrow(/does not belong to fileView/u);
@@ -281,7 +281,7 @@ describe('Bridge worker RPC client', () => {
 		expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
 			command: 'reviewComparisonUpdate',
 			requestId: 'review-comparison-1',
-			target: { kind: 'ref', name: 'release-candidate' },
+			target: { basis: 'commonCommit', kind: 'ref', name: 'release-candidate' },
 		});
 		fileClient.dispose();
 		reviewClient.dispose();

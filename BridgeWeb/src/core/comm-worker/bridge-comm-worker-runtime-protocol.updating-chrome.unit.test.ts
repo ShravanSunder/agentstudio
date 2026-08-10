@@ -191,7 +191,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 		postedMessages.length = 0;
 		const reviewComparison = {
-			activeTarget: { kind: 'branch', name: 'feature/review' },
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
 			attempt: { reviewGeneration: 6, status: 'pending' },
 			displayedSnapshot: {
 				packageId: 'package-predecessor',

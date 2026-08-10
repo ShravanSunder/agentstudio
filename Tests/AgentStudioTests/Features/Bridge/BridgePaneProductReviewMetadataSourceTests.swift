@@ -14,7 +14,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 symbolicTarget: .branch(name: "main"),
                 resolvedTargetOID: "target-oid-1",
                 reviewedHeadOID: "head-oid-1",
-                contributionBaseOID: "base-oid-1"
+                baseOID: "base-oid-1"
             )
         )
         let successorOrigin = BridgeReviewComparisonOrigin.contribution(
@@ -22,7 +22,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 symbolicTarget: .branch(name: "main"),
                 resolvedTargetOID: "target-oid-2",
                 reviewedHeadOID: "head-oid-2",
-                contributionBaseOID: "base-oid-2"
+                baseOID: "base-oid-2"
             )
         )
         let initialPackage = makeReviewPackage(

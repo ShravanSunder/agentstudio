@@ -63,7 +63,10 @@ extension BridgeGitReviewSourceProviderTests {
 
         let capture = try await fixture.provider.captureContributionComparison(
             BridgeContributionComparisonRequest(
-                symbolicTarget: .localDefaultBranch(branchName: "integration"),
+                symbolicTarget: .localDefaultBranch(
+                    branchName: "integration",
+                    basis: .commonCommit
+                ),
                 baseEndpoint: fixture.baseEndpoint,
                 headEndpoint: fixture.headEndpoint,
                 reviewGenerationValue: 12
@@ -92,7 +95,7 @@ extension BridgeGitReviewSourceProviderTests {
 
         #expect(capture.resolvedTargetOID == "target-oid")
         #expect(capture.reviewedHeadOID == "head-oid")
-        #expect(capture.contributionBaseOID == "base-oid")
+        #expect(capture.baseOID == "base-oid")
         #expect(capture.comparison.baseEndpoint.providerIdentity == "base-oid")
         #expect(capture.comparison.baseEndpoint.contentSetHash == "base-oid")
         #expect(capture.comparison.headEndpoint.kind == .workingTree)
@@ -114,9 +117,16 @@ extension BridgeGitReviewSourceProviderTests {
     func agentStudioGitAdapterQualifiesMovingContributionBranchRefs() async throws {
         let fixture = makeContributionAdapterFixture()
         let requests = [
-            WorkspaceReviewContributionTarget.localDefaultBranch(branchName: "integration"),
-            .branch(name: "stack/base"),
-            .originDefaultBranch(remoteName: "upstream", branchName: "integration"),
+            WorkspaceReviewContributionTarget.localDefaultBranch(
+                branchName: "integration",
+                basis: .commonCommit
+            ),
+            .branch(name: "stack/base", basis: .commonCommit),
+            .originDefaultBranch(
+                remoteName: "upstream",
+                branchName: "integration",
+                basis: .commonCommit
+            ),
         ]
 
         for target in requests {
@@ -148,12 +158,12 @@ extension BridgeGitReviewSourceProviderTests {
         )
     }
 
-    @Test("AgentStudioGit adapter preserves an exact commit target as a commit revision")
-    func agentStudioGitAdapterPreservesExactCommitTarget() async throws {
+    @Test("AgentStudioGit adapter compares an exact commit directly against the working tree")
+    func agentStudioGitAdapterComparesExactCommitDirectlyAgainstWorkingTree() async throws {
         let fixture = makeContributionAdapterFixture()
         let oid = "0123456789abcdef0123456789abcdef01234567"
 
-        _ = try await fixture.provider.captureContributionComparison(
+        let capture = try await fixture.provider.captureContributionComparison(
             BridgeContributionComparisonRequest(
                 symbolicTarget: .commit(oid: oid),
                 baseEndpoint: fixture.baseEndpoint,
@@ -163,13 +173,41 @@ extension BridgeGitReviewSourceProviderTests {
         )
 
         #expect(
-            await fixture.gitClient.recordedContributionDiffRequests() == [
-                GitContributionDiffRequest(
+            await fixture.gitClient.recordedDirectReviewComparisonRequests() == [
+                GitDirectReviewComparisonRequest(
                     repositoryPath: fixture.repositoryPath,
                     target: .named(oid)
                 )
             ]
         )
+        #expect(await fixture.gitClient.recordedContributionDiffRequests().isEmpty)
+        #expect(capture.baseRole == .selectedTarget)
+        #expect(capture.baseOID == "target-oid")
+    }
+
+    @Test("AgentStudioGit adapter compares a branch tip directly against the working tree")
+    func agentStudioGitAdapterComparesBranchTipDirectlyAgainstWorkingTree() async throws {
+        let fixture = makeContributionAdapterFixture()
+
+        let capture = try await fixture.provider.captureContributionComparison(
+            BridgeContributionComparisonRequest(
+                symbolicTarget: .branch(name: "review/selected-target", basis: .branchTip),
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                reviewGenerationValue: 12
+            )
+        )
+
+        #expect(
+            await fixture.gitClient.recordedDirectReviewComparisonRequests() == [
+                GitDirectReviewComparisonRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .named("refs/heads/review/selected-target")
+                )
+            ]
+        )
+        #expect(await fixture.gitClient.recordedContributionDiffRequests().isEmpty)
+        #expect(capture.baseRole == .selectedTarget)
     }
 }
 
@@ -215,8 +253,14 @@ private func makeContributionAdapterFixture() -> ContributionAdapterFixture {
             ]
         )
     )
+    let directReviewComparisonSnapshot = GitDirectReviewComparisonSnapshot(
+        resolvedTarget: GitResolvedRevision(oid: "target-oid", shortName: nil),
+        reviewedHead: GitResolvedRevision(oid: "head-oid", shortName: "feature"),
+        diff: snapshot.diff
+    )
     let gitClient = AgentStudioGitLocalClientFake(
         contributionDiffSnapshot: snapshot,
+        directReviewComparisonSnapshot: directReviewComparisonSnapshot,
         contentByLocator: [
             GitContentLocator(target: .commit("base-oid"), path: filePath): gitContentPayload(baseContent),
             GitContentLocator(target: .workingTree, path: filePath): gitContentPayload(workingContent),

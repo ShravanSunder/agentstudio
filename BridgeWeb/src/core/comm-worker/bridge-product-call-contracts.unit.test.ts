@@ -119,11 +119,16 @@ describe('Bridge product call contracts', () => {
 
 	test('defines a strict target-only Review comparison update with a null result', () => {
 		const targets = [
-			{ branchName: 'main', kind: 'localDefaultBranch' },
-			{ branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
-			{ kind: 'branch', name: 'feature/review' },
+			{ basis: 'commonCommit', branchName: 'main', kind: 'localDefaultBranch' },
+			{
+				basis: 'commonCommit',
+				branchName: 'main',
+				kind: 'originDefaultBranch',
+				remoteName: 'origin',
+			},
+			{ basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
 			{ kind: 'commit', oid: '0123456789abcdef0123456789abcdef01234567' },
-			{ kind: 'ref', name: 'refs/tags/v1.0.0' },
+			{ basis: 'commonCommit', kind: 'ref', name: 'refs/tags/v1.0.0' },
 		] as const;
 
 		for (const target of targets) {

@@ -21,11 +21,11 @@ struct BridgeReviewFoundationContractTests {
                         symbolicTarget: .branch(name: "main"),
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
-                        contributionBaseOID: "base-oid"
+                        baseOID: "base-oid"
                     )
                 ),
                 expectedKind: "contribution",
-                expectedBaseRole: "contributionBase",
+                expectedBaseRole: "commonCommit",
                 expectedComparedRole: "capturedWorkingTree"
             )
         ]
@@ -46,8 +46,8 @@ struct BridgeReviewFoundationContractTests {
     @Test("comparison origin rejects fields and roles from another kind")
     func comparisonOriginRejectsFieldsAndRolesFromAnotherKind() {
         let invalidOrigins = [
-            #"{"kind":"unknown","baseRole":"contributionBase","comparedRole":"capturedWorkingTree"}"#,
-            #"{"kind":"contribution","baseRole":"contributionBase","comparedRole":"capturedWorkingTree","symbolicTarget":{"branch":{"name":"main"}},"resolvedTargetOID":"","reviewedHeadOID":"head-oid","contributionBaseOID":"base-oid"}"#,
+            #"{"kind":"unknown","baseRole":"commonCommit","comparedRole":"capturedWorkingTree"}"#,
+            #"{"kind":"contribution","baseRole":"commonCommit","comparedRole":"capturedWorkingTree","symbolicTarget":{"branch":{"name":"main"}},"resolvedTargetOID":"","reviewedHeadOID":"head-oid","baseOID":"base-oid"}"#,
         ]
 
         for invalidOrigin in invalidOrigins {

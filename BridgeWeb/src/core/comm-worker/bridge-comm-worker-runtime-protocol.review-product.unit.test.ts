@@ -253,8 +253,16 @@ describe('Bridge comm worker Review product runtime', () => {
 					},
 					slice: 'reviewSource',
 				},
-				{ operation: 'batch', payload: { items: [], operations: [], reset: true }, slice: 'reviewItem' },
-				{ operation: 'batch', payload: { reset: true, windows: [{ rows: [] }] }, slice: 'reviewTree' },
+				{
+					operation: 'batch',
+					payload: { items: [], operations: [], reset: true },
+					slice: 'reviewItem',
+				},
+				{
+					operation: 'batch',
+					payload: { reset: true, windows: [{ rows: [] }] },
+					slice: 'reviewTree',
+				},
 			],
 			epoch: 1,
 			surface: 'review',

@@ -838,10 +838,13 @@ extension BridgePaneController {
         switch origin {
         case .contribution(let contribution):
             .contribution(
-                symbolicTarget: ipcComparisonTarget(contribution.symbolicTarget),
-                resolvedTargetOID: contribution.resolvedTargetOID,
-                reviewedHeadOID: contribution.reviewedHeadOID,
-                contributionBaseOID: contribution.contributionBaseOID
+                IPCBridgeReviewContributionOrigin(
+                    symbolicTarget: ipcComparisonTarget(contribution.symbolicTarget),
+                    resolvedTargetOID: contribution.resolvedTargetOID,
+                    reviewedHeadOID: contribution.reviewedHeadOID,
+                    baseRole: ipcComparisonBaseRole(contribution.baseRole),
+                    baseOID: contribution.baseOID
+                )
             )
         }
     }
@@ -850,16 +853,42 @@ extension BridgePaneController {
         _ target: WorkspaceReviewContributionTarget
     ) -> IPCBridgeReviewComparisonTarget {
         switch target {
-        case .localDefaultBranch(let branchName):
-            .localDefaultBranch(branchName: branchName)
-        case .originDefaultBranch(let remoteName, let branchName):
-            .originDefaultBranch(remoteName: remoteName, branchName: branchName)
-        case .branch(let name):
-            .branch(name: name)
+        case .localDefaultBranch(let branchName, let basis):
+            .localDefaultBranch(branchName: branchName, basis: ipcComparisonBasis(basis))
+        case .originDefaultBranch(let remoteName, let branchName, let basis):
+            .originDefaultBranch(
+                remoteName: remoteName,
+                branchName: branchName,
+                basis: ipcComparisonBasis(basis)
+            )
+        case .branch(let name, let basis):
+            .branch(name: name, basis: ipcComparisonBasis(basis))
         case .commit(let oid):
             .commit(oid: oid)
-        case .ref(let name):
-            .ref(name: name)
+        case .ref(let name, let basis):
+            .ref(name: name, basis: ipcComparisonBasis(basis))
+        }
+    }
+
+    private func ipcComparisonBasis(
+        _ basis: WorkspaceReviewComparisonBasis
+    ) -> IPCBridgeReviewComparisonBasis {
+        switch basis {
+        case .commonCommit:
+            .commonCommit
+        case .branchTip:
+            .branchTip
+        }
+    }
+
+    private func ipcComparisonBaseRole(
+        _ role: BridgeReviewComparisonBaseRole
+    ) -> IPCBridgeReviewComparisonBaseRole {
+        switch role {
+        case .commonCommit:
+            .commonCommit
+        case .selectedTarget:
+            .selectedTarget
         }
     }
 

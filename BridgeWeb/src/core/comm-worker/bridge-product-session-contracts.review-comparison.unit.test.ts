@@ -12,7 +12,7 @@ describe('Bridge product session Review comparison contract', () => {
 			presentationRevision: 5,
 			refreshingLanes: ['review'],
 			reviewComparison: {
-				activeTarget: { kind: 'branch', name: 'feature/review' },
+				activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
 				attempt: { reviewGeneration: 8, status: 'pending' },
 				displayedSnapshot: {
 					packageId: 'package-predecessor',

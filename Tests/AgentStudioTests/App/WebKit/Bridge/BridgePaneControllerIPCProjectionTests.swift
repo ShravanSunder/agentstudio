@@ -146,7 +146,8 @@ extension WebKitSerializedTests {
                             ),
                             resolvedTargetOID: "1111111111111111111111111111111111111111",
                             reviewedHeadOID: "2222222222222222222222222222222222222222",
-                            contributionBaseOID: "3333333333333333333333333333333333333333"
+                            baseRole: .selectedTarget,
+                            baseOID: "3333333333333333333333333333333333333333"
                         )
                     ),
                     reviewedSubjectLabel: "feature/review-comments"
@@ -163,7 +164,7 @@ extension WebKitSerializedTests {
 
             #expect(payload["reviewedSubjectLabel"] as? String == "feature/review-comments")
             #expect(origin["kind"] as? String == "contribution")
-            #expect(origin["baseRole"] as? String == "contributionBase")
+            #expect(origin["baseRole"] as? String == "selectedTarget")
             #expect(origin["comparedRole"] as? String == "capturedWorkingTree")
             #expect(symbolicTarget["kind"] as? String == "commit")
             #expect(
@@ -172,7 +173,7 @@ extension WebKitSerializedTests {
             )
             #expect(origin["resolvedTargetOID"] as? String == "1111111111111111111111111111111111111111")
             #expect(origin["reviewedHeadOID"] as? String == "2222222222222222222222222222222222222222")
-            #expect(origin["contributionBaseOID"] as? String == "3333333333333333333333333333333333333333")
+            #expect(origin["baseOID"] as? String == "3333333333333333333333333333333333333333")
         }
 
         @Test("IPC package summaries preserve package order and descriptor fields")

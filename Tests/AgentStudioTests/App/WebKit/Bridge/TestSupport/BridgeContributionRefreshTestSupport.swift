@@ -26,7 +26,7 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
     let initialCapture = BridgeContributionComparisonCapture(
         resolvedTargetOID: "target-oid-1",
         reviewedHeadOID: "head-oid-1",
-        contributionBaseOID: "base-oid-1",
+        baseOID: "base-oid-1",
         comparison: BridgeEndpointComparison(
             baseEndpoint: symbolicBaseEndpoint,
             headEndpoint: workingTreeEndpoint,
@@ -42,7 +42,7 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
     let successorCapture = BridgeContributionComparisonCapture(
         resolvedTargetOID: "target-oid-2",
         reviewedHeadOID: "head-oid-2",
-        contributionBaseOID: "base-oid-2",
+        baseOID: "base-oid-2",
         comparison: BridgeEndpointComparison(
             baseEndpoint: symbolicBaseEndpoint,
             headEndpoint: workingTreeEndpoint,
@@ -105,7 +105,7 @@ func assertStaleContributionCaptureCannotCommit(
     let staleCapture = BridgeContributionComparisonCapture(
         resolvedTargetOID: "target-oid-stale",
         reviewedHeadOID: "head-oid-stale",
-        contributionBaseOID: "base-oid-stale",
+        baseOID: "base-oid-stale",
         comparison: BridgeEndpointComparison(
             baseEndpoint: fixture.symbolicBaseEndpoint,
             headEndpoint: fixture.workingTreeEndpoint,

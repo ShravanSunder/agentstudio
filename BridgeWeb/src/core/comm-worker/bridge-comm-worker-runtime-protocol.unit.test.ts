@@ -152,7 +152,7 @@ describe('Bridge comm worker runtime protocol', () => {
 			encodeBridgeWorkerReviewComparisonUpdateCommand({
 				epoch: 3,
 				requestId: 'request-comparison-update',
-				target: { kind: 'branch', name: 'feature/review' },
+				target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
@@ -160,7 +160,9 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(sentCommands).toEqual([
 			{
 				method: 'review.comparison.update',
-				params: { target: { kind: 'branch', name: 'feature/review' } },
+				params: {
+					target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
+				},
 			},
 		]);
 		expect(postedMessages.map(({ message }) => message)).not.toContainEqual(

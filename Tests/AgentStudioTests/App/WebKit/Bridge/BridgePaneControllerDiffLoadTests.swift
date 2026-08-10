@@ -82,7 +82,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                         symbolicTarget: .ref(name: "target"),
                         resolvedTargetOID: "target-oid-1",
                         reviewedHeadOID: "head-oid-1",
-                        contributionBaseOID: "base-oid-1"
+                        baseOID: "base-oid-1"
                     )
                 )
         )
@@ -93,7 +93,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                         symbolicTarget: .ref(name: "target"),
                         resolvedTargetOID: "target-oid-2",
                         reviewedHeadOID: "head-oid-2",
-                        contributionBaseOID: "base-oid-2"
+                        baseOID: "base-oid-2"
                     )
                 )
         )
@@ -401,7 +401,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let contributionCapture = BridgeContributionComparisonCapture(
             resolvedTargetOID: "target-a",
             reviewedHeadOID: "head-a",
-            contributionBaseOID: "base-a",
+            baseOID: "base-a",
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,
                 headEndpoint: headEndpoint,

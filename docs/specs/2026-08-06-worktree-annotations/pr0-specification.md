@@ -1,5 +1,10 @@
 # PR0 Review Comparison — Specification
 
+> Comparison-basis and popup details were updated by
+> [`../../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md`](../../2026-08-10-pr0-review-comparison-basis/2026-08-10-pr0-review-comparison-basis.md).
+> That focused delta governs where this document still assumes a
+> common-commit-only comparison or the older popup.
+
 ## Authority and scope
 
 This Specification defines the observable PR0 contract authorized by

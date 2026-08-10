@@ -1,12 +1,44 @@
+public enum IPCBridgeReviewComparisonBasis: String, Codable, Equatable, Sendable {
+    case commonCommit
+    case branchTip
+}
+
+public enum IPCBridgeReviewComparisonBaseRole: String, Codable, Equatable, Sendable {
+    case commonCommit
+    case selectedTarget
+}
+
+public struct IPCBridgeReviewContributionOrigin: Codable, Equatable, Sendable {
+    public let symbolicTarget: IPCBridgeReviewComparisonTarget
+    public let resolvedTargetOID: String
+    public let reviewedHeadOID: String
+    public let baseRole: IPCBridgeReviewComparisonBaseRole
+    public let baseOID: String
+
+    public init(
+        symbolicTarget: IPCBridgeReviewComparisonTarget,
+        resolvedTargetOID: String,
+        reviewedHeadOID: String,
+        baseRole: IPCBridgeReviewComparisonBaseRole,
+        baseOID: String
+    ) {
+        self.symbolicTarget = symbolicTarget
+        self.resolvedTargetOID = resolvedTargetOID
+        self.reviewedHeadOID = reviewedHeadOID
+        self.baseRole = baseRole
+        self.baseOID = baseOID
+    }
+}
+
 public enum IPCBridgeReviewComparisonTarget: Codable, Equatable, Sendable {
-    case localDefaultBranch(branchName: String)
-    case originDefaultBranch(remoteName: String, branchName: String)
-    case branch(name: String)
+    case localDefaultBranch(branchName: String, basis: IPCBridgeReviewComparisonBasis)
+    case originDefaultBranch(remoteName: String, branchName: String, basis: IPCBridgeReviewComparisonBasis)
+    case branch(name: String, basis: IPCBridgeReviewComparisonBasis)
     case commit(oid: String)
-    case ref(name: String)
+    case ref(name: String, basis: IPCBridgeReviewComparisonBasis)
 
     private enum CodingKeys: String, CodingKey {
-        case kind, branchName, remoteName, name, oid
+        case kind, branchName, remoteName, name, oid, basis
     }
 
     private enum Kind: String, Codable {
@@ -18,15 +50,20 @@ public enum IPCBridgeReviewComparisonTarget: Codable, Equatable, Sendable {
         switch try container.decode(Kind.self, forKey: .kind) {
         case .localDefaultBranch:
             self = .localDefaultBranch(
-                branchName: try container.decode(String.self, forKey: .branchName)
+                branchName: try container.decode(String.self, forKey: .branchName),
+                basis: try container.decode(IPCBridgeReviewComparisonBasis.self, forKey: .basis)
             )
         case .originDefaultBranch:
             self = .originDefaultBranch(
                 remoteName: try container.decode(String.self, forKey: .remoteName),
-                branchName: try container.decode(String.self, forKey: .branchName)
+                branchName: try container.decode(String.self, forKey: .branchName),
+                basis: try container.decode(IPCBridgeReviewComparisonBasis.self, forKey: .basis)
             )
         case .branch:
-            self = .branch(name: try container.decode(String.self, forKey: .name))
+            self = .branch(
+                name: try container.decode(String.self, forKey: .name),
+                basis: try container.decode(IPCBridgeReviewComparisonBasis.self, forKey: .basis)
+            )
         case .commit:
             let oid = try container.decode(String.self, forKey: .oid)
             let utf8 = oid.utf8
@@ -47,52 +84,53 @@ public enum IPCBridgeReviewComparisonTarget: Codable, Equatable, Sendable {
             }
             self = .commit(oid: oid)
         case .ref:
-            self = .ref(name: try container.decode(String.self, forKey: .name))
+            self = .ref(
+                name: try container.decode(String.self, forKey: .name),
+                basis: try container.decode(IPCBridgeReviewComparisonBasis.self, forKey: .basis)
+            )
         }
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .localDefaultBranch(let branchName):
+        case .localDefaultBranch(let branchName, let basis):
             try container.encode(Kind.localDefaultBranch, forKey: .kind)
             try container.encode(branchName, forKey: .branchName)
-        case .originDefaultBranch(let remoteName, let branchName):
+            try container.encode(basis, forKey: .basis)
+        case .originDefaultBranch(let remoteName, let branchName, let basis):
             try container.encode(Kind.originDefaultBranch, forKey: .kind)
             try container.encode(remoteName, forKey: .remoteName)
             try container.encode(branchName, forKey: .branchName)
-        case .branch(let name):
+            try container.encode(basis, forKey: .basis)
+        case .branch(let name, let basis):
             try container.encode(Kind.branch, forKey: .kind)
             try container.encode(name, forKey: .name)
+            try container.encode(basis, forKey: .basis)
         case .commit(let oid):
             try container.encode(Kind.commit, forKey: .kind)
             try container.encode(oid, forKey: .oid)
-        case .ref(let name):
+        case .ref(let name, let basis):
             try container.encode(Kind.ref, forKey: .kind)
             try container.encode(name, forKey: .name)
+            try container.encode(basis, forKey: .basis)
         }
     }
 }
 
 public enum IPCBridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
-    case contribution(
-        symbolicTarget: IPCBridgeReviewComparisonTarget,
-        resolvedTargetOID: String,
-        reviewedHeadOID: String,
-        contributionBaseOID: String
-    )
+    case contribution(IPCBridgeReviewContributionOrigin)
 
     private enum CodingKeys: String, CodingKey {
         case kind, baseRole, comparedRole, symbolicTarget
-        case resolvedTargetOID, reviewedHeadOID, contributionBaseOID
+        case resolvedTargetOID, reviewedHeadOID, baseOID
     }
 
     private enum Kind: String, Codable {
         case contribution
     }
 
-    private enum EndpointRole: String, Codable {
-        case contributionBase
+    private enum ComparedEndpointRole: String, Codable {
         case capturedWorkingTree
     }
 
@@ -101,8 +139,7 @@ public enum IPCBridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
         switch try container.decode(Kind.self, forKey: .kind) {
         case .contribution:
             guard
-                try container.decode(EndpointRole.self, forKey: .baseRole) == .contributionBase,
-                try container.decode(EndpointRole.self, forKey: .comparedRole)
+                try container.decode(ComparedEndpointRole.self, forKey: .comparedRole)
                     == .capturedWorkingTree
             else {
                 throw DecodingError.dataCorrupted(
@@ -113,15 +150,21 @@ public enum IPCBridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
                 )
             }
             self = .contribution(
-                symbolicTarget: try container.decode(
-                    IPCBridgeReviewComparisonTarget.self,
-                    forKey: .symbolicTarget
-                ),
-                resolvedTargetOID: try container.decode(String.self, forKey: .resolvedTargetOID),
-                reviewedHeadOID: try container.decode(String.self, forKey: .reviewedHeadOID),
-                contributionBaseOID: try container.decode(
-                    String.self,
-                    forKey: .contributionBaseOID
+                IPCBridgeReviewContributionOrigin(
+                    symbolicTarget: try container.decode(
+                        IPCBridgeReviewComparisonTarget.self,
+                        forKey: .symbolicTarget
+                    ),
+                    resolvedTargetOID: try container.decode(String.self, forKey: .resolvedTargetOID),
+                    reviewedHeadOID: try container.decode(String.self, forKey: .reviewedHeadOID),
+                    baseRole: try container.decode(
+                        IPCBridgeReviewComparisonBaseRole.self,
+                        forKey: .baseRole
+                    ),
+                    baseOID: try container.decode(
+                        String.self,
+                        forKey: .baseOID
+                    )
                 )
             )
         }
@@ -130,19 +173,14 @@ public enum IPCBridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .contribution(
-            let symbolicTarget,
-            let resolvedTargetOID,
-            let reviewedHeadOID,
-            let contributionBaseOID
-        ):
+        case .contribution(let origin):
             try container.encode(Kind.contribution, forKey: .kind)
-            try container.encode(EndpointRole.contributionBase, forKey: .baseRole)
-            try container.encode(EndpointRole.capturedWorkingTree, forKey: .comparedRole)
-            try container.encode(symbolicTarget, forKey: .symbolicTarget)
-            try container.encode(resolvedTargetOID, forKey: .resolvedTargetOID)
-            try container.encode(reviewedHeadOID, forKey: .reviewedHeadOID)
-            try container.encode(contributionBaseOID, forKey: .contributionBaseOID)
+            try container.encode(origin.baseRole, forKey: .baseRole)
+            try container.encode(ComparedEndpointRole.capturedWorkingTree, forKey: .comparedRole)
+            try container.encode(origin.symbolicTarget, forKey: .symbolicTarget)
+            try container.encode(origin.resolvedTargetOID, forKey: .resolvedTargetOID)
+            try container.encode(origin.reviewedHeadOID, forKey: .reviewedHeadOID)
+            try container.encode(origin.baseOID, forKey: .baseOID)
         }
     }
 }

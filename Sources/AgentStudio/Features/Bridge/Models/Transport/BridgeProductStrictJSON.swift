@@ -70,7 +70,7 @@ enum BridgeProductStrictJSON {
             "contentSequence",
             "contentSetHash",
             "contentSources",
-            "contributionBaseOID",
+            "baseOID",
             "createdAfterUnixMilliseconds",
             "createdAtUnixMilliseconds",
             "createdBeforeUnixMilliseconds",

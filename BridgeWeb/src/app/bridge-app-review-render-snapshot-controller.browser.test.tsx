@@ -701,6 +701,7 @@ function reviewComparisonPanelChromeEvent(): Extract<
 				payload: {
 					reviewComparison: {
 						activeTarget: {
+							basis: 'commonCommit',
 							branchName: 'master',
 							kind: 'localDefaultBranch',
 						},

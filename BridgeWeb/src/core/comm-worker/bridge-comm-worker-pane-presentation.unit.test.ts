@@ -140,7 +140,7 @@ describe('Bridge comm worker pane presentation authority', () => {
 	test('projects exact stale predecessor identity while a successor comparison is pending', () => {
 		const authority = new BridgeCommWorkerPanePresentationAuthority();
 		const reviewComparison = {
-			activeTarget: { kind: 'ref', name: 'release-candidate' },
+			activeTarget: { basis: 'commonCommit', kind: 'ref', name: 'release-candidate' },
 			attempt: { reviewGeneration: 9, status: 'pending' },
 			displayedSnapshot: {
 				packageId: 'package-predecessor',
@@ -173,7 +173,7 @@ describe('Bridge comm worker pane presentation authority', () => {
 			NonNullable<BridgeProductPanePresentationFrame['reviewComparison']>['targetCatalog']
 		>['branches'];
 		const reviewComparison = {
-			activeTarget: { kind: 'branch', name: 'main' },
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
 			attempt: { reviewGeneration: 9, status: 'settled' },
 			displayedSnapshot: { status: 'none' },
 			targetCatalog: { branches: sourceBranches, defaultTarget: sourceBranches[0] ?? null },

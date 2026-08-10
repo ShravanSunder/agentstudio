@@ -52,13 +52,25 @@ package enum BridgePaneSource: Codable, Hashable, Sendable {
 
 // MARK: - Workspace Review Contribution Target
 
+package enum WorkspaceReviewComparisonBasis: String, Codable, Hashable, Sendable {
+    case commonCommit
+    case branchTip
+}
+
 /// A symbolic target accepted by the complete-worktree contribution path.
 package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
-    case localDefaultBranch(branchName: String)
-    case originDefaultBranch(remoteName: String, branchName: String)
-    case branch(name: String)
+    case localDefaultBranch(
+        branchName: String,
+        basis: WorkspaceReviewComparisonBasis = .commonCommit
+    )
+    case originDefaultBranch(
+        remoteName: String,
+        branchName: String,
+        basis: WorkspaceReviewComparisonBasis = .commonCommit
+    )
+    case branch(name: String, basis: WorkspaceReviewComparisonBasis = .commonCommit)
     case commit(oid: String)
-    case ref(name: String)
+    case ref(name: String, basis: WorkspaceReviewComparisonBasis = .commonCommit)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -66,6 +78,7 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
         case remoteName
         case name
         case oid
+        case basis
     }
 
     private enum Kind: String, Codable {
@@ -82,44 +95,64 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
         switch kind {
         case .localDefaultBranch:
             self = .localDefaultBranch(
-                branchName: try container.decode(String.self, forKey: .branchName)
+                branchName: try container.decode(String.self, forKey: .branchName),
+                basis: try Self.decodeBasis(from: container, decoder: decoder)
             )
         case .originDefaultBranch:
             self = .originDefaultBranch(
                 remoteName: try container.decode(String.self, forKey: .remoteName),
-                branchName: try container.decode(String.self, forKey: .branchName)
+                branchName: try container.decode(String.self, forKey: .branchName),
+                basis: try Self.decodeBasis(from: container, decoder: decoder)
             )
         case .branch:
-            self = .branch(name: try container.decode(String.self, forKey: .name))
+            self = .branch(
+                name: try container.decode(String.self, forKey: .name),
+                basis: try Self.decodeBasis(from: container, decoder: decoder)
+            )
         case .commit:
             self = .commit(
                 oid: try decodeExactGitCommitOID(from: container, forKey: .oid, decoder: decoder)
             )
         case .ref:
-            self = .ref(name: try container.decode(String.self, forKey: .name))
+            self = .ref(
+                name: try container.decode(String.self, forKey: .name),
+                basis: try Self.decodeBasis(from: container, decoder: decoder)
+            )
         }
     }
 
     package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .localDefaultBranch(let branchName):
+        case .localDefaultBranch(let branchName, let basis):
             try container.encode(Kind.localDefaultBranch, forKey: .kind)
             try container.encode(branchName, forKey: .branchName)
-        case .originDefaultBranch(let remoteName, let branchName):
+            try container.encode(basis, forKey: .basis)
+        case .originDefaultBranch(let remoteName, let branchName, let basis):
             try container.encode(Kind.originDefaultBranch, forKey: .kind)
             try container.encode(remoteName, forKey: .remoteName)
             try container.encode(branchName, forKey: .branchName)
-        case .branch(let name):
+            try container.encode(basis, forKey: .basis)
+        case .branch(let name, let basis):
             try container.encode(Kind.branch, forKey: .kind)
             try container.encode(name, forKey: .name)
+            try container.encode(basis, forKey: .basis)
         case .commit(let oid):
             try container.encode(Kind.commit, forKey: .kind)
             try container.encode(oid, forKey: .oid)
-        case .ref(let name):
+        case .ref(let name, let basis):
             try container.encode(Kind.ref, forKey: .kind)
             try container.encode(name, forKey: .name)
+            try container.encode(basis, forKey: .basis)
         }
+    }
+
+    private static func decodeBasis(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        decoder: Decoder
+    ) throws -> WorkspaceReviewComparisonBasis {
+        try container.decodeIfPresent(WorkspaceReviewComparisonBasis.self, forKey: .basis)
+            ?? .commonCommit
     }
 }
 
@@ -130,11 +163,18 @@ package enum WorkspaceReviewContributionTarget: Codable, Hashable, Sendable {
 /// Target-bearing cases select a complete-worktree contribution comparison.
 /// Staged and unstaged retain their pre-existing narrow meanings.
 package enum WorkspaceBaseline: Codable, Hashable, Sendable {
-    case localDefaultBranch(branchName: String)
-    case originDefaultBranch(remoteName: String, branchName: String)
-    case branch(name: String)
+    case localDefaultBranch(
+        branchName: String,
+        basis: WorkspaceReviewComparisonBasis = .commonCommit
+    )
+    case originDefaultBranch(
+        remoteName: String,
+        branchName: String,
+        basis: WorkspaceReviewComparisonBasis = .commonCommit
+    )
+    case branch(name: String, basis: WorkspaceReviewComparisonBasis = .commonCommit)
     case commit(oid: String)
-    case ref(name: String)
+    case ref(name: String, basis: WorkspaceReviewComparisonBasis = .commonCommit)
     case headMinusOne
     case staged
     case unstaged
@@ -145,6 +185,7 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
         case remoteName
         case name
         case oid
+        case basis
     }
 
     private enum Kind: String, Codable {
@@ -168,21 +209,29 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
         switch try container.decode(Kind.self, forKey: .kind) {
         case .localDefaultBranch:
             self = .localDefaultBranch(
-                branchName: try container.decode(String.self, forKey: .branchName)
+                branchName: try container.decode(String.self, forKey: .branchName),
+                basis: try Self.decodeBasis(from: container)
             )
         case .originDefaultBranch:
             self = .originDefaultBranch(
                 remoteName: try container.decode(String.self, forKey: .remoteName),
-                branchName: try container.decode(String.self, forKey: .branchName)
+                branchName: try container.decode(String.self, forKey: .branchName),
+                basis: try Self.decodeBasis(from: container)
             )
         case .branch:
-            self = .branch(name: try container.decode(String.self, forKey: .name))
+            self = .branch(
+                name: try container.decode(String.self, forKey: .name),
+                basis: try Self.decodeBasis(from: container)
+            )
         case .commit:
             self = .commit(
                 oid: try decodeExactGitCommitOID(from: container, forKey: .oid, decoder: decoder)
             )
         case .ref:
-            self = .ref(name: try container.decode(String.self, forKey: .name))
+            self = .ref(
+                name: try container.decode(String.self, forKey: .name),
+                basis: try Self.decodeBasis(from: container)
+            )
         case .headMinusOne:
             self = .headMinusOne
         case .staged:
@@ -195,22 +244,26 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
     package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .localDefaultBranch(let branchName):
+        case .localDefaultBranch(let branchName, let basis):
             try container.encode(Kind.localDefaultBranch, forKey: .kind)
             try container.encode(branchName, forKey: .branchName)
-        case .originDefaultBranch(let remoteName, let branchName):
+            try container.encode(basis, forKey: .basis)
+        case .originDefaultBranch(let remoteName, let branchName, let basis):
             try container.encode(Kind.originDefaultBranch, forKey: .kind)
             try container.encode(remoteName, forKey: .remoteName)
             try container.encode(branchName, forKey: .branchName)
-        case .branch(let name):
+            try container.encode(basis, forKey: .basis)
+        case .branch(let name, let basis):
             try container.encode(Kind.branch, forKey: .kind)
             try container.encode(name, forKey: .name)
+            try container.encode(basis, forKey: .basis)
         case .commit(let oid):
             try container.encode(Kind.commit, forKey: .kind)
             try container.encode(oid, forKey: .oid)
-        case .ref(let name):
+        case .ref(let name, let basis):
             try container.encode(Kind.ref, forKey: .kind)
             try container.encode(name, forKey: .name)
+            try container.encode(basis, forKey: .basis)
         case .headMinusOne:
             try container.encode(Kind.headMinusOne, forKey: .kind)
         case .staged:
@@ -222,33 +275,33 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
 
     package init(contributionTarget: WorkspaceReviewContributionTarget) {
         switch contributionTarget {
-        case .localDefaultBranch(let branchName):
-            self = .localDefaultBranch(branchName: branchName)
-        case .originDefaultBranch(let remoteName, let branchName):
-            self = .originDefaultBranch(remoteName: remoteName, branchName: branchName)
-        case .branch(let name):
-            self = .branch(name: name)
+        case .localDefaultBranch(let branchName, let basis):
+            self = .localDefaultBranch(branchName: branchName, basis: basis)
+        case .originDefaultBranch(let remoteName, let branchName, let basis):
+            self = .originDefaultBranch(remoteName: remoteName, branchName: branchName, basis: basis)
+        case .branch(let name, let basis):
+            self = .branch(name: name, basis: basis)
         case .commit(let oid):
             self = .commit(oid: oid)
-        case .ref(let name):
-            self = .ref(name: name)
+        case .ref(let name, let basis):
+            self = .ref(name: name, basis: basis)
         }
     }
 
     package var contributionTarget: WorkspaceReviewContributionTarget? {
         switch self {
-        case .localDefaultBranch(let branchName):
-            .localDefaultBranch(branchName: branchName)
-        case .originDefaultBranch(let remoteName, let branchName):
-            .originDefaultBranch(remoteName: remoteName, branchName: branchName)
-        case .branch(let name):
-            .branch(name: name)
+        case .localDefaultBranch(let branchName, let basis):
+            .localDefaultBranch(branchName: branchName, basis: basis)
+        case .originDefaultBranch(let remoteName, let branchName, let basis):
+            .originDefaultBranch(remoteName: remoteName, branchName: branchName, basis: basis)
+        case .branch(let name, let basis):
+            .branch(name: name, basis: basis)
         case .commit(let oid):
             .commit(oid: oid)
-        case .ref(let name):
-            .ref(name: name)
+        case .ref(let name, let basis):
+            .ref(name: name, basis: basis)
         case .headMinusOne:
-            .ref(name: "HEAD~1")
+            .ref(name: "HEAD~1", basis: .commonCommit)
         case .staged, .unstaged:
             nil
         }
@@ -257,9 +310,9 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
     private static func legacyValue(_ value: String) -> Self {
         switch value {
         case Kind.localDefaultBranch.rawValue, "main":
-            .localDefaultBranch(branchName: "main")
+            .localDefaultBranch(branchName: "main", basis: .commonCommit)
         case Kind.originDefaultBranch.rawValue:
-            .originDefaultBranch(remoteName: "origin", branchName: "main")
+            .originDefaultBranch(remoteName: "origin", branchName: "main", basis: .commonCommit)
         case Kind.headMinusOne.rawValue:
             .headMinusOne
         case Kind.staged.rawValue:
@@ -267,8 +320,15 @@ package enum WorkspaceBaseline: Codable, Hashable, Sendable {
         case Kind.unstaged.rawValue:
             .unstaged
         default:
-            .ref(name: value)
+            .ref(name: value, basis: .commonCommit)
         }
+    }
+
+    private static func decodeBasis(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> WorkspaceReviewComparisonBasis {
+        try container.decodeIfPresent(WorkspaceReviewComparisonBasis.self, forKey: .basis)
+            ?? .commonCommit
     }
 }
 
@@ -431,7 +491,7 @@ extension BridgePaneSource {
         switch baseline {
         case .localDefaultBranch:
             nil
-        case .ref(let name) where name == "HEAD":
+        case .ref(let name, _) where name == "HEAD":
             nil
         case .originDefaultBranch, .branch, .commit, .ref, .headMinusOne, .staged, .unstaged:
             baseline

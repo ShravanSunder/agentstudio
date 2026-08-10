@@ -1,6 +1,11 @@
 import AgentStudioCore
 import Foundation
 
+package enum BridgeReviewComparisonBaseRole: String, Codable, Equatable, Sendable {
+    case commonCommit
+    case selectedTarget
+}
+
 package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
     case contribution(BridgeReviewContributionOrigin)
 
@@ -8,8 +13,7 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
         case contribution
     }
 
-    private enum EndpointRole: String, Codable {
-        case contributionBase
+    private enum ComparedEndpointRole: String, Codable {
         case capturedWorkingTree
     }
 
@@ -20,7 +24,7 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
         case symbolicTarget
         case resolvedTargetOID
         case reviewedHeadOID
-        case contributionBaseOID
+        case baseOID
     }
 
     package init(from decoder: Decoder) throws {
@@ -32,14 +36,8 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
                 Set(container.allKeys),
                 equalTo: [
                     .kind, .baseRole, .comparedRole, .symbolicTarget,
-                    .resolvedTargetOID, .reviewedHeadOID, .contributionBaseOID,
+                    .resolvedTargetOID, .reviewedHeadOID, .baseOID,
                 ],
-                decoder: decoder
-            )
-            try Self.requireRole(
-                .contributionBase,
-                forKey: .baseRole,
-                in: container,
                 decoder: decoder
             )
             try Self.requireRole(
@@ -64,9 +62,13 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
                         forKey: .reviewedHeadOID,
                         decoder: decoder
                     ),
-                    contributionBaseOID: try Self.nonemptyOID(
+                    baseRole: try container.decode(
+                        BridgeReviewComparisonBaseRole.self,
+                        forKey: .baseRole
+                    ),
+                    baseOID: try Self.nonemptyOID(
                         from: container,
-                        forKey: .contributionBaseOID,
+                        forKey: .baseOID,
                         decoder: decoder
                     )
                 )
@@ -80,14 +82,14 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
         case .contribution(let origin):
             try Self.validateNonemptyOID(origin.resolvedTargetOID, encoder: encoder)
             try Self.validateNonemptyOID(origin.reviewedHeadOID, encoder: encoder)
-            try Self.validateNonemptyOID(origin.contributionBaseOID, encoder: encoder)
+            try Self.validateNonemptyOID(origin.baseOID, encoder: encoder)
             try container.encode(Kind.contribution, forKey: .kind)
-            try container.encode(EndpointRole.contributionBase, forKey: .baseRole)
-            try container.encode(EndpointRole.capturedWorkingTree, forKey: .comparedRole)
+            try container.encode(origin.baseRole, forKey: .baseRole)
+            try container.encode(ComparedEndpointRole.capturedWorkingTree, forKey: .comparedRole)
             try container.encode(origin.symbolicTarget, forKey: .symbolicTarget)
             try container.encode(origin.resolvedTargetOID, forKey: .resolvedTargetOID)
             try container.encode(origin.reviewedHeadOID, forKey: .reviewedHeadOID)
-            try container.encode(origin.contributionBaseOID, forKey: .contributionBaseOID)
+            try container.encode(origin.baseOID, forKey: .baseOID)
         }
     }
 
@@ -107,12 +109,12 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
     }
 
     private static func requireRole(
-        _ expectedRole: EndpointRole,
+        _ expectedRole: ComparedEndpointRole,
         forKey key: CodingKeys,
         in container: KeyedDecodingContainer<CodingKeys>,
         decoder: Decoder
     ) throws {
-        guard try container.decode(EndpointRole.self, forKey: key) == expectedRole else {
+        guard try container.decode(ComparedEndpointRole.self, forKey: key) == expectedRole else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath + [key],
@@ -156,18 +158,21 @@ package struct BridgeReviewContributionOrigin: Codable, Equatable, Sendable {
     package let symbolicTarget: WorkspaceReviewContributionTarget
     package let resolvedTargetOID: String
     package let reviewedHeadOID: String
-    package let contributionBaseOID: String
+    package let baseRole: BridgeReviewComparisonBaseRole
+    package let baseOID: String
 
     package init(
         symbolicTarget: WorkspaceReviewContributionTarget,
         resolvedTargetOID: String,
         reviewedHeadOID: String,
-        contributionBaseOID: String
+        baseRole: BridgeReviewComparisonBaseRole = .commonCommit,
+        baseOID: String
     ) {
         self.symbolicTarget = symbolicTarget
         self.resolvedTargetOID = resolvedTargetOID
         self.reviewedHeadOID = reviewedHeadOID
-        self.contributionBaseOID = contributionBaseOID
+        self.baseRole = baseRole
+        self.baseOID = baseOID
     }
 }
 
@@ -193,18 +198,21 @@ package struct BridgeContributionComparisonRequest: Equatable, Sendable {
 package struct BridgeContributionComparisonCapture: Equatable, Sendable {
     package let resolvedTargetOID: String
     package let reviewedHeadOID: String
-    package let contributionBaseOID: String
+    package let baseRole: BridgeReviewComparisonBaseRole
+    package let baseOID: String
     package let comparison: BridgeEndpointComparison
 
     package init(
         resolvedTargetOID: String,
         reviewedHeadOID: String,
-        contributionBaseOID: String,
+        baseRole: BridgeReviewComparisonBaseRole = .commonCommit,
+        baseOID: String,
         comparison: BridgeEndpointComparison
     ) {
         self.resolvedTargetOID = resolvedTargetOID
         self.reviewedHeadOID = reviewedHeadOID
-        self.contributionBaseOID = contributionBaseOID
+        self.baseRole = baseRole
+        self.baseOID = baseOID
         self.comparison = comparison
     }
 }
@@ -267,7 +275,8 @@ enum BridgeResolvedContributionRequestBuilder {
                     symbolicTarget: symbolicTarget,
                     resolvedTargetOID: capture.resolvedTargetOID,
                     reviewedHeadOID: capture.reviewedHeadOID,
-                    contributionBaseOID: capture.contributionBaseOID
+                    baseRole: capture.baseRole,
+                    baseOID: capture.baseOID
                 )
             ),
             reviewedSubjectLabel: reviewedSubjectLabel

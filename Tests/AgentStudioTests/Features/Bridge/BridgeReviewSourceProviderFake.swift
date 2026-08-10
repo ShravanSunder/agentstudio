@@ -69,13 +69,13 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
             worktreeId: request.baseEndpoint.worktreeId,
             label: request.baseEndpoint.label,
             createdAtUnixMilliseconds: request.baseEndpoint.createdAtUnixMilliseconds,
-            contentSetHash: contributionCapture.contributionBaseOID,
-            providerIdentity: contributionCapture.contributionBaseOID
+            contentSetHash: contributionCapture.baseOID,
+            providerIdentity: contributionCapture.baseOID
         )
         return BridgeContributionComparisonCapture(
             resolvedTargetOID: contributionCapture.resolvedTargetOID,
             reviewedHeadOID: contributionCapture.reviewedHeadOID,
-            contributionBaseOID: contributionCapture.contributionBaseOID,
+            baseOID: contributionCapture.baseOID,
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,
                 headEndpoint: request.headEndpoint,

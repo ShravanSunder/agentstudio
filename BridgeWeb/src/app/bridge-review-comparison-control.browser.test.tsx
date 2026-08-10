@@ -23,10 +23,10 @@ const narrowComparisonScenarios = [
 ] as const;
 
 describe('BridgeReviewComparisonControl Browser Mode', () => {
-	test('shows exact current target and shared-start facts without Git implementation vocabulary', async () => {
+	test('shows the current base branch and effective comparison commit', async () => {
 		// Arrange
 		const reviewPackage = contributionPackage({
-			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 			packageId: 'package-current',
 			resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
 			revision: 3,
@@ -55,28 +55,25 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		const content = rendered.getByTestId('bridge-review-comparison-content');
 		await expect.element(content).toBeVisible();
+		await expect.element(rendered.getByText('Base branch')).toBeVisible();
+		await expect.element(content.getByText('master', { exact: true })).toBeVisible();
 		await expect
-			.element(rendered.getByRole('region', { name: 'Current comparison' }))
-			.toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
-			.toHaveTextContent('mmmmmmmmmmmm');
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-revision'))
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
 		expect(content.element().textContent).not.toMatch(
-			/Head vs Base|Default|Contribution|three-dot|merge base/u,
+			/Review starts from|Contribution|three-dot|merge base/u,
 		);
 	});
 
-	test('describes the shared start and its relationship to the named default branch', async () => {
+	test('describes the default base branch and effective common commit', async () => {
 		// Arrange
 		const reviewPackage = contributionPackage({
-			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 			packageId: 'package-default-relationship',
 			resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
 			revision: 4,
 			symbolicTarget: {
+				basis: 'commonCommit',
 				branchName: 'main',
 				kind: 'originDefaultBranch',
 				remoteName: 'origin',
@@ -86,6 +83,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
 					activeTarget: {
+						basis: 'commonCommit',
 						branchName: 'main',
 						kind: 'originDefaultBranch',
 						remoteName: 'origin',
@@ -109,10 +107,13 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		});
 
 		// Assert
-		await expect.element(rendered.getByText('Review starts from')).toBeVisible();
+		await expect.element(rendered.getByText('Base branch')).toBeVisible();
 		await expect
-			.element(rendered.getByText('Latest commit shared with default branch origin/main'))
+			.element(rendered.getByRole('paragraph').getByText('origin/main', { exact: true }))
 			.toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
+			.toHaveTextContent('bbbbbbbbbbbb');
 	});
 
 	test('explains when a comparison target must be chosen', async () => {
@@ -147,7 +148,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 	test('keeps requested target and stale predecessor facts distinct while pending', async () => {
 		// Arrange
 		const stalePackage = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			baseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			packageId: 'package-stale',
 			resolvedTargetOID: '1111111111111111111111111111111111111111',
 			revision: 4,
@@ -155,7 +156,11 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
-					activeTarget: { kind: 'ref', name: 'feature/new-target' },
+					activeTarget: {
+						basis: 'commonCommit',
+						kind: 'ref',
+						name: 'feature/new-target',
+					},
 					attempt: { reviewGeneration: 2, status: 'pending' },
 					displayedSnapshot: {
 						packageId: stalePackage.packageId,
@@ -177,7 +182,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare: feature/new-target · Updating');
+			.toHaveTextContent('Compare: master · Updating');
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
 		await expect
 			.element(
@@ -186,15 +191,15 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				),
 			)
 			.toBeVisible();
-		await expect.element(rendered.getByText('Previous comparison', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('Base branch')).toBeVisible();
 		await expect
-			.element(rendered.getByText('1111111111111111111111111111111111111111', { exact: true }))
-			.toBeInTheDocument();
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
+			.toHaveTextContent('aaaaaaaaaaaa');
 	});
 
 	test('retries a retryable unavailable comparison with the canonical active target', async () => {
 		// Arrange
-		const activeTarget = { kind: 'branch', name: 'release/next' } as const;
+		const activeTarget = { basis: 'commonCommit', kind: 'branch', name: 'release/next' } as const;
 		const applyTarget = vi.fn();
 		const rendered = await render(
 			<BridgeReviewComparisonControl
@@ -291,7 +296,12 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
-					activeTarget: { branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
+					activeTarget: {
+						basis: 'commonCommit',
+						branchName: 'main',
+						kind: 'originDefaultBranch',
+						remoteName: 'origin',
+					},
 					displayedSnapshot: { status: 'none' },
 					targetCatalog: targetCatalog(),
 				})}
@@ -333,15 +343,21 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 
 	test.each([
 		{
-			expectedTarget: { branchName: 'main', kind: 'originDefaultBranch', remoteName: 'origin' },
+			expectedTarget: {
+				basis: 'commonCommit',
+				branchName: 'main',
+				kind: 'originDefaultBranch',
+				remoteName: 'origin',
+			},
 			rowTestId: 'comparison-branch-origin-main',
 		},
 		{
-			expectedTarget: { kind: 'branch', name: 'main' },
+			expectedTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
 			rowTestId: 'comparison-branch-main',
 		},
 		{
 			expectedTarget: {
+				basis: 'commonCommit',
 				branchName: 'release',
 				kind: 'originDefaultBranch',
 				remoteName: 'upstream',
@@ -414,205 +430,21 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({ kind: 'commit', oid: fullOID });
 	});
 
-	test('explains target-only movement from the directly preceding displayed origin', async () => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-target-predecessor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 10,
-		});
-		const successor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-target-successor',
-			resolvedTargetOID: '2222222222222222222222222222222222222222',
-			revision: 11,
-		});
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(successor)}
-				displayedReviewPackage={successor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-		});
-
-		// Assert
-		await expect.element(rendered.getByText('Comparison refreshed')).toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-movement'))
-			.toHaveTextContent(/111111111111.*222222222222/u);
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-movement'))
-			.toHaveTextContent(/remains.*aaaaaaaaaaaa/u);
-	});
-
-	test('explains shared-start movement without inventing target movement', async () => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-base-predecessor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 12,
-		});
-		const successor = contributionPackage({
-			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-			packageId: 'package-base-successor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 13,
-		});
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(successor)}
-				displayedReviewPackage={successor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-		});
-
-		// Assert
-		await expect.element(rendered.getByText('Comparison refreshed')).toBeVisible();
-		expect(
-			document.querySelector('[data-testid="bridge-review-comparison-target-movement"]'),
-		).toBeNull();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-movement'))
-			.toHaveTextContent(/aaaaaaaaaaaa.*bbbbbbbbbbbb/u);
-		await expect
-			.element(rendered.getByText('Files may have entered or left this review.'))
-			.toBeVisible();
-	});
-
-	test('explains both target and shared-start movement independently', async () => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-both-predecessor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 14,
-		});
-		const successor = contributionPackage({
-			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-			packageId: 'package-both-successor',
-			resolvedTargetOID: '2222222222222222222222222222222222222222',
-			revision: 15,
-		});
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(successor)}
-				displayedReviewPackage={successor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-		});
-
-		// Assert
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-movement'))
-			.toHaveTextContent(/111111111111.*222222222222/u);
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-movement'))
-			.toHaveTextContent(/aaaaaaaaaaaa.*bbbbbbbbbbbb/u);
-		await expect
-			.element(rendered.getByText('Files may have entered or left this review.'))
-			.toBeVisible();
-	});
-
-	test('preserves the movement predecessor across separate presentation and package delivery', async () => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-separated-predecessor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 22,
-		});
-		const successor = contributionPackage({
-			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-			packageId: 'package-separated-successor',
-			resolvedTargetOID: '2222222222222222222222222222222222222222',
-			revision: 23,
-		});
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Act — presentation can identify the successor before its package frame arrives.
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(successor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(successor)}
-				displayedReviewPackage={successor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-		});
-
-		// Assert
-		await expect.element(rendered.getByText('Comparison refreshed')).toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-movement'))
-			.toHaveTextContent(/111111111111.*222222222222/u);
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-movement'))
-			.toHaveTextContent(/aaaaaaaaaaaa.*bbbbbbbbbbbb/u);
-	});
-
 	test('keeps the rendered predecessor labeled with its own target until the successor package arrives', async () => {
 		// Arrange
 		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			baseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 			packageId: 'package-delivery-predecessor',
 			resolvedTargetOID: '1111111111111111111111111111111111111111',
 			revision: 24,
 		});
-		const successorTarget = { kind: 'ref', name: 'feature/new-target' } as const;
+		const successorTarget = {
+			basis: 'commonCommit',
+			kind: 'ref',
+			name: 'feature/new-target',
+		} as const;
 		const successor = contributionPackage({
-			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
 			packageId: 'package-delivery-successor',
 			resolvedTargetOID: '2222222222222222222222222222222222222222',
 			revision: 25,
@@ -647,17 +479,14 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert — closed chrome names the requested target while popup details retain the package visible now.
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare: feature/new-target · Updating');
+			.toHaveTextContent('Compare: master · Updating');
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
-		await expect.element(rendered.getByText('Previous comparison', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('Base branch')).toBeVisible();
 		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
-			.toHaveTextContent('111111111111');
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-revision'))
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('aaaaaaaaaaaa');
 
 		// Act — the package frame catches up with the settled presentation.
@@ -673,189 +502,10 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
 			.toHaveTextContent('Compare: feature/new-target');
+		await expect.element(rendered.getByText('Base branch')).toBeVisible();
 		await expect
-			.element(rendered.getByRole('region', { name: 'Current comparison' }))
-			.toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
-			.toHaveTextContent('222222222222');
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-shared-start-revision'))
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
-	});
-
-	test.each([
-		{
-			label: 'repository changes',
-			mutate: (reviewPackage: BridgeReviewPackage): BridgeReviewPackage => ({
-				...reviewPackage,
-				query: { ...reviewPackage.query, repoId: 'another-repo' },
-			}),
-		},
-		{
-			label: 'worktree changes',
-			mutate: (reviewPackage: BridgeReviewPackage): BridgeReviewPackage => ({
-				...reviewPackage,
-				query: { ...reviewPackage.query, worktreeId: 'another-worktree' },
-			}),
-		},
-		{
-			label: 'symbolic target changes',
-			mutate: (reviewPackage: BridgeReviewPackage): BridgeReviewPackage => ({
-				...reviewPackage,
-				comparisonOrigin:
-					reviewPackage.comparisonOrigin?.kind === 'contribution'
-						? {
-								...reviewPackage.comparisonOrigin,
-								symbolicTarget: { kind: 'ref', name: 'feature/another-base' },
-							}
-						: reviewPackage.comparisonOrigin,
-			}),
-		},
-	])('does not claim movement when the adjacent $label', async (scenario) => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: `package-mismatch-predecessor-${scenario.label}`,
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 16,
-		});
-		const successor = scenario.mutate(
-			contributionPackage({
-				contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-				packageId: `package-mismatch-successor-${scenario.label}`,
-				resolvedTargetOID: '2222222222222222222222222222222222222222',
-				revision: 17,
-			}),
-		);
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(successor)}
-				displayedReviewPackage={successor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Assert
-		await expect
-			.poll(() => document.querySelector('[aria-label="Comparison refreshed"]'))
-			.toBeNull();
-	});
-
-	test('does not claim movement for the first displayed package or a content-only successor', async () => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-content-predecessor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 18,
-		});
-		const contentOnlySuccessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-content-successor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 19,
-		});
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Assert
-		await expect
-			.poll(() => document.querySelector('[aria-label="Comparison refreshed"]'))
-			.toBeNull();
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(contentOnlySuccessor)}
-				displayedReviewPackage={contentOnlySuccessor}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Assert
-		await expect
-			.poll(() => document.querySelector('[aria-label="Comparison refreshed"]'))
-			.toBeNull();
-	});
-
-	test('tracks an inactive successor while closing and hiding the comparison popover', async () => {
-		// Arrange
-		const predecessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-inactive-predecessor',
-			resolvedTargetOID: '1111111111111111111111111111111111111111',
-			revision: 20,
-		});
-		const inactiveSuccessor = contributionPackage({
-			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-			packageId: 'package-inactive-successor',
-			resolvedTargetOID: '2222222222222222222222222222222222222222',
-			revision: 21,
-		});
-		const rendered = await render(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(predecessor)}
-				displayedReviewPackage={predecessor}
-				isActive={true}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-		});
-		await expect.element(rendered.getByTestId('bridge-review-comparison-content')).toBeVisible();
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(inactiveSuccessor)}
-				displayedReviewPackage={inactiveSuccessor}
-				isActive={false}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-
-		// Assert
-		await expect
-			.poll(() => document.querySelector('[data-testid="bridge-review-comparison-trigger"]'))
-			.toBeNull();
-		await expect
-			.poll(() => document.querySelector('[data-testid="bridge-review-comparison-content"]'))
-			.toBeNull();
-
-		// Act
-		await rendered.rerender(
-			<BridgeReviewComparisonControl
-				comparisonPresentation={currentPresentationForPackage(inactiveSuccessor)}
-				displayedReviewPackage={inactiveSuccessor}
-				isActive={true}
-				onApplyTarget={vi.fn()}
-			/>,
-		);
-		await act(async (): Promise<void> => {
-			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-		});
-
-		// Assert
-		await expect.element(rendered.getByText('Comparison refreshed')).toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-movement'))
-			.toHaveTextContent(/111111111111.*222222222222/u);
 	});
 });
 
@@ -876,7 +526,7 @@ function comparisonPresentation(props: {
 	return {
 		activeTarget:
 			props.activeTarget === undefined
-				? { branchName: 'master', kind: 'localDefaultBranch' }
+				? { basis: 'commonCommit', branchName: 'master', kind: 'localDefaultBranch' }
 				: props.activeTarget,
 		attempt: props.attempt ?? { reviewGeneration: 1, status: 'settled' },
 		displayedSnapshot: props.displayedSnapshot,
@@ -951,7 +601,7 @@ function unstagedOnlyPackage(): BridgeReviewPackage {
 }
 
 function contributionPackage(props: {
-	readonly contributionBaseOID: string;
+	readonly baseOID: string;
 	readonly packageId: string;
 	readonly resolvedTargetOID: string;
 	readonly revision: number;
@@ -960,13 +610,14 @@ function contributionPackage(props: {
 	return {
 		...makeBridgeReviewPackage(),
 		comparisonOrigin: {
-			baseRole: 'contributionBase',
+			baseOID: props.baseOID,
+			baseRole: 'commonCommit',
 			comparedRole: 'capturedWorkingTree',
-			contributionBaseOID: props.contributionBaseOID,
 			kind: 'contribution',
 			resolvedTargetOID: props.resolvedTargetOID,
 			reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
 			symbolicTarget: props.symbolicTarget ?? {
+				basis: 'commonCommit',
 				branchName: 'master',
 				kind: 'localDefaultBranch',
 			},

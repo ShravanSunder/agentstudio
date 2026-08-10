@@ -9,7 +9,9 @@ describe('Bridge product-control contracts', () => {
 				{ method: 'review.markFileViewed', params: { fileId: 'item-1' } },
 				{
 					method: 'review.comparison.update',
-					params: { target: { kind: 'branch', name: 'feature/review' } },
+					params: {
+						target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
+					},
 				},
 				{
 					method: 'bridge.activeViewerMode.update',

@@ -224,7 +224,7 @@ const intakeReadyResult: Promise<null> = productTransport.call('review.intake.re
 void intakeReadyResult;
 const reviewComparisonUpdateResult: Promise<null> = productTransport.call(
 	'review.comparison.update',
-	{ target: { kind: 'branch', name: 'feature/review' } },
+	{ target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' } },
 );
 void reviewComparisonUpdateResult;
 const reviewPublicationAppliedResult: Promise<null> = productTransport.call(

@@ -180,7 +180,7 @@ extension WebKitSerializedTests {
                     contributionCapture: BridgeContributionComparisonCapture(
                         resolvedTargetOID: "resolved-target-oid",
                         reviewedHeadOID: "reviewed-head-oid",
-                        contributionBaseOID: "contribution-base-oid",
+                        baseOID: "contribution-base-oid",
                         comparison: comparison
                     ),
                 )
@@ -856,7 +856,7 @@ private actor CanonicalContributionReviewSourceProvider: BridgeReviewSourceProvi
         return BridgeContributionComparisonCapture(
             resolvedTargetOID: "target-oid",
             reviewedHeadOID: "head-oid",
-            contributionBaseOID: "base-oid",
+            baseOID: "base-oid",
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,
                 headEndpoint: request.headEndpoint,

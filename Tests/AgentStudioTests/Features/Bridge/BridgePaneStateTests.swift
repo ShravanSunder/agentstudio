@@ -106,6 +106,30 @@ final class BridgePaneStateTests {
         #expect(workspace["baseline"] == nil)
     }
 
+    @Test
+    func test_codable_roundTrip_preservesBranchTipComparisonBasis() throws {
+        let target = WorkspaceReviewContributionTarget.branch(
+            name: "review/selected-target",
+            basis: .branchTip
+        )
+
+        let data = try JSONEncoder().encode(target)
+
+        #expect(
+            try JSONDecoder().decode(WorkspaceReviewContributionTarget.self, from: data) == target
+        )
+    }
+
+    @Test
+    func test_codable_defaultsLegacyTargetBasisToCommonCommit() throws {
+        let target = try JSONDecoder().decode(
+            WorkspaceReviewContributionTarget.self,
+            from: Data(#"{"kind":"branch","name":"review/legacy"}"#.utf8)
+        )
+
+        #expect(target == .branch(name: "review/legacy", basis: .commonCommit))
+    }
+
     @Test(arguments: legacyWorkspaceIntentCases)
     func test_codable_decodesLegacyWorkspacePayload(
         legacyJSON: String,

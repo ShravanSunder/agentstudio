@@ -71,7 +71,12 @@ describe('Bridge comm worker protocol', () => {
 			encodeBridgeWorkerReviewComparisonUpdateCommand({
 				requestId: 'request-review-comparison-update',
 				epoch: 1,
-				target: { kind: 'originDefaultBranch', remoteName: 'origin', branchName: 'main' },
+				target: {
+					basis: 'commonCommit',
+					kind: 'originDefaultBranch',
+					remoteName: 'origin',
+					branchName: 'main',
+				},
 			}),
 			encodeBridgeWorkerModeCommand({
 				requestId: 'request-mode',
@@ -136,7 +141,12 @@ describe('Bridge comm worker protocol', () => {
 		});
 		expect(commands[6]).toMatchObject({
 			command: 'reviewComparisonUpdate',
-			target: { kind: 'originDefaultBranch', remoteName: 'origin', branchName: 'main' },
+			target: {
+				basis: 'commonCommit',
+				kind: 'originDefaultBranch',
+				remoteName: 'origin',
+				branchName: 'main',
+			},
 		});
 		expect(commands[8]).toMatchObject({
 			command: 'activeViewerModeUpdate',

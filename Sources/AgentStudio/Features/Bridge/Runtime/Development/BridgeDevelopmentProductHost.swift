@@ -801,13 +801,15 @@ package actor BridgeDevelopmentProductHost {
 
     private static func label(for target: WorkspaceReviewContributionTarget) -> String {
         switch target {
-        case .localDefaultBranch(let branchName), .branch(let branchName):
+        case .localDefaultBranch(let branchName, _):
             branchName
-        case .originDefaultBranch(let remoteName, let branchName):
+        case .branch(let name, _):
+            name
+        case .originDefaultBranch(let remoteName, let branchName, _):
             "\(remoteName)/\(branchName)"
         case .commit(let oid):
             oid
-        case .ref(let name):
+        case .ref(let name, _):
             name
         }
     }
