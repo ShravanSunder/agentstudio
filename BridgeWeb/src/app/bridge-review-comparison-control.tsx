@@ -9,7 +9,14 @@ import {
 	type ReactElement,
 } from 'react';
 
-import { Button } from '../components/ui/button.js';
+import { Button, buttonVariants } from '../components/ui/button.js';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu.js';
 import { Input } from '../components/ui/input.js';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '../components/ui/popover.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
@@ -39,24 +46,6 @@ export function BridgeReviewComparisonControl(
 	const [validationMessage, setValidationMessage] = useState<string | null>(null);
 	const branchSearchInputRef = useRef<HTMLInputElement>(null);
 	const commitInputRef = useRef<HTMLInputElement>(null);
-	const displayedReviewPackage = displayedReviewPackageForComparison(props);
-	const precedingDisplayedPackageRef = useRef<BridgeReviewPackage | null>(null);
-	const [movementSummary, setMovementSummary] = useState<ComparisonMovementSummary | null>(null);
-	useEffect((): void => {
-		const precedingPackage = precedingDisplayedPackageRef.current;
-		if (displayedReviewPackage === null) {
-			setMovementSummary(null);
-			return;
-		}
-		if (
-			precedingPackage !== null &&
-			reviewPackageIdentity(precedingPackage) === reviewPackageIdentity(displayedReviewPackage)
-		) {
-			return;
-		}
-		setMovementSummary(deriveComparisonMovementSummary(precedingPackage, displayedReviewPackage));
-		precedingDisplayedPackageRef.current = displayedReviewPackage;
-	}, [displayedReviewPackage]);
 	useEffect((): void => {
 		if (!isActive) {
 			setOpen(false);
@@ -79,14 +68,13 @@ export function BridgeReviewComparisonControl(
 	const describedTargetLabel =
 		describedTarget === null ? '' : comparisonTargetLabel(describedTarget);
 	const statePresentation = comparisonStatePresentation(props, displayedContribution);
-	const hasComparisonDetails =
-		statePresentation !== null || displayedContribution !== null || movementSummary !== null;
+	const hasCurrentState = statePresentation !== null || displayedContribution !== null;
 	const sharedHistoryDescription =
 		narrowComparisonLabel !== null
 			? narrowComparisonDescription(narrowComparisonLabel)
 			: describedTarget === null
 				? 'Choose a local branch, remote-tracking branch, or Git reference for this review.'
-				: `Shows committed and uncommitted changes since this worktree's latest shared commit with ${describedTargetLabel}. Changes only on ${describedTargetLabel} are excluded.`;
+				: comparisonTargetDescription(describedTarget, describedTargetLabel);
 	const targetCatalog = props.comparisonPresentation?.targetCatalog ?? null;
 	const applyCommitOID = (event: FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
@@ -148,205 +136,245 @@ export function BridgeReviewComparisonControl(
 			<PopoverContent
 				aria-describedby={descriptionId}
 				align="end"
-				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-96 gap-2.5')}
+				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-96 gap-0')}
 				data-testid="bridge-review-comparison-content"
 				initialFocus={(): HTMLElement | null =>
 					selectionMode === 'branch' ? branchSearchInputRef.current : commitInputRef.current
 				}
 				sideOffset={6}
 			>
-				<header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1 pt-0.5">
-					<PopoverTitle className="text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-primary)]">
-						Compare Worktree
-					</PopoverTitle>
-					<ToggleGroup aria-label="Comparison target kind" role="group" size="sm">
-						<ToggleGroupItem
-							onClick={(): void => {
-								setSelectionMode('branch');
-								setValidationMessage(null);
-							}}
-							pressed={selectionMode === 'branch'}
-						>
-							Branch
-						</ToggleGroupItem>
-						<ToggleGroupItem
-							onClick={(): void => {
-								setSelectionMode('commit');
-								setValidationMessage(null);
-							}}
-							pressed={selectionMode === 'commit'}
-						>
-							Commit
-						</ToggleGroupItem>
-					</ToggleGroup>
-				</header>
-				{selectionMode === 'branch' ? (
-					<BridgeReviewComparisonBranchSelector
-						activeTarget={activeTarget}
-						onSelectTarget={(target): void => {
-							props.onApplyTarget(target);
-							setOpen(false);
-						}}
-						searchInputRef={branchSearchInputRef}
-						targetCatalog={targetCatalog}
-					/>
-				) : (
-					<form className="flex flex-col gap-2" onSubmit={applyCommitOID}>
-						<div className="min-w-0">
-							<label className="sr-only" htmlFor={`${descriptionId}-commit-input`}>
-								Commit hash
-							</label>
-							<Input
-								aria-invalid={validationMessage === null ? undefined : true}
-								className="font-mono"
-								id={`${descriptionId}-commit-input`}
-								onChange={(event): void => setCommitOID(event.currentTarget.value)}
-								placeholder="Enter a full commit hash…"
-								ref={commitInputRef}
-								value={commitOID}
-							/>
-							{validationMessage === null ? null : (
-								<p className="mt-1 text-[11px] text-destructive" role="alert">
-									{validationMessage}
-								</p>
+				{hasCurrentState ? (
+					<>
+						<div className="flex flex-col gap-2 py-0.5">
+							{displayedContribution === null ? null : (
+								<ComparisonCurrentState
+									contribution={displayedContribution}
+									onApplyTarget={props.onApplyTarget}
+									targetCatalog={targetCatalog}
+								/>
+							)}
+							{statePresentation === null ? null : (
+								<ComparisonAttemptState
+									onRetry={(target): void => {
+										props.onApplyTarget(target);
+										setOpen(false);
+									}}
+									presentation={statePresentation}
+								/>
 							)}
 						</div>
-						<Button className="self-end" size="sm" type="submit" variant="secondary">
-							Compare to this commit
-						</Button>
-					</form>
-				)}
-				{hasComparisonDetails ? (
-					<div aria-hidden="true" className="-mx-2 h-px bg-[var(--bridge-border-subtle)]" />
+						<div
+							aria-hidden="true"
+							className="-mx-2 my-3 h-px bg-[var(--bridge-border-subtle)]"
+							data-testid="bridge-review-comparison-section-divider"
+						/>
+					</>
 				) : null}
-				{statePresentation === null ? null : (
-					<section aria-live="polite">
-						<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
-							{statePresentation.heading}
-						</p>
-						<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
-							{statePresentation.description}
-						</p>
-						{statePresentation.retryTarget === null ? null : (
-							<Button
-								className="mt-2"
+				<section
+					className="flex flex-col gap-2"
+					data-testid="bridge-review-comparison-target-selection"
+				>
+					<header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1">
+						<PopoverTitle className="text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-primary)]">
+							Compare Worktree
+						</PopoverTitle>
+						<ToggleGroup aria-label="Comparison target kind" role="group" size="sm">
+							<ToggleGroupItem
 								onClick={(): void => {
-									const retryTarget = statePresentation.retryTarget;
-									if (retryTarget === null) {
-										return;
-									}
-									props.onApplyTarget(retryTarget);
-									setOpen(false);
+									setSelectionMode('branch');
+									setValidationMessage(null);
 								}}
-								size="sm"
-								type="button"
-								variant="outline"
+								pressed={selectionMode === 'branch'}
 							>
-								Retry
+								Branch
+							</ToggleGroupItem>
+							<ToggleGroupItem
+								onClick={(): void => {
+									setSelectionMode('commit');
+									setValidationMessage(null);
+								}}
+								pressed={selectionMode === 'commit'}
+							>
+								Commit
+							</ToggleGroupItem>
+						</ToggleGroup>
+					</header>
+					{selectionMode === 'branch' ? (
+						<BridgeReviewComparisonBranchSelector
+							activeTarget={activeTarget}
+							onSelectTarget={(target): void => {
+								props.onApplyTarget(target);
+								setOpen(false);
+							}}
+							searchInputRef={branchSearchInputRef}
+							targetCatalog={targetCatalog}
+						/>
+					) : (
+						<form className="flex flex-col gap-2" onSubmit={applyCommitOID}>
+							<div className="min-w-0">
+								<label className="sr-only" htmlFor={`${descriptionId}-commit-input`}>
+									Commit hash
+								</label>
+								<Input
+									aria-invalid={validationMessage === null ? undefined : true}
+									className="border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] font-mono text-[var(--bridge-text-primary)] placeholder:text-[var(--bridge-text-muted)] focus-visible:border-[var(--bridge-focus-border)]"
+									id={`${descriptionId}-commit-input`}
+									onChange={(event): void => setCommitOID(event.currentTarget.value)}
+									placeholder="Enter a full commit hash…"
+									ref={commitInputRef}
+									value={commitOID}
+								/>
+								{validationMessage === null ? null : (
+									<p className="mt-1 text-[11px] text-destructive" role="alert">
+										{validationMessage}
+									</p>
+								)}
+							</div>
+							<Button className="self-end" size="sm" type="submit" variant="secondary">
+								Compare to this commit
 							</Button>
-						)}
-					</section>
-				)}
-				{displayedContribution === null ? null : (
-					<section aria-label={displayedContribution.heading} className="space-y-0.5">
-						{displayedContribution.heading === 'Previous comparison' ? (
-							<p className="text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-muted)]">
-								Previous comparison
-							</p>
-						) : null}
-						<p className="flex min-w-0 items-baseline gap-1 text-[11px]">
-							<span className="truncate text-[var(--bridge-text-secondary)]">
-								{comparisonTargetLabel(displayedContribution.origin.symbolicTarget)} @
-							</span>
-							<ComparisonRevision
-								testId="bridge-review-comparison-target-revision"
-								value={displayedContribution.origin.resolvedTargetOID}
-							/>
-						</p>
-						<p className="text-[11px] text-[var(--bridge-text-muted)]">
-							<span className="mr-1">Review starts from</span>
-							<ComparisonRevision
-								testId="bridge-review-comparison-shared-start-revision"
-								value={displayedContribution.origin.contributionBaseOID}
-							/>
-						</p>
-						<p className="text-[11px] text-[var(--bridge-text-muted)]">
-							{sharedStartRelationshipDescription(
-								displayedContribution.origin.symbolicTarget,
-								targetCatalog,
-							)}
-						</p>
-					</section>
-				)}
-				{movementSummary === null ? null : (
-					<ComparisonMovementSummaryView summary={movementSummary} />
-				)}
+						</form>
+					)}
+				</section>
 			</PopoverContent>
 		</Popover>
 	);
 }
 
-function ComparisonMovementSummaryView(props: {
-	readonly summary: ComparisonMovementSummary;
+function ComparisonCurrentState(props: {
+	readonly contribution: DisplayedContribution;
+	readonly onApplyTarget: BridgeReviewComparisonControlProps['onApplyTarget'];
+	readonly targetCatalog: ReviewComparisonTargetCatalog | null;
 }): ReactElement {
-	return (
-		<section aria-label="Comparison refreshed">
-			<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
-				Comparison refreshed
-			</p>
-			<dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
-				{props.summary.targetMovement === null ? null : (
-					<>
-						<dt className="text-[var(--bridge-text-muted)]">
-							{comparisonTargetLabel(props.summary.symbolicTarget)} updated
-						</dt>
-						<dd data-testid="bridge-review-comparison-target-movement">
-							<ComparisonRevision
-								testId="bridge-review-comparison-previous-target-revision"
-								value={props.summary.targetMovement.previousRevision}
-							/>
-							<span aria-hidden="true"> → </span>
-							<span className="sr-only"> to </span>
-							<ComparisonRevision
-								testId="bridge-review-comparison-current-target-revision"
-								value={props.summary.targetMovement.currentRevision}
-							/>
-						</dd>
-					</>
-				)}
-				<dt className="text-[var(--bridge-text-muted)]">Shared starting point</dt>
-				<dd data-testid="bridge-review-comparison-shared-start-movement">
-					{props.summary.sharedStartMovement.kind === 'unchanged' ? (
-						<>
-							<span className="mr-1">remains</span>
-							<ComparisonRevision
-								testId="bridge-review-comparison-unchanged-shared-start-revision"
-								value={props.summary.sharedStartMovement.revision}
-							/>
-						</>
-					) : (
-						<>
-							<ComparisonRevision
-								testId="bridge-review-comparison-previous-shared-start-revision"
-								value={props.summary.sharedStartMovement.previousRevision}
-							/>
-							<span aria-hidden="true"> → </span>
-							<span className="sr-only"> to </span>
-							<ComparisonRevision
-								testId="bridge-review-comparison-current-shared-start-revision"
-								value={props.summary.sharedStartMovement.currentRevision}
-							/>
-						</>
-					)}
-				</dd>
-			</dl>
-			{props.summary.sharedStartMovement.kind === 'changed' ? (
-				<p className="mt-1 text-[11px] text-[var(--bridge-text-muted)]">
-					Files may have entered or left this review.
+	const { origin } = props.contribution;
+	const symbolicTarget = origin.symbolicTarget;
+	const targetLabel = comparisonTargetLabel(symbolicTarget);
+	if (symbolicTarget.kind === 'commit') {
+		return (
+			<section
+				className="flex flex-col gap-1 px-1"
+				data-testid="bridge-review-comparison-current-state"
+			>
+				<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
+					Base commit
 				</p>
-			) : null}
+				<div>
+					<ComparisonRevision
+						testId="bridge-review-comparison-effective-revision"
+						value={origin.baseOID}
+					/>
+				</div>
+			</section>
+		);
+	}
+	const defaultTarget = props.targetCatalog?.defaultTarget ?? null;
+	const isDefault = targetMatchesCatalogDefault(symbolicTarget, defaultTarget);
+	const activeBasis = origin.baseRole === 'commonCommit' ? 'commonCommit' : 'branchTip';
+	const effectiveBasisLabel = activeBasis === 'commonCommit' ? 'Common commit' : 'Branch tip';
+	return (
+		<section
+			className="flex flex-col gap-1.5 px-1"
+			data-testid="bridge-review-comparison-current-state"
+		>
+			<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
+				Base branch
+			</p>
+			<div className="flex flex-col gap-2">
+				<p className="flex min-w-0 items-baseline gap-1.5 text-xs text-[var(--bridge-text-primary)]">
+					<span className="truncate">{targetLabel}</span>
+					{isDefault ? (
+						<span className="flex shrink-0 items-baseline gap-1 text-[11px] text-[var(--bridge-text-muted)]">
+							<span aria-hidden="true">·</span>
+							<span>Default</span>
+						</span>
+					) : null}
+				</p>
+				<div className="flex min-w-0 items-center gap-2">
+					<span className="shrink-0 text-[11px] text-[var(--bridge-text-muted)]">
+						Comparing from
+					</span>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							aria-label={`Comparing from ${effectiveBasisLabel}`}
+							className={cn(
+								buttonVariants({ size: 'sm', variant: 'outline' }),
+								'min-w-0 max-w-full justify-start bg-[var(--bridge-header-control-bg)]',
+							)}
+							data-testid="bridge-review-comparison-basis-trigger"
+						>
+							<span>{effectiveBasisLabel} @</span>
+							<ComparisonRevision
+								testId="bridge-review-comparison-effective-revision"
+								value={origin.baseOID}
+							/>
+							<ChevronDownIcon aria-hidden="true" data-icon="inline-end" />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent
+							align="start"
+							className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-64')}
+							sideOffset={4}
+						>
+							<DropdownMenuRadioGroup value={activeBasis}>
+								<DropdownMenuRadioItem
+									onClick={(): void =>
+										props.onApplyTarget(comparisonTargetWithBasis(symbolicTarget, 'commonCommit'))
+									}
+									value="commonCommit"
+								>
+									Common commit
+								</DropdownMenuRadioItem>
+								<DropdownMenuRadioItem
+									onClick={(): void =>
+										props.onApplyTarget(comparisonTargetWithBasis(symbolicTarget, 'branchTip'))
+									}
+									value="branchTip"
+								>
+									Branch tip
+								</DropdownMenuRadioItem>
+							</DropdownMenuRadioGroup>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
+			</div>
 		</section>
 	);
+}
+
+function ComparisonAttemptState(props: {
+	readonly onRetry: (target: ReviewComparisonTarget) => void;
+	readonly presentation: ComparisonStatePresentation;
+}): ReactElement {
+	return (
+		<section aria-live="polite" className="px-1">
+			<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
+				{props.presentation.heading}
+			</p>
+			<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
+				{props.presentation.description}
+			</p>
+			{props.presentation.retryTarget === null ? null : (
+				<Button
+					className="mt-2"
+					onClick={(): void => {
+						const retryTarget = props.presentation.retryTarget;
+						if (retryTarget !== null) props.onRetry(retryTarget);
+					}}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Retry
+				</Button>
+			)}
+		</section>
+	);
+}
+
+function comparisonTargetWithBasis(
+	target: Exclude<ReviewComparisonTarget, { readonly kind: 'commit' }>,
+	basis: 'branchTip' | 'commonCommit',
+): ReviewComparisonTarget {
+	return { ...target, basis };
 }
 
 function ComparisonRevision(props: {
@@ -424,111 +452,6 @@ type ContributionOrigin = Extract<
 interface DisplayedContribution {
 	readonly heading: 'Current comparison' | 'Previous comparison';
 	readonly origin: ContributionOrigin;
-}
-
-interface ComparisonRevisionMovement {
-	readonly currentRevision: string;
-	readonly previousRevision: string;
-}
-
-interface ComparisonMovementSummary {
-	readonly sharedStartMovement:
-		| ({ readonly kind: 'changed' } & ComparisonRevisionMovement)
-		| { readonly kind: 'unchanged'; readonly revision: string };
-	readonly symbolicTarget: ReviewComparisonTarget;
-	readonly targetMovement: ComparisonRevisionMovement | null;
-}
-
-function deriveComparisonMovementSummary(
-	precedingPackage: BridgeReviewPackage | null,
-	currentPackage: BridgeReviewPackage,
-): ComparisonMovementSummary | null {
-	if (
-		precedingPackage === null ||
-		!comparisonPackagesShareMovementIdentity(precedingPackage, currentPackage)
-	) {
-		return null;
-	}
-	const precedingOrigin = precedingPackage.comparisonOrigin;
-	const currentOrigin = currentPackage.comparisonOrigin;
-	if (precedingOrigin?.kind !== 'contribution' || currentOrigin?.kind !== 'contribution') {
-		return null;
-	}
-	const targetChanged = precedingOrigin.resolvedTargetOID !== currentOrigin.resolvedTargetOID;
-	const sharedStartChanged =
-		precedingOrigin.contributionBaseOID !== currentOrigin.contributionBaseOID;
-	if (!targetChanged && !sharedStartChanged) {
-		return null;
-	}
-	return {
-		sharedStartMovement: sharedStartChanged
-			? {
-					currentRevision: currentOrigin.contributionBaseOID,
-					kind: 'changed',
-					previousRevision: precedingOrigin.contributionBaseOID,
-				}
-			: { kind: 'unchanged', revision: currentOrigin.contributionBaseOID },
-		symbolicTarget: currentOrigin.symbolicTarget,
-		targetMovement: targetChanged
-			? {
-					currentRevision: currentOrigin.resolvedTargetOID,
-					previousRevision: precedingOrigin.resolvedTargetOID,
-				}
-			: null,
-	};
-}
-
-function comparisonPackagesShareMovementIdentity(
-	precedingPackage: BridgeReviewPackage | null,
-	currentPackage: BridgeReviewPackage,
-): boolean {
-	if (
-		precedingPackage?.comparisonOrigin?.kind !== 'contribution' ||
-		currentPackage.comparisonOrigin?.kind !== 'contribution'
-	) {
-		return false;
-	}
-	return (
-		precedingPackage.query.repoId === currentPackage.query.repoId &&
-		precedingPackage.query.worktreeId === currentPackage.query.worktreeId &&
-		comparisonTargetsEqual(
-			precedingPackage.comparisonOrigin.symbolicTarget,
-			currentPackage.comparisonOrigin.symbolicTarget,
-		)
-	);
-}
-
-function comparisonTargetsEqual(
-	leftTarget: ReviewComparisonTarget,
-	rightTarget: ReviewComparisonTarget,
-): boolean {
-	if (leftTarget.kind !== rightTarget.kind) {
-		return false;
-	}
-	switch (leftTarget.kind) {
-		case 'localDefaultBranch':
-			return (
-				rightTarget.kind === 'localDefaultBranch' &&
-				leftTarget.branchName === rightTarget.branchName
-			);
-		case 'originDefaultBranch':
-			return (
-				rightTarget.kind === 'originDefaultBranch' &&
-				leftTarget.branchName === rightTarget.branchName &&
-				leftTarget.remoteName === rightTarget.remoteName
-			);
-		case 'branch':
-			return rightTarget.kind === 'branch' && leftTarget.name === rightTarget.name;
-		case 'commit':
-			return rightTarget.kind === 'commit' && leftTarget.oid === rightTarget.oid;
-		case 'ref':
-			return rightTarget.kind === 'ref' && leftTarget.name === rightTarget.name;
-	}
-	return unreachableComparisonValue(leftTarget);
-}
-
-function reviewPackageIdentity(reviewPackage: BridgeReviewPackage): string {
-	return `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${reviewPackage.revision}`;
 }
 
 interface ComparisonStatePresentation {
@@ -616,16 +539,6 @@ type ReviewComparisonTargetCatalog = NonNullable<
 	NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>['targetCatalog']
 >;
 
-function sharedStartRelationshipDescription(
-	target: ReviewComparisonTarget,
-	targetCatalog: ReviewComparisonTargetCatalog | null,
-): string {
-	const targetLabel = comparisonTargetLabel(target);
-	return targetCatalog !== null && targetMatchesCatalogDefault(target, targetCatalog.defaultTarget)
-		? `Latest commit shared with default branch ${targetLabel}`
-		: `Latest commit shared with ${targetLabel}`;
-}
-
 function targetMatchesCatalogDefault(
 	target: ReviewComparisonTarget,
 	defaultTarget: ReviewComparisonTargetCatalog['defaultTarget'],
@@ -671,6 +584,15 @@ function narrowComparisonDescription(
 	return narrowComparisonLabel === 'Staged only'
 		? 'Shows changes added to the staging area.'
 		: 'Shows tracked working tree changes that have not been staged.';
+}
+
+function comparisonTargetDescription(target: ReviewComparisonTarget, targetLabel: string): string {
+	if (target.kind === 'commit') {
+		return `Shows committed and uncommitted changes directly from commit ${targetLabel}.`;
+	}
+	return target.basis === 'branchTip'
+		? `Shows committed and uncommitted changes directly from the latest locally available ${targetLabel} revision.`
+		: `Shows committed and uncommitted changes since this worktree's latest shared commit with ${targetLabel}. Changes only on ${targetLabel} are excluded.`;
 }
 
 function comparisonTargetLabel(target: ReviewComparisonTarget): string {

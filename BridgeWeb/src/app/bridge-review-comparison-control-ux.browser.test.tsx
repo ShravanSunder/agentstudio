@@ -15,9 +15,10 @@ type ReviewComparisonPresentation = NonNullable<
 type ReviewComparisonTargetCatalog = NonNullable<ReviewComparisonPresentation['targetCatalog']>;
 
 describe('BridgeReviewComparisonControl UX Browser Mode', () => {
-	test('presents exact current comparison facts without redundant headings or explanation', async () => {
+	test('presents the current branch and one effective comparison commit as a compact hierarchy', async () => {
 		// Arrange
 		const symbolicTarget = {
+			basis: 'commonCommit',
 			branchName: 'journey-integration',
 			kind: 'originDefaultBranch',
 			remoteName: 'origin',
@@ -26,9 +27,9 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const reviewPackage: BridgeReviewPackage = {
 			...baseReviewPackage,
 			comparisonOrigin: {
-				baseRole: 'contributionBase',
+				baseOID: 'b'.repeat(40),
+				baseRole: 'commonCommit',
 				comparedRole: 'capturedWorkingTree',
-				contributionBaseOID: 'b'.repeat(40),
 				kind: 'contribution',
 				resolvedTargetOID: `51d3e39cffa1${'0'.repeat(28)}`,
 				reviewedHeadOID: 'h'.repeat(40),
@@ -41,6 +42,148 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 			<BridgeReviewComparisonControl
 				comparisonPresentation={{
 					activeTarget: symbolicTarget,
+					attempt: { reviewGeneration: 1, status: 'settled' },
+					displayedSnapshot: {
+						packageId: reviewPackage.packageId,
+						reviewGeneration: reviewPackage.reviewGeneration,
+						revision: reviewPackage.revision,
+						status: 'current',
+					},
+					targetCatalog: {
+						branches: [],
+						defaultTarget: {
+							branchName: 'journey-integration',
+							kind: 'remoteTracking',
+							oid: `51d3e39cffa1${'0'.repeat(28)}`,
+							remoteName: 'origin',
+						},
+					},
+				}}
+				displayedReviewPackage={reviewPackage}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const baseBranchLegend = rendered.getByText('Base branch', { exact: true });
+		await expect.element(baseBranchLegend).toBeVisible();
+		expect(getComputedStyle(baseBranchLegend.element()).textTransform).toBe('uppercase');
+		await expect
+			.element(rendered.getByText('origin/journey-integration', { exact: true }))
+			.toBeVisible();
+		await expect.element(rendered.getByText('Default', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('Comparing from', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('Common commit @', { exact: true })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
+			.toHaveTextContent('bbbbbbbbbbbb');
+		const currentState = rendered.getByTestId('bridge-review-comparison-current-state');
+		const selectionState = rendered.getByTestId('bridge-review-comparison-target-selection');
+		const sectionDivider = rendered.getByTestId('bridge-review-comparison-section-divider');
+		expect(getComputedStyle(currentState.element()).borderTopWidth).toBe('0px');
+		expect(getComputedStyle(sectionDivider.element()).height).toBe('1px');
+		expect(selectionState.element().getBoundingClientRect().top).toBeGreaterThan(
+			currentState.element().getBoundingClientRect().bottom,
+		);
+		const popupText =
+			rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? '';
+		expect(popupText).not.toContain('Current comparison');
+		expect(popupText).not.toContain('Review starts from');
+		expect(popupText).not.toContain('Latest commit shared with');
+		expect(popupText).not.toContain('Comparison refreshed');
+	});
+
+	test('selects direct branch-tip comparison through the owned radio menu', async () => {
+		// Arrange
+		const applyTarget = vi.fn();
+		const symbolicTarget = {
+			basis: 'commonCommit',
+			kind: 'branch',
+			name: 'journey-stack-base',
+		} as const;
+		const baseReviewPackage = makeBridgeReviewPackage();
+		const reviewPackage: BridgeReviewPackage = {
+			...baseReviewPackage,
+			comparisonOrigin: {
+				baseOID: 'a'.repeat(40),
+				baseRole: 'commonCommit',
+				comparedRole: 'capturedWorkingTree',
+				kind: 'contribution',
+				resolvedTargetOID: 'b'.repeat(40),
+				reviewedHeadOID: 'c'.repeat(40),
+				symbolicTarget,
+			},
+			packageId: 'package-custom-branch',
+			revision: 8,
+		};
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={{
+					activeTarget: symbolicTarget,
+					attempt: { reviewGeneration: 1, status: 'settled' },
+					displayedSnapshot: {
+						packageId: reviewPackage.packageId,
+						reviewGeneration: reviewPackage.reviewGeneration,
+						revision: reviewPackage.revision,
+						status: 'current',
+					},
+					targetCatalog: { branches: [], defaultTarget: null },
+				}}
+				displayedReviewPackage={reviewPackage}
+				onApplyTarget={applyTarget}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+			await rendered.getByTestId('bridge-review-comparison-basis-trigger').click();
+		});
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('menuitemradio', { name: 'Branch tip' }).click();
+		});
+
+		// Assert
+		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({
+			basis: 'branchTip',
+			kind: 'branch',
+			name: 'journey-stack-base',
+		});
+		await expect.element(rendered.getByText('journey-stack-base', { exact: true })).toBeVisible();
+		expect(
+			(
+				rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? ''
+			).includes('Default'),
+		).toBe(false);
+	});
+
+	test('shows an exact commit as one direct base without a basis selector', async () => {
+		// Arrange
+		const commitOID = 'd'.repeat(40);
+		const baseReviewPackage = makeBridgeReviewPackage();
+		const reviewPackage: BridgeReviewPackage = {
+			...baseReviewPackage,
+			comparisonOrigin: {
+				baseOID: commitOID,
+				baseRole: 'selectedTarget',
+				comparedRole: 'capturedWorkingTree',
+				kind: 'contribution',
+				resolvedTargetOID: commitOID,
+				reviewedHeadOID: 'e'.repeat(40),
+				symbolicTarget: { kind: 'commit', oid: commitOID },
+			},
+			packageId: 'package-exact-commit',
+			revision: 9,
+		};
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={{
+					activeTarget: { kind: 'commit', oid: commitOID },
 					attempt: { reviewGeneration: 1, status: 'settled' },
 					displayedSnapshot: {
 						packageId: reviewPackage.packageId,
@@ -61,16 +204,13 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		});
 
 		// Assert
+		await expect.element(rendered.getByText('Base commit', { exact: true })).toBeVisible();
 		await expect
-			.element(rendered.getByText('origin/journey-integration @', { exact: true }))
-			.toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
-			.toHaveTextContent('51d3e39cffa1');
-		const popupText =
-			rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? '';
-		expect(popupText).not.toContain('Current comparison');
-		expect(popupText).not.toContain('Shows committed and uncommitted changes');
+			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
+			.toHaveTextContent('dddddddddddd');
+		expect(
+			document.querySelector('[data-testid="bridge-review-comparison-basis-trigger"]'),
+		).toBeNull();
 	});
 
 	test('keeps stale predecessor target labeled during an unavailable request', async () => {
@@ -79,13 +219,17 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const stalePackage: BridgeReviewPackage = {
 			...baseReviewPackage,
 			comparisonOrigin: {
-				baseRole: 'contributionBase',
+				baseOID: 'a'.repeat(40),
+				baseRole: 'commonCommit',
 				comparedRole: 'capturedWorkingTree',
-				contributionBaseOID: 'a'.repeat(40),
 				kind: 'contribution',
 				resolvedTargetOID: '1'.repeat(40),
 				reviewedHeadOID: 'h'.repeat(40),
-				symbolicTarget: { branchName: 'master', kind: 'localDefaultBranch' },
+				symbolicTarget: {
+					basis: 'commonCommit',
+					branchName: 'master',
+					kind: 'localDefaultBranch',
+				},
 			},
 			packageId: 'package-unavailable-predecessor',
 			revision: 5,
@@ -93,7 +237,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={{
-					activeTarget: { kind: 'branch', name: 'release/next' },
+					activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'release/next' },
 					attempt: {
 						failureKind: 'targetNotFound',
 						retryable: true,
@@ -129,10 +273,8 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 				),
 			)
 			.toBeVisible();
-		await expect.element(rendered.getByText('Previous comparison', { exact: true })).toBeVisible();
-		await expect
-			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
-			.toHaveTextContent('111111111111');
+		await expect.element(rendered.getByText('Base branch', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('master', { exact: true })).toBeVisible();
 	});
 
 	test('focuses branch search when the comparison popover opens', async () => {
@@ -241,7 +383,11 @@ async function renderComparisonTargetPicker(): ReturnType<typeof render> {
 	return render(
 		<BridgeReviewComparisonControl
 			comparisonPresentation={{
-				activeTarget: { branchName: 'main', kind: 'localDefaultBranch' },
+				activeTarget: {
+					basis: 'commonCommit',
+					branchName: 'main',
+					kind: 'localDefaultBranch',
+				},
 				attempt: { reviewGeneration: 1, status: 'settled' },
 				displayedSnapshot: { status: 'none' },
 				targetCatalog: targetCatalog(),

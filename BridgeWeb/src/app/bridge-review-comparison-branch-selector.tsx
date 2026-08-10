@@ -51,7 +51,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 			value={selectedBranch}
 		>
 			<div
-				className="overflow-hidden rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)]"
+				className="overflow-hidden rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] transition-colors focus-within:border-[var(--bridge-focus-border)]"
 				data-testid="bridge-review-comparison-branch-selector"
 			>
 				<ComboboxInput
@@ -60,7 +60,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 					placeholder="Search branches…"
 					ref={props.searchInputRef}
 				/>
-				<ComboboxList className="m-0 py-1">
+				<ComboboxList className="m-0 max-h-56 py-1">
 					{branches.map((branch, index) => (
 						<ComboboxItem
 							data-testid={`comparison-branch-${branchTargetTestId(branch)}`}
@@ -79,7 +79,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 								<span className="truncate text-[var(--bridge-text-primary)]">
 									{branchTargetLabel(branch)}
 								</span>
-								<span className="flex min-w-0 items-baseline gap-1.5 text-[10px] uppercase text-[var(--bridge-text-muted)]">
+								<span className="flex min-w-0 items-baseline gap-1.5 text-[10px] text-[var(--bridge-text-muted)]">
 									{branchTargetsEqual(branch, props.targetCatalog?.defaultTarget ?? null) ? (
 										<span className="font-medium">Default</span>
 									) : null}
@@ -116,8 +116,11 @@ function BranchRevision(props: { readonly value: string }): ReactElement {
 function comparisonTargetForBranch(
 	branch: ReviewComparisonBranchTarget,
 ): BridgeWorkerReviewComparisonUpdateCommand['target'] {
-	if (branch.kind === 'local') return { kind: 'branch', name: branch.branchName };
+	if (branch.kind === 'local') {
+		return { basis: 'commonCommit', kind: 'branch', name: branch.branchName };
+	}
 	return {
+		basis: 'commonCommit',
 		branchName: branch.branchName,
 		kind: 'originDefaultBranch',
 		remoteName: branch.remoteName,
