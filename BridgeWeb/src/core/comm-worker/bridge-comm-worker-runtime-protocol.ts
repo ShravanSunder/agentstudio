@@ -478,8 +478,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			port.postMessage(bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame(frame));
 		});
 		productTransport.setPanePresentationFrameSink?.((frame): void => {
-			const wasRefreshingFile =
-				panePresentationAuthority.snapshot.refreshingLanes.includes('file');
+			const wasRefreshingFile = panePresentationAuthority.snapshot.refreshingLanes.includes('file');
 			const application = panePresentationAuthority.apply(frame);
 			const fileRefreshSettled =
 				wasRefreshingFile &&
