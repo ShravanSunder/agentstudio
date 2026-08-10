@@ -24,12 +24,21 @@ extension E2ESerializedTests {
                 "ZmxTestHarness failed to resolve zmx path for integration test"
             )
             try #require(await backend.isAvailable, "zmx should be available for integration test")
+            var bodyError: (any Error)?
             do {
                 try await test(harness, backend)
-                await harness.cleanup()
             } catch {
-                await harness.cleanup()
-                throw error
+                bodyError = error
+            }
+            let cleanupOutcome = await harness.cleanup()
+            if let bodyError {
+                if !cleanupOutcome.succeeded {
+                    Issue.record("zmx cleanup also failed: \(cleanupOutcome.diagnostics)")
+                }
+                throw bodyError
+            }
+            if !cleanupOutcome.succeeded {
+                throw ZmxTestHarness.CleanupError(outcome: cleanupOutcome)
             }
         }
 

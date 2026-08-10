@@ -241,6 +241,15 @@ SUMMARY_FILE="$ARTIFACT/summary.txt"
 DEBUG_OBSERVABILITY_STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
 DEBUG_IDENTITY_FILE="$ARTIFACT/debug-identity.env"
 DEBUG_STATE_COPY="$ARTIFACT/debug-observability.env"
+ZMX_CLEANUP_SCRIPT="$PROJECT_ROOT/scripts/cleanup-owned-zmx-sessions.sh"
+ZMX_CLEANUP_ARTIFACT="$ARTIFACT/zmx-cleanup.env"
+RUNTIME_DATA_ROOT=""
+WORKLOAD_ZMX_DIR=""
+WORKLOAD_ZMX_EXECUTABLE=""
+DEBUG_IDENTITY_DATA_DIR=""
+LAUNCH_ATTEMPTED=0
+CLEANUP_RAN=0
+ZMX_SESSION_IDS=()
 
 APP_PID=""
 APP_BINARY=""
@@ -279,22 +288,41 @@ stop_pid() {
   [ -n "$pid" ] || return 0
   if kill -0 "$pid" >/dev/null 2>&1; then
     kill "$pid" >/dev/null 2>&1 || true
-    wait "$pid" >/dev/null 2>&1 || true
+    local attempt
+    for attempt in $(seq 1 50); do
+      if ! kill -0 "$pid" >/dev/null 2>&1; then
+        wait "$pid" >/dev/null 2>&1 || true
+        return 0
+      fi
+      sleep 0.1
+    done
+    return 1
   fi
 }
 
 cleanup() {
+  [ "$CLEANUP_RAN" -eq 0 ] || return 0
+  CLEANUP_RAN=1
   local cleanup_log="$ARTIFACT/cleanup.log"
+  local cleanup_failed=0
   mkdir -p "$ARTIFACT"
   {
     echo "cleanup started $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     for pid in "${WRITER_PIDS[@]:-}"; do
-      stop_pid "$pid"
-      echo "writer pid stopped: $pid"
+      if stop_pid "$pid"; then
+        echo "writer pid stopped: $pid"
+      else
+        echo "writer pid did not exit within 5 seconds: $pid"
+        cleanup_failed=1
+      fi
     done
     if [ -n "$APP_PID" ]; then
-      stop_pid "$APP_PID"
-      echo "app pid stopped: $APP_PID"
+      if stop_pid "$APP_PID"; then
+        echo "app pid stopped: $APP_PID"
+      else
+        echo "app pid did not exit within 5 seconds: $APP_PID"
+        cleanup_failed=1
+      fi
     fi
     local live_writers=0
     for pid_file in "$PID_DIR"/writer-*.pid; do
@@ -306,11 +334,39 @@ cleanup() {
       fi
     done
     echo "live writer pids after cleanup: $live_writers"
-    echo "cleanup finished $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    if [ "$live_writers" -ne 0 ]; then
+      cleanup_failed=1
+    fi
   } >>"$cleanup_log"
+
+  if [ "$LAUNCH_ATTEMPTED" -eq 1 ] && [ "${#ZMX_SESSION_IDS[@]}" -gt 0 ]; then
+    if ! "$ZMX_CLEANUP_SCRIPT" \
+      "$WORKLOAD_ZMX_EXECUTABLE" \
+      "$WORKLOAD_ZMX_DIR" \
+      "$ZMX_CLEANUP_ARTIFACT" \
+      "${ZMX_SESSION_IDS[@]}"
+    then
+      cleanup_failed=1
+    fi
+  fi
+  echo "cleanup finished $(date -u +"%Y-%m-%dT%H:%M:%SZ") status=$cleanup_failed" >>"$cleanup_log"
+  return "$cleanup_failed"
 }
 
-trap cleanup EXIT INT TERM
+finish() {
+  local body_status="$?"
+  local cleanup_status=0
+  trap - EXIT INT TERM
+  cleanup || cleanup_status=$?
+  if [ "$body_status" -ne 0 ]; then
+    exit "$body_status"
+  fi
+  exit "$cleanup_status"
+}
+
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 require_positive_integer() {
   local name="$1"
@@ -412,12 +468,17 @@ load_debug_identity_for_workload() {
   log_command "$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$DEBUG_OBSERVABILITY_STATE_FILE" \
     "$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity >"$DEBUG_IDENTITY_FILE"
-  APP_DATA_DIR="$(decode_env_file_value "$DEBUG_IDENTITY_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
-  TRACE_DIR="$APP_DATA_DIR/traces"
-  if [ -z "$APP_DATA_DIR" ] || [ -z "$TRACE_DIR" ]; then
+  DEBUG_IDENTITY_DATA_DIR="$(decode_env_file_value "$DEBUG_IDENTITY_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  if [ -z "$DEBUG_IDENTITY_DATA_DIR" ]; then
     echo "debug identity did not provide data/trace directories: $DEBUG_IDENTITY_FILE" >&2
     exit 1
   fi
+  RUNTIME_DATA_ROOT="$(mktemp -d /tmp/asw.XXXXXX)"
+  chmod 700 "$RUNTIME_DATA_ROOT"
+  APP_DATA_DIR="$RUNTIME_DATA_ROOT"
+  WORKLOAD_ZMX_DIR="$RUNTIME_DATA_ROOT/z"
+  WORKLOAD_ZMX_EXECUTABLE="$DEBUG_IDENTITY_DATA_DIR/bin/zmx"
+  TRACE_DIR="$ARTIFACT/traces"
 }
 
 preflight_debug_observability_idle() {
@@ -660,6 +721,15 @@ prepare_fixture() {
     ZMX_SESSION_IDS[$pane_index]="$(uuid_v7)"
     DRAWER_IDS[$pane_index]="$(uuid_v7)"
   done
+  if [ "$prepare_only" != true ]; then
+    local owned_session_id
+    for owned_session_id in "${ZMX_SESSION_IDS[@]}"; do
+      if [ $((${#WORKLOAD_ZMX_DIR} + 1 + ${#owned_session_id})) -gt 103 ]; then
+        echo "workload zmx socket path exceeds Darwin's 103-byte limit: $WORKLOAD_ZMX_DIR/$owned_session_id" >&2
+        exit 1
+      fi
+    done
+  fi
   if [ "$ACTIVE_PANE_COUNT" -gt 1 ]; then
     local divider_index
     for divider_index in $(seq 0 $((ACTIVE_PANE_COUNT - 2))); do
@@ -707,11 +777,13 @@ launch_debug_observability_app() {
     "AGENTSTUDIO_TRACE_NAME=$TRACE_NAME"
     "AGENTSTUDIO_TRACE_DIR=$TRACE_DIR"
     "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"
+    "AGENTSTUDIO_DEBUG_DATA_DIR=$RUNTIME_DATA_ROOT"
   )
   if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
     launcher_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter")
   fi
 
+  LAUNCH_ATTEMPTED=1
   log_command env "${launcher_env[@]}" "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
   env "${launcher_env[@]}" "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach \
     >"$ARTIFACT/run-debug-observability.log" 2>&1
@@ -729,9 +801,14 @@ launch_debug_observability_app() {
   IPC_AUTH_MODE="$(
     decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE
   )"
+  WORKLOAD_ZMX_DIR="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ZMX_DIR)"
   QUERY_START="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_QUERY_START)"
   if [ -z "$APP_PID" ] || [ -z "$APP_BINARY" ]; then
     echo "debug observability state did not include PID/executable: $DEBUG_OBSERVABILITY_STATE_FILE" >&2
+    exit 1
+  fi
+  if [ "$WORKLOAD_ZMX_DIR" != "$RUNTIME_DATA_ROOT/z" ]; then
+    echo "debug workload did not use its isolated zmx root: $WORKLOAD_ZMX_DIR" >&2
     exit 1
   fi
   if [ "$APP_LAUNCH_METHOD" != "launchservices" ]; then
@@ -1918,6 +1995,7 @@ prepare_fixture
   echo "artifact=$ARTIFACT"
   echo "workspace_file=$WORKSPACE_FILE"
   echo "app_data_dir=$APP_DATA_DIR"
+  echo "runtime_zmx_dir=$WORKLOAD_ZMX_DIR"
   echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
   echo "fixture_root=$FIXTURE_ROOT"
   echo "repo_count=$REPO_COUNT"
