@@ -79,29 +79,6 @@ struct AppCommandSidebarCommandsTests {
         )
     }
 
-    @Test("dispatcher registers repo sidebar visibility mode command for headless execution")
-    func dispatcherRegistersRepoSidebarVisibilityModeCommandForHeadlessExecution() {
-        let definition = AppCommandDispatcher.shared.definition(for: .setRepoSidebarVisibilityMode)
-
-        #expect(definition.label == "Set Repo Sidebar Visibility Mode")
-        #expect(definition.icon == .system(.bookmark))
-        #expect(definition.commandBarGroupName == "Sidebar")
-        #expect(!definition.surfacePolicy.exposes(.commandBar))
-        #expect(definition.surfacePolicy == .exposed([.inlineControl]))
-        #expect(definition.targeting == .contextual)
-        #expect(
-            definition.argumentSchema == [
-                IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: ["all", "favoritesOnly"]),
-                    isRequired: true
-                )
-            ])
-        #expect(definition.ipcExposure.executionModes == [.headless])
-        #expect(definition.ipcCommandListEntry.targetKinds.isEmpty)
-        #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
-    }
-
     @Test("dispatcher registers repo sidebar sort order command for headless execution")
     func dispatcherRegistersRepoSidebarSortOrderCommandForHeadlessExecution() {
         let definition = AppCommandDispatcher.shared.definition(for: .setRepoSidebarSortOrder)
@@ -158,7 +135,6 @@ struct AppCommandSidebarCommandsTests {
             .setRepoSidebarGroupingRepo,
             .setRepoSidebarGroupingPane,
             .setRepoSidebarGroupingTab,
-            .setRepoSidebarVisibilityMode,
             .setRepoSidebarSortOrder,
             .setInboxGroupingTab,
             .setInboxGroupingRepo,
@@ -181,7 +157,6 @@ struct AppCommandSidebarCommandsTests {
             inboxNotificationPrefs: InboxNotificationPrefsAtom()
         )
 
-        #expect(!delegate.canExecute(.setRepoSidebarVisibilityMode))
         #expect(!delegate.canExecute(.setRepoSidebarSortOrder))
         #expect(!delegate.canExecute(.setInboxRowStateFilter))
         #expect(!delegate.canExecute(.setInboxContentMode))

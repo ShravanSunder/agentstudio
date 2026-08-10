@@ -46,8 +46,7 @@ final class AppCommandDispatcher: AppCommandDispatching {
         switch request.arguments {
         case .noArguments:
             break
-        case .repoSidebarVisibilityMode, .repoSidebarSortOrder,
-            .inboxRowStateFilter, .inboxContentMode:
+        case .repoSidebarSortOrder, .inboxRowStateFilter, .inboxContentMode:
             guard let appCommandRouter else { return .unsupportedCommand }
             return appCommandRouter.execute(request)
         }
@@ -290,14 +289,6 @@ final class AppCommandDispatcher: AppCommandDispatching {
                 } else {
                     appCanExecute = appCommandRouter?.canExecute(request.command) ?? false
                 }
-            case .repoSidebarVisibilityMode(let mode):
-                appCanExecute =
-                    appCommandRouter?.canExecute(
-                        AppCommandExecutionRequest(
-                            command: request.command,
-                            arguments: .repoSidebarVisibilityMode(mode)
-                        )
-                    ) ?? false
             case .repoSidebarSortOrder(let order):
                 appCanExecute =
                     appCommandRouter?.canExecute(

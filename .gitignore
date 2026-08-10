@@ -34,6 +34,7 @@ node_modules/
 .pnpm-store/
 .vite/
 BridgeWeb/dist/
+BridgeWeb/.vitest-attachments/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
 #   mise run bridge-web-build

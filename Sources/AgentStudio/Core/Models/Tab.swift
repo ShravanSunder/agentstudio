@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 
 /// A tab in the workspace. Contains panes organized into arrangements.
@@ -29,7 +30,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
     }
 
     /// Create a tab with a single pane.
-    package init(id: UUID = UUID(), paneId: UUID, name: String = "Tab") {
+    package init(id: UUID = UUIDv7.generate(), paneId: UUID, name: String = "Tab") {
         self.id = id
         self.name = name
         self.allPaneIds = [paneId]
@@ -48,7 +49,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
     /// Create a tab with an existing layout and arrangements.
     /// Precondition: `arrangements` must contain exactly one with `isDefault == true`.
     package init(
-        id: UUID = UUID(),
+        id: UUID = UUIDv7.generate(),
         name: String = "Tab",
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
@@ -66,7 +67,7 @@ package struct Tab: Codable, Identifiable, Hashable, Sendable {
     }
 
     init(
-        id: UUID = UUID(),
+        id: UUID = UUIDv7.generate(),
         name: String = "Tab",
         panes: [UUID],
         arrangements: [PaneArrangement],

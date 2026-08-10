@@ -209,27 +209,19 @@ package enum AppStyles {
             package static let height: CGFloat = 40
             package static let tabPillHeight: CGFloat = 32
             package static let tabPillSpacing: CGFloat = 2
+            /// Shifts the whole tab-strip hosting view up so the pill centerline
+            /// matches the native toolbar controls' centerline. NSToolbar resolves
+            /// the strip item's flexible-height frame lower than the row's visual
+            /// center; value is pixel-measured against the circle controls.
+            package static let stripCenterlineOffset: CGFloat = -3
             package static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 
         package enum Chrome {
-            package static let tabBarLeadingInset: CGFloat = 80
-            package static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
-            package static let tabBarTopInset: CGFloat = 0
-            package static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
             package static let circledControlSpacing: CGFloat = 12
-            package static let tabStripLeadingPadding: CGFloat = 10
             package static let plainToolbarIconSpacing: CGFloat = 0
             package static let dividerHeight: CGFloat = 18
-            package static let dividerHorizontalPadding: CGFloat = 12
-            package static let windowDragRegionHeight: CGFloat =
-                AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
-
-            package enum SidebarNav {
-                package static let iconSpacing: CGFloat = AppStyles.Shell.Chrome.iconClusterSpacing
-                package static let dividerLeadingPadding: CGFloat = 14
-                package static let dividerTrailingPadding: CGFloat = 24
-            }
+            package static let dividerHorizontalPadding: CGFloat = 0
 
             package enum PlainToolbarIcon {
                 package static let buttonSize: CGFloat = 24
@@ -239,14 +231,13 @@ package enum AppStyles {
             package enum ToolbarButton {
                 package static let size: CGFloat = 28
                 package static let iconSize: CGFloat = 12
-                package static let verticalOffset: CGFloat = 2
                 package static let baseFillColor = Color(
                     nsColor: NSColor(hex: "#141416") ?? NSColor(white: 0.08, alpha: 1))
                 package static let hoverFillColor = Color(
                     nsColor: NSColor(hex: "#242428") ?? NSColor(white: 0.14, alpha: 1))
                 package static let pressedFillColor = hoverFillColor
-                package static let iconForegroundColor = Color(
-                    nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
+                package static let iconForegroundNSColor = NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1)
+                package static let iconForegroundColor = Color(nsColor: iconForegroundNSColor)
                 package static let hoverIconForegroundColor = Color.white
                 package static let selectedFillOpacity: CGFloat = 0.20
                 package static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted
@@ -358,8 +349,6 @@ package enum AppStyles {
             package static let secondaryLineOpacity: Double = 0.58
             package static let selectedSecondaryLineOpacity: Double = 0.72
             package static let shortcutSpacing: CGFloat = 4
-            package static let groupHeaderFontSize: CGFloat = AppStyles.General.Typography.textBase
-            package static let groupHeaderOpacity: Double = 0.70
             package static let rowTitleOpacity: Double = 0.92
             package static let selectedRowTitleOpacity: Double = 0.95
             package static let dimmedRowTitleOpacity: Double = 0.40
@@ -394,6 +383,14 @@ package enum AppStyles {
     }
 
     package enum Components {
+        package enum SectionSubheading {
+            package static let fontSize: CGFloat = AppStyles.General.Typography.textBase
+            package static let foregroundOpacity: Double = AppStyles.General.Foreground.secondary
+            package static let horizontalPadding: CGFloat = 12
+            package static let topPadding: CGFloat = AppStyles.General.Spacing.loose
+            package static let bottomPadding: CGFloat = AppStyles.General.Spacing.tight
+        }
+
         package enum EditorChooser {
             package static let menuWidth: CGFloat = 220
             package static let outerPadding: CGFloat = AppStyles.General.Spacing.standard

@@ -5,6 +5,13 @@ import Testing
 
 @Suite("SidebarSectionHeader")
 struct SidebarSectionHeaderTests {
+    @Test("shared subheading normalizes every surface title for uniform small caps")
+    @MainActor
+    func sharedSubheadingNormalizesEverySurfaceTitleForUniformSmallCaps() {
+        #expect(SectionSubheadingLabel.displayTitle(for: "Recent Repositories") == "recent repositories")
+        #expect(SectionSubheadingLabel.displayTitle(for: "Favorites") == "favorites")
+    }
+
     @Test("header row accepts custom content without owning action")
     @MainActor
     func headerRowAcceptsCustomContentWithoutOwningAction() {

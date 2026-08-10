@@ -609,12 +609,12 @@ final class AppCommandTests {
     func test_dispatcher_dispatchRequest_routesTypedArgumentsToAppRouter() async throws {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
-        appRouter.requestCommands = [.setRepoSidebarVisibilityMode]
-        appRouter.requestCapabilityCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCommands = [.setRepoSidebarSortOrder]
+        appRouter.requestCapabilityCommands = [.setRepoSidebarSortOrder]
         appRouter.parameterlessCanExecuteResult = false
         let request = AppCommandExecutionRequest(
-            command: .setRepoSidebarVisibilityMode,
-            arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+            command: .setRepoSidebarSortOrder,
+            arguments: .repoSidebarSortOrder(.descending)
         )
 
         try await withIsolatedCommandDispatcher(

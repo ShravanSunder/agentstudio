@@ -904,7 +904,7 @@ extension AgentStudioOTLPTraceProjection {
             return ["repo", "pane", "tab", "none", "not_applicable"].contains(value)
         case "agentstudio.performance.sidebar.trigger":
             return [
-                "grouping_switch", "surface_switch", "search", "sort_order", "visibility_mode", "collapse_toggle",
+                "grouping_switch", "surface_switch", "search", "sort_order", "collapse_toggle",
                 "data_refresh", "startup_diagnostic",
             ]
             .contains(value)

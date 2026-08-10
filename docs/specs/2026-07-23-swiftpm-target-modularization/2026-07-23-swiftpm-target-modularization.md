@@ -5,6 +5,12 @@ Updated: 2026-07-27
 Status: accepted; corrected ownership synchronized for plan update
 Source version: `fix-tests` precursor at `daadf1a1135095749bbb4404008c6b94161ac915`
 
+> Repo Explorer note (2026-08-09): the historical visibility-mode callback
+> references in this modularization record are superseded by the
+> [favorites-first Specification](../2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md)
+> and are not current implementation guidance. Repo Explorer now keeps
+> favorites as an in-list sectioning concern rather than a visibility command.
+
 ## Decision
 
 Keep one Swift package and create:

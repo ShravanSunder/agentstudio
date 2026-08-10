@@ -38,14 +38,14 @@ struct IPCContractsTests {
     @Test("command argument string validation is decoder-derived")
     func commandArgumentStringValidationIsDecoderDerived() throws {
         let constructed = IPCCommandExecuteParams(
-            commandId: .init(rawValue: "setRepoSidebarVisibilityMode"),
+            commandId: .init(rawValue: "setRepoSidebarSortOrder"),
             targetHandle: nil,
-            arguments: ["mode": "favoritesOnly"]
+            arguments: ["order": "descending"]
         )
         let decoded = try JSONDecoder().decode(
             IPCCommandExecuteParams.self,
             from: Data(
-                #"{"commandId":"setRepoSidebarVisibilityMode","arguments":{"mode":1}}"#.utf8
+                #"{"commandId":"setRepoSidebarSortOrder","arguments":{"order":1}}"#.utf8
             )
         )
 

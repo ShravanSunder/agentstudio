@@ -378,10 +378,10 @@ commands (`tab`, `repo`, `pane`, `none`) are app/sidebar shell commands. They
 belong in the `>` command surface when exposed as command rows; they are not
 repo-object rows in `#`. Programmatic tests execute headless sidebar
 `AppCommandSpec` definitions through authenticated generic `command.execute`;
-command-bar presentation is not proof. Repo sidebar visibility and sort-order
-controls are deterministic headless app commands for IPC proof:
-`setRepoSidebarVisibilityMode` accepts `mode = all|favoritesOnly`, and
-`setRepoSidebarSortOrder` accepts `order = ascending|descending`.
+command-bar presentation is not proof. Repo sidebar sort order is a
+deterministic headless app command for IPC proof: `setRepoSidebarSortOrder`
+accepts `order = ascending|descending`. Favorites are always presented first
+within the selected grouping rather than acting as a visibility mode.
 
 Repo favorite buttons and context-menu actions select the state-specific
 `addRepoFavorite` or `removeRepoFavorite` `AppCommandSpec`. Both commands require

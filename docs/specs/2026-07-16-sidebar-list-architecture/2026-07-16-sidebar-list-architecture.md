@@ -4,6 +4,12 @@ Status: Reviewed; ready for implementation planning
 Date: 2026-07-16
 Scope: Repo and Inbox sidebar list mechanics, projection boundaries, interaction semantics, and performance proof
 
+> Repo Explorer note (2026-08-09): this predates the favorites-first contract.
+> Any Repo Explorer visibility/favorites-only passages below are historical
+> design context and are not executable implementation guidance. The current
+> behavior is defined by the [favorites-first Specification](../2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md)
+> and its sibling Requirements and Program Design.
+
 ## Product intent
 
 AgentStudio's Repo and Inbox sidebars must remain responsive and behave like native macOS navigators as their data grows. A user must be able to search, group, sort, filter, expand, select, and activate rows without perceptible stalls, stale controls, lost focus, or container-specific behavioral drift.

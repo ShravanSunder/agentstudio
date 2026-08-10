@@ -101,6 +101,93 @@ private func repoExplorerProjectionRequestKey(
 @MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("section subheading aligns with disclosure caret leading edge")
+    func sectionSubheadingAlignsWithDisclosureCaretLeadingEdge() {
+        #expect(
+            RepoExplorerView.sectionHeaderLeadingInset
+                == AppStyles.Shell.Sidebar.listRowLeadingInset)
+    }
+
+    @Test("projection fingerprint includes ordered section identity and favorite membership")
+    func projectionFingerprintIncludesOrderedSectionIdentityAndFavoriteMembership() {
+        let repoId = UUID(uuidString: "01989f63-8e2a-7000-8000-000000000001")!
+        let worktree = Worktree(
+            repoId: repoId,
+            name: "main",
+            path: URL(fileURLWithPath: "/tmp/agent-studio")
+        )
+        let repo = RepoPresentationItem(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: worktree.path,
+            stableKey: "agent-studio",
+            worktrees: [worktree]
+        )
+        let group = RepoPresentationGroup(
+            id: "repo:\(repoId.uuidString)",
+            repoTitle: repo.name,
+            organizationName: nil,
+            repos: [repo]
+        )
+        let favoriteRepo = RepoPresentationItem(
+            id: repo.id,
+            name: repo.name,
+            repoPath: repo.repoPath,
+            stableKey: repo.stableKey,
+            isFavorite: true,
+            worktrees: repo.worktrees
+        )
+        let favoriteGroup = RepoPresentationGroup(
+            id: group.id,
+            repoTitle: group.repoTitle,
+            organizationName: group.organizationName,
+            repos: [favoriteRepo]
+        )
+        let repositoriesProjection = RepoExplorerSidebarProjection(
+            sections: [
+                RepoExplorerSidebarSection(
+                    kind: .repositories,
+                    resolvedGroups: [group],
+                    loadingRepos: []
+                )
+            ],
+            resolvedGroups: [group],
+            loadingRepos: [],
+            emptyState: .content
+        )
+        let favoritesProjection = RepoExplorerSidebarProjection(
+            sections: [
+                RepoExplorerSidebarSection(
+                    kind: .favorites,
+                    resolvedGroups: [group],
+                    loadingRepos: []
+                )
+            ],
+            resolvedGroups: [group],
+            loadingRepos: [],
+            emptyState: .content
+        )
+        let favoriteMembershipProjection = RepoExplorerSidebarProjection(
+            sections: [
+                RepoExplorerSidebarSection(
+                    kind: .repositories,
+                    resolvedGroups: [favoriteGroup],
+                    loadingRepos: []
+                )
+            ],
+            resolvedGroups: [favoriteGroup],
+            loadingRepos: [],
+            emptyState: .content
+        )
+
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: repositoriesProjection)
+                != RepoExplorerView.projectionFingerprint(for: favoritesProjection))
+        #expect(
+            RepoExplorerView.projectionFingerprint(for: repositoriesProjection)
+                != RepoExplorerView.projectionFingerprint(for: favoriteMembershipProjection))
+    }
+
     @Test("missing relevant worktree facts wake capture and change the admitted request key")
     func missingRelevantWorktreeFactsWakeAndChangeRequestKeyWhenInserted() {
         let cache = RepoCacheAtom()
@@ -170,7 +257,6 @@ struct RepoExplorerViewProjectionHelperTests {
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: { [:] },
             commandDispatcher: dispatcher,
-            onSetVisibilityMode: { _ in },
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
@@ -205,7 +291,6 @@ struct RepoExplorerViewProjectionHelperTests {
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
             bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-            onSetVisibilityMode: { _ in },
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
@@ -265,7 +350,6 @@ struct RepoExplorerViewProjectionHelperTests {
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
                 bridgeAttendanceSnapshot: { [:] },
                 commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-                onSetVisibilityMode: { _ in },
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
                 onSidebarVisibleWorktreesChanged: {},
@@ -279,7 +363,6 @@ struct RepoExplorerViewProjectionHelperTests {
                     repoEnrichmentByRepoId: [:],
                     groupingMode: .repo,
                     sortOrder: .ascending,
-                    visibilityMode: .all,
                     query: ""
                 )
             } onChange: {
