@@ -296,6 +296,26 @@ if ! AGENTSTUDIO_DEBUG_DIRECT_FALLBACK=0 \
   exit 1
 fi
 
+launched_app_path="$(
+  decode_state_value "$(
+    sed -n 's/^AGENTSTUDIO_OBSERVABILITY_APP=//p' "$OBSERVABILITY_STATE_FILE" | tail -1
+  )"
+)"
+if [ -z "$launched_app_path" ] || [ ! -d "$launched_app_path" ]; then
+  journey_status=launch_failed
+  journey_reason=packaged_candidate_activation_failed
+  write_receipt "$journey_status" "$journey_reason"
+  echo "packaged product journey candidate app is unavailable; preserved fixture: $fixture_root" >&2
+  exit 1
+fi
+if ! /usr/bin/open -a "$launched_app_path"; then
+  journey_status=launch_failed
+  journey_reason=packaged_candidate_activation_failed
+  write_receipt "$journey_status" "$journey_reason"
+  echo "packaged product journey candidate activation failed; preserved fixture: $fixture_root" >&2
+  exit 1
+fi
+
 journey_status=running
 journey_reason=""
 write_receipt "$journey_status" "$journey_reason"

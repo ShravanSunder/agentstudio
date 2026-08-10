@@ -71,6 +71,16 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(verifierSource.contains("SELECT payload_json FROM pane_content_payload WHERE pane_id = ?"))
         #expect(
             verifierSource.contains(
+                #"symbolic_target == {"kind": "branch", "name": comparison_target_name}"#
+            )
+        )
+        #expect(
+            verifierSource.contains(
+                #"value == {"kind": "branch", "name": comparison_target_name}"#
+            )
+        )
+        #expect(
+            verifierSource.contains(
                 #"payload["state"]["source"]["workspace"]["comparisonTarget"]"#
             )
         )
@@ -499,6 +509,9 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(source.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         #expect(source.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(source.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+        #expect(source.contains(#"AGENTSTUDIO_OBSERVABILITY_APP=//p"#))
+        #expect(source.contains(#"/usr/bin/open -a "$launched_app_path""#))
+        #expect(source.contains("packaged_candidate_activation_failed"))
         #expect(!source.contains("kill "))
         #expect(!source.contains("killall"))
         #expect(!source.contains("pkill"))
