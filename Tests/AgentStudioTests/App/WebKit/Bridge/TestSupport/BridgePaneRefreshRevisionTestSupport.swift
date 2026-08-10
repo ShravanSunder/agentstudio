@@ -51,7 +51,7 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
             panelKind: .diffViewer,
             source: .workspace(
                 rootPath: "/tmp/worktree",
-                baseline: .staged)
+                baseline: .unstaged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
