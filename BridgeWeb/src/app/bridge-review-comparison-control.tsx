@@ -348,7 +348,8 @@ function displayedContributionForComparison(
 	}
 	return {
 		heading:
-			props.comparisonPresentation?.displayedSnapshot.status === 'stale'
+			props.comparisonPresentation?.displayedSnapshot.status === 'stale' ||
+			isDisplayedPackageAwaitingPresentationDelivery(props)
 				? 'Previous comparison'
 				: 'Current comparison',
 		origin: reviewPackage.comparisonOrigin,
@@ -363,14 +364,26 @@ function displayedReviewPackageForComparison(
 	if (
 		reviewPackage === null ||
 		displayedSnapshot === undefined ||
-		displayedSnapshot.status === 'none' ||
-		displayedSnapshot.packageId !== reviewPackage.packageId ||
-		displayedSnapshot.reviewGeneration !== reviewPackage.reviewGeneration ||
-		displayedSnapshot.revision !== reviewPackage.revision
+		displayedSnapshot.status === 'none'
 	) {
 		return null;
 	}
 	return reviewPackage;
+}
+
+function isDisplayedPackageAwaitingPresentationDelivery(
+	props: BridgeReviewComparisonControlProps,
+): boolean {
+	const reviewPackage = props.displayedReviewPackage;
+	const displayedSnapshot = props.comparisonPresentation?.displayedSnapshot;
+	return (
+		reviewPackage !== null &&
+		displayedSnapshot !== undefined &&
+		displayedSnapshot.status !== 'none' &&
+		(displayedSnapshot.packageId !== reviewPackage.packageId ||
+			displayedSnapshot.reviewGeneration !== reviewPackage.reviewGeneration ||
+			displayedSnapshot.revision !== reviewPackage.revision)
+	);
 }
 
 type ReviewComparisonTarget = NonNullable<
@@ -526,7 +539,14 @@ function comparisonStatePresentation(
 						retryTarget: null,
 					};
 		case 'settled':
-			return null;
+			return displayedContribution?.heading === 'Previous comparison' &&
+				isDisplayedPackageAwaitingPresentationDelivery(props)
+				? {
+						description: 'Showing the previous comparison while the requested target is prepared.',
+						heading: 'Updating comparison',
+						retryTarget: null,
+					}
+				: null;
 		case 'unavailable':
 			return {
 				description:
@@ -548,11 +568,12 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 	if (narrowComparisonLabel !== null) {
 		return narrowComparisonLabel;
 	}
-	const displayedSnapshot = props.comparisonPresentation?.displayedSnapshot;
 	const displayedContribution = displayedContributionForComparison(props);
-	if (displayedSnapshot?.status === 'stale' && displayedContribution !== null) {
+	if (displayedContribution?.heading === 'Previous comparison') {
 		const displayedTargetLabel = comparisonTargetLabel(displayedContribution.origin.symbolicTarget);
-		return props.comparisonPresentation?.attempt.status === 'pending'
+		const attemptStatus = props.comparisonPresentation?.attempt.status;
+		return attemptStatus === 'pending' ||
+			(attemptStatus === 'settled' && isDisplayedPackageAwaitingPresentationDelivery(props))
 			? `Compare: ${displayedTargetLabel} · Updating`
 			: `Compare: ${displayedTargetLabel} · Stale`;
 	}

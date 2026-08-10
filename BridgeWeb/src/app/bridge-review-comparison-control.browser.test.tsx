@@ -596,6 +596,86 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			.toHaveTextContent(/aaaaaaaaaaaa.*bbbbbbbbbbbb/u);
 	});
 
+	test('keeps the rendered predecessor labeled with its own target until the successor package arrives', async () => {
+		// Arrange
+		const predecessor = contributionPackage({
+			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			packageId: 'package-delivery-predecessor',
+			resolvedTargetOID: '1111111111111111111111111111111111111111',
+			revision: 24,
+		});
+		const successorTarget = { kind: 'ref', name: 'feature/new-target' } as const;
+		const successor = contributionPackage({
+			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			packageId: 'package-delivery-successor',
+			resolvedTargetOID: '2222222222222222222222222222222222222222',
+			revision: 25,
+			symbolicTarget: successorTarget,
+		});
+		const successorPresentation = comparisonPresentation({
+			activeTarget: successorTarget,
+			displayedSnapshot: {
+				packageId: successor.packageId,
+				reviewGeneration: successor.reviewGeneration,
+				revision: successor.revision,
+				status: 'current',
+			},
+		});
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={currentPresentationForPackage(predecessor)}
+				displayedReviewPackage={predecessor}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Act — presentation can settle the successor before its package frame arrives.
+		await rendered.rerender(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={successorPresentation}
+				displayedReviewPackage={predecessor}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Assert — the control continues describing the package the user can actually see.
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveTextContent('Compare: master · Updating');
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
+		await expect.element(rendered.getByText('Previous comparison', { exact: true })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
+			.toHaveTextContent('111111111111');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-shared-start-revision'))
+			.toHaveTextContent('aaaaaaaaaaaa');
+
+		// Act — the package frame catches up with the settled presentation.
+		await rendered.rerender(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={successorPresentation}
+				displayedReviewPackage={successor}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Assert
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveTextContent('Compare: feature/new-target');
+		await expect.element(rendered.getByText('Current comparison')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
+			.toHaveTextContent('222222222222');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-shared-start-revision'))
+			.toHaveTextContent('bbbbbbbbbbbb');
+	});
+
 	test.each([
 		{
 			label: 'repository changes',
