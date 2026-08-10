@@ -69,7 +69,8 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture
     {
-        try await base.captureContributionComparison(request)
+        await recordAndBlockComparisonIfArmed()
+        return try await base.captureContributionComparison(request)
     }
 
     func armNextComparison() {
@@ -97,6 +98,11 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws
         -> BridgeEndpointComparison
     {
+        await recordAndBlockComparisonIfArmed()
+        return try await base.compareEndpoints(request)
+    }
+
+    private func recordAndBlockComparisonIfArmed() async {
         comparisonCount += 1
         if isNextComparisonArmed {
             isNextComparisonArmed = false
@@ -105,7 +111,6 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
                 releaseContinuations.append(continuation)
             }
         }
-        return try await base.compareEndpoints(request)
     }
 
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {

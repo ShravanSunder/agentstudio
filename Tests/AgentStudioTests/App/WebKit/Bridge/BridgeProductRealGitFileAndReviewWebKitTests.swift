@@ -337,7 +337,10 @@ extension WebKitSerializedTests {
             #expect(proof.hiddenStatus.reviewStatusText == nil)
             #expect(proof.hiddenDirtyGeneration != nil)
             #expect(proof.hiddenRefreshPassCountAfterStorm == proof.hiddenRefreshPassCountBeforeStorm)
-            #expect(proof.hiddenMetadataSequenceAfterStorm == proof.hiddenMetadataSequenceBeforeStorm)
+            #expect(
+                proof.hiddenMetadataSequenceAfterStorm
+                    == proof.hiddenMetadataSequenceBeforeStorm + 1
+            )
             #expect(
                 proof.hiddenReviewPublicationCountAfterLateRelease
                     == proof.hiddenReviewPublicationCountBeforeLateRelease
