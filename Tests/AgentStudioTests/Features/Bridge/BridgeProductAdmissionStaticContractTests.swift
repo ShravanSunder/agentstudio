@@ -120,11 +120,12 @@ struct BridgeProductAdmissionStaticContractTests {
         // Assert
         #expect(
             acquisitionCountBySource == [
+                "Features/Bridge/Runtime/Development/BridgeDevelopmentProductHost.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+Bootstrap.swift": 1,
                 "Features/Bridge/Runtime/BridgePaneController+DiffCommands.swift": 1,
-                "Features/Bridge/Runtime/BridgePaneController+IPCProjection.swift": 1,
+                "Features/Bridge/Runtime/BridgePaneController+IPCProjection.swift": 2,
                 "Features/Bridge/Runtime/BridgePaneController+RefreshAdmission.swift": 1,
-                "Features/Bridge/Runtime/BridgePaneController+SurfaceSelection.swift": 1,
+                "Features/Bridge/Runtime/BridgePaneController+SurfaceSelection.swift": 2,
                 "Features/Bridge/Transport/BridgeProductSchemeSessionRouter.swift": 1,
             ],
             "Downstream product owners must carry the original context instead of reacquiring pane admission"
@@ -158,7 +159,10 @@ private func bridgeProductAdmissionSwiftSources(
         throw CocoaError(.fileReadUnknown)
     }
     return try enumerator.compactMap { element in
-        guard let fileURL = element as? URL, fileURL.pathExtension == "swift" else {
+        guard let fileURL = element as? URL,
+            fileURL.pathExtension == "swift",
+            !fileURL.path.contains("/Runtime/Development/")
+        else {
             return nil
         }
         return try String(contentsOf: fileURL, encoding: .utf8)

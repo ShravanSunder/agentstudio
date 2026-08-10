@@ -51,20 +51,6 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(reloadBridgeWebView.targetKinds == [.pane])
         #expect(reloadBridgeWebView.requiredPrivileges == [.workspaceRead])
 
-        let repoVisibility = try #require(
-            commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue)])
-        #expect(repoVisibility.executionModes == [.headless])
-        #expect(repoVisibility.targetKinds.isEmpty)
-        #expect(repoVisibility.requiredPrivileges == [.sidebarStateMutate])
-        #expect(
-            repoVisibility.argumentSchema == [
-                IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: ["all", "favoritesOnly"]),
-                    isRequired: true
-                )
-            ])
-
         let repoSortOrder = try #require(
             commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue)])
         #expect(repoSortOrder.executionModes == [.headless])
@@ -111,7 +97,7 @@ struct AgentStudioIPCCommandAdapterTests {
     @Test("sidebar command mutation permissions resolve to current workspace")
     func sidebarCommandMutationPermissionsResolveToCurrentWorkspace() throws {
         let harness = CommandAdapterHarness()
-        let command = AppCommand.setRepoSidebarVisibilityMode.definition.ipcCommandListEntry
+        let command = AppCommand.setRepoSidebarSortOrder.definition.ipcCommandListEntry
 
         let scopes = try harness.adapter.requiredPermissionScopes(for: command)
 
@@ -153,43 +139,6 @@ struct AgentStudioIPCCommandAdapterTests {
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .requiresPresentation)
         }
-    }
-
-    @Test("executes repo sidebar visibility command through injected shell owner")
-    func executesRepoSidebarVisibilityCommandThroughInjectedShellOwner() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(shellCommandHandler: shellCommandHandler)
-
-        let favoritesOnly = try harness.adapter.executeCommand(
-            IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
-                targetHandle: nil,
-                arguments: ["mode": "favoritesOnly"]
-            )
-        )
-        let all = try harness.adapter.executeCommand(
-            IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
-                targetHandle: nil,
-                arguments: ["mode": "all"]
-            )
-        )
-
-        #expect(favoritesOnly.applied)
-        #expect(all.applied)
-        #expect(
-            shellCommandHandler.handledRequests == [
-                AppCommandExecutionRequest(
-                    command: .setRepoSidebarVisibilityMode,
-                    arguments: .repoSidebarVisibilityMode(.favoritesOnly),
-                    executionContext: .headlessIPC
-                ),
-                AppCommandExecutionRequest(
-                    command: .setRepoSidebarVisibilityMode,
-                    arguments: .repoSidebarVisibilityMode(.all),
-                    executionContext: .headlessIPC
-                ),
-            ])
     }
 
     @Test("executes repo sidebar sort order command through injected shell owner")
@@ -266,29 +215,6 @@ struct AgentStudioIPCCommandAdapterTests {
             ])
     }
 
-    @Test("rejects invalid repo visibility mode before active window lookup")
-    func rejectsInvalidRepoVisibilityModeBeforeActiveWindowLookup() throws {
-        let shellCommandHandler = RecordingShellCommandHandler()
-        let harness = CommandAdapterHarness(
-            windowSnapshot: .empty,
-            shellCommandHandler: shellCommandHandler
-        )
-
-        do {
-            _ = try harness.adapter.executeCommand(
-                IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
-                    targetHandle: nil,
-                    arguments: ["mode": "recent"]
-                )
-            )
-            Issue.record("invalid repo visibility mode unexpectedly executed")
-        } catch let error as AppIPCCommandError {
-            #expect(error.reason == .validationRejected)
-        }
-        #expect(shellCommandHandler.handledRequests.isEmpty)
-    }
-
     @Test("rejects invalid repo sort order before active window lookup")
     func rejectsInvalidRepoSortOrderBeforeActiveWindowLookup() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
@@ -312,31 +238,31 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("rejects wrong typed repo visibility arguments before active window lookup")
-    func rejectsWrongTypedRepoVisibilityArgumentsBeforeActiveWindowLookup() throws {
+    @Test("rejects wrong typed repo sort order arguments before active window lookup")
+    func rejectsWrongTypedRepoSortOrderArgumentsBeforeActiveWindowLookup() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
             shellCommandHandler: shellCommandHandler
         )
         let paramsData = try JSONSerialization.data(withJSONObject: [
-            "commandId": AppCommand.setRepoSidebarVisibilityMode.rawValue,
+            "commandId": AppCommand.setRepoSidebarSortOrder.rawValue,
             "targetHandle": NSNull(),
-            "arguments": ["mode": 42],
+            "arguments": ["order": 42],
         ])
         let params = try JSONDecoder().decode(IPCCommandExecuteParams.self, from: paramsData)
 
         do {
             _ = try harness.adapter.executeCommand(params)
-            Issue.record("wrong typed repo visibility mode unexpectedly executed")
+            Issue.record("wrong typed repo sort order unexpectedly executed")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .validationRejected)
         }
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("rejects missing repo visibility mode before active window lookup")
-    func rejectsMissingRepoVisibilityModeBeforeActiveWindowLookup() throws {
+    @Test("rejects missing repo sort order before active window lookup")
+    func rejectsMissingRepoSortOrderBeforeActiveWindowLookup() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
@@ -346,20 +272,20 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
                     targetHandle: nil,
                     arguments: [:]
                 )
             )
-            Issue.record("missing repo visibility mode unexpectedly executed")
+            Issue.record("missing repo sort order unexpectedly executed")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .validationRejected)
         }
         #expect(shellCommandHandler.handledRequests.isEmpty)
     }
 
-    @Test("valid repo visibility command without active window returns no active window")
-    func validRepoVisibilityCommandWithoutActiveWindowReturnsNoActiveWindow() throws {
+    @Test("valid repo sort order command without active window returns no active window")
+    func validRepoSortOrderCommandWithoutActiveWindowReturnsNoActiveWindow() throws {
         let shellCommandHandler = RecordingShellCommandHandler()
         let harness = CommandAdapterHarness(
             windowSnapshot: .empty,
@@ -369,12 +295,12 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
                     targetHandle: nil,
-                    arguments: ["mode": "favoritesOnly"]
+                    arguments: ["order": "descending"]
                 )
             )
-            Issue.record("repo visibility command unexpectedly executed without an active window")
+            Issue.record("repo sort order command unexpectedly executed without an active window")
         } catch let error as AppIPCCommandError {
             #expect(error.reason == .noActiveWindow)
         }
@@ -389,9 +315,9 @@ struct AgentStudioIPCCommandAdapterTests {
         do {
             _ = try harness.adapter.executeCommand(
                 IPCCommandExecuteParams(
-                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue),
+                    commandId: IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue),
                     targetHandle: nil,
-                    arguments: ["mode": "favoritesOnly"]
+                    arguments: ["order": "descending"]
                 )
             )
             Issue.record("state-unavailable shell owner unexpectedly reported success")
@@ -401,8 +327,8 @@ struct AgentStudioIPCCommandAdapterTests {
         #expect(
             shellCommandHandler.handledRequests == [
                 AppCommandExecutionRequest(
-                    command: .setRepoSidebarVisibilityMode,
-                    arguments: .repoSidebarVisibilityMode(.favoritesOnly),
+                    command: .setRepoSidebarSortOrder,
+                    arguments: .repoSidebarSortOrder(.descending),
                     executionContext: .headlessIPC
                 )
             ])

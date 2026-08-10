@@ -14,20 +14,21 @@ struct PaneDisplayDerivedTests {
     }
 
     @Test
-    func worktreeBackedPane_usesRepoBranchAndFolderLabel() {
-        withTestCoreAtoms { atoms in
+    func worktreeBackedPane_usesRepoBranchAndFolderLabel() throws {
+        try withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
+            let mainWorktree = try #require(repo.worktrees.single)
             let worktree = makeWorktree(
                 repoId: repo.id,
                 name: "feature-name",
                 path: "/tmp/agent-studio/feature-name"
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
             atoms.repoCache.setWorktreeEnrichment(
                 WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
             )
@@ -122,20 +123,21 @@ struct PaneDisplayDerivedTests {
     }
 
     @Test
-    func accentColorHex_returnsStablePaletteEntry_forRepoBackedPane() {
-        withTestCoreAtoms { atoms in
+    func accentColorHex_returnsStablePaletteEntry_forRepoBackedPane() throws {
+        try withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-colors"))
+            let mainWorktree = try #require(repo.worktrees.single)
             let worktree = makeWorktree(
                 repoId: repo.id,
                 name: "main",
                 path: "/tmp/agent-studio-colors/main"
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
             let pane = store.createPane(
                 launchDirectory: worktree.path,
                 title: "Color",
@@ -152,20 +154,21 @@ struct PaneDisplayDerivedTests {
     }
 
     @Test
-    func accentColorHexTracksKeyedRepoEnrichmentChanges() {
-        withTestCoreAtoms { atoms in
+    func accentColorHexTracksKeyedRepoEnrichmentChanges() throws {
+        try withTestCoreAtoms { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-color-tracking"))
+            let mainWorktree = try #require(repo.worktrees.single)
             let worktree = makeWorktree(
                 repoId: repo.id,
                 name: "main",
                 path: "/tmp/agent-studio-color-tracking/main"
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
             let pane = store.createPane(
                 launchDirectory: worktree.path,
                 title: "Color",
@@ -215,6 +218,8 @@ struct PaneDisplayDerivedTests {
             )
             let repoA = store.addRepo(at: URL(filePath: "/tmp/agent-studio-main"))
             let repoB = store.addRepo(at: URL(filePath: "/tmp/agent-studio-fork"))
+            let mainWorktreeA = try #require(repoA.worktrees.single)
+            let mainWorktreeB = try #require(repoB.worktrees.single)
             let worktreeA = makeWorktree(
                 repoId: repoA.id,
                 name: "main",
@@ -225,8 +230,8 @@ struct PaneDisplayDerivedTests {
                 name: "main",
                 path: "/tmp/agent-studio-fork/main"
             )
-            store.reconcileDiscoveredWorktrees(repoA.id, worktrees: [worktreeA])
-            store.reconcileDiscoveredWorktrees(repoB.id, worktrees: [worktreeB])
+            store.reconcileDiscoveredWorktrees(repoA.id, worktrees: [mainWorktreeA, worktreeA])
+            store.reconcileDiscoveredWorktrees(repoB.id, worktrees: [mainWorktreeB, worktreeB])
 
             let sharedIdentity = RepoIdentity(
                 groupKey: "remote:askluna/agent-studio",

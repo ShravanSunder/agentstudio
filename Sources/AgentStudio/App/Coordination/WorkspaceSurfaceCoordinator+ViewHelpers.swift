@@ -87,6 +87,7 @@ extension WorkspaceSurfaceCoordinator {
     ) {
         let fallbackCWD =
             store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
+            ?? FileManager.default.homeDirectoryForCurrentUser
 
         guard
             let drawerPane = store.paneAtom.insertDrawerPane(
@@ -193,7 +194,7 @@ extension WorkspaceSurfaceCoordinator {
             attributes: [
                 "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
                 "agentstudio.performance.pane_view_restore.had_placeholder": .bool(hadPlaceholder),
-                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                 "agentstudio.performance.pane_view_restore.tab.count": .int(store.tabLayoutAtom.tabs.count),
             ]
         )

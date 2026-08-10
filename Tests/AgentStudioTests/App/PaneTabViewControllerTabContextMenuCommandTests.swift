@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -10,6 +11,64 @@ import Testing
 struct PaneTabViewControllerTabContextMenuCommandTests {
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    private final class ObservationInvalidationFlag: @unchecked Sendable {
+        var didFire = false
+    }
+
+    @Test("tab command capability ignores unrelated repository topology changes")
+    func canExecuteTabCommand_doesNotObserveRepositoryTopology() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        let invalidation = ObservationInvalidationFlag()
+
+        withObservationTracking {
+            _ = harness.controller.canExecute(
+                .closeTab,
+                target: tab.id,
+                targetType: .tab
+            )
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        let repositoryPath = harness.tempDir.appending(path: "unrelated-repository")
+        _ = harness.store.addRepo(at: repositoryPath)
+
+        #expect(!invalidation.didFire)
+    }
+
+    @Test("targeted split capability rejects a zoomed tab")
+    func canExecuteSplit_zoomedTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let pane = harness.store.createPane()
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.panePresentationAtom.enterZoom(
+            inTab: tab.id,
+            sourcePaneId: pane.id,
+            viewerPresentation: .unavailable
+        )
+
+        #expect(
+            !harness.controller.canExecute(
+                .splitRight,
+                target: tab.id,
+                targetType: .tab
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .splitLeft,
+                target: tab.id,
+                targetType: .tab
+            )
+        )
     }
 
     @Test("targeted Equalize Panes uses the clicked inactive tab")
@@ -218,8 +277,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activeDirectory = harness.tempDir.appending(path: "active")
-        let clickedDirectory = harness.tempDir.appending(path: "clicked")
+        let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
+        let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
         let activePane = harness.store.createPane(
             launchDirectory: activeDirectory,
             facets: PaneContextFacets(cwd: activeDirectory)
@@ -253,8 +312,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let activeDirectory = harness.tempDir.appending(path: "active")
-        let clickedDirectory = harness.tempDir.appending(path: "clicked")
+        let activeDirectory = harness.tempDir.appending(path: "active", directoryHint: .isDirectory)
+        let clickedDirectory = harness.tempDir.appending(path: "clicked", directoryHint: .isDirectory)
         let activePane = harness.store.createPane(
             launchDirectory: activeDirectory,
             facets: PaneContextFacets(cwd: activeDirectory)
@@ -312,7 +371,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         #expect(harness.store.activeTabId == activeTab.id)
     }
 
-    @Test("targeted floating terminal permits nil cwd while splits require an active pane")
+    @Test("targeted context-free terminal uses home CWD while splits require an active pane")
     func canExecuteTabCommands_allMinimizedClickedTab() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -363,8 +422,8 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let createdTab = try #require(harness.store.tabLayoutAtom.tabs.last)
         let createdPaneId = try #require(createdTab.activePaneId)
         let createdPane = try #require(harness.store.paneAtom.pane(createdPaneId))
-        #expect(createdPane.metadata.launchDirectory == nil)
-        #expect(createdPane.metadata.facets.cwd == nil)
+        #expect(createdPane.metadata.launchDirectory == FileManager.default.homeDirectoryForCurrentUser)
+        #expect(createdPane.metadata.facets.cwd == FileManager.default.homeDirectoryForCurrentUser)
         #expect(harness.store.activeTabId == createdTab.id)
     }
 

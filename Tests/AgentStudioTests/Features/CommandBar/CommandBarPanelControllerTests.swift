@@ -499,7 +499,7 @@ struct CommandBarPanelControllerTests {
                             )
                         ],
                         watchedPaths: [],
-                        unavailableRepositoryIDs: []
+                        unavailableRepositoryIDs: [repository.id]
                     ).preparedValue
                 )
             )

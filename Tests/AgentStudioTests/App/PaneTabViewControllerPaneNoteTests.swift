@@ -43,7 +43,7 @@ struct PaneTabViewControllerPaneNoteTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let launchDirectory = harness.tempDir.appending(path: "launch")
+        let launchDirectory = harness.tempDir.appending(path: "launch", directoryHint: .isDirectory)
         _ = makeMainPane(in: harness, launchDirectory: launchDirectory)
 
         harness.controller.execute(.copyCurrentPanePath)

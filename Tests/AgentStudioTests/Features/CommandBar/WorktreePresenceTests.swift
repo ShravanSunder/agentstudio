@@ -44,13 +44,17 @@ struct WorktreePresenceTests {
     func test_build_worktreeWithOnePane_returnsSinglePanePresence() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/presence-single"))
+        guard let mainWorktree = store.repos.first?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
         let worktree = Worktree(
             repoId: repo.id,
             name: "feature",
             path: URL(filePath: "/tmp/presence-single/feature")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        guard let storedWorktree = store.repos.first?.worktrees.first else {
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, worktree])
+        guard let storedWorktree = store.repos.first?.worktrees.first(where: { $0.path == worktree.path }) else {
             Issue.record("Expected stored worktree")
             return
         }
@@ -66,10 +70,14 @@ struct WorktreePresenceTests {
         let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
 
         #expect(presence.openPanes.count == 1)
-        #expect(presence.openPanes[0].paneId == pane.id)
-        #expect(presence.openPanes[0].tabId == tab.id)
-        #expect(presence.openPanes[0].tabIndex == 0)
-        #expect(presence.openPanes[0].paneIndexInTab == 0)
+        guard let openPane = presence.openPanes.first else {
+            Issue.record("Expected one open pane")
+            return
+        }
+        #expect(openPane.paneId == pane.id)
+        #expect(openPane.tabId == tab.id)
+        #expect(openPane.tabIndex == 0)
+        #expect(openPane.paneIndexInTab == 0)
         #expect(presence.openState == .singlePane)
     }
 

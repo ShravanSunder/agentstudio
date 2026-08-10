@@ -57,6 +57,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
+        let inboxAtom = InboxNotificationAtom()
         let controller = PaneTabViewController(
             store: store,
             octiconLoader: makeTerminalTestOcticonLoader(),
@@ -65,11 +66,15 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appLifecycleStore: appLifecycleStore,
             executor: executor,
             runtimeCommandDispatcher: coordinator,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
+            tabBarAdapter: TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: inboxAtom
+            ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             editorChooser: editorChooser,
-            inboxAtom: InboxNotificationAtom(),
+            inboxAtom: inboxAtom,
             registersAsCommandHandler: false
         )
         return PaneTabControllerHarness(
@@ -274,7 +279,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
-        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+        guard
+            let drawerPane = harness.store.addDrawerPane(
+                to: parentPane.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        else {
             Issue.record("Expected drawer pane creation to succeed")
             return
         }

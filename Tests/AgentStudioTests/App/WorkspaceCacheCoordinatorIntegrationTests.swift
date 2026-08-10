@@ -268,7 +268,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     }
 
     @Test
-    func integration_unavailableRepoReAdd_clearsUnavailableState() async {
+    func integration_notScannedRepoReplay_preservesUnavailableState() async {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -284,7 +284,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         workspaceStore.markRepoUnavailable(repo.id)
         #expect(workspaceStore.isRepoUnavailable(repo.id))
 
-        // User re-adds the same path
+        // A path-only replay does not prove that the missing main worktree exists.
         coordinator.handleTopology(
             SystemEnvelope.test(
                 event: .topology(
@@ -293,11 +293,65 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             )
         )
 
-        // Should be available again, same ID, enrichment seeded
-        #expect(!workspaceStore.isRepoUnavailable(repo.id))
+        // The stored family remains intact, but degradation is preserved until a scanned result heals it.
+        #expect(workspaceStore.isRepoUnavailable(repo.id))
         #expect(workspaceStore.repos.count == 1)
         #expect(workspaceStore.repos[0].id == repo.id)
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id))
+    }
+
+    @Test("authoritative scan healing availability restores orphaned pane residency")
+    func authoritativeScanAvailabilityHealForwardsTopologyEffects() throws {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let effectHandler = RestoringTopologyEffectHandler(workspaceStore: workspaceStore)
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            topologyEffectHandler: effectHandler,
+            scopeSyncHandler: { _ in }
+        )
+        let repoPath = URL(filePath: "/tmp/availability-only-scan-heal")
+        let repo = workspaceStore.addRepo(at: repoPath)
+        let layoutPane = workspaceStore.createPane(
+            launchDirectory: repoPath,
+            zmxSessionID: .generateUUIDv7(),
+            facets: PaneContextFacets(cwd: repoPath)
+        )
+        let backgroundPane = workspaceStore.createPane(
+            launchDirectory: repoPath,
+            zmxSessionID: .generateUUIDv7(),
+            facets: PaneContextFacets(cwd: repoPath)
+        )
+        workspaceStore.appendTab(Tab(paneId: layoutPane.id))
+        workspaceStore.markRepoUnavailable(repo.id)
+        workspaceStore.setResidency(
+            .orphaned(reason: .worktreeNotFound(path: repoPath.path)),
+            for: layoutPane.id
+        )
+        workspaceStore.setResidency(
+            .orphaned(reason: .worktreeNotFound(path: repoPath.path)),
+            for: backgroundPane.id
+        )
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([])
+                    )
+                )
+            )
+        )
+
+        #expect(!workspaceStore.isRepoUnavailable(repo.id))
+        #expect(effectHandler.deltas.count == 1)
+        #expect(effectHandler.deltas.single?.didChange == true)
+        #expect(workspaceStore.pane(layoutPane.id)?.residency == .active)
+        #expect(workspaceStore.pane(backgroundPane.id)?.residency == .backgrounded)
     }
 
     // MARK: - Watched Folder Scope Change
@@ -778,5 +832,20 @@ private final class RecordingTopologyEffectHandler: TopologyEffectHandler {
 
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         deltas.append(delta)
+    }
+}
+
+@MainActor
+private final class RestoringTopologyEffectHandler: TopologyEffectHandler {
+    private let workspaceStore: WorkspaceStore
+    private(set) var deltas: [WorktreeTopologyDelta] = []
+
+    init(workspaceStore: WorkspaceStore) {
+        self.workspaceStore = workspaceStore
+    }
+
+    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
+        deltas.append(delta)
+        _ = workspaceStore.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
     }
 }

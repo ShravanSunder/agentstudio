@@ -827,8 +827,6 @@ extension AppCommand {
                 icon: .system(.rectangleStack),
                 helpTarget: "tab"
             )
-        case .setRepoSidebarVisibilityMode:
-            return repoSidebarVisibilityDefinition()
         case .setRepoSidebarSortOrder:
             return repoSidebarSortOrderDefinition()
         case .setInboxGroupingTab:

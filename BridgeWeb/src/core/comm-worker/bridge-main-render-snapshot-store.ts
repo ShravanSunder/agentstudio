@@ -207,9 +207,14 @@ export interface BridgeMainRenderSnapshotStore {
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 }
 
+export interface BridgeMainRenderSnapshotStoreProps extends BridgeMainFileDisplayPatchApplierProps {
+	readonly onFileQueryTransactionPublished?: (transactionId: string) => void;
+}
+
 export function createBridgeMainRenderSnapshotStore(
-	fileDisplayApplierProps: BridgeMainFileDisplayPatchApplierProps = {},
+	props: BridgeMainRenderSnapshotStoreProps = {},
 ): BridgeMainRenderSnapshotStore {
+	const { onFileQueryTransactionPublished, ...fileDisplayApplierProps } = props;
 	const fileDisplayPatchApplier = new BridgeMainFileDisplayPatchApplier(fileDisplayApplierProps);
 	let snapshot = emptyBridgeMainRenderSnapshot(fileDisplayPatchApplier.state);
 	const listeners = new Set<() => void>();
@@ -507,6 +512,7 @@ export function createBridgeMainRenderSnapshotStore(
 			const fileDisplayState = fileDisplayPatchApplier.completeQueryTransaction(transactionId);
 			if (fileDisplayState === null) return false;
 			publish({ ...snapshot, ...fileDisplayState });
+			onFileQueryTransactionPublished?.(transactionId);
 			return true;
 		},
 		fileTreePatchStream,
@@ -699,8 +705,6 @@ function buildSnapshotFromUpdate(
 				if (patch.operation === 'reset') {
 					mutableRowPaint = {};
 					rowPaintById = mutableRowPaint;
-					mutableCodeViewItems = {};
-					codeViewItemsById = mutableCodeViewItems;
 					break;
 				}
 				const nextRowPaint = ensureMutableRowPaint();

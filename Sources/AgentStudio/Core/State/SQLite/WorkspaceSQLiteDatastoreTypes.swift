@@ -13,9 +13,16 @@ enum WorkspaceSQLiteDatastoreError: Error, Equatable, Sendable {
 }
 
 package struct WorkspaceSQLiteDatastoreFailure: Error, Equatable, Sendable {
+    package enum Kind: Equatable, Sendable {
+        case stateBridge
+        case database
+    }
+
+    package let kind: Kind
     package let description: String
 
     init(_ error: any Error) {
+        self.kind = error is WorkspaceSQLiteStateBridgeError ? .stateBridge : .database
         self.description = String(describing: error)
     }
 }

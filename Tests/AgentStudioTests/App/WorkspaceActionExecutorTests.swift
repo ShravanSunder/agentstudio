@@ -528,17 +528,18 @@ final class WorkspaceActionExecutorTests {
     @Test
     func test_openTerminal_existingPane_selectsTab() {
         // Arrange
-        let worktreeId = UUID()
-        let repoId = UUID()
-        let worktree = makeWorktree(id: worktreeId)
-        let repo = makeRepo(id: repoId)
-        let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
+        let launchDirectory = URL(filePath: "/tmp/worktree", directoryHint: .isDirectory)
+        let repo = store.addRepo(at: launchDirectory)
+        guard let worktree = repo.worktrees.first else {
+            Issue.record("Expected store-admitted main worktree")
+            return
+        }
 
         // Create first pane manually
         let existingPane = store.createPane(
-            launchDirectory: launchDirectory,
+            launchDirectory: worktree.path,
             title: "Existing",
-            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: launchDirectory)
+            facets: PaneContextFacets(cwd: worktree.path)
         )
         let tab = Tab(paneId: existingPane.id)
         store.appendTab(tab)

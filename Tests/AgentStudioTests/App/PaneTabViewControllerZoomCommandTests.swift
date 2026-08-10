@@ -385,7 +385,11 @@ struct PaneTabViewControllerZoomCommandTests {
         let panes = [
             harness.store.createPane(
                 content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
-                metadata: PaneMetadata(contentType: .diff, title: "Review")
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Review",
+                    facets: PaneContextFacets(cwd: harness.tempDir)
+                )
             ),
             harness.store.createPane(
                 content: .codeViewer(
@@ -509,7 +513,7 @@ struct PaneTabViewControllerZoomCommandTests {
         enterZoom(in: destinationTab, sourcePaneId: destinationPane.id, harness: harness)
         harness.store.setActiveTab(sourceTab.id)
         harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-        let durablePaneIdsBefore = Set(harness.store.paneAtom.panes.keys)
+        let durablePaneIdsBefore = harness.store.paneAtom.graphAtom.paneIDs
 
         #expect(!harness.controller.canExecute(.showViewer, target: destinationPane.id, targetType: .pane))
         harness.controller.execute(.showViewer, target: destinationPane.id, targetType: .pane)
@@ -524,7 +528,7 @@ struct PaneTabViewControllerZoomCommandTests {
         )
         #expect(harness.store.activeTabId == sourceTab.id)
         #expect(harness.store.tab(destinationTab.id)?.activePaneId == destinationPane.id)
-        #expect(Set(harness.store.paneAtom.panes.keys) == durablePaneIdsBefore)
+        #expect(harness.store.paneAtom.graphAtom.paneIDs == durablePaneIdsBefore)
     }
 
     @Test("Viewer rejects explicit worktree targets")
@@ -550,7 +554,7 @@ struct PaneTabViewControllerZoomCommandTests {
         )
         harness.store.setActiveTab(sourceTab.id)
         harness.store.setActivePane(sourcePane.id, inTab: sourceTab.id)
-        let paneIdsBefore = Set(harness.store.paneAtom.panes.keys)
+        let paneIdsBefore = harness.store.paneAtom.graphAtom.paneIDs
         let tabIdsBefore = Set(harness.store.tabs.map(\.id))
 
         #expect(!harness.controller.canExecute(.showViewer, target: worktree.id, targetType: .worktree))
@@ -561,7 +565,7 @@ struct PaneTabViewControllerZoomCommandTests {
                 == .retainedVisible(companionPaneId: companion.companionPaneId)
         )
         #expect(harness.store.activeTabId == sourceTab.id)
-        #expect(Set(harness.store.paneAtom.panes.keys) == paneIdsBefore)
+        #expect(harness.store.paneAtom.graphAtom.paneIDs == paneIdsBefore)
         #expect(Set(harness.store.tabs.map(\.id)) == tabIdsBefore)
         #expect(
             harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?.companionPaneId
@@ -751,13 +755,13 @@ struct PaneTabViewControllerZoomCommandTests {
             mountedContent: FocusablePaneTabCommandMountedContentView()
         )
         window.makeKeyAndOrderFront(nil)
-        let paneIdsBefore = Set(harness.store.paneAtom.panes.keys)
+        let paneIdsBefore = harness.store.paneAtom.graphAtom.paneIDs
         let tabIdsBefore = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
         harness.controller.execute(.showBridgeReview, target: worktree.id, targetType: .worktree)
 
         #expect(requestedPaneIds == [durableViewerPane.id])
-        #expect(Set(harness.store.paneAtom.panes.keys) == paneIdsBefore)
+        #expect(harness.store.paneAtom.graphAtom.paneIDs == paneIdsBefore)
         #expect(Set(harness.store.tabLayoutAtom.tabs.map(\.id)) == tabIdsBefore)
         #expect(harness.store.paneAtom.pane(durableViewerPane.id) != nil)
         #expect(harness.store.tabContaining(paneId: durableViewerPane.id)?.id == durableViewerTab.id)

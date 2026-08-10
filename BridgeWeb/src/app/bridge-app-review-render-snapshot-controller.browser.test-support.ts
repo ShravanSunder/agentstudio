@@ -12,7 +12,9 @@ export function hierarchicalReviewDisplayEvent(): BridgeWorkerReviewDisplayPatch
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'review-hierarchical-source',
 					metadataWindowIdentity: 'review-window-hierarchical',
+					packageId: 'review-hierarchical-package',
 					reviewGeneration: 1,
 					status: 'ready',
 					summary: {

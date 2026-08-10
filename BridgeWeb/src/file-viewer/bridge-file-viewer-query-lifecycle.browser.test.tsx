@@ -1,16 +1,13 @@
 import { act } from 'react';
-import { beforeEach, describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode mounts the production File shell.
 import '../app/bridge-app.css';
 import { bridgeAppControlProbeSchema } from '../app/bridge-app-control.js';
 import type { BridgeWorkerMainToServerMessage } from '../core/comm-worker/bridge-worker-contracts.js';
-import {
-	actClickAndSettleFileViewerMenu,
-	waitForFileViewerMenuOptionContaining,
-} from './bridge-file-viewer-app-startup.browser.test-support.js';
+import { waitForFileViewerMenuOptionContaining } from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerBrowserHarnessApp } from './bridge-file-viewer-browser-test-app.js';
 import {
 	fileNavigationCommandForPath,
@@ -22,18 +19,27 @@ import {
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	actClick,
+	actFrame,
 	actUpdate,
+	interactAndWaitForBridgeFileViewerQueryCompletion,
 	installBridgeFileViewerNoopResizeObserver,
 	settleBridgeFileViewerBrowserUpdates,
 	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
 	selectedDisplayPath,
 	waitForSelectedDisplayPath,
+	waitForBridgeFileViewerWorkerMessageDrain,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 	beforeEach((): void => {
 		installBridgeFileViewerNoopResizeObserver();
+	});
+
+	afterEach(async (): Promise<void> => {
+		await actUpdate(cleanup);
+		await waitForBridgeFileViewerWorkerMessageDrain();
+		document.body.replaceChildren();
 	});
 
 	test('does not reschedule the unchanged query when content publications update the snapshot', async () => {
@@ -86,7 +92,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await waitForSelectedDisplayPath('Sources/App/TextFile.ts');
 
 		// Act
-		await act(async (): Promise<void> => {
+		await interactAndWaitForBridgeFileViewerQueryCompletion(async (): Promise<void> => {
 			window.dispatchEvent(
 				new CustomEvent('__bridge_review_control', {
 					detail: {
@@ -155,9 +161,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		expect(document.activeElement).toBe(searchInput);
 
 		// Act: foreground Escape closes Search without relying on a surface-global handler.
-		await act(async (): Promise<void> => {
-			searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-		});
+		await dispatchFileViewerSearchEscape(searchInput);
 
 		// Assert: focus returns to the still-eligible Files tree and Search can reopen normally.
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
@@ -165,10 +169,12 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await actClick(requireHTMLElement(searchToggle.element()));
 
 		// Act: enter a text query.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('AppDelegate');
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'AppDelegate',
+			);
 		});
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert: only the matching file and required ancestors remain painted.
 		await expect
@@ -176,22 +182,26 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.toEqual(['Sources/AgentStudio/App', 'Sources/AgentStudio/App/AppDelegate.swift']);
 
 		// Act: an empty directory whose own path matches must not survive.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('Bridge');
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'Bridge',
+			);
 		});
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert
 		await expect.poll((): readonly string[] => mountedFileTreePaths()).toEqual([]);
 
 		// Act: regex is selected from inside the compound search field.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-regex-toggle').click();
-			await renderResult
-				.getByTestId('worktree-file-search-input')
-				.fill(String.raw`AppDelegate\.swift$`);
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			requireHTMLElement(renderResult.getByTestId('worktree-file-regex-toggle').element()).click();
 		});
-		await settleBridgeFileViewerBrowserUpdates();
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				String.raw`AppDelegate\.swift$`,
+			);
+		});
 
 		// Assert
 		await expect
@@ -199,10 +209,12 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.toEqual(['Sources/AgentStudio/App', 'Sources/AgentStudio/App/AppDelegate.swift']);
 
 		// Act: invalid regex leaves the last accepted projection visible and the input correctable.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('[');
+		await actUpdate((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'[',
+			);
 		});
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert
 		await expect
@@ -217,10 +229,12 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('[');
 
 		// Act: oversized visible input is rejected without replacing entered or accepted state.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('a'.repeat(4_097));
+		await actUpdate((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'a'.repeat(4_097),
+			);
 		});
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('[');
@@ -232,10 +246,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.toEqual(['Sources/AgentStudio/App', 'Sources/AgentStudio/App/AppDelegate.swift']);
 
 		// Act: the far-right Clear action resets the visible query.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-clear').click();
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			requireHTMLElement(renderResult.getByTestId('worktree-file-search-clear').element()).click();
 		});
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('');
@@ -247,11 +260,15 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.toContain('Sources/AgentStudio/Features/Bridge');
 
 		// Act: close a populated search through the persistent toggle.
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('AppDelegate');
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'AppDelegate',
+			);
 		});
-		await actClick(requireHTMLElement(searchToggle.element()));
-		await settleBridgeFileViewerBrowserUpdates();
+		await interactAndWaitForBridgeFileViewerQueryCompletion(
+			(): Promise<void> => actClick(requireHTMLElement(searchToggle.element())),
+		);
 
 		// Assert: closing clears the query, and reopening starts empty.
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
@@ -328,7 +345,11 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			.toHaveTextContent('');
 
 		// Act: a later invalid regex must replace, not be masked by, the oversized status.
-		await dispatchFileViewerSearchCommand({ mode: 'regex', query: '[' });
+		await dispatchFileViewerSearchCommand({
+			expectsQueryCompletion: false,
+			mode: 'regex',
+			query: '[',
+		});
 
 		// Assert
 		await expect.element(renderResult.getByTestId('worktree-file-search-input')).toHaveValue('[');
@@ -352,9 +373,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const searchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);
-		await act(async (): Promise<void> => {
-			searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-		});
+		await dispatchFileViewerSearchEscape(searchInput);
 
 		// Assert
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
@@ -377,36 +396,38 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 
 		// Act: Search keeps the focused semantic path eligible.
 		await dispatchFileViewerShortcut({ shiftKey: true });
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('AppDelegate');
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'AppDelegate',
+			);
 		});
-		await settleBridgeFileViewerBrowserUpdates();
-		const eligibleRow = requireHTMLElement(mountedFileTreeRow(focusedPath));
 		const searchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);
-		await act(async (): Promise<void> => {
-			searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
-		});
+		await dispatchFileViewerSearchEscape(searchInput, true);
 
 		// Assert: the owner resolves the current row, not a stale DOM node.
-		await expect.poll(deepActiveElement).toBe(eligibleRow);
+		await expect
+			.poll((): string | undefined =>
+				deepActiveElement()?.getAttribute('data-item-path')?.replace(/\/$/u, ''),
+			)
+			.toBe(focusedPath);
 
 		// Act: exclude the recorded path before closing the next Search.
+		const eligibleRow = requireHTMLElement(mountedFileTreeRow(focusedPath));
 		await actUpdate((): void => eligibleRow.focus());
 		await dispatchFileViewerShortcut({ shiftKey: true });
-		await act(async (): Promise<void> => {
-			await renderResult.getByTestId('worktree-file-search-input').fill('NoSuchPath');
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			setBridgeFileViewerSearchInputValue(
+				renderResult.getByTestId('worktree-file-search-input').element(),
+				'NoSuchPath',
+			);
 		});
-		await settleBridgeFileViewerBrowserUpdates();
 		const excludedSearchInput = requireHTMLElement(
 			renderResult.getByTestId('worktree-file-search-input').element(),
 		);
-		await act(async (): Promise<void> => {
-			excludedSearchInput.dispatchEvent(
-				new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }),
-			);
-		});
+		await dispatchFileViewerSearchEscape(excludedSearchInput, true);
 
 		// Assert: an ineligible path falls back to the Search trigger.
 		await expect
@@ -473,9 +494,11 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		const focusedVendorOption = highlightedFileViewerMenuOption();
 		expect(focusedVendorOption.textContent).toContain('Dependencies and build output');
 		expect(document.activeElement).toBe(focusedVendorOption);
-		await dispatchFileViewerMenuKey('Enter');
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			dispatchFileViewerMenuEnter();
+		});
+		await actFrame();
 		await expect.poll(() => focusedVendorOption.getAttribute('aria-checked')).toBe('true');
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert: the matching file and only its required ancestor remain.
 		await expect
@@ -485,10 +508,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// Act / Assert: every exposed category selects real metadata-backed rows.
 		// oxlint-disable no-await-in-loop -- Each selection mutates one shared Base UI menu and must settle before the next.
 		for (const categoryCase of categoryFilterCases) {
-			await actClickAndSettleFileViewerMenu(
+			await clickFileViewerMenuOptionAndWaitForQuery(
 				await waitForFileViewerMenuOptionContaining({ text: categoryCase.label }),
 			);
-			await settleBridgeFileViewerBrowserUpdates();
 			await expect
 				.poll((): readonly string[] => mountedFileTreePaths())
 				.toEqual(categoryCase.expectedPaths);
@@ -496,10 +518,9 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 		// oxlint-enable no-await-in-loop
 
 		// Act: Clear is the product reset path, not a test-only state mutation.
-		await actClickAndSettleFileViewerMenu(
+		await clickFileViewerMenuOptionAndWaitForQuery(
 			requireHTMLElement(renderResult.getByTestId('worktree-file-filter-menu-clear').element()),
 		);
-		await settleBridgeFileViewerBrowserUpdates();
 
 		// Assert
 		await expect
@@ -545,13 +566,15 @@ async function dispatchFileViewerShortcut(
 			}),
 		);
 	});
+	await actFrame();
 }
 
 async function dispatchFileViewerSearchCommand(props: {
+	readonly expectsQueryCompletion?: boolean;
 	readonly mode: 'regex' | 'text';
 	readonly query: string;
 }): Promise<void> {
-	await act(async (): Promise<void> => {
+	const dispatch = async (): Promise<void> => {
 		window.dispatchEvent(
 			new CustomEvent('__bridge_review_control', {
 				detail: {
@@ -561,14 +584,72 @@ async function dispatchFileViewerSearchCommand(props: {
 				},
 			}),
 		);
+	};
+	if (props.expectsQueryCompletion === false || props.query.length > 4_096) {
+		await act(dispatch);
+		return;
+	}
+	await interactAndWaitForBridgeFileViewerQueryCompletion((): Promise<void> => act(dispatch));
+}
+
+async function dispatchFileViewerSearchEscape(
+	searchInput: HTMLElement,
+	expectsQueryCompletion = false,
+): Promise<void> {
+	const dispatch = async (): Promise<void> => {
+		searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+	};
+	if (expectsQueryCompletion) {
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): Promise<void> => act(dispatch));
+		return;
+	}
+	await act(dispatch);
+}
+
+async function clickFileViewerMenuOptionAndWaitForQuery(element: HTMLElement): Promise<void> {
+	await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+		element.click();
 	});
-	await settleBridgeFileViewerBrowserUpdates();
+	// Base UI advances one frame before committing popup mounted-state changes.
+	await actFrame();
+}
+
+function setBridgeFileViewerSearchInputValue(element: Element, value: string): void {
+	if (!(element instanceof HTMLInputElement)) {
+		throw new Error('Expected the File Viewer search input.');
+	}
+	// oxlint-disable-next-line unbound-method -- The native setter is deliberately rebound to the controlled input below.
+	const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+	if (valueSetter === undefined) {
+		throw new Error('Expected the native HTMLInputElement value setter.');
+	}
+	valueSetter.call(element, value);
+	element.dispatchEvent(
+		new InputEvent('input', {
+			bubbles: true,
+			data: value,
+			inputType: 'insertText',
+		}),
+	);
+}
+
+function dispatchFileViewerMenuEnter(): void {
+	const activeElement = document.activeElement;
+	if (!(activeElement instanceof HTMLElement)) {
+		throw new Error('Expected a focused File Viewer menu option.');
+	}
+	activeElement.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+	activeElement.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'Enter' }));
 }
 
 async function dispatchFileViewerMenuKey(key: 'ArrowDown' | 'Enter' | 'Escape'): Promise<void> {
 	await act(async (): Promise<void> => {
 		await userEvent.keyboard(`{${key}}`);
 	});
+	// Base UI applies the selected value from an effect after the keyboard
+	// event returns. Commit that effect in an act-scoped frame before polling
+	// the resulting DOM state, so CI load cannot expose an unwrapped update.
+	await actFrame();
 }
 
 async function waitForFileViewerMenuFocus(): Promise<void> {

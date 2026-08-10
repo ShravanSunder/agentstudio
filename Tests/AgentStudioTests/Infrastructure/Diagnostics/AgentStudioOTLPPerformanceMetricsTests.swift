@@ -7,6 +7,38 @@ import Testing
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
     @Test
+    func repoAndTabAffectedWorkProjectsOnlyApprovedAggregateCounters() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.repo_explorer.command_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repo_explorer.affected_item.count": .int(2),
+                "agentstudio.performance.repo_explorer.command_resolution.count": .int(12),
+                "agentstudio.performance.repo_explorer.capability_snapshot.count": .int(1),
+                "agentstudio.performance.tabbar.affected_item.count": .int(1),
+                "agentstudio.performance.repo_explorer.private_title": .string("must-not-project"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.samples.map(\.label) == [
+                "agentstudio_performance_repo_explorer_affected_item_count",
+                "agentstudio_performance_repo_explorer_capability_snapshot_count",
+                "agentstudio_performance_repo_explorer_command_resolution_count",
+                "agentstudio_performance_tabbar_affected_item_count",
+            ]
+        )
+    }
+
+    @Test
     func performanceRecordProjectsBoundedMetricsFromScrubbedAttributes() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 123,
@@ -276,14 +308,14 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         let factory = RecordingMetricsFactory()
         let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
         let dimensions = [
-            ("drain_class", "immediate"),
+            ("drain_class", "title_deadline"),
             ("event", "performance.terminal.accumulator_drain"),
         ]
         let firstRecord = Self.projectedPerformanceRecord(
             body: "performance.terminal.accumulator_drain",
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(3),
-                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
@@ -294,7 +326,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.terminal.accumulator_drain",
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(1),
-                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
@@ -308,7 +340,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
 
         #expect(
             metricEvent.dimensions.contains(
-                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "immediate")
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "title_deadline")
             )
         )
         #expect(

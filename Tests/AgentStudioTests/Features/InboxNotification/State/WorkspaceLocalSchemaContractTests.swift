@@ -30,8 +30,8 @@ struct WorkspaceLocalSchemaContractTests {
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
     }
 
-    @Test("validated raw preference tokens round trip and malformed rows use defaults")
-    func validatedRawPreferenceTokensRoundTripAndMalformedRowsUseDefaults() throws {
+    @Test("legacy repo visibility tokens are inert while other preferences round trip")
+    func legacyRepoVisibilityTokensAreInertWhileOtherPreferencesRoundTrip() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let workspaceId = UUID()
@@ -40,7 +40,7 @@ struct WorkspaceLocalSchemaContractTests {
             WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
                 groupingMode: "pane",
                 sortOrder: "descending",
-                visibilityMode: "favoritesOnly"
+                visibilityMode: "legacy-favorites-only"
             )
         )
         let inboxPreferences = try #require(
@@ -162,7 +162,7 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("window_frame_json", 0), ("filter_text", 0), ("is_filter_visible", 0),
         ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("updated_at", 0),
     ],
-    "local_window_sidebar_expanded_group": [
+    "local_window_sidebar_collapsed_group": [
         ("window_id", 1), ("group_key", 2),
     ],
     "local_entity_recency": [
@@ -228,7 +228,7 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_drawer_cursor": ["TEXT", "TEXT", "INTEGER", "REAL"],
     "local_arrangement_drawer_cursor": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_window_state": ["TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "REAL"],
-    "local_window_sidebar_expanded_group": ["TEXT", "TEXT"],
+    "local_window_sidebar_collapsed_group": ["TEXT", "TEXT"],
     "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
     "local_workspace_entity_recency": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_notification_inbox_collapsed_group": ["TEXT", "TEXT"],
@@ -259,7 +259,7 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
         "window_role", "sidebar_width", "filter_text", "is_filter_visible", "sidebar_collapsed",
         "sidebar_surface", "updated_at",
     ],
-    "local_window_sidebar_expanded_group": ["window_id", "group_key"],
+    "local_window_sidebar_collapsed_group": ["window_id", "group_key"],
     "local_entity_recency": [
         "entity_kind", "entity_key", "interaction_kind", "last_interacted_at",
     ],
@@ -335,7 +335,7 @@ private func assertForeignKeyContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(
         allForeignKeys == [
             LocalSchemaForeignKeyContract(
-                sourceTable: "local_window_sidebar_expanded_group",
+                sourceTable: "local_window_sidebar_collapsed_group",
                 targetTable: "local_window_state",
                 sourceColumn: "window_id",
                 targetColumn: "window_id",
@@ -368,7 +368,7 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "local_drawer_cursor": 1,
         "local_arrangement_drawer_cursor": 0,
         "local_window_state": 3,
-        "local_window_sidebar_expanded_group": 0,
+        "local_window_sidebar_collapsed_group": 0,
         "local_entity_recency": 0,
         "local_workspace_entity_recency": 0,
         "local_notification_inbox_collapsed_group": 0,
@@ -389,7 +389,7 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(tableSQL["local_window_state"]?.contains("window_role = 'main'") == true)
     #expect(tableSQL["local_window_state"]?.contains("is_filter_visible IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("sidebar_collapsed IN (0, 1)") == true)
-    #expect(tableSQL["local_window_sidebar_expanded_group"]?.contains("ON DELETE CASCADE") == true)
+    #expect(tableSQL["local_window_sidebar_collapsed_group"]?.contains("ON DELETE CASCADE") == true)
     #expect(tableSQL["local_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_workspace_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_notification_inbox_item"]?.components(separatedBy: "CHECK (").count == 3)

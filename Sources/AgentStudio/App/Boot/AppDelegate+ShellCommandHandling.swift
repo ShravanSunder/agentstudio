@@ -9,8 +9,7 @@ extension AppDelegate: ShellCommandHandling {
         }
         guard atomStore != nil else { return false }
         switch (request.command, request.arguments) {
-        case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode),
-            (.setRepoSidebarSortOrder, .repoSidebarSortOrder),
+        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder),
             (.setInboxRowStateFilter, .inboxRowStateFilter),
             (.setInboxContentMode, .inboxContentMode):
             return true
@@ -61,7 +60,7 @@ extension AppDelegate: ShellCommandHandling {
             .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .newFloatingTerminal, .openWebview, .reloadBridgeWebView, .showViewer,
             .showBridgeReview, .showBridgeFiles,
-            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setRepoSidebarSortOrder,
             .setInboxRowStateFilter, .setInboxContentMode,
             .openBridgeReviewInNewTab, .openBridgeFilesInNewTab, .openNewTerminalInTab:
             false
@@ -100,8 +99,6 @@ extension AppDelegate: ShellCommandHandling {
         case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone:
             return executeSidebarGroupingCommand(command) == .applied
-        case .setRepoSidebarVisibilityMode:
-            return false
         case .setRepoSidebarSortOrder:
             return false
         case .setInboxRowStateFilter, .setInboxContentMode:
@@ -206,7 +203,7 @@ extension AppDelegate: ShellCommandHandling {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,
@@ -225,8 +222,6 @@ extension AppDelegate: ShellCommandHandling {
             return executeHeadlessRepoSidebarCommand()
         case (.showInboxNotifications, .noArguments) where request.executionContext == .headlessIPC:
             return executeHeadlessInboxSidebarCommand()
-        case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode(let mode)):
-            return executeRepoSidebarVisibilityCommand(mode)
         case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
             return executeRepoSidebarSortOrderCommand(order)
         case (.setInboxRowStateFilter, .inboxRowStateFilter(let filter)):
@@ -301,15 +296,6 @@ extension AppDelegate: ShellCommandHandling {
             atomStore.core.workspaceSidebarState.sidebarSurface == .inbox,
             atomStore.core.workspaceSidebarState.sidebarCollapsed == false
         else {
-            return .stateUnavailable
-        }
-        return .applied
-    }
-
-    private func executeRepoSidebarVisibilityCommand(_ mode: RepoExplorerVisibilityMode) -> AppCommandExecutionOutcome {
-        guard let atomStore else { return .stateUnavailable }
-        atomStore.repoExplorerSidebarPrefs.setRepoVisibilityMode(mode)
-        guard atomStore.repoExplorerSidebarPrefs.repoVisibilityMode == mode else {
             return .stateUnavailable
         }
         return .applied

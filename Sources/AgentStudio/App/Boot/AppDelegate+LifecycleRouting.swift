@@ -26,6 +26,7 @@ extension AppDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        mainWindowController?.shutdown()
         managementLayerMonitor?.stopMonitoring()
         guard let applicationLifecycleMonitor else {
             appDelegateLifecycleLogger.warning("Skipping applicationWillTerminate before lifecycle monitor is ready")

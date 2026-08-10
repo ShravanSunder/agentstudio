@@ -21,6 +21,7 @@ extension WorkspaceStore {
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil,
+        persistenceReasonReporter: PaneTopologyPersistenceReasonReporter? = nil,
         startsObserving: Bool = true
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
@@ -66,7 +67,8 @@ extension WorkspaceStore {
             sqliteSaveCoordinator: sqliteSaveCoordinator,
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
-            recoveryReporter: recoveryReporter
+            recoveryReporter: recoveryReporter,
+            persistenceReasonReporter: persistenceReasonReporter
         )
         if startsObserving {
             startObserving()
@@ -105,7 +107,7 @@ extension WorkspaceStore {
     package var windowFrame: CGRect? { windowMemoryAtom.windowFrame }
     package var repos: [Repo] { repositoryTopologyAtom.repos }
     package var watchedPaths: [WatchedPath] { repositoryTopologyAtom.watchedPaths }
-    package var panes: [UUID: Pane] { paneAtom.panes }
+    package var panes: [UUID: Pane] { paneAtom.paneSnapshot() }
     package var tabs: [Tab] { tabLayoutAtom.tabs }
     package var activeTabId: UUID? { tabLayoutAtom.activeTabId }
     package var activeTab: Tab? { tabLayoutAtom.activeTab }
@@ -165,7 +167,7 @@ extension WorkspaceStore {
         metadata: PaneMetadata,
         residency: SessionResidency = .active
     ) -> Pane {
-        paneAtom.createPane(content: content, metadata: metadata, residency: residency)
+        paneAtom.createPane(content: content, metadata: metadata, residency: residency)!
     }
 
     package func removePane(_ paneId: UUID) { mutationCoordinator.removePane(paneId) }

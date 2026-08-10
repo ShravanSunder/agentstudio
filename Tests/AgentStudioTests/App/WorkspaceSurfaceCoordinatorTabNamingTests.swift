@@ -19,18 +19,26 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "repo-distinct"))
-        let worktree = Worktree(repoId: repo.id, name: "feature", path: repo.repoPath.appending(path: "feature"))
-        harness.store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(harness.store.repos.first?.worktrees.first, "Expected stored worktree")
+        let topology = try addRepositoryWithFeatureWorktree(
+            at: harness.tempDir.appending(path: "repo-distinct"),
+            to: harness.store
+        )
         atom(\.repoCache).setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/login")
+            WorktreeEnrichment(
+                worktreeId: topology.worktree.id,
+                repoId: topology.repository.id,
+                branch: "feature/login"
+            )
         )
 
         let pane = harness.store.createPane(
-            launchDirectory: storedWorktree.path,
+            launchDirectory: topology.worktree.path,
             title: "Ignored",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
+            facets: PaneContextFacets(
+                repoId: topology.repository.id,
+                worktreeId: topology.worktree.id,
+                cwd: topology.worktree.path
+            ),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature · feature/login")
@@ -41,18 +49,26 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "repo-detached"))
-        let worktree = Worktree(repoId: repo.id, name: "feature", path: repo.repoPath.appending(path: "feature"))
-        harness.store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(harness.store.repos.first?.worktrees.first, "Expected stored worktree")
+        let topology = try addRepositoryWithFeatureWorktree(
+            at: harness.tempDir.appending(path: "repo-detached"),
+            to: harness.store
+        )
         atom(\.repoCache).setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "detached HEAD")
+            WorktreeEnrichment(
+                worktreeId: topology.worktree.id,
+                repoId: topology.repository.id,
+                branch: "detached HEAD"
+            )
         )
 
         let pane = harness.store.createPane(
-            launchDirectory: storedWorktree.path,
+            launchDirectory: topology.worktree.path,
             title: "Ignored",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
+            facets: PaneContextFacets(
+                repoId: topology.repository.id,
+                worktreeId: topology.worktree.id,
+                cwd: topology.worktree.path
+            ),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature")
@@ -63,18 +79,22 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "repo-empty"))
-        let worktree = Worktree(repoId: repo.id, name: "feature", path: repo.repoPath.appending(path: "feature"))
-        harness.store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(harness.store.repos.first?.worktrees.first, "Expected stored worktree")
+        let topology = try addRepositoryWithFeatureWorktree(
+            at: harness.tempDir.appending(path: "repo-empty"),
+            to: harness.store
+        )
         atom(\.repoCache).setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "")
+            WorktreeEnrichment(worktreeId: topology.worktree.id, repoId: topology.repository.id, branch: "")
         )
 
         let pane = harness.store.createPane(
-            launchDirectory: storedWorktree.path,
+            launchDirectory: topology.worktree.path,
             title: "Ignored",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
+            facets: PaneContextFacets(
+                repoId: topology.repository.id,
+                worktreeId: topology.worktree.id,
+                cwd: topology.worktree.path
+            ),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature")
@@ -85,18 +105,26 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "repo-match"))
-        let worktree = Worktree(repoId: repo.id, name: "feature", path: repo.repoPath.appending(path: "feature"))
-        harness.store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(harness.store.repos.first?.worktrees.first, "Expected stored worktree")
+        let topology = try addRepositoryWithFeatureWorktree(
+            at: harness.tempDir.appending(path: "repo-match"),
+            to: harness.store
+        )
         atom(\.repoCache).setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature")
+            WorktreeEnrichment(
+                worktreeId: topology.worktree.id,
+                repoId: topology.repository.id,
+                branch: "feature"
+            )
         )
 
         let pane = harness.store.createPane(
-            launchDirectory: storedWorktree.path,
+            launchDirectory: topology.worktree.path,
             title: "Ignored",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: storedWorktree.id, cwd: storedWorktree.path),
+            facets: PaneContextFacets(
+                repoId: topology.repository.id,
+                worktreeId: topology.worktree.id,
+                cwd: topology.worktree.path
+            ),
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "feature")
@@ -112,6 +140,29 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
         )
 
         #expect(harness.coordinator.tabNameForPane(pane) == "Terminal")
+    }
+
+    private func addRepositoryWithFeatureWorktree(
+        at repositoryPath: URL,
+        to store: WorkspaceStore
+    ) throws -> (repository: Repo, worktree: Worktree) {
+        let repository = store.addRepo(at: repositoryPath)
+        let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
+        let mainWorktree = try #require(existingMainWorktree, "Expected repository main worktree")
+        let linkedWorktree = Worktree(
+            repoId: repository.id,
+            name: "feature",
+            path: repository.repoPath.appending(path: "feature")
+        )
+        store.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [mainWorktree, linkedWorktree]
+        )
+        let storedLinkedWorktree = try #require(
+            store.worktree(linkedWorktree.id),
+            "Expected stored linked worktree"
+        )
+        return (repository, storedLinkedWorktree)
     }
 
     private func makeHarness() -> (store: WorkspaceStore, coordinator: WorkspaceSurfaceCoordinator, tempDir: URL) {

@@ -18,7 +18,7 @@ type ReviewDeltaEvent = Extract<
 >;
 
 describe('Bridge comm worker Review display projection', () => {
-	test('projects native Review generation into the source display payload', () => {
+	test('projects the complete Review navigation source while excluding publication identity', () => {
 		// Arrange
 		const item = reviewItemMetadata(0);
 		const event: ReviewDeltaEvent = {
@@ -70,6 +70,9 @@ describe('Bridge comm worker Review display projection', () => {
 			throw new Error('Expected Review source display payload.');
 		}
 		expect(sourcePayload['reviewGeneration']).toBe(reviewIdentity.generation);
+		expect(sourcePayload['metadataSourceId']).toBe(reviewIdentity.sourceIdentity);
+		expect(sourcePayload['packageId']).toBe(reviewIdentity.packageId);
+		expect(sourcePayload).not.toHaveProperty('publicationId');
 	});
 
 	test('preserves Review delta operations in canonical source order', () => {

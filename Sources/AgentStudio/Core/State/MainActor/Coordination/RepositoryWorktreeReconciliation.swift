@@ -53,6 +53,7 @@ package struct RepositoryWorktreeReconciliationAcceptance: Equatable, Sendable {
 
 package enum RepositoryWorktreeReconciliationRejection: Equatable, Sendable {
     case repoNotFound(UUID)
+    case worktreeNotFound(UUID)
     case worktreeRepoMismatch(
         worktreeId: UUID,
         expectedRepoId: UUID,
@@ -60,6 +61,7 @@ package enum RepositoryWorktreeReconciliationRejection: Equatable, Sendable {
     )
     case duplicateWorktreeId(UUID)
     case duplicateWorktreeStableKey(String)
+    case topologyRejected(RepositoryTopologyIdentityRejection)
 }
 
 package enum RepositoryWorktreeReconciliationResult: Equatable, Sendable {

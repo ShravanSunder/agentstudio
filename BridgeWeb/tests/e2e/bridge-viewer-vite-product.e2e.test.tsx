@@ -228,11 +228,10 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			page.on('worker', (worker): void => {
 				workerUrls.push(worker.url());
 			});
-			await page.goto(productFileUrl(server.origin), {
+			await page.goto(productFileUrl(server.origin, oracle.largeFilePath), {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await selectFileBySearch({ page, path: oracle.largeFilePath });
 			await waitForSelectedFileReady({ oracle, page });
 			await clearFileSearchAndScrollTreeDeep({ oracle, page });
 			const contentScrollProof = await scrollSelectedFileThroughMarkers({
@@ -255,11 +254,11 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			});
 			expect(proof.finalMarkerPainted).toBe(true);
 			expect(
-				proof.workerUrls.some((url): boolean => url.includes('bridge-comm-worker-entry')),
+				proof.workerUrls.some((url): boolean => url.includes('bridge-comm-worker-vite-entry')),
 			).toBe(true);
 			expect(proof.paintedCorrelations).toEqual([
 				expect.objectContaining({
-					descriptorId: expect.stringMatching(/^dev-file-/u),
+					descriptorId: expect.stringMatching(/^file-content-[0-9a-f]{32}$/u),
 					disposition: 'painted',
 					itemId: proof.renderedItemId,
 					observedSha256: oracle.largeFileSha256,
@@ -297,7 +296,6 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				timeout: productJourneyTimeoutMilliseconds,
 				waitUntil: 'domcontentloaded',
 			});
-			await selectFileBySearch({ page, path: oracle.largeFilePath });
 			await waitForSelectedFileContentReady({ content: mutatedContent, oracle, page });
 			await scrollSelectedFileThroughMarkers({ content: mutatedContent, page });
 			const replacementProof = await readFileDeepScrollProof({
@@ -328,8 +326,12 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					expectedSha256: mutatedContent.sha256,
 				}),
 			);
-			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).not.toBe(
-				readFileDescriptorRootRevisionToken(initialRequest?.descriptor),
+			const initialRootRevisionToken = readFileDescriptorRootRevisionToken(
+				initialRequest?.descriptor,
+			);
+			expect(initialRootRevisionToken).toEqual(expect.stringMatching(/\S/u));
+			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
+				initialRootRevisionToken,
 			);
 		} finally {
 			await page?.close();
@@ -369,42 +371,6 @@ function assertJourneyFreshness(props: {
 			(entry): boolean => entry.contentKind === 'review.content' && entry.httpStatus === 200,
 		),
 	).toBe(true);
-}
-
-async function selectFileBySearch(props: {
-	readonly page: Page;
-	readonly path: string;
-}): Promise<void> {
-	await props.page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', {
-		timeout: productJourneyTimeoutMilliseconds,
-	});
-	const searchInput = props.page.locator('[data-testid="worktree-file-search-input"]');
-	if ((await searchInput.count()) === 0) {
-		await props.page.locator('[data-testid="worktree-file-search-toggle"]').click({
-			timeout: productJourneyTimeoutMilliseconds,
-		});
-	}
-	await props.page.locator('[data-testid="worktree-file-search-input"]').fill(props.path);
-	await props.page.waitForFunction(
-		(targetPath: string): boolean => {
-			const treeHost = document.querySelector(
-				'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
-			);
-			return (
-				treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`) !== null
-			);
-		},
-		props.path,
-		{ timeout: productJourneyTimeoutMilliseconds },
-	);
-	await props.page.evaluate((targetPath: string): void => {
-		const treeHost = document.querySelector(
-			'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
-		);
-		const row = treeHost?.shadowRoot?.querySelector(`[data-item-path="${CSS.escape(targetPath)}"]`);
-		if (!(row instanceof HTMLElement)) throw new Error(`File row missing: ${targetPath}`);
-		row.click();
-	}, props.path);
 }
 
 async function waitForSelectedFileReady(props: {
@@ -460,7 +426,8 @@ async function clearFileSearchAndScrollTreeDeep(props: {
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 	readonly page: Page;
 }): Promise<void> {
-	await props.page.locator('[data-testid="worktree-file-search-input"]').fill('');
+	const searchInput = props.page.locator('[data-testid="worktree-file-search-input"]');
+	if ((await searchInput.count()) > 0) await searchInput.fill('');
 	await props.page.waitForFunction(
 		(targetPath: string): boolean => {
 			const treeHost = document.querySelector(
@@ -884,12 +851,13 @@ function isUnknownRecord(value: unknown): value is Readonly<Record<string, unkno
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function productFileUrl(origin: string): string {
+function productFileUrl(origin: string, path?: string): string {
 	const url = new URL('/', origin);
 	url.searchParams.set('fixture', 'worktree');
 	url.searchParams.set('scenario', 'current-worktree');
 	url.searchParams.set('viewer', 'file');
 	url.searchParams.set('workers', 'on');
+	if (path !== undefined) url.searchParams.set('path', path);
 	return url.toString();
 }
 

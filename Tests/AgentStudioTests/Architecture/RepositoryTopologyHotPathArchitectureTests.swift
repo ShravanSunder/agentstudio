@@ -35,8 +35,8 @@ struct RepositoryTopologyHotPathArchitectureTests {
 
         let body = try #require(
             source.slice(
-                from: "func repoAndWorktree(containing cwd: URL?)",
-                to: "func isRepoUnavailable"
+                from: "package func repoAndWorktree(\n        containing cwd: URL?,",
+                to: "package func repoAndWorktree(\n        containing cwd: URL?\n    )"
             )
         )
 

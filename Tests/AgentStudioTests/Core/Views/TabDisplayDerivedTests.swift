@@ -25,20 +25,28 @@ struct TabDisplayDerivedTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/tab-display-derived/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+            guard let storedWorktree = store.repo(repo.id)?.worktrees.first(where: { $0.id == worktree.id }) else {
+                Issue.record("Expected linked worktree")
+                return
+            }
             atoms.repoCache.setWorktreeEnrichment(
-                WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
+                WorktreeEnrichment(
+                    worktreeId: storedWorktree.id,
+                    repoId: repo.id,
+                    branch: "feature/pane-labels"
+                )
             )
 
             let pane = store.createPane(
-                launchDirectory: worktree.path,
+                launchDirectory: storedWorktree.path,
                 title: "Ignored",
                 facets: PaneContextFacets(
                     repoId: repo.id,
                     repoName: repo.name,
-                    worktreeId: worktree.id,
-                    worktreeName: worktree.name,
-                    cwd: worktree.path
+                    worktreeId: storedWorktree.id,
+                    worktreeName: storedWorktree.name,
+                    cwd: storedWorktree.path
                 )
             )
             let tab = Tab(paneId: pane.id, name: "Tab")
@@ -68,11 +76,19 @@ struct TabDisplayDerivedTests {
                 name: "feature-name",
                 path: URL(filePath: "/tmp/tab-display-detached/feature-name")
             )
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+            guard let storedWorktree = store.repo(repo.id)?.worktrees.first(where: { $0.id == worktree.id }) else {
+                Issue.record("Expected linked worktree")
+                return
+            }
             let pane = store.createPane(
-                launchDirectory: worktree.path,
+                launchDirectory: storedWorktree.path,
                 title: "Ignored",
-                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
+                facets: PaneContextFacets(
+                    repoId: repo.id,
+                    worktreeId: storedWorktree.id,
+                    cwd: storedWorktree.path
+                ),
             )
 
             let title = atom(\.tabDisplay).title(

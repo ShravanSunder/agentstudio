@@ -3,8 +3,10 @@ import type { BridgeCommWorkerFileDisplayEventAuthority } from './bridge-comm-wo
 import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	type BridgeWorkerFileDisplayPatch,
+	type BridgeWorkerFileQueryOutcomeEvent,
 	type BridgeWorkerFileQueryUpdateCommand,
 	type BridgeWorkerServerToMainMessage,
+	type BridgeWorkerServerToMainWireMessage,
 } from './bridge-worker-contracts.js';
 import type {
 	BridgeWorkerFileQuery,
@@ -37,6 +39,11 @@ export interface BridgeCommWorkerFileQueryProjectionProps {
 	readonly maximumRowsPerQueryChunk?: number;
 	readonly recordEvaluatedQueryChunk?: (evaluatedRowCount: number) => void;
 	readonly scheduleQueryChunk?: (runChunk: () => void) => void;
+}
+
+interface BridgeCommWorkerFileQueryOutcome {
+	readonly outcome: BridgeWorkerFileQueryOutcomeEvent['outcome'];
+	readonly requestId: string;
 }
 
 export class BridgeCommWorkerFileQueryProjection {
@@ -154,32 +161,45 @@ export class BridgeCommWorkerFileQueryProjection {
 
 	updateQuery(props: {
 		readonly publish: (result: BridgeCommWorkerFileQueryProjectionResult) => void;
+		readonly publishOutcome: (outcome: BridgeCommWorkerFileQueryOutcome) => void;
 		readonly query: BridgeWorkerFileQuery;
+		readonly requestId: string;
 	}): boolean {
 		if (
 			(this.#pendingQuery !== null && fileQueriesEqual(this.#pendingQuery.query, props.query)) ||
 			(this.#pendingQuery === null && fileQueriesEqual(this.#publishedQuery, props.query))
 		) {
+			props.publishOutcome({ outcome: { kind: 'unchanged' }, requestId: props.requestId });
 			return false;
 		}
-		this.#startQueryProjection(props.query, props.publish);
+		if (this.#pendingQuery !== null) {
+			props.publishOutcome({
+				outcome: { kind: 'superseded' },
+				requestId: this.#pendingQuery.requestId,
+			});
+		}
+		this.#startQueryProjection(props);
 		return true;
 	}
 
-	#startQueryProjection(
-		query: BridgeWorkerFileQuery,
-		publish: (result: BridgeCommWorkerFileQueryProjectionResult) => void,
-	): void {
+	#startQueryProjection(props: {
+		readonly publish: (result: BridgeCommWorkerFileQueryProjectionResult) => void;
+		readonly publishOutcome: (outcome: BridgeCommWorkerFileQueryOutcome) => void;
+		readonly query: BridgeWorkerFileQuery;
+		readonly requestId: string;
+	}): void {
 		this.#queryGeneration += 1;
-		const searchPattern = compileBridgeFileTreeSearchPattern(query);
+		const searchPattern = compileBridgeFileTreeSearchPattern(props.query);
 		const pendingQuery: PendingFileQueryProjection = {
 			evaluatedRowCount: 0,
 			generation: this.#queryGeneration,
 			nextProjectedRowsById: new Map(),
 			operationBatches: [],
 			pendingOperations: [],
-			publish,
-			query,
+			publish: props.publish,
+			publishOutcome: props.publishOutcome,
+			query: props.query,
+			requestId: props.requestId,
 			rowIterator: this.#rawRowsById.values(),
 			searchError: searchPattern.searchError,
 			searchPattern: searchPattern.pattern,
@@ -193,7 +213,7 @@ export class BridgeCommWorkerFileQueryProjection {
 	#restartPendingQuery(): void {
 		const pendingQuery = this.#pendingQuery;
 		if (pendingQuery === null) return;
-		this.#startQueryProjection(pendingQuery.query, pendingQuery.publish);
+		this.#startQueryProjection(pendingQuery);
 	}
 
 	#runQueryChunk(generation: number): void {
@@ -249,6 +269,13 @@ export class BridgeCommWorkerFileQueryProjection {
 			evaluatedRowCount: pendingQuery.evaluatedRowCount,
 			patches: [...pendingQuery.operationBatches, this.#publishedQueryStatusPatch()],
 			queryTransactionId: `file-query-${String(pendingQuery.generation)}`,
+		});
+		pendingQuery.publishOutcome({
+			outcome: {
+				kind: 'projected',
+				transactionId: `file-query-${String(pendingQuery.generation)}`,
+			},
+			requestId: pendingQuery.requestId,
 		});
 	}
 
@@ -402,7 +429,9 @@ interface PendingFileQueryProjection {
 	readonly operationBatches: BridgeWorkerFileDisplayPatch[];
 	readonly pendingOperations: FileTreeOperation[];
 	readonly publish: (result: BridgeCommWorkerFileQueryProjectionResult) => void;
+	readonly publishOutcome: (outcome: BridgeCommWorkerFileQueryOutcome) => void;
 	readonly query: BridgeWorkerFileQuery;
+	readonly requestId: string;
 	rowIterator: Iterator<FileTreeRow>;
 	readonly searchError: string | null;
 	readonly searchPattern: RegExp | null;
@@ -413,8 +442,19 @@ export function applyBridgeCommWorkerFileQueryUpdateCommand(props: {
 	readonly eventAuthority: BridgeCommWorkerFileDisplayEventAuthority;
 	readonly getWorkerDerivationEpoch: () => number;
 	readonly projection: BridgeCommWorkerFileQueryProjection;
-	readonly publishMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+	readonly publishMessages: (messages: readonly BridgeWorkerServerToMainWireMessage[]) => void;
 }): readonly BridgeWorkerServerToMainMessage[] {
+	const publishOutcome = (queryOutcome: BridgeCommWorkerFileQueryOutcome): void => {
+		const message: BridgeWorkerFileQueryOutcomeEvent = {
+			direction: 'serverWorkerToMain',
+			kind: 'fileQueryOutcome',
+			outcome: queryOutcome.outcome,
+			requestId: queryOutcome.requestId,
+			transferDescriptors: [],
+			wireVersion: 1,
+		};
+		props.publishMessages([message]);
+	};
 	props.projection.updateQuery({
 		publish: (result): void => {
 			if (result.queryTransactionId === null) return;
@@ -426,7 +466,9 @@ export function applyBridgeCommWorkerFileQueryUpdateCommand(props: {
 				}),
 			);
 		},
+		publishOutcome,
 		query: props.command.query,
+		requestId: props.command.requestId,
 	});
 	return [];
 }

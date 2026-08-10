@@ -24,7 +24,7 @@ extension WebKitSerializedTests {
             try await withBridgeCommandHarness { harness in
                 // Arrange
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
                 let baselineTabIds = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
                 // Act
@@ -53,20 +53,22 @@ extension WebKitSerializedTests {
                 let initialAttendanceOrdinal = try #require(
                     harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id)
                 )
-                let paneCountBeforeReuse = harness.store.paneAtom.panes.count
+                let paneCountBeforeReuse = harness.store.paneAtom.graphAtom.paneIDs.count
                 let tabCountBeforeReuse = harness.store.tabLayoutAtom.tabs.count
 
-                let distractorPane = harness.store.paneAtom.createPane(
-                    content: .webview(WebviewState(url: URL(string: "about:blank")!)),
-                    metadata: PaneMetadata(
-                        title: "Distractor",
-                        facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
+                let distractorPane = try #require(
+                    harness.store.paneAtom.createPane(
+                        content: .webview(WebviewState(url: URL(string: "about:blank")!)),
+                        metadata: PaneMetadata(
+                            title: "Distractor",
+                            facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
+                        )
                     )
                 )
                 let distractorTab = Tab(paneId: distractorPane.id, name: "Distractor")
                 harness.store.tabLayoutAtom.appendTab(distractorTab)
                 harness.store.tabLayoutAtom.setActiveTab(distractorTab.id)
-                let paneCountWithDistractor = harness.store.paneAtom.panes.count
+                let paneCountWithDistractor = harness.store.paneAtom.graphAtom.paneIDs.count
                 let tabCountWithDistractor = harness.store.tabLayoutAtom.tabs.count
                 let focusWindow = try attachExistingBridgeHostToWindow(
                     paneId: createdPane.id,
@@ -87,11 +89,11 @@ extension WebKitSerializedTests {
                 let attendanceAfterReuse = try #require(
                     harness.atomRegistry.bridgePaneAttendance.ordinal(for: createdPane.id)
                 )
-                #expect(initialSelection.selectionRevision < fileSelection.selectionRevision)
+                #expect(initialSelection.bindingRevision < fileSelection.bindingRevision)
                 #expect(attendanceAfterReuse == initialAttendanceOrdinal + 1)
-                #expect(harness.store.paneAtom.panes.count == paneCountWithDistractor)
+                #expect(harness.store.paneAtom.graphAtom.paneIDs.count == paneCountWithDistractor)
                 #expect(harness.store.tabLayoutAtom.tabs.count == tabCountWithDistractor)
-                #expect(harness.store.paneAtom.panes.count == paneCountBeforeReuse + 1)
+                #expect(harness.store.paneAtom.graphAtom.paneIDs.count == paneCountBeforeReuse + 1)
                 #expect(harness.store.tabLayoutAtom.tabs.count == tabCountBeforeReuse + 1)
                 #expect(harness.store.tabLayoutAtom.activeTabId == createdTab.id)
                 #expect(harness.store.tabLayoutAtom.tab(createdTab.id)?.activePaneId == createdPane.id)
@@ -113,7 +115,7 @@ extension WebKitSerializedTests {
                 harness.controller.execute(.openBridgeReviewInNewTab, target: worktree.id, targetType: .worktree)
 
                 // Assert
-                let bridgePanes = harness.store.paneAtom.panes.values
+                let bridgePanes = harness.store.paneAtom.paneSnapshot().values
                     .filter { pane in
                         if case .bridgePanel = pane.content { return true }
                         return false
@@ -167,7 +169,7 @@ extension WebKitSerializedTests {
             try await withBridgeCommandHarness { harness in
                 // Arrange
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
                 harness.controller.execute(
                     .showBridgeReview,
                     target: worktree.id,
@@ -179,19 +181,21 @@ extension WebKitSerializedTests {
                 let mountedBridgeTab = try #require(
                     harness.store.tabLayoutAtom.tabContaining(paneId: mountedBridgePane.id)
                 )
-                let unmountedBridgePane = harness.store.paneAtom.createPane(
-                    content: .bridgePanel(
-                        BridgePaneState(
-                            panelKind: .fileViewer,
-                            source: .workspace(
-                                rootPath: worktree.path.path,
-                                baseline: .localDefaultBranch(branchName: "main")
+                let unmountedBridgePane = try #require(
+                    harness.store.paneAtom.createPane(
+                        content: .bridgePanel(
+                            BridgePaneState(
+                                panelKind: .fileViewer,
+                                source: .workspace(
+                                    rootPath: worktree.path.path,
+                                    baseline: .localDefaultBranch(branchName: "main")
+                                )
                             )
+                        ),
+                        metadata: PaneMetadata(
+                            title: "Unmounted Bridge",
+                            facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
                         )
-                    ),
-                    metadata: PaneMetadata(
-                        title: "Unmounted Bridge",
-                        facets: PaneContextFacets(worktreeId: worktree.id, cwd: worktree.path)
                     )
                 )
                 let unmountedBridgeTab = Tab(
@@ -221,7 +225,7 @@ extension WebKitSerializedTests {
             try await withBridgeCommandHarness { harness in
                 // Arrange
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
                 harness.controller.execute(
                     .showBridgeFiles,
                     target: worktree.id,
@@ -306,7 +310,9 @@ extension WebKitSerializedTests {
                             return false
                         }
                         return snapshot.currentRequest == nil
-                            && acceptedRequest.requestId != reviewRequestBeforeReload.requestId
+                            && acceptedRequest.requestId == reviewRequestBeforeReload.requestId
+                            && acceptedRequest.bindingRevision
+                                > reviewRequestBeforeReload.bindingRevision
                             && acceptedRequest.surface == .review
                             && acceptedRequest.paneSessionId == activeBootstrap.paneSessionId
                             && acceptedRequest.workerInstanceId == activeBootstrap.workerInstanceId
@@ -330,7 +336,7 @@ extension WebKitSerializedTests {
                     windowLifecycleStore: harness.windowLifecycleStore
                 )
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-                let baselinePaneIds = Set(harness.store.paneAtom.panes.keys)
+                let baselinePaneIds = harness.store.paneAtom.graphAtom.paneIDs
                 harness.controller.execute(
                     .showBridgeFiles,
                     target: worktree.id,
@@ -416,7 +422,7 @@ extension WebKitSerializedTests {
                 let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
                 let invalidWorktreeId = UUID()
                 let attendanceBefore = harness.atomRegistry.bridgePaneAttendance.ordinalByPaneId
-                let paneIdsBefore = Set(harness.store.paneAtom.panes.keys)
+                let paneIdsBefore = harness.store.paneAtom.graphAtom.paneIDs
                 let tabIdsBefore = Set(harness.store.tabLayoutAtom.tabs.map(\.id))
 
                 // Act
@@ -425,7 +431,7 @@ extension WebKitSerializedTests {
                 harness.controller.execute(.showBridgeFiles, target: worktree.id, targetType: .repo)
 
                 // Assert
-                #expect(Set(harness.store.paneAtom.panes.keys) == paneIdsBefore)
+                #expect(harness.store.paneAtom.graphAtom.paneIDs == paneIdsBefore)
                 #expect(Set(harness.store.tabLayoutAtom.tabs.map(\.id)) == tabIdsBefore)
                 #expect(harness.viewRegistry.allBridgeViews.isEmpty)
                 #expect(harness.atomRegistry.bridgePaneAttendance.ordinalByPaneId == attendanceBefore)
@@ -446,7 +452,7 @@ private func assertSuccessfulBridgeCommandRecordsRecency(_ command: AppCommand) 
         let reusedPane: Pane?
         let reuseWindow: NSWindow?
         if reusesExistingPane {
-            let paneIdsBeforeSetup = Set(harness.store.paneAtom.panes.keys)
+            let paneIdsBeforeSetup = harness.store.paneAtom.graphAtom.paneIDs
             harness.controller.execute(
                 .openBridgeReviewInNewTab,
                 target: worktree.id,
@@ -490,7 +496,7 @@ private func assertSuccessfulBridgeCommandRecordsRecency(_ command: AppCommand) 
             ),
             recencyAtom: atoms.core.workspaceEntityRecency
         )
-        let paneIdsBeforeDispatch = Set(harness.store.paneAtom.panes.keys)
+        let paneIdsBeforeDispatch = harness.store.paneAtom.graphAtom.paneIDs
 
         do {
             try await dispatchBridgeCommand(
@@ -594,7 +600,7 @@ private func singleCreatedBridgePane(
     in harness: PaneTabViewControllerCommandHarness,
     excluding baselinePaneIds: Set<UUID>
 ) -> Pane? {
-    let createdBridgePanes = harness.store.paneAtom.panes.values.filter { pane in
+    let createdBridgePanes = harness.store.paneAtom.paneSnapshot().values.filter { pane in
         guard !baselinePaneIds.contains(pane.id) else { return false }
         if case .bridgePanel = pane.content { return true }
         return false
@@ -641,7 +647,7 @@ private func requireSurfaceSelection(
     from controller: BridgePaneController,
     because description: String
 ) async throws -> BridgePaneSurfaceSelectionRequest {
-    await controller.surfaceSelectionTransitionTail?.value
+    _ = await controller.surfaceSelectionTransitionTail?.value
     let currentRequest = controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest
     return try #require(
         currentRequest?.surface == surface ? currentRequest : nil,
@@ -654,7 +660,7 @@ private func requireAnySurfaceSelection(
     from controller: BridgePaneController,
     because description: String
 ) async throws -> BridgePaneSurfaceSelectionRequest {
-    await controller.surfaceSelectionTransitionTail?.value
+    _ = await controller.surfaceSelectionTransitionTail?.value
     return try #require(
         controller.surfaceSelectionAuthority.diagnosticSnapshot.currentRequest,
         Comment(rawValue: description)

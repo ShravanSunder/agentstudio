@@ -147,7 +147,7 @@ describe('Bridge main render snapshot store', () => {
 		});
 	});
 
-	test('drops cached CodeView display items when worker row paint invalidates them', () => {
+	test('drops deleted CodeView items while keeping them across row-paint resets', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		const item = makeBridgeMainCodeViewItem('item-1');
 
@@ -177,7 +177,7 @@ describe('Bridge main render snapshot store', () => {
 			operation: 'reset',
 		});
 
-		expect(store.getSnapshot().codeViewItemsById).toEqual({});
+		expect(store.getSnapshot().codeViewItemsById).toEqual({ 'item-1': item });
 	});
 
 	test('keeps CodeView display cache identity stable for row paint upserts', () => {
@@ -872,7 +872,9 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'review-source-package-1',
 					metadataWindowIdentity: 'metadata-window-package-1-r11',
+					packageId: 'package-1',
 					reviewGeneration: 1,
 					status: 'loading',
 					summary: null,

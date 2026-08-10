@@ -32,7 +32,9 @@ xcuserdata/
 # Node.js
 node_modules/
 .pnpm-store/
+.vite/
 BridgeWeb/dist/
+BridgeWeb/.vitest-attachments/
 
 # Generated BridgeWeb app bundle resources. Regenerate with:
 #   mise run bridge-web-build
@@ -78,6 +80,7 @@ debug
 debug.yaml
 plugin-tools.yaml
 workspace-state.json
+*.mindle.json
 Frameworks/GhosttyKit.xcframework
 .build-zmxe2e
 .build-*

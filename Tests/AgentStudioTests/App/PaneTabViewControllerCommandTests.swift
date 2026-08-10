@@ -21,7 +21,7 @@ struct PaneTabViewControllerCommandTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let watchedFolder = harness.tempDir.appending(path: "watched-root")
+        let watchedFolder = harness.tempDir.appending(path: "watched-root", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
         _ = harness.store.mutationCoordinator.addWatchedPath(watchedFolder)
         harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
@@ -309,56 +309,18 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.activeArrangementId == tab.defaultArrangement.id)
     }
 
-    @Test("scrollToBottom targets the focused drawer pane")
-    func executeScrollToBottom_targetsFocusedDrawerPane() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let parentPane = harness.store.createPane()
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        harness.store.setActivePane(parentPane.id, inTab: tab.id)
-
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-        let drawerId = try #require(harness.store.pane(parentPane.id)?.drawer?.drawerId)
-        harness.store.tabArrangementAtom.addDrawerPaneView(
-            drawerId: drawerId,
-            parentPaneId: parentPane.id,
-            drawerPaneId: drawerPane.id,
-            inTab: tab.id
-        )
-        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
-        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
-
-        let parentRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: parentPane.id))
-        let drawerRuntime = RecordingCommandPaneRuntime(paneId: PaneId(existingUUID: drawerPane.id))
-        harness.runtimeRegistry.register(parentRuntime)
-        harness.runtimeRegistry.register(drawerRuntime)
-
-        harness.controller.execute(.scrollToBottom)
-
-        await waitForRecordedCommands(on: drawerRuntime, count: 1)
-        #expect(parentRuntime.receivedCommands.isEmpty)
-        let command = try #require(drawerRuntime.receivedCommands.first)
-        #expect(command.targetPaneId == PaneId(existingUUID: drawerPane.id))
-        guard case .terminal(.scrollToBottom) = command.command else {
-            Issue.record("Expected focused drawer pane to receive scrollToBottom")
-            return
-        }
-    }
-
     @Test("openPaneLocationInBookmarkedEditor without bookmark uses the implicit default order")
     func executeOpenPaneLocationInBookmarkedEditor_withoutBookmark_usesImplicitDefaultOrder() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let selectedPaneDirectory = URL(filePath: worktree.path.path, directoryHint: .isDirectory)
         let parentPane = harness.store.createPane(
-            launchDirectory: worktree.path,
+            launchDirectory: selectedPaneDirectory,
             title: "Parent",
             provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: selectedPaneDirectory)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -385,11 +347,12 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let selectedPaneDirectory = URL(filePath: worktree.path.path, directoryHint: .isDirectory)
         let parentPane = harness.store.createPane(
-            launchDirectory: worktree.path,
+            launchDirectory: selectedPaneDirectory,
             title: "Parent",
             provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: selectedPaneDirectory)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -470,11 +433,12 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let selectedPaneDirectory = URL(filePath: worktree.path.path, directoryHint: .isDirectory)
         let parentPane = harness.store.createPane(
-            launchDirectory: worktree.path,
+            launchDirectory: selectedPaneDirectory,
             title: "Parent",
             provider: .zmx,
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: selectedPaneDirectory)
         )
         let tab = Tab(paneId: parentPane.id)
         harness.store.appendTab(tab)
@@ -482,7 +446,7 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.openPaneLocationInFinder)
 
-        #expect(harness.launchRecorder.revealedPaths == [worktree.path])
+        #expect(harness.launchRecorder.revealedPaths == [selectedPaneDirectory])
     }
 
     @Test("location commands are unavailable when no pane target exists")

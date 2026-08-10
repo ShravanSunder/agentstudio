@@ -98,33 +98,24 @@ struct SidebarSurfaceConvergenceTests {
         #expect(!repoSource.contains("InboxSidebarHeader("))
     }
 
-    @Test("repo sidebar owns toolbar controls through shared header slots")
-    func repoSidebarOwnsToolbarControlsThroughSharedHeaderSlots() throws {
+    @Test("repo sidebar owns sort and grouping controls through shared header slots")
+    func repoSidebarOwnsSortAndGroupingControlsThroughSharedHeaderSlots() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let repoSource = try String(
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
-        let visibilityButtonSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerVisibilityButton.swift"),
-            encoding: .utf8
-        )
-
         #expect(repoSource.contains("} toolbarRow: {"))
-        #expect(repoSource.contains("RepoExplorerVisibilityButton("))
         #expect(repoSource.contains("repoSidebarSortButton"))
         #expect(repoSource.contains("repoSidebarGroupingButton"))
         #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
         #expect(repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
         #expect(repoSource.contains("RepoExplorerToolbarCommandPresentation.resolve("))
-        #expect(repoSource.contains("commandPresentation: visibilityCommand"))
         #expect(repoSource.contains("commandPresentation.command(.setRepoSidebarSortOrder)"))
         #expect(repoSource.contains("label: sortCommand.commandSpec.label"))
-        #expect(visibilityButtonSource.contains("repoSidebarVisibilityButton"))
-        #expect(visibilityButtonSource.contains("let commandPresentation: RepoExplorerPresentedCommand"))
-        #expect(visibilityButtonSource.contains("commandPresentation.commandSpec"))
-        #expect(!visibilityButtonSource.contains("AppCommand.setRepoSidebarVisibilityMode.definition"))
+        #expect(!repoSource.contains("RepoExplorerVisibilityButton"))
+        #expect(!repoSource.contains("setRepoSidebarVisibilityMode"))
+        #expect(!repoSource.contains("visibilityCommand"))
         #expect(!repoSource.contains("InboxSidebarToolbarTooltipTarget"))
     }
 
@@ -197,9 +188,9 @@ struct SidebarSurfaceConvergenceTests {
         #expect(inboxSource.contains("SidebarToolbarGroupingButton("))
         #expect(repoSource.contains("SidebarGroupingPopover("))
         #expect(inboxSource.contains("SidebarGroupingPopover("))
-        #expect(repoSource.contains(").commandSpec.label"))
+        #expect(repoSource.contains("groupingMode.title"))
         #expect(inboxSource.contains("label: { groupingCommandSpec(for: $0).label }"))
-        #expect(!repoSource.contains("label: { $0.title }"))
+        #expect(repoSource.contains("label: { groupingMode in"))
         #expect(!inboxSource.contains("label: { $0.commandLabel }"))
         #expect(!inboxSource.contains(")\n\n            Divider()\n\n            InboxSidebarContent("))
         #expect(toolbarSource.contains("struct SidebarToolbarGroupingButton"))

@@ -8,9 +8,43 @@ import {
 	type BridgeViewerProductOnlyJourneyProof,
 	type BridgeViewerProductRouteTranscriptEntry,
 } from './product-only-real-router-contract.ts';
-import { bridgeViewerProductOnlyRegressionPhase } from './product-only-real-router-regression.ts';
+import {
+	bridgeViewerCleanupProofAfterOwnedStops,
+	bridgeViewerProductOnlyRegressionPhase,
+} from './product-only-real-router-regression.ts';
 
 describe('Bridge Viewer product-only real-router regression contract', () => {
+	test('reports backend cleanup facts when Vite never started', () => {
+		// Arrange
+		const cleanupBeforeStops = {
+			exitCode: null,
+			exitSignal: null,
+			exitedWithinTimeout: true,
+			forcedTerminationRequired: false,
+			ownedProcessAliveAfterStop: false,
+			pid: null,
+		} as const;
+
+		// Act
+		const cleanup = bridgeViewerCleanupProofAfterOwnedStops({
+			backend: {
+				exitCode: null,
+				exitSignal: null,
+				forcedTerminationRequired: true,
+				ownedProcessAliveAfterStop: true,
+			},
+			cleanupBeforeStops,
+			vite: null,
+		});
+
+		// Assert
+		expect(cleanup).toEqual({
+			...cleanupBeforeStops,
+			forcedTerminationRequired: true,
+			ownedProcessAliveAfterStop: true,
+		});
+	});
+
 	test('keeps the observed acknowledgement, product subscription, legacy, and display topology red', () => {
 		const proof = makePassingProductOnlyProof({
 			fileReady: false,
@@ -285,7 +319,7 @@ describe('Bridge Viewer product-only real-router regression contract', () => {
 					closedBeforeJourneyCompletion: false,
 					documentGeneration: 1,
 					kind: 'comm-worker',
-					url: '/src/core/comm-worker/bridge-comm-worker-entry.ts?replacement&type=module',
+					url: '/src/core/comm-worker/bridge-comm-worker-vite-entry.ts?replacement&type=module',
 				},
 			],
 		};
@@ -867,7 +901,7 @@ function makePassingProductOnlyProof(
 				closedBeforeJourneyCompletion: false,
 				documentGeneration: 1,
 				kind: 'comm-worker',
-				url: '/src/core/comm-worker/bridge-comm-worker-entry.ts?worker_file&type=module',
+				url: '/src/core/comm-worker/bridge-comm-worker-vite-entry.ts?worker_file&type=module',
 			},
 		],
 	};

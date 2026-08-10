@@ -60,8 +60,8 @@ enum WorkspaceBootSequence {
         .startGitProjector,
         .startForgeActor,
         .startCacheCoordinator,
-        .triggerInitialTopologySync,
         .armPersistenceObservation,
+        .triggerInitialTopologySync,
         .readyForReactiveSidebar,
     ]
 

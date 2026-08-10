@@ -17,6 +17,7 @@ import {
 	BRIDGE_PRODUCT_MAXIMUM_RESUMABLE_STREAM_SEQUENCE,
 	BRIDGE_PRODUCT_TERMINAL_FRAME_RESERVE,
 	BRIDGE_PRODUCT_WIRE_VERSION,
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductOpaqueReferenceSchema,
@@ -59,6 +60,91 @@ const bridgeProductSubscriptionControlIdentityShape = {
 	subscriptionId: bridgeProductIdentifierSchema,
 	subscriptionKind: bridgeProductSubscriptionKindSchema,
 } as const;
+
+const bridgeProductNavigationFileSourceSchema = z
+	.object({
+		sourceId: bridgeProductIdentifierSchema,
+		sourceKind: z.literal('file'),
+		subscriptionGeneration: bridgeProductNonnegativeSequenceSchema,
+	})
+	.strict();
+
+const bridgeProductNavigationReviewSourceSchema = z
+	.object({
+		generation: bridgeProductNonnegativeSequenceSchema,
+		metadataSourceId: bridgeProductIdentifierSchema,
+		packageId: bridgeProductIdentifierSchema,
+		sourceKind: z.literal('review'),
+	})
+	.strict();
+
+const bridgeProductNavigationFileTargetSchema = z
+	.object({
+		path: bridgeProductDisplayPathSchema,
+		targetKind: z.literal('file'),
+		version: z.enum(['base', 'head', 'current']),
+	})
+	.strict();
+
+const bridgeProductNavigationReviewTargetSchema = z
+	.object({
+		path: bridgeProductDisplayPathSchema.optional(),
+		reviewItemId: bridgeProductIdentifierSchema.optional(),
+		targetKind: z.literal('review'),
+		version: z.enum(['base', 'head', 'current']).optional(),
+	})
+	.strict()
+	.superRefine((target, context): void => {
+		if (target.path === undefined && target.reviewItemId === undefined) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review navigation target requires an item or file path.',
+			});
+		}
+		if ((target.path === undefined) !== (target.version === undefined)) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review navigation file path and version must be supplied together.',
+			});
+		}
+	});
+
+const bridgeProductNavigationCommandIdentityShape = {
+	bindingRevision: bridgeProductPositiveSequenceSchema,
+	commandId: bridgeProductIdentifierSchema,
+} as const;
+
+export const bridgeProductNavigationCommandSchema = z.discriminatedUnion('commandKind', [
+	z
+		.object({
+			...bridgeProductNavigationCommandIdentityShape,
+			commandKind: z.literal('activateContext'),
+			surface: bridgeProductSurfaceSchema,
+		})
+		.strict(),
+	z.discriminatedUnion('surface', [
+		z
+			.object({
+				...bridgeProductNavigationCommandIdentityShape,
+				commandKind: z.literal('activateTarget'),
+				source: bridgeProductNavigationFileSourceSchema,
+				surface: z.literal('file'),
+				target: bridgeProductNavigationFileTargetSchema,
+			})
+			.strict(),
+		z
+			.object({
+				...bridgeProductNavigationCommandIdentityShape,
+				commandKind: z.literal('activateTarget'),
+				source: bridgeProductNavigationReviewSourceSchema,
+				surface: z.literal('review'),
+				target: bridgeProductNavigationReviewTargetSchema,
+			})
+			.strict(),
+	]),
+]);
+
+export type BridgeProductNavigationCommand = z.infer<typeof bridgeProductNavigationCommandSchema>;
 
 const bridgeProductActiveSubscriptionSchema = z
 	.object({
@@ -377,10 +463,8 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
 			kind: z.literal('pane.surfaceSelectionRequested'),
-			requestId: bridgeProductIdentifierSchema,
-			selectionRevision: bridgeProductPositiveSequenceSchema,
+			navigationCommand: bridgeProductNavigationCommandSchema,
 			streamSequence: bridgeProductPositiveSequenceSchema,
-			surface: bridgeProductSurfaceSchema,
 		})
 		.strict(),
 	z

@@ -10,21 +10,6 @@ import Observation
 
 @MainActor
 extension AppDelegate {
-    static func tabNotificationDotColor(
-        for lane: InboxNotificationClaimLane?
-    ) -> TabNotificationDotColor? {
-        switch lane {
-        case .actionNeeded:
-            return .red
-        case .safety:
-            return .amber
-        case .settledAgent:
-            return .yellow
-        case .activity, nil:
-            return nil
-        }
-    }
-
     func bootWorkspacePresentationPrerequisites(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
@@ -55,15 +40,15 @@ extension AppDelegate {
     }
 
     /// Seed pane slots immediately after canonical composition installation and before any hosting controller exists.
-    /// Installed panes already live in `store.paneAtom.panes`; creating their slots here ensures the first
+    /// Installed pane identities already live in `store.paneAtom.graphAtom`; creating their slots here ensures the first
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
     func seedSlotsForInstalledPanes() {
         guard store != nil, viewRegistry != nil else { return }
         viewRegistry.beginInitialRestore()
-        for paneId in store.paneAtom.panes.keys {
+        for paneId in store.paneAtom.graphAtom.paneIDs {
             viewRegistry.ensureSlot(for: paneId)
         }
-        RestoreTrace.log("seedSlotsForInstalledPanes count=\(store.paneAtom.panes.count)")
+        RestoreTrace.log("seedSlotsForInstalledPanes count=\(store.paneAtom.graphAtom.paneIDs.count)")
     }
 
     /// Build a canonical `.repoDiscovered` topology envelope.
@@ -147,15 +132,19 @@ extension AppDelegate {
         case .prepared:
             break
         case .failed(let failure):
-            let diagnosticCode: WorkspaceStartupFailureDiagnosticCode =
-                switch failure.kind {
-                case .sqliteUnavailable:
-                    .sqliteUnavailable
-                case .compositionRejected:
-                    .compositionRejected
-                case .topologyRejected:
-                    .topologyRejected
-                }
+            let diagnosticCode: WorkspaceStartupFailureDiagnosticCode
+            switch failure.kind {
+            case .sqliteUnavailable:
+                diagnosticCode = .sqliteUnavailable
+            case .compositionRejected:
+                diagnosticCode = .compositionRejected
+            case .topologyRejected:
+                await recordPaneTopologyPersistenceReason(
+                    .topologyNormalizationRejected,
+                    severity: .error
+                )
+                diagnosticCode = .topologyRejected
+            }
             try? await traceRuntime.flush()
             preconditionFailure(
                 "Workspace startup invariant violated: "
@@ -168,6 +157,11 @@ extension AppDelegate {
         atomStore = AtomRegistry()
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         CoreAtomScope.setUp(atomStore.core)
+        atomStore.core.workspaceRepositoryTopology.setWorktreePathAmbiguityReporter { [weak self] in
+            Task { @MainActor [weak self] in
+                await self?.recordPaneTopologyPersistenceReason(.paneTopologyAssociationAmbiguous)
+            }
+        }
         guard let sqliteDatastore = workspaceSQLiteDatastore else {
             preconditionFailure("Workspace databases were not prepared before canonical hydration")
         }
@@ -194,6 +188,11 @@ extension AppDelegate {
             sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
+            },
+            persistenceReasonReporter: { [weak self] reason in
+                Task { @MainActor [weak self] in
+                    await self?.recordPaneTopologyPersistenceReason(reason)
+                }
             }
         )
         repoCacheStore = RepoCacheStore(
@@ -249,7 +248,7 @@ extension AppDelegate {
         )
         synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
-            "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
+            "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.graphAtom.paneIDs.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
     }
 
@@ -355,21 +354,7 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
-        let inboxNotification = atomStore.inboxNotification
         startWorkspacePaneRecencyObservation()
-        tabBarAdapter = TabBarAdapter(
-            store: store,
-            repoCache: repoCache,
-            performanceTraceRecorder: performanceTraceRecorder,
-            notificationDotColorProvider: { paneIds in
-                Self.tabNotificationDotColor(
-                    for: inboxNotification.attentionLane(forPaneIds: paneIds)
-                )
-            },
-            observeNotificationDotInputs: {
-                _ = inboxNotification.notifications
-            }
-        )
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
@@ -439,11 +424,14 @@ extension AppDelegate {
     }
 
     func startDeferredRepositoryTopologyLaneIfRequested() {
-        guard shouldStartRepositoryTopologyAfterWindowPresentation else { return }
+        guard shouldStartRepositoryTopologyAfterWindowPresentation,
+            didPassInitialTopologyPersistenceBarrier
+        else { return }
         shouldStartRepositoryTopologyAfterWindowPresentation = false
         initialTopologySyncTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.replayBootTopology(store: self.store, coordinator: self.workspaceCacheCoordinator)
+            await self.repairUnavailableRepositoriesMissingMain()
             self.workspaceSurfaceCoordinator.repairRestoredBridgePanesAfterInitialTopologyReplay()
             if let filesystemPipelineBootTask = self.filesystemPipelineBootTask {
                 await filesystemPipelineBootTask.value
@@ -494,7 +482,7 @@ extension AppDelegate {
     }
 
     func refreshTraceIdentitySnapshot() async {
-        let panes = Array(store.paneAtom.panes.values)
+        let panes = Array(store.paneAtom.paneSnapshot().values)
         let snapshot = AgentStudioTraceIdentitySnapshot.from(
             repos: store.repositoryTopologyAtom.repos,
             panes: panes,
@@ -513,25 +501,30 @@ extension AppDelegate {
     }
 
     private func bootArmPersistenceObservation() {
-        let topologySyncTask = initialTopologySyncTask
         persistenceObservationBootTask = Task { @MainActor [weak self] in
-            if let topologySyncTask {
-                await topologySyncTask.value
-            }
             await self?.completeBootPersistenceObservation()
         }
     }
 
     private func completeBootPersistenceObservation() async {
-        // Composition loading and topology replay intentionally run without debounced persistence
-        // observation. They can mutate cache atoms many times while runtime cleanup and
-        // filesystem discovery are also starting. Arming observation here keeps startup
-        // quiet, then immediately persists any stale cache pruning as an explicit boot
-        // transaction instead of relying on a debounce side effect.
         store.startObserving()
+        repositoryTopologyStore.startObserving()
+
+        do {
+            try await repositoryTopologyStore.flushAsync()
+            didPassInitialTopologyPersistenceBarrier = true
+            startDeferredRepositoryTopologyLaneIfRequested()
+        } catch {
+            didPassInitialTopologyPersistenceBarrier = false
+            appLogger.warning("Failed to persist normalized repository topology during boot")
+            await recordPaneTopologyPersistenceReason(
+                .topologyBootNormalizationFlushFailed,
+                severity: .error
+            )
+        }
+
         repoCacheStore.startObserving()
         entityRecencyStore.startObserving()
-        repositoryTopologyStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
         workspaceSettingsStore.startObserving()
@@ -544,6 +537,88 @@ extension AppDelegate {
                 appLogger.warning("Failed to persist pruned repo cache during boot: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func repairUnavailableRepositoriesMissingMain() async {
+        let candidates = store.repositoryTopologyAtom.repos.filter { repository in
+            store.repositoryTopologyAtom.isRepoUnavailable(repository.id)
+                && !Self.hasValidMainWorktree(repository)
+        }
+        for repository in candidates {
+            let result = await RepoScanner().scan(in: repository.repoPath, maxDepth: 0)
+            let normalizedRepositoryPath = RepoScanner.canonicalURL(repository.repoPath)
+            guard let repairedWorktrees = Self.repairedWorktrees(for: repository, from: result) else { continue }
+
+            switch workspaceCacheCoordinator.reassociateRepo(
+                repoId: repository.id,
+                to: normalizedRepositoryPath,
+                discoveredWorktrees: repairedWorktrees
+            ) {
+            case .accepted:
+                await recordPaneTopologyPersistenceReason(.topologyScanMainRepaired)
+            case .rejected:
+                continue
+            }
+        }
+    }
+
+    static func hasValidMainWorktree(_ repository: Repo) -> Bool {
+        let normalizedRepositoryPath = RepoScanner.canonicalURL(repository.repoPath)
+        let mainWorktrees = repository.worktrees.filter(\.isMainWorktree)
+        return mainWorktrees.count == 1
+            && RepoScanner.canonicalURL(mainWorktrees[0].path) == normalizedRepositoryPath
+    }
+
+    static func repairedWorktrees(
+        for repository: Repo,
+        from result: RepoScannerResult
+    ) -> [Worktree]? {
+        guard case .completeAuthoritative(let completeScan) = result else { return nil }
+        let normalizedRepositoryPath = RepoScanner.canonicalURL(repository.repoPath)
+        guard
+            completeScan.verifiedEntries.contains(where: { entry in
+                guard case .cloneRoot = entry.kind else { return false }
+                return RepoScanner.canonicalURL(entry.path) == normalizedRepositoryPath
+            })
+        else {
+            return nil
+        }
+
+        var repairedWorktrees = repository.worktrees.map { worktree in
+            var repairedWorktree = worktree
+            repairedWorktree.isMainWorktree = false
+            return repairedWorktree
+        }
+        if let rootIndex = repairedWorktrees.firstIndex(where: {
+            RepoScanner.canonicalURL($0.path) == normalizedRepositoryPath
+        }) {
+            repairedWorktrees[rootIndex].name = normalizedRepositoryPath.lastPathComponent
+            repairedWorktrees[rootIndex].path = normalizedRepositoryPath
+            repairedWorktrees[rootIndex].isMainWorktree = true
+        } else {
+            repairedWorktrees.append(
+                Worktree(
+                    id: UUIDv7.generate(),
+                    repoId: repository.id,
+                    name: normalizedRepositoryPath.lastPathComponent,
+                    path: normalizedRepositoryPath,
+                    isMainWorktree: true
+                )
+            )
+        }
+        return repairedWorktrees
+    }
+
+    private func recordPaneTopologyPersistenceReason(
+        _ reason: PaneTopologyPersistenceReason,
+        severity: AgentStudioTraceSeverity = .info
+    ) async {
+        await traceRuntime.record(
+            tag: .persistenceOperation,
+            body: reason.rawValue,
+            severity: severity,
+            attributes: ["agentstudio.persistence.reason": .string(reason.rawValue)]
+        )
     }
 
     private func assertBootPersistenceObservationArmed() {
@@ -592,12 +667,6 @@ extension AppDelegate {
             repoCache.removeWorktree(worktreeId)
             didPrune = true
         }
-        if repoCache.enrichmentCacheAtom.pruneNilSlots(
-            validRepoIds: validRepoIds,
-            validWorktreeIds: validWorktreeIds
-        ) {
-            didPrune = true
-        }
         return didPrune
     }
 
@@ -608,7 +677,7 @@ extension AppDelegate {
         let watchedPaths = store.repositoryTopologyAtom.watchedPaths
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = tabLayout.activeTab else { return [] }
-            let repoIds = activeTab.activePaneIds.compactMap { workspacePane.panes[$0]?.repoId }
+            let repoIds = activeTab.activePaneIds.compactMap { workspacePane.pane($0)?.repoId }
             return Set(repoIds)
         }()
         let prioritizedRepos = repos.sorted { a, b in

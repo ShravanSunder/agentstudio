@@ -44,6 +44,7 @@ struct InboxNotificationRouterObservedPaneTests {
     func makeFixture(
         traceRuntime: AgentStudioTraceRuntime? = nil,
         startRouter: Bool = true,
+        onDrawerViewRead: @escaping @MainActor (UUID) -> Void = { _ in },
         onPaneActivityObserved: @escaping @MainActor (UUID) -> Void = { _ in }
     ) async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
@@ -60,6 +61,11 @@ struct InboxNotificationRouterObservedPaneTests {
         )
         let terminalPinnedState = TerminalPinnedStateFixture()
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
+        let arrangementView = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
         let router = InboxNotificationRouter(
             bus: bus,
             inboxAtom: inboxAtom,
@@ -76,10 +82,8 @@ struct InboxNotificationRouterObservedPaneTests {
             },
             traceRuntime: traceRuntime,
             drawerView: { parentPaneId in
-                guard let tab = tabLayout.tabContaining(paneId: parentPaneId),
-                    let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
-                else { return nil }
-                return tab.activeArrangement.drawerViews[drawerId]
+                onDrawerViewRead(parentPaneId)
+                return arrangementView.drawerView(forParent: parentPaneId)
             },
             onPaneActivityObserved: onPaneActivityObserved
         )
@@ -694,6 +698,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .terminal,
+            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             title: "Terminal"
         )
         let pane = Pane(

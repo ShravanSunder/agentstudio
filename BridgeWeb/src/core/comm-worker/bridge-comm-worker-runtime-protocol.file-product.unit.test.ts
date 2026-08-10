@@ -13,6 +13,7 @@ import {
 } from './bridge-comm-worker-runtime-protocol.js';
 import {
 	activateBridgeCommWorkerFileViewerMode,
+	activateBridgeCommWorkerFileViewerModeAndFlush,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -75,7 +76,7 @@ describe('Bridge comm worker File product runtime', () => {
 				},
 			},
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'selected-path-telemetry');
 
 		// Act
 		dispatch.message(
@@ -164,8 +165,7 @@ describe('Bridge comm worker File product runtime', () => {
 				subscription,
 			}),
 		});
-		await flushBridgeWorkerRuntimeContinuations();
-		activateBridgeCommWorkerFileViewerMode(dispatch, 'default-scheduler');
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'default-scheduler');
 		events.push({ eventKind: 'file.sourceAccepted', source });
 		events.push(makeTreeWindowEvent());
 		events.push(makeDescriptorReadyEvent());
@@ -572,7 +572,7 @@ describe('Bridge comm worker File product runtime', () => {
 				subscription,
 			}),
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'interest-failure');
 		events.push({ eventKind: 'file.sourceAccepted', source });
 		events.push(makeTreeWindowEvent());
 		await flushBridgeWorkerRuntimeContinuations();
@@ -657,7 +657,7 @@ describe('Bridge comm worker File product runtime', () => {
 				subscription,
 			}),
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'display-resync');
 		events.push({ eventKind: 'file.sourceAccepted', source });
 		events.push(makeTreeWindowEvent());
 		events.push(makeDescriptorReadyEvent());
@@ -730,8 +730,7 @@ describe('Bridge comm worker File product runtime', () => {
 				},
 			}),
 		});
-
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'discovery-failure');
 
 		expect(subscriptionCount).toBe(0);
 		expect(postedMessages.map(({ message }) => message)).toContainEqual(
@@ -763,7 +762,7 @@ describe('Bridge comm worker File product runtime', () => {
 				},
 			}),
 		});
-		await flushBridgeWorkerRuntimeContinuations();
+		await activateBridgeCommWorkerFileViewerModeAndFlush(dispatch, 'metadata-failure');
 		events.push({ eventKind: 'file.sourceAccepted', source });
 		events.push(makeTreeWindowEvent());
 		await flushBridgeWorkerRuntimeContinuations();

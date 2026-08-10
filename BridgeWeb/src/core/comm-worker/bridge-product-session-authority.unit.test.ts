@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { executeAgentStudioBridgeProductRequest } from './bridge-product-agent-studio-request-executor.js';
 import {
 	BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH,
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_BYTES,
@@ -152,6 +153,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority,
 			createRequestId: (): string => 'product-call-1',
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		await expect(
@@ -201,6 +203,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority,
 			createRequestId: (): string => 'publication-applied-1',
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		await expect(
@@ -244,6 +247,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority,
 			createRequestId: (): string => 'product-call-retry',
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		await expect(
@@ -303,6 +307,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority,
 			createRequestId: (): string => requireShiftedValue(requestIds),
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		const call = mux.call({
@@ -376,6 +381,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority: installAuthority(),
 			createRequestId: (): string => 'subscription-open-retry',
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		await expect(
@@ -412,6 +418,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority: installAuthority(),
 			createRequestId: (): string => requireShiftedValue(requestIds),
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		await expect(
@@ -451,6 +458,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority: installAuthority(),
 			createRequestId: (): string => requireShiftedValue(requestIds),
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 
 		await expect(
@@ -488,6 +496,7 @@ describe('Bridge product session authority', () => {
 		const mux = new BridgeProductControlMux({
 			authority: installAuthority(),
 			createRequestId: (): string => requireShiftedValue(requestIds),
+			executeProductRequest: executeAgentStudioBridgeProductRequest,
 		});
 		const abortController = new AbortController();
 
@@ -523,7 +532,7 @@ describe('Bridge product session authority', () => {
 });
 
 function installAuthority(): ReturnType<BridgeProductSessionAuthorityStore['install']> {
-	return new BridgeProductSessionAuthorityStore().install({
+	return new BridgeProductSessionAuthorityStore(executeAgentStudioBridgeProductRequest).install({
 		bootstrap: productSessionBootstrap(),
 		productCapability: new ArrayBuffer(BRIDGE_PRODUCT_CAPABILITY_BYTE_LENGTH),
 	});

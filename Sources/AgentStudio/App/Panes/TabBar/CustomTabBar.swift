@@ -61,23 +61,17 @@ private struct ScrollOverflowDetector: ViewModifier {
 /// Custom Ghostty-style tab bar with pill-shaped tabs
 struct CustomTabBar: View {
     @Bindable var adapter: TabBarAdapter
-    @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
-    let inboxAtom: InboxNotificationAtom
-    let octiconLoader: OcticonLoader
     var onSelect: (UUID) -> Void
     var canDispatchCommand: ((AppCommand, UUID) -> Bool)?
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onShowArrangements: ((UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
-    var onPaneAction: ((WorkspaceActionCommand) -> Void)?
-    var workspaceWindowId: UUID?
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
     @State private var scrollAreaFrame: CGRect = .zero
     @State private var isOverflowLeftHovered = false
     @State private var isOverflowRightHovered = false
-    @State private var isOverflowMenuHovered = false
 
     /// Maximum width a tab can grow to.
     private static let tabMaxWidth: CGFloat = 400
@@ -119,31 +113,12 @@ struct CustomTabBar: View {
     }
 
     var body: some View {
-        let hasNewTab =
-            ShellTabBarCommandPresentation(
-                command: .newTab,
-                surface: .toolbar(.app),
-                commandContext: ShellTabBarCommandContext.current()
-            ) != nil
-        let chromeLayout = TabBarChromeLayoutPlan(
-            hasNewTab: hasNewTab,
-            isOverflowing: adapter.isOverflowing
-        )
+        let chromeLayout = TabBarChromeLayoutPlan(isOverflowing: adapter.isOverflowing)
 
         GeometryReader { geometry in
             HStack(alignment: .center, spacing: 0) {
-                // MARK: - Left-side controls (sidebar surfaces, workspace, management, arrangement)
-                HStack(spacing: 0) {
-                    ForEach(Array(chromeLayout.leadingControls.enumerated()), id: \.offset) { _, control in
-                        leadingChromeControl(control)
-                    }
-                }
-                .padding(.leading, AppStyles.Shell.Chrome.tabBarContentLeadingPadding)
-                .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
-                .offset(y: AppStyles.Shell.Chrome.ToolbarButton.verticalOffset)
-
                 // MARK: - Scroll area with gradient overlays
-                ZStack(alignment: .bottom) {
+                ZStack(alignment: .center) {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: AppStyles.Shell.TabBar.tabPillSpacing) {
@@ -220,7 +195,7 @@ struct CustomTabBar: View {
                             scrollProxy = proxy
                         }
                     }
-                    .frame(height: AppStyles.Shell.TabBar.tabPillHeight, alignment: .bottom)
+                    .frame(height: AppStyles.Shell.TabBar.tabPillHeight, alignment: .center)
 
                     // Left gradient fade
                     if showLeftFade {
@@ -257,8 +232,7 @@ struct CustomTabBar: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: AppStyles.Shell.TabBar.height, alignment: .bottom)
-                .padding(.leading, AppStyles.Shell.Chrome.tabStripLeadingPadding)
+                .frame(maxHeight: .infinity, alignment: .center)
                 .background(
                     GeometryReader { geo in
                         let frame = geo.frame(in: .named("tabBar"))
@@ -274,15 +248,13 @@ struct CustomTabBar: View {
                             trailingChromeControl(control)
                         }
                     }
-                    .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
-                    .offset(y: AppStyles.Shell.Chrome.ToolbarButton.verticalOffset)
+                    .frame(maxHeight: .infinity, alignment: .center)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: AppStyles.Shell.TabBar.height)
+            .frame(maxHeight: .infinity, alignment: .center)
             .background(Color.clear)
             .coordinateSpace(name: "tabBar")
-            .ignoresSafeArea()
             .onAppear {
                 adapter.availableWidth = geometry.size.width
             }
@@ -290,44 +262,15 @@ struct CustomTabBar: View {
                 adapter.availableWidth = newWidth
             }
         }
-        .frame(height: AppStyles.Shell.TabBar.height)
-    }
-
-    @ViewBuilder
-    private func leadingChromeControl(_ control: TabBarChromeControl) -> some View {
-        switch control {
-        case .sidebarSurfaces:
-            SidebarSurfaceTabBarControls(inboxAtom: inboxAtom)
-        case .divider:
-            SidebarNavDivider()
-        case .watchFolder:
-            WatchFolderTabBarMenu()
-                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
-        case .managementLayer:
-            TabBarManagementLayerButton()
-                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
-        case .arrangement:
-            TabBarArrangementButton(
-                adapter: adapter,
-                arrangementInlineRenameState: arrangementInlineRenameState,
-                octiconLoader: octiconLoader,
-                onCommand: onCommand,
-                onPaneAction: onPaneAction,
-                workspaceWindowId: workspaceWindowId
-            )
-        case .newTab:
-            NewTabButton()
-                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
-        case .tabStrip, .overflowLeft, .overflowRight, .overflowMenu:
-            EmptyView()
+        .onChange(of: adapter.outputPublicationRevision, initial: true) { _, _ in
+            adapter.visibleProjectionDidRender()
         }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     @ViewBuilder
     private func trailingChromeControl(_ control: TabBarChromeControl) -> some View {
         switch control {
-        case .divider:
-            TabBarDivider()
         case .overflowLeft:
             Button {
                 scrollToAdjacentTab(direction: .left)
@@ -356,47 +299,7 @@ struct CustomTabBar: View {
             .buttonStyle(.plain)
             .padding(.trailing, AppStyles.Shell.Chrome.plainToolbarIconSpacing)
             .onHover { isOverflowRightHovered = $0 }
-        case .overflowMenu:
-            Menu {
-                ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
-                    Button {
-                        onSelect(tab.id)
-                    } label: {
-                        HStack {
-                            if tab.id == adapter.activeTabId {
-                                Image(systemName: "checkmark")
-                            }
-                            Text(tab.displayTitle)
-                            if index < 9 {
-                                Text("  \u{2318}\(index + 1)")
-                            }
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: AppStyles.General.Spacing.tight) {
-                    ChromeToolbarButtonLabel(
-                        symbolName: "rectangle.stack",
-                        isHovered: isOverflowMenuHovered,
-                        buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize,
-                        showsBackground: false
-                    )
-                    Text("\(adapter.tabs.count)")
-                        .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, AppStyles.Shell.Chrome.plainToolbarIconSpacing)
-                .padding(.vertical, AppStyles.General.Spacing.tight)
-                .contentShape(Capsule())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .onHover { isOverflowMenuHovered = $0 }
-        case .newTab:
-            NewTabButton()
-                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
-        case .sidebarSurfaces, .watchFolder, .managementLayer, .arrangement, .tabStrip:
+        case .tabStrip:
             EmptyView()
         }
     }
@@ -457,7 +360,7 @@ struct CustomTabBar: View {
     }
 }
 
-private struct TabBarArrangementButton: View {
+struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     let octiconLoader: OcticonLoader
@@ -946,20 +849,19 @@ struct TabBarEmptyState: View {
                 tabLayoutAtom: atomRegistry.core.workspaceTabLayout,
                 mutationCoordinator: atomRegistry.core.workspaceMutationCoordinator
             )
-            let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
+            let adapter = TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: atomRegistry.inboxNotification
+            )
 
             return VStack(spacing: 0) {
                 CustomTabBar(
                     adapter: adapter,
-                    arrangementInlineRenameState: ArrangementInlineRenameState(),
-                    inboxAtom: atomRegistry.inboxNotification,
-                    octiconLoader: OcticonLoader(resourceRootURL: Bundle.appResourceRootURL),
                     onSelect: { _ in },
                     canDispatchCommand: { _, _ in true },
                     onCommand: { _, _ in },
-                    onShowArrangements: { _ in },
-                    onPaneAction: { _ in },
-                    workspaceWindowId: nil
+                    onShowArrangements: { _ in }
                 )
 
                 Spacer()

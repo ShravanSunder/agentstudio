@@ -11,11 +11,11 @@ package enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, 
     var title: String {
         switch self {
         case .repo:
-            return "Repo"
+            return "By Repo"
         case .pane:
-            return "Pane"
+            return "By Pane"
         case .tab:
-            return "Tab"
+            return "By Tab"
         }
     }
 
@@ -37,7 +37,7 @@ package enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sen
 
     package static let `default`: Self = .ascending
 
-    var toggled: Self {
+    package var toggled: Self {
         switch self {
         case .ascending:
             return .descending
@@ -56,17 +56,11 @@ package enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sen
     }
 }
 
-package enum RepoExplorerVisibilityMode: String, CaseIterable, Codable, Hashable, Sendable {
-    case all
-    case favoritesOnly
-}
-
 struct RepoExplorerSnapshot: Equatable, Sendable {
     let repos: [RepoPresentationItem]
     let repoEnrichmentSnapshotByRepoId: [UUID: RepoEnrichment]
     let groupingMode: RepoExplorerGroupingMode
     let sortOrder: RepoExplorerSortOrder
-    let visibilityMode: RepoExplorerVisibilityMode
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
@@ -76,7 +70,6 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         groupingMode: RepoExplorerGroupingMode = .repo,
         sortOrder: RepoExplorerSortOrder = .default,
-        visibilityMode: RepoExplorerVisibilityMode = .all,
         query: String,
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
@@ -85,7 +78,6 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.repoEnrichmentSnapshotByRepoId = repoEnrichmentByRepoId
         self.groupingMode = groupingMode
         self.sortOrder = sortOrder
-        self.visibilityMode = visibilityMode
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
         var bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution] = [:]

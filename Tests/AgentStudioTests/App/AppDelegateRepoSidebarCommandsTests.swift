@@ -7,45 +7,6 @@ import Testing
 @MainActor
 @Suite("AppDelegate repo sidebar commands")
 struct AppDelegateRepoSidebarCommandsTests {
-    @Test("shell visibility mode command routes through repo explorer prefs")
-    func shellVisibilityModeCommandRoutesThroughRepoExplorerPrefs() {
-        let delegate = AppDelegate()
-        let prefsAtom = RepoExplorerSidebarPrefsAtom()
-        delegate.atomStore = AtomRegistry(repoExplorerSidebarPrefs: prefsAtom)
-
-        let favoritesOutcome = delegate.execute(
-            AppCommandExecutionRequest(
-                command: .setRepoSidebarVisibilityMode,
-                arguments: .repoSidebarVisibilityMode(.favoritesOnly)
-            )
-        )
-        #expect(favoritesOutcome == .applied)
-        #expect(prefsAtom.repoVisibilityMode == .favoritesOnly)
-        let allOutcome = delegate.execute(
-            AppCommandExecutionRequest(
-                command: .setRepoSidebarVisibilityMode,
-                arguments: .repoSidebarVisibilityMode(.all)
-            )
-        )
-
-        #expect(allOutcome == .applied)
-        #expect(prefsAtom.repoVisibilityMode == .all)
-    }
-
-    @Test("shell visibility mode command reports state unavailable when repo prefs are missing")
-    func shellVisibilityModeCommandReportsStateUnavailableWhenRepoPrefsAreMissing() {
-        let delegate = AppDelegate()
-
-        let outcome = delegate.execute(
-            AppCommandExecutionRequest(
-                command: .setRepoSidebarVisibilityMode,
-                arguments: .repoSidebarVisibilityMode(.favoritesOnly)
-            )
-        )
-
-        #expect(outcome == .stateUnavailable)
-    }
-
     @Test("shell sort order command routes through repo explorer prefs")
     func shellSortOrderCommandRoutesThroughRepoExplorerPrefs() {
         let delegate = AppDelegate()

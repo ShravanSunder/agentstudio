@@ -138,14 +138,21 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
 
+        let launchDirectory =
+            explicitDirectory
+            ?? targetPane?.metadata.cwd
+            ?? targetPane?.metadata.launchDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let inheritedFacets =
+            explicitDirectory.map { PaneContextFacets(cwd: $0) }
+            ?? targetPane?.metadata.facets
+            ?? .empty
         let pane = store.paneAtom.createPane(
-            launchDirectory: explicitDirectory
-                ?? targetPane?.metadata.cwd
-                ?? targetPane?.metadata.launchDirectory,
+            launchDirectory: launchDirectory,
             provider: .zmx, zmxSessionID: .generateUUIDv7(),
-            facets: explicitDirectory.map { PaneContextFacets(cwd: $0) }
-                ?? targetPane?.metadata.facets
-                ?? .empty
+            facets: inheritedFacets.fillingNilFields(
+                from: PaneContextFacets(cwd: launchDirectory)
+            )
         )
         prepareTerminalPaneSlot(pane)
         registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
@@ -181,10 +188,15 @@ extension WorkspaceSurfaceCoordinator {
             from: targetPane,
             fallbackTitle: fallbackTitle
         )
-        let pane = store.paneAtom.createPane(
-            content: .webview(state),
-            metadata: context.metadata
-        )
+        guard
+            let pane = store.paneAtom.createPane(
+                content: .webview(state),
+                metadata: context.metadata
+            )
+        else {
+            Self.logger.error("insertPane newWebview: pane admission failed")
+            return
+        }
         viewRegistry.ensureSlot(for: pane.id)
 
         guard createViewForContent(pane: pane) != nil else {

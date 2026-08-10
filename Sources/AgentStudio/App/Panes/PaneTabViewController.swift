@@ -4,6 +4,7 @@ import AgentStudioCore
 import AgentStudioEditorChooser
 import AgentStudioInboxNotification
 import AgentStudioInfrastructure
+import AgentStudioRepoExplorer
 import AgentStudioTerminal
 import AppKit
 import GhosttyKit
@@ -112,6 +113,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private var hasShutdown = false
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
@@ -367,9 +369,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
-            arrangementInlineRenameState: arrangementInlineRenameState,
-            inboxAtom: inboxAtom,
-            octiconLoader: octiconLoader,
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
             },
@@ -393,11 +392,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             },
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
-            },
-            onPaneAction: { [weak self] action in
-                self?.dispatchAction(action)
-            },
-            workspaceWindowId: workspaceWindowId
+            }
         )
         let hostingView = DraggableTabBarHostingView(rootView: tabBar)
         hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
@@ -421,6 +416,51 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             self?.dispatchAction(.toggleDrawer(paneId: drawerParentPaneId))
         }
         tabBarHostingView = hostingView
+        return hostingView
+    }
+
+    func makeToolbarControlView(_ control: MainToolbarControl) -> NSView {
+        let content: AnyView =
+            switch control {
+            case .watchFolder:
+                AnyView(WatchFolderTabBarMenu())
+            case .managementLayer:
+                AnyView(TabBarManagementLayerButton())
+            case .arrangement:
+                AnyView(
+                    TabBarArrangementButton(
+                        adapter: tabBarAdapter,
+                        arrangementInlineRenameState: arrangementInlineRenameState,
+                        octiconLoader: octiconLoader,
+                        onCommand: { command, tabId in
+                            AppCommandDispatcher.shared.dispatch(
+                                command,
+                                target: tabId,
+                                targetType: .tab
+                            )
+                        },
+                        onPaneAction: { [weak self] action in
+                            self?.dispatchAction(action)
+                        },
+                        workspaceWindowId: workspaceWindowId
+                    )
+                )
+            case .selectTab:
+                AnyView(
+                    TabSelectionToolbarMenu(adapter: tabBarAdapter) { [weak self] tabId in
+                        self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
+                    }
+                )
+            case .newTab:
+                AnyView(NewTabButton())
+            }
+
+        let hostingView = ToolbarControlHostingView(rootView: content)
+        hostingView.identifier = control.viewIdentifier
+        hostingView.sizingOptions = [.intrinsicContentSize]
+        hostingView.safeAreaRegions = []
+        hostingView.setContentHuggingPriority(.required, for: .horizontal)
+        hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
         return hostingView
     }
 
@@ -469,7 +509,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             .paneTabLayout,
             duration: layoutStart.duration(to: clock.now),
             attributes: [
-                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_tab_layout.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                 "agentstudio.performance.pane_tab_layout.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 "agentstudio.performance.pane_tab_layout.subview.count": .int(view.subviews.count),
                 "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
@@ -504,6 +544,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func shutdown() {
+        guard !hasShutdown else { return }
+        hasShutdown = true
+        tabBarAdapter.stop()
         pendingVisibleViewRestoreTask?.cancel()
         pendingVisibleViewRestoreTask = nil
         if let monitor = arrangementBarEventMonitor {
@@ -636,9 +679,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func prunePaneInboxPresentationState() {
         guard let paneInboxPresentation else { return }
-        let retainedParentPaneIds = Set(
-            store.paneAtom.panes.values.compactMap { pane in
-                pane.isDrawerChild ? nil : pane.id
+        let paneGraph = store.paneAtom.graphAtom
+        let retainedParentPaneIds = Set<UUID>(
+            paneGraph.paneIDs.compactMap { paneID in
+                guard paneGraph.paneStructuralFacts(paneID)?.isDrawerChild == false else { return nil }
+                return paneID
             }
         )
         paneInboxPresentation.pruneFilterModes(retainedParentPaneIds)
@@ -1042,20 +1087,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard let parentPaneId = pane.parentPaneId else { return nil }
-                return (pane.id, parentPaneId)
+            uniqueKeysWithValues: store.paneAtom.graphAtom.paneIDs.compactMap { paneID in
+                guard let parentPaneID = store.paneAtom.graphAtom.paneStructuralFacts(paneID)?.parentPaneID else {
+                    return nil
+                }
+                return (paneID, parentPaneID)
             }
         )
     }
 
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
         Dictionary(
-            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
+            uniqueKeysWithValues: store.paneAtom.graphAtom.paneIDs.compactMap { paneID in
+                guard
+                    store.paneAtom.graphAtom.paneStructuralFacts(paneID)?.ownedDrawerID != nil,
+                    let drawerView = arrangementView.drawerView(forParent: paneID)
+                else {
                     return nil
                 }
-                return (pane.id, drawerView.layout)
+                return (paneID, drawerView.layout)
             }
         )
     }
@@ -1285,7 +1335,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func syncTabContentHosts() {
-        for paneId in store.paneAtom.panes.keys {
+        for paneId in store.paneAtom.graphAtom.paneIDs {
             viewRegistry.ensureSlot(for: paneId)
         }
 
@@ -2747,7 +2797,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 attributes: [
                     "agentstudio.performance.management_layer.command": .string(command.rawValue),
                     "agentstudio.performance.management_layer.is_active": .bool(atom(\.managementLayer).isActive),
-                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.management_layer.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                     "agentstudio.performance.management_layer.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 ]
             )
@@ -4003,6 +4053,29 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if targetType == .tab {
+            switch command {
+            case .renameTab, .closeTab, .saveArrangement, .newFloatingTerminal:
+                return store.tabLayoutAtom.containsTab(target)
+            case .splitRight, .splitLeft:
+                return store.tabLayoutAtom.containsTab(target)
+                    && store.tabLayoutAtom.activePaneID(forTab: target) != nil
+                    && store.panePresentationAtom.zoomPresentation(forTab: target) == nil
+            case .breakUpTab, .equalizePanes:
+                return store.tabLayoutAtom.activeArrangementIsSplit(forTab: target)
+            default:
+                break
+            }
+        }
+
+        if let targetedPaneCapability = targetedPaneCommandCapability(
+            command,
+            paneId: target,
+            targetType: targetType
+        ) {
+            return targetedPaneCapability
+        }
+
         if command == .previousArrangement || command == .nextArrangement {
             guard
                 targetType == .tab,
@@ -4034,10 +4107,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return resolvedBridgeCommandMountView(paneId: target) != nil
         }
 
-        if command == .movePaneToTab, targetType == .pane {
-            return canMovePaneToAnotherTab(sourcePaneId: target)
-        }
-
         if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
             return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
         }
@@ -4056,10 +4125,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
 
-        if command == .showBridgeReview || command == .showBridgeFiles
-            || command == .openBridgeReviewInNewTab || command == .openBridgeFilesInNewTab,
-            targetType == .worktree
-        {
+        if Self.isTargetedBridgeCommand(command), targetType == .worktree {
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 
@@ -4089,18 +4155,187 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func canMovePaneToAnotherTab(sourcePaneId: UUID) -> Bool {
-        guard
-            let sourceTabId = store.tabLayoutAtom.tabs.first(where: {
-                $0.activePaneIds.contains(sourcePaneId)
-            })?.id
-        else {
+    func repoExplorerCommandCapabilities(
+        _ requests: Set<RepoExplorerCommandPresentationRequest>
+    ) -> [RepoExplorerCommandPresentationRequest: Bool] {
+        let state = actionStateSnapshot()
+        return Dictionary(
+            uniqueKeysWithValues: requests.map { request in
+                guard let target = request.target, let targetType = request.targetType else {
+                    return (request, false)
+                }
+                if Self.isTargetedBridgeCommand(request.command) {
+                    return (request, targetType == .worktree && state.knownWorktreeIds.contains(target))
+                }
+                guard
+                    let action = targetedAction(
+                        command: request.command,
+                        target: target,
+                        targetType: targetType
+                    )
+                else {
+                    return (request, false)
+                }
+                if case .success = WorkspaceCommandValidator.validate(action, state: state) {
+                    return (request, true)
+                }
+                return (request, false)
+            })
+    }
+
+    private static func isTargetedBridgeCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .showBridgeReview, .showBridgeFiles,
+            .openBridgeReviewInNewTab, .openBridgeFilesInNewTab:
+            true
+        default:
+            false
+        }
+    }
+
+    private enum TargetedPaneCapabilityTarget {
+        case layout(paneId: UUID, tabId: UUID, drawerId: UUID)
+        case drawerChild(paneId: UUID, parentPaneId: UUID, tabId: UUID, drawerId: UUID)
+
+        var paneId: UUID {
+            switch self {
+            case .layout(let paneId, _, _), .drawerChild(let paneId, _, _, _):
+                return paneId
+            }
+        }
+
+        var tabId: UUID {
+            switch self {
+            case .layout(_, let tabId, _), .drawerChild(_, _, let tabId, _):
+                return tabId
+            }
+        }
+    }
+
+    private func targetedPaneCommandCapability(
+        _ command: AppCommand,
+        paneId: UUID,
+        targetType: SearchItemType
+    ) -> Bool? {
+        switch command {
+        case .minimizePane, .expandPane, .closePane, .splitRight, .detachDrawerPane,
+            .extractPaneToTab, .movePaneToTab, .toggleDrawer, .addDrawerPane:
+            break
+        default:
+            return nil
+        }
+
+        guard targetType == .pane else {
+            return nil
+        }
+        guard let target = targetedPaneCapabilityTarget(paneId: paneId) else {
             return false
         }
 
-        return store.tabLayoutAtom.tabs.contains { tab in
-            tab.id != sourceTabId && (tab.activePaneId != nil || !tab.activePaneIds.isEmpty)
+        switch (command, target) {
+        case (.minimizePane, .layout):
+            return activeLayoutShowsPane(target)
+                && store.panePresentationAtom.zoomPresentation(forTab: target.tabId) == nil
+        case (.minimizePane, .drawerChild(_, _, let tabId, let drawerId)):
+            return drawerParentIsShown(target)
+                && store.tabLayoutAtom.activeDrawerLayoutContainsPane(
+                    target.paneId,
+                    drawerID: drawerId,
+                    inTab: tabId
+                )
+                && !store.tabLayoutAtom.activeDrawerLayoutIsMinimized(
+                    target.paneId,
+                    drawerID: drawerId,
+                    inTab: tabId
+                )
+        case (.expandPane, .layout):
+            return store.tabLayoutAtom.activeLayoutIsMinimized(target.paneId, inTab: target.tabId)
+                && store.panePresentationAtom.zoomPresentation(forTab: target.tabId) == nil
+        case (.expandPane, .drawerChild(_, _, let tabId, let drawerId)):
+            return drawerParentIsShown(target)
+                && store.tabLayoutAtom.activeDrawerLayoutIsMinimized(
+                    target.paneId,
+                    drawerID: drawerId,
+                    inTab: tabId
+                )
+        case (.closePane, _):
+            return true
+        case (.splitRight, .layout):
+            return activeLayoutShowsPane(target)
+                && store.panePresentationAtom.zoomPresentation(forTab: target.tabId) == nil
+        case (.extractPaneToTab, .layout):
+            let includingMinimized = atom(\.managementLayer).isActive
+            return store.tabLayoutAtom.activeLayoutShowsPane(
+                target.paneId,
+                inTab: target.tabId,
+                includingMinimized: includingMinimized
+            )
+                && store.tabLayoutAtom.activeLayoutVisiblePaneCount(
+                    inTab: target.tabId,
+                    includingMinimized: includingMinimized
+                ) > 1
+        case (.movePaneToTab, .layout):
+            return store.tabLayoutAtom.activeLayoutContainsPane(target.paneId, inTab: target.tabId)
+                && store.tabLayoutAtom.anotherTabHasNonemptyActiveLayout(excludingTabID: target.tabId)
+        case (.detachDrawerPane, .drawerChild):
+            return drawerParentIsShown(target)
+        case (.toggleDrawer, .layout):
+            return activeLayoutShowsPane(target)
+        case (.addDrawerPane, .layout):
+            return activeLayoutShowsPane(target)
+        default:
+            return false
         }
+    }
+
+    private func targetedPaneCapabilityTarget(paneId: UUID) -> TargetedPaneCapabilityTarget? {
+        guard let paneState = store.paneAtom.graphAtom.paneState(paneId) else {
+            return nil
+        }
+
+        if let parentPaneId = paneState.parentPaneId {
+            guard
+                let parentPaneState = store.paneAtom.graphAtom.paneState(parentPaneId),
+                parentPaneState.ownsDrawerChild(paneId),
+                let drawerId = parentPaneState.ownedDrawerId,
+                let tabId = store.tabLayoutAtom.tabID(containingPane: parentPaneId)
+            else {
+                return nil
+            }
+            return .drawerChild(
+                paneId: paneId,
+                parentPaneId: parentPaneId,
+                tabId: tabId,
+                drawerId: drawerId
+            )
+        }
+
+        guard
+            let drawerId = paneState.ownedDrawerId,
+            let tabId = store.tabLayoutAtom.tabID(containingPane: paneId)
+        else {
+            return nil
+        }
+        return .layout(paneId: paneId, tabId: tabId, drawerId: drawerId)
+    }
+
+    private func activeLayoutShowsPane(_ target: TargetedPaneCapabilityTarget) -> Bool {
+        store.tabLayoutAtom.activeLayoutShowsPane(
+            target.paneId,
+            inTab: target.tabId,
+            includingMinimized: atom(\.managementLayer).isActive
+        )
+    }
+
+    private func drawerParentIsShown(_ target: TargetedPaneCapabilityTarget) -> Bool {
+        guard case .drawerChild(_, let parentPaneId, let tabId, _) = target else {
+            return false
+        }
+        return store.tabLayoutAtom.activeLayoutShowsPane(
+            parentPaneId,
+            inTab: tabId,
+            includingMinimized: atom(\.managementLayer).isActive
+        )
     }
 
     private func workspacePresentationCommandAvailability(_ command: AppCommand) -> Bool? {

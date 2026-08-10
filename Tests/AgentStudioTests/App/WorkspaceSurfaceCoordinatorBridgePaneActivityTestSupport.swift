@@ -51,7 +51,10 @@ func makeBridgePaneActivityTestHarness(
                 source: .commit(sha: "activity-integration")
             )
         ),
-        metadata: PaneMetadata(title: "Review")
+        metadata: PaneMetadata(
+            title: "Review",
+            facets: PaneContextFacets(cwd: tempDirectory)
+        )
     )
     let siblingPane = store.createPane(
         content: .webview(

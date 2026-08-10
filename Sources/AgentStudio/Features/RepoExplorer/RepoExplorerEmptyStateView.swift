@@ -13,8 +13,6 @@ struct RepoExplorerEmptyStateView: View {
             "folder"
         case .searchNoResults:
             "magnifyingglass"
-        case .favoritesOnlyEmpty:
-            "bookmark"
         }
     }
 
@@ -24,8 +22,6 @@ struct RepoExplorerEmptyStateView: View {
             ""
         case .searchNoResults:
             "No results"
-        case .favoritesOnlyEmpty:
-            "No favorites"
         }
     }
 

@@ -2,6 +2,11 @@ import AgentStudioCore
 import CryptoKit
 import Foundation
 
+enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
+    case reject
+    case retainForReplay
+}
+
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private struct BufferedContentBody: Sendable {
         let data: Data
@@ -249,11 +254,13 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
 
     func publishPaneSurfaceSelectionRequest(
         _ request: BridgePaneSurfaceSelectionRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async {
+        productAdmission: BridgeProductAdmissionContext,
+        streamAbsenceDisposition: BridgePaneSurfaceSelectionStreamAbsenceDisposition
+    ) async -> Bool {
         await metadataCoordinator.publishPaneSurfaceSelectionRequest(
             request,
-            productAdmission: productAdmission
+            productAdmission: productAdmission,
+            streamAbsenceDisposition: streamAbsenceDisposition
         )
     }
 

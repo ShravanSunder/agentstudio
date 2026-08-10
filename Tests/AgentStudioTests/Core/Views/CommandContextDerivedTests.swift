@@ -436,7 +436,12 @@ struct CommandContextDerivedTests {
             let tab = Tab(paneId: webviewPane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
-            let terminalDrawerPane = try #require(store.addDrawerPane(to: webviewPane.id))
+            let terminalDrawerPane = try #require(
+                store.addDrawerPane(
+                    to: webviewPane.id,
+                    parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+                )
+            )
             atoms.workspaceFocusOwner.focusDrawerPane(
                 parentPaneId: webviewPane.id,
                 paneId: terminalDrawerPane.id

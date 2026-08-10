@@ -109,10 +109,15 @@ extension WorkspaceSurfaceCoordinator {
     func openWebview(url: URL = defaultGitHubURL) -> Pane? {
         let state = WebviewState(url: url, showNavigation: true)
         let host = url.host() ?? "New Tab"
-        let pane = store.paneAtom.createPane(
-            content: .webview(state),
-            metadata: PaneMetadata(title: host)
-        )
+        guard
+            let pane = store.paneAtom.createPane(
+                content: .webview(state),
+                metadata: PaneMetadata(title: host)
+            )
+        else {
+            Self.logger.error("Webview pane admission failed")
+            return nil
+        }
         viewRegistry.ensureSlot(for: pane.id)
 
         guard createViewForContent(pane: pane) != nil else {
@@ -134,12 +139,14 @@ extension WorkspaceSurfaceCoordinator {
     @discardableResult
     func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedLaunchDirectory =
+            launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser
         let pane = store.paneAtom.createPane(
-            launchDirectory: launchDirectory,
+            launchDirectory: resolvedLaunchDirectory,
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
             zmxSessionID: .generateUUIDv7(),
-            facets: PaneContextFacets(cwd: launchDirectory)
+            facets: PaneContextFacets(cwd: resolvedLaunchDirectory)
         )
         prepareTerminalPaneSlot(pane)
 
@@ -166,7 +173,7 @@ extension WorkspaceSurfaceCoordinator {
                 duration: actionStart.duration(to: clock.now),
                 attributes: [
                     "agentstudio.performance.pane_action.name": .string(action.performanceTraceName),
-                    "agentstudio.performance.pane_action.pane.count": .int(store.paneAtom.panes.count),
+                    "agentstudio.performance.pane_action.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
                     "agentstudio.performance.pane_action.tab.count": .int(store.tabLayoutAtom.tabs.count),
                 ]
             )
@@ -456,9 +463,11 @@ extension WorkspaceSurfaceCoordinator {
                 Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no owning tab")
                 break
             }
-            let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
-                store.repositoryTopologyAtom.worktree)?
+            let fallbackCWD =
+                store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
+                    store.repositoryTopologyAtom.worktree)?
                 .path
+                ?? FileManager.default.homeDirectoryForCurrentUser
             if let drawerPane = store.paneAtom.addDrawerPane(
                 to: parentPaneId,
                 parentFallbackCWD: fallbackCWD,

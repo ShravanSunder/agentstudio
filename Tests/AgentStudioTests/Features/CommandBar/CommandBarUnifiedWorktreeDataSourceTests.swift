@@ -500,14 +500,8 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     func test_reposScope_worktreeWithOnePane_hasSinglePaneState() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/repo-one-pane"))
-        let worktree = Worktree(
-            repoId: repo.id,
-            name: "feature",
-            path: URL(filePath: "/tmp/repo-one-pane/feature")
-        )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        guard let storedWorktree = store.repos.first?.worktrees.first else {
-            Issue.record("Expected stored worktree")
+        guard let storedWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected main worktree")
             return
         }
         let pane = store.createPane(

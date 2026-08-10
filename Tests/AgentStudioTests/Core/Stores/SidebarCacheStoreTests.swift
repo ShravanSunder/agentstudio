@@ -8,19 +8,19 @@ import Testing
 @Suite(.serialized)
 struct SidebarCacheStoreTests {
     @Test
-    func flushAndRestoreRoundTripsMainWindowExpandedGroups() async throws {
+    func flushAndRestoreRoundTripsMainWindowCollapsedGroups() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         let atom = SidebarCacheState()
-        let expandedGroup = SidebarGroupKey("repo:agent-studio")
-        atom.setGroupExpanded(expandedGroup, isExpanded: true)
+        let collapsedGroup = SidebarGroupKey("repo:agent-studio")
+        atom.setGroupExpanded(collapsedGroup, isExpanded: false)
 
         try await SidebarCacheStore(atom: atom, sqliteDatastore: datastore).flushAsync(for: workspaceId)
         let restoredAtom = SidebarCacheState()
         await SidebarCacheStore(atom: restoredAtom, sqliteDatastore: datastore).restoreAsync(for: workspaceId)
 
-        #expect(restoredAtom.expandedGroups == [expandedGroup])
+        #expect(restoredAtom.collapsedGroups == [collapsedGroup])
     }
 
     @Test
@@ -28,21 +28,21 @@ struct SidebarCacheStoreTests {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = SidebarCacheState()
-        atom.setGroupExpanded(SidebarGroupKey("repo:stale"), isExpanded: true)
+        atom.setGroupExpanded(SidebarGroupKey("repo:stale"), isExpanded: false)
 
         await SidebarCacheStore(
             atom: atom,
             sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
         ).restoreAsync(for: workspaceId)
 
-        #expect(atom.expandedGroups.isEmpty)
+        #expect(atom.collapsedGroups.isEmpty)
     }
 
     @Test
     func unavailableSQLiteResetsDefaultsAndReportsRecovery() async throws {
         let workspaceId = UUID()
         let atom = SidebarCacheState()
-        atom.setGroupExpanded(SidebarGroupKey("repo:stale"), isExpanded: true)
+        atom.setGroupExpanded(SidebarGroupKey("repo:stale"), isExpanded: false)
         var reportedRecoveries: [PersistenceRecoveryEvent] = []
 
         await SidebarCacheStore(
@@ -51,7 +51,7 @@ struct SidebarCacheStoreTests {
             recoveryReporter: { reportedRecoveries.append($0) }
         ).restoreAsync(for: workspaceId)
 
-        #expect(atom.expandedGroups.isEmpty)
+        #expect(atom.collapsedGroups.isEmpty)
         #expect(
             reportedRecoveries.contains { recovery in
                 recovery.store == .sidebarCache
@@ -61,12 +61,12 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func observedExpansionChangeAutosavesSQLite() async throws {
+    func observedCollapseChangeAutosavesSQLite() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let atom = SidebarCacheState()
         let clock = TestPushClock()
-        let expandedGroup = SidebarGroupKey("repo:agent-studio")
+        let collapsedGroup = SidebarGroupKey("repo:agent-studio")
         let store = SidebarCacheStore(
             atom: atom,
             sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
@@ -76,12 +76,12 @@ struct SidebarCacheStoreTests {
         await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
-        atom.setGroupExpanded(expandedGroup, isExpanded: true)
+        atom.setGroupExpanded(collapsedGroup, isExpanded: false)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
 
-        await assertEventuallyMain("expanded group should autosave") {
-            (try? fixture.repository.fetchExpandedGroups()) == [expandedGroup]
+        await assertEventuallyMain("collapsed group should autosave") {
+            (try? fixture.repository.fetchCollapsedGroups()) == [collapsedGroup]
         }
     }
 
@@ -89,10 +89,10 @@ struct SidebarCacheStoreTests {
     func directWriteOwnerMutationAutosavesThroughComposedState() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
-        let expandedGroupAtom = SidebarExpandedGroupAtom()
-        let atom = SidebarCacheState(expandedGroupAtom: expandedGroupAtom)
+        let collapsedGroupAtom = SidebarCollapsedGroupAtom()
+        let atom = SidebarCacheState(collapsedGroupAtom: collapsedGroupAtom)
         let clock = TestPushClock()
-        let expandedGroup = SidebarGroupKey("repo:agent-studio")
+        let collapsedGroup = SidebarGroupKey("repo:agent-studio")
         let store = SidebarCacheStore(
             atom: atom,
             sqliteDatastore: try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend),
@@ -102,12 +102,12 @@ struct SidebarCacheStoreTests {
         await store.restoreAsync(for: workspaceId)
         store.startObserving()
 
-        expandedGroupAtom.setGroupExpanded(expandedGroup, isExpanded: true)
+        collapsedGroupAtom.setGroupExpanded(collapsedGroup, isExpanded: false)
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(10))
 
         await assertEventuallyMain("write-owner mutation should autosave") {
-            (try? fixture.repository.fetchExpandedGroups()) == [expandedGroup]
+            (try? fixture.repository.fetchCollapsedGroups()) == [collapsedGroup]
         }
     }
 
@@ -126,14 +126,14 @@ struct SidebarCacheStoreTests {
         )
         await store.restoreAsync(for: workspaceAId)
         store.startObserving()
-        atom.setGroupExpanded(SidebarGroupKey("repo:stale-workspace"), isExpanded: true)
+        atom.setGroupExpanded(SidebarGroupKey("repo:stale-workspace"), isExpanded: false)
         await clock.waitForPendingSleepCount()
 
         await store.restoreAsync(for: workspaceBId)
         clock.advance(by: .milliseconds(10))
         await Task.yield()
 
-        #expect(try fixture.repository.hasExpandedGroupsState() == false)
+        #expect(try fixture.repository.hasCollapsedGroupsState() == false)
     }
 
     @Test

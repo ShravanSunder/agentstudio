@@ -33,6 +33,17 @@ package final class InboxNotificationAtom {
     package private(set) var notifications: [InboxNotification] = []
     package private(set) var globalUnreadCount = 0
     package private(set) var globalRollUpAlertCount = 0
+    private var attentionFactSnapshot: InboxAttentionFactSnapshot = .empty
+
+    @ObservationIgnored private let attentionLaneByPaneId = AtomFamily<
+        UUID,
+        InboxNotificationClaimLane
+    >(
+        telemetryLabel: "inbox_notification_attention_lane",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let attentionProjectionRevision = AtomRevision()
+    @ObservationIgnored private var attentionLaneSnapshotByPaneId: [UUID: InboxNotificationClaimLane] = [:]
 
     package init() {}
 
@@ -121,16 +132,15 @@ package final class InboxNotificationAtom {
     }
 
     package func attentionLane(forPaneIds paneIds: [UUID]) -> InboxNotificationClaimLane? {
-        let paneIdSet = Set(paneIds)
-        let matchingLanes = notifications.compactMap { notification -> InboxNotificationClaimLane? in
-            guard notification.contributesToAttentionDot else { return nil }
-            guard let paneId = notification.paneId, paneIdSet.contains(paneId) else { return nil }
-            return notification.displayLane
-        }
+        let matchingLanes = paneIds.compactMap { attentionLaneByPaneId.value(for: $0) }
         if matchingLanes.contains(.actionNeeded) { return .actionNeeded }
         if matchingLanes.contains(.safety) { return .safety }
         if matchingLanes.contains(.settledAgent) { return .settledAgent }
         return nil
+    }
+
+    package func captureAttentionFacts() -> InboxAttentionFactSnapshot {
+        attentionFactSnapshot
     }
 
     @discardableResult
@@ -370,5 +380,25 @@ package final class InboxNotificationAtom {
     private func recalculateGlobalUnreadCount() {
         globalUnreadCount = unreadCount { _ in true }
         globalRollUpAlertCount = rollUpAlertCount { _ in true }
+        let nextAttentionFactSnapshot = InboxAttentionFactSnapshot(notifications: notifications)
+        attentionFactSnapshot = nextAttentionFactSnapshot
+        recalculateAttentionLaneProjection(snapshot: nextAttentionFactSnapshot)
+    }
+
+    private func recalculateAttentionLaneProjection(snapshot: InboxAttentionFactSnapshot) {
+        let nextAttentionLaneByPaneId = InboxAttentionProjector.projectPaneLanes(snapshot: snapshot)
+
+        let mutation = AtomMutationContext(aggregateRevision: attentionProjectionRevision)
+        let previousPaneIds = Set(attentionLaneSnapshotByPaneId.keys)
+        let nextPaneIds = Set(nextAttentionLaneByPaneId.keys)
+        for removedPaneId in previousPaneIds.subtracting(nextPaneIds) {
+            attentionLaneByPaneId.removeValue(for: removedPaneId, mutation: mutation)
+        }
+        for (paneId, nextLane) in nextAttentionLaneByPaneId
+        where attentionLaneSnapshotByPaneId[paneId] != nextLane {
+            attentionLaneByPaneId.setValue(nextLane, for: paneId, mutation: mutation)
+        }
+        attentionLaneSnapshotByPaneId = nextAttentionLaneByPaneId
+        mutation.commit()
     }
 }

@@ -20,25 +20,33 @@ struct PaneTabViewControllerQuickOpenDirectoryTests {
 
         let repositoryPath = harness.tempDir.appending(path: "repository")
         let worktreePath = repositoryPath.appending(path: "main")
-        let quickOpenDirectory = harness.tempDir.appending(path: "untracked-directory")
+        let quickOpenDirectory = harness.tempDir.appending(
+            path: "untracked-directory",
+            directoryHint: .isDirectory
+        )
         try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: quickOpenDirectory, withIntermediateDirectories: true)
 
         let repository = harness.store.addRepo(at: repositoryPath)
-        let worktree = Worktree(
+        let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
+        let mainWorktree = try #require(existingMainWorktree)
+        let linkedWorktree = Worktree(
             repoId: repository.id,
             name: "main",
             path: worktreePath,
-            isMainWorktree: true
+            isMainWorktree: false
         )
-        harness.store.reconcileDiscoveredWorktrees(repository.id, worktrees: [worktree])
+        harness.store.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [mainWorktree, linkedWorktree]
+        )
 
         let targetPane = harness.store.createPane(
             launchDirectory: worktreePath,
             provider: .zmx,
             facets: PaneContextFacets(
                 repoId: repository.id,
-                worktreeId: worktree.id,
+                worktreeId: linkedWorktree.id,
                 cwd: worktreePath
             )
         )
@@ -70,7 +78,10 @@ struct PaneTabViewControllerQuickOpenDirectoryTests {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let quickOpenDirectory = harness.tempDir.appending(path: "new-tab-directory")
+        let quickOpenDirectory = harness.tempDir.appending(
+            path: "new-tab-directory",
+            directoryHint: .isDirectory
+        )
         try FileManager.default.createDirectory(at: quickOpenDirectory, withIntermediateDirectories: true)
         harness.windowLifecycleStore.recordTerminalContainerBounds(
             CGRect(x: 0, y: 0, width: 1000, height: 600)
@@ -94,17 +105,22 @@ struct PaneTabViewControllerQuickOpenDirectoryTests {
 
         let repositoryPath = harness.tempDir.appending(path: "repository")
         let worktreePath = repositoryPath.appending(path: "main")
-        let nestedDirectory = worktreePath.appending(path: "Sources")
+        let nestedDirectory = worktreePath.appending(path: "Sources", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
 
         let repository = harness.store.addRepo(at: repositoryPath)
-        let worktree = Worktree(
+        let existingMainWorktree = repository.worktrees.first(where: \.isMainWorktree)
+        let mainWorktree = try #require(existingMainWorktree)
+        let linkedWorktree = Worktree(
             repoId: repository.id,
             name: "main",
             path: worktreePath,
-            isMainWorktree: true
+            isMainWorktree: false
         )
-        harness.store.reconcileDiscoveredWorktrees(repository.id, worktrees: [worktree])
+        harness.store.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [mainWorktree, linkedWorktree]
+        )
         harness.windowLifecycleStore.recordTerminalContainerBounds(
             CGRect(x: 0, y: 0, width: 1000, height: 600)
         )

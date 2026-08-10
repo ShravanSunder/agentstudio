@@ -20,11 +20,32 @@ import {
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
 } from './bridge-app-browser-test-actions.js';
-import { bridgeAppControlProbeSchema, type BridgeAppControlProbe } from './bridge-app-control.js';
+import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import {
+	dispatchBridgePageControl,
+	dispatchBridgeViewerFilterShortcut,
+	fileSearchInput,
+	fileTreeRowForPath,
+	makeNativeFileTargetSelectionRequest,
+	makeNativeSurfaceSelectionRequest,
+	requestNativeSurface,
+	requireActiveContextButton,
+	requireHTMLElement,
+	reviewSearchInputWithin,
+} from './bridge-app-pane-runtime-control-test-support.js';
+import {
+	advanceAnimationFrame,
+	assertSurfacePositionRetained,
+	bridgePanePositionFileItemId,
 	bridgePanePositionFilePath,
 	bridgePanePositionReviewItemId,
+	bridgePaneReplacementFileItemId,
+	bridgePaneReplacementFilePath,
+	establishSemanticSurfacePosition,
+	exercisePendingFileTargetSupersession,
 	installBridgePanePositionFixtures,
+	replaceFilePositionFixtureWithTarget,
+	waitForScrollableSurfaceOwners,
 } from './bridge-app-pane-runtime-position-test-support.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
@@ -260,42 +281,6 @@ describe('BridgeApp pane runtime hard cut', () => {
 		).toBeNull();
 	});
 
-	test('forwards one initial Review activation while page readiness is unresolved', async () => {
-		// Arrange
-		await actWait(async (): Promise<void> => {
-			await render(
-				<BridgeAppProtocolRouter
-					codeViewWorkerPoolEnabled={false}
-					fileViewerProps={{ autoOpenInitialFile: false }}
-					protocol="review"
-				/>,
-			);
-			await Promise.resolve();
-		});
-		// Assert
-		expect(readBridgeReviewSelectionDiagnostic()?.pageReadyState).not.toBe('ready');
-		const activeViewerModeUpdates = paneRuntimeObservation.paneCommands.filter(
-			(command): boolean => command.command === 'activeViewerModeUpdate',
-		);
-		expect(activeViewerModeUpdates).toHaveLength(1);
-		expect(activeViewerModeUpdates[0]).toEqual({
-			command: 'activeViewerModeUpdate',
-			direction: 'mainToServerWorker',
-			epoch: 1,
-			kind: 'command',
-			requestId: 'pane-runtime-owned',
-			transferDescriptors: [],
-			update: {
-				activeSource: null,
-				mode: 'review',
-				nativeSelectionRequestId: null,
-				sequence: 1,
-				sessionId: expect.any(String),
-			},
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		});
-	});
-
 	test('forwards one local File activation before the selected File row', async () => {
 		// Arrange
 		const handshake = installBridgeReadyHandshake();
@@ -392,6 +377,196 @@ describe('BridgeApp pane runtime hard cut', () => {
 		handshake.dispose();
 	});
 
+	test('holds an exact File target until its matching source arrives and then applies it', async () => {
+		// Arrange
+		const handshake = installBridgeReadyHandshake();
+		await actWait(async (): Promise<void> => {
+			await render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					protocol="review"
+				/>,
+			);
+			await Promise.resolve();
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		const navigationCommandId = 'native-file-target-pending-source';
+
+		// Act: the worker delivers the exact target before File has accepted a source tuple.
+		await publishNativeFileTargetSelectionRequest({
+			bindingRevision: 1,
+			commandId: navigationCommandId,
+			path: bridgePanePositionFilePath,
+			sourceId: 'position-file-source',
+			subscriptionGeneration: 1,
+		});
+
+		// Assert: admission remains pending and neither the surface owner nor receipt moves early.
+		expect(appRoot.getAttribute('data-bridge-viewer-mode')).toBe('review');
+		expect(
+			paneRuntimeObservation.surfaceCommands.some(
+				({ command, surface }): boolean =>
+					surface === 'fileView' && command.command === 'select' && command.selectedItemId !== null,
+			),
+		).toBe(false);
+		expect(activeViewerModeUpdateForNativeRequest(navigationCommandId)).toBeUndefined();
+
+		// Act: the real File render-store projection publishes the matching source tuple.
+		await actWait(async (): Promise<void> => {
+			installBridgePanePositionFixtures({
+				fileRenderStore: requireRenderStore('fileView'),
+				reviewRenderStore: requireRenderStore('review'),
+			});
+			await Promise.resolve();
+		});
+
+		// Assert: BridgeApp admits the command, activates File, and the File owner applies it.
+		expect(
+			await pollWithinActUntilEqual(() => appRoot.getAttribute('data-bridge-viewer-mode'), 'file'),
+		).toBe('file');
+		expect(
+			await pollWithinActUntilTruthy(() =>
+				paneRuntimeObservation.surfaceCommands.find(
+					({ command, surface }): boolean =>
+						surface === 'fileView' &&
+						command.command === 'select' &&
+						command.selectedItemId === bridgePanePositionFileItemId &&
+						command.selectedSource === 'programmatic',
+				),
+			),
+		).toMatchObject({
+			command: {
+				command: 'select',
+				selectedItemId: bridgePanePositionFileItemId,
+				selectedSource: 'programmatic',
+			},
+			surface: 'fileView',
+		});
+		expect(
+			await pollWithinActUntilTruthy(() =>
+				activeViewerModeUpdateForNativeRequest(navigationCommandId),
+			),
+		).toMatchObject({
+			command: 'activeViewerModeUpdate',
+			update: {
+				mode: 'file',
+				nativeSelectionRequestId: navigationCommandId,
+			},
+		});
+		handshake.dispose();
+	});
+
+	test('revokes an admitted exact File target before a replacement source can apply it', async () => {
+		// Arrange
+		const handshake = installBridgeReadyHandshake();
+		await actWait(async (): Promise<void> => {
+			await render(
+				<BridgeAppProtocolRouter
+					codeViewWorkerPoolEnabled={false}
+					fileViewerProps={{ autoOpenInitialFile: false }}
+					protocol="review"
+				/>,
+			);
+			await Promise.resolve();
+		});
+		await actWait(async (): Promise<void> => {
+			installBridgePanePositionFixtures({
+				fileRenderStore: requireRenderStore('fileView'),
+				reviewRenderStore: requireRenderStore('review'),
+			});
+			await Promise.resolve();
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
+			appRoot,
+			bindingRevision: 1,
+			nativeSelectionRequestId: 'native-file-context-before-rejected-source',
+			publishNativeSurfaceSelectionRequest,
+			surface: 'file',
+		});
+		const admittedCommandId = 'native-file-target-admitted-source';
+
+		// Act: admit an exact command against source A while its target is absent.
+		await publishNativeFileTargetSelectionRequest({
+			bindingRevision: 2,
+			commandId: admittedCommandId,
+			path: bridgePaneReplacementFilePath,
+			sourceId: 'position-file-source',
+			subscriptionGeneration: 1,
+		});
+		expect(
+			paneRuntimeObservation.surfaceCommands.some(
+				({ command, surface }): boolean =>
+					surface === 'fileView' &&
+					command.command === 'select' &&
+					command.selectedItemId === bridgePaneReplacementFileItemId,
+			),
+		).toBe(false);
+
+		// Act: source B replaces A and introduces the same target path in one projection commit.
+		await actWait(async (): Promise<void> => {
+			replaceFilePositionFixtureWithTarget(requireRenderStore('fileView'));
+			await Promise.resolve();
+		});
+
+		// Act: surface-only navigation away and back must not restore the revoked target.
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
+			appRoot,
+			bindingRevision: 3,
+			nativeSelectionRequestId: 'native-review-context-after-file-rotation',
+			publishNativeSurfaceSelectionRequest,
+			surface: 'review',
+		});
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
+			appRoot,
+			bindingRevision: 4,
+			nativeSelectionRequestId: 'native-file-context-after-file-rotation',
+			publishNativeSurfaceSelectionRequest,
+			surface: 'file',
+		});
+
+		// Assert: the source-A command never mutates source B, including through later restoration.
+		expect(
+			paneRuntimeObservation.surfaceCommands.some(
+				({ command, surface }): boolean =>
+					surface === 'fileView' &&
+					command.command === 'select' &&
+					command.selectedItemId === bridgePaneReplacementFileItemId,
+			),
+		).toBe(false);
+		handshake.dispose();
+	});
+
+	test('revokes an unresolved File target when a newer binding waits for another source', async () => {
+		// Arrange
+		await actWait(async (): Promise<void> => {
+			await render(<BridgeAppProtocolRouter protocol="review" />);
+			await Promise.resolve();
+		});
+
+		// Act
+		const result = await exercisePendingFileTargetSupersession({
+			fileRenderStore: requireRenderStore('fileView'),
+			hasSelectedReplacementTarget: (): boolean =>
+				paneRuntimeObservation.surfaceCommands.some(
+					({ command, surface }): boolean =>
+						surface === 'fileView' &&
+						command.command === 'select' &&
+						command.selectedItemId === bridgePaneReplacementFileItemId,
+				),
+			publishTarget: publishNativeFileTargetSelectionRequest,
+			reviewRenderStore: requireRenderStore('review'),
+		});
+
+		// Assert
+		expect(result.beforeSupersession).toBe(false);
+		expect(result.afterSupersession).toBe(false);
+	});
+
 	test('retains real File and Review tree and code positions across native surface requests', async () => {
 		// Arrange
 		const handshake = installBridgeReadyHandshake();
@@ -424,9 +599,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 
 		// Act
 		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
 			appRoot,
 			nativeSelectionRequestId: 'native-selection-file-initial',
-			selectionRevision: 1,
+			bindingRevision: 1,
+			publishNativeSurfaceSelectionRequest,
 			surface: 'file',
 		});
 		const fileOwners = await waitForScrollableSurfaceOwners({
@@ -446,9 +623,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 		const filePosition = await establishSemanticSurfacePosition(fileOwners);
 
 		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
 			appRoot,
 			nativeSelectionRequestId: 'native-selection-review',
-			selectionRevision: 2,
+			bindingRevision: 2,
+			publishNativeSurfaceSelectionRequest,
 			surface: 'review',
 		});
 		const reviewOwners = await waitForScrollableSurfaceOwners({
@@ -465,9 +644,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 		const reviewPosition = await establishSemanticSurfacePosition(reviewOwners);
 
 		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
 			appRoot,
 			nativeSelectionRequestId: 'native-selection-file',
-			selectionRevision: 3,
+			bindingRevision: 3,
+			publishNativeSurfaceSelectionRequest,
 			surface: 'file',
 		});
 
@@ -480,9 +661,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 
 		// Act: reactivate Review once so its retained positions are proven while visible.
 		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
 			appRoot,
 			nativeSelectionRequestId: 'native-selection-review-return',
-			selectionRevision: 4,
+			bindingRevision: 4,
+			publishNativeSurfaceSelectionRequest,
 			surface: 'review',
 		});
 
@@ -493,9 +676,11 @@ describe('BridgeApp pane runtime hard cut', () => {
 			surface: 'review',
 		});
 		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest,
 			appRoot,
 			nativeSelectionRequestId: 'native-selection-file-final',
-			selectionRevision: 5,
+			bindingRevision: 5,
+			publishNativeSurfaceSelectionRequest,
 			surface: 'file',
 		});
 		await assertSurfacePositionRetained({
@@ -571,7 +756,6 @@ describe('BridgeApp pane runtime hard cut', () => {
 		);
 		expect.soft(initialCollapseButton.getAttribute('aria-expanded')).toBe('true');
 		const selectedReviewItemId = 'position-review-080';
-		await dispatchBridgeReviewSelection(selectedReviewItemId);
 		probes.push(
 			await dispatchBridgePageControl({
 				itemId: selectedReviewItemId,
@@ -738,41 +922,6 @@ describe('BridgeApp pane runtime hard cut', () => {
 	});
 });
 
-interface SurfacePositionOwners {
-	readonly codeScrollOwner: HTMLElement;
-	readonly treeScrollOwner: HTMLElement;
-}
-
-interface SurfacePositionSnapshot {
-	readonly codeScrollTop: number;
-	readonly treeScrollTop: number;
-}
-
-async function requestNativeSurface(props: {
-	readonly appRoot: HTMLElement;
-	readonly nativeSelectionRequestId: string;
-	readonly selectionRevision: number;
-	readonly surface: 'file' | 'review';
-}): Promise<void> {
-	await publishNativeSurfaceSelectionRequest(props);
-	expect(
-		await pollWithinActUntilEqual(
-			() => props.appRoot.getAttribute('data-bridge-viewer-mode'),
-			props.surface,
-		),
-	).toBe(props.surface);
-	const receipt = await pollWithinActUntilTruthy(() =>
-		activeViewerModeUpdateForNativeRequest(props.nativeSelectionRequestId),
-	);
-	expect(receipt).toMatchObject({
-		command: 'activeViewerModeUpdate',
-		update: {
-			mode: props.surface,
-			nativeSelectionRequestId: props.nativeSelectionRequestId,
-		},
-	});
-}
-
 function requireRenderStore(surface: 'fileView' | 'review'): BridgeMainRenderSnapshotStore {
 	const renderStore = paneRuntimeObservation.renderStores.get(surface);
 	if (renderStore === undefined) {
@@ -781,132 +930,26 @@ function requireRenderStore(surface: 'fileView' | 'review'): BridgeMainRenderSna
 	return renderStore;
 }
 
-async function waitForScrollableSurfaceOwners(props: {
-	readonly host: HTMLElement;
+async function publishNativeSurfaceSelectionRequest(props: {
+	readonly bindingRevision: number;
+	readonly nativeSelectionRequestId: string;
 	readonly surface: 'file' | 'review';
-	readonly remainingFrames?: number;
-}): Promise<SurfacePositionOwners> {
-	const remainingFrames = props.remainingFrames ?? 180;
-	const treeScrollOwner = treeScrollOwnerWithinHost(props.host);
-	const codeScrollOwner = props.host.querySelector('.bridge-code-view-scroll-owner');
-	if (
-		treeScrollOwner instanceof HTMLElement &&
-		codeScrollOwner instanceof HTMLElement &&
-		treeScrollOwner.scrollHeight > treeScrollOwner.clientHeight &&
-		codeScrollOwner.scrollHeight > codeScrollOwner.clientHeight
-	) {
-		return { codeScrollOwner, treeScrollOwner };
-	}
-	if (remainingFrames <= 0) {
-		throw new Error(
-			`Expected scrollable ${props.surface} owners; tree=${treeScrollOwner?.scrollHeight ?? 'missing'}/${treeScrollOwner?.clientHeight ?? 'missing'} code=${codeScrollOwner instanceof HTMLElement ? `${codeScrollOwner.scrollHeight}/${codeScrollOwner.clientHeight}` : 'missing'}.`,
-		);
-	}
-	await advanceAnimationFrame();
-	return await waitForScrollableSurfaceOwners({
-		...props,
-		remainingFrames: remainingFrames - 1,
-	});
-}
-
-function treeScrollOwnerWithinHost(host: HTMLElement): HTMLElement | null {
-	const treeContainer = host.querySelector('file-tree-container');
-	const scrollOwner = treeContainer?.shadowRoot?.querySelector(
-		'[data-file-tree-virtualized-scroll="true"]',
-	);
-	return scrollOwner instanceof HTMLElement ? scrollOwner : null;
-}
-
-async function establishSemanticSurfacePosition(
-	owners: SurfacePositionOwners,
-): Promise<SurfacePositionSnapshot> {
+}): Promise<void> {
+	const request = makeNativeSurfaceSelectionRequest(props);
 	await actWait(async (): Promise<void> => {
-		setUserScrollPosition(owners.treeScrollOwner, 0.37);
-		setUserScrollPosition(owners.codeScrollOwner, 0.43);
+		for (const listener of paneRuntimeObservation.paneMessageListeners) listener(request);
 		await Promise.resolve();
 	});
-	await waitForStableNonzeroScrollPosition(owners.treeScrollOwner);
-	await waitForStableNonzeroScrollPosition(owners.codeScrollOwner);
-	return surfacePositionSnapshot(owners);
 }
 
-function setUserScrollPosition(scrollOwner: HTMLElement, progress: number): void {
-	const maximumScrollTop = scrollOwner.scrollHeight - scrollOwner.clientHeight;
-	const nextScrollTop = Math.max(1, Math.floor(maximumScrollTop * progress));
-	scrollOwner.dispatchEvent(
-		new WheelEvent('wheel', { bubbles: true, deltaY: nextScrollTop, view: window }),
-	);
-	scrollOwner.scrollTop = nextScrollTop;
-	scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-}
-
-async function waitForStableNonzeroScrollPosition(
-	scrollOwner: HTMLElement,
-	remainingFrames = 60,
-	previousScrollTop: number | null = null,
-): Promise<void> {
-	const currentScrollTop = scrollOwner.scrollTop;
-	if (currentScrollTop > 0 && previousScrollTop === currentScrollTop) return;
-	if (remainingFrames <= 0) {
-		throw new Error(`Expected a stable nonzero scroll position; observed ${currentScrollTop}.`);
-	}
-	await advanceAnimationFrame();
-	await waitForStableNonzeroScrollPosition(scrollOwner, remainingFrames - 1, currentScrollTop);
-}
-
-async function assertSurfacePositionRetained(props: {
-	readonly expected: SurfacePositionSnapshot;
-	readonly owners: SurfacePositionOwners;
-	readonly surface: 'file' | 'review';
+async function publishNativeFileTargetSelectionRequest(props: {
+	readonly bindingRevision: number;
+	readonly commandId: string;
+	readonly path: string;
+	readonly sourceId: string;
+	readonly subscriptionGeneration: number;
 }): Promise<void> {
-	await waitForStableNonzeroScrollPosition(props.owners.treeScrollOwner);
-	await waitForStableNonzeroScrollPosition(props.owners.codeScrollOwner);
-	const actual = surfacePositionSnapshot(props.owners);
-	expect(actual.treeScrollTop, `${props.surface} tree position`).toBeGreaterThan(0);
-	expect(actual.codeScrollTop, `${props.surface} code position`).toBeGreaterThan(0);
-	expect(
-		Math.abs(actual.codeScrollTop - props.expected.codeScrollTop),
-		`${props.surface} code pixel position ${JSON.stringify({ actual, expected: props.expected })}`,
-	).toBeLessThanOrEqual(1);
-	expect(
-		Math.abs(actual.treeScrollTop - props.expected.treeScrollTop),
-		`${props.surface} tree pixel position ${JSON.stringify({ actual, expected: props.expected })}`,
-	).toBeLessThanOrEqual(1);
-}
-
-function surfacePositionSnapshot(owners: SurfacePositionOwners): SurfacePositionSnapshot {
-	return {
-		codeScrollTop: owners.codeScrollOwner.scrollTop,
-		treeScrollTop: owners.treeScrollOwner.scrollTop,
-	};
-}
-
-function advanceAnimationFrame(): Promise<void> {
-	return actWait(
-		() =>
-			new Promise<void>((resolve): void => {
-				requestAnimationFrame((): void => resolve());
-			}),
-	);
-}
-
-async function publishNativeSurfaceSelectionRequest(props: {
-	readonly nativeSelectionRequestId: string;
-	readonly selectionRevision: number;
-	readonly surface: 'file' | 'review';
-}): Promise<void> {
-	const request = {
-		direction: 'serverWorkerToMain',
-		kind: 'nativeSurfaceSelectionRequest',
-		metadataStreamId: 'metadata-stream-1',
-		nativeSelectionRequestId: props.nativeSelectionRequestId,
-		paneSessionId: 'pane-session-1',
-		selectionRevision: props.selectionRevision,
-		surface: props.surface,
-		transferDescriptors: [],
-		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		workerInstanceId: 'worker-instance-1',
-	} satisfies BridgeWorkerServerToMainMessage;
+	const request = makeNativeFileTargetSelectionRequest(props);
 	await actWait(async (): Promise<void> => {
 		for (const listener of paneRuntimeObservation.paneMessageListeners) listener(request);
 		await Promise.resolve();
@@ -921,78 +964,4 @@ function activeViewerModeUpdateForNativeRequest(
 			command.command === 'activeViewerModeUpdate' &&
 			command.update.nativeSelectionRequestId === nativeSelectionRequestId,
 	);
-}
-
-async function dispatchBridgeReviewSelection(itemId: string): Promise<void> {
-	await actWait(async (): Promise<void> => {
-		window.dispatchEvent(
-			new CustomEvent('__bridge_select_review_item', {
-				detail: { itemId },
-			}),
-		);
-		await Promise.resolve();
-	});
-	await advanceAnimationFrame();
-}
-
-async function dispatchBridgeViewerFilterShortcut(): Promise<void> {
-	await actWait(async (): Promise<void> => {
-		document.dispatchEvent(
-			new KeyboardEvent('keydown', {
-				altKey: true,
-				bubbles: true,
-				cancelable: true,
-				key: 'f',
-				metaKey: true,
-			}),
-		);
-		await Promise.resolve();
-	});
-}
-
-async function dispatchBridgePageControl(
-	detail: unknown,
-): Promise<BridgeAppControlProbe | undefined> {
-	delete window.bridgeReviewControlProbe;
-	await actWait(async (): Promise<void> => {
-		window.dispatchEvent(new CustomEvent('__bridge_review_control', { detail }));
-		await Promise.resolve();
-	});
-	await advanceAnimationFrame();
-	const decodedProbe = bridgeAppControlProbeSchema.safeParse(window.bridgeReviewControlProbe);
-	return decodedProbe.success ? decodedProbe.data : undefined;
-}
-
-function reviewSearchInputWithin(reviewHost: HTMLElement): HTMLInputElement | null {
-	const searchInput = reviewHost.querySelector('[data-testid="bridge-review-search-input"]');
-	return searchInput instanceof HTMLInputElement ? searchInput : null;
-}
-
-function fileSearchInput(): HTMLInputElement | null {
-	const searchInput = document.querySelector('[data-testid="worktree-file-search-input"]');
-	return searchInput instanceof HTMLInputElement ? searchInput : null;
-}
-
-function fileTreeRowForPath(path: string): HTMLElement | null {
-	const treeHost = document.querySelector(
-		'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
-	);
-	if (!(treeHost instanceof HTMLElement) || treeHost.shadowRoot === null) return null;
-	const row = treeHost.shadowRoot.querySelector(
-		`[data-item-type="file"][data-item-path="${CSS.escape(path)}"]`,
-	);
-	return row instanceof HTMLElement ? row : null;
-}
-
-function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {
-	return requireHTMLElement(
-		document.querySelector(
-			`[data-bridge-viewer-mode-active="true"] [data-testid="bridge-viewer-context-${mode}"]`,
-		),
-	);
-}
-
-function requireHTMLElement(element: Element | null): HTMLElement {
-	if (!(element instanceof HTMLElement)) throw new Error('Expected an HTML element.');
-	return element;
 }

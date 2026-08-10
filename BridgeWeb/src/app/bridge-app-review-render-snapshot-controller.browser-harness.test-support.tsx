@@ -257,7 +257,9 @@ export function reviewDisplayEvent(props: {
 			{
 				operation: 'upsert',
 				payload: {
+					metadataSourceId: 'review-browser-harness-source',
 					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
+					packageId: 'review-browser-harness-package',
 					reviewGeneration: 1,
 					status: 'ready',
 					summary: {

@@ -1,9 +1,25 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioTestSupport
+
+private final class BridgePaneActivityObservationInvalidationRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var invalidationCount: Int {
+        lock.withLock { storedCount }
+    }
+
+    func record() {
+        lock.withLock {
+            storedCount += 1
+        }
+    }
+}
 
 extension WebKitSerializedTests {
     @MainActor
@@ -59,7 +75,7 @@ extension WebKitSerializedTests {
                         source: .commit(sha: "hidden-restore")
                     )
                 ),
-                metadata: PaneMetadata(title: "Hidden files")
+                metadata: PaneMetadata(title: "Hidden files", facets: .init(cwd: harness.tempDirectory))
             )
             let hiddenTab = Tab(paneId: hiddenBridgePane.id, name: "Hidden")
             harness.store.appendTab(hiddenTab)
@@ -168,6 +184,40 @@ extension WebKitSerializedTests {
             #expect(harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id) == .foreground)
             #expect(harness.viewRegistry.allBridgeViews[harness.bridgePane.id] != nil)
 
+            await harness.finish()
+        }
+
+        @Test("Bridge activity observation ignores pane titles and invalidates for residency")
+        func bridgeActivityObservationIsTitleInsensitive() async throws {
+            let harness = makeBridgePaneActivityTestHarness()
+            try await installBridgeControllerAndEnterForeground(harness)
+            let invalidationRecorder = BridgePaneActivityObservationInvalidationRecorder()
+            withObservationTracking {
+                _ = harness.coordinator.bridgePaneActivity(for: harness.bridgePane.id)
+            } onChange: {
+                invalidationRecorder.record()
+            }
+
+            harness.store.paneAtom.updatePaneTitle(
+                harness.bridgePane.id,
+                title: "Updated review title"
+            )
+            for _ in 0..<20 {
+                await Task.yield()
+            }
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+
+            harness.store.paneAtom.setResidency(.backgrounded, for: harness.bridgePane.id)
+            await assertEventuallyMain("residency should refresh Bridge pane activity") {
+                invalidationRecorder.invalidationCount == 1
+            }
+            await expectBridgePaneActivity(
+                .loadedHidden,
+                for: harness.bridgePane.id,
+                in: harness.coordinator,
+                because: "backgrounded residency is structural activity input"
+            )
             await harness.finish()
         }
 

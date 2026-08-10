@@ -34,7 +34,10 @@ struct WorkspaceRuntimeDispatchNonTerminalTests {
         )
         let bridgePane = store.createPane(
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
-            metadata: PaneMetadata(title: "Bridge")
+            metadata: PaneMetadata(
+                title: "Bridge",
+                facets: PaneContextFacets(cwd: tempDir)
+            )
         )
         let codePane = store.createPane(
             content: .codeViewer(

@@ -92,9 +92,24 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        let first = try #require(harness.store.addDrawerPane(to: parent.id))
-        let second = try #require(harness.store.addDrawerPane(to: parent.id))
-        let third = try #require(harness.store.addDrawerPane(to: parent.id))
+        let first = try #require(
+            harness.store.addDrawerPane(
+                to: parent.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        )
+        let second = try #require(
+            harness.store.addDrawerPane(
+                to: parent.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        )
+        let third = try #require(
+            harness.store.addDrawerPane(
+                to: parent.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        )
         harness.store.setActiveDrawerPane(second.id, in: parent.id)
         let firstSlot = harness.viewRegistry.ensureSlot(for: first.id)
         let secondSlot = harness.viewRegistry.ensureSlot(for: second.id)
@@ -121,7 +136,12 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
         let tab = Tab(paneId: parent.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        let closedChild = try #require(harness.store.addDrawerPane(to: parent.id))
+        let closedChild = try #require(
+            harness.store.addDrawerPane(
+                to: parent.id,
+                parentFallbackCWD: FileManager.default.homeDirectoryForCurrentUser
+            )
+        )
         let oldSlot = harness.viewRegistry.ensureSlot(for: closedChild.id)
 
         harness.coordinator.execute(.closePane(tabId: tab.id, paneId: closedChild.id))

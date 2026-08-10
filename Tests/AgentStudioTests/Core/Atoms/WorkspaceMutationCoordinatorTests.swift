@@ -112,7 +112,10 @@ struct WorkspaceMutationCoordinatorTests {
     @Test
     func restoreDrawerPane_forcesDetachedPaneBackToDrawerChildKind() throws {
         let paneAtom = WorkspacePaneAtom()
-        let parentPane = makePane(title: "Parent")
+        let parentPane = makePane(
+            title: "Parent",
+            facets: PaneContextFacets(cwd: URL(filePath: "/tmp/restore-drawer-parent"))
+        )
         paneAtom.addPane(parentPane)
         let drawerPane = try #require(
             paneAtom.addDrawerPane(
@@ -140,7 +143,10 @@ struct WorkspaceMutationCoordinatorTests {
     func restoreFromPaneSnapshot_parentPaneRestoresDrawerViewsAndTabMembership() throws {
         let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
-        let parentPane = makePane(title: "Parent")
+        let parentPane = makePane(
+            title: "Parent",
+            facets: PaneContextFacets(cwd: URL(filePath: "/tmp/restore-parent-drawer-views"))
+        )
         store.paneAtom.addPane(anchorPane)
         store.paneAtom.addPane(parentPane)
 
@@ -186,7 +192,10 @@ struct WorkspaceMutationCoordinatorTests {
     @Test
     func snapshotForClose_withDrawerChildrenCapturesEachPaneExactlyOnce() throws {
         let store = WorkspaceStore()
-        let parentPane = makePane(title: "Parent")
+        let parentPane = makePane(
+            title: "Parent",
+            facets: PaneContextFacets(cwd: URL(filePath: "/tmp/snapshot-drawer-children"))
+        )
         store.paneAtom.addPane(parentPane)
         let tab = Tab(paneId: parentPane.id)
         store.appendTab(tab)
@@ -210,7 +219,10 @@ struct WorkspaceMutationCoordinatorTests {
     func backgroundPane_removesOwnedDrawerViewsFromVisibleTab() throws {
         let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
-        let parentPane = makePane(title: "Parent")
+        let parentPane = makePane(
+            title: "Parent",
+            facets: PaneContextFacets(cwd: URL(filePath: "/tmp/background-parent-drawer"))
+        )
         store.paneAtom.addPane(anchorPane)
         store.paneAtom.addPane(parentPane)
         let tab = Tab(paneId: anchorPane.id)
@@ -243,7 +255,10 @@ struct WorkspaceMutationCoordinatorTests {
     func backgroundPane_reactivatePane_restoresOwnedDrawerViewsAndChildMembership() throws {
         let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")
-        let parentPane = makePane(title: "Parent")
+        let parentPane = makePane(
+            title: "Parent",
+            facets: PaneContextFacets(cwd: URL(filePath: "/tmp/reactivate-parent-drawer"))
+        )
         store.paneAtom.addPane(anchorPane)
         store.paneAtom.addPane(parentPane)
         let tab = Tab(paneId: anchorPane.id)

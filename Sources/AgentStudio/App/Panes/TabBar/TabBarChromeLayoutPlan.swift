@@ -2,22 +2,13 @@ import CoreGraphics
 import Foundation
 
 enum TabBarChromeControl: Equatable, Hashable {
-    case sidebarSurfaces
-    case divider
-    case watchFolder
-    case managementLayer
-    case arrangement
-    case newTab
     case tabStrip
     case overflowLeft
     case overflowRight
-    case overflowMenu
 }
 
 enum TabBarChromeControlStyle: Equatable {
-    case divider
     case plainIcon
-    case toolbarButton
     case tabStrip
 }
 
@@ -51,57 +42,29 @@ enum TabBarOverflowScrollTargetResolver {
 }
 
 struct TabBarChromeLayoutPlan: Equatable {
-    let hasNewTab: Bool
     let isOverflowing: Bool
 
     var showsTrailingControls: Bool {
-        isOverflowing || hasNewTab
-    }
-
-    var leadingControls: [TabBarChromeControl] {
-        var controls: [TabBarChromeControl] = []
-        for control in controlOrder {
-            guard control != .tabStrip else { break }
-            controls.append(control)
-        }
-        return controls
+        isOverflowing
     }
 
     var trailingControls: [TabBarChromeControl] {
         guard showsTrailingControls else { return [] }
-        guard let tabStripIndex = controlOrder.firstIndex(of: .tabStrip) else { return [] }
-        return Array(controlOrder.dropFirst(tabStripIndex + 1))
+        return Array(workspaceTabControls.dropFirst())
     }
 
     var controlStyles: [TabBarChromeControl: TabBarChromeControlStyle] {
         [
-            .sidebarSurfaces: .plainIcon,
-            .divider: .divider,
-            .watchFolder: .toolbarButton,
-            .managementLayer: .toolbarButton,
-            .arrangement: .toolbarButton,
-            .newTab: .toolbarButton,
             .tabStrip: .tabStrip,
             .overflowLeft: .plainIcon,
             .overflowRight: .plainIcon,
-            .overflowMenu: .plainIcon,
         ]
     }
 
-    var controlOrder: [TabBarChromeControl] {
-        var controls: [TabBarChromeControl] = [
-            .sidebarSurfaces,
-            .divider,
-            .watchFolder,
-            .managementLayer,
-            .arrangement,
-        ]
-        controls.append(.tabStrip)
+    var workspaceTabControls: [TabBarChromeControl] {
+        var controls: [TabBarChromeControl] = [.tabStrip]
         if isOverflowing {
-            controls.append(contentsOf: [.overflowLeft, .overflowRight, .overflowMenu])
-        }
-        if hasNewTab {
-            controls.append(contentsOf: [.divider, .newTab])
+            controls.append(contentsOf: [.overflowLeft, .overflowRight])
         }
         return controls
     }

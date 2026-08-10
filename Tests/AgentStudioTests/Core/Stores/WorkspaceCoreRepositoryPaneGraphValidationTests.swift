@@ -64,26 +64,17 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         }
     }
 
-    @Test("pane graph replace preserves valid global topology facets")
-    func paneGraphReplacePreservesValidGlobalTopologyFacets() throws {
+    @Test("pane graph persistence stores CWD independently of current topology")
+    func paneGraphPersistenceStoresCWDIndependentlyOfCurrentTopology() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let firstWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002002")!
-        let secondWorkspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002003")!
         let foreignRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002201")!
         let foreignWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000002301")!
         try repository.upsertWorkspace(
             .init(
                 id: firstWorkspaceId,
                 name: "First",
-                createdAt: Date(timeIntervalSince1970: 100),
-                updatedAt: Date(timeIntervalSince1970: 100)
-            )
-        )
-        try repository.upsertWorkspace(
-            .init(
-                id: secondWorkspaceId,
-                name: "Second",
                 createdAt: Date(timeIntervalSince1970: 100),
                 updatedAt: Date(timeIntervalSince1970: 100)
             )
@@ -113,21 +104,18 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         )
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002102")!
 
-        try repository.replacePaneGraph(
-            workspaceId: firstWorkspaceId,
-            graph: .init(panes: [
+        let graph = WorkspaceCoreRepository.PaneGraphRecord(
+            panes: [
                 makeWorktreePane(
                     id: paneId,
                     repoId: foreignRepoId,
                     worktreeId: foreignWorktreeId
                 )
-            ])
+            ]
         )
+        try repository.replacePaneGraph(workspaceId: firstWorkspaceId, graph: graph)
 
-        let storedSource = try fixture.fetchPaneSource(paneId: paneId)
-        let requiredSource = try #require(storedSource)
-        #expect(requiredSource.repoId == foreignRepoId)
-        #expect(requiredSource.worktreeId == foreignWorktreeId)
+        #expect(try repository.fetchPaneGraph(workspaceId: firstWorkspaceId) == graph)
     }
 
     @Test("pane graph replace rejects drawer child outside incoming graph")
@@ -368,108 +356,30 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         }
     }
 
-    @Test("pane graph replace rejects a missing repository facet and rolls back")
-    func paneGraphReplaceRejectsMissingRepositoryFacetAndRollsBack() throws {
+    @Test("pane graph persistence does not require repository topology")
+    func paneGraphPersistenceDoesNotRequireRepositoryTopology() throws {
         let fixture = try makeWorkspaceCoreRepositoryFixture()
         let repository = fixture.repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002010")!
-        let missingRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002203")!
-        let retainedPaneId = UUID(uuidString: "00000000-0000-0000-0000-000000002112")!
         let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002113")!
         try upsertWorkspace(repository, workspaceId: workspaceId, name: "Missing Facet Repo")
-        let retainedGraph = WorkspaceCoreRepository.PaneGraphRecord(
-            panes: [makeFloatingPane(id: retainedPaneId, title: "Retained")]
-        )
-        try repository.replacePaneGraph(workspaceId: workspaceId, graph: retainedGraph)
-
-        #expect(throws: WorkspaceCoreRepositoryError.repoNotFound(missingRepoId)) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [
-                    makeFloatingPane(
-                        id: paneId,
-                        durableFacets: .init(
-                            repoId: missingRepoId,
-                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/missing-repo")
+        let graph = WorkspaceCoreRepository.PaneGraphRecord(
+            panes: [
+                makeFloatingPane(
+                    id: paneId,
+                    durableFacets: .init(
+                        cwd: URL(
+                            filePath: "/tmp/agentstudio/missing-repo",
+                            directoryHint: .isDirectory
                         )
                     )
-                ])
-            )
-        }
-
-        #expect(try repository.fetchPaneGraph(workspaceId: workspaceId) == retainedGraph)
-    }
-
-    @Test("pane graph replace rejects a missing worktree facet and rolls back")
-    func paneGraphReplaceRejectsMissingWorktreeFacetAndRollsBack() throws {
-        let fixture = try makeWorkspaceCoreRepositoryFixture()
-        let repository = fixture.repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002019")!
-        let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000002207")!
-        let missingWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000002306")!
-        let retainedPaneId = UUID(uuidString: "00000000-0000-0000-0000-000000002128")!
-        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002129")!
-        try upsertWorkspace(repository, workspaceId: workspaceId, name: "Missing Facet Worktree")
-        try repository.replaceRepositoryTopology(
-            makeTopology(repos: [(repoId: repoId, worktreeId: nil, path: "/tmp/agentstudio/no-worktree")])
+                )
+            ]
         )
-        let retainedGraph = WorkspaceCoreRepository.PaneGraphRecord(
-            panes: [makeFloatingPane(id: retainedPaneId, title: "Retained")]
-        )
-        try repository.replacePaneGraph(workspaceId: workspaceId, graph: retainedGraph)
 
-        #expect(throws: WorkspaceCoreRepositoryError.worktreeNotFound(missingWorktreeId)) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [
-                    makeWorktreePane(id: paneId, repoId: repoId, worktreeId: missingWorktreeId)
-                ])
-            )
-        }
+        try repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
 
-        #expect(try repository.fetchPaneGraph(workspaceId: workspaceId) == retainedGraph)
-    }
-
-    @Test("pane graph replace rejects a mismatched repository and worktree facet pair and rolls back")
-    func paneGraphReplaceRejectsMismatchedRepositoryAndWorktreeFacetPairAndRollsBack() throws {
-        let fixture = try makeWorkspaceCoreRepositoryFixture()
-        let repository = fixture.repository
-        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000002011")!
-        let requestedRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002204")!
-        let actualRepoId = UUID(uuidString: "00000000-0000-0000-0000-000000002205")!
-        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000002303")!
-        let retainedPaneId = UUID(uuidString: "00000000-0000-0000-0000-000000002113")!
-        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000002114")!
-        try upsertWorkspace(repository, workspaceId: workspaceId, name: "Worktree Repo")
-        try repository.replaceRepositoryTopology(
-            makeTopology(
-                repos: [
-                    (repoId: requestedRepoId, worktreeId: nil, path: "/tmp/agentstudio/requested-repo"),
-                    (repoId: actualRepoId, worktreeId: worktreeId, path: "/tmp/agentstudio/actual-repo"),
-                ]
-            )
-        )
-        let retainedGraph = WorkspaceCoreRepository.PaneGraphRecord(
-            panes: [makeFloatingPane(id: retainedPaneId, title: "Retained")]
-        )
-        try repository.replacePaneGraph(workspaceId: workspaceId, graph: retainedGraph)
-
-        #expect(
-            throws: WorkspaceCoreRepositoryError.worktreeRepoMismatch(
-                worktreeId: worktreeId,
-                expectedRepoId: requestedRepoId,
-                actualRepoId: actualRepoId
-            )
-        ) {
-            try repository.replacePaneGraph(
-                workspaceId: workspaceId,
-                graph: .init(panes: [
-                    makeWorktreePane(id: paneId, repoId: requestedRepoId, worktreeId: worktreeId)
-                ])
-            )
-        }
-
-        #expect(try repository.fetchPaneGraph(workspaceId: workspaceId) == retainedGraph)
+        #expect(try repository.fetchPaneGraph(workspaceId: workspaceId) == graph)
     }
 
     @Test("pane graph replace rejects content type changes for existing panes")
@@ -604,7 +514,10 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         placement: WorkspaceCoreRepository.PanePlacementRecord = .layout,
         drawer: WorkspaceCoreRepository.DrawerRecord? = nil,
         durableFacets: WorkspaceCoreRepository.DurableFacetsRecord = .init(
-            cwd: URL(fileURLWithPath: "/tmp/agentstudio/floating")
+            cwd: URL(
+                filePath: "/tmp/agentstudio/floating",
+                directoryHint: .isDirectory
+            )
         )
     ) -> WorkspaceCoreRepository.PaneRecord {
         .init(
@@ -632,15 +545,19 @@ struct WorkspaceCoreRepositoryPaneGraphValidationTests {
         let normalizedFacets =
             durableFacets
             ?? WorkspaceCoreRepository.DurableFacetsRecord(
-                repoId: repoId,
-                worktreeId: worktreeId,
-                cwd: URL(fileURLWithPath: "/tmp/agentstudio/worktree")
+                cwd: URL(
+                    filePath: "/tmp/agentstudio/worktree",
+                    directoryHint: .isDirectory
+                )
             )
         return .init(
             id: id,
             content: .terminal(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7()),
             metadata: .init(
-                launchDirectory: URL(fileURLWithPath: "/tmp/agentstudio/worktree"),
+                launchDirectory: URL(
+                    filePath: "/tmp/agentstudio/worktree",
+                    directoryHint: .isDirectory
+                ),
                 executionBackend: .local,
                 createdAt: Date(timeIntervalSince1970: 300),
                 title: "Worktree",

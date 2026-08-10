@@ -14,7 +14,7 @@ import {
 } from './bridge-product-session-contracts.js';
 import {
 	bridgeWorkerMainToServerMessageSchema,
-	bridgeWorkerServerToMainMessageSchema,
+	bridgeWorkerServerToMainWireMessageSchema,
 	type BridgeCommWorkerBootstrapRequest,
 	type BridgeWorkerMainToServerMessage,
 	type BridgeWorkerServerToMainMessage,
@@ -202,7 +202,7 @@ export class BridgePaneCommWorkerSession {
 					if (this.#worker !== worker || this.#mainPort !== mainPort) {
 						return;
 					}
-					const parsedMessage = bridgeWorkerServerToMainMessageSchema.safeParse(event.data);
+					const parsedMessage = bridgeWorkerServerToMainWireMessageSchema.safeParse(event.data);
 					if (!parsedMessage.success) {
 						this.#publishWorkerMessages([
 							{
@@ -216,6 +216,7 @@ export class BridgePaneCommWorkerSession {
 						]);
 						return;
 					}
+					if (parsedMessage.data.kind === 'fileQueryOutcome') return;
 					if (
 						parsedMessage.data.kind === 'health' &&
 						parsedMessage.data.requestId === bootstrapClient.bootstrapRequest.requestId &&

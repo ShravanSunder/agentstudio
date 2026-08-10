@@ -405,7 +405,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		await waitForFileViewerTreeItemButtonInAct({
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
 		expect(
 			document.querySelector(
 				'[data-worktree-file-path="Sources/AgentStudio/App/AppDelegate.swift"]',
@@ -419,7 +421,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const sourceFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Source' });
 		await actClickAndSettleFileViewerMenu(sourceFilterOption);
 		await waitForFileFilterCount('1/6');
-		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		await waitForFileViewerTreeItemButtonInAct({
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
 
 		expect(
 			document.querySelector(
@@ -782,6 +786,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForMetadataPublisher(() => publishMetadataEvents);
+		await waitForBridgeFileViewerWorkerMessageDrain();
 		const fileButton = await waitForBridgeViewerTreeItemButton(
 			'Sources/AgentStudio/App/AppDelegate.swift',
 		);

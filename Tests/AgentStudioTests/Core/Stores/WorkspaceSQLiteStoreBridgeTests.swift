@@ -194,9 +194,12 @@ struct WorkspaceSQLiteStoreBridgeTests {
         }
     }
 
-    @Test("SQLite materialization preserves exact durable pane metadata")
-    func sqliteMaterializationPreservesExactDurablePaneMetadata() throws {
-        let launchDirectory = URL(filePath: "/tmp/strict-launch")
+    @Test("SQLite materialization repairs missing terminal CWD from its launch directory")
+    func sqliteMaterializationRepairsMissingTerminalCWDFromLaunchDirectory() throws {
+        let launchDirectory = URL(
+            filePath: "/tmp/strict-launch",
+            directoryHint: .isDirectory
+        )
         var snapshot = try makeStrictWorkspaceSQLiteStateBridgeSnapshot()
         var paneRecord = try #require(snapshot.paneGraph.panes.single)
         paneRecord.metadata.launchDirectory = launchDirectory
@@ -205,13 +208,15 @@ struct WorkspaceSQLiteStoreBridgeTests {
         paneRecord.metadata.durableFacets.cwd = nil
         snapshot.paneGraph.panes = [paneRecord]
 
+        let reasons = try WorkspaceSQLiteStateBridge.paneLocationRestoreReasons(from: snapshot)
         let state = try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: snapshot)
         let pane = try #require(state.panes.single)
 
         #expect(pane.metadata.note == "  exact note with surrounding whitespace  \n")
         #expect(pane.metadata.checkoutRef == "  refs/heads/noncanonical  ")
         #expect(pane.metadata.launchDirectory == launchDirectory)
-        #expect(pane.metadata.cwd == nil)
+        #expect(pane.metadata.cwd == launchDirectory)
+        #expect(reasons == [.paneLocationRestoreRepaired])
     }
 
     @Test("SQLite materialization rejects a layout pane without its persisted drawer")
@@ -510,6 +515,161 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(restoredStore.tabLayoutAtom.activeTabId == tabId)
         #expect(restoredStore.tabLayoutAtom.tab(tabId)?.activeArrangementId == arrangementId)
         #expect(!restoredStore.isDirty)
+    }
+
+    @Test("restore repairs required pane locations and preserves degraded panes across save and reload")
+    func restoreRepairsAndPreservesRequiredPaneLocationsAcrossSaveReload() async throws {
+        // Arrange
+        let workspaceId = UUIDv7.generate()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let createdAt = Date(timeIntervalSince1970: 1_700_000_300)
+        let scenario = makeRequiredLocationRestoreScenario(createdAt: createdAt)
+        let paneIds = scenario.panes.map(\.id)
+        let arrangement = PaneArrangement(
+            name: "Required locations",
+            isDefault: true,
+            layout: Layout.autoTiled(paneIds),
+            activePaneId: paneIds.first
+        )
+        let tab = Tab(
+            name: "Required locations",
+            allPaneIds: paneIds,
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        try fixture.backend.save(
+            WorkspaceSQLiteSaveBundle(
+                workspace: WorkspaceSQLiteSnapshot(
+                    id: workspaceId,
+                    name: "Required Location Restore",
+                    panes: scenario.panes,
+                    tabs: [tab],
+                    activeTabId: tab.id,
+                    sidebarWidth: 250,
+                    windowFrame: nil,
+                    createdAt: createdAt,
+                    updatedAt: createdAt
+                )
+            )
+        )
+
+        // Act
+        let restoredStore = try await restoredWorkspaceStore(from: fixture.backend)
+        _ = await restoredStore.loadCanonicalComposition()
+
+        // Assert
+        try assertRequiredPaneLocations(
+            in: restoredStore,
+            expectedContentAndCWDByPaneId: scenario.expectedContentAndCWDByPaneId
+        )
+
+        // Act
+        #expect((await restoredStore.flushAsync()).succeeded)
+        let reloadedStore = try await restoredWorkspaceStore(from: fixture.backend)
+        _ = await reloadedStore.loadCanonicalComposition()
+
+        // Assert
+        try assertRequiredPaneLocations(
+            in: reloadedStore,
+            expectedContentAndCWDByPaneId: scenario.expectedContentAndCWDByPaneId
+        )
+
+        // Act
+        reloadedStore.removePane(scenario.degradedBridgePaneId)
+        let postCloseFlush = await reloadedStore.flushAsync()
+
+        // Assert
+        #expect(reloadedStore.paneAtom.pane(scenario.degradedBridgePaneId) == nil)
+        #expect(reloadedStore.paneAtom.graphAtom.paneIDs.count == scenario.expectedContentAndCWDByPaneId.count - 1)
+        #expect(postCloseFlush.succeeded)
+    }
+
+    private struct RequiredLocationRestoreScenario {
+        let panes: [Pane]
+        let degradedBridgePaneId: UUID
+        let expectedContentAndCWDByPaneId: [UUID: (content: PaneContent, cwd: URL?)]
+    }
+
+    private func makeRequiredLocationRestoreScenario(
+        createdAt: Date
+    ) -> RequiredLocationRestoreScenario {
+        let bridgeFilesRoot = URL(
+            filePath: "/tmp/agent-studio-bridge-files",
+            directoryHint: .isDirectory
+        )
+        let bridgeReviewRoot = URL(
+            filePath: "/tmp/agent-studio-bridge-review",
+            directoryHint: .isDirectory
+        )
+        let codeViewerFile = URL(filePath: "/tmp/agent-studio-code-viewer/Sources/App.swift")
+        let bridgeFilesContent = PaneContent.bridgePanel(
+            BridgePaneState(
+                panelKind: .fileViewer,
+                source: .workspace(
+                    rootPath: bridgeFilesRoot.path,
+                    baseline: .localDefaultBranch(branchName: "main")
+                )
+            )
+        )
+        let bridgeReviewContent = PaneContent.bridgePanel(
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: bridgeReviewRoot.path,
+                    baseline: .originDefaultBranch(remoteName: "origin", branchName: "main")
+                )
+            )
+        )
+        let codeViewerContent = PaneContent.codeViewer(
+            CodeViewerState(filePath: codeViewerFile, scrollToLine: 37)
+        )
+        let degradedBridgeContent = PaneContent.bridgePanel(
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .commit(sha: "degraded-without-workspace-root")
+            )
+        )
+        let degradedBridgePaneId = UUIDv7.generate()
+        let expectedContentAndCWDByPaneId: [UUID: (content: PaneContent, cwd: URL?)] = [
+            UUIDv7.generate(): (bridgeFilesContent, bridgeFilesRoot),
+            UUIDv7.generate(): (bridgeReviewContent, bridgeReviewRoot),
+            UUIDv7.generate(): (
+                codeViewerContent,
+                URL(
+                    filePath: codeViewerFile.deletingLastPathComponent().path,
+                    directoryHint: .isDirectory
+                )
+            ),
+            degradedBridgePaneId: (degradedBridgeContent, nil),
+        ]
+        let panes = expectedContentAndCWDByPaneId.enumerated().map { index, entry in
+            Pane(
+                id: entry.key,
+                content: entry.value.content,
+                metadata: PaneMetadata(
+                    paneId: PaneId(existingUUID: entry.key),
+                    createdAt: createdAt,
+                    title: "Required location pane \(index)"
+                )
+            )
+        }
+        return RequiredLocationRestoreScenario(
+            panes: panes,
+            degradedBridgePaneId: degradedBridgePaneId,
+            expectedContentAndCWDByPaneId: expectedContentAndCWDByPaneId
+        )
+    }
+
+    private func assertRequiredPaneLocations(
+        in store: WorkspaceStore,
+        expectedContentAndCWDByPaneId: [UUID: (content: PaneContent, cwd: URL?)]
+    ) throws {
+        #expect(store.paneAtom.graphAtom.paneIDs.count == expectedContentAndCWDByPaneId.count)
+        for (paneId, expected) in expectedContentAndCWDByPaneId {
+            let pane = try #require(store.paneAtom.pane(paneId))
+            #expect(pane.content == expected.content)
+            #expect(pane.metadata.cwd == expected.cwd)
+        }
     }
 
     private func restoredWorkspaceStore(

@@ -122,20 +122,20 @@ final class WorkspaceStoreTests {
 
     func test_createPane_worktreeSource() {
         // Arrange
-        let worktreeId = UUID()
-        let repoId = UUID()
         let launchDirectory = URL(fileURLWithPath: "/tmp/worktree")
+        let repo = store.addRepo(at: launchDirectory)
+        let worktree = repo.worktrees[0]
 
         // Act
         let pane = store.createPane(
             launchDirectory: launchDirectory,
             title: "Feature",
-            facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: launchDirectory)
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: launchDirectory)
         )
 
         // Assert
-        #expect(pane.worktreeId == worktreeId)
-        #expect(pane.repoId == repoId)
+        #expect(pane.worktreeId == worktree.id)
+        #expect(pane.repoId == repo.id)
         #expect(pane.title == "Feature")
     }
 
@@ -161,7 +161,10 @@ final class WorkspaceStoreTests {
             facets: PaneContextFacets(repoId: repo.id, worktreeId: main.id, cwd: main.path)
         )
 
-        let cwd = feature.path.appending(path: "Sources")
+        let cwd = URL(
+            filePath: feature.path.appending(path: "Sources").path,
+            directoryHint: .isDirectory
+        )
         let result = store.paneAtom.updatePaneCWDAndResolvedContext(
             pane.id,
             cwd: cwd,
@@ -176,7 +179,10 @@ final class WorkspaceStoreTests {
         #expect(updated?.metadata.repoName == repo.name)
         #expect(updated?.metadata.worktreeName == "feature")
 
-        #expect(updated?.metadata.launchDirectory == main.path)
+        #expect(
+            updated?.metadata.launchDirectory
+                == URL(filePath: main.path.path, directoryHint: .isDirectory)
+        )
     }
 
     @Test
@@ -200,7 +206,10 @@ final class WorkspaceStoreTests {
         )
         store.appendTab(Tab(paneId: pane.id))
 
-        let externalCwd = URL(filePath: "/tmp/outside-known-worktrees")
+        let externalCwd = URL(
+            filePath: "/tmp/outside-known-worktrees",
+            directoryHint: .isDirectory
+        )
         let result = store.paneAtom.updatePaneCWDAndResolvedContext(
             pane.id,
             cwd: externalCwd,
@@ -223,7 +232,10 @@ final class WorkspaceStoreTests {
         #expect(restoredPane.repoId == nil)
         #expect(restoredPane.worktreeId == nil)
 
-        #expect(updated?.metadata.launchDirectory == storedWorktree.path)
+        #expect(
+            updated?.metadata.launchDirectory
+                == URL(filePath: storedWorktree.path.path, directoryHint: .isDirectory)
+        )
     }
 
     @Test
@@ -234,7 +246,7 @@ final class WorkspaceStoreTests {
             name: "floating-target",
             path: URL(filePath: "/tmp/live-floating-repo/floating-target")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
         let pane = store.createPane(
             launchDirectory: URL(filePath: "/tmp/scratch"),
             title: "Scratch Terminal"
@@ -250,19 +262,16 @@ final class WorkspaceStoreTests {
         #expect(changed == .applied)
         #expect(updated?.repoId == repo.id)
         #expect(updated?.worktreeId == worktree.id)
-        #expect(updated?.metadata.launchDirectory == URL(filePath: "/tmp/scratch"))
+        #expect(
+            updated?.metadata.launchDirectory
+                == URL(filePath: "/tmp/scratch", directoryHint: .isDirectory)
+        )
     }
 
     @Test
     func updatePaneLiveLocation_isIdempotentWhenCwdAndResolvedContextAreUnchanged() {
         let repo = store.addRepo(at: URL(filePath: "/tmp/live-idempotent-repo"))
-        let worktree = Worktree(
-            repoId: repo.id,
-            name: "main",
-            path: URL(filePath: "/tmp/live-idempotent-repo"),
-            isMainWorktree: true
-        )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let worktree = repo.worktrees[0]
         let pane = store.createPane(
             launchDirectory: worktree.path,
             title: "Terminal",
@@ -281,7 +290,7 @@ final class WorkspaceStoreTests {
             resolvedContext: resolvedContext
         )
 
-        #expect(first == .applied)
+        #expect(first == .unchanged)
         #expect(second == .unchanged)
     }
 
@@ -376,7 +385,7 @@ final class WorkspaceStoreTests {
     func test_updatePaneCWD_updatesValue() {
         // Arrange
         let pane = store.createPane()
-        let cwd = URL(fileURLWithPath: "/tmp/workspace")
+        let cwd = URL(filePath: "/tmp/workspace", directoryHint: .isDirectory)
 
         // Act
         store.updatePaneCWD(pane.id, cwd: cwd)
@@ -480,47 +489,53 @@ final class WorkspaceStoreTests {
 
     func test_isWorktreeActive_withPane_returnsTrue() {
         // Arrange
-        let worktreeId = UUID()
+        let worktreePath = URL(fileURLWithPath: "/tmp/worktree")
+        let repo = store.addRepo(at: worktreePath)
+        let worktree = repo.worktrees[0]
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: worktreePath,
             facets: PaneContextFacets(
-                repoId: UUID(),
-                worktreeId: worktreeId,
-                cwd: URL(fileURLWithPath: "/tmp/worktree")
+                repoId: repo.id,
+                worktreeId: worktree.id,
+                cwd: worktreePath
             )
         )
 
         // Assert
-        #expect(store.isWorktreeActive(worktreeId))
+        #expect(store.isWorktreeActive(worktree.id))
     }
 
     @Test
 
     func test_paneCount_forWorktree() {
         // Arrange
-        let worktreeId = UUID()
-        let repoId = UUID()
+        let worktreePath = URL(fileURLWithPath: "/tmp/worktree")
+        let repo = store.addRepo(at: worktreePath)
+        let worktree = repo.worktrees[0]
+        let otherWorktreePath = URL(fileURLWithPath: "/tmp/other-worktree")
+        let otherRepo = store.addRepo(at: otherWorktreePath)
+        let otherWorktree = otherRepo.worktrees[0]
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: worktreePath,
             facets: PaneContextFacets(
-                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+                repoId: repo.id, worktreeId: worktree.id, cwd: worktreePath)
         )
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: worktreePath,
             facets: PaneContextFacets(
-                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+                repoId: repo.id, worktreeId: worktree.id, cwd: worktreePath)
         )
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: otherWorktreePath,
             facets: PaneContextFacets(
-                repoId: UUID(),
-                worktreeId: UUID(),
-                cwd: URL(fileURLWithPath: "/tmp/worktree")
+                repoId: otherRepo.id,
+                worktreeId: otherWorktree.id,
+                cwd: otherWorktreePath
             )
         )
 
         // Assert
-        #expect(store.paneCount(for: worktreeId) == 2)
+        #expect(store.paneCount(for: worktree.id) == 2)
     }
 
     // MARK: - Tab Mutations
@@ -846,29 +861,33 @@ final class WorkspaceStoreTests {
 
     func test_panes_forWorktree() {
         // Arrange
-        let worktreeId = UUID()
-        let repoId = UUID()
+        let worktreePath = URL(fileURLWithPath: "/tmp/worktree")
+        let repo = store.addRepo(at: worktreePath)
+        let worktree = repo.worktrees[0]
+        let otherWorktreePath = URL(fileURLWithPath: "/tmp/other-worktree")
+        let otherRepo = store.addRepo(at: otherWorktreePath)
+        let otherWorktree = otherRepo.worktrees[0]
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: worktreePath,
             facets: PaneContextFacets(
-                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+                repoId: repo.id, worktreeId: worktree.id, cwd: worktreePath)
         )
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: worktreePath,
             facets: PaneContextFacets(
-                repoId: repoId, worktreeId: worktreeId, cwd: URL(fileURLWithPath: "/tmp/worktree"))
+                repoId: repo.id, worktreeId: worktree.id, cwd: worktreePath)
         )
         store.createPane(
-            launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+            launchDirectory: otherWorktreePath,
             facets: PaneContextFacets(
-                repoId: UUID(),
-                worktreeId: UUID(),
-                cwd: URL(fileURLWithPath: "/tmp/worktree")
+                repoId: otherRepo.id,
+                worktreeId: otherWorktree.id,
+                cwd: otherWorktreePath
             )
         )
 
         // Assert
-        #expect(store.panes(for: worktreeId).count == 2)
+        #expect(store.panes(for: worktree.id).count == 2)
     }
 
     // MARK: - Persistence Round-Trip
@@ -1021,6 +1040,43 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func paneAcceptedCommitRevisionDrivesAutosaveWithoutEqualOrPruneNoise() async throws {
+        await prepareSharedDatastoreForBoot()
+        let pane = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
+        store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
+        #expect((await store.flushAsync()).succeeded)
+        #expect(!store.isDirty)
+
+        store.paneAtom.updatePaneTitle(pane.id, title: "Accepted title")
+        await waitForDirtyObservation()
+        #expect(store.isDirty)
+        #expect((await store.flushAsync()).succeeded)
+        #expect(!store.isDirty)
+
+        store.paneAtom.updatePaneTitle(pane.id, title: "Accepted title")
+        await Task.yield()
+        #expect(!store.isDirty)
+
+        let missingPaneID = UUIDv7.generate()
+        _ = store.paneAtom.graphAtom.paneState(missingPaneID)
+        _ = store.paneAtom.graphAtom.paneStructuralFacts(missingPaneID)
+        let unchangedReplacement = try requirePaneGraphReplacement(
+            store.paneAtom.graphAtom.paneStateSnapshot()
+        )
+        store.paneAtom.graphAtom.replacePaneStates(unchangedReplacement)
+        await Task.yield()
+        #expect(!store.isDirty)
+
+        var replacementStates = store.paneAtom.graphAtom.paneStateSnapshot()
+        replacementStates[pane.id]?.metadata.title = "Replacement title"
+        store.paneAtom.graphAtom.replacePaneStates(
+            try requirePaneGraphReplacement(replacementStates)
+        )
+        await waitForDirtyObservation()
+        #expect(store.isDirty)
+    }
+
+    @Test
     func repositoryTopologyStoreAutosavesWithoutWorkspaceActivation() async {
         await prepareSharedDatastoreForBoot()
         let topologyAtom = RepositoryTopologyAtom()
@@ -1083,6 +1139,24 @@ final class WorkspaceStoreTests {
 
         #expect(restoredRepositoryIds == [repositoryID])
         #expect(!topologyStore.isDirty)
+    }
+
+    private func waitForDirtyObservation() async {
+        for _ in 0..<20 where !store.isDirty {
+            await Task.yield()
+        }
+    }
+
+    private func requirePaneGraphReplacement(
+        _ paneStates: [UUID: PaneGraphState]
+    ) throws -> WorkspacePaneGraphReplacement {
+        switch WorkspacePaneGraphReplacement.prepare(paneStates) {
+        case .success(let replacement):
+            return replacement
+        case .failure(let rejection):
+            Issue.record("pane graph replacement rejected: \(rejection)")
+            throw rejection
+        }
     }
 
     @Test
@@ -1278,7 +1352,7 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_preservesExistingIds() {
         // Arrange — add repo then seed initial worktrees
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo"))
-        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo/main")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo")
         let wt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1, wt2])
 
@@ -1293,7 +1367,7 @@ final class WorkspaceStoreTests {
         )
 
         // Act — simulate refresh with fresh Worktree instances (new UUIDs, same paths)
-        let freshWt1 = makeWorktree(repoId: repo.id, name: "main-updated", path: "/tmp/wt-test-repo/main")
+        let freshWt1 = makeWorktree(repoId: repo.id, name: "main-updated", path: "/tmp/wt-test-repo")
         let freshWt2 = makeWorktree(repoId: repo.id, name: "feat-updated", path: "/tmp/wt-test-repo/feat")
         #expect(freshWt1.id != storedWt1Id, "precondition: fresh worktree has different UUID")
 
@@ -1317,12 +1391,12 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_addsNewWorktrees() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo2"))
-        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo2/main")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo2")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1])
         let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
 
         // Act — refresh adds a new worktree
-        let freshWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo2/main")
+        let freshWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo2")
         let newWt = makeWorktree(repoId: repo.id, name: "hotfix", path: "/tmp/wt-test-repo2/hotfix")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [freshWt1, newWt])
 
@@ -1338,13 +1412,13 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_removesDeletedWorktrees() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo3"))
-        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo3/main")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo3")
         let wt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo3/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1, wt2])
         let storedWt1Id = store.repos.first(where: { $0.id == repo.id })!.worktrees[0].id
 
         // Act — refresh returns only wt1 (wt2 was deleted)
-        let freshWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo3/main")
+        let freshWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo3")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [freshWt1])
 
         // Assert — only wt1 remains
@@ -1358,13 +1432,13 @@ final class WorkspaceStoreTests {
     func test_updateRepoWorktrees_noopWhenMergedResultUnchanged() {
         // Arrange
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/wt-test-repo4"))
-        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo4/main")
+        let wt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo4")
         let wt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo4/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [wt1, wt2])
         let before = store.repos.first(where: { $0.id == repo.id })!
 
         // Act — same effective data, but fresh worktree instances
-        let sameWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo4/main")
+        let sameWt1 = makeWorktree(repoId: repo.id, name: "main", path: "/tmp/wt-test-repo4")
         let sameWt2 = makeWorktree(repoId: repo.id, name: "feat", path: "/tmp/wt-test-repo4/feat")
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [sameWt1, sameWt2])
         let after = store.repos.first(where: { $0.id == repo.id })!

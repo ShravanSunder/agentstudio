@@ -67,13 +67,9 @@ extension WorkspaceCoreRepository {
     }
 
     struct DurableFacetsRecord: Equatable, Sendable {
-        var repoId: UUID?
-        var worktreeId: UUID?
         var cwd: URL?
 
-        init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil) {
-            self.repoId = repoId
-            self.worktreeId = worktreeId
+        init(cwd: URL? = nil) {
             self.cwd = cwd
         }
 
@@ -148,28 +144,20 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
     let title: String = row["title"]
     let note: String? = row["note"]
     let checkoutRef: String? = row["checkout_ref"]
-    let sourceRepoIdString: String? = row["facet_repo_id"]
-    let sourceWorktreeIdString: String? = row["facet_worktree_id"]
     let cwdPath: String? = row["cwd"]
-    let durableRepoId = try decodeOptionalUUID(
-        sourceRepoIdString,
-        malformedError: WorkspaceCoreRepositoryError.malformedRepoId
-    )
-    let durableWorktreeId = try decodeOptionalUUID(
-        sourceWorktreeIdString,
-        malformedError: WorkspaceCoreRepositoryError.malformedWorktreeId
-    )
     let metadata = WorkspaceCoreRepository.PaneMetadataRecord(
-        launchDirectory: launchDirectoryPath.map { URL(fileURLWithPath: $0) },
+        launchDirectory: launchDirectoryPath.map {
+            URL(filePath: $0, directoryHint: .isDirectory)
+        },
         executionBackend: executionBackend,
         createdAt: Date(timeIntervalSince1970: createdAt),
         title: title,
         note: note,
         checkoutRef: checkoutRef,
         durableFacets: .init(
-            repoId: durableRepoId,
-            worktreeId: durableWorktreeId,
-            cwd: cwdPath.map { URL(fileURLWithPath: $0) }
+            cwd: cwdPath.map {
+                URL(filePath: $0, directoryHint: .isDirectory)
+            }
         )
     )
     let residency = try decodePaneResidency(row)

@@ -155,7 +155,7 @@ enum CommandBarDataSource {
                 "agentstudio.performance.commandbar.worktree.count": .int(
                     store.repositoryTopologyAtom.repos.reduce(0) { $0 + $1.worktrees.count }
                 ),
-                "agentstudio.performance.commandbar.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.commandbar.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
             ]
         )
         return items

@@ -42,3 +42,19 @@ package struct PersistenceRecoveryEvent: Sendable, Equatable {
 }
 
 package typealias PersistenceRecoveryReporter = @MainActor (PersistenceRecoveryEvent) -> Void
+
+package enum PaneTopologyPersistenceReason: String, Sendable {
+    case topologyRestoreMainRoleRepaired = "topology_restore_main_role_repaired"
+    case topologyRestoreMissingMainDegraded = "topology_restore_missing_main_degraded"
+    case topologyScanMainRepaired = "topology_scan_main_repaired"
+    case topologyBootNormalizationFlushFailed = "topology_boot_normalization_flush_failed"
+    case topologyNormalizationRejected = "topology_normalization_rejected"
+    case paneLocationRestoreRepaired = "pane_location_restore_repaired"
+    case paneLocationRestoreDegraded = "pane_location_restore_degraded"
+    case workspaceSaveCompositionRejected = "workspace_save_composition_rejected"
+    case workspaceSaveBridgeFailed = "workspace_save_bridge_failed"
+    case workspaceSaveDatabaseFailed = "workspace_save_database_failed"
+    case paneTopologyAssociationAmbiguous = "pane_topology_association_ambiguous"
+}
+
+package typealias PaneTopologyPersistenceReasonReporter = @MainActor (PaneTopologyPersistenceReason) -> Void

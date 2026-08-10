@@ -139,19 +139,6 @@ extension AppCommand {
         )
     }
 
-    func repoSidebarVisibilityDefinition() -> AppCommandSpec {
-        AppCommandSpec(
-            command: self,
-            label: "Set Repo Sidebar Visibility Mode",
-            icon: .system(.bookmark),
-            helpText: "Set the repo sidebar visibility mode",
-            surfacePolicy: .exposed([.inlineControl]),
-            targeting: .contextual,
-            commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.sidebar
-        )
-    }
-
     func repoSidebarSortOrderDefinition() -> AppCommandSpec {
         AppCommandSpec(
             command: self,

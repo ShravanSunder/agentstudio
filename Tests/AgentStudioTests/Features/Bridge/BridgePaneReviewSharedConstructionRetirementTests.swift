@@ -79,6 +79,7 @@ extension BridgeSharedReviewConstructionFixture {
                 ],
                 maximumLogicalWaiterCountPerOperation: 8
             ),
+            deadlineScheduler: BridgeGitReadManualDeadlineScheduler(),
             eventSink: eventSink
         )
     }

@@ -94,7 +94,7 @@ package enum AppShortcutDispatchPolicy {
             .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
-            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
+            .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .setInboxRowStateFilter, .setInboxContentMode,
             .newFloatingTerminal, .newWindow, .closeWindow,

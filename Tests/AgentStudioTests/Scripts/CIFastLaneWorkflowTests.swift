@@ -67,6 +67,34 @@ struct CIFastLaneWorkflowTests {
         }
     }
 
+    @Test("BridgeWeb Swift-backend lanes run only after Swift vendor setup")
+    func bridgeWebSwiftBackendLanesRunOnlyAfterSwiftVendorSetup() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let bridgeWebJob = try workflowJob(named: "bridge-web-validation", in: workflow)
+        let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
+        let bridgeWebLaneStep = try workflowStep(named: "Run BridgeWeb lanes", in: bridgeWebJob)
+        let copyXCFrameworkStep = try workflowStep(named: "Copy XCFramework", in: swiftJob)
+        let setupDevResourcesStep = try workflowStep(named: "Setup dev resources", in: swiftJob)
+        let swiftBackendLaneStep = try workflowStep(
+            named: "Test BridgeWeb Swift development backend",
+            in: swiftJob
+        )
+
+        let copyXCFrameworkRange = try #require(swiftJob.range(of: copyXCFrameworkStep))
+        let setupDevResourcesRange = try #require(swiftJob.range(of: setupDevResourcesStep))
+        let swiftBackendLaneRange = try #require(swiftJob.range(of: swiftBackendLaneStep))
+
+        #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run check"))
+        #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:unit"))
+        #expect(bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:browser:integration"))
+        #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:integration\n"))
+        #expect(!bridgeWebLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
+        #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:integration:node"))
+        #expect(swiftBackendLaneStep.contains("pnpm --dir BridgeWeb run test:e2e"))
+        #expect(copyXCFrameworkRange.upperBound < swiftBackendLaneRange.lowerBound)
+        #expect(setupDevResourcesRange.upperBound < swiftBackendLaneRange.lowerBound)
+    }
+
     @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
     func swiftBuildCacheIsContentAddressedAndSkipsExactHitPrebuilds() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
@@ -275,9 +303,10 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
         #expect(
             fastRunner.contains(
-                "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\""
+                "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)\""
             )
         )
+        #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(!testHelperScript.contains("app_ipc_live_socket_suite_filters"))
         #expect(!fastRunner.contains("serial App IPC service live socket suites"))
         #expect(!fastRunner.contains("app_ipc_live_socket_suite_filter"))
@@ -302,6 +331,41 @@ struct CIFastLaneWorkflowTests {
         #expect(!testHelperScript.contains("standalone_swift_test_filters"))
         #expect(!testHelperScript.contains("isolated_swift_test_class_filters"))
         #expect(!testHelperScript.contains("swift test list ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build"))
+    }
+
+    @Test("aggregate lane isolates executor-sensitive eager derivation and tab bar tests")
+    func aggregateLaneIsolatesExecutorSensitiveEagerDerivationAndTabBarTests() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let aggregateFilter = try shellFunction(
+            named: "aggregate_serial_non_webkit_filter_pattern",
+            in: helperScript
+        )
+        let aggregateRunner = try shellFunction(
+            named: "run_aggregate_serial_non_webkit_swift_tests",
+            in: helperScript
+        )
+        let fullRunner = try shellFunction(named: "run_non_serialized_swift_tests", in: helperScript)
+        let fastRunner = try shellFunction(named: "run_fast_non_webkit_swift_tests", in: helperScript)
+
+        for suiteName in [
+            "EagerDerivedAtomTests",
+            "EagerDerivedAtomFamilyTests",
+            "TabBarAdapterTests",
+            "TabBarAdapterMaterializationTests",
+            "TabBarAffectedItemTelemetryTests",
+        ] {
+            #expect(aggregateFilter.contains(suiteName))
+        }
+        #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
+        #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
+        #expect(aggregateRunner.contains("serial aggregate-only non-WebKit suites"))
+        #expect(aggregateRunner.contains("--filter \"$(aggregate_serial_non_webkit_filter_pattern)\""))
+        #expect(
+            fastRunner.contains(
+                "--skip \"Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)\""
+            )
+        )
+        #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
     }
 
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")

@@ -30,6 +30,7 @@ enum WorkspaceCoreMigrations {
         ("012_background_active_unowned_layout_panes", backgroundActiveUnownedLayoutPanesStatements),
         ("013_globalize_repository_topology", globalizeRepositoryTopologyStatements),
         ("014_drop_shows_minimized_panes", dropShowsMinimizedPanesStatements),
+        ("015_drop_pane_topology_facets", dropPaneTopologyFacetsStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {

@@ -11,11 +11,11 @@ struct AppCommandDispatcherRequestCapabilityTests {
     func typedRequestCapabilityOverridesParameterlessCommandCapability() async throws {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
-        appRouter.requestCapabilityCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCapabilityCommands = [.setRepoSidebarSortOrder]
         appRouter.parameterlessCanExecuteResult = false
         let request = AppCommandExecutionRequest(
-            command: .setRepoSidebarVisibilityMode,
-            arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+            command: .setRepoSidebarSortOrder,
+            arguments: .repoSidebarSortOrder(.descending)
         )
 
         try await withIsolatedCommandDispatcher(
@@ -34,12 +34,12 @@ struct AppCommandDispatcherRequestCapabilityTests {
     func typedRequestCapabilityIsRecheckedBeforeExecution() async throws {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
-        appRouter.requestCapabilityCommands = [.setRepoSidebarVisibilityMode]
-        appRouter.requestCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCapabilityCommands = [.setRepoSidebarSortOrder]
+        appRouter.requestCommands = [.setRepoSidebarSortOrder]
         appRouter.parameterlessCanExecuteResult = true
         let request = AppCommandExecutionRequest(
-            command: .setRepoSidebarVisibilityMode,
-            arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+            command: .setRepoSidebarSortOrder,
+            arguments: .repoSidebarSortOrder(.descending)
         )
 
         try await withIsolatedCommandDispatcher(

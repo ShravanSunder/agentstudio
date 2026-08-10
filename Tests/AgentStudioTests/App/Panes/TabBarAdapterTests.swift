@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudio
@@ -15,6 +16,7 @@ final class TabBarAdapterTests {
     private var inboxAtom: InboxNotificationAtom!
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
+    private var lastObservedOutputPublicationRevision: UInt64 = 0
 
     init() {
         installTestCoreAtomsIfNeeded()
@@ -42,23 +44,19 @@ final class TabBarAdapterTests {
         adapter = TabBarAdapter(
             store: store,
             repoCache: repoCache,
-            notificationDotColorProvider: { paneIds in
-                AppDelegate.tabNotificationDotColor(
-                    for: notificationAtom.attentionLane(forPaneIds: paneIds)
-                )
-            },
-            observeNotificationDotInputs: {
-                _ = notificationAtom.notifications
-            }
+            inboxAtom: notificationAtom
         )
+        lastObservedOutputPublicationRevision = 0
     }
 
     // MARK: - Initial State
 
     @Test
 
-    func test_initialState_empty() {
+    func test_initialState_empty() async {
         resetFixture()
+        await waitForAdapterRefresh()
+
         // Assert
         #expect(adapter.tabs.isEmpty)
         #expect((adapter.activeTabId) == nil)
@@ -518,8 +516,11 @@ final class TabBarAdapterTests {
             name: "feature-name",
             path: URL(filePath: "/tmp/agent-studio/feature-name")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
@@ -554,8 +555,11 @@ final class TabBarAdapterTests {
             name: "feature-name",
             path: URL(filePath: "/tmp/adapter-placeholder/feature-name")
         )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
@@ -579,6 +583,47 @@ final class TabBarAdapterTests {
         let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
         #expect(tabItem.title == "feature-name · feature/pane-labels")
         #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
+    }
+
+    @Test
+    func test_enrichmentMutation_refreshesWorktreeBackedTabTitle() async throws {
+        resetFixture()
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/adapter-enrichment-refresh"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-name",
+            path: URL(filePath: "/tmp/adapter-enrichment-refresh/feature-name")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
+        let storedWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first { $0.id == worktree.id },
+            "Expected linked worktree"
+        )
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/before")
+        )
+        let pane = store.createPane(
+            launchDirectory: storedWorktree.path,
+            title: "Ignored",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id, name: "Tab"))
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.displayTitle == "feature-name · feature/before")
+
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/after")
+        )
+
+        await waitForAdapterRefresh()
+        #expect(adapter.tabs.first?.displayTitle == "feature-name · feature/after")
     }
 
     // MARK: - Transient State
@@ -649,8 +694,6 @@ final class TabBarAdapterTests {
         // Act
         adapter.availableWidth = 600
 
-        await waitForAdapterRefresh()
-
         // Assert
         #expect(adapter.tabs.count == 2)
         #expect(!(adapter.isOverflowing))
@@ -671,8 +714,6 @@ final class TabBarAdapterTests {
 
         // Act
         adapter.availableWidth = 600
-
-        await waitForAdapterRefresh()
 
         // Assert
         #expect(adapter.tabs.count == 8)
@@ -728,8 +769,6 @@ final class TabBarAdapterTests {
         // Act — set content width wider than available
         adapter.contentWidth = 700
 
-        await waitForAdapterRefresh()
-
         // Assert
         #expect(adapter.isOverflowing)
     }
@@ -752,8 +791,6 @@ final class TabBarAdapterTests {
         // Still within hysteresis buffer (600 - 50 = 550, and 570 > 550)
         adapter.contentWidth = 570
 
-        await waitForAdapterRefresh()
-
         // Assert — should remain overflowing due to hysteresis
         #expect(adapter.isOverflowing)
     }
@@ -774,8 +811,6 @@ final class TabBarAdapterTests {
 
         // Act — reduce well below hysteresis threshold (600 - 50 = 550)
         adapter.contentWidth = 500
-
-        await waitForAdapterRefresh()
 
         // Assert
         #expect(!(adapter.isOverflowing))
@@ -811,14 +846,48 @@ final class TabBarAdapterTests {
         #expect(!(adapter.isOverflowing))
     }
     private func waitForAdapterRefresh() async {
-        for _ in 0..<8 {
-            await Task.yield()
+        let expectedTabIds = store.tabs.map(\.id)
+        let previousPublicationRevision = lastObservedOutputPublicationRevision
+        let waiter = TabBarAdapterConditionWaiter {
+            self.adapter.tabs.map(\.id) == expectedTabIds
+                && self.adapter.outputPublicationRevision > previousPublicationRevision
         }
+        #expect(await waiter.wait(), "Timed out waiting for current tab bar items")
+        lastObservedOutputPublicationRevision = adapter.outputPublicationRevision
     }
 }
 
 extension Array {
     fileprivate subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+@MainActor
+final class TabBarAdapterConditionWaiter {
+    private let condition: @MainActor () -> Bool
+    private let didMeetCondition = TabBarAdapterTestSignal()
+
+    init(condition: @escaping @MainActor () -> Bool) {
+        self.condition = condition
+    }
+
+    func wait() async -> Bool {
+        observeCondition()
+        return await didMeetCondition.wait()
+    }
+
+    private func observeCondition() {
+        if condition() {
+            didMeetCondition.signal()
+            return
+        }
+        withObservationTracking {
+            _ = condition()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observeCondition()
+            }
+        }
     }
 }

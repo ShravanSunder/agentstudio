@@ -323,15 +323,11 @@ enum BridgeProductMetadataFrame: Codable, Equatable, Sendable {
 struct BridgeProductPaneSurfaceSelectionRequestedFrame: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
-        case requestId
-        case selectionRevision
-        case surface
+        case navigationCommand
     }
 
     let frameIdentity: BridgeProductMetadataFrameIdentity
-    let requestId: String
-    let selectionRevision: Int
-    let surface: BridgeProductSurface
+    let navigationCommand: BridgeProductNavigationCommand
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -348,32 +344,19 @@ struct BridgeProductPaneSurfaceSelectionRequestedFrame: Codable, Equatable, Send
                 codingPath: decoder.codingPath
             )
         }
-        requestId = try container.decode(String.self, forKey: .requestId)
-        selectionRevision = try container.decode(Int.self, forKey: .selectionRevision)
-        surface = try container.decode(BridgeProductSurface.self, forKey: .surface)
+        navigationCommand = try container.decode(
+            BridgeProductNavigationCommand.self,
+            forKey: .navigationCommand
+        )
         frameIdentity = try BridgeProductMetadataFrameIdentity(from: decoder)
         try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validateIdentifier(requestId, codingPath: decoder.codingPath)
-        try BridgeProductContractDecoding.validatePositive(
-            selectionRevision,
-            name: "selectionRevision",
-            codingPath: decoder.codingPath
-        )
-        try BridgeProductContractDecoding.validateMaximum(
-            selectionRevision,
-            maximum: BridgeProductWireContract.maximumSafeInteger,
-            name: "selectionRevision",
-            codingPath: decoder.codingPath
-        )
     }
 
     func encode(to encoder: Encoder) throws {
         try frameIdentity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode("pane.surfaceSelectionRequested", forKey: .kind)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(selectionRevision, forKey: .selectionRevision)
-        try container.encode(surface, forKey: .surface)
+        try container.encode(navigationCommand, forKey: .navigationCommand)
     }
 }
 

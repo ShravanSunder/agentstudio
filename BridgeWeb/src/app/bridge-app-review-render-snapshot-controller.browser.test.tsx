@@ -27,6 +27,9 @@ import {
 	settleRenderedReviewFrame,
 } from './bridge-app-review-render-snapshot-controller.browser-harness.test-support.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+
+const bridgeReviewNavigationCommandIsAlwaysEligible = (): boolean => true;
+
 describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 	test('publishes real keyed Review facts and a later metadata window without a package adapter', async () => {
 		// Arrange
@@ -82,7 +85,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={onActiveSourceChange}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={viewerHeaderControls}
@@ -107,7 +112,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			await rendered.rerender(
 				<BridgeReviewViewerMode
 					isActive={false}
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 					onActiveSourceChange={onActiveSourceChange}
+					onNavigationSourceChange={vi.fn()}
 					reviewClient={harness.reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={viewerHeaderControls}
@@ -128,7 +135,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
 				viewerHeaderControls={<div />}
@@ -146,7 +155,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					{
 						operation: 'upsert',
 						payload: {
+							metadataSourceId: 'review-source-browser-test',
 							metadataWindowIdentity: 'review-window-empty',
+							packageId: 'review-package-browser-test',
 							reviewGeneration: 1,
 							status: 'ready',
 							summary: {
@@ -310,7 +321,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
 				viewerHeaderControls={<div />}
@@ -411,7 +424,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			<BridgeReviewViewerMode
 				codeViewWorkerPoolEnabled={false}
 				isActive={true}
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 				onActiveSourceChange={onActiveSourceChange}
+				onNavigationSourceChange={vi.fn()}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
 				viewerHeaderControls={<div />}
@@ -523,7 +538,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				<BridgeReviewViewerMode
 					codeViewWorkerPoolEnabled={false}
 					isActive={false}
+					isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
 					onActiveSourceChange={onActiveSourceChange}
+					onNavigationSourceChange={vi.fn()}
 					reviewClient={reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
 					viewerHeaderControls={<div />}

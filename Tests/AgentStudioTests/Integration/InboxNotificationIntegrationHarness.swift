@@ -87,6 +87,7 @@ enum InboxNotificationIntegrationHarness {
         worktreeId: UUID? = nil,
         worktreeName: String? = nil
     ) -> UUID {
+        var paneCWD: URL?
         if let repoId, let worktreeId {
             let repoName = repoName ?? "Repo"
             let worktreeName = worktreeName ?? "Worktree"
@@ -95,8 +96,10 @@ enum InboxNotificationIntegrationHarness {
                 id: worktreeId,
                 repoId: repoId,
                 name: worktreeName,
-                path: repoPath.appending(path: worktreeName)
+                path: repoPath,
+                isMainWorktree: true
             )
+            paneCWD = worktree.path
             let repo = Repo(
                 id: repoId,
                 name: repoName,
@@ -119,12 +122,14 @@ enum InboxNotificationIntegrationHarness {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
+            launchDirectory: paneCWD,
             title: "Integration Pane",
             facets: PaneContextFacets(
                 repoId: repoId,
                 repoName: repoName,
                 worktreeId: worktreeId,
-                worktreeName: worktreeName
+                worktreeName: worktreeName,
+                cwd: paneCWD
             ),
             checkoutRef: "main"
         )

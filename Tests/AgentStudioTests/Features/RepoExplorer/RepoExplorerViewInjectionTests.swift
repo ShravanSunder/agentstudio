@@ -60,34 +60,24 @@ struct RepoExplorerViewInjectionTests {
         #expect(view.repoExplorerPrefs.groupingMode == .pane)
     }
 
-    @Test("typed command callbacks preserve Feature values")
-    func typedCommandCallbacksPreserveFeatureValues() {
-        var visibilityModes: [RepoExplorerVisibilityMode] = []
+    @Test("typed sort callback preserves the Feature value")
+    func typedSortCallbackPreservesFeatureValue() {
         var sortOrders: [RepoExplorerSortOrder] = []
-        var refreshCount = 0
         let view = makeRepoExplorerView(
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            onSetVisibilityMode: { visibilityModes.append($0) },
-            onSetSortOrder: { sortOrders.append($0) },
-            onRefreshWorktrees: { refreshCount += 1 }
+            onSetSortOrder: { sortOrders.append($0) }
         )
 
-        view.onSetVisibilityMode(.favoritesOnly)
         view.onSetSortOrder(.descending)
-        view.onRefreshWorktrees()
 
-        #expect(visibilityModes == [.favoritesOnly])
         #expect(sortOrders == [.descending])
-        #expect(refreshCount == 1)
     }
 
     private func makeRepoExplorerView(
         store: WorkspaceStore = WorkspaceStore(startsObserving: false),
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
         bridgeAttendanceSnapshot: @escaping @MainActor () -> [UUID: UInt64] = { [:] },
-        onSetVisibilityMode: @escaping (RepoExplorerVisibilityMode) -> Void = { _ in },
-        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in },
-        onRefreshWorktrees: @escaping () -> Void = {}
+        onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in }
     ) -> RepoExplorerView {
         RepoExplorerView(
             store: store,
@@ -95,9 +85,7 @@ struct RepoExplorerViewInjectionTests {
             repoExplorerPrefs: repoExplorerPrefs,
             bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
-            onSetVisibilityMode: onSetVisibilityMode,
             onSetSortOrder: onSetSortOrder,
-            onRefreshWorktrees: onRefreshWorktrees,
             onRefocusActivePane: {},
             onSidebarVisibleWorktreesChanged: {},
             onShowNotificationsForWorktree: { _ in },

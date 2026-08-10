@@ -278,11 +278,10 @@ struct WorkspaceLauncherProjectorTests {
                 Worktree(
                     repoId: repo.id,
                     name: "worktree-\(index)",
-                    path: repo.repoPath.appending(path: "worktree-\(index)"),
-                    isMainWorktree: index == 0
+                    path: repo.repoPath.appending(path: "worktree-\(index)")
                 )
             }
-            store.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + worktrees)
 
             for (index, worktree) in worktrees.enumerated() {
                 try recordWorktreeRecency(

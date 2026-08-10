@@ -104,6 +104,47 @@ extension WebKitSerializedTests {
             #expect(acceptedSignal.sequenceFloor == 1)
         }
 
+        @Test("successor Review source commit invalidates an impossible retained exact target")
+        func successorReviewSourceCommitInvalidatesImpossibleRetainedExactTarget() async throws {
+            let controller = makeController()
+            defer { controller.teardown() }
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+            let foregroundWorkAdmission = try #require(
+                controller.refreshAdmissionCoordinator.acquireForegroundWork()
+            )
+            let initialPackage = try productActiveViewerReviewPackageFixture()
+            #expect(
+                await controller.commitReviewPackageLoad(
+                    try await productActiveViewerPreparedLoad(package: initialPackage, delta: nil),
+                    productAdmission: productAdmission,
+                    traceContext: nil,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                ) == .committed(delivery: .deferred)
+            )
+            try await controller.requestReviewTargetAndPublish(
+                source: BridgeProductNavigationReviewSource(
+                    generation: initialPackage.reviewGeneration.rawValue,
+                    metadataSourceId: initialPackage.query.queryId,
+                    packageId: initialPackage.packageId
+                ),
+                target: BridgeProductNavigationReviewTarget(
+                    reviewItemId: initialPackage.orderedItemIds.first
+                )
+            )
+            let successorPackage = productActiveViewerSuccessorReviewPackage(from: initialPackage)
+
+            #expect(
+                await controller.commitReviewPackageLoad(
+                    try await productActiveViewerPreparedLoad(package: successorPackage, delta: nil),
+                    productAdmission: productAdmission,
+                    traceContext: nil,
+                    foregroundWorkAdmission: foregroundWorkAdmission
+                ) == .committed(delivery: .deferred)
+            )
+
+            #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface == nil)
+        }
+
         @Test("committed Review product mode rejects a stale generation")
         func committedReviewProductModeRejectsStaleGeneration() async throws {
             let controller = makeController()
@@ -348,7 +389,7 @@ extension WebKitSerializedTests {
             let productAdmission = try #require(controller.productAdmissionGate.acquire())
             let bootstrap = try #require(await controller.productSessionOwner.activeBootstrap())
             controller.surfaceSelectionAuthority.retainIntent(surface: .file)
-            let requestCandidate = try controller.surfaceSelectionAuthority.bindRetainedIntent(
+            let requestCandidate = try controller.surfaceSelectionAuthority.rebindRetainedIntent(
                 paneSessionId: bootstrap.paneSessionId,
                 workerInstanceId: bootstrap.workerInstanceId
             )
@@ -394,7 +435,7 @@ extension WebKitSerializedTests {
                 productAdmission: productAdmission
             )
             controller.surfaceSelectionAuthority.retainIntent(surface: .review)
-            let requestCandidate = try controller.surfaceSelectionAuthority.bindRetainedIntent(
+            let requestCandidate = try controller.surfaceSelectionAuthority.rebindRetainedIntent(
                 paneSessionId: bootstrap.paneSessionId,
                 workerInstanceId: bootstrap.workerInstanceId
             )

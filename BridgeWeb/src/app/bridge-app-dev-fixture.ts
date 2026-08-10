@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+import {
+	bridgeProductDevNavigationIntentSchema,
+	type BridgeProductDevNavigationIntent,
+} from '../core/comm-worker/bridge-product-dev-bootstrap.js';
 import type {
 	BridgeReviewPackage,
 	BridgeReviewItemDescriptor,
@@ -9,12 +13,9 @@ import type {
 	BridgeViewerBrowserFixtureClass,
 	BridgeViewerMockedBackendDeliveryMode,
 } from '../review-viewer/test-support/bridge-viewer-mocked-backend-fixture.js';
-import {
-	bridgeViewerFileVersionSchema,
-	bridgeViewerNavigationCommandSchema,
-	type BridgeViewerFileVersion,
-	type BridgeViewerNavigationCommand,
-} from './bridge-viewer-navigation-models.js';
+
+const bridgeAppDevFileVersionSchema = z.enum(['base', 'head', 'current']);
+type BridgeAppDevFileVersion = z.infer<typeof bridgeAppDevFileVersionSchema>;
 
 export const bridgeAppDevFixtureClassSchema = z.enum([
 	'small-mixed',
@@ -47,10 +48,6 @@ export const bridgeAppDevFixtureScenarioSchema = z.enum([
 
 export type BridgeAppDevFixtureScenario = z.infer<typeof bridgeAppDevFixtureScenarioSchema>;
 
-export const bridgeAppDevFixtureWorkersModeSchema = z.enum(['on', 'off']);
-
-export type BridgeAppDevFixtureWorkersMode = z.infer<typeof bridgeAppDevFixtureWorkersModeSchema>;
-
 export const bridgeAppDevViewerModeSchema = z.enum(['file', 'review']);
 
 export type BridgeAppDevViewerMode = z.infer<typeof bridgeAppDevViewerModeSchema>;
@@ -64,9 +61,8 @@ export const bridgeAppDevFixtureOptionsSchema = z
 		fixtureClass: bridgeAppDevFixtureClassSchema,
 		deliveryMode: bridgeAppDevFixtureDeliveryModeSchema,
 		latencyProfile: bridgeAppDevFixtureLatencyProfileSchema,
-		navigationCommand: bridgeViewerNavigationCommandSchema,
+		navigationIntent: bridgeProductDevNavigationIntentSchema,
 		scenario: bridgeAppDevFixtureScenarioSchema,
-		workersEnabled: z.boolean(),
 	})
 	.strict();
 
@@ -85,11 +81,10 @@ export function parseBridgeAppDevFixtureOptions(
 		deliveryMode: searchParams.get('delivery') ?? 'full-load',
 		latencyProfile: searchParams.get('latency') ?? 'zero',
 		scenario: fixtureClass === 'worktree' ? 'default' : (searchParams.get('scenario') ?? 'default'),
-		navigationCommand: bridgeViewerNavigationCommandForDevQuery({
+		navigationIntent: bridgeProductDevNavigationIntentForQuery({
 			fixtureClass,
 			searchParams,
 		}),
-		workersEnabled: parseWorkersEnabled(searchParams.get('workers') ?? 'on'),
 	});
 
 	if (!parsed.success) {
@@ -99,24 +94,15 @@ export function parseBridgeAppDevFixtureOptions(
 	return parsed.data;
 }
 
-export const bridgeAppDevWorktreeSourceId = 'dev-worktree-source';
-export const bridgeAppDevWorktreeReviewSourceId = 'dev-current-worktree-review';
-export const bridgeAppDevWorktreeReviewComparisonId = 'dev-current-worktree-comparison';
-
-function bridgeViewerNavigationCommandForDevQuery(props: {
+function bridgeProductDevNavigationIntentForQuery(props: {
 	readonly fixtureClass: BridgeAppDevFixtureClass;
 	readonly searchParams: URLSearchParams;
-}): BridgeViewerNavigationCommand {
+}): BridgeProductDevNavigationIntent {
 	if (props.fixtureClass !== 'worktree') {
-		return bridgeViewerNavigationCommandSchema.parse({
+		return bridgeProductDevNavigationIntentSchema.parse({
 			commandId: `dev:fixture:${props.fixtureClass}:review`,
-			commandKind: 'initialize',
-			context: 'review',
-			restoreMemory: true,
-			source: {
-				sourceKind: 'fixture',
-				sourceId: props.fixtureClass,
-			},
+			commandKind: 'activateContext',
+			surface: 'review',
 		});
 	}
 
@@ -137,13 +123,13 @@ function bridgeViewerNavigationCommandForDevQuery(props: {
 	const selectedVersion = parseOptionalFileVersion(props.searchParams.get('version'));
 
 	if (viewerMode === 'file') {
-		return bridgeViewerFileNavigationCommand({
+		return bridgeProductDevFileNavigationIntent({
 			selectedPath,
 			selectedVersion,
 		});
 	}
 
-	return bridgeViewerReviewNavigationCommand({
+	return bridgeProductDevReviewNavigationIntent({
 		presentationMode,
 		selectedReviewItemId,
 		selectedPath,
@@ -151,77 +137,49 @@ function bridgeViewerNavigationCommandForDevQuery(props: {
 	});
 }
 
-function bridgeViewerFileNavigationCommand(props: {
+function bridgeProductDevFileNavigationIntent(props: {
 	readonly selectedPath: string | null;
-	readonly selectedVersion: BridgeViewerFileVersion | null;
-}): BridgeViewerNavigationCommand {
+	readonly selectedVersion: BridgeAppDevFileVersion | null;
+}): BridgeProductDevNavigationIntent {
 	if (props.selectedPath === null) {
-		return bridgeViewerNavigationCommandSchema.parse({
+		return bridgeProductDevNavigationIntentSchema.parse({
 			commandId: 'dev:worktree:files',
-			commandKind: 'initialize',
-			context: 'files',
-			restoreMemory: true,
-			source: {
-				sourceKind: 'worktree',
-				sourceId: bridgeAppDevWorktreeSourceId,
-			},
+			commandKind: 'activateContext',
+			surface: 'file',
 		});
 	}
 
-	return bridgeViewerNavigationCommandSchema.parse({
-		commandId: `dev:worktree:files:file:${props.selectedPath}:${
-			props.selectedVersion ?? 'current'
-		}`,
-		commandKind: 'initialize',
-		context: 'files',
-		restoreMemory: true,
-		source: {
-			sourceKind: 'worktree',
-			sourceId: bridgeAppDevWorktreeSourceId,
-		},
+	return bridgeProductDevNavigationIntentSchema.parse({
+		commandId: 'dev:worktree:files:target',
+		commandKind: 'activateTarget',
+		surface: 'file',
 		target: {
 			targetKind: 'file',
-			fileRef: {
-				sourceId: bridgeAppDevWorktreeSourceId,
-				path: props.selectedPath,
-			},
+			path: props.selectedPath,
 			version: props.selectedVersion ?? 'current',
 		},
 	});
 }
 
-function bridgeViewerReviewNavigationCommand(props: {
+function bridgeProductDevReviewNavigationIntent(props: {
 	readonly presentationMode: BridgeAppDevPresentationMode;
 	readonly selectedReviewItemId: string | null;
 	readonly selectedPath: string | null;
-	readonly selectedVersion: BridgeViewerFileVersion | null;
-}): BridgeViewerNavigationCommand {
+	readonly selectedVersion: BridgeAppDevFileVersion | null;
+}): BridgeProductDevNavigationIntent {
 	if (props.presentationMode === 'file') {
 		if (props.selectedPath === null || props.selectedVersion === null) {
 			throw new Error(
 				'Invalid BridgeWeb dev fixture query: presentation=file requires path and version',
 			);
 		}
-		return bridgeViewerNavigationCommandSchema.parse({
-			commandId:
-				props.selectedReviewItemId === null
-					? `dev:worktree:review:file:${props.selectedPath}:${props.selectedVersion}`
-					: `dev:worktree:review:file:${props.selectedPath}:${props.selectedVersion}:item:${props.selectedReviewItemId}`,
-			commandKind: 'initialize',
-			context: 'review',
-			restoreMemory: true,
-			source: {
-				sourceKind: 'reviewComparison',
-				sourceId: bridgeAppDevWorktreeReviewSourceId,
-				comparisonId: bridgeAppDevWorktreeReviewComparisonId,
-			},
+		return bridgeProductDevNavigationIntentSchema.parse({
+			commandId: 'dev:worktree:review:target',
+			commandKind: 'activateTarget',
+			surface: 'review',
 			target: {
-				targetKind: 'file',
-				comparisonId: bridgeAppDevWorktreeReviewComparisonId,
-				fileRef: {
-					sourceId: bridgeAppDevWorktreeReviewSourceId,
-					path: props.selectedPath,
-				},
+				targetKind: 'review',
+				path: props.selectedPath,
 				...(props.selectedReviewItemId === null
 					? {}
 					: { reviewItemId: props.selectedReviewItemId }),
@@ -230,16 +188,10 @@ function bridgeViewerReviewNavigationCommand(props: {
 		});
 	}
 
-	return bridgeViewerNavigationCommandSchema.parse({
+	return bridgeProductDevNavigationIntentSchema.parse({
 		commandId: 'dev:worktree:review',
-		commandKind: 'initialize',
-		context: 'review',
-		restoreMemory: true,
-		source: {
-			sourceKind: 'reviewComparison',
-			sourceId: bridgeAppDevWorktreeReviewSourceId,
-			comparisonId: bridgeAppDevWorktreeReviewComparisonId,
-		},
+		commandKind: 'activateContext',
+		surface: 'review',
 	});
 }
 
@@ -306,22 +258,14 @@ export function reviewPackageForBridgeAppDevFixtureScenario(props: {
 	};
 }
 
-function parseWorkersEnabled(workersMode: string): boolean {
-	const parsed = bridgeAppDevFixtureWorkersModeSchema.safeParse(workersMode);
-	if (!parsed.success) {
-		throw new Error(`Invalid BridgeWeb dev fixture query: workers=${workersMode}`);
-	}
-	return parsed.data === 'on';
-}
-
-function parseOptionalFileVersion(rawValue: string | null): BridgeViewerFileVersion | null {
+function parseOptionalFileVersion(rawValue: string | null): BridgeAppDevFileVersion | null {
 	if (rawValue === null) {
 		return null;
 	}
 	return parseRequiredQueryValue({
 		name: 'version',
 		rawValue,
-		schema: bridgeViewerFileVersionSchema,
+		schema: bridgeAppDevFileVersionSchema,
 	});
 }
 

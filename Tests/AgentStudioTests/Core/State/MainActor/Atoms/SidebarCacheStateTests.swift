@@ -5,35 +5,37 @@ import Testing
 @MainActor
 @Suite("Sidebar cache split atoms")
 struct SidebarCacheStateTests {
-    @Test("expanded group atom owns only expanded groups")
-    func expandedGroupAtomOwnsOnlyExpandedGroups() {
-        let atom = SidebarExpandedGroupAtom()
+    @Test("collapsed group atom makes unseen groups expanded and remembers explicit collapse")
+    func collapsedGroupAtomOwnsOnlyCollapsedGroups() {
+        let atom = SidebarCollapsedGroupAtom()
+        let unseenGroup = SidebarGroupKey("repo:unseen")
 
-        #expect(atom.expandedGroups.isEmpty)
+        #expect(atom.collapsedGroups.isEmpty)
+        #expect(!atom.collapsedGroups.contains(unseenGroup))
 
-        atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
-        atom.setGroupExpanded("repo:personal", isExpanded: true)
+        atom.setGroupExpanded("repo:agent-studio", isExpanded: false)
         atom.setGroupExpanded("repo:personal", isExpanded: false)
+        atom.setGroupExpanded("repo:personal", isExpanded: true)
 
-        #expect(atom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
+        #expect(atom.collapsedGroups == [SidebarGroupKey("repo:agent-studio")])
     }
 
-    @Test("sidebar cache state composes expanded group owner")
-    func sidebarCacheStateComposesExpandedGroupOwner() {
-        let expandedGroups = SidebarExpandedGroupAtom()
+    @Test("sidebar cache state composes collapsed group owner")
+    func sidebarCacheStateComposesCollapsedGroupOwner() {
+        let collapsedGroups = SidebarCollapsedGroupAtom()
         let state = SidebarCacheState(
-            expandedGroupAtom: expandedGroups
+            collapsedGroupAtom: collapsedGroups
         )
 
         state.hydrate(
-            expandedGroups: [SidebarGroupKey("repo:a")]
+            collapsedGroups: [SidebarGroupKey("repo:a")]
         )
 
-        #expect(expandedGroups.expandedGroups == [SidebarGroupKey("repo:a")])
-        #expect(state.expandedGroups == [SidebarGroupKey("repo:a")])
+        #expect(collapsedGroups.collapsedGroups == [SidebarGroupKey("repo:a")])
+        #expect(state.collapsedGroups == [SidebarGroupKey("repo:a")])
 
         state.clear()
 
-        #expect(expandedGroups.expandedGroups.isEmpty)
+        #expect(collapsedGroups.collapsedGroups.isEmpty)
     }
 }

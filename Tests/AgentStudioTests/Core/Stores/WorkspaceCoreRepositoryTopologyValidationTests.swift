@@ -118,8 +118,7 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
         try fixture.insertPane(
             workspaceId: workspaceId,
             paneId: paneId,
-            sourceRepoId: originalRepoId,
-            sourceWorktreeId: reparentedWorktreeId
+            cwd: URL(fileURLWithPath: "/tmp/agentstudio/original-repo/Sources")
         )
 
         #expect(
@@ -153,10 +152,10 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
                 )
             )
         }
-        let paneSource = try fixture.fetchPaneSource(paneId: paneId)
+        let paneGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
-        #expect(paneSource?.repoId == originalRepoId)
-        #expect(paneSource?.worktreeId == reparentedWorktreeId)
+        #expect(paneGraph.panes.single?.id == paneId)
+        #expect(paneGraph.panes.single?.metadata.durableFacets.cwd?.path == "/tmp/agentstudio/original-repo/Sources")
     }
 
     @Test("repository topology replace rejects duplicate repo ids")

@@ -52,8 +52,25 @@ struct TerminalLocalActionDrainDependencies {
     let mountedHostResolver: TerminalLocalActionMountedHostResolver
     let runtimeRegistry: RuntimeRegistry
     let fallbackRuntimeRegistry: RuntimeRegistry?
+    let routingLookup: any GhosttyActionRoutingLookup
     let activityContext: @MainActor (UUID) -> TerminalActivityProjectionContext?
     let submitActivityInput: @MainActor (TerminalActivitySourceInput) async -> Void
+
+    init(
+        mountedHostResolver: TerminalLocalActionMountedHostResolver,
+        runtimeRegistry: RuntimeRegistry,
+        fallbackRuntimeRegistry: RuntimeRegistry?,
+        routingLookup: any GhosttyActionRoutingLookup = SurfaceManager.shared,
+        activityContext: @escaping @MainActor (UUID) -> TerminalActivityProjectionContext?,
+        submitActivityInput: @escaping @MainActor (TerminalActivitySourceInput) async -> Void
+    ) {
+        self.mountedHostResolver = mountedHostResolver
+        self.runtimeRegistry = runtimeRegistry
+        self.fallbackRuntimeRegistry = fallbackRuntimeRegistry
+        self.routingLookup = routingLookup
+        self.activityContext = activityContext
+        self.submitActivityInput = submitActivityInput
+    }
 
     static var live: Self {
         let runtimeRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
@@ -63,6 +80,7 @@ struct TerminalLocalActionDrainDependencies {
             fallbackRuntimeRegistry: ObjectIdentifier(runtimeRegistry) != ObjectIdentifier(RuntimeRegistry.shared)
                 ? RuntimeRegistry.shared
                 : nil,
+            routingLookup: SurfaceManager.shared,
             activityContext: { Ghostty.ActionRouter.terminalActivityProjectionContext(paneID: $0) },
             submitActivityInput: { await Ghostty.ActionRouter.submitTerminalActivityInput($0) }
         )
@@ -97,12 +115,6 @@ extension Ghostty.ActionRouter {
         case .diagnostic(.localOnly), .diagnostic(.deferred), .diagnostic(.unhandled):
             return .handledLocally
         }
-    }
-
-    @MainActor
-    static func flushLocalActions(for surfaceID: UUID) async {
-        localActionDrainScheduler.cancel(for: surfaceID)
-        await drainLocalActions(for: surfaceID)
     }
 
     static func retireLocalActions(for surfaceID: UUID) {
@@ -230,6 +242,7 @@ extension Ghostty.ActionRouter {
     static func drainLocalActions(for surfaceID: UUID) async {
         await drainLocalActions(
             for: surfaceID,
+            lane: .immediate,
             dependencies: .live
         )
     }
@@ -237,6 +250,15 @@ extension Ghostty.ActionRouter {
     @MainActor
     static func drainLocalActions(
         for surfaceID: UUID,
+        lane: TerminalLocalActionLane
+    ) async {
+        await drainLocalActions(for: surfaceID, lane: lane, dependencies: .live)
+    }
+
+    @MainActor
+    static func drainLocalActions(
+        for surfaceID: UUID,
+        lane: TerminalLocalActionLane,
         dependencies: TerminalLocalActionDrainDependencies
     ) async {
         guard
@@ -253,11 +275,12 @@ extension Ghostty.ActionRouter {
         guard
             let batch = localActionAccumulator.beginDrain(
                 for: surfaceID,
+                lane: lane,
                 defaultActivityContext: dependencies.activityContext(paneUUID)
             )
         else { return }
         defer {
-            _ = localActionAccumulator.finishDrain(for: surfaceID)
+            _ = localActionAccumulator.finishDrain(for: surfaceID, lane: lane)
         }
 
         let clock = ContinuousClock()
@@ -286,7 +309,7 @@ extension Ghostty.ActionRouter {
                 routeContractedTitleMetadata(
                     runtimeTitle,
                     surfaceViewObjectID: ObjectIdentifier(surfaceView),
-                    routingLookup: SurfaceManager.shared
+                    routingLookup: dependencies.routingLookup
                 )
             }
         } else {
@@ -362,7 +385,7 @@ extension Ghostty.ActionRouter {
             || batch.presentation.searchUpdate != nil
             || batch.activity != nil
             || batch.searchLifecycle != nil
-        return containsImmediateWork ? .immediate : .titleWindow
+        return containsImmediateWork ? .immediate : .titleDeadline
     }
 
     static func terminalAccumulatorDrainPerformanceSnapshot(

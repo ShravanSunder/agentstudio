@@ -32,25 +32,27 @@ extension WorkspaceSQLiteStoreBackend {
         let localWindowState = localRepository.flatMap { repository in
             try? repository.fetchWindowState()
         }
-        let workspaceSnapshot = try WorkspaceSQLiteStateBridge.workspaceSnapshot(
-            from: .init(
-                workspace: authoritativeSnapshot.workspace,
+        let bridgeSnapshot = WorkspaceSQLiteStateBridge.Snapshot(
+            workspace: authoritativeSnapshot.workspace,
+            paneGraph: authoritativeSnapshot.paneGraph,
+            tabShells: authoritativeSnapshot.tabShells,
+            tabGraph: authoritativeSnapshot.tabGraph,
+            cursorState: WorkspaceSQLiteStateBridge.localCursorStateForComposition(
+                persisted: localCursorState,
                 paneGraph: authoritativeSnapshot.paneGraph,
-                tabShells: authoritativeSnapshot.tabShells,
-                tabGraph: authoritativeSnapshot.tabGraph,
-                cursorState: WorkspaceSQLiteStateBridge.localCursorStateForComposition(
-                    persisted: localCursorState,
-                    paneGraph: authoritativeSnapshot.paneGraph,
-                    tabGraph: authoritativeSnapshot.tabGraph
-                ),
-                windowState: localWindowState
-            )
+                tabGraph: authoritativeSnapshot.tabGraph
+            ),
+            windowState: localWindowState
         )
+        let workspaceSnapshot = try WorkspaceSQLiteStateBridge.workspaceSnapshot(from: bridgeSnapshot)
         return WorkspaceCoreLoadSnapshot(
             workspace: workspaceSnapshot,
             repositoryTopology: WorkspaceSQLiteStateBridge.repositoryTopologySnapshot(
                 topology: authoritativeSnapshot.topology,
                 updatedAt: authoritativeSnapshot.workspace.updatedAt
+            ),
+            persistenceReasons: try WorkspaceSQLiteStateBridge.paneLocationRestoreReasons(
+                from: bridgeSnapshot
             )
         )
     }
