@@ -262,6 +262,9 @@ struct CustomTabBar: View {
                 adapter.availableWidth = newWidth
             }
         }
+        .onChange(of: adapter.outputPublicationRevision, initial: true) { _, _ in
+            adapter.visibleProjectionDidRender()
+        }
         .frame(maxHeight: .infinity, alignment: .center)
     }
 
@@ -846,7 +849,11 @@ struct TabBarEmptyState: View {
                 tabLayoutAtom: atomRegistry.core.workspaceTabLayout,
                 mutationCoordinator: atomRegistry.core.workspaceMutationCoordinator
             )
-            let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
+            let adapter = TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: atomRegistry.inboxNotification
+            )
 
             return VStack(spacing: 0) {
                 CustomTabBar(

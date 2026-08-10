@@ -153,8 +153,10 @@ package struct RepoExplorerView: View {
     }
 
     private var sidebarWorktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] {
-        let sidebarWorktreeIds = Set(sidebarRepos.flatMap(\.worktrees).map(\.id))
-        return repoCache.worktreeFactsSnapshot().filter { sidebarWorktreeIds.contains($0.key) }
+        Self.worktreeFactsByWorktreeId(
+            for: sidebarRepos.flatMap(\.worktrees).map(\.id),
+            repoCache: repoCache
+        )
     }
 
     package var body: some View {

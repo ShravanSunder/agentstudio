@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -61,12 +62,21 @@ package struct ZoomCompanionMetadata: Equatable, Sendable {
 @MainActor
 @Observable
 package final class WorkspacePanePresentationAtom {
-    package private(set) var zoomPresentationsByTabId: [UUID: ZoomPresentation] = [:]
+    @ObservationIgnored private let zoomPresentationFamily = AtomFamily<UUID, ZoomPresentation>(
+        telemetryLabel: "workspace_pane_presentation",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
     package private(set) var zoomCompanionsBySourcePaneId: [UUID: ZoomCompanionMetadata] = [:]
     private var zoomSplitRatiosBySourcePaneId: [UUID: Double] = [:]
 
+    package var zoomPresentationsByTabId: [UUID: ZoomPresentation] {
+        _ = acceptedCommitRevision.value
+        return zoomPresentationFamily.snapshot()
+    }
+
     package func zoomPresentation(forTab tabId: UUID) -> ZoomPresentation? {
-        zoomPresentationsByTabId[tabId]
+        zoomPresentationFamily.value(for: tabId)
     }
 
     package func zoomCompanion(forSourcePane sourcePaneId: UUID) -> ZoomCompanionMetadata? {
@@ -79,19 +89,22 @@ package final class WorkspacePanePresentationAtom {
         viewerPresentation: ZoomViewerPresentation,
         transientSplitRatio: Double? = nil
     ) {
-        zoomPresentationsByTabId[tabId] = ZoomPresentation(
-            sourcePaneId: sourcePaneId,
-            viewerPresentation: normalizedViewerPresentation(
-                viewerPresentation,
-                forSourcePane: sourcePaneId,
-                inTab: tabId
+        setZoomPresentation(
+            ZoomPresentation(
+                sourcePaneId: sourcePaneId,
+                viewerPresentation: normalizedViewerPresentation(
+                    viewerPresentation,
+                    forSourcePane: sourcePaneId,
+                    inTab: tabId
+                ),
+                transientSplitRatio: transientSplitRatio ?? zoomSplitRatiosBySourcePaneId[sourcePaneId]
             ),
-            transientSplitRatio: transientSplitRatio ?? zoomSplitRatiosBySourcePaneId[sourcePaneId]
+            forTab: tabId
         )
     }
 
     package func cancelZoom(inTab tabId: UUID) {
-        zoomPresentationsByTabId.removeValue(forKey: tabId)
+        removeZoomPresentation(forTab: tabId)
     }
 
     @discardableResult
@@ -102,12 +115,12 @@ package final class WorkspacePanePresentationAtom {
         guard splitRatio.isFinite,
             splitRatio > 0,
             splitRatio < 1,
-            var presentation = zoomPresentationsByTabId[tabId]
+            var presentation = zoomPresentationFamily.snapshotValue(for: tabId)
         else {
             return false
         }
         presentation.transientSplitRatio = splitRatio
-        zoomPresentationsByTabId[tabId] = presentation
+        setZoomPresentation(presentation, forTab: tabId)
         zoomSplitRatiosBySourcePaneId[presentation.sourcePaneId] = splitRatio
         return true
     }
@@ -118,7 +131,7 @@ package final class WorkspacePanePresentationAtom {
         to sourcePaneId: UUID,
         viewerPresentation: ZoomViewerPresentation
     ) -> Bool {
-        guard var presentation = zoomPresentationsByTabId[tabId] else {
+        guard var presentation = zoomPresentationFamily.snapshotValue(for: tabId) else {
             return false
         }
         presentation.sourcePaneId = sourcePaneId
@@ -128,7 +141,7 @@ package final class WorkspacePanePresentationAtom {
             inTab: tabId
         )
         presentation.transientSplitRatio = zoomSplitRatiosBySourcePaneId[sourcePaneId] ?? 0.5
-        zoomPresentationsByTabId[tabId] = presentation
+        setZoomPresentation(presentation, forTab: tabId)
         return true
     }
 
@@ -137,13 +150,13 @@ package final class WorkspacePanePresentationAtom {
         forSourcePane sourcePaneId: UUID
     ) {
         zoomCompanionsBySourcePaneId[sourcePaneId] = metadata
-        guard var presentation = zoomPresentationsByTabId[metadata.owningTabId],
+        guard var presentation = zoomPresentationFamily.snapshotValue(for: metadata.owningTabId),
             presentation.sourcePaneId == sourcePaneId
         else {
             return
         }
         presentation.viewerPresentation = retainedViewerPresentation(for: metadata)
-        zoomPresentationsByTabId[metadata.owningTabId] = presentation
+        setZoomPresentation(presentation, forTab: metadata.owningTabId)
     }
 
     @discardableResult
@@ -151,7 +164,7 @@ package final class WorkspacePanePresentationAtom {
         _ isVisible: Bool,
         forSourcePane sourcePaneId: UUID
     ) -> Bool {
-        if let (tabId, unavailablePresentation) = zoomPresentationsByTabId.first(
+        if let (tabId, unavailablePresentation) = zoomPresentationFamily.snapshot().first(
             where: { _, presentation in
                 presentation.sourcePaneId == sourcePaneId
                     && (presentation.viewerPresentation == .unavailable
@@ -160,12 +173,12 @@ package final class WorkspacePanePresentationAtom {
         ) {
             var presentation = unavailablePresentation
             presentation.viewerPresentation = isVisible ? .unavailableVisible : .unavailable
-            zoomPresentationsByTabId[tabId] = presentation
+            setZoomPresentation(presentation, forTab: tabId)
             return true
         }
 
         guard var companion = zoomCompanionsBySourcePaneId[sourcePaneId],
-            var presentation = zoomPresentationsByTabId[companion.owningTabId],
+            var presentation = zoomPresentationFamily.snapshotValue(for: companion.owningTabId),
             presentation.sourcePaneId == sourcePaneId,
             presentation.viewerPresentation.companionPaneId == companion.companionPaneId
         else {
@@ -179,7 +192,7 @@ package final class WorkspacePanePresentationAtom {
             presentation.viewerPresentation = .retainedHidden(companionPaneId: companion.companionPaneId)
             companion.lastZoomVisibility = .hidden
         }
-        zoomPresentationsByTabId[companion.owningTabId] = presentation
+        setZoomPresentation(presentation, forTab: companion.owningTabId)
         zoomCompanionsBySourcePaneId[sourcePaneId] = companion
         return true
     }
@@ -187,9 +200,12 @@ package final class WorkspacePanePresentationAtom {
     package func removeZoomSourcePane(_ sourcePaneId: UUID) {
         zoomCompanionsBySourcePaneId.removeValue(forKey: sourcePaneId)
         zoomSplitRatiosBySourcePaneId.removeValue(forKey: sourcePaneId)
-        zoomPresentationsByTabId = zoomPresentationsByTabId.filter {
+        let remainingPresentations = zoomPresentationFamily.snapshot().filter {
             $0.value.sourcePaneId != sourcePaneId
         }
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        zoomPresentationFamily.replaceAll(remainingPresentations, mutation: mutation)
+        mutation.commit()
     }
 
     package func reassociateZoomCompanion(
@@ -207,7 +223,8 @@ package final class WorkspacePanePresentationAtom {
         viewerWorktreeStillResolves: Bool
     ) {
         zoomCompanionsBySourcePaneId.removeValue(forKey: sourcePaneId)
-        for (tabId, var presentation) in zoomPresentationsByTabId
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        for (tabId, var presentation) in zoomPresentationFamily.snapshot()
         where presentation.sourcePaneId == sourcePaneId {
             if viewerWorktreeStillResolves {
                 presentation.viewerPresentation = .retryable
@@ -222,19 +239,22 @@ package final class WorkspacePanePresentationAtom {
                 presentation.viewerPresentation =
                     wasVisible ? .unavailableVisible : .unavailable
             }
-            zoomPresentationsByTabId[tabId] = presentation
+            zoomPresentationFamily.setValue(presentation, for: tabId, mutation: mutation)
         }
+        mutation.commit()
     }
 
     package func removeZoomTab(_ tabId: UUID) {
-        zoomPresentationsByTabId.removeValue(forKey: tabId)
+        removeZoomPresentation(forTab: tabId)
         zoomCompanionsBySourcePaneId = zoomCompanionsBySourcePaneId.filter {
             $0.value.owningTabId != tabId
         }
     }
 
     package func clearAllZoomRuntimeState() {
-        zoomPresentationsByTabId.removeAll()
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        zoomPresentationFamily.removeAll(mutation: mutation)
+        mutation.commit()
         zoomCompanionsBySourcePaneId.removeAll()
         zoomSplitRatiosBySourcePaneId.removeAll()
     }
@@ -266,5 +286,20 @@ package final class WorkspacePanePresentationAtom {
         case .visible:
             .retainedVisible(companionPaneId: metadata.companionPaneId)
         }
+    }
+
+    private func setZoomPresentation(
+        _ presentation: ZoomPresentation,
+        forTab tabId: UUID
+    ) {
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        zoomPresentationFamily.setValue(presentation, for: tabId, mutation: mutation)
+        mutation.commit()
+    }
+
+    private func removeZoomPresentation(forTab tabId: UUID) {
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        zoomPresentationFamily.removeValue(for: tabId, mutation: mutation)
+        mutation.commit()
     }
 }

@@ -129,7 +129,10 @@ func makePaneTabViewControllerCommandHarness(
         workspaceWindowId: workspaceWindowId,
         executor: executor,
         runtimeCommandDispatcher: coordinator,
-        tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
+        tabBarAdapter: makeCommandHarnessTabBarAdapter(
+            store: store,
+            inboxAtom: atomRegistry.inboxNotification
+        ),
         viewRegistry: viewRegistry,
         bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
         editorChooser: atomRegistry.editorChooser,
@@ -179,6 +182,18 @@ func makePaneTabViewControllerCommandHarness(
         arrangementPanelPresentation: arrangementPanelPresentation,
         paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
+    )
+}
+
+@MainActor
+private func makeCommandHarnessTabBarAdapter(
+    store: WorkspaceStore,
+    inboxAtom: InboxNotificationAtom
+) -> TabBarAdapter {
+    TabBarAdapter(
+        store: store,
+        repoCache: RepoCacheAtom(),
+        inboxAtom: inboxAtom
     )
 }
 

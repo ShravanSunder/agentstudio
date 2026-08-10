@@ -4,6 +4,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
@@ -182,7 +183,11 @@ struct DraggableTabBarWindowDragTests {
             tabLayoutAtom: atoms.core.workspaceTabLayout,
             mutationCoordinator: atoms.core.workspaceMutationCoordinator
         )
-        let adapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
+        let adapter = TabBarAdapter(
+            store: store,
+            repoCache: atoms.core.repoCache,
+            inboxAtom: InboxNotificationAtom()
+        )
         let tabBar = CustomTabBar(
             adapter: adapter,
             onSelect: { _ in },

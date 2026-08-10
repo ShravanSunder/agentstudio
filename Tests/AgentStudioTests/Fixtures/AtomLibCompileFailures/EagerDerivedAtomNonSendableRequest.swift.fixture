@@ -1,0 +1,12 @@
+private class EagerDerivedAtomNonSendableRequest {
+    var value = 0
+}
+
+@MainActor
+private func buildEagerDerivedAtomWithNonSendableRequest() {
+    _ = EagerDerivedAtom<EagerDerivedAtomNonSendableRequest, Int, Int>(
+        requestIdentity: { $0.value },
+        isValueEqual: ==,
+        project: { $0.value }
+    )
+}

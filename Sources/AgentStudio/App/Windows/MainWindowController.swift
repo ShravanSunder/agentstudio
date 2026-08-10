@@ -16,6 +16,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var inboxAtom: InboxNotificationAtom!
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
+    private var hasShutdown = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     private var workspaceWindowMemoryAtom: WorkspaceWindowMemoryAtom!
     private var windowId = UUID()
@@ -160,6 +161,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        shutdown()
         guard let window else { return }
         applicationLifecycleMonitor.handleWindowPresentationChanged(
             windowId,
@@ -167,6 +169,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             isMiniaturized: window.isMiniaturized,
             isOccluded: true
         )
+    }
+
+    func shutdown() {
+        guard !hasShutdown else { return }
+        hasShutdown = true
+        splitViewController?.shutdown()
     }
 
     func makePaneFocusAppControl(store: WorkspaceStore) -> (any PaneFocusAppControlling)? {

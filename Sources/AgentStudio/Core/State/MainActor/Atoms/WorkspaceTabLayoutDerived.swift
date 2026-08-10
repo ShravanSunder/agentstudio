@@ -12,7 +12,7 @@ package struct WorkspaceTabLayoutDerived {
         self.arrangementAtom = arrangementAtom
     }
 
-    static func assembleTab(shell: TabShell, arrangementState: TabArrangementState) -> Tab {
+    nonisolated static func assembleTab(shell: TabShell, arrangementState: TabArrangementState) -> Tab {
         Tab(
             id: shell.id,
             name: shell.name,

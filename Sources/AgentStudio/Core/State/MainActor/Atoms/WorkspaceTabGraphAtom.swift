@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -74,13 +75,22 @@ struct TabGraphState: Equatable, Hashable, Sendable {
 @MainActor
 @Observable
 package final class WorkspaceTabGraphAtom {
-    private(set) var tabStates: [TabGraphState] = []
+    @ObservationIgnored private let tabStateFamily = AtomFamily<UUID, TabGraphState>(
+        telemetryLabel: "workspace_tab_graph",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
+    private var tabOrder: [UUID] = []
     private var tabIndexByID: [UUID: Int] = [:]
     private var tabIDByPaneID: [UUID: UUID] = [:]
     private var tabIDByArrangementID: [UUID: UUID] = [:]
 
+    var tabStates: [TabGraphState] {
+        tabOrder.compactMap { tabStateFamily.value(for: $0) }
+    }
+
     var tabCount: Int {
-        tabStates.count
+        tabOrder.count
     }
 
     func containsTab(_ id: UUID) -> Bool {
@@ -94,14 +104,20 @@ package final class WorkspaceTabGraphAtom {
     func replaceTabStates(_ states: [TabGraphState]) {
         let indexes = Self.makeIndexes(states)
         guard tabStates != states else { return }
-        tabStates = states
+        let mutation = AtomMutationContext(aggregateRevision: acceptedCommitRevision)
+        tabStateFamily.replaceAll(
+            Dictionary(uniqueKeysWithValues: states.map { ($0.tabId, $0) }),
+            mutation: mutation
+        )
+        tabOrder = states.map(\.tabId)
         tabIndexByID = indexes.tabIndexByID
         tabIDByPaneID = indexes.tabIDByPaneID
         tabIDByArrangementID = indexes.tabIDByArrangementID
+        mutation.commit()
     }
 
     func tabState(_ tabId: UUID) -> TabGraphState? {
-        tabIndexByID[tabId].map { tabStates[$0] }
+        tabStateFamily.value(for: tabId)
     }
 
     func tabIndex(for tabID: UUID) -> Int? {

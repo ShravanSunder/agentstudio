@@ -1,6 +1,6 @@
 @MainActor
-final class DerivedValue<Value> {
-    let revision = AtomRevision()
+package final class DerivedAtom<Value> {
+    private let outputRevision = AtomRevision()
 
     private let inputRevisions: () -> [Int]
     private let isContentEqual: (Value, Value) -> Bool
@@ -8,7 +8,7 @@ final class DerivedValue<Value> {
     private var cachedInputRevisions: [Int]?
     private var cachedValue: Value?
 
-    init(
+    package init(
         inputRevisions: @escaping () -> [Int],
         isContentEqual: @escaping (Value, Value) -> Bool,
         compute: @escaping () -> Value
@@ -18,7 +18,7 @@ final class DerivedValue<Value> {
         self.compute = compute
     }
 
-    var value: Value {
+    package var value: Value {
         let currentInputRevisions = inputRevisions()
         if let cachedInputRevisions,
             cachedInputRevisions == currentInputRevisions,
@@ -38,7 +38,7 @@ final class DerivedValue<Value> {
         cachedValue = newValue
 
         if let previousValue, !isContentEqual(previousValue, newValue) {
-            revision.bump()
+            outputRevision.bump()
         }
 
         AtomPerformanceTelemetry.shared.recordDerived(
@@ -47,5 +47,10 @@ final class DerivedValue<Value> {
             cacheHit: false
         )
         return newValue
+    }
+
+    package var revision: Int {
+        _ = value
+        return outputRevision.value
     }
 }

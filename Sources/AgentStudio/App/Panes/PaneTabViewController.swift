@@ -113,6 +113,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private var hasShutdown = false
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let arrangementPanelPresentation: ArrangementPanelPresentationAtom
@@ -543,6 +544,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func shutdown() {
+        guard !hasShutdown else { return }
+        hasShutdown = true
+        tabBarAdapter.stop()
         pendingVisibleViewRestoreTask?.cancel()
         pendingVisibleViewRestoreTask = nil
         if let monitor = arrangementBarEventMonitor {
