@@ -55,7 +55,12 @@ describe('Bridge comm worker File metadata recovery', () => {
 				observedFailure.resolve();
 			},
 			productTransport: fileEpochTransport(),
-			subscribeFile: () => subscriptions[subscriptionCount++]!,
+			subscribeFile: () => {
+				const subscription = subscriptions[subscriptionCount];
+				if (subscription === undefined) throw new Error('Unexpected third File subscription.');
+				subscriptionCount += 1;
+				return subscription;
+			},
 		});
 
 		// Act
