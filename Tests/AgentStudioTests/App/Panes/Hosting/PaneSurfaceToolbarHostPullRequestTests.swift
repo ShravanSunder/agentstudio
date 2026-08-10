@@ -15,6 +15,18 @@ struct PaneSurfaceToolbarHostPullRequestTests {
         installTestAtomRegistryIfNeeded()
     }
 
+    @Test("Open PR uses the existing GitHub pull request octicon")
+    func openPullRequestUsesGitHubPullRequestOcticon() {
+        let icon = LocalActionSpec.openPullRequest.actionSpec.icon
+
+        guard case .octicon(let symbol) = icon else {
+            Issue.record("Open PR should use a GitHub octicon, got \(icon)")
+            return
+        }
+
+        #expect(symbol.rawValue == "octicon-git-pull-request")
+    }
+
     @Test("cached PR worktree mounts Open PR and opens its pulls URL")
     func cachedPullRequestMountsAndOpensPullsURL() throws {
         let fixture = try makeFixture(pullRequestCount: 1)
