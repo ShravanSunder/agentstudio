@@ -554,6 +554,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 productAdmission: productAdmission
             )
         else {
+            pendingReviewPackageBuildReasons.insert(.filesystemRefresh)
             return .succeeded
         }
         let currentPackage = currentPublication.package

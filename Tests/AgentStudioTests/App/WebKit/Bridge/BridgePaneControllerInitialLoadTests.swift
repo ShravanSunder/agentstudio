@@ -141,6 +141,21 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?.targetCatalog
                     == CanonicalContributionReviewSourceProvider.targetCatalog
             )
+            let comparisonPresentation = try #require(
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison
+            )
+            #expect(comparisonPresentation.activeTarget == .branch(name: "reviewer-selected"))
+            #expect(comparisonPresentation.attempt == .settled(reviewGeneration: package.reviewGeneration.rawValue))
+            #expect(
+                comparisonPresentation.displayedSnapshot
+                    == .current(
+                        BridgePaneReviewDisplayedSnapshotIdentity(
+                            packageId: package.packageId,
+                            reviewGeneration: package.reviewGeneration.rawValue,
+                            revision: package.revision
+                        )
+                    )
+            )
         }
 
         @Test("workspace review compare targets select git ref baseline against working tree")

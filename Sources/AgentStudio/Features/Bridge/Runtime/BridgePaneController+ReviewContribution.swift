@@ -86,6 +86,14 @@ extension BridgePaneController {
         switch mutationResult {
         case .applied(let canonicalState), .unchanged(let canonicalState):
             bridgePaneState = canonicalState
+            guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
+                let activeTarget = canonicalBaseline?.contributionTarget
+            else { return }
+            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
+                activeTarget: activeTarget,
+                reviewGeneration: reset.reviewGeneration.rawValue
+            )
+            _ = scheduleProductPresentationPublication()
         case .paneMissing, .notBridgePane, .notWorkspaceSource:
             break
         }

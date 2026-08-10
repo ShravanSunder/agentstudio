@@ -54,6 +54,52 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		);
 	});
 
+	test('describes the shared start and its relationship to the named default branch', async () => {
+		// Arrange
+		const reviewPackage = contributionPackage({
+			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			packageId: 'package-default-relationship',
+			resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+			revision: 4,
+			symbolicTarget: {
+				branchName: 'main',
+				kind: 'originDefaultBranch',
+				remoteName: 'origin',
+			},
+		});
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({
+					activeTarget: {
+						branchName: 'main',
+						kind: 'originDefaultBranch',
+						remoteName: 'origin',
+					},
+					displayedSnapshot: {
+						packageId: reviewPackage.packageId,
+						reviewGeneration: reviewPackage.reviewGeneration,
+						revision: reviewPackage.revision,
+						status: 'current',
+					},
+					targetCatalog: targetCatalog(),
+				})}
+				displayedReviewPackage={reviewPackage}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		await expect.element(rendered.getByText('Review starts from')).toBeVisible();
+		await expect
+			.element(rendered.getByText('Latest commit shared with default branch origin/main'))
+			.toBeVisible();
+	});
+
 	test('explains when a comparison target must be chosen', async () => {
 		// Arrange
 		const rendered = await render(
@@ -116,7 +162,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare: feature/new-target');
+			.toHaveTextContent('Compare: master · Updating');
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
 		await expect
 			.element(
@@ -491,6 +537,57 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			.toBeVisible();
 	});
 
+	test('preserves the movement predecessor across separate presentation and package delivery', async () => {
+		// Arrange
+		const predecessor = contributionPackage({
+			contributionBaseOID: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			packageId: 'package-separated-predecessor',
+			resolvedTargetOID: '1111111111111111111111111111111111111111',
+			revision: 22,
+		});
+		const successor = contributionPackage({
+			contributionBaseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			packageId: 'package-separated-successor',
+			resolvedTargetOID: '2222222222222222222222222222222222222222',
+			revision: 23,
+		});
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={currentPresentationForPackage(predecessor)}
+				displayedReviewPackage={predecessor}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Act — presentation can identify the successor before its package frame arrives.
+		await rendered.rerender(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={currentPresentationForPackage(successor)}
+				displayedReviewPackage={predecessor}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+		await rendered.rerender(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={currentPresentationForPackage(successor)}
+				displayedReviewPackage={successor}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		await expect.element(rendered.getByText('Comparison refreshed')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-target-movement'))
+			.toHaveTextContent(/111111111111.*222222222222/u);
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-shared-start-movement'))
+			.toHaveTextContent(/aaaaaaaaaaaa.*bbbbbbbbbbbb/u);
+	});
+
 	test.each([
 		{
 			label: 'repository changes',
@@ -762,6 +859,7 @@ function contributionPackage(props: {
 	readonly packageId: string;
 	readonly resolvedTargetOID: string;
 	readonly revision: number;
+	readonly symbolicTarget?: NonNullable<BridgeReviewPackage['comparisonOrigin']>['symbolicTarget'];
 }): BridgeReviewPackage {
 	return {
 		...makeBridgeReviewPackage(),
@@ -772,7 +870,10 @@ function contributionPackage(props: {
 			kind: 'contribution',
 			resolvedTargetOID: props.resolvedTargetOID,
 			reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
-			symbolicTarget: { branchName: 'master', kind: 'localDefaultBranch' },
+			symbolicTarget: props.symbolicTarget ?? {
+				branchName: 'master',
+				kind: 'localDefaultBranch',
+			},
 		},
 		packageId: props.packageId,
 		reviewedSubjectLabel: 'feature/annotations',

@@ -35,7 +35,6 @@ export function BridgeReviewComparisonControl(
 	useEffect((): void => {
 		const precedingPackage = precedingDisplayedPackageRef.current;
 		if (displayedReviewPackage === null) {
-			precedingDisplayedPackageRef.current = null;
 			setMovementSummary(null);
 			return;
 		}
@@ -56,15 +55,20 @@ export function BridgeReviewComparisonControl(
 	const label = closedComparisonLabel(props);
 	const narrowComparisonLabel = narrowComparisonLabelForPackage(props.displayedReviewPackage);
 	const activeTarget = props.comparisonPresentation?.activeTarget ?? null;
-	const activeTargetLabel = activeTarget === null ? '' : comparisonTargetLabel(activeTarget);
 	const displayedContribution = displayedContributionForComparison(props);
+	const describedTarget =
+		displayedContribution?.heading === 'Previous comparison'
+			? displayedContribution.origin.symbolicTarget
+			: activeTarget;
+	const describedTargetLabel =
+		describedTarget === null ? '' : comparisonTargetLabel(describedTarget);
 	const statePresentation = comparisonStatePresentation(props, displayedContribution);
 	const sharedHistoryDescription =
 		narrowComparisonLabel !== null
 			? narrowComparisonDescription(narrowComparisonLabel)
-			: activeTarget === null
+			: describedTarget === null
 				? 'Choose a local branch, remote-tracking branch, or Git reference for this review.'
-				: `Shows committed and uncommitted changes since this worktree's latest shared commit with ${activeTargetLabel}. Changes only on ${activeTargetLabel} are excluded.`;
+				: `Shows committed and uncommitted changes since this worktree's latest shared commit with ${describedTargetLabel}. Changes only on ${describedTargetLabel} are excluded.`;
 	const targetCatalog = props.comparisonPresentation?.targetCatalog ?? null;
 	const applyCommitOID = (event: FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
@@ -215,7 +219,7 @@ export function BridgeReviewComparisonControl(
 									value={displayedContribution.origin.resolvedTargetOID}
 								/>
 							</dd>
-							<dt className="text-[var(--bridge-text-muted)]">Shared starting point</dt>
+							<dt className="text-[var(--bridge-text-muted)]">Review starts from</dt>
 							<dd>
 								<ComparisonRevision
 									testId="bridge-review-comparison-shared-start-revision"
@@ -223,6 +227,12 @@ export function BridgeReviewComparisonControl(
 								/>
 							</dd>
 						</dl>
+						<p className="mt-1 text-[11px] text-[var(--bridge-text-muted)]">
+							{sharedStartRelationshipDescription(
+								displayedContribution.origin.symbolicTarget,
+								targetCatalog,
+							)}
+						</p>
 					</section>
 				)}
 				{movementSummary === null ? null : (
@@ -521,11 +531,53 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 	if (narrowComparisonLabel !== null) {
 		return narrowComparisonLabel;
 	}
+	const displayedSnapshot = props.comparisonPresentation?.displayedSnapshot;
+	const displayedContribution = displayedContributionForComparison(props);
+	if (displayedSnapshot?.status === 'stale' && displayedContribution !== null) {
+		const displayedTargetLabel = comparisonTargetLabel(displayedContribution.origin.symbolicTarget);
+		return props.comparisonPresentation?.attempt.status === 'pending'
+			? `Compare: ${displayedTargetLabel} · Updating`
+			: `Compare: ${displayedTargetLabel} · Stale`;
+	}
 	const activeTarget = props.comparisonPresentation?.activeTarget;
 	if (activeTarget === undefined || activeTarget === null) {
 		return 'Choose target';
 	}
 	return `Compare: ${comparisonTargetLabel(activeTarget)}`;
+}
+
+type ReviewComparisonTargetCatalog = NonNullable<
+	NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>['targetCatalog']
+>;
+
+function sharedStartRelationshipDescription(
+	target: ReviewComparisonTarget,
+	targetCatalog: ReviewComparisonTargetCatalog | null,
+): string {
+	const targetLabel = comparisonTargetLabel(target);
+	return targetCatalog !== null && targetMatchesCatalogDefault(target, targetCatalog.defaultTarget)
+		? `Latest commit shared with default branch ${targetLabel}`
+		: `Latest commit shared with ${targetLabel}`;
+}
+
+function targetMatchesCatalogDefault(
+	target: ReviewComparisonTarget,
+	defaultTarget: ReviewComparisonTargetCatalog['defaultTarget'],
+): boolean {
+	if (defaultTarget === null) {
+		return false;
+	}
+	if (defaultTarget.kind === 'local') {
+		return (
+			(target.kind === 'localDefaultBranch' && target.branchName === defaultTarget.branchName) ||
+			(target.kind === 'branch' && target.name === defaultTarget.branchName)
+		);
+	}
+	return (
+		target.kind === 'originDefaultBranch' &&
+		target.remoteName === defaultTarget.remoteName &&
+		target.branchName === defaultTarget.branchName
+	);
 }
 
 function narrowComparisonLabelForPackage(
