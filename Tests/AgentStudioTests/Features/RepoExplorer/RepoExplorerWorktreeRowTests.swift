@@ -63,16 +63,18 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains(".help(favoriteActionSpec.helpText)"))
     }
 
-    @Test("context menu groups creation actions by destination")
+    @Test("context menu exposes creation destinations at the top level")
     func contextMenuGroupsCreationActionsByDestination() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
         )
 
-        #expect(source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
-        #expect(source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
-        #expect(source.contains("LocalActionSpec.createNew.actionSpec"))
+        #expect(source.contains("LocalActionSpec.createNewInPane.actionSpec"))
+        #expect(source.contains("LocalActionSpec.createNewInTab.actionSpec"))
+        #expect(!source.contains("LocalActionSpec.createNew.actionSpec"))
+        #expect(!source.contains("LocalActionSpec.openInCurrentTabMenu.actionSpec"))
+        #expect(!source.contains("LocalActionSpec.openInNewTabMenu.actionSpec"))
         #expect(source.contains("LocalActionSpec.goToPane.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openWorktreeInPane)"))
@@ -82,9 +84,15 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
         #expect(!source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
         #expect(!source.contains("contextMenuCommand(.openWorktree)"))
-        let createNewOffset = try #require(source.range(of: "LocalActionSpec.createNew.actionSpec")?.lowerBound)
+        let createNewInPaneOffset = try #require(
+            source.range(of: "LocalActionSpec.createNewInPane.actionSpec")?.lowerBound
+        )
+        let createNewInTabOffset = try #require(
+            source.range(of: "LocalActionSpec.createNewInTab.actionSpec")?.lowerBound
+        )
         let goToPaneOffset = try #require(source.range(of: "LocalActionSpec.goToPane.actionSpec")?.lowerBound)
-        #expect(createNewOffset < goToPaneOffset)
+        #expect(createNewInTabOffset < createNewInPaneOffset)
+        #expect(createNewInPaneOffset < goToPaneOffset)
     }
 
     @Test("repository header menu contains only pane navigation and path actions")

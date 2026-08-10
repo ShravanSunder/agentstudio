@@ -84,6 +84,13 @@ struct GitHubWebviewLaunchResolverTests {
         let url = GitHubWebviewLaunchResolver.urlForActivePane(store: store, repoCache: cache)
 
         #expect(url == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls"))
+        #expect(
+            GitHubWebviewLaunchResolver.pullRequestsURL(
+                for: pane.id,
+                store: store,
+                repoCache: cache
+            ) == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")
+        )
     }
 
     @Test

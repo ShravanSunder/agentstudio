@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioEditorChooser
 import AgentStudioInfrastructure
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -69,6 +70,7 @@ struct PaneSurfaceToolbarHost: View {
     let leadingToolbarActions: [PaneSurfaceToolbarAction]
     let contextToolbarActions: [PaneSurfaceToolbarAction]
     let store: WorkspaceStore
+    let repoCache: RepoCacheAtom
     let octiconLoader: OcticonLoader
     let editorChooser: EditorChooserState
     let paneInboxPresentation: PaneInboxPresentation?
@@ -97,6 +99,7 @@ struct PaneSurfaceToolbarHost: View {
             paneId: locationTargetPaneId,
             store: store
         )
+        let openPullRequestAction = makeOpenPullRequestAction(for: locationTargetPaneId)
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
             paneId: locationTargetPaneId,
@@ -108,7 +111,8 @@ struct PaneSurfaceToolbarHost: View {
             onOpenEditor: { editorId in
                 guard let targetPath = locationContext.targetPath else { return }
                 _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
-            }
+            },
+            openPullRequestAction: openPullRequestAction
         )
         let paneInboxScope = PaneInboxScopeResolver.resolve(
             anchorPaneId: anchorPaneId,
@@ -161,5 +165,34 @@ struct PaneSurfaceToolbarHost: View {
             paneInboxPresentation?.setPresented(scope.parentPaneId, scope.paneIds, false)
         }
         paneInboxPresentation?.clearRequest(request)
+    }
+
+    private func makeOpenPullRequestAction(for paneId: UUID) -> PaneSurfaceToolbarAction? {
+        guard
+            let url = GitHubWebviewLaunchResolver.pullRequestsURL(
+                for: paneId,
+                store: store,
+                repoCache: repoCache
+            )
+        else {
+            return nil
+        }
+
+        let actionSpec = LocalActionSpec.openPullRequest.actionSpec
+        return PaneSurfaceToolbarAction(
+            state: PaneSurfaceToolbarAction.State(
+                label: actionSpec.label,
+                accessibilityIdentifier: "paneSurfaceToolbar.pullRequest",
+                icon: actionSpec.icon,
+                tooltip: actionSpec.controlTooltipRenderValue(
+                    provenance: .localAction(rawValue: "openPullRequest")
+                ),
+                isEnabled: true,
+                isSelected: false
+            ),
+            perform: {
+                _ = NSWorkspace.shared.open(url)
+            }
+        )
     }
 }

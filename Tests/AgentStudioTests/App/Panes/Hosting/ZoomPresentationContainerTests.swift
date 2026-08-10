@@ -227,6 +227,7 @@ struct ZoomPresentationContainerTests {
                         leadingToolbarActions: [],
                         contextToolbarActions: [],
                         store: harness.store,
+                        repoCache: harness.atomRegistry.core.repoCache,
                         octiconLoader: makeTestOcticonLoader(),
                         editorChooser: harness.atomRegistry.editorChooser,
                         paneInboxPresentation: nil,

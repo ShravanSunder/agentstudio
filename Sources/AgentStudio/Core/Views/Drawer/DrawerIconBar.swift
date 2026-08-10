@@ -208,6 +208,16 @@ struct DrawerIconBar: View {
                         if let trailingActions {
                             HStack(spacing: 0) {
                                 HStack(spacing: 0) {
+                                    if let openPullRequestAction = trailingActions.openPullRequestAction {
+                                        paneSurfaceActionButton(openPullRequestAction)
+
+                                        if !paneContextActions.isEmpty || hasPrimaryTrailingActions(trailingActions)
+                                            || trailingActions.showPaneInboxAction != nil
+                                        {
+                                            trailingActionDivider
+                                        }
+                                    }
+
                                     if !paneContextActions.isEmpty {
                                         HStack(spacing: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing) {
                                             ForEach(Array(paneContextActions.enumerated()), id: \.offset) { _, action in
@@ -379,6 +389,7 @@ struct DrawerIconBar: View {
                                     if let showPaneInboxAction = trailingActions.showPaneInboxAction {
                                         if !paneContextActions.isEmpty
                                             || hasPrimaryTrailingActions(trailingActions)
+                                            || trailingActions.openPullRequestAction != nil
                                         {
                                             trailingActionDivider
                                         }
@@ -529,7 +540,11 @@ struct DrawerIconBar: View {
                 textOverride: "Open pane inbox"
             )
         case .paneSurfaceAction(let accessibilityIdentifier):
-            return (paneSurfaceActions + paneContextActions).first {
+            var surfaceActions = paneSurfaceActions + paneContextActions
+            if let openPullRequestAction = trailingActions?.openPullRequestAction {
+                surfaceActions.append(openPullRequestAction)
+            }
+            return surfaceActions.first {
                 $0.state.accessibilityIdentifier == accessibilityIdentifier
             }?.state.tooltip
         }
