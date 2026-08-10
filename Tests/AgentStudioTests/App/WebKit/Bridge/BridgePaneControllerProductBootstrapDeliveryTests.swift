@@ -27,7 +27,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        baseline: .ref(name: "HEAD~1"))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewFixture.sourceProvider,
@@ -578,7 +578,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "Sources",
-                        baseline: .ref(name: "HEAD~1"))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
