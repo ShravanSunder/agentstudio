@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactElement }
 
 import { Button } from '../components/ui/button.js';
 import { Input } from '../components/ui/input.js';
-import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover.js';
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '../components/ui/popover.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -29,6 +29,8 @@ export function BridgeReviewComparisonControl(
 	const [open, setOpen] = useState(false);
 	const [selectionMode, setSelectionMode] = useState<'branch' | 'commit'>('branch');
 	const [validationMessage, setValidationMessage] = useState<string | null>(null);
+	const branchSearchInputRef = useRef<HTMLInputElement>(null);
+	const commitInputRef = useRef<HTMLInputElement>(null);
 	const displayedReviewPackage = displayedReviewPackageForComparison(props);
 	const precedingDisplayedPackageRef = useRef<BridgeReviewPackage | null>(null);
 	const [movementSummary, setMovementSummary] = useState<ComparisonMovementSummary | null>(null);
@@ -63,6 +65,8 @@ export function BridgeReviewComparisonControl(
 	const describedTargetLabel =
 		describedTarget === null ? '' : comparisonTargetLabel(describedTarget);
 	const statePresentation = comparisonStatePresentation(props, displayedContribution);
+	const hasComparisonDetails =
+		statePresentation !== null || displayedContribution !== null || movementSummary !== null;
 	const sharedHistoryDescription =
 		narrowComparisonLabel !== null
 			? narrowComparisonDescription(narrowComparisonLabel)
@@ -107,7 +111,6 @@ export function BridgeReviewComparisonControl(
 				setOpen(nextOpen);
 				if (nextOpen) {
 					setCommitOID('');
-					setSelectionMode('branch');
 					setValidationMessage(null);
 				}
 			}}
@@ -132,13 +135,16 @@ export function BridgeReviewComparisonControl(
 				align="end"
 				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-96 gap-3')}
 				data-testid="bridge-review-comparison-content"
+				initialFocus={(): HTMLElement | null =>
+					selectionMode === 'branch' ? branchSearchInputRef.current : commitInputRef.current
+				}
 				sideOffset={6}
 			>
-				<header className="flex items-center justify-between gap-3">
-					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
+				<header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-1 pt-0.5">
+					<PopoverTitle className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
 						Compare Worktree
-					</p>
-					<ToggleGroup aria-label="Comparison target kind" size="sm">
+					</PopoverTitle>
+					<ToggleGroup aria-label="Comparison target kind" role="group" size="sm">
 						<ToggleGroupItem
 							onClick={(): void => {
 								setSelectionMode('branch');
@@ -158,6 +164,9 @@ export function BridgeReviewComparisonControl(
 							Commit
 						</ToggleGroupItem>
 					</ToggleGroup>
+					<p className="col-span-2 text-[11px] text-[var(--bridge-text-muted)]">
+						{sharedHistoryDescription}
+					</p>
 				</header>
 				{selectionMode === 'branch' ? (
 					<BridgeReviewComparisonBranchSelector
@@ -166,19 +175,22 @@ export function BridgeReviewComparisonControl(
 							props.onApplyTarget(target);
 							setOpen(false);
 						}}
+						searchInputRef={branchSearchInputRef}
 						targetCatalog={targetCatalog}
 					/>
 				) : (
-					<form className="flex items-start gap-2" onSubmit={applyCommitOID}>
-						<div className="min-w-0 flex-1">
+					<form className="flex flex-col gap-2" onSubmit={applyCommitOID}>
+						<div className="min-w-0">
 							<label className="sr-only" htmlFor={`${descriptionId}-commit-input`}>
 								Commit hash
 							</label>
 							<Input
 								aria-invalid={validationMessage === null ? undefined : true}
+								className="font-mono"
 								id={`${descriptionId}-commit-input`}
 								onChange={(event): void => setCommitOID(event.currentTarget.value)}
 								placeholder="Enter a full commit hash…"
+								ref={commitInputRef}
 								value={commitOID}
 							/>
 							{validationMessage === null ? null : (
@@ -187,14 +199,17 @@ export function BridgeReviewComparisonControl(
 								</p>
 							)}
 						</div>
-						<Button size="sm" type="submit">
+						<Button className="self-end" size="sm" type="submit">
 							Compare to this commit
 						</Button>
 					</form>
 				)}
+				{hasComparisonDetails ? (
+					<div aria-hidden="true" className="-mx-2 h-px bg-[var(--bridge-border-subtle)]" />
+				) : null}
 				{statePresentation === null ? null : (
 					<section aria-live="polite">
-						<p className="text-[11px] font-medium text-[var(--bridge-text-secondary)]">
+						<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
 							{statePresentation.heading}
 						</p>
 						<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
@@ -222,14 +237,14 @@ export function BridgeReviewComparisonControl(
 				)}
 				{displayedContribution === null ? null : (
 					<section aria-label={displayedContribution.heading}>
-						<p className="text-[11px] font-medium text-[var(--bridge-text-secondary)]">
+						<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
 							{displayedContribution.heading}
 						</p>
-						<dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-[11px]">
+						<dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
 							<dt className="text-[var(--bridge-text-muted)]">Target</dt>
 							<dd>
 								<span className="mr-1 text-[var(--bridge-text-secondary)]">
-									{comparisonTargetLabel(displayedContribution.origin.symbolicTarget)} at
+									{comparisonTargetLabel(displayedContribution.origin.symbolicTarget)} @
 								</span>
 								<ComparisonRevision
 									testId="bridge-review-comparison-target-revision"
@@ -265,10 +280,10 @@ function ComparisonMovementSummaryView(props: {
 }): ReactElement {
 	return (
 		<section aria-label="Comparison refreshed">
-			<p className="text-[11px] font-medium text-[var(--bridge-text-secondary)]">
+			<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
 				Comparison refreshed
 			</p>
-			<dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 text-[11px]">
+			<dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
 				{props.summary.targetMovement === null ? null : (
 					<>
 						<dt className="text-[var(--bridge-text-muted)]">

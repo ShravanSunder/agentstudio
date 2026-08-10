@@ -1,5 +1,5 @@
 import { CheckIcon } from 'lucide-react';
-import { useState, type ReactElement } from 'react';
+import { useState, type ReactElement, type RefObject } from 'react';
 
 import {
 	Combobox,
@@ -24,6 +24,7 @@ type ReviewComparisonBranchTarget = ReviewComparisonTargetCatalog['branches'][nu
 export function BridgeReviewComparisonBranchSelector(props: {
 	readonly activeTarget: ReviewComparisonTarget | null;
 	readonly onSelectTarget: (target: BridgeWorkerReviewComparisonUpdateCommand['target']) => void;
+	readonly searchInputRef: RefObject<HTMLInputElement | null>;
 	readonly targetCatalog: ReviewComparisonTargetCatalog | null;
 }): ReactElement {
 	const [search, setSearch] = useState('');
@@ -49,7 +50,11 @@ export function BridgeReviewComparisonBranchSelector(props: {
 			open={true}
 			value={selectedBranch}
 		>
-			<ComboboxInput aria-label="Search branches" placeholder="Search branches…" />
+			<ComboboxInput
+				aria-label="Search branches"
+				placeholder="Search branches…"
+				ref={props.searchInputRef}
+			/>
 			<ComboboxList>
 				{branches.map((branch, index) => (
 					<ComboboxItem
