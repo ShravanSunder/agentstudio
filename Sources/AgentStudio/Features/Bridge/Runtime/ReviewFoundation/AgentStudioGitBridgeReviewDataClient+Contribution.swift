@@ -82,9 +82,9 @@ extension AgentStudioGitBridgeReviewDataClient {
     ) -> GitRevisionTarget {
         switch target {
         case .localDefaultBranch(let branchName), .branch(let branchName):
-            .named(branchName)
+            .named("refs/heads/\(branchName)")
         case .originDefaultBranch(let remoteName, let branchName):
-            .named("\(remoteName)/\(branchName)")
+            .named("refs/remotes/\(remoteName)/\(branchName)")
         case .commit(let oid):
             .named(oid)
         case .ref(let name):

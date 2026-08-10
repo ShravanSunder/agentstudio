@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioGit
 import Foundation
 import Testing
@@ -100,10 +101,51 @@ extension BridgeGitReviewSourceProviderTests {
         #expect(headResult.data == Data(fixture.workingContent.utf8))
         #expect(
             await fixture.gitClient.recordedContributionDiffRequests() == [
-                GitContributionDiffRequest(repositoryPath: fixture.repositoryPath, target: .named("integration"))
+                GitContributionDiffRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .named("refs/heads/integration")
+                )
             ]
         )
         #expect(await fixture.gitClient.recordedDiffRequests().isEmpty)
+    }
+
+    @Test("AgentStudioGit adapter qualifies moving contribution branch refs")
+    func agentStudioGitAdapterQualifiesMovingContributionBranchRefs() async throws {
+        let fixture = makeContributionAdapterFixture()
+        let requests = [
+            WorkspaceReviewContributionTarget.localDefaultBranch(branchName: "integration"),
+            .branch(name: "stack/base"),
+            .originDefaultBranch(remoteName: "upstream", branchName: "integration"),
+        ]
+
+        for target in requests {
+            _ = try await fixture.provider.captureContributionComparison(
+                BridgeContributionComparisonRequest(
+                    symbolicTarget: target,
+                    baseEndpoint: fixture.baseEndpoint,
+                    headEndpoint: fixture.headEndpoint,
+                    reviewGenerationValue: 12
+                )
+            )
+        }
+
+        #expect(
+            await fixture.gitClient.recordedContributionDiffRequests() == [
+                GitContributionDiffRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .named("refs/heads/integration")
+                ),
+                GitContributionDiffRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .named("refs/heads/stack/base")
+                ),
+                GitContributionDiffRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .named("refs/remotes/upstream/integration")
+                ),
+            ]
+        )
     }
 
     @Test("AgentStudioGit adapter preserves an exact commit target as a commit revision")

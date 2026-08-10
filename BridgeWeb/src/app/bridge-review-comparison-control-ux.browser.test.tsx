@@ -73,6 +73,60 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		expect(popupText).not.toContain('Shows committed and uncommitted changes');
 	});
 
+	test('keeps unavailable requested target distinct from stale predecessor snapshot', async () => {
+		// Arrange
+		const baseReviewPackage = makeBridgeReviewPackage();
+		const stalePackage: BridgeReviewPackage = {
+			...baseReviewPackage,
+			comparisonOrigin: {
+				baseRole: 'contributionBase',
+				comparedRole: 'capturedWorkingTree',
+				contributionBaseOID: 'a'.repeat(40),
+				kind: 'contribution',
+				resolvedTargetOID: '1'.repeat(40),
+				reviewedHeadOID: 'h'.repeat(40),
+				symbolicTarget: { branchName: 'master', kind: 'localDefaultBranch' },
+			},
+			packageId: 'package-unavailable-predecessor',
+			revision: 5,
+		};
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={{
+					activeTarget: { kind: 'branch', name: 'release/next' },
+					attempt: {
+						failureKind: 'targetNotFound',
+						retryable: true,
+						status: 'unavailable',
+					},
+					displayedSnapshot: {
+						packageId: stalePackage.packageId,
+						reviewGeneration: stalePackage.reviewGeneration,
+						revision: stalePackage.revision,
+						status: 'stale',
+					},
+					targetCatalog: null,
+				}}
+				displayedReviewPackage={stalePackage}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveTextContent('Compare: release/next · Unavailable');
+		await expect.element(rendered.getByText('Previous comparison', { exact: true })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
+			.toHaveTextContent('111111111111');
+	});
+
 	test('focuses branch search when the comparison popover opens', async () => {
 		// Arrange
 		const rendered = await renderComparisonTargetPicker();
