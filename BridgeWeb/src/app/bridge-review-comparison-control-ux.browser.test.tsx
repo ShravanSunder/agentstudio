@@ -73,7 +73,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		expect(popupText).not.toContain('Shows committed and uncommitted changes');
 	});
 
-	test('keeps unavailable requested target distinct from stale predecessor snapshot', async () => {
+	test('keeps stale predecessor target labeled during an unavailable request', async () => {
 		// Arrange
 		const baseReviewPackage = makeBridgeReviewPackage();
 		const stalePackage: BridgeReviewPackage = {
@@ -120,7 +120,15 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare: release/next · Unavailable');
+			.toHaveTextContent('Compare: master · Unavailable');
+		await expect.element(rendered.getByText('Comparison unavailable')).toBeVisible();
+		await expect
+			.element(
+				rendered.getByText(
+					'The selected target could not be refreshed. The previous comparison remains visible.',
+				),
+			)
+			.toBeVisible();
 		await expect.element(rendered.getByText('Previous comparison', { exact: true })).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))

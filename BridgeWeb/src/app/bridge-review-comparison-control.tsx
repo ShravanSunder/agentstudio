@@ -596,17 +596,14 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 	}
 	const displayedContribution = displayedContributionForComparison(props);
 	if (displayedContribution?.heading === 'Previous comparison') {
-		const activeTarget = props.comparisonPresentation?.activeTarget;
-		const targetLabel = comparisonTargetLabel(
-			activeTarget ?? displayedContribution.origin.symbolicTarget,
-		);
+		const displayedTargetLabel = comparisonTargetLabel(displayedContribution.origin.symbolicTarget);
 		const attemptStatus = props.comparisonPresentation?.attempt.status;
 		return attemptStatus === 'pending' ||
 			(attemptStatus === 'settled' && isDisplayedPackageAwaitingPresentationDelivery(props))
-			? `Compare: ${targetLabel} · Updating`
+			? `Compare: ${displayedTargetLabel} · Updating`
 			: attemptStatus === 'unavailable'
-				? `Compare: ${targetLabel} · Unavailable`
-				: `Compare: ${targetLabel} · Stale`;
+				? `Compare: ${displayedTargetLabel} · Unavailable`
+				: `Compare: ${displayedTargetLabel} · Stale`;
 	}
 	const activeTarget = props.comparisonPresentation?.activeTarget;
 	if (activeTarget === undefined || activeTarget === null) {
