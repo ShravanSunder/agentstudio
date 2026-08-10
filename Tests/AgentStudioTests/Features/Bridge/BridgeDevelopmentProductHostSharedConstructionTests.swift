@@ -8,8 +8,8 @@ import Testing
 
 @Suite("Bridge development product host shared construction")
 struct BridgeDevHostSharedConstructionTests {
-    @Test("committed comparison update captures and publishes a fresh generation before completion")
-    func committedComparisonUpdatePublishesFreshGenerationBeforeCompletion() async throws {
+    @Test("committed comparison update acknowledges before its publication is delivered")
+    func committedComparisonUpdateAcknowledgesBeforePublicationDelivery() async throws {
         // Arrange
         let repositoryURL = try FilesystemTestGitRepo.create(
             named: "bridge-development-product-host-comparison-update"
@@ -46,6 +46,7 @@ struct BridgeDevHostSharedConstructionTests {
                 await completionRecorder.recordCompletion()
             }
             await comparisonGate.waitForStartedComparisonCount(1)
+            await completionRecorder.waitForCompletion()
 
             // Act
             let pendingPresentation = await host.diagnosticPanePresentation()
@@ -58,7 +59,7 @@ struct BridgeDevHostSharedConstructionTests {
             }
 
             // Assert
-            #expect(await completionRecorder.isComplete == false)
+            #expect(await completionRecorder.isComplete)
             #expect(canonicalTarget == updatedTarget)
             #expect(pendingPresentation.reviewComparison?.activeTarget == updatedTarget)
             #expect(pendingPresentation.reviewComparison?.attempt == .pending(reviewGeneration: 2))
@@ -69,6 +70,8 @@ struct BridgeDevHostSharedConstructionTests {
 
             await comparisonGate.releaseAll()
             await update.value
+            let reviewComparisonTask = await host.activeReviewComparisonTask
+            await reviewComparisonTask?.value
 
             let settledPresentation = await host.diagnosticPanePresentation()
             let activePublication = await host.diagnosticCommittedReviewPublication()
@@ -91,6 +94,100 @@ struct BridgeDevHostSharedConstructionTests {
             #expect(providerSnapshot.contributionTargets == [.ref(name: "HEAD"), updatedTarget])
             #expect(providerSnapshot.reviewGenerationValues == [1, 2])
         }
+    }
+
+    @Test("a newer comparison update supersedes the host-owned publication task")
+    func newerComparisonUpdateSupersedesPublicationTask() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-comparison-supersede"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let comparisonGate = BridgeComparisonGate()
+            await provider.setComparisonGate(comparisonGate)
+            let productAdmission = await host.productAdmission
+            let supersededTarget = WorkspaceReviewContributionTarget.branch(name: "stack/first")
+            let currentTarget = WorkspaceReviewContributionTarget.branch(name: "stack/second")
+
+            // Act
+            await host.applyCommittedReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(target: supersededTarget),
+                productAdmission: productAdmission
+            )
+            await comparisonGate.waitForStartedComparisonCount(1)
+            await host.applyCommittedReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(target: currentTarget),
+                productAdmission: productAdmission
+            )
+            await comparisonGate.waitForStartedComparisonCount(2)
+            await comparisonGate.releaseAll()
+            let reviewComparisonTask = await host.activeReviewComparisonTask
+            await reviewComparisonTask?.value
+
+            // Assert
+            let settledPresentation = await host.diagnosticPanePresentation()
+            let activePublication = await host.diagnosticCommittedReviewPublication()
+            #expect(settledPresentation.reviewComparison?.activeTarget == currentTarget)
+            #expect(settledPresentation.reviewComparison?.attempt == .settled(reviewGeneration: 3))
+            #expect(activePublication?.package.reviewGeneration == 3)
+            #expect(
+                await provider.snapshot().contributionTargets
+                    == [.ref(name: "HEAD"), supersededTarget, currentTarget]
+            )
+        }
+    }
+
+    @Test("shutdown cancels and drains the host-owned comparison publication task")
+    func shutdownCancelsAndDrainsComparisonPublicationTask() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-comparison-shutdown"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider()
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+        let comparisonGate = BridgeComparisonGate()
+        await provider.setComparisonGate(comparisonGate)
+        let productAdmission = await host.productAdmission
+        await host.applyCommittedReviewComparisonUpdate(
+            BridgeProductReviewComparisonUpdateRequest(target: .branch(name: "stack/base")),
+            productAdmission: productAdmission
+        )
+        await comparisonGate.waitForStartedComparisonCount(1)
+
+        // Act
+        let shutdown = Task { await host.shutdown() }
+        for _ in 0..<100 where !(await host.isShutdown) {
+            await Task.yield()
+        }
+        let shutdownStarted = await host.isShutdown
+        await comparisonGate.releaseAll()
+        await shutdown.value
+
+        // Assert
+        #expect(shutdownStarted)
+        #expect(
+            await host.diagnosticPanePresentation().reviewComparison?.attempt
+                == .unavailable(failureKind: "publication_failed", retryable: true)
+        )
+        #expect(await host.activeReviewComparisonTask == nil)
     }
 
     @Test("initial Review bootstrap settles presentation for the restored symbolic target")
@@ -230,9 +327,22 @@ private struct BridgeDevSharedReviewProviderSnapshot: Sendable {
 
 private actor BridgeComparisonUpdateCompletionRecorder {
     private(set) var isComplete = false
+    private var completionWaiters: [CheckedContinuation<Void, Never>] = []
 
     func recordCompletion() {
         isComplete = true
+        let waiters = completionWaiters
+        completionWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    func waitForCompletion() async {
+        guard !isComplete else { return }
+        await withCheckedContinuation { continuation in
+            completionWaiters.append(continuation)
+        }
     }
 }
 

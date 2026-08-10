@@ -27,6 +27,8 @@ package actor BridgeDevelopmentProductHost {
     let contributionTargetCommit:
         @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult
     private let committedCallTarget: BridgeDevelopmentProductCommittedCallTarget
+    var activeReviewComparisonTask: Task<Void, Never>?
+    var activeReviewComparisonTaskGeneration: BridgeReviewGeneration?
     private var bootstrapTransitionTail: Task<Void, Never>?
     private let gitReadScheduler: BridgeGitReadScheduler
     private var navigationBindingRevision = 0
@@ -244,6 +246,11 @@ package actor BridgeDevelopmentProductHost {
         let transitionTail = bootstrapTransitionTail
         await transitionTail?.value
         bootstrapTransitionTail = nil
+        let reviewComparisonTask = activeReviewComparisonTask
+        reviewComparisonTask?.cancel()
+        await reviewComparisonTask?.value
+        activeReviewComparisonTask = nil
+        activeReviewComparisonTaskGeneration = nil
         await MainActor.run {
             refreshAdmissionCoordinator.close()
             productAdmissionGate.close()

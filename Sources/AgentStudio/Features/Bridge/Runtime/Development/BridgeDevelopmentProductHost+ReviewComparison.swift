@@ -39,22 +39,49 @@ extension BridgeDevelopmentProductHost {
         paneState = canonicalState
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
-        let foregroundWorkAdmission = await MainActor.run {
+        activeReviewComparisonTask?.cancel()
+        await MainActor.run {
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
                 activeTarget: request.target,
                 reviewGeneration: reviewGeneration.rawValue
             )
-            return refreshAdmissionCoordinator.acquireForegroundWork()
         }
         await publishCurrentPanePresentation()
-        guard let foregroundWorkAdmission else {
+        guard !isShutdown, productAdmission.withValidAdmission({ true }) == true else { return }
+
+        activeReviewComparisonTaskGeneration = reviewGeneration
+        activeReviewComparisonTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runReviewComparisonPublication(
+                target: request.target,
+                reviewGeneration: reviewGeneration,
+                productAdmission: productAdmission
+            )
+            await self.clearReviewComparisonTask(reviewGeneration: reviewGeneration)
+        }
+    }
+
+    private func runReviewComparisonPublication(
+        target: WorkspaceReviewContributionTarget,
+        reviewGeneration: BridgeReviewGeneration,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard !Task.isCancelled else {
+            await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
+            return
+        }
+        guard
+            let foregroundWorkAdmission = await MainActor.run(body: {
+                refreshAdmissionCoordinator.acquireForegroundWork()
+            })
+        else {
             await failReviewComparisonAttempt(reviewGeneration, failureKind: "foreground_unavailable")
             return
         }
 
         do {
             let preparedPublication = try await constructReviewPublication(
-                target: request.target,
+                target: target,
                 reviewGeneration: reviewGeneration
             )
             try await publishPreparedReviewComparison(
@@ -67,11 +94,21 @@ extension BridgeDevelopmentProductHost {
         }
     }
 
+    private func clearReviewComparisonTask(reviewGeneration: BridgeReviewGeneration) {
+        guard activeReviewComparisonTaskGeneration == reviewGeneration else { return }
+        activeReviewComparisonTask = nil
+        activeReviewComparisonTaskGeneration = nil
+    }
+
     private func publishPreparedReviewComparison(
         _ preparedPublication: BridgeReviewPreparedPublication,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
+        if Task.isCancelled {
+            await preparedPublication.artifactPin?.releaseAndWait()
+            throw CancellationError()
+        }
         guard productAdmission.withValidAdmission({ true }) == true,
             foregroundWorkAdmission.withValidAdmission({ true }) == true
         else {
@@ -95,6 +132,7 @@ extension BridgeDevelopmentProductHost {
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
+            try Task.checkCancellation()
         } catch {
             _ = await MainActor.run {
                 reviewPublicationCoordinator.rejectReservation(
