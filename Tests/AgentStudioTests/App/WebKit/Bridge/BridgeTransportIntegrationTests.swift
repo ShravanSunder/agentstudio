@@ -160,7 +160,7 @@ extension WebKitSerializedTests {
                     panelKind: .diffViewer,
                     source: .workspace(
                         rootPath: "/tmp/worktree",
-                        baseline: .ref(name: "HEAD~1"))
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
