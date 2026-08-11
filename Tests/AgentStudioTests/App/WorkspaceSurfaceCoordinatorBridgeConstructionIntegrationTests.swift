@@ -311,6 +311,10 @@ extension WebKitSerializedTests {
                 for: setup.secondPane,
                 state: setup.state
             )
+            await registerFilesystemProjectionContexts(
+                for: [setup.firstPane, setup.secondPane],
+                in: harness
+            )
             let owner = BridgeWorktreeProductOwnerKey(
                 repoIdentity: setup.repoId.uuidString,
                 worktreeIdentity: setup.worktree.id.uuidString,
@@ -424,6 +428,10 @@ extension WebKitSerializedTests {
                 worktreeProductConstructionCoordinator: constructionCoordinator
             )
             let setup = try makeTwoPaneWorktreeSetup(in: harness)
+            await registerFilesystemProjectionContexts(
+                for: [setup.firstPane, setup.secondPane],
+                in: harness
+            )
             let owner = BridgeWorktreeProductOwnerKey(
                 repoIdentity: setup.repoId.uuidString,
                 worktreeIdentity: setup.worktree.id.uuidString,
@@ -530,6 +538,17 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
     }
+}
+
+@MainActor
+private func registerFilesystemProjectionContexts(
+    for panes: [Pane],
+    in harness: BridgePaneActivityTestHarness
+) async {
+    for pane in panes {
+        harness.coordinator.upsertPaneFilesystemProjectionContext(for: pane)
+    }
+    await harness.coordinator.syncFilesystemRootsAndActivityUntilIdle()
 }
 
 private struct TwoPaneWorktreeSetup {
