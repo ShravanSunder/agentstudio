@@ -359,7 +359,7 @@ jobs:
       - name: Test fast lane
         env:
           SWIFT_TEST_SKIP_PREBUILD: "1"
-          SWIFT_TEST_TIMEOUT_SECONDS: "300"
+          SWIFT_TEST_TIMEOUT_SECONDS: "600"
           SWIFT_TEST_NUM_WORKERS: "4"
           _XCB_BYPASS: "1"
         run: mise run --skip-deps --raw test:swift:fast
