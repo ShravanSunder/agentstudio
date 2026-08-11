@@ -163,6 +163,23 @@ export async function actUpdate(update: () => void | Promise<void>): Promise<voi
 	});
 }
 
+export async function actUpdateAndWaitForBridgeFileViewerWorkerPublication(
+	update: () => void | Promise<void>,
+): Promise<void> {
+	const endInteractionAct = beginBridgeFileViewerBrowserInteractionAct();
+	try {
+		await act(async (): Promise<void> => {
+			await update();
+			await Promise.resolve();
+		});
+		endInteractionAct();
+		await waitForBridgeFileViewerWorkerPublicationQueue();
+	} catch (error: unknown) {
+		endInteractionAct();
+		throw error;
+	}
+}
+
 export async function waitForOpenFileState(expectedState: string): Promise<void> {
 	await waitForOpenFileStateAttempt({ attempt: 0, expectedState });
 }

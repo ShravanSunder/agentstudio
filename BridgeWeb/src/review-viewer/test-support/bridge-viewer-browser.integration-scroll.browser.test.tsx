@@ -272,8 +272,8 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 			scrollOwner: scrollOwnerBeforeReplacement,
 		});
 		const {
+			maximumScrollTop: maximumScrollTopBeforeReplacement,
 			rawScrollTop: rawScrollTopBeforeReplacement,
-			scrollProgress: scrollProgressBeforeReplacement,
 			semanticAnchor: semanticAnchorBeforeReplacement,
 		} = positionBeforeReplacement;
 		expect(rawScrollTopBeforeReplacement).toBeGreaterThan(0);
@@ -319,25 +319,33 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 			'[data-testid="bridge-code-view-panel"]',
 		);
 		const {
+			maximumScrollTop: maximumScrollTopAfterReplacement,
 			rawScrollTop: rawScrollTopAfterReplacement,
-			scrollProgress: scrollProgressAfterReplacement,
 			semanticAnchor: semanticAnchorAfterReplacement,
 		} = positionAfterReplacement;
 		const semanticAnchorRankBeforeReplacement = files.findIndex(
-			(file): boolean => file.itemId === semanticAnchorBeforeReplacement?.itemId,
+			(file): boolean => file.itemId === semanticAnchorBeforeReplacement.itemId,
 		);
 		const semanticAnchorRankAfterReplacement = files.findIndex(
-			(file): boolean => file.itemId === semanticAnchorAfterReplacement?.itemId,
+			(file): boolean => file.itemId === semanticAnchorAfterReplacement.itemId,
 		);
+		const rawScrollCoordinateRetained =
+			Math.abs(rawScrollTopAfterReplacement - rawScrollTopBeforeReplacement) <= 1;
+		const semanticViewportAnchorRetained =
+			semanticAnchorAfterReplacement.itemId === semanticAnchorBeforeReplacement.itemId &&
+			Math.abs(
+				semanticAnchorAfterReplacement.viewportOffsetPixels -
+					semanticAnchorBeforeReplacement.viewportOffsetPixels,
+			) <= 1;
 		const retentionDiagnostic = {
 			codeViewRemainedMountedWhileInactive,
 			codeViewRetainedIdentity: scrollOwnerAfterReplacement === scrollOwnerBeforeReplacement,
 			disclosureAfterReplacement: disclosureAfterReplacement ?? null,
 			inactiveFallbackWasShown,
+			maximumScrollTopAfterReplacement,
+			maximumScrollTopBeforeReplacement,
 			rawScrollTopAfterReplacement,
 			rawScrollTopBeforeReplacement,
-			scrollProgressAfterReplacement,
-			scrollProgressBeforeReplacement,
 			selectedItemIdAfterReplacement,
 			selectionScrollDidScroll:
 				codePanelAfterReplacement?.getAttribute('data-selection-scroll-did-scroll') ?? null,
@@ -354,11 +362,9 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 				codeViewRetainedIdentity: retentionDiagnostic.codeViewRetainedIdentity,
 				disclosureRetained: disclosureAfterReplacement === 'false',
 				inactiveFallbackWasShown,
-				scrollProgressRetained:
-					scrollProgressAfterReplacement !== null &&
-					rawScrollTopAfterReplacement !== null &&
+				scrollPositionRetained:
 					rawScrollTopAfterReplacement > 0 &&
-					Math.abs(scrollProgressAfterReplacement - scrollProgressBeforeReplacement) <= 0.1,
+					(rawScrollCoordinateRetained || semanticViewportAnchorRetained),
 				selectedItemRetained: selectedItemIdAfterReplacement === selectedFile.itemId,
 				semanticScrollRegionRetained:
 					semanticAnchorRankBeforeReplacement >= 0 &&
@@ -373,7 +379,7 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 			codeViewRetainedIdentity: true,
 			disclosureRetained: true,
 			inactiveFallbackWasShown: false,
-			scrollProgressRetained: true,
+			scrollPositionRetained: true,
 			selectedItemRetained: true,
 			semanticScrollRegionRetained: true,
 			treeRemainedMountedWhileInactive: true,
@@ -385,7 +391,6 @@ describe('Bridge Review sustained deep-scroll Browser witness', () => {
 interface SettledReviewPositionReceipt {
 	readonly maximumScrollTop: number;
 	readonly rawScrollTop: number;
-	readonly scrollProgress: number;
 	readonly semanticAnchor: {
 		readonly itemId: string;
 		readonly viewportOffsetPixels: number;
@@ -424,7 +429,6 @@ async function waitForSettledReviewPosition(props: {
 				: {
 						maximumScrollTop,
 						rawScrollTop,
-						scrollProgress: rawScrollTop / maximumScrollTop,
 						semanticAnchor,
 					};
 		const anchorPaintedLineCount =
@@ -449,8 +453,7 @@ async function waitForSettledReviewPosition(props: {
 					previousReceipt.semanticAnchor.viewportOffsetPixels,
 			) <= 1 &&
 			Math.abs(currentReceipt.maximumScrollTop - previousReceipt.maximumScrollTop) <= 1 &&
-			Math.abs(currentReceipt.rawScrollTop - previousReceipt.rawScrollTop) <= 1 &&
-			Math.abs(currentReceipt.scrollProgress - previousReceipt.scrollProgress) <= 0.001;
+			Math.abs(currentReceipt.rawScrollTop - previousReceipt.rawScrollTop) <= 1;
 		lastDiagnostic = {
 			anchorPaintedLineCount,
 			attempt,

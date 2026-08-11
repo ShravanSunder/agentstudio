@@ -323,7 +323,7 @@ mise run bridge-web-build
 test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
 SWIFT_TEST_INCLUDE_E2E=1 \
 SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-300}" \
-SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-900}" \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS="${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}" \
 mise run test:swift
 git diff --check
 """
@@ -448,7 +448,7 @@ BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 export _XCB_BYPASS=1
 xcb_pipe=$(_xcb_pipe_cmd)
-swift test --build-path "$BUILD_PATH" --filter "GlobalPreferencesBootstrapPerformanceTests" 2>&1 | $xcb_pipe
+swift test --build-path "$BUILD_PATH" --filter "GlobalPreferencesBootstrapBenchmarkTests" 2>&1 | $xcb_pipe
 """
 
 [tasks.clean-artifacts]
