@@ -112,12 +112,13 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func schedulePullRequestDemandDelivery(_ worktreeIds: Set<UUID>) {
-        guard worktreeIds != lastDeliveredPullRequestDemandWorktreeIds,
-            worktreeIds != pullRequestDemandInFlightWorktreeIds,
-            worktreeIds != pendingPullRequestDemandWorktreeIds
-        else { return }
+        guard worktreeIds != pendingPullRequestDemandWorktreeIds else { return }
         pendingPullRequestDemandWorktreeIds = worktreeIds
         guard pullRequestDemandDeliveryTask == nil else { return }
+        guard worktreeIds != lastDeliveredPullRequestDemandWorktreeIds else {
+            pendingPullRequestDemandWorktreeIds = nil
+            return
+        }
 
         pullRequestDemandDeliveryTask = Task { @MainActor [weak self] in
             guard let self else { return }
