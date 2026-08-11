@@ -182,6 +182,15 @@ struct DrawerOverlayIconBarVisibilityTests {
         for (leftFrame, rightFrame) in zip(orderedFrames, orderedFrames.dropFirst()) {
             #expect(leftFrame.maxX < rightFrame.minX)
         }
+
+        let pullRequestFrame = orderedFrames[2]
+        let paneContextFrame = orderedFrames[3]
+        #expect(
+            abs(
+                paneContextFrame.minX - pullRequestFrame.maxX
+                    - expectedToolbarSeparatorWidth
+            ) < 0.5
+        )
     }
 
     @Test("toolbar group separators use standard horizontal spacing")

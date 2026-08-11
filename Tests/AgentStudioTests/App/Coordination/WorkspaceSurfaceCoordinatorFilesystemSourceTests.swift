@@ -68,34 +68,35 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
 
     @Test("sidebar visibility changes use the affected-key lane after bootstrap")
     func sidebarVisibilityChangesUseAffectedKeyLaneAfterBootstrap() async {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-        let sidebarVisibleWorktreesAtom = atom(\.sidebarVisibleWorktreesRuntime)
-        sidebarVisibleWorktreesAtom.setVisibleWorktreeIds([])
-        defer { sidebarVisibleWorktreesAtom.setVisibleWorktreeIds([]) }
+        await withAsyncTestCoreAtoms { coreAtoms in
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let sidebarVisibleWorktreesAtom = coreAtoms.sidebarVisibleWorktreesRuntime
 
-        let source = OrderedRecordingFilesystemSource()
-        let coordinator = makeCoordinator(
-            store: harness.store,
-            source: source,
-            index: FilesystemProjectionIndex(),
-            bus: harness.bus
-        )
+            let source = OrderedRecordingFilesystemSource()
+            let coordinator = makeCoordinator(
+                store: harness.store,
+                source: source,
+                index: FilesystemProjectionIndex(),
+                bus: harness.bus
+            )
 
-        await source.waitForOperation(.assertTopology)
-        let bootstrapFullReconciliationCount = coordinator.filesystemFullReconciliationRequestCount
-        await source.resetOperations()
+            await source.waitForOperation(.assertTopology)
+            await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+            let bootstrapFullReconciliationCount = coordinator.filesystemFullReconciliationRequestCount
+            await source.resetOperations()
 
-        let visibleWorktreeIds: Set<UUID> = [UUID(), UUID()]
-        sidebarVisibleWorktreesAtom.setVisibleWorktreeIds(visibleWorktreeIds)
-        coordinator.scheduleSidebarVisibleWorktreesUpdate()
+            let visibleWorktreeIds: Set<UUID> = [UUIDv7.generate(), UUIDv7.generate()]
+            sidebarVisibleWorktreesAtom.setVisibleWorktreeIds(visibleWorktreeIds)
+            coordinator.scheduleSidebarVisibleWorktreesUpdate()
 
-        await source.waitForOperation(.sidebarVisibleWorktrees)
-        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+            await source.waitForOperation(.sidebarVisibleWorktrees)
+            await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        #expect(await source.operations() == [.sidebarVisibleWorktrees(worktreeIds: visibleWorktreeIds)])
-        #expect(coordinator.filesystemFullReconciliationRequestCount == bootstrapFullReconciliationCount)
-        await coordinator.shutdown()
+            #expect(await source.operations() == [.sidebarVisibleWorktrees(worktreeIds: visibleWorktreeIds)])
+            #expect(coordinator.filesystemFullReconciliationRequestCount == bootstrapFullReconciliationCount)
+            await coordinator.shutdown()
+        }
     }
 
     @Test("stale source sync result is discarded before source side effects")
