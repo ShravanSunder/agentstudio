@@ -221,8 +221,43 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
 
     private enum PublicationState<Value: Equatable>: Equatable {
         case unknown
-        case pending(Value)
+        case pending(Value, lastCommitted: Value?)
         case committed(Value)
+
+        mutating func admit(_ candidate: Value) -> Bool {
+            switch self {
+            case .unknown:
+                self = .pending(candidate, lastCommitted: nil)
+                return true
+            case .pending(let pending, let lastCommitted):
+                guard candidate != pending, candidate != lastCommitted else { return false }
+                self = .pending(candidate, lastCommitted: lastCommitted)
+                return true
+            case .committed(let committed):
+                guard candidate != committed else { return false }
+                self = .pending(candidate, lastCommitted: committed)
+                return true
+            }
+        }
+
+        mutating func acknowledge(_ applied: Value) {
+            switch self {
+            case .unknown:
+                self = .committed(applied)
+            case .pending(let pending, _):
+                self =
+                    pending == applied
+                    ? .committed(applied)
+                    : .pending(pending, lastCommitted: applied)
+            case .committed:
+                self = .committed(applied)
+            }
+        }
+
+        func isPending(_ projection: Value) -> Bool {
+            guard case .pending(let pending, _) = self else { return false }
+            return pending == projection
+        }
     }
 
     private struct SearchLifecycleState {
@@ -262,6 +297,9 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var search = SearchLifecycleState()
         var activityContext: TerminalActivityProjectionContext?
         var titlePublicationState: PublicationState<TerminalTitleMetadataBatch> = .unknown
+        var activityPublicationState: PublicationState<TerminalScrollbarActivityAggregate> = .unknown
+        var cwdPublicationState: PublicationState<String> = .unknown
+        var cwdRetryRequired = false
 
         func phase(for lane: TerminalLocalActionLane) -> DrainPhase {
             phases[lane] ?? .idle
@@ -290,7 +328,8 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         }
 
         var hasPublicationState: Bool {
-            titlePublicationState != .unknown
+            titlePublicationState != .unknown || activityPublicationState != .unknown
+                || cwdPublicationState != .unknown
         }
     }
 
@@ -354,14 +393,28 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 guard let candidate = state.titlePending.titleMetadata else {
                     preconditionFailure("Title admission must retain a title projection")
                 }
-                if state.titlePublicationState == .committed(candidate) {
+                if !state.titlePublicationState.isPending(candidate),
+                    !state.titlePublicationState.admit(candidate)
+                {
                     state.titlePending = PendingBatch()
                     statesBySurfaceID[surfaceID] = state
                     return .equalSuppressed
                 }
-                state.titlePublicationState = .pending(candidate)
             } else {
                 mutationResult = apply(action, to: &state)
+                if case .scrollbar = action, let candidate = state.pending.activity,
+                    !state.activityPublicationState.isPending(candidate),
+                    !state.activityPublicationState.admit(candidate)
+                {
+                    state.pending.presentation.scrollbarState = nil
+                    state.pending.activity = nil
+                    state.pending.activityContext = nil
+                    if !state.pending.hasWork {
+                        state.pending = PendingBatch()
+                    }
+                    statesBySurfaceID[surfaceID] = state
+                    return .equalSuppressed
+                }
             }
             if state.search.epoch > 0 {
                 searchEpochWatermarksBySurfaceID[surfaceID] = state.search.epoch
@@ -472,9 +525,90 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     ) {
         lock.withLock {
             guard var state = statesBySurfaceID[surfaceID] else { return }
-            guard state.titlePublicationState == .pending(appliedProjection) else { return }
-            state.titlePublicationState = .committed(appliedProjection)
+            state.titlePublicationState.acknowledge(appliedProjection)
             statesBySurfaceID[surfaceID] = state
+        }
+    }
+
+    func acknowledgeSuccessfulActivityPublication(
+        _ appliedProjection: TerminalScrollbarActivityAggregate,
+        for surfaceID: UUID
+    ) {
+        lock.withLock {
+            guard var state = statesBySurfaceID[surfaceID] else { return }
+            state.activityPublicationState.acknowledge(appliedProjection)
+            statesBySurfaceID[surfaceID] = state
+        }
+    }
+
+    func admitCWDPublication(
+        _ cwdPath: String,
+        for surfaceID: UUID
+    ) -> TerminalLocalAccumulatorOfferResult {
+        lock.withLock {
+            var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+            let normalizedCWDPath = Self.normalizedCWDPath(cwdPath)
+            if state.cwdRetryRequired, state.cwdPublicationState.isPending(normalizedCWDPath) {
+                state.cwdRetryRequired = false
+                statesBySurfaceID[surfaceID] = state
+                return .scheduled
+            }
+            guard !state.cwdPublicationState.isPending(normalizedCWDPath) else {
+                statesBySurfaceID[surfaceID] = state
+                return .equalSuppressed
+            }
+            guard state.cwdPublicationState.admit(normalizedCWDPath) else {
+                statesBySurfaceID[surfaceID] = state
+                return .equalSuppressed
+            }
+            state.cwdRetryRequired = false
+            statesBySurfaceID[surfaceID] = state
+            return .scheduled
+        }
+    }
+
+    func acknowledgeSuccessfulCWDPublication(_ cwdPath: String, for surfaceID: UUID) {
+        lock.withLock {
+            guard var state = statesBySurfaceID[surfaceID] else { return }
+            state.cwdPublicationState.acknowledge(Self.normalizedCWDPath(cwdPath))
+            state.cwdRetryRequired = false
+            statesBySurfaceID[surfaceID] = state
+        }
+    }
+
+    func recordFailedCWDPublication(_ cwdPath: String, for surfaceID: UUID) {
+        lock.withLock {
+            guard var state = statesBySurfaceID[surfaceID],
+                state.cwdPublicationState.isPending(Self.normalizedCWDPath(cwdPath))
+            else { return }
+            state.cwdRetryRequired = true
+            statesBySurfaceID[surfaceID] = state
+        }
+    }
+
+    func restoreUnacknowledgedPublications(from batch: TerminalLocalActionBatch) {
+        lock.withLock {
+            guard var state = statesBySurfaceID[batch.surfaceID] else { return }
+            if let title = batch.titleMetadata,
+                state.titlePublicationState.isPending(title),
+                state.titlePending.titleMetadata == nil
+            {
+                state.titlePending.titleMetadata = title
+                state.titlePending.firstOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
+                state.titlePending.firstTitleOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
+                state.titleDeadlineNanoseconds = nowNanoseconds() &+ 1_000_000_000
+            }
+            if let activity = batch.activity,
+                state.activityPublicationState.isPending(activity),
+                state.pending.activity == nil
+            {
+                state.pending.activity = activity
+                state.pending.activityContext = batch.activityContext
+                state.pending.presentation.scrollbarState = batch.presentation.scrollbarState
+                state.pending.firstOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
+                state.pending.firstNonTitleOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
+            }
+            statesBySurfaceID[batch.surfaceID] = state
         }
     }
 
@@ -605,6 +739,10 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             lane: lane,
             absoluteDeadlineNanoseconds: lane == .title ? state.titleDeadlineNanoseconds : nil
         )
+    }
+
+    private static func normalizedCWDPath(_ cwdPath: String) -> String {
+        URL(fileURLWithPath: cwdPath).standardizedFileURL.path
     }
 
     private func titleMetadataAction(

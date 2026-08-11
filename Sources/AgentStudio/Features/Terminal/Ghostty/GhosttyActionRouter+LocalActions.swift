@@ -95,6 +95,11 @@ extension Ghostty.ActionRouter {
     ) -> GhosttyTranslatedActionAdmission {
         switch GhosttyActionDisposition.classify(event) {
         case .exactFactOrControl:
+            if case .cwdChanged(let cwdPath) = event,
+                accumulator.admitCWDPublication(cwdPath, for: surfaceID) == .equalSuppressed
+            {
+                return .handledLocally
+            }
             return .routeExactFactOrControl(
                 precedingTitle: accumulator.detachTitleBeforeExactBarrier(for: surfaceID)
             )
@@ -280,6 +285,7 @@ extension Ghostty.ActionRouter {
             )
         else { return }
         defer {
+            localActionAccumulator.restoreUnacknowledgedPublications(from: batch)
             _ = localActionAccumulator.finishDrain(for: surfaceID, lane: lane)
         }
 
@@ -325,27 +331,11 @@ extension Ghostty.ActionRouter {
             equalWriteSuppressedCount = 0
         }
         let compactApplyServiceTime = compactApplyStartedAt.duration(to: clock.now)
-        let activityProjectionRoundTrip: TerminalActivityProjectionRoundTripPerformance
-        if let aggregate = batch.activity,
-            let latestState = batch.presentation.scrollbarState,
-            let context = batch.activityContext
-        {
-            let projectionStartedAt = clock.now
-            await dependencies.submitActivityInput(
-                .aggregate(
-                    surfaceID: surfaceID,
-                    paneID: paneUUID,
-                    input: TerminalActivityAggregateInput(
-                        aggregate: aggregate,
-                        latestState: latestState,
-                        context: context
-                    )
-                )
-            )
-            activityProjectionRoundTrip = .completed(projectionStartedAt.duration(to: clock.now))
-        } else {
-            activityProjectionRoundTrip = .notSubmitted
-        }
+        let activityProjectionRoundTrip = await publishActivityProjectionIfNeeded(
+            batch,
+            paneUUID: paneUUID,
+            dependencies: dependencies
+        )
         surfaceView.performanceTraceRecorder?.recordTerminalCompactApply(
             TerminalCompactApplyPerformanceSnapshot(
                 equalWriteSuppressedCount: UInt64(equalWriteSuppressedCount),
@@ -364,6 +354,41 @@ extension Ghostty.ActionRouter {
                 currentUptimeNanoseconds: currentUptimeNanoseconds
             )
         )
+    }
+
+    @MainActor
+    private static func publishActivityProjectionIfNeeded(
+        _ batch: TerminalLocalActionBatch,
+        paneUUID: UUID,
+        dependencies: TerminalLocalActionDrainDependencies
+    ) async -> TerminalActivityProjectionRoundTripPerformance {
+        guard
+            let aggregate = batch.activity,
+            let latestState = batch.presentation.scrollbarState,
+            let context = batch.activityContext,
+            !Task.isCancelled
+        else { return .notSubmitted }
+
+        let clock = ContinuousClock()
+        let projectionStartedAt = clock.now
+        await dependencies.submitActivityInput(
+            .aggregate(
+                surfaceID: batch.surfaceID,
+                paneID: paneUUID,
+                input: TerminalActivityAggregateInput(
+                    aggregate: aggregate,
+                    latestState: latestState,
+                    context: context
+                )
+            )
+        )
+        if !Task.isCancelled {
+            localActionAccumulator.acknowledgeSuccessfulActivityPublication(
+                aggregate,
+                for: batch.surfaceID
+            )
+        }
+        return .completed(projectionStartedAt.duration(to: clock.now))
     }
 
     static func terminalAccumulatorDrainPerformanceSnapshot(
@@ -467,7 +492,8 @@ extension Ghostty.ActionRouter {
         payload: GhosttyAdapter.ActionPayload,
         surfaceViewObjectID: ObjectIdentifier,
         expectedSurfaceID: UUID,
-        routingLookup: any GhosttyActionRoutingLookup
+        routingLookup: any GhosttyActionRoutingLookup,
+        accumulator: TerminalLocalActionAccumulator = localActionAccumulator
     ) -> Bool {
         guard
             isCurrentSurfaceLifetime(
@@ -475,7 +501,10 @@ extension Ghostty.ActionRouter {
                 surfaceViewObjectID: surfaceViewObjectID,
                 routingLookup: routingLookup
             )
-        else { return false }
+        else {
+            accumulator.removeSurface(expectedSurfaceID)
+            return false
+        }
         if let precedingTitle {
             let didApplyPrecedingTitle = routeContractedTitleMetadata(
                 precedingTitle.metadata.runtimeTitle,
@@ -483,17 +512,25 @@ extension Ghostty.ActionRouter {
                 routingLookup: routingLookup
             )
             if didApplyPrecedingTitle {
-                localActionAccumulator.acknowledgeSuccessfulTitlePublication(
+                accumulator.acknowledgeSuccessfulTitlePublication(
                     precedingTitle.metadata,
                     for: expectedSurfaceID
                 )
             }
         }
-        return routeActionToTerminalRuntimeOnMainActor(
+        let didPublish = routeActionToTerminalRuntimeOnMainActor(
             actionTag: actionTag,
             payload: payload,
             surfaceViewObjectId: surfaceViewObjectID,
             routingLookup: routingLookup
         )
+        if case .cwdChanged(let cwdPath) = payload {
+            if didPublish {
+                accumulator.acknowledgeSuccessfulCWDPublication(cwdPath, for: expectedSurfaceID)
+            } else {
+                accumulator.recordFailedCWDPublication(cwdPath, for: expectedSurfaceID)
+            }
+        }
+        return didPublish
     }
 }

@@ -243,6 +243,11 @@ extension GhosttyActionRouterTests {
         let paneID = PaneId(existingUUID: paneUUID)
         let initialState = ScrollbarState(top: 80, bottom: 120, total: 200)
         let followUpState = ScrollbarState(top: 90, bottom: 130, total: 210)
+        let projectionContext = TerminalActivityProjectionContext(
+            isAttended: false,
+            isAgentClassified: false,
+            outputBurstThreshold: 10
+        )
         let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
         let mountedHostResolver = TerminalLocalActionMountedHostResolver(
             surfaceForID: { requestedID in
@@ -277,7 +282,7 @@ extension GhosttyActionRouterTests {
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: RuntimeRegistry(),
                 fallbackRuntimeRegistry: nil,
-                activityContext: { _ in nil },
+                activityContext: { _ in projectionContext },
                 submitActivityInput: { _ in }
             )
         )
@@ -293,7 +298,7 @@ extension GhosttyActionRouterTests {
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: RuntimeRegistry(),
                 fallbackRuntimeRegistry: nil,
-                activityContext: { _ in nil },
+                activityContext: { _ in projectionContext },
                 submitActivityInput: { _ in }
             )
         )
