@@ -180,6 +180,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private var tabBarHostingView: DraggableTabBarHostingView!
     private let octiconLoader: OcticonLoader
+    private let appEventBus: EventBus<AppEvent>
     private var terminalContainer: RestoreAwareTerminalContainerView!
     private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
@@ -245,10 +246,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         registersAsCommandHandler: Bool = true,
-        embedsTabBarInView: Bool = true
+        embedsTabBarInView: Bool = true,
+        appEventBus: EventBus<AppEvent> = AppEventBus.shared
     ) {
         self.store = store
         self.octiconLoader = octiconLoader
+        self.appEventBus = appEventBus
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
@@ -525,16 +528,23 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                let stream = await AppEventBus.shared.subscribe(
+                let stream = await self?.appEventBus.subscribe(
                     policy: .criticalUnbounded,
                     subscriberName: "PaneTabViewController.terminalTermination"
                 )
+                guard let stream else { return }
                 for await event in stream {
                     guard !Task.isCancelled else { break }
                     switch event {
                     case .terminalProcessTerminated(let paneId):
-                        await MainActor.run { [weak self] in
-                            self?.handleTerminalProcessTerminated(paneId: paneId)
+                        guard let self else { return }
+                        let didHandleTermination = await MainActor.run { [weak self] in
+                            self?.handleTerminalProcessTerminated(paneId: paneId) ?? false
+                        }
+                        if didHandleTermination {
+                            await self.appEventBus.post(
+                                .terminalProcessTerminationHandled(paneId: paneId)
+                            )
                         }
                     case .terminalProcessTerminationHandled, .worktreeBellRang:
                         continue
@@ -2538,33 +2548,34 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Process Termination
 
-    func handleTerminalProcessTerminated(paneId: UUID) {
+    @discardableResult
+    func handleTerminalProcessTerminated(paneId: UUID) -> Bool {
         if closeTransitionCoordinator.closingPaneIds.contains(paneId) {
-            return
+            return true
         }
         if let pane = store.paneAtom.pane(paneId) {
-            AppEventBus.post(.terminalProcessTerminationHandled(paneId: paneId))
             if let parentPaneId = pane.parentPaneId,
                 let parentTab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)
             {
                 dispatchAction(.closePane(tabId: parentTab.id, paneId: paneId))
-                return
+                return true
             }
 
             if let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) {
                 dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
-                return
+                return true
             }
 
             RestoreTrace.log(
                 "PaneTabViewController.handleTerminalProcessTerminated deferredNoop pane=\(paneId) reason=orphanedPane"
             )
-            return
+            return false
         }
 
         RestoreTrace.log(
             "PaneTabViewController.handleTerminalProcessTerminated deferredNoop pane=\(paneId) reason=notInAnyTab"
         )
+        return false
     }
 
     private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {

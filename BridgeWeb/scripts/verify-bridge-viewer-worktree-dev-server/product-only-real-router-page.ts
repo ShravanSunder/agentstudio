@@ -29,6 +29,7 @@ import {
 	bridgeViewerJourneyFailureCode,
 	BridgeViewerProductOnlyJourneyFailure,
 } from './product-only-real-router-failure.ts';
+import { installBridgeViewerBrowserErrorCapture } from './product-only-real-router-page-error.ts';
 import { GenerationScopedResponseParsers } from './product-only-real-router-response-parsers.ts';
 import {
 	proveFreshReviewRoute,
@@ -122,23 +123,12 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 			}),
 		);
 	});
-	page.on('console', (message): void => {
-		const messageType = message.type();
-		if (
-			(messageType === 'error' || messageType === 'warning') &&
-			consoleErrors.length < maximumCapturedConsoleErrors
-		) {
-			const text = message.text().slice(0, maximumCapturedConsoleErrorCharacters);
-			const location = message.location();
-			consoleErrors.push(text);
-			consoleDiagnostics.push({
-				columnNumber: location.columnNumber ?? null,
-				lineNumber: location.lineNumber ?? null,
-				path: consoleDiagnosticPath(location.url),
-				text,
-				type: messageType,
-			});
-		}
+	installBridgeViewerBrowserErrorCapture({
+		consoleDiagnostics,
+		consoleErrors,
+		maximumCapturedConsoleErrorCharacters,
+		maximumCapturedConsoleErrors,
+		page,
 	});
 	page.on('response', (response): void => {
 		if (response.status() < 400) return;
@@ -280,8 +270,10 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 	} catch (error: unknown) {
 		journeyFailureCause = error;
 		journeyFailure = await captureBridgeViewerProductOnlyJourneyFailure({
+			browserDiagnostics: consoleDiagnostics,
 			documentGeneration: mainFrameDocumentGeneration,
 			error,
+			failedResponses,
 			page,
 			routeObserver,
 		});
@@ -327,8 +319,10 @@ export async function runBridgeViewerProductOnlyJourney(props: {
 }
 
 async function captureBridgeViewerProductOnlyJourneyFailure(props: {
+	readonly browserDiagnostics: readonly BridgeViewerConsoleDiagnostic[];
 	readonly documentGeneration: number;
 	readonly error: unknown;
+	readonly failedResponses: readonly BridgeViewerFailedResponse[];
 	readonly page: Page;
 	readonly routeObserver: BridgeViewerRealRouterObserver;
 }): Promise<Omit<BridgeViewerProductOnlyJourneyFailureCheckpoint, 'browserCleanup' | 'workers'>> {
@@ -343,9 +337,11 @@ async function captureBridgeViewerProductOnlyJourneyFailure(props: {
 		captureStatus = 'captured';
 	} catch {}
 	return {
+		browserDiagnostics: props.browserDiagnostics,
 		captureStatus,
 		documentGeneration: props.documentGeneration,
 		failureCode: bridgeViewerJourneyFailureCode(props.error),
+		failedResponses: props.failedResponses,
 		review,
 		transport: props.routeObserver.failureTransportSnapshot(),
 	};
@@ -413,15 +409,6 @@ async function readMainWindowProductRouteTranscript(
 		};
 		return (window as ProofWindow).bridgeViewerMainWindowProductRouteTranscript ?? [];
 	});
-}
-
-function consoleDiagnosticPath(url: string): string | null {
-	if (url.length === 0) return null;
-	try {
-		return new URL(url).pathname;
-	} catch {
-		return url.slice(0, maximumCapturedConsoleErrorCharacters);
-	}
 }
 
 export class BridgeViewerRealRouterObserver {

@@ -268,6 +268,7 @@ struct PaneLeafContainer: View {
                             leadingToolbarActions: toolbarPresentation.leadingActions,
                             contextToolbarActions: toolbarPresentation.contextActions,
                             store: store,
+                            repoCache: repoCache,
                             octiconLoader: octiconLoader,
                             editorChooser: editorChooser,
                             paneInboxPresentation: paneInboxPresentation,
@@ -934,7 +935,6 @@ extension PaneLeafContainer {
 
         return drawerPaneId
     }
-
 }
 
 // MARK: - DragHandleDragPreview

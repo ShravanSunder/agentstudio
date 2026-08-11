@@ -141,7 +141,7 @@ struct ObservabilityLaunchScriptsTests {
         #expect(testHelperScript.contains("terminate_process_tree TERM \"$command_pid\""))
         #expect(!testHelperScript.contains("pkill -9 -f"))
         #expect(!agentInstructions.contains("pkill -f \"swift-build\""))
-        #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
+        #expect(ciWorkflow.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(!ciWorkflow.contains("SWIFT_TEST_WORKERS"))
         #expect(ciWorkflow.contains("run: mise run --skip-deps --raw test:swift:fast"))
         #expect(!ciWorkflow.contains("mise run test:swift:benchmark"))

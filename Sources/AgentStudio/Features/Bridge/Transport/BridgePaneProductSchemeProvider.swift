@@ -843,6 +843,18 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
 }
 
 extension BridgePaneProductSchemeProvider {
+    func replayCommittedReviewPublicationIfPresent(
+        productAdmission: BridgeProductAdmissionContext,
+        traceContext: BridgeTraceContext? = nil
+    ) async {
+        guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else { return }
+        await metadataCoordinator.replayCommittedReviewPublicationIfPresent(
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            traceContext: traceContext
+        )
+    }
+
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,

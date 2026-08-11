@@ -327,78 +327,74 @@ package struct RepoExplorerWorktreeRow: View {
             onOpen()
         }
         .contextMenu {
-            Menu {
-                if hasCurrentTabCommands {
-                    Menu {
-                        if let openWorktreeInPane = commandPresentation.contextMenuCommand(.openWorktreeInPane) {
-                            Button {
-                                onOpenInPane()
-                            } label: {
-                                menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)
-                            }
-                            .disabled(!openWorktreeInPane.isEnabled)
+            if hasNewTabCommands {
+                Menu {
+                    if let openNewTerminal = commandPresentation.contextMenuCommand(.openNewTerminalInTab) {
+                        Button {
+                            onOpenNew()
+                        } label: {
+                            menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)
                         }
-
-                        if let showBridgeReview = commandPresentation.contextMenuCommand(.showBridgeReview) {
-                            Button {
-                                onReview()
-                            } label: {
-                                menuLabel(actionSpec: showBridgeReview.commandSpec.actionSpec)
-                            }
-                            .disabled(!showBridgeReview.isEnabled)
-                        }
-
-                        if let showBridgeFiles = commandPresentation.contextMenuCommand(.showBridgeFiles) {
-                            Button {
-                                onOpenFiles()
-                            } label: {
-                                menuLabel(actionSpec: showBridgeFiles.commandSpec.actionSpec)
-                            }
-                            .disabled(!showBridgeFiles.isEnabled)
-                        }
-                    } label: {
-                        menuLabel(actionSpec: LocalActionSpec.openInCurrentTabMenu.actionSpec)
+                        .disabled(!openNewTerminal.isEnabled)
                     }
-                }
 
-                if hasNewTabCommands {
-                    Menu {
-                        if let openNewTerminal = commandPresentation.contextMenuCommand(.openNewTerminalInTab) {
-                            Button {
-                                onOpenNew()
-                            } label: {
-                                menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)
-                            }
-                            .disabled(!openNewTerminal.isEnabled)
+                    if let openReviewInNewTab =
+                        commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab)
+                    {
+                        Button {
+                            onOpenReviewInNewTab()
+                        } label: {
+                            menuLabel(actionSpec: openReviewInNewTab.commandSpec.actionSpec)
                         }
-
-                        if let openReviewInNewTab =
-                            commandPresentation.contextMenuCommand(.openBridgeReviewInNewTab)
-                        {
-                            Button {
-                                onOpenReviewInNewTab()
-                            } label: {
-                                menuLabel(actionSpec: openReviewInNewTab.commandSpec.actionSpec)
-                            }
-                            .disabled(!openReviewInNewTab.isEnabled)
-                        }
-
-                        if let openFilesInNewTab =
-                            commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab)
-                        {
-                            Button {
-                                onOpenFilesInNewTab()
-                            } label: {
-                                menuLabel(actionSpec: openFilesInNewTab.commandSpec.actionSpec)
-                            }
-                            .disabled(!openFilesInNewTab.isEnabled)
-                        }
-                    } label: {
-                        menuLabel(actionSpec: LocalActionSpec.openInNewTabMenu.actionSpec)
+                        .disabled(!openReviewInNewTab.isEnabled)
                     }
+
+                    if let openFilesInNewTab =
+                        commandPresentation.contextMenuCommand(.openBridgeFilesInNewTab)
+                    {
+                        Button {
+                            onOpenFilesInNewTab()
+                        } label: {
+                            menuLabel(actionSpec: openFilesInNewTab.commandSpec.actionSpec)
+                        }
+                        .disabled(!openFilesInNewTab.isEnabled)
+                    }
+                } label: {
+                    menuLabel(actionSpec: LocalActionSpec.createNewInTab.actionSpec)
                 }
-            } label: {
-                menuLabel(actionSpec: LocalActionSpec.createNew.actionSpec)
+            }
+
+            if hasCurrentTabCommands {
+                Menu {
+                    if let openWorktreeInPane = commandPresentation.contextMenuCommand(.openWorktreeInPane) {
+                        Button {
+                            onOpenInPane()
+                        } label: {
+                            menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)
+                        }
+                        .disabled(!openWorktreeInPane.isEnabled)
+                    }
+
+                    if let showBridgeReview = commandPresentation.contextMenuCommand(.showBridgeReview) {
+                        Button {
+                            onReview()
+                        } label: {
+                            menuLabel(actionSpec: showBridgeReview.commandSpec.actionSpec)
+                        }
+                        .disabled(!showBridgeReview.isEnabled)
+                    }
+
+                    if let showBridgeFiles = commandPresentation.contextMenuCommand(.showBridgeFiles) {
+                        Button {
+                            onOpenFiles()
+                        } label: {
+                            menuLabel(actionSpec: showBridgeFiles.commandSpec.actionSpec)
+                        }
+                        .disabled(!showBridgeFiles.isEnabled)
+                    }
+                } label: {
+                    menuLabel(actionSpec: LocalActionSpec.createNewInPane.actionSpec)
+                }
             }
 
             if !panePresentations.isEmpty {
