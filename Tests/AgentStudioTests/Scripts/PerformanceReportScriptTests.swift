@@ -22,6 +22,38 @@ struct PerformanceReportScriptTests {
         #expect(!result.stdout.contains("in-flight-marker"))
     }
 
+    @Test("report resolves completed debug workload windows by runtime flavor")
+    func resolvesCompletedDebugWorkloadWindows() throws {
+        let records = """
+            [
+              {"_time":"2026-08-10T10:00:00Z","_msg":"app.startup_diagnostic_action.completed","agent.proof.marker":"sidebar-baseline-marker","dev.release.channel":"stable","dev.runtime.flavor":"debug","agentstudio.startup_diagnostic.action":"sidebar-performance-proof"},
+              {"_time":"2026-08-10T11:00:00Z","_msg":"app.startup_diagnostic_action.completed","agent.proof.marker":"title-pane-candidate-marker","dev.release.channel":"stable","dev.runtime.flavor":"debug","agentstudio.startup_diagnostic.action":"sidebar-performance-proof"}
+            ]
+            """
+        let metrics = """
+            {"sidebar-baseline-marker":[{"lane":"performance.terminal","p95":8.0,"waste_ratio":0.25}],"title-pane-candidate-marker":[{"lane":"performance.terminal","p95":6.0,"waste_ratio":0.10}]}
+            """
+        let result = try runReport(
+            arguments: ["--channel", "debug", "--lane", "performance.terminal"],
+            environment: [
+                "AGENTSTUDIO_PERF_REPORT_LOGS_RESPONSE": records,
+                "AGENTSTUDIO_PERF_REPORT_METRICS_RESPONSE": metrics,
+            ]
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout.contains("candidate: title-pane-candidate-marker"))
+        #expect(result.stdout.contains("baseline: sidebar-baseline-marker"))
+        #expect(result.stdout.contains("performance.terminal"))
+    }
+
+    @Test("report queries completion records before limiting high-volume workload logs")
+    func queriesCompletionRecordsBeforeLimitingLogs() throws {
+        let source = try String(contentsOfFile: "scripts/perf-report.sh", encoding: .utf8)
+
+        #expect(source.contains("_msg:app.startup_diagnostic_action.completed | limit 10000"))
+    }
+
     @Test("report names candidate selection failure with a distinct exit")
     func namesCandidateSelectionFailure() throws {
         let result = try runReport(

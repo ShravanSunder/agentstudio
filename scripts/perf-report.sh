@@ -46,6 +46,7 @@ channel = os.environ["AGENTSTUDIO_PERF_REPORT_CHANNEL"]
 candidate_selector = os.environ["AGENTSTUDIO_PERF_REPORT_CANDIDATE"]
 baseline_selector = os.environ["AGENTSTUDIO_PERF_REPORT_BASELINE"]
 lane_filter = os.environ["AGENTSTUDIO_PERF_REPORT_LANE"]
+channel_field = "dev.runtime.flavor" if channel == "debug" else "dev.release.channel"
 
 def fetch(url, parameters):
     request_url = url + "?" + urllib.parse.urlencode(parameters)
@@ -70,7 +71,12 @@ logs_fixture = os.environ.get("AGENTSTUDIO_PERF_REPORT_LOGS_RESPONSE")
 if logs_fixture is None:
     logs_fixture = fetch(
         logs_url,
-        {"query": f'dev.release.channel:="{channel}" | limit 10000'},
+        {
+            "query": (
+                f'{channel_field}:="{channel}" '
+                "_msg:app.startup_diagnostic_action.completed | limit 10000"
+            )
+        },
     )
 records = parse_logs(logs_fixture)
 
@@ -86,7 +92,7 @@ def selector_matches(record, selector):
 
 completed = []
 for record in records:
-    if record_value(record, "dev.release.channel") != channel:
+    if record_value(record, channel_field) != channel:
         continue
     family = record_value(record, "agentstudio.startup_diagnostic.action")
     expected_message = COMPLETION_RESOLVERS.get(family)
