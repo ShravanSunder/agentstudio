@@ -294,6 +294,35 @@ package enum AppPolicies {
         }
     }
 
+    package enum FilesystemIngress {
+        package static let bufferedFineBatchCapacity: Int = 64
+    }
+
+    package enum ForgeRefresh {
+        package static let defaultPollingInterval: Duration = .seconds(45)
+        package static let failureBackoffBaseDelay: Duration = .seconds(5)
+        package static let failureBackoffMultiplier: Int = 2
+        package static let failureBackoffMaxDelay: Duration = .seconds(60)
+
+        package static func failureBackoffDelay(forConsecutiveFailureCount failureCount: Int) -> Duration {
+            guard failureCount > 1 else {
+                return min(failureBackoffBaseDelay, failureBackoffMaxDelay)
+            }
+            var backoffDelay = failureBackoffBaseDelay
+            for _ in 1..<failureCount {
+                var scaledDelay = Duration.zero
+                for _ in 0..<failureBackoffMultiplier {
+                    scaledDelay += backoffDelay
+                }
+                backoffDelay = scaledDelay
+                if backoffDelay >= failureBackoffMaxDelay {
+                    return failureBackoffMaxDelay
+                }
+            }
+            return min(backoffDelay, failureBackoffMaxDelay)
+        }
+    }
+
     package enum WatchedFolderScanning {
         package static let maximumConcurrentTraversalQuanta: Int = 2
         package static let fallbackCadence: Duration = .seconds(300)

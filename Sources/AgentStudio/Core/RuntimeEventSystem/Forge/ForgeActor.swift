@@ -64,6 +64,21 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
 }
 
 package actor ForgeActor {
+    private struct RepoRefreshState {
+        var generation: UInt64 = 0
+        var inFlightTask: Task<Void, Never>?
+        var backoffTask: Task<Void, Never>?
+        var hasPendingRefresh = false
+        var pendingCorrelationId: UUID?
+        var consecutiveFailureCount = 0
+        var lastPublishedCountsByBranch: [String: Int]?
+    }
+
+    private enum RefreshResult: Sendable {
+        case success([String: Int])
+        case failure(String)
+    }
+
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ForgeActor")
 
     private let runtimeBus: EventBus<RuntimeEnvelope>
@@ -79,13 +94,14 @@ package actor ForgeActor {
     private var nextEnvelopeSequence: UInt64 = 0
     private var repoOriginByRepoId: [UUID: String] = [:]
     private var branchesByRepoId: [UUID: Set<String>] = [:]
+    private var refreshStateByRepoId: [UUID: RepoRefreshState] = [:]
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         statusProvider: any ForgeStatusProvider,
         providerName: String = "github",
         envelopeClock: ContinuousClock = ContinuousClock(),
-        pollInterval: Duration = .seconds(45),
+        pollInterval: Duration = AppPolicies.ForgeRefresh.defaultPollingInterval,
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256
     ) {
@@ -101,6 +117,10 @@ package actor ForgeActor {
     isolated deinit {
         subscriptionTask?.cancel()
         pollingTask?.cancel()
+        for refreshState in refreshStateByRepoId.values {
+            refreshState.inFlightTask?.cancel()
+            refreshState.backoffTask?.cancel()
+        }
     }
 
     package func start() async {
@@ -154,16 +174,19 @@ package actor ForgeActor {
         if branchesByRepoId[repoId] == nil {
             branchesByRepoId[repoId] = []
         }
-        await refresh(repo: repoId)
+        requestRefresh(repoId: repoId, correlationId: nil)
     }
 
     package func unregister(repo repoId: UUID) async {
         repoOriginByRepoId.removeValue(forKey: repoId)
         branchesByRepoId.removeValue(forKey: repoId)
+        let refreshState = refreshStateByRepoId.removeValue(forKey: repoId)
+        refreshState?.inFlightTask?.cancel()
+        refreshState?.backoffTask?.cancel()
     }
 
     package func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
-        await refreshRepo(repoId: repoId, correlationId: correlationId)
+        requestRefresh(repoId: repoId, correlationId: correlationId)
     }
 
     package func shutdown() async {
@@ -182,8 +205,14 @@ package actor ForgeActor {
             await activePolling.value
         }
 
+        for refreshState in refreshStateByRepoId.values {
+            refreshState.inFlightTask?.cancel()
+            refreshState.backoffTask?.cancel()
+        }
+
         repoOriginByRepoId.removeAll(keepingCapacity: false)
         branchesByRepoId.removeAll(keepingCapacity: false)
+        refreshStateByRepoId.removeAll(keepingCapacity: false)
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -232,32 +261,140 @@ package actor ForgeActor {
         guard !Task.isCancelled else { return }
         let repoIds = Array(repoOriginByRepoId.keys)
         for repoId in repoIds {
-            await refresh(repo: repoId)
+            requestRefresh(repoId: repoId, correlationId: nil)
         }
     }
 
-    private func refreshRepo(repoId: UUID, correlationId: UUID?) async {
+    private func requestRefresh(repoId: UUID, correlationId: UUID?) {
         guard !Task.isCancelled else { return }
         guard let origin = repoOriginByRepoId[repoId], !origin.isEmpty else { return }
-        let trackedBranches = branchesByRepoId[repoId] ?? []
+        var refreshState = refreshStateByRepoId[repoId] ?? RepoRefreshState()
+        guard refreshState.inFlightTask == nil, refreshState.backoffTask == nil else {
+            refreshState.hasPendingRefresh = true
+            refreshState.pendingCorrelationId = correlationId
+            refreshStateByRepoId[repoId] = refreshState
+            return
+        }
 
-        do {
-            let countsByBranch = try await statusProvider.pullRequestCounts(
-                origin: origin,
-                branches: trackedBranches
-            )
-            await emitForgeEvent(
+        refreshState.generation += 1
+        let generation = refreshState.generation
+        let trackedBranches = branchesByRepoId[repoId] ?? []
+        let statusProvider = self.statusProvider
+        let refreshTask = Task { [weak self, statusProvider] in
+            let result: RefreshResult
+            do {
+                result = .success(
+                    try await statusProvider.pullRequestCounts(
+                        origin: origin,
+                        branches: trackedBranches
+                    )
+                )
+            } catch {
+                result = .failure(String(describing: error))
+            }
+            guard !Task.isCancelled else { return }
+            await self?.finishRefresh(
                 repoId: repoId,
+                generation: generation,
                 correlationId: correlationId,
-                event: .pullRequestCountsChanged(repoId: repoId, countsByBranch: countsByBranch)
-            )
-        } catch {
-            await emitForgeEvent(
-                repoId: repoId,
-                correlationId: correlationId,
-                event: .refreshFailed(repoId: repoId, error: String(describing: error))
+                result: result
             )
         }
+        refreshState.inFlightTask = refreshTask
+        refreshStateByRepoId[repoId] = refreshState
+    }
+
+    private func finishRefresh(
+        repoId: UUID,
+        generation: UInt64,
+        correlationId: UUID?,
+        result: RefreshResult
+    ) async {
+        guard var refreshState = refreshStateByRepoId[repoId], refreshState.generation == generation else {
+            return
+        }
+
+        switch result {
+        case .success(let countsByBranch):
+            refreshState.consecutiveFailureCount = 0
+            if refreshState.lastPublishedCountsByBranch != countsByBranch {
+                refreshState.lastPublishedCountsByBranch = countsByBranch
+                refreshStateByRepoId[repoId] = refreshState
+                await emitForgeEvent(
+                    repoId: repoId,
+                    correlationId: correlationId,
+                    event: .pullRequestCountsChanged(repoId: repoId, countsByBranch: countsByBranch)
+                )
+                guard
+                    let latestRefreshState = refreshStateByRepoId[repoId],
+                    latestRefreshState.generation == generation
+                else { return }
+                refreshState = latestRefreshState
+            }
+        case .failure(let errorDescription):
+            refreshState.consecutiveFailureCount += 1
+            refreshState.hasPendingRefresh = true
+            refreshStateByRepoId[repoId] = refreshState
+            await emitForgeEvent(
+                repoId: repoId,
+                correlationId: correlationId,
+                event: .refreshFailed(repoId: repoId, error: errorDescription)
+            )
+            guard
+                let latestRefreshState = refreshStateByRepoId[repoId],
+                latestRefreshState.generation == generation
+            else { return }
+            refreshState = latestRefreshState
+        }
+
+        refreshState.inFlightTask = nil
+        refreshStateByRepoId[repoId] = refreshState
+        if refreshState.consecutiveFailureCount > 0 {
+            scheduleBackoff(repoId: repoId, generation: generation)
+        } else {
+            startPendingRefreshIfNeeded(repoId: repoId)
+        }
+    }
+
+    private func scheduleBackoff(repoId: UUID, generation: UInt64) {
+        guard var refreshState = refreshStateByRepoId[repoId], refreshState.generation == generation else {
+            return
+        }
+        let delay = self.delay
+        let backoffDelay = AppPolicies.ForgeRefresh.failureBackoffDelay(
+            forConsecutiveFailureCount: refreshState.consecutiveFailureCount
+        )
+        let backoffTask = Task { [weak self, delay] in
+            do {
+                try await delay.wait(backoffDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.finishBackoff(repoId: repoId, generation: generation)
+        }
+        refreshState.backoffTask = backoffTask
+        refreshStateByRepoId[repoId] = refreshState
+    }
+
+    private func finishBackoff(repoId: UUID, generation: UInt64) {
+        guard var refreshState = refreshStateByRepoId[repoId], refreshState.generation == generation else {
+            return
+        }
+        refreshState.backoffTask = nil
+        refreshStateByRepoId[repoId] = refreshState
+        startPendingRefreshIfNeeded(repoId: repoId)
+    }
+
+    private func startPendingRefreshIfNeeded(repoId: UUID) {
+        guard var refreshState = refreshStateByRepoId[repoId], refreshState.hasPendingRefresh else {
+            return
+        }
+        let correlationId = refreshState.pendingCorrelationId
+        refreshState.hasPendingRefresh = false
+        refreshState.pendingCorrelationId = nil
+        refreshStateByRepoId[repoId] = refreshState
+        requestRefresh(repoId: repoId, correlationId: correlationId)
     }
 
     private func emitForgeEvent(

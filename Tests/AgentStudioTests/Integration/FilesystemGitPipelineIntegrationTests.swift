@@ -139,6 +139,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
+        await pipeline.setSidebarVisibleWorktrees([worktreeId])
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
             guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot else { return false }
@@ -424,6 +425,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
+        await pipeline.setSidebarVisibleWorktrees([worktreeId])
 
         let initialSnapshotConverged = await eventually(
             "initial registration should produce a git snapshot before origin retry",
@@ -557,6 +559,10 @@ private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked S
 
     func events() -> AsyncStream<FSEventBatch> {
         stream
+    }
+
+    func consumeCoarseRefreshDebt() -> Set<UUID> {
+        []
     }
 
     func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}
