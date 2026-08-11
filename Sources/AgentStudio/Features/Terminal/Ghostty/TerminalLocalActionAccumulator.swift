@@ -219,6 +219,12 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         case draining
     }
 
+    private enum PublicationState<Value: Equatable>: Equatable {
+        case unknown
+        case pending(Value)
+        case committed(Value)
+    }
+
     private struct SearchLifecycleState {
         var epoch: UInt64 = 0
         var isActive = false
@@ -255,6 +261,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var titleDeadlineNanoseconds: UInt64?
         var search = SearchLifecycleState()
         var activityContext: TerminalActivityProjectionContext?
+        var titlePublicationState: PublicationState<TerminalTitleMetadataBatch> = .unknown
 
         func phase(for lane: TerminalLocalActionLane) -> DrainPhase {
             phases[lane] ?? .idle
@@ -280,6 +287,10 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
 
         var hasAnyPendingWork: Bool {
             pending.hasWork || titlePending.hasWork
+        }
+
+        var hasPublicationState: Bool {
+            titlePublicationState != .unknown
         }
     }
 
@@ -340,6 +351,15 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 titleState.pending = state.titlePending
                 mutationResult = applyTitleMetadata(titleMetadataAction(from: action), to: &titleState)
                 state.titlePending = titleState.pending
+                guard let candidate = state.titlePending.titleMetadata else {
+                    preconditionFailure("Title admission must retain a title projection")
+                }
+                if state.titlePublicationState == .committed(candidate) {
+                    state.titlePending = PendingBatch()
+                    statesBySurfaceID[surfaceID] = state
+                    return .equalSuppressed
+                }
+                state.titlePublicationState = .pending(candidate)
             } else {
                 mutationResult = apply(action, to: &state)
             }
@@ -446,6 +466,18 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         }
     }
 
+    func acknowledgeSuccessfulTitlePublication(
+        _ appliedProjection: TerminalTitleMetadataBatch,
+        for surfaceID: UUID
+    ) {
+        lock.withLock {
+            guard var state = statesBySurfaceID[surfaceID] else { return }
+            guard state.titlePublicationState == .pending(appliedProjection) else { return }
+            state.titlePublicationState = .committed(appliedProjection)
+            statesBySurfaceID[surfaceID] = state
+        }
+    }
+
     func detachActivityBeforeControl(
         for surfaceID: UUID,
         contextBeforeControl: TerminalActivityProjectionContext?,
@@ -512,7 +544,9 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
             if lane == .immediate, state.search.isActive {
                 state.setPhase(.idle, for: lane)
                 statesBySurfaceID[surfaceID] = state
-            } else if state.hasAnyPendingWork || state.phase(for: lane == .immediate ? .title : .immediate) != .idle {
+            } else if state.hasAnyPendingWork || state.hasPublicationState
+                || state.phase(for: lane == .immediate ? .title : .immediate) != .idle
+            {
                 state.setPhase(.idle, for: lane)
                 statesBySurfaceID[surfaceID] = state
             } else {

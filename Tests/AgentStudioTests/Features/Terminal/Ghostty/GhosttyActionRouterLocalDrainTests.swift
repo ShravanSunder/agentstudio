@@ -59,6 +59,64 @@ private final class LocalDrainRoutingLookup: GhosttyActionRoutingLookup {
 }
 
 extension GhosttyActionRouterTests {
+    @Test("successful title drain commits the applied projection")
+    func successfulTitleDrainCommitsAppliedProjection() async {
+        let surfaceID = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneID = PaneId(existingUUID: paneUUID)
+        let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(
+            TerminalRuntime(
+                paneId: paneID,
+                metadata: PaneMetadata(paneId: paneID, title: "Committed title")
+            )
+        )
+        let routingLookup = LocalDrainRoutingLookup(
+            surfaceIDsByViewObjectID: [ObjectIdentifier(host): surfaceID],
+            paneIDsBySurfaceID: [surfaceID: paneUUID]
+        )
+        let originalRuntimeRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRuntimeRegistry)
+            Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+            Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.localActionAccumulator.offer(
+                .titleChanged("A"),
+                for: surfaceID
+            ) == .scheduled
+        )
+        Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+
+        await Ghostty.ActionRouter.drainLocalActions(
+            for: surfaceID,
+            lane: .title,
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: TerminalLocalActionMountedHostResolver(
+                    surfaceForID: { requestedID in requestedID == surfaceID ? host : nil },
+                    paneIDForSurfaceID: { requestedID in requestedID == surfaceID ? paneUUID : nil }
+                ),
+                runtimeRegistry: runtimeRegistry,
+                fallbackRuntimeRegistry: nil,
+                routingLookup: routingLookup,
+                activityContext: { _ in nil },
+                submitActivityInput: { _ in }
+            )
+        )
+
+        #expect(
+            Ghostty.ActionRouter.localActionAccumulator.offer(
+                .titleChanged("A"),
+                for: surfaceID
+            ) == .equalSuppressed
+        )
+        #expect(!Ghostty.ActionRouter.localActionAccumulator.hasPendingActions(for: surfaceID))
+    }
+
     private func offerScrollbarState(
         _ state: ScrollbarState,
         surfaceID: UUID

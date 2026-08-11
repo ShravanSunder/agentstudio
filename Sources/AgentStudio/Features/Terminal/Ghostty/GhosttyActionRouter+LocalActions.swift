@@ -305,11 +305,20 @@ extension Ghostty.ActionRouter {
                 surfaceView.titleDidChange(surfaceTitle)
             }
             equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
+            let didApplyRuntimeTitle: Bool
             if let runtimeTitle = batch.titleMetadata?.runtimeTitle {
-                routeContractedTitleMetadata(
+                didApplyRuntimeTitle = routeContractedTitleMetadata(
                     runtimeTitle,
                     surfaceViewObjectID: ObjectIdentifier(surfaceView),
                     routingLookup: dependencies.routingLookup
+                )
+            } else {
+                didApplyRuntimeTitle = false
+            }
+            if let titleMetadata = batch.titleMetadata, didApplyRuntimeTitle {
+                localActionAccumulator.acknowledgeSuccessfulTitlePublication(
+                    titleMetadata,
+                    for: surfaceID
                 )
             }
         } else {
@@ -418,11 +427,12 @@ extension Ghostty.ActionRouter {
     }
 
     @MainActor
+    @discardableResult
     static func routeContractedTitleMetadata(
         _ metadata: TerminalLatestSemanticMetadataAction,
         surfaceViewObjectID: ObjectIdentifier,
         routingLookup: any GhosttyActionRoutingLookup
-    ) {
+    ) -> Bool {
         let actionTag: UInt32
         let payload: GhosttyAdapter.ActionPayload
         switch metadata {
@@ -433,7 +443,7 @@ extension Ghostty.ActionRouter {
             actionTag = UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue)
             payload = .tabTitleChanged(title)
         }
-        _ = routeActionToTerminalRuntimeOnMainActor(
+        return routeActionToTerminalRuntimeOnMainActor(
             actionTag: actionTag,
             payload: payload,
             surfaceViewObjectId: surfaceViewObjectID,
@@ -467,11 +477,17 @@ extension Ghostty.ActionRouter {
             )
         else { return false }
         if let precedingTitle {
-            routeContractedTitleMetadata(
+            let didApplyPrecedingTitle = routeContractedTitleMetadata(
                 precedingTitle.metadata.runtimeTitle,
                 surfaceViewObjectID: surfaceViewObjectID,
                 routingLookup: routingLookup
             )
+            if didApplyPrecedingTitle {
+                localActionAccumulator.acknowledgeSuccessfulTitlePublication(
+                    precedingTitle.metadata,
+                    for: expectedSurfaceID
+                )
+            }
         }
         return routeActionToTerminalRuntimeOnMainActor(
             actionTag: actionTag,
