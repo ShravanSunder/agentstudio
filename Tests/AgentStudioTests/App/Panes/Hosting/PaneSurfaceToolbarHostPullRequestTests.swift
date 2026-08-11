@@ -105,10 +105,8 @@ struct PaneSurfaceToolbarHostPullRequestTests {
             )
         )
         if let pullRequestFacts {
-            cache.applyPullRequestFacts(
-                repoId: repo.id,
-                factsByBranch: ["feature/pr-toolbar": pullRequestFacts]
-            )
+            let branchKey = RepoBranchKey(repoId: repo.id, branch: "feature/pr-toolbar")!
+            cache.applyPullRequestFacts([branchKey: pullRequestFacts])
         }
 
         return PullRequestToolbarFixture(

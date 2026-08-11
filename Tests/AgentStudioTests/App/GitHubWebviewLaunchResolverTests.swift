@@ -87,12 +87,10 @@ struct GitHubWebviewLaunchResolverTests {
             )
         )
         let exactPullRequestURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
-        cache.applyPullRequestFacts(
-            repoId: repo.id,
-            factsByBranch: [
-                "feature/exact-pr": PullRequestFacts(openCount: 1, exactOpenURL: exactPullRequestURL)
-            ]
-        )
+        let branchKey = RepoBranchKey(repoId: repo.id, branch: "feature/exact-pr")!
+        cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 1, exactOpenURL: exactPullRequestURL)
+        ])
 
         let url = GitHubWebviewLaunchResolver.urlForActivePane(store: store, repoCache: cache)
 
@@ -104,6 +102,31 @@ struct GitHubWebviewLaunchResolverTests {
                 repoCache: cache
             ) == exactPullRequestURL
         )
+    }
+
+    @Test
+    func resolvesExactPullRequestURLBeforeRepositorySlugEnrichment() throws {
+        let store = makeStore()
+        let cache = RepoCacheAtom()
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio-no-slug"))
+        let worktree = try #require(store.repos.first(where: { $0.id == repo.id })?.worktrees.first)
+        let pane = store.createPane(
+            launchDirectory: worktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        cache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+        cache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/exact-pr")
+        )
+        let exactPullRequestURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/271")!
+        let branchKey = RepoBranchKey(repoId: repo.id, branch: "feature/exact-pr")!
+        cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 1, exactOpenURL: exactPullRequestURL)
+        ])
+
+        #expect(GitHubWebviewLaunchResolver.urlForActivePane(store: store, repoCache: cache) == exactPullRequestURL)
     }
 
     @Test
@@ -120,10 +143,10 @@ struct GitHubWebviewLaunchResolverTests {
         cache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/no-url")
         )
-        cache.applyPullRequestFacts(
-            repoId: repo.id,
-            factsByBranch: ["feature/no-url": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
-        )
+        let branchKey = RepoBranchKey(repoId: repo.id, branch: "feature/no-url")!
+        cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 2, exactOpenURL: nil)
+        ])
 
         #expect(
             GitHubWebviewLaunchResolver.pullRequestsURL(

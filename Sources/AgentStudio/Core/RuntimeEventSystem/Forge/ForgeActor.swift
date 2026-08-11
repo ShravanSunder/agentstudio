@@ -60,6 +60,7 @@ package actor ForgeActor {
     private var membershipByWorktreeId: [UUID: WorktreeMembership] = [:]
     private var demandedWorktreeIds: Set<UUID> = []
     private var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
+    private var isShuttingDown = false
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -126,6 +127,7 @@ package actor ForgeActor {
             )
         }
         requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+        rescheduleDeadline()
     }
 
     package func unregister(worktreeId: UUID) async {
@@ -218,6 +220,8 @@ package actor ForgeActor {
     }
 
     package func shutdown() async {
+        guard !isShuttingDown else { return }
+        isShuttingDown = true
         let activeSubscriptionTask = subscriptionTask
         let activeDeadlineTask = deadlineTask
         let activeProviderTasks = Array(providerTasksByRepoId.values)
@@ -235,6 +239,12 @@ package actor ForgeActor {
         if let activeDeadlineTask { await activeDeadlineTask.value }
         for task in activeProviderTasks { await task.value }
 
+        deadlineTask?.cancel()
+        for task in providerTasksByRepoId.values {
+            task.cancel()
+        }
+        deadlineTask = nil
+        providerTasksByRepoId.removeAll(keepingCapacity: false)
         membershipByWorktreeId.removeAll(keepingCapacity: false)
         demandedWorktreeIds.removeAll(keepingCapacity: false)
         refreshStateByRepoId.removeAll(keepingCapacity: false)
@@ -364,6 +374,7 @@ package actor ForgeActor {
         trigger: RefreshTrigger,
         correlationId: UUID?
     ) {
+        guard !isShuttingDown else { return }
         let demandedBranches = demandedBranches(repoId: repoId)
         guard !demandedBranches.isEmpty else {
             if var state = refreshStateByRepoId[repoId] {
@@ -415,6 +426,10 @@ package actor ForgeActor {
         _ request: ProviderRequest,
         outcome: ForgePullRequestQueryOutcome
     ) async {
+        guard !isShuttingDown else {
+            providerTasksByRepoId.removeValue(forKey: request.repoId)
+            return
+        }
         guard var state = refreshStateByRepoId[request.repoId],
             state.activeRequestId == request.id,
             state.generation == request.generation,
@@ -508,6 +523,7 @@ package actor ForgeActor {
         let deadlineGeneration = nextDeadlineGeneration
         deadlineTask?.cancel()
         deadlineTask = nil
+        guard !isShuttingDown else { return }
 
         let now = monotonicNow()
         let deadlines = demandedRepoIds().compactMap { repoId -> Duration? in

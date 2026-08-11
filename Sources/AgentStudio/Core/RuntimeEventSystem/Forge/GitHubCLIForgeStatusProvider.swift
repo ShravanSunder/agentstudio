@@ -48,7 +48,7 @@ package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
                     "--repo", repoSlug,
                     "--state", "open",
                     "--json", "headRefName,url",
-                    "--limit", "200",
+                    "--limit", String(AppPolicies.Forge.pullRequestResultLimit),
                 ],
                 cwd: nil,
                 environment: nil

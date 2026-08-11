@@ -60,6 +60,10 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
                 branch: "main"
             )
         )
+        let mainBranchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
+        repoCache.applyPullRequestFacts([
+            mainBranchKey: PullRequestFacts(openCount: 1, exactOpenURL: nil)
+        ])
 
         coordinator.handleTopology(
             SystemEnvelope.test(

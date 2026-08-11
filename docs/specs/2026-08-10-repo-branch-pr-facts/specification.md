@@ -20,7 +20,7 @@ R7. Demand changes, branch changes, origin changes, manual refresh, and a freshn
 
 R8. One admitted repository refresh MUST query open PRs once for that repository and locally project results onto its demanded branches. It MUST NOT invoke one GitHub command per branch. A bounded or truncated response MUST NOT confirm an unmatched demanded branch as having zero PRs.
 
-R9. A follow-up refresh MUST use the latest known origin and complete demanded-branch set. Results from an obsolete origin or superseded refresh generation MUST NOT become visible.
+R9. A follow-up refresh MUST use the latest known origin and complete demanded-branch set. Results from an obsolete origin or superseded refresh generation MUST NOT become visible. Completion MUST also discard facts for requested branches that no longer have live worktree membership.
 
 R10. Only a known-complete successful refresh MUST publish one repository-scoped result and update branch facts. Demanded branches with no matching open PR in that complete result MUST resolve to confirmed empty facts. Facts absent because a branch is no longer represented by any live worktree MUST be removed; merely losing visibility MUST NOT turn a confirmed result into unknown.
 

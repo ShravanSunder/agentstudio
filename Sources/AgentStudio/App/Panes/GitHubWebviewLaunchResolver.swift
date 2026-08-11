@@ -75,15 +75,15 @@ enum GitHubWebviewLaunchResolver {
             return fallbackURL
         }
 
+        if let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL {
+            return exactOpenURL
+        }
+
         guard let slug = repoCache.repoEnrichment(for: context.repo.id)?.remoteSlug else {
             logger.info(
                 "Falling back to GitHub home because repo slug is unavailable for repoId=\(context.repo.id.uuidString, privacy: .public)"
             )
             return fallbackURL
-        }
-
-        if let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL {
-            return exactOpenURL
         }
 
         let path = "/\(slug)"

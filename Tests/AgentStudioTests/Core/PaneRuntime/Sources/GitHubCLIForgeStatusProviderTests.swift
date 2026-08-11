@@ -31,7 +31,7 @@ struct GitHubCLIForgeStatusProviderTests {
                         "--repo", "acme/studio",
                         "--state", "open",
                         "--json", "headRefName,url",
-                        "--limit", "200",
+                        "--limit", String(AppPolicies.Forge.pullRequestResultLimit),
                     ],
                     environment: nil
                 )
@@ -55,7 +55,8 @@ struct GitHubCLIForgeStatusProviderTests {
     @Test("a response below the cap is complete")
     func belowCapIsComplete() async {
         let processExecutor = MockProcessExecutor()
-        let rows = (0..<199).map { index in
+        let belowCapCount = AppPolicies.Forge.pullRequestResultLimit - 1
+        let rows = (0..<belowCapCount).map { index in
             "{\"headRefName\":\"branch-\(index)\",\"url\":\"https://github.com/acme/studio/pull/\(index + 1)\"}"
         }
         processExecutor.enqueueSuccess("[\(rows.joined(separator: ","))]")
@@ -67,13 +68,13 @@ struct GitHubCLIForgeStatusProviderTests {
             Issue.record("Expected a complete result below the explicit cap")
             return
         }
-        #expect(pullRequests.count == 199)
+        #expect(pullRequests.count == belowCapCount)
     }
 
     @Test("a response at the cap is potentially truncated")
     func atCapIsPotentiallyTruncated() async {
         let processExecutor = MockProcessExecutor()
-        let rows = (0..<200).map { index in
+        let rows = (0..<AppPolicies.Forge.pullRequestResultLimit).map { index in
             "{\"headRefName\":\"branch-\(index)\",\"url\":\"https://github.com/acme/studio/pull/\(index + 1)\"}"
         }
         processExecutor.enqueueSuccess("[\(rows.joined(separator: ","))]")

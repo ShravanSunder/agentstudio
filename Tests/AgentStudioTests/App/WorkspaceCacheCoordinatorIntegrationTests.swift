@@ -157,10 +157,10 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repo.id, branch: "main")
         )
-        repoCache.applyPullRequestFacts(
-            repoId: repo.id,
-            factsByBranch: ["main": PullRequestFacts(openCount: 3, exactOpenURL: nil)]
-        )
+        let mainBranchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
+        repoCache.applyPullRequestFacts([
+            mainBranchKey: PullRequestFacts(openCount: 3, exactOpenURL: nil)
+        ])
 
         // User-initiated removal
         coordinator.handleRepoRemoval(repoId: repo.id)
@@ -603,10 +603,9 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             WorktreeEnrichment(worktreeId: removedWorktreeId, repoId: repo.id, branch: "removed")
         )
         let removedBranchKey = RepoBranchKey(repoId: repo.id, branch: "removed")!
-        repoCache.applyPullRequestFacts(
-            repoId: repo.id,
-            factsByBranch: ["removed": PullRequestFacts(openCount: 7, exactOpenURL: nil)]
-        )
+        repoCache.applyPullRequestFacts([
+            removedBranchKey: PullRequestFacts(openCount: 7, exactOpenURL: nil)
+        ])
 
         coordinator.handleTopology(
             SystemEnvelope.test(

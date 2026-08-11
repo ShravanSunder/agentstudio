@@ -40,12 +40,10 @@ struct PanePullRequestToolbarActionFactoryTests {
                 branch: "feature/pr-toolbar"
             )
         )
-        fixture.cache.applyPullRequestFacts(
-            repoId: fixture.repo.id,
-            factsByBranch: [
-                "feature/pr-toolbar": PullRequestFacts(openCount: 1, exactOpenURL: exactURL)
-            ]
-        )
+        let branchKey = RepoBranchKey(repoId: fixture.repo.id, branch: "feature/pr-toolbar")!
+        fixture.cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 1, exactOpenURL: exactURL)
+        ])
         let recorder = OpenedURLRecorder()
 
         let action = try #require(

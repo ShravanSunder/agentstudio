@@ -10,7 +10,7 @@ import Testing
 @testable import AgentStudioTestSupport
 
 @MainActor
-@Suite("WorkspaceSurfaceCoordinator pull request demand", .serialized)
+@Suite("WorkspaceSurfaceCoordinator pull request demand", .serialized, .timeLimit(.minutes(1)))
 struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
     init() {
         installTestCoreAtomsIfNeeded()
@@ -74,14 +74,21 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
             #expect(await source.waitForLastSnapshot([firstWorktree.id]))
 
             coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
-            #expect(await source.waitForLastSnapshot([firstWorktree.id, sidebarWorktreeId]))
+            #expect(
+                await source.waitForLastSnapshot([firstWorktree.id, sidebarWorktreeId])
+            )
             let snapshotCountBeforeDuplicate = await source.snapshotCount
             coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
-            for _ in 0..<20 { await Task.yield() }
+            await eventually("duplicate demand delivery should settle") {
+                coordinator.pendingPullRequestDemandWorktreeIds == nil
+                    && coordinator.pullRequestDemandDeliveryTask == nil
+            }
             #expect(await source.snapshotCount == snapshotCountBeforeDuplicate)
 
             store.setActiveTab(secondTab.id)
-            #expect(await source.waitForLastSnapshot([secondWorktree.id, sidebarWorktreeId]))
+            #expect(
+                await source.waitForLastSnapshot([secondWorktree.id, sidebarWorktreeId])
+            )
 
             windowLifecycle.recordWindowPresentation(
                 WindowPresentationFacts(isVisible: false, isMiniaturized: false, isOccluded: true),
@@ -164,7 +171,7 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
 
 private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSourceManaging {
     private var demandSnapshots: [Set<UUID>] = []
-    private var demandWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
+    private var snapshotWaiters: [UUID: AsyncStream<Set<UUID>>.Continuation] = [:]
     private var suspendedSnapshot: Set<UUID>?
     private var suspendedSnapshotContinuation: CheckedContinuation<Void, Never>?
 
@@ -182,15 +189,9 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
 
     func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async {
         demandSnapshots.append(worktreeIds)
-        var remainingWaiters: [(Set<UUID>, CheckedContinuation<Void, Never>)] = []
-        for (expectedWorktreeIds, continuation) in demandWaiters {
-            if expectedWorktreeIds == worktreeIds {
-                continuation.resume()
-            } else {
-                remainingWaiters.append((expectedWorktreeIds, continuation))
-            }
+        for waiter in snapshotWaiters.values {
+            waiter.yield(worktreeIds)
         }
-        demandWaiters = remainingWaiters
         if suspendedSnapshot == worktreeIds {
             suspendedSnapshot = nil
             await withCheckedContinuation { continuation in
@@ -210,10 +211,20 @@ private actor PullRequestDemandRecordingFilesystemSource: WorkspaceFilesystemSou
 
     func waitForLastSnapshot(_ expected: Set<UUID>) async -> Bool {
         if demandSnapshots.last == expected { return true }
-        await withCheckedContinuation { continuation in
-            demandWaiters.append((expected, continuation))
+        let waiterId = UUIDv7.generate()
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: Set<UUID>.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        snapshotWaiters[waiterId] = continuation
+        defer {
+            snapshotWaiters.removeValue(forKey: waiterId)
+            continuation.finish()
         }
-        return true
+        for await snapshot in stream where snapshot == expected {
+            return true
+        }
+        return false
     }
 }
 

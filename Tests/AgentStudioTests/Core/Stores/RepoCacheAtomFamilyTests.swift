@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import Testing
@@ -35,7 +36,7 @@ private func observePullRequestFacts(
 struct RepoCacheAtomFamilyTests {
     @Test
     func repoBranchKeyRejectsOnlyEmptyBranchAndPreservesExactBranchText() {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
 
         #expect(RepoBranchKey(repoId: repoId, branch: "") == nil)
         #expect(RepoBranchKey(repoId: repoId, branch: " feature/exact ")?.branch == " feature/exact ")
@@ -44,8 +45,8 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func repoEnrichmentKeyReadInvalidatesOnlyMatchingRepo() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let watchedRepoId = UUID()
-        let unrelatedRepoId = UUID()
+        let watchedRepoId = UUIDv7.generate()
+        let unrelatedRepoId = UUIDv7.generate()
         let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
         cacheAtom.setRepoEnrichment(.awaitingOrigin(repoId: watchedRepoId))
@@ -70,18 +71,16 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func pullRequestFactsKeyReadInvalidatesOnlyMatchingRepositoryBranch() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let watchedKey = RepoBranchKey(repoId: repoId, branch: "main")!
         let unrelatedKey = RepoBranchKey(repoId: repoId, branch: "feature/unrelated")!
         let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: [
-                "main": PullRequestFacts(
-                    openCount: 1, exactOpenURL: URL(string: "https://github.com/acme/repo/pull/1")),
-                "feature/unrelated": PullRequestFacts(openCount: 2, exactOpenURL: nil),
-            ]
+        cacheAtom.applyPullRequestFacts([
+            watchedKey: PullRequestFacts(
+                openCount: 1, exactOpenURL: URL(string: "https://github.com/acme/repo/pull/1")),
+            unrelatedKey: PullRequestFacts(openCount: 2, exactOpenURL: nil),
+        ]
         )
 
         withObservationTracking {
@@ -90,10 +89,9 @@ struct RepoCacheAtomFamilyTests {
             invalidationCounter.record()
         }
 
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["feature/unrelated": PullRequestFacts(openCount: 3, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([
+            unrelatedKey: PullRequestFacts(openCount: 3, exactOpenURL: nil)
+        ])
 
         #expect(!invalidationCounter.didFire)
         #expect(cacheAtom.pullRequestFacts(for: watchedKey)?.openCount == 1)
@@ -103,21 +101,18 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func applyPullRequestFactsMergesOnlyRefreshedBranches() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let branchAKey = RepoBranchKey(repoId: repoId, branch: "feature/a")!
         let branchBKey = RepoBranchKey(repoId: repoId, branch: "feature/b")!
 
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: [
-                "feature/a": PullRequestFacts(openCount: 1, exactOpenURL: nil),
-                "feature/b": PullRequestFacts(openCount: 2, exactOpenURL: nil),
-            ]
+        cacheAtom.applyPullRequestFacts([
+            branchAKey: PullRequestFacts(openCount: 1, exactOpenURL: nil),
+            branchBKey: PullRequestFacts(openCount: 2, exactOpenURL: nil),
+        ]
         )
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["feature/a": PullRequestFacts(openCount: 4, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([
+            branchAKey: PullRequestFacts(openCount: 4, exactOpenURL: nil)
+        ])
 
         #expect(cacheAtom.pullRequestFacts(for: branchAKey)?.openCount == 4)
         #expect(cacheAtom.pullRequestFacts(for: branchBKey)?.openCount == 2)
@@ -126,27 +121,21 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func pullRequestFactsRetainObservationIdentityAcrossRemovalAndReinsertion() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let key = RepoBranchKey(repoId: repoId, branch: "main")!
         let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([key: PullRequestFacts(openCount: 1, exactOpenURL: nil)])
         observePullRequestFacts(
             in: cacheAtom,
             key: key,
             counter: invalidationCounter
         )
 
-        cacheAtom.removePullRequestFacts(repoId: repoId, branches: ["main"])
+        cacheAtom.removePullRequestFacts(keys: [key])
         #expect(invalidationCounter.count == 1)
         #expect(cacheAtom.pullRequestFacts(for: key) == nil)
 
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([key: PullRequestFacts(openCount: 2, exactOpenURL: nil)])
         #expect(invalidationCounter.count == 2)
         #expect(cacheAtom.pullRequestFacts(for: key)?.openCount == 2)
     }
@@ -154,8 +143,8 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func missingKeySlotsRemainRetainedForTheCacheOwnerLifetime() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let validRepoId = UUID()
-        let staleRepoId = UUID()
+        let validRepoId = UUIDv7.generate()
+        let staleRepoId = UUIDv7.generate()
         let validBranchKey = RepoBranchKey(repoId: validRepoId, branch: "main")!
         let staleBranchKey = RepoBranchKey(repoId: staleRepoId, branch: "main")!
 
@@ -170,10 +159,9 @@ struct RepoCacheAtomFamilyTests {
         #expect(cacheAtom.pullRequestFactsStorageSlotCount == 2)
 
         cacheAtom.setRepoEnrichment(Self.localRepoEnrichment(repoId: validRepoId, displayName: "agent-studio"))
-        cacheAtom.applyPullRequestFacts(
-            repoId: validRepoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([
+            validBranchKey: PullRequestFacts(openCount: 1, exactOpenURL: nil)
+        ])
 
         #expect(cacheAtom.repoEnrichment(for: validRepoId)?.displayName == "agent-studio")
         #expect(cacheAtom.pullRequestFacts(for: validBranchKey)?.openCount == 1)
@@ -182,15 +170,12 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func pullRequestFactsSnapshotUsesRepositoryBranchKeys() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let key = RepoBranchKey(repoId: repoId, branch: "main")!
         let repoEnrichment = Self.localRepoEnrichment(repoId: repoId, displayName: "agent-studio")
 
         cacheAtom.setRepoEnrichment(repoEnrichment)
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 8, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([key: PullRequestFacts(openCount: 8, exactOpenURL: nil)])
 
         #expect(cacheAtom.repoEnrichmentSnapshot()[repoId] == repoEnrichment)
         #expect(cacheAtom.pullRequestFactsSnapshot()[key]?.openCount == 8)
@@ -199,7 +184,7 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func contentEqualPullRequestFactsWriteSkipsKeyInvalidationAndAggregateRevision() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let key = RepoBranchKey(repoId: repoId, branch: "main")!
         let facts = PullRequestFacts(
             openCount: 1,
@@ -207,7 +192,7 @@ struct RepoCacheAtomFamilyTests {
         )
         let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
-        cacheAtom.applyPullRequestFacts(repoId: repoId, factsByBranch: ["main": facts])
+        cacheAtom.applyPullRequestFacts([key: facts])
         let revisionBeforeEqualWrite = cacheAtom.cacheRevision
         withObservationTracking {
             _ = cacheAtom.pullRequestFacts(for: key)
@@ -215,7 +200,7 @@ struct RepoCacheAtomFamilyTests {
             invalidationCounter.record()
         }
 
-        cacheAtom.applyPullRequestFacts(repoId: repoId, factsByBranch: ["main": facts])
+        cacheAtom.applyPullRequestFacts([key: facts])
 
         #expect(!invalidationCounter.didFire)
         #expect(cacheAtom.cacheRevision == revisionBeforeEqualWrite)
@@ -224,18 +209,16 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func repositoryInvalidationRemovesOnlyMatchingRepositoryFacts() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let removedRepoId = UUID()
-        let retainedRepoId = UUID()
+        let removedRepoId = UUIDv7.generate()
+        let retainedRepoId = UUIDv7.generate()
         let removedKey = RepoBranchKey(repoId: removedRepoId, branch: "main")!
         let retainedKey = RepoBranchKey(repoId: retainedRepoId, branch: "main")!
-        cacheAtom.applyPullRequestFacts(
-            repoId: removedRepoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
-        )
-        cacheAtom.applyPullRequestFacts(
-            repoId: retainedRepoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
-        )
+        cacheAtom.applyPullRequestFacts([
+            removedKey: PullRequestFacts(openCount: 1, exactOpenURL: nil)
+        ])
+        cacheAtom.applyPullRequestFacts([
+            retainedKey: PullRequestFacts(openCount: 2, exactOpenURL: nil)
+        ])
 
         cacheAtom.removePullRequestFacts(forRepository: removedRepoId)
 
@@ -246,8 +229,8 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func timestampOnlyWorktreeUpdateSkipsKeyInvalidationAndAggregateRevision() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
-        let worktreeId = UUID()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
         let initial = WorktreeEnrichment(
             worktreeId: worktreeId,
             repoId: repoId,
@@ -281,7 +264,7 @@ struct RepoCacheAtomFamilyTests {
     @Test
     func timestampOnlyRepoUpdateSkipsKeyInvalidationAndAggregateRevision() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let initial = Self.localRepoEnrichment(
             repoId: repoId,
             displayName: "agent-studio",

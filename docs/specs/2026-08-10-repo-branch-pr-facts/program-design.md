@@ -38,6 +38,7 @@ visibility / branch / origin / manual / freshness deadline
                      no additional task/event
 
 completion -> reject if origin/generation obsolete
+           -> intersect requested branches with current live membership
            -> otherwise emit one complete repository result
            -> record successful freshness time
            -> if pending, clear it and start one refresh

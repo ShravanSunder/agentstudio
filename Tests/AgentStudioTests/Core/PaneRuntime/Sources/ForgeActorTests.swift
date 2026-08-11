@@ -11,7 +11,6 @@ struct ForgeActorTests {
     @Test("missing demanded branch starts an immediate repository refresh")
     func missingDemandStartsImmediateRefresh() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
         let pullRequestURL = URL(string: "https://github.com/acme/studio/pull/42")!
@@ -41,12 +40,12 @@ struct ForgeActorTests {
             )
         )
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("one active request admits only one latest-scope follow-up")
     func oneActiveRequestAndOneLatestFollowUp() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
@@ -87,12 +86,12 @@ struct ForgeActorTests {
         )
         #expect(await fixture.events.facts(for: repoId, branch: "feature/second") == nil)
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("fresh demand waits for the single three-minute deadline")
     func freshDemandWaitsForDeadline() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
 
@@ -117,12 +116,12 @@ struct ForgeActorTests {
         #expect(await fixture.provider.waitForCallCount(2))
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("empty demand cancels future automatic GitHub work")
     func emptyDemandStopsAutomaticRefresh() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
 
@@ -144,12 +143,12 @@ struct ForgeActorTests {
 
         #expect(await fixture.provider.callCount == 1)
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("rate-limit retry respects retry-after and the three-minute minimum")
     func rateLimitBackoffControlsDeadline() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
 
@@ -168,12 +167,12 @@ struct ForgeActorTests {
         #expect(await fixture.provider.waitForCallCount(2))
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("origin replacement invalidates prior facts and rejects the obsolete completion")
     func originReplacementRejectsObsoleteCompletion() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
 
@@ -205,12 +204,12 @@ struct ForgeActorTests {
         )
         #expect(await fixture.events.containsExactURL(obsoleteURL) == false)
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("only final live membership removal invalidates a shared branch")
     func finalMembershipRemovalInvalidatesSharedBranch() async {
         let fixture = await ForgeActorFixture.make()
-        defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let firstWorktreeId = UUIDv7.generate()
         let secondWorktreeId = UUIDv7.generate()
@@ -229,6 +228,7 @@ struct ForgeActorTests {
 
         #expect(await fixture.events.waitForBranchInvalidation(repoId: repoId, branch: "feature/shared"))
         await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 }
 
@@ -289,8 +289,9 @@ struct ForgeActorFixture {
         clock.advance(by: duration)
     }
 
-    func stopObserving() {
+    func stopObserving() async {
         observationTask.cancel()
+        await observationTask.value
     }
 }
 
@@ -322,6 +323,10 @@ actor GatedForgeStatusProvider: ForgeStatusProvider {
     }
 
     func resolve(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
+        guard calls.indices.contains(index) else {
+            Issue.record("No Forge provider call at index \(index); recorded \(calls.count)")
+            return
+        }
         calls[index].continuation.resume(returning: outcome)
     }
 

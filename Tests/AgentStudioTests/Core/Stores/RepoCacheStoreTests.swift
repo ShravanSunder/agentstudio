@@ -25,10 +25,10 @@ struct RepoCacheStoreTests {
         cacheAtom.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
         )
-        cacheAtom.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 3, exactOpenURL: nil)]
-        )
+        let branchKey = RepoBranchKey(repoId: repoId, branch: "main")!
+        cacheAtom.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 3, exactOpenURL: nil)
+        ])
         cacheAtom.markRebuilt(sourceRevision: 42, at: Date(timeIntervalSince1970: 123))
         try await store.flushAsync(for: workspaceId)
 

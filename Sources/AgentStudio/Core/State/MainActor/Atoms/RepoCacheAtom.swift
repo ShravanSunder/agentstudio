@@ -118,14 +118,10 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
-    package func applyPullRequestFacts(repoId: UUID, factsByBranch: [String: PullRequestFacts]) {
-        let keyedFacts = factsByBranch.compactMap { branch, facts -> (RepoBranchKey, PullRequestFacts)? in
-            guard let key = RepoBranchKey(repoId: repoId, branch: branch) else { return nil }
-            return (key, facts)
-        }
+    package func applyPullRequestFacts(_ factsByKey: [RepoBranchKey: PullRequestFacts]) {
         mutate { mutation in
             var didChangeContent = false
-            for (key, facts) in keyedFacts {
+            for (key, facts) in factsByKey {
                 if pullRequestFactsMap.snapshotValue(for: key) != facts {
                     didChangeContent = true
                 }
@@ -137,14 +133,13 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
-    package func removePullRequestFacts(repoId: UUID, branches: Set<String>) {
-        let keys = branches.compactMap { RepoBranchKey(repoId: repoId, branch: $0) }
-        removePullRequestFacts(keys: keys)
+    package func removePullRequestFacts(keys: Set<RepoBranchKey>) {
+        removePullRequestFactKeys(keys)
     }
 
     package func removePullRequestFacts(forRepository repoId: UUID) {
         let keys = pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
-        removePullRequestFacts(keys: keys)
+        removePullRequestFactKeys(keys)
     }
 
     func removeWorktree(_ worktreeId: UUID) {
@@ -243,7 +238,7 @@ package final class RepoEnrichmentCacheAtom {
         mutation.commit()
     }
 
-    private func removePullRequestFacts<S: Sequence>(keys: S) where S.Element == RepoBranchKey {
+    private func removePullRequestFactKeys<S: Sequence>(_ keys: S) where S.Element == RepoBranchKey {
         let existingKeys = keys.filter { pullRequestFactsMap.snapshotValue(for: $0) != nil }
         guard !existingKeys.isEmpty else { return }
         mutate { mutation in
@@ -358,12 +353,12 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.setWorktreeEnrichment(enrichment)
     }
 
-    package func applyPullRequestFacts(repoId: UUID, factsByBranch: [String: PullRequestFacts]) {
-        enrichmentCacheAtom.applyPullRequestFacts(repoId: repoId, factsByBranch: factsByBranch)
+    package func applyPullRequestFacts(_ factsByKey: [RepoBranchKey: PullRequestFacts]) {
+        enrichmentCacheAtom.applyPullRequestFacts(factsByKey)
     }
 
-    package func removePullRequestFacts(repoId: UUID, branches: Set<String>) {
-        enrichmentCacheAtom.removePullRequestFacts(repoId: repoId, branches: branches)
+    package func removePullRequestFacts(keys: Set<RepoBranchKey>) {
+        enrichmentCacheAtom.removePullRequestFacts(keys: keys)
     }
 
     package func removePullRequestFacts(forRepository repoId: UUID) {

@@ -176,10 +176,10 @@ final class WorkspaceCacheCoordinatorTests {
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repo.id, branch: "main")
         )
-        repoCache.applyPullRequestFacts(
-            repoId: repo.id,
-            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
-        )
+        let mainBranchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
+        repoCache.applyPullRequestFacts([
+            mainBranchKey: PullRequestFacts(openCount: 2, exactOpenURL: nil)
+        ])
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -244,10 +244,9 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
         let mainBranchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
-        repoCache.applyPullRequestFacts(
-            repoId: repo.id,
-            factsByBranch: ["main": PullRequestFacts(openCount: 5, exactOpenURL: nil)]
-        )
+        repoCache.applyPullRequestFacts([
+            mainBranchKey: PullRequestFacts(openCount: 5, exactOpenURL: nil)
+        ])
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -459,6 +458,26 @@ final class WorkspaceCacheCoordinatorTests {
 
         #expect(didApplyNewestSnapshot)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.changed == 2)
+    }
+
+    @Test("concurrent consumer starts create one bus subscription")
+    func concurrentConsumerStartsCreateOneBusSubscription() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: makeWorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            scopeSyncHandler: { _ in }
+        )
+
+        async let firstStart: Void = coordinator.startConsuming()
+        async let secondStart: Void = coordinator.startConsuming()
+        _ = await (firstStart, secondStart)
+
+        let diagnostics = await bus.diagnosticsSnapshot()
+        #expect(diagnostics.activeSubscribers.count == 1)
+
+        await coordinator.shutdown()
     }
 
     @Test("termination drains pending enrichment before the first persistence flush")

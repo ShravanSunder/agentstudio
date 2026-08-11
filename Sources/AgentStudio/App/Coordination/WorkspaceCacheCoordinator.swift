@@ -36,6 +36,8 @@ final class WorkspaceCacheCoordinator {
     private let enrichmentApplierFlushInterval: Duration
     private let enrichmentApplierDelay: AsyncDelay
     private var consumeTask: Task<Void, Never>?
+    private var pendingConsumeStartGeneration: UInt64?
+    private var nextConsumeStartGeneration: UInt64 = 0
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
@@ -64,11 +66,16 @@ final class WorkspaceCacheCoordinator {
     }
 
     func startConsuming() async {
-        guard consumeTask == nil else { return }
+        guard consumeTask == nil, pendingConsumeStartGeneration == nil else { return }
+        nextConsumeStartGeneration &+= 1
+        let startGeneration = nextConsumeStartGeneration
+        pendingConsumeStartGeneration = startGeneration
         let subscription = await bus.subscribe(
             policy: .criticalUnbounded,
             subscriberName: "WorkspaceCacheCoordinator"
         )
+        guard pendingConsumeStartGeneration == startGeneration else { return }
+        pendingConsumeStartGeneration = nil
         let applier = makeEnrichmentApplier()
         let flushTask = applier.startFlushTask()
         let consumeDirect: @MainActor @Sendable (RuntimeEnvelope) -> Void = { [weak self] envelope in
@@ -90,11 +97,13 @@ final class WorkspaceCacheCoordinator {
     }
 
     func stopConsuming() {
+        pendingConsumeStartGeneration = nil
         consumeTask?.cancel()
         consumeTask = nil
     }
 
     func shutdown() async {
+        pendingConsumeStartGeneration = nil
         let activeTask = consumeTask
         consumeTask?.cancel()
         consumeTask = nil
@@ -542,32 +551,55 @@ final class WorkspaceCacheCoordinator {
                 break
             }
         case .forge(let forgeEvent):
-            switch forgeEvent {
-            case .pullRequestsChanged(let repoId, let factsByBranch):
-                repoCache.applyPullRequestFacts(
-                    repoId: repoId,
-                    factsByBranch: factsByBranch
-                )
-            case .pullRequestBranchesInvalidated(let repoId, let branches):
-                repoCache.removePullRequestFacts(repoId: repoId, branches: branches)
-            case .pullRequestRepositoryInvalidated(let repoId):
-                repoCache.removePullRequestFacts(forRepository: repoId)
-            case .refreshFailed(let repoId, let error):
-                Self.logger.error(
-                    "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"
-                )
-            case .checksUpdated(let repoId, let status):
-                Self.logger.debug(
-                    "Forge checks updated for repoId=\(repoId.uuidString, privacy: .public) status=\(status.rawValue, privacy: .public)"
-                )
-            case .rateLimited(let repoId, let retryAfterSeconds):
-                Self.logger.warning(
-                    "Forge provider rate limited for repoId=\(repoId.uuidString, privacy: .public); retryAfterSeconds=\(String(describing: retryAfterSeconds), privacy: .public)"
-                )
-            }
+            handleForgeEnrichment(forgeEvent)
         case .filesystem, .security:
             break
         }
+    }
+
+    private func handleForgeEnrichment(_ forgeEvent: ForgeEvent) {
+        switch forgeEvent {
+        case .pullRequestsChanged(let repoId, let factsByBranch):
+            repoCache.applyPullRequestFacts(
+                Self.validPullRequestFactsByKey(repoId: repoId, factsByBranch: factsByBranch)
+            )
+        case .pullRequestBranchesInvalidated(let repoId, let branches):
+            repoCache.removePullRequestFacts(
+                keys: Self.validPullRequestBranchKeys(repoId: repoId, branches: branches)
+            )
+        case .pullRequestRepositoryInvalidated(let repoId):
+            repoCache.removePullRequestFacts(forRepository: repoId)
+        case .refreshFailed(let repoId, let error):
+            Self.logger.error(
+                "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"
+            )
+        case .checksUpdated(let repoId, let status):
+            Self.logger.debug(
+                "Forge checks updated for repoId=\(repoId.uuidString, privacy: .public) status=\(status.rawValue, privacy: .public)"
+            )
+        case .rateLimited(let repoId, let retryAfterSeconds):
+            Self.logger.warning(
+                "Forge provider rate limited for repoId=\(repoId.uuidString, privacy: .public); retryAfterSeconds=\(String(describing: retryAfterSeconds), privacy: .public)"
+            )
+        }
+    }
+
+    private static func validPullRequestFactsByKey(
+        repoId: UUID,
+        factsByBranch: [String: PullRequestFacts]
+    ) -> [RepoBranchKey: PullRequestFacts] {
+        Dictionary(
+            uniqueKeysWithValues: factsByBranch.compactMap { branch, facts in
+                RepoBranchKey(repoId: repoId, branch: branch).map { ($0, facts) }
+            }
+        )
+    }
+
+    private static func validPullRequestBranchKeys(
+        repoId: UUID,
+        branches: Set<String>
+    ) -> Set<RepoBranchKey> {
+        Set(branches.compactMap { RepoBranchKey(repoId: repoId, branch: $0) })
     }
 
     private static func fallbackDisplayName(for remote: String) -> String {

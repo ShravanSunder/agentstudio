@@ -18,17 +18,16 @@ extension RepoCacheAtom {
         exactOpenURL: URL? = nil,
         worktreeId: UUID
     ) {
-        guard let enrichment = worktreeEnrichment(for: worktreeId) else {
+        guard let enrichment = worktreeEnrichment(for: worktreeId),
+            let key = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
+        else {
             preconditionFailure("Worktree enrichment must establish repository and branch identity first")
         }
-        applyPullRequestFacts(
-            repoId: enrichment.repoId,
-            factsByBranch: [
-                enrichment.branch: PullRequestFacts(
-                    openCount: openCount,
-                    exactOpenURL: exactOpenURL
-                )
-            ]
-        )
+        applyPullRequestFacts([
+            key: PullRequestFacts(
+                openCount: openCount,
+                exactOpenURL: exactOpenURL
+            )
+        ])
     }
 }

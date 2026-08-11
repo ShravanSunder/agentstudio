@@ -196,8 +196,8 @@ struct RepoExplorerViewProjectionHelperTests {
     @Test("missing relevant worktree facts wake capture and change the admitted request key")
     func missingRelevantWorktreeFactsWakeAndChangeRequestKeyWhenInserted() {
         let cache = RepoCacheAtom()
-        let relevantWorktreeId = UUID()
-        let repoId = UUID()
+        let relevantWorktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
         let counter = RepoExplorerProjectionInputInvalidationCounter()
         cache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: relevantWorktreeId, repoId: repoId, branch: "main")
@@ -212,10 +212,10 @@ struct RepoExplorerViewProjectionHelperTests {
             counter.record()
         }
 
-        cache.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
-        )
+        let branchKey = RepoBranchKey(repoId: repoId, branch: "main")!
+        cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 1, exactOpenURL: nil)
+        ])
         let changedRequestKey = repoExplorerProjectionRequestKey(
             worktreeIds: [relevantWorktreeId],
             repoCache: cache
@@ -228,10 +228,10 @@ struct RepoExplorerViewProjectionHelperTests {
     @Test("unrelated worktree facts neither wake capture nor change the admitted request key")
     func unrelatedWorktreeFactsDoNotWakeOrChangeRequestKey() {
         let cache = RepoCacheAtom()
-        let relevantWorktreeId = UUID()
-        let unrelatedWorktreeId = UUID()
-        let relevantRepoId = UUID()
-        let unrelatedRepoId = UUID()
+        let relevantWorktreeId = UUIDv7.generate()
+        let unrelatedWorktreeId = UUIDv7.generate()
+        let relevantRepoId = UUIDv7.generate()
+        let unrelatedRepoId = UUIDv7.generate()
         let counter = RepoExplorerProjectionInputInvalidationCounter()
         cache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: relevantWorktreeId, repoId: relevantRepoId, branch: "main")
@@ -239,10 +239,11 @@ struct RepoExplorerViewProjectionHelperTests {
         cache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: unrelatedWorktreeId, repoId: unrelatedRepoId, branch: "main")
         )
-        cache.applyPullRequestFacts(
-            repoId: relevantRepoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
-        )
+        let relevantBranchKey = RepoBranchKey(repoId: relevantRepoId, branch: "main")!
+        let unrelatedBranchKey = RepoBranchKey(repoId: unrelatedRepoId, branch: "main")!
+        cache.applyPullRequestFacts([
+            relevantBranchKey: PullRequestFacts(openCount: 1, exactOpenURL: nil)
+        ])
 
         let initialRequestKey = withObservationTracking {
             repoExplorerProjectionRequestKey(
@@ -253,10 +254,9 @@ struct RepoExplorerViewProjectionHelperTests {
             counter.record()
         }
 
-        cache.applyPullRequestFacts(
-            repoId: unrelatedRepoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
-        )
+        cache.applyPullRequestFacts([
+            unrelatedBranchKey: PullRequestFacts(openCount: 2, exactOpenURL: nil)
+        ])
         let requestKeyAfterUnrelatedChange = repoExplorerProjectionRequestKey(
             worktreeIds: [relevantWorktreeId],
             repoCache: cache
@@ -264,10 +264,9 @@ struct RepoExplorerViewProjectionHelperTests {
         #expect(!counter.didFire)
         #expect(requestKeyAfterUnrelatedChange == initialRequestKey)
 
-        cache.applyPullRequestFacts(
-            repoId: relevantRepoId,
-            factsByBranch: ["main": PullRequestFacts(openCount: 3, exactOpenURL: nil)]
-        )
+        cache.applyPullRequestFacts([
+            relevantBranchKey: PullRequestFacts(openCount: 3, exactOpenURL: nil)
+        ])
         let requestKeyAfterRelevantChange = repoExplorerProjectionRequestKey(
             worktreeIds: [relevantWorktreeId],
             repoCache: cache
@@ -306,8 +305,8 @@ struct RepoExplorerViewProjectionHelperTests {
         let store = WorkspaceStore(startsObserving: false)
         let firstPane = store.createPane()
         let secondPane = store.createPane()
-        let worktreeId = UUID()
-        let tabId = UUID()
+        let worktreeId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
         let snapshotRecorder = BridgeAttendanceSnapshotReadRecorder(
             ordinalByPaneId: [
                 firstPane.id: 7,
@@ -410,7 +409,7 @@ struct RepoExplorerViewProjectionHelperTests {
 
     @Test("source group icon uses same checkout color contract as worktree rows")
     func sourceGroupIconUsesCheckoutColorContract() {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
@@ -473,7 +472,7 @@ struct RepoExplorerViewProjectionHelperTests {
 
     @Test("sort order changes have their own projection trigger")
     func sortOrderChangesHaveTheirOwnProjectionTrigger() {
-        let repoId = UUID()
+        let repoId = UUIDv7.generate()
         let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
@@ -545,15 +544,15 @@ struct RepoExplorerViewProjectionHelperTests {
 
     @Test("branchStatus maps sync and line diff values from snapshot summary")
     func branchStatusMapsSnapshotSyncAndLineDiff() {
-        let worktreeId = UUID()
-        let repoId = UUID()
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
         let enrichment = WorktreeEnrichment(
             worktreeId: worktreeId,
             repoId: repoId,
             branch: "main",
             snapshot: GitWorkingTreeSnapshot(
                 worktreeId: worktreeId,
-                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
+                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUIDv7.generate().uuidString)"),
                 summary: GitWorkingTreeSummary(
                     changed: 2,
                     staged: 1,
@@ -594,9 +593,9 @@ struct RepoExplorerViewProjectionHelperTests {
 
     @Test("mergeBranchStatuses shares repository branch facts across worktrees")
     func mergeBranchStatusesSharesRepositoryBranchFacts() {
-        let firstWorktreeId = UUID()
-        let secondWorktreeId = UUID()
-        let repoId = UUID()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
         let branch = "feature/shared"
 
         let merged = RepoExplorerView.mergeBranchStatuses(
@@ -607,7 +606,7 @@ struct RepoExplorerViewProjectionHelperTests {
                     branch: branch,
                     snapshot: GitWorkingTreeSnapshot(
                         worktreeId: firstWorktreeId,
-                        rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
+                        rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUIDv7.generate().uuidString)"),
                         summary: GitWorkingTreeSummary(changed: 0, staged: 1, untracked: 0),
                         branch: branch
                     )
@@ -632,15 +631,15 @@ struct RepoExplorerViewProjectionHelperTests {
 
     @Test("sidebar branch status derives from worktree enrichment snapshots")
     func sidebarBranchStatusDerivesFromWorktreeEnrichmentSnapshots() {
-        let worktreeId = UUID()
-        let repoId = UUID()
+        let worktreeId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
         let enrichment = WorktreeEnrichment(
             worktreeId: worktreeId,
             repoId: repoId,
             branch: "feature/sidebar-pipeline",
             snapshot: GitWorkingTreeSnapshot(
                 worktreeId: worktreeId,
-                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)"),
+                rootPath: URL(fileURLWithPath: "/tmp/repo-\(UUIDv7.generate().uuidString)"),
                 summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
                 branch: "feature/sidebar-pipeline"
             )

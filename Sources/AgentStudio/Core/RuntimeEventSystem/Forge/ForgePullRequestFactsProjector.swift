@@ -14,7 +14,10 @@ enum ForgePullRequestFactsProjector {
                 let urls = urlsByBranch[branch] ?? []
                 return (
                     branch,
-                    PullRequestFacts(openCount: urls.count, exactOpenURL: urls.first)
+                    PullRequestFacts(
+                        openCount: urls.count,
+                        exactOpenURL: urls.count == 1 ? urls[0] : nil
+                    )
                 )
             })
     }

@@ -278,7 +278,11 @@ package enum AppPolicies {
     }
 
     package enum Forge {
+        /// Hard cap for one repository-wide pull request query. Reaching the
+        /// cap is treated as potentially truncated rather than complete.
         package static let pullRequestResultLimit: Int = 200
+        /// Shared floor for automatic-refresh freshness and retries after a
+        /// failed, truncated, or rate-limited pull request query.
         package static let automaticRefreshMinimumInterval: Duration = .seconds(180)
     }
 

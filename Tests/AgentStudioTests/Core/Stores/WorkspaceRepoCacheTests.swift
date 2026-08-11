@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import Testing
@@ -128,15 +129,15 @@ final class RepoCacheAtomTests {
     @Test
     func removeRepoPrunesWorktreeAndRepositoryBranchPullRequestFacts() {
         let store = RepoCacheAtom()
-        let repoId = UUID()
-        let worktreeId = UUID()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
 
         store.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
         store.setWorktreeEnrichment(.init(worktreeId: worktreeId, repoId: repoId, branch: "feature"))
-        store.applyPullRequestFacts(
-            repoId: repoId,
-            factsByBranch: ["feature": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
-        )
+        let branchKey = RepoBranchKey(repoId: repoId, branch: "feature")!
+        store.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 2, exactOpenURL: nil)
+        ])
 
         store.removeRepo(repoId)
 
