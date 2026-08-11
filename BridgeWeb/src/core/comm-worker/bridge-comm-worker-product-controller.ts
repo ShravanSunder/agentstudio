@@ -144,6 +144,8 @@ export class BridgeCommWorkerProductController {
 				return await this.#productTransport.call('review.comparison.update', {
 					target: command.params.target,
 				});
+			case 'review.comparisonTargets.query':
+				return await this.#productTransport.call('review.comparisonTargets.query', {});
 			case 'bridge.activeViewerMode.update':
 				return await this.#sendActiveViewerModeUpdate(command);
 			case 'bridge.intakeReady':

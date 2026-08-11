@@ -49,6 +49,8 @@ struct BridgeProductSessionDependencyInput {
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     let initialProductPresentation: BridgePaneProductPresentationSnapshot
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let reviewSourceProvider: any BridgeReviewSourceProvider
+    let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
 }
 
 struct BridgeSchemeHandlerRegistrationInput {
@@ -568,6 +570,7 @@ extension BridgePaneController {
                 )
             },
             applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
+            queryReviewComparisonTargets: makeReviewComparisonTargetsQuery(input),
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
             lifecycleTraceRecorder: input.telemetryRecorder.map(
@@ -591,6 +594,15 @@ extension BridgePaneController {
             ),
             committedCallTarget: committedCallTarget,
             productProvider: provider
+        )
+    }
+
+    private static func makeReviewComparisonTargetsQuery(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture? {
+        BridgePaneProductComparisonTargetQuerySource.makeQuery(
+            reviewSourceProvider: input.reviewSourceProvider,
+            targetProjection: input.reviewComparisonTargetProjection
         )
     }
 

@@ -39,9 +39,21 @@ import {
 	bridgeWorkerRenderReceiptIdentitySchema,
 } from './bridge-worker-render-fulfillment.js';
 import {
+	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
+} from './bridge-worker-review-comparison-target-query-contracts.js';
+import {
 	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
+export {
+	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
+} from './bridge-worker-review-comparison-target-query-contracts.js';
+export type {
+	BridgeWorkerReviewComparisonTargetsQueryCommand,
+	BridgeWorkerReviewComparisonTargetsQueryEvent,
+} from './bridge-worker-review-comparison-target-query-contracts.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 export {
@@ -351,6 +363,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerMetadataInterestUpdateCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewComparisonUpdateCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
@@ -912,6 +925,7 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 	bridgeWorkerFileRenderPatchEventSchema,
 	bridgeWorkerReviewRenderPatchEventSchema,
 	bridgeWorkerSubscriptionEventSchema,
+	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	bridgeWorkerNativeSurfaceSelectionRequestSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,
@@ -926,6 +940,7 @@ export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('k
 	bridgeWorkerFileRenderPatchEventSchema,
 	bridgeWorkerReviewRenderPatchEventSchema,
 	bridgeWorkerSubscriptionEventSchema,
+	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	bridgeWorkerNativeSurfaceSelectionRequestSchema,
 	bridgeWorkerReviewPierreRenderJobEventSchema,
 	bridgeWorkerFilePierreRenderJobEventSchema,

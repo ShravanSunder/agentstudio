@@ -18,6 +18,7 @@ import {
 	type BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
+import { createBridgeWorkerComparisonTargetsQueryRunner } from './bridge-comm-worker-review-comparison-target-query.js';
 import { createBridgeCommWorkerReviewDemandScheduling } from './bridge-comm-worker-review-demand-scheduling.js';
 import { BridgeCommWorkerReviewMetadataApplicator } from './bridge-comm-worker-review-metadata-applicator.js';
 import { BridgeCommWorkerReviewQueryProjection } from './bridge-comm-worker-review-query-projection.js';
@@ -42,7 +43,9 @@ import {
 	recordBridgeCommWorkerTaskTelemetry,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
+import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
+import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	createWorkerContentPreparationPump,
@@ -125,6 +128,15 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		(productTransport === undefined
 			? undefined
 			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
+	const openComparisonTargetsContent:
+		| ((
+				descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
+				abortSignal: AbortSignal,
+		  ) => BridgeProductContentStream<'review.comparisonTargets'>)
+		| undefined =
+		productTransport === undefined
+			? undefined
+			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal);
 	const productControlTimeoutMilliseconds =
 		props.productControlTimeoutMilliseconds ?? bridgeCommWorkerProductControlTimeoutMilliseconds;
 	const preparationCompletions: Promise<void>[] = [];
@@ -132,6 +144,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	let shouldRequestDrainAfterMessage = false;
 	let cancelReviewRenderFulfillmentWake: (() => void) | null = null;
 	const panePresentationAuthority = new BridgeCommWorkerPanePresentationAuthority();
+	const comparisonTargetsQueryRunner = createBridgeWorkerComparisonTargetsQueryRunner({
+		openContent: openComparisonTargetsContent,
+		publish: (event): void => port.postMessage(event),
+		workSignal: panePresentationAuthority.workSignal,
+	});
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
 		contentRequests: [],
@@ -646,7 +663,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				installedProductController.sendProductControl(command);
 		}
 	}
-
 	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
 		const parsedMessage = bridgeWorkerMainToServerMessageSchema.safeParse(event.data);
 		if (!parsedMessage.success) {
@@ -734,11 +750,17 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			port.postMessage(message);
 		}
 		if (productControlCommand !== null && shouldSendProductControl) {
+			if (productControlCommand.command.method === 'review.comparisonTargets.query') {
+				comparisonTargetsQueryRunner.abort();
+			}
 			void sendBridgeCommWorkerActionWithTimeout({
 				send: (): Promise<unknown> => sendProductControl(productControlCommand.command),
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			})
-				.then((): void => {
+				.then((actionResult: unknown): void => {
+					if (productControlCommand.command.method === 'review.comparisonTargets.query') {
+						void comparisonTargetsQueryRunner.run(productControlCommand.requestId, actionResult);
+					}
 					for (const message of messages) {
 						if (
 							bridgeWorkerRuntimeMessageIsReadyRequest({
@@ -751,6 +773,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				})
 				.catch((_error: unknown): void => {
+					if (productControlCommand.command.method === 'review.comparisonTargets.query') {
+						comparisonTargetsQueryRunner.abort();
+					}
 					port.postMessage(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
 							requestId: productControlCommand.requestId,

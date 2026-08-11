@@ -851,6 +851,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func closeAndDrain() async {
+        pendingComparisonTargetQuery = nil
         await metadataCoordinator.closeAndDrain()
         await contentDemandAdmission.closeAndDrain()
     }

@@ -55,3 +55,39 @@ export const bridgeProductReviewComparisonOriginSchema = z
 		symbolicTarget: bridgeProductReviewComparisonTargetSchema,
 	})
 	.strict();
+
+export const bridgeProductReviewComparisonBranchTargetSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			branchName: z.string().min(1),
+			kind: z.literal('local'),
+			oid: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
+		})
+		.strict(),
+	z
+		.object({
+			branchName: z.string().min(1),
+			kind: z.literal('remoteTracking'),
+			oid: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
+			remoteName: z.string().min(1),
+		})
+		.strict(),
+]);
+
+export const bridgeProductReviewComparisonTargetCatalogSchema = z
+	.object({
+		branches: z.array(bridgeProductReviewComparisonBranchTargetSchema),
+		capturedAtUnixMilliseconds: z.number().int().nonnegative(),
+		cutoffUnixMilliseconds: z.number().int().nonnegative(),
+		currentTarget: bridgeProductReviewComparisonBranchTargetSchema.nullable(),
+		defaultTarget: bridgeProductReviewComparisonBranchTargetSchema.nullable(),
+		isTruncated: z.boolean(),
+	})
+	.strict();
+
+export type BridgeProductReviewComparisonBranchTarget = z.infer<
+	typeof bridgeProductReviewComparisonBranchTargetSchema
+>;
+export type BridgeProductReviewComparisonTargetCatalog = z.infer<
+	typeof bridgeProductReviewComparisonTargetCatalogSchema
+>;

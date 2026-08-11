@@ -69,8 +69,8 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("origin symbolic default adopts its exact remote target and publishes the catalog")
-        func originSymbolicDefaultAdoptsExactRemoteTargetAndPublishesCatalog() async throws {
+        @Test("origin symbolic default adopts its exact remote target and publishes the repository default")
+        func originSymbolicDefaultAdoptsExactRemoteTargetAndPublishesRepositoryDefault() async throws {
             let repoId = UUIDv7.generate()
             let worktreeId = UUIDv7.generate()
             let provider = CanonicalContributionReviewSourceProvider()
@@ -138,8 +138,9 @@ extension WebKitSerializedTests {
             }
             #expect(canonicalBaseline?.contributionTarget == .branch(name: "reviewer-selected"))
             #expect(
-                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?.targetCatalog
-                    == CanonicalContributionReviewSourceProvider.targetCatalog
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
+                    .repositoryDefaultTarget
+                    == CanonicalContributionReviewSourceProvider.repositoryDefaultTarget
             )
             let comparisonPresentation = try #require(
                 controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison
@@ -223,10 +224,6 @@ extension WebKitSerializedTests {
         func workspaceContributionWithoutTargetRequiresSelectionAndDoesNotFabricateHead() async throws {
             let worktreeId = UUIDv7.generate()
             let targetRecorder = AutomaticContributionTargetRecorder()
-            let targetCatalog = BridgeReviewComparisonTargetCatalog(
-                defaultTarget: .local(branchName: "main", oid: "divergent-local-main-oid"),
-                branches: [.local(branchName: "main", oid: "divergent-local-main-oid")]
-            )
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
@@ -240,7 +237,6 @@ extension WebKitSerializedTests {
                     ]
                 ),
                 contentByHandleId: [:],
-                reviewComparisonTargetCatalog: targetCatalog,
                 comparisonFailureByBaseProviderIdentity: [:]
             )
             let controller = makeController(
@@ -266,10 +262,6 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContributionRequests().isEmpty)
             #expect(await provider.recordedComparisonRequests().isEmpty)
             #expect(targetRecorder.target == nil)
-            #expect(
-                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?.targetCatalog
-                    == targetCatalog
-            )
             #expect(controller.paneState.diff.status == .error)
         }
 
@@ -814,29 +806,18 @@ private let reviewContributionEndpointCases = [
 ]
 
 private actor CanonicalContributionReviewSourceProvider: BridgeReviewSourceProvider {
-    static let targetCatalog = BridgeReviewComparisonTargetCatalog(
-        defaultTarget: .remoteTracking(
-            remoteName: "upstream",
-            branchName: "trunk",
-            oid: "upstream-trunk-oid"
-        ),
-        branches: [
-            .local(branchName: "main", oid: "local-main-oid"),
-            .remoteTracking(
-                remoteName: "upstream",
-                branchName: "trunk",
-                oid: "upstream-trunk-oid"
-            ),
-        ]
+    static let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+        remoteName: "upstream",
+        branchName: "trunk"
     )
 
     private var reviewComparisonTargetReadCount = 0
     private var comparisonReadCount = 0
     private var contributionRequests: [BridgeContributionComparisonRequest] = []
 
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         reviewComparisonTargetReadCount += 1
-        return Self.targetCatalog
+        return Self.repositoryDefaultTarget
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

@@ -48,6 +48,23 @@ export const bridgeProductReviewComparisonUpdateRequestSchema = z
 	.object({ target: bridgeProductReviewComparisonTargetSchema })
 	.strict();
 export const bridgeProductReviewComparisonUpdateResultSchema = z.null();
+export const bridgeProductReviewComparisonTargetsQueryRequestSchema = z.object({}).strict();
+export const bridgeProductReviewComparisonTargetsQueryResultSchema = z
+	.object({
+		descriptor: z
+			.object({
+				capturedAtUnixMilliseconds: z.number().int().nonnegative(),
+				contentKind: z.literal('review.comparisonTargets'),
+				cutoffUnixMilliseconds: z.number().int().nonnegative(),
+				declaredByteLength: z.number().int().positive(),
+				descriptorId: bridgeProductIdentifierSchema,
+				encoding: z.literal('utf-8'),
+				expectedSha256: z.string().regex(/^[0-9a-f]{64}$/iu),
+				maximumBytes: z.number().int().positive(),
+			})
+			.strict(),
+	})
+	.strict();
 
 const bridgeProductActiveViewerSourceBaseSchema = z
 	.object({
@@ -110,6 +127,11 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductReviewComparisonUpdateResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.comparisonTargets.query': {
+		readonly request: z.infer<typeof bridgeProductReviewComparisonTargetsQueryRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductReviewComparisonTargetsQueryResultSchema>;
+		readonly surface: 'review';
+	};
 };
 
 export type BridgeProductCallKind = keyof BridgeProductCallRegistry;
@@ -123,6 +145,7 @@ const bridgeProductSurfaceByCallKind = {
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
 	'review.comparison.update': 'review',
+	'review.comparisonTargets.query': 'review',
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
@@ -159,6 +182,12 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.comparison.update'),
 			request: bridgeProductReviewComparisonUpdateRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.comparisonTargets.query'),
+			request: bridgeProductReviewComparisonTargetsQueryRequestSchema,
 		})
 		.strict(),
 	z
@@ -204,6 +233,12 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.comparison.update'),
 			result: bridgeProductReviewComparisonUpdateResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.comparisonTargets.query'),
+			result: bridgeProductReviewComparisonTargetsQueryResultSchema,
 		})
 		.strict(),
 	z

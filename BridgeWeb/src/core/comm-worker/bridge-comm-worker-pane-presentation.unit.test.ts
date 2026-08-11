@@ -148,7 +148,7 @@ describe('Bridge comm worker pane presentation authority', () => {
 				revision: 4,
 				status: 'stale',
 			},
-			targetCatalog: null,
+			repositoryDefaultTarget: null,
 		} as const;
 
 		authority.apply(makePanePresentationFrame(1, 'foreground', ['review'], reviewComparison));
@@ -164,30 +164,26 @@ describe('Bridge comm worker pane presentation authority', () => {
 		).toThrow('Bridge pane presentation revision was reused with changed state.');
 	});
 
-	test('owns an immutable copy of the branch target catalog', () => {
+	test('owns an immutable copy of the repository default target', () => {
 		// Arrange
 		const authority = new BridgeCommWorkerPanePresentationAuthority();
-		const sourceBranches = [
-			{ branchName: 'main', kind: 'local', oid: 'a'.repeat(40) },
-		] satisfies NonNullable<
-			NonNullable<BridgeProductPanePresentationFrame['reviewComparison']>['targetCatalog']
-		>['branches'];
 		const reviewComparison = {
 			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
 			attempt: { reviewGeneration: 9, status: 'settled' },
 			displayedSnapshot: { status: 'none' },
-			targetCatalog: { branches: sourceBranches, defaultTarget: sourceBranches[0] ?? null },
+			repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
 		} satisfies NonNullable<BridgeProductPanePresentationFrame['reviewComparison']>;
 
 		// Act
 		authority.apply(makePanePresentationFrame(1, 'foreground', ['review'], reviewComparison));
-		sourceBranches[0] = { branchName: 'changed', kind: 'local', oid: 'b'.repeat(40) };
+		reviewComparison.repositoryDefaultTarget.branchName = 'changed';
 
 		// Assert
-		expect(authority.snapshot.reviewComparison?.targetCatalog?.branches).toEqual([
-			{ branchName: 'main', kind: 'local', oid: 'a'.repeat(40) },
-		]);
-		expect(Object.isFrozen(authority.snapshot.reviewComparison?.targetCatalog?.branches)).toBe(
+		expect(authority.snapshot.reviewComparison?.repositoryDefaultTarget).toEqual({
+			branchName: 'main',
+			remoteName: 'origin',
+		});
+		expect(Object.isFrozen(authority.snapshot.reviewComparison?.repositoryDefaultTarget)).toBe(
 			true,
 		);
 	});

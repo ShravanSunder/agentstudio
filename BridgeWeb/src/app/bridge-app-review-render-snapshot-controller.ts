@@ -5,6 +5,7 @@ import {
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerReviewComparisonUpdateCommand,
+	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -18,6 +19,7 @@ import {
 	type BridgeMainReviewSourceDisplaySlice,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerPanelChromePatchPayload,
@@ -66,6 +68,7 @@ export interface BridgeReviewDirectDisplayStore extends Pick<
 
 export interface BridgeReviewRenderSnapshotController {
 	readonly catalogSnapshot: BridgeMainReviewCatalogSnapshot;
+	readonly comparisonTargetsQueryState: BridgeReviewComparisonTargetsQueryState;
 	readonly clearSelectedReviewItemId: () => void;
 	readonly commitSelectedReviewItemId: (itemId: string) => void;
 	readonly displayStore: BridgeReviewDirectDisplayStore;
@@ -89,8 +92,23 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly updateReviewComparisonTarget: (
 		target: BridgeWorkerReviewComparisonUpdateCommand['target'],
 	) => void;
+	readonly queryReviewComparisonTargets: () => void;
+	readonly cancelReviewComparisonTargetsQuery: () => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 }
+
+export type BridgeReviewComparisonTargetsQueryState =
+	| { readonly status: 'idle' | 'loading'; readonly catalog: null; readonly message: null }
+	| {
+			readonly status: 'ready';
+			readonly catalog: BridgeProductReviewComparisonTargetCatalog;
+			readonly message: null;
+	  }
+	| {
+			readonly status: 'empty' | 'failed';
+			readonly catalog: null;
+			readonly message: string;
+	  };
 
 export function useBridgeReviewRenderSnapshotController(
 	props: UseBridgeReviewRenderSnapshotControllerProps,
@@ -144,6 +162,12 @@ export function useBridgeReviewRenderSnapshotController(
 			? ({ state: 'loading' } as const)
 			: (rawSelectedContentAvailability ?? null);
 	const [codeViewRenderedItemIds, setCodeViewRenderedItemIds] = useState<readonly string[]>([]);
+	const [comparisonTargetsQueryState, setComparisonTargetsQueryState] =
+		useState<BridgeReviewComparisonTargetsQueryState>({
+			catalog: null,
+			message: null,
+			status: 'idle',
+		});
 	const visibleCodeViewItems = useVisibleReviewCodeViewItems({
 		displayStore,
 		itemIds: codeViewRenderedItemIds,
@@ -156,6 +180,7 @@ export function useBridgeReviewRenderSnapshotController(
 	const hoveredReviewItemIdRef = useRef<string | null>(null);
 	const reviewIntakeReadyAttemptRef = useRef<BridgeReviewIntakeReadyAttempt | null>(null);
 	const latestReviewSelectRequestIdRef = useRef<string | null>(null);
+	const latestComparisonTargetsQueryRequestIdRef = useRef<string | null>(null);
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
 	const settleWorkerRequests = useCallback((): void => {
 		const lifecycleSnapshot = props.reviewClient.lifecycle.getSnapshot();
@@ -179,6 +204,26 @@ export function useBridgeReviewRenderSnapshotController(
 	useEffect((): (() => void) => {
 		const failureCallbacksByRequestId = markFileViewedFailureCallbacksRef.current;
 		const unsubscribeMessages = props.reviewClient.subscribeMessages((message): void => {
+			if (message.kind === 'reviewComparisonTargetsQuery') {
+				if (message.requestId !== latestComparisonTargetsQueryRequestIdRef.current) return;
+				setComparisonTargetsQueryState(
+					message.status === 'ready' && message.catalog !== null
+						? { catalog: message.catalog, message: null, status: 'ready' }
+						: message.status === 'empty'
+							? {
+									catalog: null,
+									message:
+										message.message ?? 'No branch choices are available from the last 30 days.',
+									status: 'empty',
+								}
+							: {
+									catalog: null,
+									message: message.message ?? 'Comparison targets are unavailable.',
+									status: 'failed',
+								},
+				);
+				return;
+			}
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages: [message],
 				pierreCourier,
@@ -191,8 +236,12 @@ export function useBridgeReviewRenderSnapshotController(
 			unsubscribeMessages();
 			unsubscribeLifecycle();
 			failureCallbacksByRequestId.clear();
+			latestComparisonTargetsQueryRequestIdRef.current = null;
 		};
 	}, [displayStore, pierreCourier, props.reviewClient, settleWorkerRequests]);
+	useEffect((): void => {
+		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
+	}, [props.reviewClient]);
 	useEffect((): void => {
 		beginBridgeReviewIntakeReadyDelivery({
 			attemptRef: reviewIntakeReadyAttemptRef,
@@ -269,6 +318,29 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewClient],
 	);
+	const queryReviewComparisonTargets = useCallback((): void => {
+		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'loading' });
+		try {
+			const requestId = props.reviewClient.send(
+				encodeBridgeWorkerReviewComparisonTargetsQueryCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-client-owned',
+				}),
+			);
+			latestComparisonTargetsQueryRequestIdRef.current = requestId;
+		} catch {
+			latestComparisonTargetsQueryRequestIdRef.current = null;
+			setComparisonTargetsQueryState({
+				catalog: null,
+				message: 'Comparison targets are unavailable.',
+				status: 'failed',
+			});
+		}
+	}, [props.reviewClient]);
+	const cancelReviewComparisonTargetsQuery = useCallback((): void => {
+		latestComparisonTargetsQueryRequestIdRef.current = null;
+		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
+	}, []);
 	useEffect((): void => {
 		const lastVisibleIndex = Math.max(0, workerViewportItemIds.length - 1);
 		displayStore.setLocalViewport({
@@ -324,6 +396,7 @@ export function useBridgeReviewRenderSnapshotController(
 	);
 	return {
 		catalogSnapshot,
+		comparisonTargetsQueryState,
 		clearSelectedReviewItemId,
 		commitSelectedReviewItemId,
 		displayStore,
@@ -336,6 +409,8 @@ export function useBridgeReviewRenderSnapshotController(
 		selectedContentAvailability,
 		selectedItemId,
 		selectedReviewItem: selectedReviewItem ?? null,
+		queryReviewComparisonTargets,
+		cancelReviewComparisonTargetsQuery,
 		setReviewCodeViewVisibleItemIds,
 		setReviewTreeVisibleItemIds,
 		updateReviewComparisonTarget,
@@ -463,6 +538,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'health':
 			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':
+			case 'reviewComparisonTargetsQuery':
 				break;
 			case 'reviewPierreRenderJob':
 				if (

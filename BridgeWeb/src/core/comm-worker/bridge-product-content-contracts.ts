@@ -141,6 +141,30 @@ export const bridgeProductReviewContentDescriptorSchema = z
 		}
 	});
 
+export const bridgeProductReviewComparisonTargetsContentDescriptorSchema = z
+	.object({
+		capturedAtUnixMilliseconds: z.number().int().nonnegative(),
+		contentKind: z.literal('review.comparisonTargets'),
+		cutoffUnixMilliseconds: z.number().int().nonnegative(),
+		declaredByteLength: bridgeProductDeclaredByteLengthSchema,
+		descriptorId: bridgeProductIdentifierSchema,
+		encoding: z.literal('utf-8'),
+		expectedSha256: bridgeProductSha256Schema,
+		maximumBytes: bridgeProductPositiveSequenceSchema.max(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		),
+	})
+	.strict()
+	.superRefine((descriptor, context): void => {
+		if (descriptor.declaredByteLength !== descriptor.maximumBytes) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Comparison target content maximum must equal its declared length.',
+				path: ['declaredByteLength'],
+			});
+		}
+	});
+
 export const bridgeProductFileContentDescriptorSchema = z
 	.object({
 		contentKind: z.literal('file.content'),
@@ -184,6 +208,7 @@ export const bridgeProductFileContentDescriptorSchema = z
 
 export const bridgeProductContentDescriptorSchema = z.discriminatedUnion('contentKind', [
 	bridgeProductFileContentDescriptorSchema,
+	bridgeProductReviewComparisonTargetsContentDescriptorSchema,
 	bridgeProductReviewContentDescriptorSchema,
 ]);
 
@@ -223,8 +248,21 @@ export const bridgeProductReviewContentIdentitySchema = z
 	})
 	.strict();
 
+export const bridgeProductReviewComparisonTargetsContentIdentitySchema = z
+	.object({
+		capturedAtUnixMilliseconds: z.number().int().nonnegative(),
+		contentKind: z.literal('review.comparisonTargets'),
+		cutoffUnixMilliseconds: z.number().int().nonnegative(),
+		descriptorId: bridgeProductIdentifierSchema,
+		maximumBytes: bridgeProductPositiveSequenceSchema.max(
+			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+		),
+	})
+	.strict();
+
 export const bridgeProductContentIdentitySchema = z.discriminatedUnion('contentKind', [
 	bridgeProductFileContentIdentitySchema,
+	bridgeProductReviewComparisonTargetsContentIdentitySchema,
 	bridgeProductReviewContentIdentitySchema,
 ]);
 
@@ -242,6 +280,12 @@ export type BridgeProductReviewContentDescriptor = z.infer<
 >;
 export type BridgeProductReviewContentIdentity = z.infer<
 	typeof bridgeProductReviewContentIdentitySchema
+>;
+export type BridgeProductReviewComparisonTargetsContentDescriptor = z.infer<
+	typeof bridgeProductReviewComparisonTargetsContentDescriptorSchema
+>;
+export type BridgeProductReviewComparisonTargetsContentIdentity = z.infer<
+	typeof bridgeProductReviewComparisonTargetsContentIdentitySchema
 >;
 export type { BridgeProductFileSourceIdentity };
 
@@ -295,6 +339,31 @@ type BridgeProductReviewContentTerminal =
 			readonly retryable: true;
 	  };
 
+type BridgeProductReviewComparisonTargetsContentTerminal =
+	| {
+			readonly bytes: ArrayBuffer;
+			readonly contentKind: 'review.comparisonTargets';
+			readonly descriptorId: string;
+			readonly endOfSource: boolean;
+			readonly kind: 'complete';
+			readonly observedSha256: string;
+	  }
+	| {
+			readonly code: BridgeProductRequestErrorCode;
+			readonly contentKind: 'review.comparisonTargets';
+			readonly descriptorId: string;
+			readonly kind: 'error';
+			readonly retryable: boolean;
+			readonly safeMessage: string | null;
+	  }
+	| {
+			readonly contentKind: 'review.comparisonTargets';
+			readonly descriptorId: string;
+			readonly kind: 'reset';
+			readonly reason: BridgeProductResetReason;
+			readonly retryable: true;
+	  };
+
 export type BridgeProductContentRegistry = {
 	readonly 'file.content': {
 		readonly descriptor: BridgeProductFileContentDescriptor;
@@ -308,6 +377,12 @@ export type BridgeProductContentRegistry = {
 		readonly surface: 'review';
 		readonly terminal: BridgeProductReviewContentTerminal;
 	};
+	readonly 'review.comparisonTargets': {
+		readonly descriptor: BridgeProductReviewComparisonTargetsContentDescriptor;
+		readonly identity: BridgeProductReviewComparisonTargetsContentIdentity;
+		readonly surface: 'review';
+		readonly terminal: BridgeProductReviewComparisonTargetsContentTerminal;
+	};
 };
 
 export type BridgeProductContentKind = keyof BridgeProductContentRegistry;
@@ -319,6 +394,7 @@ export type BridgeProductContentIdentity<TContentKind extends BridgeProductConte
 const bridgeProductSurfaceByContentKind = {
 	'file.content': 'file',
 	'review.content': 'review',
+	'review.comparisonTargets': 'review',
 } as const satisfies {
 	readonly [TContentKind in BridgeProductContentKind]: BridgeProductContentRegistry[TContentKind]['surface'];
 };
@@ -345,6 +421,13 @@ export const bridgeProductContentRequestSchema = z.discriminatedUnion('contentKi
 			...bridgeProductContentRequestBaseShape,
 			contentKind: z.literal('file.content'),
 			descriptor: bridgeProductFileContentDescriptorSchema,
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductContentRequestBaseShape,
+			contentKind: z.literal('review.comparisonTargets'),
+			descriptor: bridgeProductReviewComparisonTargetsContentDescriptorSchema,
 		})
 		.strict(),
 	z
@@ -377,7 +460,7 @@ export const bridgeProductContentAcceptedBodySchema = z
 	})
 	.strict()
 	.superRefine((header, context): void => {
-		if (header.maximumBytes !== header.identity.window.maximumBytes) {
+		if (header.maximumBytes !== bridgeProductMaximumBytesForIdentity(header.identity)) {
 			context.addIssue({
 				code: 'custom',
 				message: 'Accepted content maximum must match its identity window.',
@@ -419,7 +502,7 @@ export const bridgeProductContentAcceptedHeaderSchema = z
 	})
 	.strict()
 	.superRefine((header, context): void => {
-		if (header.maximumBytes !== header.identity.window.maximumBytes) {
+		if (header.maximumBytes !== bridgeProductMaximumBytesForIdentity(header.identity)) {
 			context.addIssue({
 				code: 'custom',
 				message: 'Accepted content maximum must match its identity window.',
@@ -542,17 +625,32 @@ export type BridgeProductContentTerminal<TContentKind extends BridgeProductConte
 	BridgeProductRegistryValue<BridgeProductContentRegistry, TContentKind, 'terminal'>;
 
 export function bridgeProductContentIdentityFromDescriptor(
+	descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
+): BridgeProductReviewComparisonTargetsContentIdentity;
+export function bridgeProductContentIdentityFromDescriptor(
 	descriptor: BridgeProductFileContentDescriptor,
 ): BridgeProductFileContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
 	descriptor: BridgeProductReviewContentDescriptor,
 ): BridgeProductReviewContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
-	descriptor: BridgeProductFileContentDescriptor | BridgeProductReviewContentDescriptor,
-): BridgeProductFileContentIdentity | BridgeProductReviewContentIdentity;
+	descriptor:
+		| BridgeProductFileContentDescriptor
+		| BridgeProductReviewContentDescriptor
+		| BridgeProductReviewComparisonTargetsContentDescriptor,
+):
+	| BridgeProductFileContentIdentity
+	| BridgeProductReviewContentIdentity
+	| BridgeProductReviewComparisonTargetsContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
-	descriptor: BridgeProductFileContentDescriptor | BridgeProductReviewContentDescriptor,
-): BridgeProductFileContentIdentity | BridgeProductReviewContentIdentity {
+	descriptor:
+		| BridgeProductFileContentDescriptor
+		| BridgeProductReviewContentDescriptor
+		| BridgeProductReviewComparisonTargetsContentDescriptor,
+):
+	| BridgeProductFileContentIdentity
+	| BridgeProductReviewContentIdentity
+	| BridgeProductReviewComparisonTargetsContentIdentity {
 	switch (descriptor.contentKind) {
 		case 'file.content':
 			return {
@@ -577,6 +675,22 @@ export function bridgeProductContentIdentityFromDescriptor(
 				wholeByteLength: descriptor.wholeByteLength,
 				window: descriptor.window,
 			};
+		case 'review.comparisonTargets':
+			return {
+				capturedAtUnixMilliseconds: descriptor.capturedAtUnixMilliseconds,
+				contentKind: descriptor.contentKind,
+				cutoffUnixMilliseconds: descriptor.cutoffUnixMilliseconds,
+				descriptorId: descriptor.descriptorId,
+				maximumBytes: descriptor.maximumBytes,
+			};
 	}
 	throw new Error('Unsupported Bridge product content descriptor.');
+}
+
+function bridgeProductMaximumBytesForIdentity(
+	identity: BridgeProductContentIdentity<BridgeProductContentKind>,
+): number {
+	return identity.contentKind === 'review.comparisonTargets'
+		? identity.maximumBytes
+		: identity.window.maximumBytes;
 }

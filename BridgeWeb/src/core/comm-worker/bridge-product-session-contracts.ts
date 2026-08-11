@@ -471,37 +471,15 @@ const bridgeProductReviewDisplayedSnapshotSchema = z.discriminatedUnion('status'
 		.strict(),
 ]);
 
-const bridgeProductReviewComparisonBranchTargetSchema = z.discriminatedUnion('kind', [
-	z
-		.object({
-			branchName: z.string().min(1),
-			kind: z.literal('local'),
-			oid: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
-		})
-		.strict(),
-	z
-		.object({
-			branchName: z.string().min(1),
-			kind: z.literal('remoteTracking'),
-			oid: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu),
-			remoteName: z.string().min(1),
-		})
-		.strict(),
-]);
-
-const bridgeProductReviewComparisonTargetCatalogSchema = z
-	.object({
-		branches: z.array(bridgeProductReviewComparisonBranchTargetSchema),
-		defaultTarget: bridgeProductReviewComparisonBranchTargetSchema.nullable(),
-	})
-	.strict();
-
 export const bridgeProductReviewComparisonPresentationSchema = z
 	.object({
 		activeTarget: bridgeProductReviewComparisonTargetSchema.nullable(),
 		attempt: bridgeProductReviewComparisonAttemptSchema,
 		displayedSnapshot: bridgeProductReviewDisplayedSnapshotSchema,
-		targetCatalog: bridgeProductReviewComparisonTargetCatalogSchema.nullable(),
+		repositoryDefaultTarget: z
+			.object({ branchName: z.string().min(1), remoteName: z.string().min(1) })
+			.strict()
+			.nullable(),
 	})
 	.strict();
 

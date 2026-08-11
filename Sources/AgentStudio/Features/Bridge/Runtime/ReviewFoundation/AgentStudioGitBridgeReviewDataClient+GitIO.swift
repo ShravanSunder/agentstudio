@@ -33,6 +33,35 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
+    func loadGitReviewComparisonTargets(
+        _ request: GitReviewComparisonTargetCaptureRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitReviewComparisonTargetCapture {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .selectedVisibleContent,
+                coalescingKey: try gitReadCoalescingKey(
+                    domain: "review-comparison-targets",
+                    request: request
+                ),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.captureReviewComparisonTargets(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitContributionDiff(
         _ request: GitContributionDiffRequest,
         freshnessKey: BridgeGitReadFreshnessKey

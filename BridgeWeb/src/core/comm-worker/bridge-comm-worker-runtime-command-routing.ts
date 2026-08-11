@@ -42,6 +42,14 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'reviewComparisonTargetsQuery':
+			return {
+				command: {
+					method: 'review.comparisonTargets.query',
+					params: {},
+				},
+				requestId: message.requestId,
+			};
 		case 'hover':
 		case 'metadataInterestUpdate':
 		case 'fileQueryUpdate':
@@ -80,6 +88,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'mode':
 		case 'reviewIntakeReady':
 		case 'reviewComparisonUpdate':
+		case 'reviewComparisonTargetsQuery':
 			return 'background';
 		default:
 			return assertNeverBridgeWorkerMessage(message);

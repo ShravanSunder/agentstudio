@@ -199,7 +199,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 				revision: 2,
 				status: 'stale',
 			},
-			targetCatalog: null,
+			repositoryDefaultTarget: null,
 		} as const;
 		presentation.publish({
 			nativeActivity: 'foreground',

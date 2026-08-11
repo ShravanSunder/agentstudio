@@ -10,6 +10,7 @@ import {
 	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewComparisonUpdateCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
@@ -27,6 +28,7 @@ import {
 	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerReviewIntakeReadyCommand,
 	type BridgeWorkerReviewComparisonUpdateCommand,
+	type BridgeWorkerReviewComparisonTargetsQueryCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerSelectCommand,
@@ -76,6 +78,9 @@ export interface EncodeBridgeWorkerReviewIntakeReadyCommandProps extends EncodeB
 export interface EncodeBridgeWorkerReviewComparisonUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly target: BridgeWorkerReviewComparisonUpdateCommand['target'];
 }
+
+export type EncodeBridgeWorkerReviewComparisonTargetsQueryCommandProps =
+	EncodeBridgeWorkerCommandBaseProps;
 
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly update: BridgeWorkerActiveViewerModeUpdateCommand['update'];
@@ -178,6 +183,14 @@ export function encodeBridgeWorkerReviewComparisonUpdateCommand(
 		...bridgeWorkerCommandEnvelope(props, 'reviewComparisonUpdate'),
 		target: props.target,
 	});
+}
+
+export function encodeBridgeWorkerReviewComparisonTargetsQueryCommand(
+	props: EncodeBridgeWorkerReviewComparisonTargetsQueryCommandProps,
+): BridgeWorkerReviewComparisonTargetsQueryCommand {
+	return bridgeWorkerReviewComparisonTargetsQueryCommandSchema.parse(
+		bridgeWorkerCommandEnvelope(props, 'reviewComparisonTargetsQuery'),
+	);
 }
 
 export function encodeBridgeWorkerActiveViewerModeUpdateCommand(

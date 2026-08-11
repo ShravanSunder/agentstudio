@@ -45,7 +45,9 @@ package final class BridgePaneController {
     // MARK: - Domain State
 
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
-    let productAdmissionGate: BridgeProductAdmissionGate
+    var productAdmissionGate: BridgeProductAdmissionGate {
+        productSessionOwner.productAdmissionGate
+    }
     let refreshAdmissionCoordinator: BridgePaneRefreshAdmissionCoordinator
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     package let productSessionOwner: BridgePaneProductSessionOwner
@@ -54,6 +56,7 @@ package final class BridgePaneController {
     let reviewPipeline: BridgeReviewPipeline
     let reviewSourceProvider: any BridgeReviewSourceProvider
     let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
+    let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
     let reviewChangeIndex = BridgeChangeIndex()
     package var bridgePaneState: BridgePaneState
     let initialContributionTargetCommit:
@@ -128,6 +131,8 @@ package final class BridgePaneController {
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
+        let reviewComparisonTargetProjection = BridgeReviewComparisonTargetProjection(state: state)
+        self.reviewComparisonTargetProjection = reviewComparisonTargetProjection
         let telemetryDependencies = Self.resolveTelemetryDependencies(
             traceRuntime: traceRuntime,
             telemetryRuntimePolicy: telemetryRuntimePolicy,
@@ -152,14 +157,13 @@ package final class BridgePaneController {
         self.refreshAdmissionCoordinator = resolvedRefreshAdmissionCoordinator
         let resolvedReviewPublicationCoordinator = BridgeReviewPublicationCoordinator()
         self.reviewPublicationCoordinator = resolvedReviewPublicationCoordinator
-        let resolvedReviewPipeline = BridgeReviewPipeline(provider: resolvedReviewSourceProvider)
-        self.reviewPipeline = resolvedReviewPipeline
-        self.reviewSharedConstructionBinder = Self.makeReviewSharedConstructionBinder(
-            coordinator: worktreeProductConstructionCoordinator,
-            pipeline: resolvedReviewPipeline,
+        let reviewDependencies = Self.makeReviewDependencies(
             provider: resolvedReviewSourceProvider,
+            coordinator: worktreeProductConstructionCoordinator,
             state: state
         )
+        self.reviewPipeline = reviewDependencies.pipeline
+        self.reviewSharedConstructionBinder = reviewDependencies.binder
         let resolvedRuntime = Self.makeRuntime(paneId, for: state, overriding: metadata)
         self.runtime = resolvedRuntime
         let resolvedProductSessionDependencies =
@@ -175,18 +179,18 @@ package final class BridgePaneController {
                     reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
                     refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,
                     initialProductPresentation: resolvedRefreshAdmissionCoordinator.productPresentationSnapshot,
-                    telemetryRecorder: telemetryDependencies.recorder
+                    telemetryRecorder: telemetryDependencies.recorder,
+                    reviewSourceProvider: resolvedReviewSourceProvider,
+                    reviewComparisonTargetProjection: reviewComparisonTargetProjection
                 )
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
-        self.productAdmissionGate = resolvedProductSessionDependencies.owner.productAdmissionGate
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
-        let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
-            blockInteraction: blockInteraction
+            blockInteraction: atom(\.managementLayer).isActive
         )
         self.managementScript = initialManagementScript
-        self.isContentInteractionEnabled = !blockInteraction
+        self.isContentInteractionEnabled = !atom(\.managementLayer).isActive
 
         // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
         // Each bridge pane needs its own userContentController for ready bootstrap and script
@@ -236,6 +240,24 @@ package final class BridgePaneController {
         configureReadyMessageHandler(readyMessageHandler)
         configureRuntimeCallbacks()
         resolvedProductSessionDependencies.committedCallTarget?.controller = self
+    }
+
+    private static func makeReviewDependencies(
+        provider: any BridgeReviewSourceProvider,
+        coordinator: BridgeWorktreeProductConstructionCoordinator?,
+        state: BridgePaneState
+    ) -> (
+        pipeline: BridgeReviewPipeline,
+        binder: BridgePaneReviewSharedConstructionBinder?
+    ) {
+        let pipeline = BridgeReviewPipeline(provider: provider)
+        let binder = makeReviewSharedConstructionBinder(
+            coordinator: coordinator,
+            pipeline: pipeline,
+            provider: provider,
+            state: state
+        )
+        return (pipeline, binder)
     }
 
     private static func initialReviewComparisonPresentation(

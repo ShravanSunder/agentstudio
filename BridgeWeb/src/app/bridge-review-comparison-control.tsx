@@ -23,6 +23,7 @@ import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
 import { bridgeViewerChromeButtonClassName } from './bridge-viewer-chrome.js';
 import { bridgeViewerFilterMenuSurfaceClassName } from './bridge-viewer-filter-menu.js';
@@ -33,6 +34,9 @@ export interface BridgeReviewComparisonControlProps {
 	readonly displayedReviewPackage: BridgeReviewPackage | null;
 	readonly isActive?: boolean;
 	readonly onApplyTarget: (target: BridgeWorkerReviewComparisonUpdateCommand['target']) => void;
+	readonly onCancelTargetQuery?: () => void;
+	readonly onQueryTargets?: () => void;
+	readonly targetQueryState?: BridgeReviewComparisonTargetsQueryState;
 }
 
 export function BridgeReviewComparisonControl(
@@ -44,6 +48,10 @@ export function BridgeReviewComparisonControl(
 	const [open, setOpen] = useState(false);
 	const [selectionMode, setSelectionMode] = useState<'branch' | 'commit'>('branch');
 	const [validationMessage, setValidationMessage] = useState<string | null>(null);
+	const targetQueryState =
+		props.targetQueryState ?? ({ catalog: null, message: null, status: 'idle' } as const);
+	const onQueryTargets = props.onQueryTargets ?? ((): void => {});
+	const onCancelTargetQuery = props.onCancelTargetQuery ?? ((): void => {});
 	const branchSearchInputRef = useRef<HTMLInputElement>(null);
 	const commitInputRef = useRef<HTMLInputElement>(null);
 	useEffect((): void => {
@@ -75,7 +83,6 @@ export function BridgeReviewComparisonControl(
 			: describedTarget === null
 				? 'Choose a local branch, remote-tracking branch, or Git reference for this review.'
 				: comparisonTargetDescription(describedTarget, describedTargetLabel);
-	const targetCatalog = props.comparisonPresentation?.targetCatalog ?? null;
 	const applyCommitOID = (event: FormEvent<HTMLFormElement>): void => {
 		event.preventDefault();
 		const normalizedOID = commitOID.trim();
@@ -114,6 +121,9 @@ export function BridgeReviewComparisonControl(
 				if (nextOpen) {
 					setCommitOID('');
 					setValidationMessage(null);
+					if (selectionMode === 'branch') onQueryTargets();
+				} else {
+					onCancelTargetQuery();
 				}
 			}}
 			open={open}
@@ -150,7 +160,9 @@ export function BridgeReviewComparisonControl(
 								<ComparisonCurrentState
 									contribution={displayedContribution}
 									onApplyTarget={props.onApplyTarget}
-									targetCatalog={targetCatalog}
+									repositoryDefaultTarget={
+										props.comparisonPresentation?.repositoryDefaultTarget ?? null
+									}
 								/>
 							)}
 							{statePresentation === null ? null : (
@@ -183,6 +195,7 @@ export function BridgeReviewComparisonControl(
 								onClick={(): void => {
 									setSelectionMode('branch');
 									setValidationMessage(null);
+									onQueryTargets();
 								}}
 								pressed={selectionMode === 'branch'}
 							>
@@ -192,6 +205,7 @@ export function BridgeReviewComparisonControl(
 								onClick={(): void => {
 									setSelectionMode('commit');
 									setValidationMessage(null);
+									onCancelTargetQuery();
 								}}
 								pressed={selectionMode === 'commit'}
 							>
@@ -207,7 +221,8 @@ export function BridgeReviewComparisonControl(
 								setOpen(false);
 							}}
 							searchInputRef={branchSearchInputRef}
-							targetCatalog={targetCatalog}
+							targetQueryState={targetQueryState}
+							onRetry={onQueryTargets}
 						/>
 					) : (
 						<form className="flex flex-col gap-2" onSubmit={applyCommitOID}>
@@ -244,7 +259,9 @@ export function BridgeReviewComparisonControl(
 function ComparisonCurrentState(props: {
 	readonly contribution: DisplayedContribution;
 	readonly onApplyTarget: BridgeReviewComparisonControlProps['onApplyTarget'];
-	readonly targetCatalog: ReviewComparisonTargetCatalog | null;
+	readonly repositoryDefaultTarget: NonNullable<
+		NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>
+	>['repositoryDefaultTarget'];
 }): ReactElement {
 	const { origin } = props.contribution;
 	const symbolicTarget = origin.symbolicTarget;
@@ -267,8 +284,7 @@ function ComparisonCurrentState(props: {
 			</section>
 		);
 	}
-	const defaultTarget = props.targetCatalog?.defaultTarget ?? null;
-	const isDefault = targetMatchesCatalogDefault(symbolicTarget, defaultTarget);
+	const isDefault = targetMatchesRepositoryDefault(symbolicTarget, props.repositoryDefaultTarget);
 	const activeBasis = origin.baseRole === 'commonCommit' ? 'commonCommit' : 'branchTip';
 	const effectiveBasisLabel = activeBasis === 'commonCommit' ? 'Common commit' : 'Branch tip';
 	return (
@@ -535,28 +551,21 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 	return `Compare: ${comparisonTargetLabel(activeTarget)}`;
 }
 
-type ReviewComparisonTargetCatalog = NonNullable<
-	NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>['targetCatalog']
->;
-
-function targetMatchesCatalogDefault(
+function targetMatchesRepositoryDefault(
 	target: ReviewComparisonTarget,
-	defaultTarget: ReviewComparisonTargetCatalog['defaultTarget'],
+	defaultTarget: NonNullable<
+		NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>
+	>['repositoryDefaultTarget'],
 ): boolean {
 	if (defaultTarget === null) {
 		return false;
-	}
-	if (defaultTarget.kind === 'local') {
-		return (
-			(target.kind === 'localDefaultBranch' && target.branchName === defaultTarget.branchName) ||
-			(target.kind === 'branch' && target.name === defaultTarget.branchName) ||
-			(target.kind === 'ref' && target.name === defaultTarget.branchName)
-		);
 	}
 	return (
 		(target.kind === 'originDefaultBranch' &&
 			target.remoteName === defaultTarget.remoteName &&
 			target.branchName === defaultTarget.branchName) ||
+		(target.kind === 'localDefaultBranch' && target.branchName === defaultTarget.branchName) ||
+		(target.kind === 'branch' && target.name === defaultTarget.branchName) ||
 		(target.kind === 'ref' &&
 			target.name === `${defaultTarget.remoteName}/${defaultTarget.branchName}`)
 	);

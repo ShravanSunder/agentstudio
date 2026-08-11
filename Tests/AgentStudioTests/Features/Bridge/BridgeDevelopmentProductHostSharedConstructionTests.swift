@@ -197,15 +197,12 @@ struct BridgeDevHostSharedConstructionTests {
             named: "bridge-development-product-host-initial-presentation"
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
-        let targetCatalog = BridgeReviewComparisonTargetCatalog(
-            defaultTarget: nil,
-            branches: [
-                .local(branchName: "main", oid: String(repeating: "c", count: 40)),
-                .local(branchName: "stack/base", oid: String(repeating: "d", count: 40)),
-            ]
+        let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+            remoteName: "origin",
+            branchName: "main"
         )
         let provider = BridgeDevelopmentSharedConstructionReviewProvider(
-            reviewComparisonTargetCatalog: targetCatalog
+            repositoryDefaultTarget: repositoryDefaultTarget
         )
         let host = try await BridgeDevelopmentProductHost(
             source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
@@ -222,7 +219,7 @@ struct BridgeDevHostSharedConstructionTests {
             // Assert
             #expect(presentation.reviewComparison?.activeTarget == .ref(name: "HEAD"))
             #expect(presentation.reviewComparison?.attempt == .settled(reviewGeneration: 1))
-            #expect(presentation.reviewComparison?.targetCatalog == targetCatalog)
+            #expect(presentation.reviewComparison?.repositoryDefaultTarget == repositoryDefaultTarget)
             #expect(await provider.snapshot().reviewComparisonTargetReadCount == 1)
             guard case .current(let displayedSnapshot) = presentation.reviewComparison?.displayedSnapshot else {
                 Issue.record("Expected the initial package to become the displayed comparison snapshot")
@@ -349,9 +346,9 @@ private actor BridgeComparisonUpdateCompletionRecorder {
 private actor BridgeDevelopmentSharedConstructionReviewProvider:
     BridgeSharedReviewConstructionSourceProvider
 {
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         reviewComparisonTargetReadCount += 1
-        return reviewComparisonTargetCatalog
+        return repositoryDefaultTarget
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
@@ -378,7 +375,7 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
     private var contributionCaptureCount = 0
     private var contributionTargets: [WorkspaceReviewContributionTarget] = []
     private var regularComparisonCount = 0
-    private let reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog?
+    private let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
     private var reviewComparisonTargetReadCount = 0
     private var sharedCaptureCount = 0
     private var sharedComparisonCount = 0
@@ -388,10 +385,10 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
 
     init(
         comparisonGate: BridgeComparisonGate? = nil,
-        reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog? = nil
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil
     ) {
         self.comparisonGate = comparisonGate
-        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
+        self.repositoryDefaultTarget = repositoryDefaultTarget
     }
 
     func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {

@@ -106,7 +106,8 @@ struct BridgeProductReviewComparisonContractTests {
     func targetOnlyComparisonUpdateRoundTrips() throws {
         // Arrange
         let requestJSON = Data(
-            #"{"method":"review.comparison.update","request":{"target":{"kind":"branch","name":"stack/base"}}}"#.utf8
+            #"{"method":"review.comparison.update","request":{"target":{"basis":"commonCommit","kind":"branch","name":"stack/base"}}}"#
+                .utf8
         )
         let resultJSON = Data(
             #"{"method":"review.comparison.update","result":null}"#.utf8
@@ -184,7 +185,7 @@ struct BridgeProductReviewComparisonContractTests {
     func panePresentationCarriesComparisonState() throws {
         // Arrange
         let presentationJSON = Data(
-            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":["review"],"reviewComparison":{"activeTarget":{"kind":"branch","name":"stack/base"},"attempt":{"status":"pending","reviewGeneration":8},"displayedSnapshot":{"status":"stale","packageId":"package-7","reviewGeneration":7,"revision":11},"targetCatalog":{"defaultTarget":{"kind":"remoteTracking","remoteName":"origin","branchName":"main","oid":"origin-main-oid"},"branches":[{"kind":"local","branchName":"main","oid":"local-main-oid"},{"kind":"remoteTracking","remoteName":"origin","branchName":"main","oid":"origin-main-oid"}]}}}"#
+            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":["review"],"reviewComparison":{"activeTarget":{"basis":"commonCommit","kind":"branch","name":"stack/base"},"attempt":{"status":"pending","reviewGeneration":8},"displayedSnapshot":{"status":"stale","packageId":"package-7","reviewGeneration":7,"revision":11},"repositoryDefaultTarget":{"branchName":"main","remoteName":"origin"}}}"#
                 .utf8
         )
 
@@ -214,31 +215,24 @@ struct BridgeProductReviewComparisonContractTests {
                             revision: 11
                         )
                     ),
-                    targetCatalog: BridgeReviewComparisonTargetCatalog(
-                        defaultTarget: .remoteTracking(
-                            remoteName: "origin",
-                            branchName: "main",
-                            oid: "origin-main-oid"
-                        ),
-                        branches: [
-                            .local(branchName: "main", oid: "local-main-oid"),
-                            .remoteTracking(
-                                remoteName: "origin",
-                                branchName: "main",
-                                oid: "origin-main-oid"
-                            ),
-                        ]
+                    repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity(
+                        remoteName: "origin",
+                        branchName: "main"
                     )
                 )
         )
         #expect(encodedFrame == canonicalFrame)
     }
 
-    @Test("target catalog encodes an absent default as explicit null")
-    func targetCatalogEncodesAbsentDefaultAsExplicitNull() throws {
+    @Test("comparison target content encodes capture facts and an absent default as explicit null")
+    func comparisonTargetContentEncodesCaptureFactsAndAbsentDefaultAsExplicitNull() throws {
         // Arrange
         let catalog = BridgeReviewComparisonTargetCatalog(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
             defaultTarget: nil,
+            currentTarget: nil,
             branches: [
                 .local(
                     branchName: "stack/base",
@@ -253,7 +247,7 @@ struct BridgeProductReviewComparisonContractTests {
         // Assert
         #expect(
             encodedCatalog
-                == #"{"branches":[{"branchName":"stack\/base","kind":"local","oid":"af70f11324247e802366a8f6ab1f4ea0ec5ae55f"}],"defaultTarget":null}"#
+                == #"{"branches":[{"branchName":"stack\/base","kind":"local","oid":"af70f11324247e802366a8f6ab1f4ea0ec5ae55f"}],"capturedAtUnixMilliseconds":2000,"currentTarget":null,"cutoffUnixMilliseconds":1000,"defaultTarget":null,"isTruncated":false}"#
         )
     }
 

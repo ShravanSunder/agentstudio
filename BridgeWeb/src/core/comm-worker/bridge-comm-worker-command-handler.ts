@@ -483,6 +483,7 @@ function handleBridgeWorkerCommand(
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
 		case 'reviewComparisonUpdate':
+		case 'reviewComparisonTargetsQuery':
 		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'mode':

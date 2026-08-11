@@ -4,15 +4,12 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production CSS.
 import './bridge-app.css';
-import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 
-type ReviewComparisonPresentation = NonNullable<
-	BridgeWorkerPanelChromePatchPayload['reviewComparison']
->;
-type ReviewComparisonTargetCatalog = NonNullable<ReviewComparisonPresentation['targetCatalog']>;
+type ReviewComparisonTargetCatalog = BridgeProductReviewComparisonTargetCatalog;
 
 describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 	test('presents the current branch and one effective comparison commit as a compact hierarchy', async () => {
@@ -48,15 +45,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 						revision: reviewPackage.revision,
 						status: 'current',
 					},
-					targetCatalog: {
-						branches: [],
-						defaultTarget: {
-							branchName: 'journey-integration',
-							kind: 'remoteTracking',
-							oid: `51d3e39cffa1${'0'.repeat(28)}`,
-							remoteName: 'origin',
-						},
-					},
+					repositoryDefaultTarget: { branchName: 'journey-integration', remoteName: 'origin' },
 				}}
 				displayedReviewPackage={reviewPackage}
 				onApplyTarget={vi.fn()}
@@ -133,7 +122,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 						revision: reviewPackage.revision,
 						status: 'current',
 					},
-					targetCatalog: { branches: [], defaultTarget: null },
+					repositoryDefaultTarget: null,
 				}}
 				displayedReviewPackage={reviewPackage}
 				onApplyTarget={applyTarget}
@@ -192,7 +181,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 						revision: reviewPackage.revision,
 						status: 'current',
 					},
-					targetCatalog: null,
+					repositoryDefaultTarget: null,
 				}}
 				displayedReviewPackage={reviewPackage}
 				onApplyTarget={vi.fn()}
@@ -250,7 +239,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 						revision: stalePackage.revision,
 						status: 'stale',
 					},
-					targetCatalog: null,
+					repositoryDefaultTarget: null,
 				}}
 				displayedReviewPackage={stalePackage}
 				onApplyTarget={vi.fn()}
@@ -398,16 +387,19 @@ async function renderComparisonTargetPicker(): ReturnType<typeof render> {
 				},
 				attempt: { reviewGeneration: 1, status: 'settled' },
 				displayedSnapshot: { status: 'none' },
-				targetCatalog: targetCatalog(),
+				repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
 			}}
 			displayedReviewPackage={null}
 			onApplyTarget={vi.fn()}
+			targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 		/>,
 	);
 }
 
 function targetCatalog(): ReviewComparisonTargetCatalog {
 	return {
+		capturedAtUnixMilliseconds: 1_700_000_000_000,
+		cutoffUnixMilliseconds: 1_699_000_000_000,
 		branches: [
 			{ branchName: 'main', kind: 'local', oid: 'a'.repeat(40) },
 			{
@@ -423,5 +415,7 @@ function targetCatalog(): ReviewComparisonTargetCatalog {
 			oid: 'b'.repeat(40),
 			remoteName: 'origin',
 		},
+		currentTarget: null,
+		isTruncated: false,
 	};
 }

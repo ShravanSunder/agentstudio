@@ -152,6 +152,7 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
 		case 'reviewComparisonUpdate':
+		case 'reviewComparisonTargetsQuery':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
 			return surface === 'review';
@@ -219,6 +220,7 @@ function bridgeWorkerMessageMatchesSurface(
 		case 'reviewDisplayPatch':
 		case 'reviewPierreRenderJob':
 		case 'reviewRenderPatch':
+		case 'reviewComparisonTargetsQuery':
 			return surface === 'review';
 		case 'subscription':
 			return message.subscription === 'fileViewContent'
@@ -236,7 +238,12 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 	readonly message: BridgeWorkerServerToMainMessage;
 	readonly surface: BridgeWorkerRpcClientSurface;
 }): void {
-	if (props.message.kind !== 'health' && props.message.kind !== 'subscription') return;
+	if (
+		props.message.kind !== 'health' &&
+		props.message.kind !== 'subscription' &&
+		props.message.kind !== 'reviewComparisonTargetsQuery'
+	)
+		return;
 	const requestId = props.message.requestId;
 	if (requestId === undefined) return;
 	const request = props.lifecycleStore.getSnapshot().requestsById[requestId];
@@ -244,13 +251,16 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 	props.clearRequestTimeout(requestId);
 	if (
 		(props.message.kind === 'health' && props.message.status === 'degraded') ||
-		(props.message.kind === 'subscription' && props.message.status === 'rejected')
+		(props.message.kind === 'subscription' && props.message.status === 'rejected') ||
+		(props.message.kind === 'reviewComparisonTargetsQuery' && props.message.status === 'failed')
 	) {
 		props.lifecycleStore.failRequest({
 			reason:
 				props.message.kind === 'health'
 					? (props.message.message ?? 'worker_degraded')
-					: 'subscription_rejected',
+					: props.message.kind === 'subscription'
+						? 'subscription_rejected'
+						: (props.message.message ?? 'comparison_targets_query_failed'),
 			requestId,
 		});
 		return;

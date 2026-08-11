@@ -76,15 +76,11 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(settled.reviewComparison?.displayedSnapshot == .current(successor))
     }
 
-    @Test("comparison transitions retain the published target catalog")
-    func comparisonTransitionsRetainPublishedTargetCatalog() throws {
-        let catalog = BridgeReviewComparisonTargetCatalog(
-            defaultTarget: .remoteTracking(
-                remoteName: "origin",
-                branchName: "main",
-                oid: "origin-main-oid"
-            ),
-            branches: [.local(branchName: "main", oid: "local-main-oid")]
+    @Test("comparison transitions retain the published repository default target")
+    func comparisonTransitionsRetainPublishedRepositoryDefaultTarget() throws {
+        let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+            remoteName: "origin",
+            branchName: "main"
         )
         let coordinator = BridgePaneRefreshAdmissionCoordinator(
             initialActivity: .foreground,
@@ -95,7 +91,7 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
             )
         )
 
-        coordinator.publishReviewComparisonTargetCatalog(catalog)
+        coordinator.publishReviewComparisonDefaultTarget(repositoryDefaultTarget)
         coordinator.beginReviewComparisonAttempt(
             activeTarget: .originDefaultBranch(remoteName: "origin", branchName: "main"),
             reviewGeneration: 8
@@ -106,7 +102,10 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
             retryable: true
         )
 
-        #expect(coordinator.productPresentationSnapshot.reviewComparison?.targetCatalog == catalog)
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison?.repositoryDefaultTarget
+                == repositoryDefaultTarget
+        )
     }
 
     @Test("current comparison failure retains the displayed predecessor as stale")

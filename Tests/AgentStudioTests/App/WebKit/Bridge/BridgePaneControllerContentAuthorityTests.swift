@@ -23,7 +23,7 @@ extension WebKitSerializedTests {
                 self.firstComparison = firstComparison
             }
 
-            func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? { nil }
+            func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? { nil }
 
             func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
                 -> BridgeContributionComparisonCapture

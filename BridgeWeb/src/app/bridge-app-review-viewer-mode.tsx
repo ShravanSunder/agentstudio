@@ -98,6 +98,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		reviewClient,
 	});
 	const catalogSnapshot = controller.catalogSnapshot;
+	const comparisonTargetsQueryState = controller.comparisonTargetsQueryState;
 	const clearSelectedReviewItemId = controller.clearSelectedReviewItemId;
 	const commitSelectedReviewItemId = controller.commitSelectedReviewItemId;
 	const displayStore = controller.displayStore;
@@ -113,6 +114,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const setReviewCodeViewVisibleItemIds = controller.setReviewCodeViewVisibleItemIds;
 	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
 	const updateReviewDisplayProjection = controller.updateReviewDisplayProjection;
+	const queryReviewComparisonTargets = controller.queryReviewComparisonTargets;
+	const cancelReviewComparisonTargetsQuery = controller.cancelReviewComparisonTargetsQuery;
 	const visibleCodeViewItems = controller.visibleCodeViewItems;
 	const [treeSearchState, setTreeSearchState] = useState(createBridgeViewerSearchState);
 	const [treeSearchRejectionMessage, setTreeSearchRejectionMessage] = useState<string | null>(null);
@@ -289,6 +292,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
 				isActive={isActive}
 				onApplyTarget={controller.updateReviewComparisonTarget}
+				onCancelTargetQuery={cancelReviewComparisonTargetsQuery}
+				onQueryTargets={queryReviewComparisonTargets}
+				targetQueryState={comparisonTargetsQueryState}
 			/>
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu

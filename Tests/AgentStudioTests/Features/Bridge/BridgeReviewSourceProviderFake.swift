@@ -3,7 +3,7 @@ import Foundation
 @testable import AgentStudioBridge
 
 actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
-    private let reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog?
+    private let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
     private var contributionCapture: BridgeContributionComparisonCapture?
     var comparison: BridgeEndpointComparison
     var contentByHandleId: [String: BridgeContentLoadResult]
@@ -30,7 +30,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     init(
         comparison: BridgeEndpointComparison,
         contentByHandleId: [String: BridgeContentLoadResult],
-        reviewComparisonTargetCatalog: BridgeReviewComparisonTargetCatalog? = nil,
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil,
         contributionCapture: BridgeContributionComparisonCapture? = nil,
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
@@ -39,7 +39,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparisonGate: BridgeComparisonGate? = nil,
         checksCancellationAfterGate: Bool = false
     ) {
-        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
+        self.repositoryDefaultTarget = repositoryDefaultTarget
         self.contributionCapture = contributionCapture
         self.comparison = comparison
         self.contentByHandleId = contentByHandleId
@@ -51,8 +51,8 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         self.checksCancellationAfterGate = checksCancellationAfterGate
     }
 
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
-        reviewComparisonTargetCatalog
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        repositoryDefaultTarget
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

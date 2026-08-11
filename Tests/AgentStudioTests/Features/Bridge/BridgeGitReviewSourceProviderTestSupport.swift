@@ -5,8 +5,14 @@ import Foundation
 @testable import AgentStudioBridge
 
 extension AgentStudioGitLocalClient {
-    func reviewComparisonTargets(for _: URL) async throws(GitDataPlaneError)
-        -> GitReviewComparisonTargetCatalog
+    func resolveReviewDefaultTarget(for _: URL) async throws(GitDataPlaneError)
+        -> GitReviewComparisonBranchTarget?
+    {
+        throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
+    }
+
+    func captureReviewComparisonTargets(_ request: GitReviewComparisonTargetCaptureRequest)
+        async throws(GitDataPlaneError) -> GitReviewComparisonTargetCapture
     {
         throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
     }
@@ -30,7 +36,7 @@ struct GitContentLocator: Hashable, Sendable {
 }
 
 actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
-    private let reviewComparisonTargetCatalog: GitReviewComparisonTargetCatalog?
+    private let reviewComparisonTargetCapture: GitReviewComparisonTargetCapture?
     private var contributionDiffSnapshot: GitContributionDiffSnapshot?
     private var directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot?
     private var diffSnapshot: GitDiffSnapshot
@@ -52,12 +58,12 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private var treeRequests: [GitTreeReadRequest] = []
     private var statusRequests: [(URL, GitStatusOptions)] = []
     private var revisionResolutionRequests: [GitRevisionResolutionRequest] = []
-    private var reviewComparisonTargetRequests: [URL] = []
+    private var reviewComparisonTargetRequests: [GitReviewComparisonTargetCaptureRequest] = []
     private var contributionDiffRequests: [GitContributionDiffRequest] = []
     private var directReviewComparisonRequests: [GitDirectReviewComparisonRequest] = []
 
     init(
-        reviewComparisonTargetCatalog: GitReviewComparisonTargetCatalog? = nil,
+        reviewComparisonTargetCapture: GitReviewComparisonTargetCapture? = nil,
         contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
         directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot? = nil,
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
@@ -75,7 +81,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionGate: BridgeGitContentReadGate? = nil,
         revisionResolutionFailure: GitDataPlaneError? = nil
     ) {
-        self.reviewComparisonTargetCatalog = reviewComparisonTargetCatalog
+        self.reviewComparisonTargetCapture = reviewComparisonTargetCapture
         self.contributionDiffSnapshot = contributionDiffSnapshot
         self.directReviewComparisonSnapshot = directReviewComparisonSnapshot
         self.diffSnapshot = diffSnapshot
@@ -161,14 +167,14 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
-    func reviewComparisonTargets(for repositoryPath: URL) async throws(GitDataPlaneError)
-        -> GitReviewComparisonTargetCatalog
+    func captureReviewComparisonTargets(_ request: GitReviewComparisonTargetCaptureRequest)
+        async throws(GitDataPlaneError) -> GitReviewComparisonTargetCapture
     {
-        reviewComparisonTargetRequests.append(repositoryPath)
-        guard let reviewComparisonTargetCatalog else {
+        reviewComparisonTargetRequests.append(request)
+        guard let reviewComparisonTargetCapture else {
             throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
         }
-        return reviewComparisonTargetCatalog
+        return reviewComparisonTargetCapture
     }
 
     func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
@@ -290,7 +296,7 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionRequests
     }
 
-    func recordedReviewComparisonTargetRequests() -> [URL] {
+    func recordedReviewComparisonTargetRequests() -> [GitReviewComparisonTargetCaptureRequest] {
         reviewComparisonTargetRequests
     }
 

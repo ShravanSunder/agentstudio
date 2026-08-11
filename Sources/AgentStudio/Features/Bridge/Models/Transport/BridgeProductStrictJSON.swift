@@ -43,6 +43,7 @@ enum BridgeProductStrictJSON {
             "baseInterestSha256",
             "basePath",
             "baseRole",
+            "basis",
             "batchCount",
             "batchIndex",
             "behind",

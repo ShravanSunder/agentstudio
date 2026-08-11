@@ -6,22 +6,30 @@ import Testing
 @testable import AgentStudioBridge
 
 extension BridgeGitReviewSourceProviderTests {
-    @Test("AgentStudioGit adapter preserves typed local and remote Review comparison targets")
+    @Test("AgentStudioGit adapter captures typed local and remote Review comparison targets")
     func agentStudioGitAdapterPreservesTypedReviewComparisonTargets() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-default-branch-test")
         let gitClient = AgentStudioGitLocalClientFake(
-            reviewComparisonTargetCatalog: GitReviewComparisonTargetCatalog(
-                defaultTarget: .remoteTracking(
-                    remoteName: "origin",
-                    branchName: "integration",
-                    oid: "origin-integration-oid"
-                ),
-                branches: [
-                    .local(branchName: "integration", oid: "local-integration-oid"),
-                    .remoteTracking(
-                        remoteName: "origin",
-                        branchName: "integration",
-                        oid: "origin-integration-oid"
+            reviewComparisonTargetCapture: GitReviewComparisonTargetCapture(
+                capturedAt: 2000,
+                cutoff: 1000,
+                isTruncated: false,
+                defaultReferenceName: "refs/remotes/origin/integration",
+                currentReferenceName: "refs/heads/integration",
+                rows: [
+                    GitReviewComparisonTargetRow(
+                        canonicalReferenceName: "refs/heads/integration",
+                        target: .local(branchName: "integration", oid: "local-integration-oid"),
+                        tipCommittedAt: 1900
+                    ),
+                    GitReviewComparisonTargetRow(
+                        canonicalReferenceName: "refs/remotes/origin/integration",
+                        target: .remoteTracking(
+                            remoteName: "origin",
+                            branchName: "integration",
+                            oid: "origin-integration-oid"
+                        ),
+                        tipCommittedAt: 1800
                     ),
                 ]
             )
@@ -34,27 +42,50 @@ extension BridgeGitReviewSourceProviderTests {
             )
         )
 
-        let catalog = try await provider.reviewComparisonTargets()
+        let capture = try await provider.captureReviewComparisonTargets(
+            BridgeReviewComparisonTargetsCaptureRequest(
+                currentTarget: .branch(name: "integration"),
+                capturedAtUnixMilliseconds: 2000,
+                cutoffUnixMilliseconds: 1000,
+                maximumRows: 10
+            )
+        )
 
+        #expect(capture.capturedAtUnixMilliseconds == 2000)
+        #expect(capture.cutoffUnixMilliseconds == 1000)
+        #expect(!capture.isTruncated)
         #expect(
-            catalog
-                == BridgeReviewComparisonTargetCatalog(
-                    defaultTarget: .remoteTracking(
+            capture.defaultTarget
+                == .remoteTracking(
+                    remoteName: "origin",
+                    branchName: "integration",
+                    oid: "origin-integration-oid"
+                )
+        )
+        #expect(capture.currentTarget == .local(branchName: "integration", oid: "local-integration-oid"))
+        #expect(
+            capture.branches
+                == [
+                    .local(branchName: "integration", oid: "local-integration-oid"),
+                    .remoteTracking(
                         remoteName: "origin",
                         branchName: "integration",
                         oid: "origin-integration-oid"
                     ),
-                    branches: [
-                        .local(branchName: "integration", oid: "local-integration-oid"),
-                        .remoteTracking(
-                            remoteName: "origin",
-                            branchName: "integration",
-                            oid: "origin-integration-oid"
-                        ),
-                    ]
-                )
+                ]
         )
-        #expect(await gitClient.recordedReviewComparisonTargetRequests() == [repositoryPath])
+        #expect(
+            await gitClient.recordedReviewComparisonTargetRequests()
+                == [
+                    GitReviewComparisonTargetCaptureRequest(
+                        repositoryPath: repositoryPath,
+                        capturedAt: 2000,
+                        cutoff: 1000,
+                        maximumRows: 10,
+                        currentBranchReference: "refs/heads/integration"
+                    )
+                ]
+        )
     }
 
     @Test("AgentStudioGit adapter captures one correlated contribution and registers its content")

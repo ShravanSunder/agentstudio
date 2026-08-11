@@ -1,6 +1,31 @@
 import AgentStudioCore
 
+struct BridgeDevelopmentProductReviewInitialization {
+    let comparisonTargetProjection: BridgeReviewComparisonTargetProjection
+    let pipeline: BridgeReviewPipeline
+    let initialTarget: WorkspaceReviewContributionTarget
+    let defaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+}
+
 extension BridgeDevelopmentProductHost {
+    static func makeReviewInitialization(
+        state: BridgePaneState,
+        provider: any BridgeReviewSourceProvider
+    ) async throws -> BridgeDevelopmentProductReviewInitialization {
+        let projection = await MainActor.run {
+            BridgeReviewComparisonTargetProjection(state: state)
+        }
+        let pipeline = BridgeReviewPipeline(provider: provider)
+        let initialTarget = try reviewTarget(from: state)
+        let defaultTarget = try await loadReviewComparisonDefaultTarget(from: provider)
+        return BridgeDevelopmentProductReviewInitialization(
+            comparisonTargetProjection: projection,
+            pipeline: pipeline,
+            initialTarget: initialTarget,
+            defaultTarget: defaultTarget
+        )
+    }
+
     func diagnosticPanePresentation() async -> BridgePaneProductPresentationSnapshot {
         await MainActor.run {
             refreshAdmissionCoordinator.productPresentationSnapshot
@@ -37,6 +62,9 @@ extension BridgeDevelopmentProductHost {
             return
         }
         paneState = canonicalState
+        await MainActor.run {
+            reviewComparisonTargetProjection.update(state: canonicalState)
+        }
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
         let supersededReviewComparisonTask = activeReviewComparisonTask

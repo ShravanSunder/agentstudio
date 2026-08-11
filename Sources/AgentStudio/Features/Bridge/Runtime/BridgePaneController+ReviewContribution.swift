@@ -31,6 +31,7 @@ extension BridgePaneController {
         }
 
         bridgePaneState = canonicalState
+        reviewComparisonTargetProjection.update(state: canonicalState)
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
         pendingComparisonReviewGeneration = reviewGeneration
@@ -90,6 +91,7 @@ extension BridgePaneController {
         switch mutationResult {
         case .applied(let canonicalState), .unchanged(let canonicalState):
             bridgePaneState = canonicalState
+            reviewComparisonTargetProjection.update(state: canonicalState)
             guard case .workspace(_, let canonicalBaseline) = canonicalState.source,
                 let activeTarget = canonicalBaseline?.contributionTarget
             else { return }

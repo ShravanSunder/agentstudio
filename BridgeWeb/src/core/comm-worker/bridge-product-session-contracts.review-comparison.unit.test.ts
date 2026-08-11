@@ -20,22 +20,9 @@ describe('Bridge product session Review comparison contract', () => {
 					revision: 3,
 					status: 'stale',
 				},
-				targetCatalog: {
-					branches: [
-						{ branchName: 'feature/review', kind: 'local', oid: 'a'.repeat(40) },
-						{
-							branchName: 'main',
-							kind: 'remoteTracking',
-							oid: 'b'.repeat(40),
-							remoteName: 'origin',
-						},
-					],
-					defaultTarget: {
-						branchName: 'main',
-						kind: 'remoteTracking',
-						oid: 'b'.repeat(40),
-						remoteName: 'origin',
-					},
+				repositoryDefaultTarget: {
+					branchName: 'main',
+					remoteName: 'origin',
 				},
 			},
 			streamSequence: 5,
@@ -55,11 +42,12 @@ describe('Bridge product session Review comparison contract', () => {
 		).toBe(false);
 	});
 
-	test('rejects ambiguous or incomplete target catalog entries', () => {
+	test('rejects retired target catalog metadata', () => {
 		const comparisonPresentation = {
 			activeTarget: null,
 			attempt: { status: 'selectionRequired' },
 			displayedSnapshot: { status: 'none' },
+			repositoryDefaultTarget: null,
 			targetCatalog: {
 				branches: [{ branchName: 'main', kind: 'remoteTracking', oid: 'a'.repeat(40) }],
 				defaultTarget: null,

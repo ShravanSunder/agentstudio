@@ -62,8 +62,14 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
         self.base = base
     }
 
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
-        try await base.reviewComparisonTargets()
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        try await base.resolveReviewDefaultTarget()
+    }
+
+    func captureReviewComparisonTargets(
+        _ request: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        try await base.captureReviewComparisonTargets(request)
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

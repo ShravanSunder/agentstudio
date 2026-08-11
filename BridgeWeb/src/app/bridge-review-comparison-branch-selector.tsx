@@ -8,34 +8,37 @@ import {
 	ComboboxItem,
 	ComboboxList,
 } from '../components/ui/combobox.js';
+import type { BridgeProductReviewComparisonBranchTarget } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type {
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewComparisonUpdateCommand,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { cn } from './class-name.js';
 
 type ReviewComparisonPresentation = NonNullable<
 	BridgeWorkerPanelChromePatchPayload['reviewComparison']
 >;
 type ReviewComparisonTarget = NonNullable<ReviewComparisonPresentation['activeTarget']>;
-type ReviewComparisonTargetCatalog = NonNullable<ReviewComparisonPresentation['targetCatalog']>;
-type ReviewComparisonBranchTarget = ReviewComparisonTargetCatalog['branches'][number];
+type ReviewComparisonBranchTarget = BridgeProductReviewComparisonBranchTarget;
 
 export function BridgeReviewComparisonBranchSelector(props: {
 	readonly activeTarget: ReviewComparisonTarget | null;
 	readonly onSelectTarget: (target: BridgeWorkerReviewComparisonUpdateCommand['target']) => void;
+	readonly onRetry: () => void;
 	readonly searchInputRef: RefObject<HTMLInputElement | null>;
-	readonly targetCatalog: ReviewComparisonTargetCatalog | null;
+	readonly targetQueryState: BridgeReviewComparisonTargetsQueryState;
 }): ReactElement {
 	const [search, setSearch] = useState('');
+	const targetCatalog =
+		props.targetQueryState.status === 'ready' ? props.targetQueryState.catalog : null;
 	const branches =
-		props.targetCatalog?.branches.filter((branch) =>
+		targetCatalog?.branches.filter((branch) =>
 			branchTargetLabel(branch).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
 		) ?? [];
 	const selectedBranch =
-		props.targetCatalog?.branches.find((branch) =>
-			branchMatchesTarget(branch, props.activeTarget),
-		) ?? null;
+		targetCatalog?.branches.find((branch) => branchMatchesTarget(branch, props.activeTarget)) ??
+		null;
 	return (
 		<Combobox<ReviewComparisonBranchTarget>
 			inputValue={search}
@@ -80,7 +83,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 									{branchTargetLabel(branch)}
 								</span>
 								<span className="flex min-w-0 items-baseline gap-1.5 text-[10px] text-[var(--bridge-text-muted)]">
-									{branchTargetsEqual(branch, props.targetCatalog?.defaultTarget ?? null) ? (
+									{branchTargetsEqual(branch, targetCatalog?.defaultTarget ?? null) ? (
 										<span className="font-medium">Default</span>
 									) : null}
 									<span>{branch.kind === 'local' ? 'Local' : 'Remote-tracking'}</span>
@@ -91,12 +94,19 @@ export function BridgeReviewComparisonBranchSelector(props: {
 						</ComboboxItem>
 					))}
 				</ComboboxList>
-				{props.targetCatalog !== null && branches.length === 0 ? (
+				{props.targetQueryState.status === 'empty' ||
+				(props.targetQueryState.status === 'ready' && branches.length === 0) ? (
 					<ComboboxEmpty>No matching branches.</ComboboxEmpty>
 				) : null}
-				{props.targetCatalog === null ? (
+				{props.targetQueryState.status === 'loading' ? (
+					<ComboboxEmpty>Loading branch choices…</ComboboxEmpty>
+				) : null}
+				{props.targetQueryState.status === 'failed' ? (
 					<ComboboxEmpty>
-						Branch choices are unavailable. Refresh the review and try again.
+						<span>{props.targetQueryState.message}</span>
+						<button className="mt-2 underline" onClick={props.onRetry} type="button">
+							Retry
+						</button>
 					</ComboboxEmpty>
 				) : null}
 			</div>

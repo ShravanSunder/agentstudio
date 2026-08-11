@@ -50,6 +50,13 @@ const bridgeProductControlReviewComparisonUpdateCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlReviewComparisonTargetsQueryCommandSchema = z
+	.object({
+		method: z.literal('review.comparisonTargets.query'),
+		params: z.object({}).strict(),
+	})
+	.strict();
+
 const bridgeProductControlIntakeReadyCommandSchema = z
 	.object({
 		method: z.literal('bridge.intakeReady'),
@@ -60,6 +67,7 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
 	bridgeProductControlMarkFileViewedCommandSchema,
 	bridgeProductControlReviewComparisonUpdateCommandSchema,
+	bridgeProductControlReviewComparisonTargetsQueryCommandSchema,
 	bridgeProductControlActiveViewerModeUpdateCommandSchema,
 	bridgeProductControlIntakeReadyCommandSchema,
 ]);

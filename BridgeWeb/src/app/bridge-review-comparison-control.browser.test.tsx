@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production CSS.
 import './bridge-app.css';
+import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
@@ -94,7 +95,6 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 						revision: reviewPackage.revision,
 						status: 'current',
 					},
-					targetCatalog: targetCatalog(),
 				})}
 				displayedReviewPackage={reviewPackage}
 				onApplyTarget={vi.fn()}
@@ -214,6 +214,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
+				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
 
@@ -303,10 +304,10 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 						remoteName: 'origin',
 					},
 					displayedSnapshot: { status: 'none' },
-					targetCatalog: targetCatalog(),
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
+				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
 		await act(async (): Promise<void> => {
@@ -371,10 +372,10 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
 					displayedSnapshot: { status: 'none' },
-					targetCatalog: targetCatalog(),
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
+				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
 
@@ -395,7 +396,6 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
 					displayedSnapshot: { status: 'none' },
-					targetCatalog: targetCatalog(),
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
@@ -519,9 +519,9 @@ function comparisonPresentation(props: {
 	readonly displayedSnapshot: NonNullable<
 		BridgeWorkerPanelChromePatchPayload['reviewComparison']
 	>['displayedSnapshot'];
-	readonly targetCatalog?: NonNullable<
-		BridgeWorkerPanelChromePatchPayload['reviewComparison']
-	>['targetCatalog'];
+	readonly repositoryDefaultTarget?: NonNullable<
+		NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']>
+	>['repositoryDefaultTarget'];
 }): NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']> {
 	return {
 		activeTarget:
@@ -530,14 +530,14 @@ function comparisonPresentation(props: {
 				: props.activeTarget,
 		attempt: props.attempt ?? { reviewGeneration: 1, status: 'settled' },
 		displayedSnapshot: props.displayedSnapshot,
-		targetCatalog: props.targetCatalog ?? null,
+		repositoryDefaultTarget: props.repositoryDefaultTarget ?? null,
 	};
 }
 
-function targetCatalog(): NonNullable<
-	NonNullable<BridgeWorkerPanelChromePatchPayload['reviewComparison']>['targetCatalog']
-> {
+function targetCatalog(): BridgeProductReviewComparisonTargetCatalog {
 	return {
+		capturedAtUnixMilliseconds: 1_700_000_000_000,
+		cutoffUnixMilliseconds: 1_699_000_000_000,
 		branches: [
 			{ branchName: 'main', kind: 'local', oid: 'a'.repeat(40) },
 			{ branchName: 'feature/stack', kind: 'local', oid: 'f'.repeat(40) },
@@ -560,6 +560,8 @@ function targetCatalog(): NonNullable<
 			oid: 'b'.repeat(40),
 			remoteName: 'origin',
 		},
+		currentTarget: null,
+		isTruncated: false,
 	};
 }
 

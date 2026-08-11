@@ -19,6 +19,62 @@ extension AgentStudioGitBridgeReviewDataClient {
         }
     }
 
+    func captureReviewComparisonTargets(
+        _ request: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        let capture = try await loadGitReviewComparisonTargets(
+            GitReviewComparisonTargetCaptureRequest(
+                repositoryPath: repositoryPath,
+                capturedAt: request.capturedAtUnixMilliseconds,
+                cutoff: request.cutoffUnixMilliseconds,
+                maximumRows: request.maximumRows,
+                currentBranchReference: Self.referenceName(for: request.currentTarget)
+            ),
+            freshnessKey: BridgeGitReadFreshnessKey(
+                token:
+                    "\(gitReadContext.scopeKey.token):review-comparison-targets:\(request.capturedAtUnixMilliseconds)"
+            )
+        )
+        let targetsByReference: [String: GitReviewComparisonBranchTarget] = Dictionary(
+            uniqueKeysWithValues: capture.rows.map { ($0.canonicalReferenceName, $0.target) }
+        )
+        return BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: capture.capturedAt,
+            cutoffUnixMilliseconds: capture.cutoff,
+            isTruncated: capture.isTruncated,
+            defaultTarget: capture.defaultReferenceName.flatMap { targetsByReference[$0].map(Self.bridgeTarget) },
+            currentTarget: capture.currentReferenceName.flatMap { targetsByReference[$0].map(Self.bridgeTarget) },
+            branches: capture.rows.map { Self.bridgeTarget($0.target) }
+        )
+    }
+
+    private static func referenceName(
+        for target: WorkspaceReviewContributionTarget?
+    ) -> String? {
+        guard let target else { return nil }
+        switch target {
+        case .localDefaultBranch(let branchName, _), .branch(let branchName, _):
+            return "refs/heads/\(branchName)"
+        case .originDefaultBranch(let remoteName, let branchName, _):
+            return "refs/remotes/\(remoteName)/\(branchName)"
+        case .ref(let name, _):
+            return name.hasPrefix("refs/") ? name : "refs/heads/\(name)"
+        case .commit:
+            return nil
+        }
+    }
+
+    private static func bridgeTarget(
+        _ target: GitReviewComparisonBranchTarget
+    ) -> BridgeReviewComparisonBranchTarget {
+        switch target {
+        case .local(let branchName, let oid):
+            return .local(branchName: branchName, oid: oid)
+        case .remoteTracking(let remoteName, let branchName, let oid):
+            return .remoteTracking(remoteName: remoteName, branchName: branchName, oid: oid)
+        }
+    }
+
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture
     {

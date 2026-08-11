@@ -1,4 +1,49 @@
+import AgentStudioCore
 import Foundation
+
+package struct BridgeReviewComparisonTargetsCaptureRequest: Sendable {
+    package let currentTarget: WorkspaceReviewContributionTarget?
+    package let capturedAtUnixMilliseconds: Int64
+    package let cutoffUnixMilliseconds: Int64
+    package let maximumRows: Int
+
+    package init(
+        currentTarget: WorkspaceReviewContributionTarget?,
+        capturedAtUnixMilliseconds: Int64,
+        cutoffUnixMilliseconds: Int64,
+        maximumRows: Int
+    ) {
+        self.currentTarget = currentTarget
+        self.capturedAtUnixMilliseconds = capturedAtUnixMilliseconds
+        self.cutoffUnixMilliseconds = cutoffUnixMilliseconds
+        self.maximumRows = maximumRows
+    }
+}
+
+package struct BridgeReviewComparisonTargetsCapture: Sendable {
+    package let capturedAtUnixMilliseconds: Int64
+    package let cutoffUnixMilliseconds: Int64
+    package let isTruncated: Bool
+    package let defaultTarget: BridgeReviewComparisonBranchTarget?
+    package let currentTarget: BridgeReviewComparisonBranchTarget?
+    package let branches: [BridgeReviewComparisonBranchTarget]
+
+    package init(
+        capturedAtUnixMilliseconds: Int64,
+        cutoffUnixMilliseconds: Int64,
+        isTruncated: Bool,
+        defaultTarget: BridgeReviewComparisonBranchTarget?,
+        currentTarget: BridgeReviewComparisonBranchTarget?,
+        branches: [BridgeReviewComparisonBranchTarget]
+    ) {
+        self.capturedAtUnixMilliseconds = capturedAtUnixMilliseconds
+        self.cutoffUnixMilliseconds = cutoffUnixMilliseconds
+        self.isTruncated = isTruncated
+        self.defaultTarget = defaultTarget
+        self.currentTarget = currentTarget
+        self.branches = branches
+    }
+}
 
 /// Request-scoped Review picker data. These values are content payloads, never
 /// part of pane presentation or a metadata subscription.

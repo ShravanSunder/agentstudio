@@ -707,7 +707,7 @@ function reviewComparisonPanelChromeEvent(): Extract<
 						},
 						attempt: { reviewGeneration: 1, status: 'settled' },
 						displayedSnapshot: { status: 'none' },
-						targetCatalog: null,
+						repositoryDefaultTarget: null,
 					},
 				},
 				slice: 'panelChrome',

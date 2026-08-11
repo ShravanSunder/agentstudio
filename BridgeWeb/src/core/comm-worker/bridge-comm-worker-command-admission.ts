@@ -24,6 +24,7 @@ export function bridgeCommWorkerIntentEpochDomain(
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
 		case 'reviewComparisonUpdate':
+		case 'reviewComparisonTargetsQuery':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
 			return 'review';
