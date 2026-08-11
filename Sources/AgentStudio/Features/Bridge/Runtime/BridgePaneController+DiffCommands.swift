@@ -576,6 +576,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             _ = scheduleProductPresentationPublication()
         }
+        do {
+            _ = try await resolveAndPublishReviewComparisonDefaultTargetIfCurrent(
+                reset: ReviewPackageLoadReset(reviewGeneration: refreshGeneration),
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        } catch is CancellationError {
+            return .stale
+        } catch {
+            return .failed
+        }
         return await performReviewPackageRefresh(
             currentPublication: currentPublication,
             refreshGeneration: refreshGeneration,

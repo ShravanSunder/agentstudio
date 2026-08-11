@@ -46,7 +46,7 @@ package actor BridgeDevelopmentProductHost {
     private let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     var paneState: BridgePaneState
     private let reviewPipeline: BridgeReviewPipeline
-    private let reviewProvider: any BridgeReviewSourceProvider
+    let reviewProvider: any BridgeReviewSourceProvider
     let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     private let reviewSharedConstructionBinder: BridgePaneReviewSharedConstructionBinder?
@@ -717,7 +717,8 @@ package actor BridgeDevelopmentProductHost {
             applyReviewComparisonUpdate: dependencies.applyReviewComparisonUpdate,
             queryReviewComparisonTargets: BridgePaneProductComparisonTargetQuerySource.makeQuery(
                 reviewSourceProvider: dependencies.reviewSourceProvider,
-                targetProjection: dependencies.reviewComparisonTargetProjection
+                targetProjection: dependencies.reviewComparisonTargetProjection,
+                refreshWorkAdmissionSource: dependencies.refreshWorkAdmissionSource
             ),
             initialPanePresentation: dependencies.initialPresentation,
             refreshWorkAdmissionSource: dependencies.refreshWorkAdmissionSource

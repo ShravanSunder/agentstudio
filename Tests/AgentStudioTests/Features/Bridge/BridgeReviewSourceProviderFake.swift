@@ -4,6 +4,8 @@ import Foundation
 
 actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     private let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    private let comparisonTargetsCapture: BridgeReviewComparisonTargetsCapture?
+    private let comparisonTargetsCaptureGate: BridgeComparisonGate?
     private var contributionCapture: BridgeContributionComparisonCapture?
     var comparison: BridgeEndpointComparison
     var contentByHandleId: [String: BridgeContentLoadResult]
@@ -31,6 +33,8 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparison: BridgeEndpointComparison,
         contentByHandleId: [String: BridgeContentLoadResult],
         repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil,
+        comparisonTargetsCapture: BridgeReviewComparisonTargetsCapture? = nil,
+        comparisonTargetsCaptureGate: BridgeComparisonGate? = nil,
         contributionCapture: BridgeContributionComparisonCapture? = nil,
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
@@ -40,6 +44,8 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         checksCancellationAfterGate: Bool = false
     ) {
         self.repositoryDefaultTarget = repositoryDefaultTarget
+        self.comparisonTargetsCapture = comparisonTargetsCapture
+        self.comparisonTargetsCaptureGate = comparisonTargetsCaptureGate
         self.contributionCapture = contributionCapture
         self.comparison = comparison
         self.contentByHandleId = contentByHandleId
@@ -53,6 +59,18 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
 
     func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         repositoryDefaultTarget
+    }
+
+    func captureReviewComparisonTargets(
+        _: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        await comparisonTargetsCaptureGate?.waitUntilReleased()
+        guard let comparisonTargetsCapture else {
+            throw BridgeProviderFailure.providerFailed(
+                message: "Review comparison target capture not configured"
+            )
+        }
+        return comparisonTargetsCapture
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws

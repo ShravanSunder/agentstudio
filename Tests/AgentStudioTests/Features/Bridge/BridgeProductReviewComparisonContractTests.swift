@@ -271,7 +271,7 @@ struct BridgeProductReviewComparisonContractTests {
     }
 
     @Test("comparison target query creates a descriptor for a catalog below the byte ceiling")
-    func comparisonTargetQueryCreatesDescriptorBelowByteCeiling() throws {
+    func comparisonTargetQueryCreatesDescriptorBelowByteCeiling() async throws {
         // Arrange
         let capture = BridgeReviewComparisonTargetsCapture(
             capturedAtUnixMilliseconds: 2000,
@@ -288,15 +288,99 @@ struct BridgeProductReviewComparisonContractTests {
         )
 
         // Act
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
         let result = BridgePaneProductComparisonTargetQuerySource.makeCapture(
             capture,
-            maximumEncodedBytes: 1024 * 1024
+            maximumEncodedBytes: 1024 * 1024,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
         )
 
         // Assert
         let queryCapture = try #require(result)
         #expect(queryCapture.descriptor.declaredByteLength == queryCapture.body.count)
         #expect(queryCapture.descriptor.maximumBytes == queryCapture.body.count)
+    }
+
+    @Test("foreground loss during target capture returns a query-local error")
+    func foregroundLossDuringTargetCaptureReturnsQueryLocalError() async throws {
+        // Arrange
+        let captureGate = BridgeComparisonGate()
+        let capture = BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
+            defaultTarget: nil,
+            currentTarget: nil,
+            branches: [
+                .local(
+                    branchName: "stack/base",
+                    oid: "af70f11324247e802366a8f6ab1f4ea0ec5ae55f"
+                )
+            ]
+        )
+        let sourceProvider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [:],
+            comparisonTargetsCapture: capture,
+            comparisonTargetsCaptureGate: captureGate
+        )
+        let refreshCoordinator = await MainActor.run {
+            BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+        }
+        let refreshWorkAdmissionSource = await MainActor.run {
+            refreshCoordinator.workAdmissionSource
+        }
+        let targetProjection = await MainActor.run {
+            BridgeReviewComparisonTargetProjection(
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .branch(name: "stack/base")
+                    )
+                )
+            )
+        }
+        let provider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            queryReviewComparisonTargets: BridgePaneProductComparisonTargetQuerySource.makeQuery(
+                reviewSourceProvider: sourceProvider,
+                targetProjection: targetProjection,
+                refreshWorkAdmissionSource: refreshWorkAdmissionSource
+            ),
+            refreshWorkAdmissionSource: refreshWorkAdmissionSource
+        )
+        let request = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: reviewComparisonTargetsQueryBody()
+        )
+        let query = Task {
+            await provider.response(for: request)
+        }
+        await captureGate.waitForStartedComparisonCount(1)
+
+        // Act
+        await MainActor.run {
+            refreshCoordinator.applyActivity(.loadedHidden)
+        }
+        await captureGate.releaseAll()
+        let response = await query.value
+
+        // Assert
+        guard case .requestError(let error) = response else {
+            Issue.record("Expected foreground loss to cancel only the comparison-target query")
+            return
+        }
+        #expect(error.code == .internal)
+        #expect(error.retryable)
+        #expect(error.safeMessage == "Comparison targets are unavailable")
     }
 
     private func sortedJSONObject<TValue: Encodable>(_ value: TValue) throws -> String {
@@ -322,6 +406,26 @@ struct BridgeProductReviewComparisonContractTests {
               "kind": "product.call",
               "paneSessionId": "\(bridgeProductTestPaneSessionId)",
               "requestId": "review-comparison-update-1",
+              "requestSequence": 2,
+              "wireVersion": 2,
+              "workerDerivationEpoch": 0,
+              "workerInstanceId": "\(bridgeProductTestWorkerInstanceId)"
+            }
+            """.utf8
+        )
+    }
+
+    private func reviewComparisonTargetsQueryBody() -> Data {
+        Data(
+            """
+            {
+              "call": {
+                "method": "review.comparisonTargets.query",
+                "request": {}
+              },
+              "kind": "product.call",
+              "paneSessionId": "\(bridgeProductTestPaneSessionId)",
+              "requestId": "review-comparison-targets-query-1",
               "requestSequence": 2,
               "wireVersion": 2,
               "workerDerivationEpoch": 0,

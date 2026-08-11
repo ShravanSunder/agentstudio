@@ -136,7 +136,13 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                         result: .reviewComparisonUpdate
                     )
                 case .reviewComparisonTargetsQuery:
-                    guard let capture = await queryReviewComparisonTargets() else {
+                    guard
+                        let capture = await queryReviewComparisonTargets(),
+                        capture.foregroundWorkAdmission.withValidAdmission({
+                            pendingComparisonTargetQuery = capture
+                            return true
+                        }) == true
+                    else {
                         return try .requestError(
                             correlating: request,
                             code: .internal,
@@ -146,7 +152,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                             safeMessage: "Comparison targets are unavailable"
                         )
                     }
-                    pendingComparisonTargetQuery = capture
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewComparisonTargetsQuery(
@@ -873,7 +878,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             safeMessage: "Metadata stream is not installed"
         )
     }
-
 }
 
 extension BridgePaneProductSchemeProvider {

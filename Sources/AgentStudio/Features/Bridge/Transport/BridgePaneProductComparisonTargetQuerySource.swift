@@ -6,6 +6,7 @@ import Foundation
 struct BridgeProductReviewComparisonTargetsQueryCapture: Sendable {
     let descriptor: BridgeProductReviewComparisonTargetsContentDescriptor
     let body: Data
+    let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
 }
 
 @MainActor
@@ -28,9 +29,13 @@ final class BridgeReviewComparisonTargetProjection {
 enum BridgePaneProductComparisonTargetQuerySource {
     static func makeQuery(
         reviewSourceProvider: any BridgeReviewSourceProvider,
-        targetProjection: BridgeReviewComparisonTargetProjection
+        targetProjection: BridgeReviewComparisonTargetProjection,
+        refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture? {
         {
+            guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else {
+                return nil
+            }
             let currentTarget = await MainActor.run { targetProjection.currentTarget }
             let capturedAt = Int64(Date().timeIntervalSince1970 * 1000)
             let recencyMilliseconds =
@@ -48,14 +53,16 @@ enum BridgePaneProductComparisonTargetQuerySource {
             }
             return makeCapture(
                 capture,
-                maximumEncodedBytes: AppPolicies.Bridge.reviewComparisonTargetMaximumEncodedBytes
+                maximumEncodedBytes: AppPolicies.Bridge.reviewComparisonTargetMaximumEncodedBytes,
+                foregroundWorkAdmission: foregroundWorkAdmission
             )
         }
     }
 
     static func makeCapture(
         _ capture: BridgeReviewComparisonTargetsCapture,
-        maximumEncodedBytes: Int
+        maximumEncodedBytes: Int,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) -> BridgeProductReviewComparisonTargetsQueryCapture? {
         guard maximumEncodedBytes > 0 else { return nil }
         let preservedReferences = Set(
@@ -93,7 +100,8 @@ enum BridgePaneProductComparisonTargetQuerySource {
                 else { return nil }
                 return BridgeProductReviewComparisonTargetsQueryCapture(
                     descriptor: descriptor,
-                    body: body
+                    body: body,
+                    foregroundWorkAdmission: foregroundWorkAdmission
                 )
             }
 

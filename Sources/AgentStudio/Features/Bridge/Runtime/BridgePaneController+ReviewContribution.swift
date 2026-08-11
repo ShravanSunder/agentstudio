@@ -52,23 +52,11 @@ extension BridgePaneController {
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
         guard case .workspace(_, let baseline) = bridgePaneState.source else { return }
-        let resolvedDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
-        do {
-            resolvedDefaultTarget = try await reviewSourceProvider.resolveReviewDefaultTarget()
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            resolvedDefaultTarget = nil
-        }
-        guard
-            isReviewPackageLoadCurrent(
-                reset: reset,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission
-            )
-        else { return }
-        refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(resolvedDefaultTarget)
-        _ = scheduleProductPresentationPublication()
+        let resolvedDefaultTarget = try await resolveAndPublishReviewComparisonDefaultTargetIfCurrent(
+            reset: reset,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
         guard baseline == nil else { return }
         guard
             let resolvedDefaultTarget,
@@ -103,6 +91,40 @@ extension BridgePaneController {
         case .paneMissing, .notBridgePane, .notWorkspaceSource:
             break
         }
+    }
+
+    func resolveAndPublishReviewComparisonDefaultTargetIfCurrent(
+        reset: ReviewPackageLoadReset,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        guard
+            isReviewPackageLoadCurrent(
+                reset: reset,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        else { return nil }
+        refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(nil)
+        _ = scheduleProductPresentationPublication()
+        let resolvedDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+        do {
+            resolvedDefaultTarget = try await reviewSourceProvider.resolveReviewDefaultTarget()
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            resolvedDefaultTarget = nil
+        }
+        guard
+            isReviewPackageLoadCurrent(
+                reset: reset,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        else { return nil }
+        refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(resolvedDefaultTarget)
+        _ = scheduleProductPresentationPublication()
+        return resolvedDefaultTarget
     }
 
     func resolveContributionRequestIfNeeded(

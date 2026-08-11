@@ -4,7 +4,9 @@ import Foundation
 
 actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
-        repositoryDefaultTarget
+        defaultTargetReadCount += 1
+        await defaultTargetGate?.waitUntilReleased()
+        return repositoryDefaultTarget
     }
 
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
@@ -41,7 +43,9 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     }
 
     private var contributionCapture: BridgeContributionComparisonCapture?
-    private let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    private var repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    private var defaultTargetGate: BridgeContributionCaptureGate?
+    private var defaultTargetReadCount = 0
     private var contributionCaptureGate: BridgeContributionCaptureGate?
     private let contributionFailure: BridgeProviderFailure?
     var comparison: BridgeEndpointComparison
@@ -179,6 +183,20 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
 
     func setComparison(_ comparison: BridgeEndpointComparison) {
         self.comparison = comparison
+    }
+
+    func setRepositoryDefaultTarget(
+        _ repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    ) {
+        self.repositoryDefaultTarget = repositoryDefaultTarget
+    }
+
+    func setDefaultTargetGate(_ defaultTargetGate: BridgeContributionCaptureGate?) {
+        self.defaultTargetGate = defaultTargetGate
+    }
+
+    func recordedDefaultTargetReadCount() -> Int {
+        defaultTargetReadCount
     }
 
     func setContributionCapture(_ contributionCapture: BridgeContributionComparisonCapture) {

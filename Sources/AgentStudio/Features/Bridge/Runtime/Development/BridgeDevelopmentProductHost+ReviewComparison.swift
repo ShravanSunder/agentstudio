@@ -107,6 +107,13 @@ extension BridgeDevelopmentProductHost {
             await failReviewComparisonAttempt(reviewGeneration, failureKind: "foreground_unavailable")
             return
         }
+        guard
+            await refreshRepositoryDefaultTarget(
+                reviewGeneration: reviewGeneration,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission
+            )
+        else { return }
 
         do {
             let preparedPublication = try await constructReviewPublication(
@@ -121,6 +128,57 @@ extension BridgeDevelopmentProductHost {
         } catch {
             await failReviewComparisonAttempt(reviewGeneration, failureKind: "publication_failed")
         }
+    }
+
+    private func refreshRepositoryDefaultTarget(
+        reviewGeneration: BridgeReviewGeneration,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) async -> Bool {
+        guard
+            !Task.isCancelled,
+            !isShutdown,
+            productAdmission.withValidAdmission({ true }) == true,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true
+        else { return false }
+        let didClearCurrentDefault = await MainActor.run {
+            guard
+                refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+            else { return false }
+            refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(nil)
+            return true
+        }
+        guard didClearCurrentDefault else { return false }
+        await publishCurrentPanePresentation()
+
+        let resolvedDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+        do {
+            resolvedDefaultTarget = try await reviewProvider.resolveReviewDefaultTarget()
+        } catch is CancellationError {
+            return false
+        } catch {
+            resolvedDefaultTarget = nil
+        }
+        guard
+            !Task.isCancelled,
+            !isShutdown,
+            productAdmission.withValidAdmission({ true }) == true,
+            foregroundWorkAdmission.withValidAdmission({ true }) == true
+        else { return false }
+        let didPublishCurrentDefault = await MainActor.run {
+            guard
+                refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
+                    reviewGeneration: reviewGeneration.rawValue
+                )
+            else { return false }
+            refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(resolvedDefaultTarget)
+            return true
+        }
+        guard didPublishCurrentDefault else { return false }
+        await publishCurrentPanePresentation()
+        return true
     }
 
     private func clearReviewComparisonTask(reviewGeneration: BridgeReviewGeneration) {

@@ -177,6 +177,75 @@ extension WebKitSerializedTests {
             #expect(controller.pendingReviewPackageBuildReasons.isEmpty)
         }
 
+        @Test("successor comparison clears and refreshes repository default identity")
+        func successorComparisonClearsAndRefreshesRepositoryDefaultIdentity() async throws {
+            // Arrange
+            let initialTarget = WorkspaceReviewContributionTarget.branch(name: "main")
+            let successorTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
+            let initialDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+                remoteName: "origin",
+                branchName: "main"
+            )
+            let successorDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+                remoteName: "upstream",
+                branchName: "trunk"
+            )
+            let comparison = makeComparison()
+            let provider = makeContributionProvider(
+                comparison: comparison,
+                repositoryDefaultTarget: initialDefaultTarget
+            )
+            let canonicalSuccessorState = BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: "/tmp/worktree",
+                    baseline: WorkspaceBaseline(contributionTarget: successorTarget)
+                )
+            )
+            let controller = makeController(
+                target: initialTarget,
+                comparison: comparison,
+                provider: provider,
+                contributionTargetCommit: { _ in .applied(canonicalSuccessorState) }
+            )
+            defer { controller.teardown() }
+            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            else {
+                Issue.record("Expected initial contribution load to succeed")
+                return
+            }
+            #expect(
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
+                    .repositoryDefaultTarget == initialDefaultTarget
+            )
+            let defaultTargetGate = BridgeContributionCaptureGate()
+            await provider.setRepositoryDefaultTarget(successorDefaultTarget)
+            await provider.setDefaultTargetGate(defaultTargetGate)
+            let productAdmission = try #require(controller.productAdmissionGate.acquire())
+
+            // Act
+            let didAdopt = await controller.handleCommittedProductReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(target: successorTarget),
+                productAdmission: productAdmission
+            )
+            await defaultTargetGate.waitForStart()
+            let pendingPresentation =
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot
+            await defaultTargetGate.releaseAll()
+            await waitForActiveReviewRefreshTaskToFinish(controller)
+            let settledPresentation =
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot
+
+            // Assert
+            #expect(didAdopt)
+            #expect(pendingPresentation.reviewComparison?.repositoryDefaultTarget == nil)
+            #expect(
+                settledPresentation.reviewComparison?.repositoryDefaultTarget
+                    == successorDefaultTarget
+            )
+            #expect(await provider.recordedDefaultTargetReadCount() == 2)
+        }
+
         private func makeComparison() -> BridgeEndpointComparison {
             BridgeEndpointComparison(
                 baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
@@ -186,7 +255,8 @@ extension WebKitSerializedTests {
         }
 
         private func makeContributionProvider(
-            comparison: BridgeEndpointComparison
+            comparison: BridgeEndpointComparison,
+            repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil
         ) -> BridgeReviewSourceProviderFake {
             BridgeReviewSourceProviderFake(
                 comparison: comparison,
@@ -196,7 +266,8 @@ extension WebKitSerializedTests {
                     reviewedHeadOID: "reviewed-head-oid",
                     baseOID: "contribution-base-oid",
                     comparison: comparison
-                )
+                ),
+                repositoryDefaultTarget: repositoryDefaultTarget
             )
         }
 

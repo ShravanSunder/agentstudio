@@ -229,6 +229,62 @@ struct BridgeDevHostSharedConstructionTests {
         }
     }
 
+    @Test("successor comparison clears and refreshes repository default identity")
+    func successorComparisonClearsAndRefreshesRepositoryDefaultIdentity() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-product-host-default-refresh"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        let initialDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+            remoteName: "origin",
+            branchName: "main"
+        )
+        let successorDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+            remoteName: "upstream",
+            branchName: "trunk"
+        )
+        let provider = BridgeDevelopmentSharedConstructionReviewProvider(
+            repositoryDefaultTarget: initialDefaultTarget
+        )
+        let host = try await BridgeDevelopmentProductHost(
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
+            ),
+            makeReviewProvider: { _, _ in provider }
+        )
+        try await withShutdownDevelopmentProductHost(host) {
+            _ = try await host.issueBootstrap(for: makeDevelopmentBootstrapRequest(surface: "review"))
+            let defaultTargetGate = BridgeComparisonGate()
+            await provider.setRepositoryDefaultTarget(successorDefaultTarget)
+            await provider.setDefaultTargetGate(defaultTargetGate)
+            let productAdmission = await host.productAdmission
+
+            // Act
+            await host.applyCommittedReviewComparisonUpdate(
+                BridgeProductReviewComparisonUpdateRequest(
+                    target: .branch(name: "stack/base")
+                ),
+                productAdmission: productAdmission
+            )
+            await defaultTargetGate.waitForStartedComparisonCount(1)
+            let pendingPresentation = await host.diagnosticPanePresentation()
+            await defaultTargetGate.releaseAll()
+            let reviewComparisonTask = await host.activeReviewComparisonTask
+            await reviewComparisonTask?.value
+            let settledPresentation = await host.diagnosticPanePresentation()
+
+            // Assert
+            #expect(pendingPresentation.reviewComparison?.repositoryDefaultTarget == nil)
+            #expect(
+                settledPresentation.reviewComparison?.repositoryDefaultTarget
+                    == successorDefaultTarget
+            )
+            #expect(await provider.snapshot().reviewComparisonTargetReadCount == 2)
+        }
+    }
+
     @Test("Review bootstrap uses the existing shared construction authority")
     func reviewBootstrapUsesSharedConstructionAuthority() async throws {
         // Arrange
@@ -348,6 +404,7 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
 {
     func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         reviewComparisonTargetReadCount += 1
+        await defaultTargetGate?.waitUntilReleased()
         return repositoryDefaultTarget
     }
 
@@ -375,7 +432,8 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
     private var contributionCaptureCount = 0
     private var contributionTargets: [WorkspaceReviewContributionTarget] = []
     private var regularComparisonCount = 0
-    private let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    private var repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    private var defaultTargetGate: BridgeComparisonGate?
     private var reviewComparisonTargetReadCount = 0
     private var sharedCaptureCount = 0
     private var sharedComparisonCount = 0
@@ -393,6 +451,16 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
 
     func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {
         self.comparisonGate = comparisonGate
+    }
+
+    func setRepositoryDefaultTarget(
+        _ repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    ) {
+        self.repositoryDefaultTarget = repositoryDefaultTarget
+    }
+
+    func setDefaultTargetGate(_ defaultTargetGate: BridgeComparisonGate?) {
+        self.defaultTargetGate = defaultTargetGate
     }
 
     func resolveEndpoint(

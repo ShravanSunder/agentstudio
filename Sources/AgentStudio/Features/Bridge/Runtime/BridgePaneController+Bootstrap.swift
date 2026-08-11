@@ -602,7 +602,8 @@ extension BridgePaneController {
     ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture? {
         BridgePaneProductComparisonTargetQuerySource.makeQuery(
             reviewSourceProvider: input.reviewSourceProvider,
-            targetProjection: input.reviewComparisonTargetProjection
+            targetProjection: input.reviewComparisonTargetProjection,
+            refreshWorkAdmissionSource: input.refreshWorkAdmissionSource
         )
     }
 
