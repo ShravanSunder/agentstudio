@@ -109,10 +109,8 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(Math.round(switcherBox.height)).toBe(railToolbarButtonTokenHeight);
 		expect(Math.round(fileButtonBox.height)).toBe(railToolbarButtonTokenHeight);
 		expect(Math.round(reviewButtonBox.height)).toBe(railToolbarButtonTokenHeight);
-		expect(fileButton.getAttribute('data-slot')).toBe('button');
-		expect(fileButton.getAttribute('data-toggle-group-slot')).toBe('toggle-group-item');
-		expect(reviewButton.getAttribute('data-slot')).toBe('button');
-		expect(reviewButton.getAttribute('data-toggle-group-slot')).toBe('toggle-group-item');
+		expect(fileButton.getAttribute('data-slot')).toBe('toggle-group-item');
+		expect(reviewButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(fileButton.getAttribute('aria-label')).toBe('Files');
 		expect(reviewButton.getAttribute('aria-label')).toBe('Review');
 		expect(fileButton.getAttribute('aria-pressed')).toBe('true');
@@ -159,11 +157,6 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 		expect(Math.round(switcher.getBoundingClientRect().height)).toBe(24);
 		expect(segments).toHaveLength(3);
 		expect(segments.map((segment) => segment.getAttribute('data-slot'))).toEqual([
-			'button',
-			'button',
-			'button',
-		]);
-		expect(segments.map((segment) => segment.getAttribute('data-toggle-group-slot'))).toEqual([
 			'toggle-group-item',
 			'toggle-group-item',
 			'toggle-group-item',

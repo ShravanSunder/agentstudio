@@ -22,6 +22,7 @@ export function BridgeReviewProjectionMenu(props: {
 			data-testid="bridge-review-mode-segmented-control"
 			role="radiogroup"
 			size="sm"
+			value={[activeProjectionKind]}
 		>
 			{projectionButtonSpecs.map((spec) => {
 				const isSelected = spec.mode.kind === activeProjectionKind;
@@ -37,15 +38,15 @@ export function BridgeReviewProjectionMenu(props: {
 						data-testid="bridge-review-mode-segment"
 						disabled={!isEnabled}
 						key={spec.value}
-						onClick={(): void => {
-							if (isEnabled && !isSelected) {
+						onPressedChange={(pressed): void => {
+							if (pressed && isEnabled && !isSelected) {
 								props.onProjectionModeChange?.(spec.mode);
 							}
 						}}
-						pressed={isSelected}
 						role="radio"
 						size="sm"
 						title={spec.label}
+						value={spec.value}
 					>
 						<spec.Icon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 					</ToggleGroupItem>

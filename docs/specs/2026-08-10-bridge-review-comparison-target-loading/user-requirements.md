@@ -17,8 +17,9 @@ reviewer opens Review View
         ├─ current comparison appears from compact current state
         │
         └─ reviewer opens Compare Worktree
+                 ├─ recent branch choices preload on demand
                  ├─ remembered Commit mode → focus commit input
-                 └─ activates Branch mode → recent choices load on demand
+                 └─ remembered Branch mode → focus branch search
                     without freezing Review or losing the current comparison
 ```
 
@@ -43,12 +44,13 @@ Priority: must.
 
 ### CT-U2 — Branch choices appear when requested
 
-Activating the Branch selection surface in an open comparison picker must load
-locally available branch choices and place keyboard focus in branch search.
-Opening in the remembered Commit mode must focus commit entry without loading
-the branch catalog. Search, keyboard navigation, pointer selection, and the
-existing remembered Branch/Commit modes must remain usable while the result set
-is large.
+Opening the comparison picker must load locally available branch choices so a
+later switch to Branch can show them immediately. The remembered mode still
+owns focus: Branch focuses branch search and Commit focuses commit entry.
+Switching modes while the picker remains open must preserve the preload rather
+than starting or cancelling another query. Search, keyboard navigation, pointer
+selection, and the existing remembered Branch/Commit modes must remain usable
+while the result set is large.
 
 Priority: must.
 
@@ -117,9 +119,9 @@ Out of scope:
 
 ## Success
 
-The correction succeeds when Review loads from compact current state,
-activating Branch selection performs one bounded foreground query through the
-established command/content path, Commit mode performs no branch query, a
-production-scale catalog remains searchable and keyboard operable without
-rendering the complete list, and cancellation or failure leaves the displayed
-comparison untouched.
+The correction succeeds when Review loads from compact current state, opening
+the comparison picker performs one bounded foreground query through the
+established command/content path regardless of remembered mode, switching to
+Branch can use the preloaded result immediately, a production-scale catalog
+remains searchable and keyboard operable without rendering the complete list,
+and cancellation or failure leaves the displayed comparison untouched.

@@ -22,8 +22,8 @@ struct BridgeComparisonTargetContentLifecycleTests {
         #expect(result.errorMessage == nil)
     }
 
-    @Test("same descriptor id and digest with changed metadata is rejected and detached")
-    func changedMetadataIsRejectedAndDetached() async throws {
+    @Test("same descriptor id and digest with changed metadata is rejected without detaching the active descriptor")
+    func changedMetadataIsRejectedWithoutDetachingActiveDescriptor() async throws {
         let body = Data("comparison-target-body".utf8)
         let capture = try await makeCapture(body: body, suffix: "metadata")
         let provider = await makeProvider(capture: capture)
@@ -48,12 +48,12 @@ struct BridgeComparisonTargetContentLifecycleTests {
 
         #expect(mismatch.body.isEmpty)
         #expect(mismatch.errorMessage == "Content descriptor is not active")
-        #expect(secondOpen.body.isEmpty)
-        #expect(secondOpen.errorMessage == "Content descriptor is not active")
+        #expect(secondOpen.body == body)
+        #expect(secondOpen.errorMessage == nil)
     }
 
-    @Test("different descriptor identity is rejected and detached")
-    func differentDescriptorIdentityIsRejectedAndDetached() async throws {
+    @Test("different descriptor identity is rejected without detaching the active descriptor")
+    func differentDescriptorIdentityIsRejectedWithoutDetachingActiveDescriptor() async throws {
         let body = Data("comparison-target-body".utf8)
         let capture = try await makeCapture(body: body, suffix: "different")
         let provider = await makeProvider(capture: capture)
@@ -70,7 +70,35 @@ struct BridgeComparisonTargetContentLifecycleTests {
         )
 
         #expect(mismatch.errorMessage == "Content descriptor is not active")
-        #expect(replay.errorMessage == "Content descriptor is not active")
+        #expect(replay.body == body)
+        #expect(replay.errorMessage == nil)
+    }
+
+    @Test("late stale open does not detach the newest query")
+    func lateStaleOpenDoesNotDetachNewestQuery() async throws {
+        let firstCapture = try await makeCapture(
+            body: Data("first-comparison-target-body".utf8),
+            suffix: "exact"
+        )
+        let newestBody = Data("newest-comparison-target-body".utf8)
+        let newestCapture = try await makeCapture(body: newestBody, suffix: "other")
+        let captureQueue = ComparisonTargetCaptureQueue(captures: [firstCapture, newestCapture])
+        let provider = await makeProvider(captureQueue: captureQueue)
+        _ = await provider.response(for: try queryRequest(suffix: "first", sequence: 1))
+        _ = await provider.response(for: try queryRequest(suffix: "newest", sequence: 2))
+
+        let staleOpen = try await openContent(
+            provider: provider,
+            request: contentRequest(descriptor: firstCapture.descriptor, suffix: "stale-open")
+        )
+        let newestOpen = try await openContent(
+            provider: provider,
+            request: contentRequest(descriptor: newestCapture.descriptor, suffix: "newest-open")
+        )
+
+        #expect(staleOpen.errorMessage == "Content descriptor is not active")
+        #expect(newestOpen.body == newestBody)
+        #expect(newestOpen.errorMessage == nil)
     }
 
     @Test("second exact open is rejected after the first consumes the pending body")
@@ -138,6 +166,20 @@ struct BridgeComparisonTargetContentLifecycleTests {
         )
     }
 
+    private func makeProvider(
+        captureQueue: ComparisonTargetCaptureQueue
+    ) async -> BridgePaneProductSchemeProvider {
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        return BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            queryReviewComparisonTargets: { await captureQueue.nextCapture() },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+    }
+
     private func makeCapture(
         body: Data,
         suffix: String
@@ -160,12 +202,15 @@ struct BridgeComparisonTargetContentLifecycleTests {
         )
     }
 
-    private func queryRequest() throws -> BridgeProductControlRequest {
+    private func queryRequest(
+        suffix: String = "1",
+        sequence: Int = 1
+    ) throws -> BridgeProductControlRequest {
         try BridgeProductStrictJSON.decode(
             BridgeProductControlRequest.self,
             from: Data(
                 """
-                {"call":{"method":"review.comparisonTargets.query","request":{}},"kind":"product.call","paneSessionId":"pane-session-1","requestId":"query-1","requestSequence":1,"wireVersion":2,"workerDerivationEpoch":0,"workerInstanceId":"worker-instance-1"}
+                {"call":{"method":"review.comparisonTargets.query","request":{}},"kind":"product.call","paneSessionId":"pane-session-1","requestId":"query-\(suffix)","requestSequence":\(sequence),"wireVersion":2,"workerDerivationEpoch":0,"workerInstanceId":"worker-instance-1"}
                 """.utf8
             )
         )
@@ -288,6 +333,19 @@ struct BridgeComparisonTargetContentLifecycleTests {
 
     private enum TestError: Error {
         case expectedFrame
+    }
+}
+
+private actor ComparisonTargetCaptureQueue {
+    private var captures: [BridgeProductReviewComparisonTargetsQueryCapture]
+
+    init(captures: [BridgeProductReviewComparisonTargetsQueryCapture]) {
+        self.captures = captures
+    }
+
+    func nextCapture() -> BridgeProductReviewComparisonTargetsQueryCapture? {
+        guard !captures.isEmpty else { return nil }
+        return captures.removeFirst()
     }
 }
 

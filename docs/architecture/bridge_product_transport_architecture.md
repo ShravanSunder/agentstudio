@@ -147,17 +147,27 @@ Use these questions when adding Bridge data:
 UI placement does not choose transport placement. A control in the Review
 header may depend on both compact current metadata and an on-demand catalog.
 
-## Current branch discrepancy
+## Review comparison target catalog
 
-The `review-comments` branch currently embeds
-`reviewComparison.targetCatalog` inside `pane.presentation`, discovers it
-during Review initialization, copies and stringifies the complete catalog in
-the worker, and renders all matching branch rows. That is implementation drift
-from this architecture. The corrective design is in
-[Bridge Review Comparison Target Loading](../specs/2026-08-10-bridge-review-comparison-target-loading/program-design.md).
+The Review comparison branch catalog follows the finite requested-dataset path.
+Opening the comparison picker issues the typed
+`review.comparisonTargets.query` product call, even when Commit is the
+remembered mode, so Branch choices are ready for an immediate mode switch.
+Native code captures the bounded catalog through `agentstudio-git` and returns
+a descriptor; the worker opens that descriptor through the product content
+route, validates and decodes the complete catalog, and publishes it to the
+picker. Newer requests supersede older ones, and foreground/session loss
+cancels the pending request.
 
-Until that cutover lands, treat the catalog-in-metadata path as temporary branch
-state, not as a reusable Bridge transport pattern.
+`pane.presentation` carries only the compact active target, attempt state,
+displayed snapshot identity, and repository-default identity needed before a
+catalog request. The strict metadata contract rejects a target catalog in pane
+presentation. The picker filters the complete returned catalog and virtualizes
+visible branch rows, so transport bounds and DOM bounds remain separate.
+
+The governing behavior and internal flow are in
+[Bridge Review Comparison Target Loading](../specs/2026-08-10-bridge-review-comparison-target-loading/specification.md)
+and its Program Design.
 
 ## Source map
 

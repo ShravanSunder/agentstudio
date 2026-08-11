@@ -154,7 +154,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare: master');
+			.toHaveTextContent('Compare to: master');
 	});
 
 	test('settles a rejected comparison-target query instead of leaving the picker loading', async () => {
@@ -243,7 +243,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(triggerBox.top).toBeGreaterThanOrEqual(topbarBox.top);
 		expect(triggerBox.bottom).toBeLessThanOrEqual(topbarBox.bottom);
 		expect(controlsBox.right).toBeLessThanOrEqual(topbarBox.right);
-		expect(trigger.getAttribute('aria-label')).toBe('Compare: master');
+		expect(trigger.getAttribute('aria-label')).toBe('Compare to: master');
 		expect(descriptionId).not.toBeNull();
 		expect(document.getElementById(descriptionId ?? '')?.textContent).toContain(
 			'Changes only on master are excluded',
@@ -274,7 +274,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Act
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-			await rendered.getByRole('button', { name: 'Commit' }).click();
+			await rendered.getByRole('button', { name: 'Commit', exact: true }).click();
 			await rendered.getByRole('textbox', { name: 'Commit hash' }).fill(exactCommitOID);
 			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
 			await Promise.resolve();

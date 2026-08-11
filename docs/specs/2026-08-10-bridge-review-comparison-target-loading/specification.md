@@ -18,9 +18,9 @@ remains authoritative for the current-state popup and basis choices.
 flowchart LR
     Review[Review opens] --> Current[Current comparison appears]
     Current --> Open[Reviewer opens picker]
+    Open --> Loading[Recent targets preload]
     Open --> Commit[Remembered Commit mode focuses entry]
-    Open --> Branch[Reviewer activates Branch mode]
-    Branch --> Loading[Recent targets loading]
+    Open --> Branch[Remembered Branch mode focuses search]
     Loading --> Ready[Searchable bounded choices]
     Loading --> Failed[Retryable picker error]
     Ready --> Select[Reviewer selects target]
@@ -33,7 +33,7 @@ Current comparison state and available comparison choices are independent:
 | Information | Availability | Failure scope |
 | --- | --- | --- |
 | Active target, compact repository-default symbolic identity, basis, attempt, displayed snapshot, stale/current state | pushed while Review is active | Review comparison lifecycle |
-| Branch choices and repository default candidate | requested while Branch selection is active | that picker query only |
+| Branch choices and repository default candidate | requested while the comparison picker is open | that picker query only |
 
 ## CT-R1 — Review does not preload the branch catalog
 
@@ -68,10 +68,11 @@ Traces to: CT-U1, CT-U4.
 
 ## CT-R2 — The picker requests choices through the on-demand product path
 
-When the Branch selection surface becomes active in an open picker, BridgeWeb
-MUST issue the typed product call `review.comparisonTargets.query`. Opening the
-picker in remembered Commit mode MUST NOT issue that query. A successful call
-MUST return an authorized descriptor for one finite
+When the comparison picker opens, BridgeWeb MUST issue the typed product call
+`review.comparisonTargets.query` regardless of whether the remembered mode is
+Branch or Commit. This preloads Branch choices for an immediate mode switch
+without moving the catalog into initialization or pushed metadata. A successful
+call MUST return an authorized descriptor for one finite
 `review.comparisonTargets` content response. BridgeWeb MUST obtain the catalog
 by opening that descriptor through the existing content route.
 
@@ -85,7 +86,7 @@ sequenceDiagram
     participant UI as Comparison picker
     participant W as Communication worker
     participant N as Native Bridge
-    UI->>W: open Branch selection
+    UI->>W: open comparison picker
     W->>N: review.comparisonTargets.query (command)
     N-->>W: content descriptor
     W->>N: content.open (foreground)
@@ -148,20 +149,20 @@ picker MUST focus the remembered mode's input; switching to Branch or Commit
 MUST focus the newly active mode's input.
 
 An empty eligible set MUST be distinguishable from query failure. Every ready or
-empty result MUST explain adjacent to the branch results that choices are
-limited to branches updated in the previous 30 days, apart from the default and
-current exceptions. A truncated result MUST additionally explain that capacity
-limited the result and that exact commit entry remains available. It MUST NOT
-present the picker as a complete branch browser or imply that exact commit entry
-preserves an omitted branch's living-target behavior.
+empty result MUST show the concise adjacent footer `Showing branches from the
+last 30 days.` The footer MUST NOT add date ranges, retention exceptions,
+capacity details, or exact-commit guidance. The catalog contract still reports
+`isTruncated` for diagnostics and proof; the picker MUST NOT present itself as a
+complete branch browser.
 
 Traces to: CT-U2, CT-U3.
 
 ## CT-R5 — Queries are cancellable and latest-request-wins
 
-Closing the picker, leaving Branch mode, replacing the pane session, losing
-foreground work admission, or starting a newer query MUST cancel or supersede
-the older request.
+Closing the picker, replacing the pane session, losing foreground work
+admission, or starting a newer query MUST cancel or supersede the older request.
+Switching between Branch and Commit while the picker remains open MUST preserve
+the in-modal preload.
 
 A cancelled or late result MUST NOT update picker state. Query failure MUST
 leave the current comparison and durable target intent unchanged and MUST offer
@@ -172,15 +173,15 @@ no mutation side effect.
 ```mermaid
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Loading: Branch surface opens
+    Idle --> Loading: picker opens
     Loading --> Ready: newest query completes
     Loading --> Empty: newest query has no choices
     Loading --> Failed: newest query fails
-    Loading --> Idle: close or leave Branch
+    Loading --> Idle: close
     Loading --> Loading: newer query supersedes old
-    Empty --> Idle: close or leave Branch
+    Empty --> Idle: close
     Failed --> Loading: retry
-    Ready --> Idle: close or leave Branch
+    Ready --> Idle: close
 ```
 
 Traces to: CT-U5.
@@ -241,7 +242,7 @@ again before producing a Review result.
 | CT-R1, CT-R6 | Native/integration evidence that Review initialization resolves at most the single default target, publishes only its compact symbolic identity, and renders the correct `Default` marker for restored, initial, pending, and displayed symbolic targets without a catalog |
 | CT-R2 | Contract and production-backed integration evidence for command descriptor followed by content frames; metadata corpus rejects `targetCatalog` |
 | CT-R3 | Real-Git behavior evidence for cutoff, mandatory exceptions, deterministic truncation, row/byte bounds, and no fetch |
-| CT-R4 | Browser interaction and manual visual evidence with remembered Branch/Commit mode, no query in Commit mode, preserved row content and accessibility, a production-scale catalog, bounded mounted rows, search, focus, keyboard navigation, selection, always-visible recency explanation, and conditional truncation explanation |
+| CT-R4 | Browser interaction and manual visual evidence with one query on picker open in either remembered mode, immediate preloaded rows after switching Commit to Branch, preserved row content and accessibility, a production-scale catalog, bounded mounted rows, search, focus, keyboard navigation, selection, and the concise always-visible recency explanation |
 | CT-R5 | Automated cancellation/latest-request evidence showing no comparison mutation or late-result application |
 | CT-R6 | Durable SQLite restart evidence plus existing comparison behavior regression coverage in the Swift development backend and packaged app |
 

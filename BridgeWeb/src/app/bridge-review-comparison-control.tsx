@@ -10,13 +10,7 @@ import {
 } from 'react';
 
 import { Button, buttonVariants } from '../components/ui/button.js';
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuRadioGroup,
-	DropdownMenuRadioItem,
-	DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu.js';
+import { Field, FieldTitle } from '../components/ui/field.js';
 import { Input } from '../components/ui/input.js';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '../components/ui/popover.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
@@ -25,8 +19,6 @@ import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-wor
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
-import { bridgeViewerChromeButtonClassName } from './bridge-viewer-chrome.js';
-import { bridgeViewerFilterMenuSurfaceClassName } from './bridge-viewer-filter-menu.js';
 import { cn } from './class-name.js';
 
 export interface BridgeReviewComparisonControlProps {
@@ -101,10 +93,7 @@ export function BridgeReviewComparisonControl(
 		return (
 			<span
 				aria-describedby={descriptionId}
-				className={cn(
-					bridgeViewerChromeButtonClassName,
-					'inline-flex max-w-56 items-center border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)] px-2 text-[var(--bridge-text-secondary)]',
-				)}
+				className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'max-w-56')}
 				data-testid="bridge-review-comparison-trigger"
 			>
 				<span className="truncate">{label}</span>
@@ -121,7 +110,7 @@ export function BridgeReviewComparisonControl(
 				if (nextOpen) {
 					setCommitOID('');
 					setValidationMessage(null);
-					if (selectionMode === 'branch') onQueryTargets();
+					onQueryTargets();
 				} else {
 					onCancelTargetQuery();
 				}
@@ -131,10 +120,7 @@ export function BridgeReviewComparisonControl(
 			<PopoverTrigger
 				aria-describedby={descriptionId}
 				aria-label={label}
-				className={cn(
-					bridgeViewerChromeButtonClassName,
-					'inline-flex max-w-56 items-center gap-1 border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)] px-2 text-[var(--bridge-text-secondary)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)] focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-				)}
+				className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'max-w-56')}
 				data-testid="bridge-review-comparison-trigger"
 			>
 				<span className="truncate">{label}</span>
@@ -146,7 +132,7 @@ export function BridgeReviewComparisonControl(
 			<PopoverContent
 				aria-describedby={descriptionId}
 				align="end"
-				className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-96 gap-0')}
+				className="w-96 gap-0"
 				data-testid="bridge-review-comparison-content"
 				initialFocus={(): HTMLElement | null =>
 					selectionMode === 'branch' ? branchSearchInputRef.current : commitInputRef.current
@@ -159,7 +145,6 @@ export function BridgeReviewComparisonControl(
 							{displayedContribution === null ? null : (
 								<ComparisonCurrentState
 									contribution={displayedContribution}
-									onApplyTarget={props.onApplyTarget}
 									repositoryDefaultTarget={
 										props.comparisonPresentation?.repositoryDefaultTarget ?? null
 									}
@@ -177,42 +162,55 @@ export function BridgeReviewComparisonControl(
 						</div>
 						<div
 							aria-hidden="true"
-							className="-mx-2 my-3 h-px bg-[var(--bridge-border-subtle)]"
+							className="-mx-2 my-3 h-px bg-border"
 							data-testid="bridge-review-comparison-section-divider"
 						/>
 					</>
 				) : null}
 				<section
-					className="flex flex-col gap-2"
+					className="grid grid-cols-[max-content_minmax(0,1fr)] gap-y-2"
 					data-testid="bridge-review-comparison-target-selection"
 				>
-					<header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1">
-						<PopoverTitle className="text-[11px] font-medium uppercase tracking-normal text-[var(--bridge-text-primary)]">
-							Compare Worktree
-						</PopoverTitle>
-						<ToggleGroup aria-label="Comparison target kind" role="group" size="sm">
+					<PopoverTitle className="col-span-2 px-1 text-xs/relaxed uppercase text-foreground">
+						Compare Worktree
+					</PopoverTitle>
+					<Field
+						className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
+						orientation="horizontal"
+					>
+						<FieldTitle className="text-muted-foreground">Compare with</FieldTitle>
+						<ToggleGroup
+							aria-label="Comparison target kind"
+							role="group"
+							size="sm"
+							spacing={0}
+							value={[selectionMode]}
+							variant="outline"
+						>
 							<ToggleGroupItem
-								onClick={(): void => {
-									setSelectionMode('branch');
-									setValidationMessage(null);
-									onQueryTargets();
+								onPressedChange={(pressed): void => {
+									if (pressed) {
+										setSelectionMode('branch');
+										setValidationMessage(null);
+									}
 								}}
-								pressed={selectionMode === 'branch'}
+								value="branch"
 							>
 								Branch
 							</ToggleGroupItem>
 							<ToggleGroupItem
-								onClick={(): void => {
-									setSelectionMode('commit');
-									setValidationMessage(null);
-									onCancelTargetQuery();
+								onPressedChange={(pressed): void => {
+									if (pressed) {
+										setSelectionMode('commit');
+										setValidationMessage(null);
+									}
 								}}
-								pressed={selectionMode === 'commit'}
+								value="commit"
 							>
 								Commit
 							</ToggleGroupItem>
 						</ToggleGroup>
-					</header>
+					</Field>
 					{selectionMode === 'branch' ? (
 						<BridgeReviewComparisonBranchSelector
 							activeTarget={activeTarget}
@@ -225,14 +223,14 @@ export function BridgeReviewComparisonControl(
 							onRetry={onQueryTargets}
 						/>
 					) : (
-						<form className="flex flex-col gap-2" onSubmit={applyCommitOID}>
+						<form className="col-span-2 flex flex-col gap-2" onSubmit={applyCommitOID}>
 							<div className="min-w-0">
 								<label className="sr-only" htmlFor={`${descriptionId}-commit-input`}>
 									Commit hash
 								</label>
 								<Input
 									aria-invalid={validationMessage === null ? undefined : true}
-									className="border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] font-mono text-[var(--bridge-text-primary)] placeholder:text-[var(--bridge-text-muted)] focus-visible:border-[var(--bridge-focus-border)]"
+									className="font-mono"
 									id={`${descriptionId}-commit-input`}
 									onChange={(event): void => setCommitOID(event.currentTarget.value)}
 									placeholder="Enter a full commit hash…"
@@ -240,7 +238,7 @@ export function BridgeReviewComparisonControl(
 									value={commitOID}
 								/>
 								{validationMessage === null ? null : (
-									<p className="mt-1 text-[11px] text-destructive" role="alert">
+									<p className="mt-1 text-xs/relaxed text-destructive" role="alert">
 										{validationMessage}
 									</p>
 								)}
@@ -258,7 +256,6 @@ export function BridgeReviewComparisonControl(
 
 function ComparisonCurrentState(props: {
 	readonly contribution: DisplayedContribution;
-	readonly onApplyTarget: BridgeReviewComparisonControlProps['onApplyTarget'];
 	readonly repositoryDefaultTarget: NonNullable<
 		NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>
 	>['repositoryDefaultTarget'];
@@ -269,18 +266,20 @@ function ComparisonCurrentState(props: {
 	if (symbolicTarget.kind === 'commit') {
 		return (
 			<section
-				className="flex flex-col gap-1 px-1"
+				className="flex flex-col gap-2 px-1"
+				data-resolved-target-oid={origin.resolvedTargetOID}
 				data-testid="bridge-review-comparison-current-state"
 			>
-				<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
-					Base commit
-				</p>
-				<div>
+				<h2 className="text-xs/relaxed font-medium uppercase text-foreground">
+					Current comparison
+				</h2>
+				<p className="flex min-w-0 items-baseline gap-1.5 text-xs/relaxed text-foreground">
+					<span className="shrink-0">Commit:</span>
 					<ComparisonRevision
 						testId="bridge-review-comparison-effective-revision"
 						value={origin.baseOID}
 					/>
-				</div>
+				</p>
 			</section>
 		);
 	}
@@ -289,74 +288,39 @@ function ComparisonCurrentState(props: {
 	const effectiveBasisLabel = activeBasis === 'commonCommit' ? 'Common commit' : 'Branch tip';
 	return (
 		<section
-			className="flex flex-col gap-1.5 px-1"
+			className="flex flex-col gap-2 px-1"
+			data-resolved-target-oid={origin.resolvedTargetOID}
 			data-testid="bridge-review-comparison-current-state"
 		>
-			<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
-				Base branch
-			</p>
-			<div className="flex flex-col gap-2">
-				<p className="flex min-w-0 items-baseline gap-1.5 text-xs text-[var(--bridge-text-primary)]">
-					<span className="truncate">{targetLabel}</span>
+			<h2 className="text-xs/relaxed font-medium uppercase text-foreground">Current comparison</h2>
+			<div className="flex flex-col gap-1.5">
+				<p
+					className="flex min-w-0 items-baseline gap-1.5 text-xs/relaxed text-foreground"
+					data-testid="bridge-review-comparison-current-target"
+				>
+					<span className="truncate">Branch: {targetLabel}</span>
 					{isDefault ? (
-						<span className="flex shrink-0 items-baseline gap-1 text-[11px] text-[var(--bridge-text-muted)]">
+						<span className="flex shrink-0 items-baseline gap-1 text-xs/relaxed text-muted-foreground">
 							<span aria-hidden="true">·</span>
 							<span>Default</span>
 						</span>
 					) : null}
 				</p>
-				<p className="flex min-w-0 items-baseline gap-1.5 text-[11px] text-[var(--bridge-text-muted)]">
-					<span className="truncate">{targetLabel} @</span>
-					<ComparisonRevision
-						testId="bridge-review-comparison-target-revision"
-						value={origin.resolvedTargetOID}
-					/>
-				</p>
-				<div className="flex min-w-0 items-center gap-2">
-					<span className="shrink-0 text-[11px] text-[var(--bridge-text-muted)]">
-						Comparing from
+				<div
+					className="flex min-w-0 items-center gap-2 text-xs/relaxed text-foreground"
+					data-testid="bridge-review-comparison-current-basis"
+				>
+					<span className="shrink-0">Comparing from:</span>
+					<span
+						className="flex min-w-0 items-baseline gap-1"
+						data-testid="bridge-review-comparison-effective-basis"
+					>
+						<span>{effectiveBasisLabel} @</span>
+						<ComparisonRevision
+							testId="bridge-review-comparison-effective-revision"
+							value={origin.baseOID}
+						/>
 					</span>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							aria-label={`Comparing from ${effectiveBasisLabel}`}
-							className={cn(
-								buttonVariants({ size: 'sm', variant: 'outline' }),
-								'min-w-0 max-w-full justify-start bg-[var(--bridge-header-control-bg)]',
-							)}
-							data-testid="bridge-review-comparison-basis-trigger"
-						>
-							<span>{effectiveBasisLabel} @</span>
-							<ComparisonRevision
-								testId="bridge-review-comparison-effective-revision"
-								value={origin.baseOID}
-							/>
-							<ChevronDownIcon aria-hidden="true" data-icon="inline-end" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent
-							align="start"
-							className={cn(bridgeViewerFilterMenuSurfaceClassName, 'w-64')}
-							sideOffset={4}
-						>
-							<DropdownMenuRadioGroup value={activeBasis}>
-								<DropdownMenuRadioItem
-									onClick={(): void =>
-										props.onApplyTarget(comparisonTargetWithBasis(symbolicTarget, 'commonCommit'))
-									}
-									value="commonCommit"
-								>
-									Common commit
-								</DropdownMenuRadioItem>
-								<DropdownMenuRadioItem
-									onClick={(): void =>
-										props.onApplyTarget(comparisonTargetWithBasis(symbolicTarget, 'branchTip'))
-									}
-									value="branchTip"
-								>
-									Branch tip
-								</DropdownMenuRadioItem>
-							</DropdownMenuRadioGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
 				</div>
 			</div>
 		</section>
@@ -367,37 +331,51 @@ function ComparisonAttemptState(props: {
 	readonly onRetry: (target: ReviewComparisonTarget) => void;
 	readonly presentation: ComparisonStatePresentation;
 }): ReactElement {
-	return (
-		<section aria-live="polite" className="px-1">
-			<p className="text-[11px] font-medium uppercase text-[var(--bridge-text-muted)]">
-				{props.presentation.heading}
-			</p>
-			<p className="mt-0.5 text-[11px] text-[var(--bridge-text-muted)]">
-				{props.presentation.description}
-			</p>
-			{props.presentation.retryTarget === null ? null : (
-				<Button
-					className="mt-2"
-					onClick={(): void => {
-						const retryTarget = props.presentation.retryTarget;
-						if (retryTarget !== null) props.onRetry(retryTarget);
-					}}
-					size="sm"
-					type="button"
-					variant="outline"
+	switch (props.presentation.kind) {
+		case 'message':
+			return (
+				<ComparisonAttemptMessage
+					description={props.presentation.description}
+					heading={props.presentation.heading}
+				/>
+			);
+		case 'retry': {
+			const retryTarget = props.presentation.retryTarget;
+			return (
+				<ComparisonAttemptMessage
+					description={props.presentation.description}
+					heading={props.presentation.heading}
 				>
-					Retry
-				</Button>
-			)}
-		</section>
-	);
+					<Button
+						className="mt-2"
+						onClick={(): void => props.onRetry(retryTarget)}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</ComparisonAttemptMessage>
+			);
+		}
+	}
+	return unreachableComparisonValue(props.presentation);
 }
 
-function comparisonTargetWithBasis(
-	target: Exclude<ReviewComparisonTarget, { readonly kind: 'commit' }>,
-	basis: 'branchTip' | 'commonCommit',
-): ReviewComparisonTarget {
-	return { ...target, basis };
+function ComparisonAttemptMessage(props: {
+	readonly children?: ReactElement;
+	readonly description: string | null;
+	readonly heading: string;
+}): ReactElement {
+	return (
+		<section aria-live="polite" className="px-1">
+			<p className="text-xs/relaxed font-medium uppercase text-muted-foreground">{props.heading}</p>
+			{props.description === null ? null : (
+				<p className="mt-0.5 text-xs/relaxed text-muted-foreground">{props.description}</p>
+			)}
+			{props.children}
+		</section>
+	);
 }
 
 function ComparisonRevision(props: {
@@ -405,11 +383,7 @@ function ComparisonRevision(props: {
 	readonly value: string;
 }): ReactElement {
 	return (
-		<code
-			className="font-mono text-[var(--bridge-text-secondary)]"
-			data-testid={props.testId}
-			title={props.value}
-		>
+		<code className="font-mono text-foreground" data-testid={props.testId} title={props.value}>
 			<span aria-hidden="true">{props.value.slice(0, 12)}</span>
 			<span className="sr-only">{props.value}</span>
 		</code>
@@ -477,11 +451,18 @@ interface DisplayedContribution {
 	readonly origin: ContributionOrigin;
 }
 
-interface ComparisonStatePresentation {
-	readonly description: string;
-	readonly heading: string;
-	readonly retryTarget: ReviewComparisonTarget | null;
-}
+type ComparisonStatePresentation =
+	| {
+			readonly description: string | null;
+			readonly heading: string;
+			readonly kind: 'message';
+	  }
+	| {
+			readonly description: string;
+			readonly heading: string;
+			readonly kind: 'retry';
+			readonly retryTarget: ReviewComparisonTarget;
+	  };
 
 function comparisonStatePresentation(
 	props: BridgeReviewComparisonControlProps,
@@ -496,41 +477,51 @@ function comparisonStatePresentation(
 			return {
 				description: 'Select a branch or Git reference before reviewing changes.',
 				heading: 'Choose a comparison target',
-				retryTarget: null,
+				kind: 'message',
 			};
 		case 'pending':
 			return displayedContribution?.heading === 'Previous comparison'
 				? {
-						description: 'Showing the previous comparison while the requested target is prepared.',
+						description: null,
 						heading: 'Updating comparison',
-						retryTarget: null,
+						kind: 'message',
 					}
 				: {
 						description: 'No comparison is displayed yet.',
 						heading: 'Preparing comparison',
-						retryTarget: null,
+						kind: 'message',
 					};
 		case 'settled':
 			return displayedContribution?.heading === 'Previous comparison' &&
 				isDisplayedPackageAwaitingPresentationDelivery(props)
 				? {
-						description: 'Showing the previous comparison while the requested target is prepared.',
+						description: null,
 						heading: 'Updating comparison',
-						retryTarget: null,
+						kind: 'message',
 					}
 				: null;
-		case 'unavailable':
+		case 'unavailable': {
+			const unavailableDescription =
+				displayedContribution?.heading === 'Previous comparison'
+					? 'The selected target could not be refreshed. The previous comparison remains visible.'
+					: 'The selected target could not be compared.';
+			if (
+				comparisonPresentation.attempt.retryable &&
+				comparisonPresentation.activeTarget !== null
+			) {
+				return {
+					description: unavailableDescription,
+					heading: 'Comparison unavailable',
+					kind: 'retry',
+					retryTarget: comparisonPresentation.activeTarget,
+				};
+			}
 			return {
-				description:
-					displayedContribution?.heading === 'Previous comparison'
-						? 'The selected target could not be refreshed. The previous comparison remains visible.'
-						: 'The selected target could not be compared.',
+				description: unavailableDescription,
 				heading: 'Comparison unavailable',
-				retryTarget:
-					comparisonPresentation.attempt.retryable && comparisonPresentation.activeTarget !== null
-						? comparisonPresentation.activeTarget
-						: null,
+				kind: 'message',
 			};
+		}
 	}
 	return unreachableComparisonValue(comparisonPresentation.attempt);
 }
@@ -546,16 +537,16 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 		const attemptStatus = props.comparisonPresentation?.attempt.status;
 		return attemptStatus === 'pending' ||
 			(attemptStatus === 'settled' && isDisplayedPackageAwaitingPresentationDelivery(props))
-			? `Compare: ${displayedTargetLabel} · Updating`
+			? `Compare to: ${displayedTargetLabel} · Updating`
 			: attemptStatus === 'unavailable'
-				? `Compare: ${displayedTargetLabel} · Unavailable`
-				: `Compare: ${displayedTargetLabel} · Stale`;
+				? `Compare to: ${displayedTargetLabel} · Unavailable`
+				: `Compare to: ${displayedTargetLabel} · Stale`;
 	}
 	const activeTarget = props.comparisonPresentation?.activeTarget;
 	if (activeTarget === undefined || activeTarget === null) {
 		return 'Choose target';
 	}
-	return `Compare: ${comparisonTargetLabel(activeTarget)}`;
+	return `Compare to: ${comparisonTargetLabel(activeTarget)}`;
 }
 
 function targetMatchesRepositoryDefault(

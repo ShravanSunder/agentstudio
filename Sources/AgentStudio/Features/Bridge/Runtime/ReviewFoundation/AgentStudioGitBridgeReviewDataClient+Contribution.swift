@@ -58,7 +58,7 @@ extension AgentStudioGitBridgeReviewDataClient {
         case .originDefaultBranch(let remoteName, let branchName, _):
             return "refs/remotes/\(remoteName)/\(branchName)"
         case .ref(let name, _):
-            return name.hasPrefix("refs/") ? name : "refs/heads/\(name)"
+            return name
         case .commit:
             return nil
         }

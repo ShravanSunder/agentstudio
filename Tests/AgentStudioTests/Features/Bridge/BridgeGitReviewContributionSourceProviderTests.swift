@@ -86,6 +86,20 @@ extension BridgeGitReviewSourceProviderTests {
                     )
                 ]
         )
+
+        _ = try await provider.captureReviewComparisonTargets(
+            BridgeReviewComparisonTargetsCaptureRequest(
+                currentTarget: .ref(name: "origin/integration"),
+                capturedAtUnixMilliseconds: 2001,
+                cutoffUnixMilliseconds: 1001,
+                maximumRows: 10
+            )
+        )
+
+        #expect(
+            await gitClient.recordedReviewComparisonTargetRequests().last?.currentBranchReference
+                == "origin/integration"
+        )
     }
 
     @Test("AgentStudioGit adapter captures one correlated contribution and registers its content")

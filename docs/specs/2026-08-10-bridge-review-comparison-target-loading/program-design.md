@@ -12,7 +12,7 @@ requested content, and scheduling. The correction uses those owners as designed:
 ```text
 CURRENT COMPARISON                         SELECTABLE TARGETS
 
-Review initializes                        Branch mode activates
+Review initializes                        Comparison picker opens
         │                                         │
         ▼                                         ▼
 resolve one default ref                    typed query command
@@ -215,7 +215,7 @@ projects only its remote and branch names into the compact default identity.
 ```text
 React picker          Comm worker          Native provider       Git scheduler / libgit2
      │                     │                       │                         │
-     │ Branch active       │                       │                         │
+     │ picker opens        │                       │                         │
      ├────────────────────►│                       │                         │
      │                     │ query command         │                         │
      │                     ├──────────────────────►│ acquire foreground      │
@@ -437,19 +437,19 @@ picker owns presentation state:
 
 | State | Enter | Exit and invariant |
 | --- | --- | --- |
-| idle | picker closed or Commit active | Branch activation starts a query |
-| loading | Branch activation or failed-state retry | newest result, failure, close, mode exit, or supersession |
+| idle | picker closed | picker open starts a query |
+| loading | picker open or failed-state retry | newest result, failure, close, or supersession |
 | ready | newest catalog decoded | select or close; no implicit refresh transition |
 | empty | newest catalog has no choices | Commit remains available |
 | failed | current query fails | explicit retry or close; current comparison unchanged |
 
-Opening in remembered Commit mode focuses commit input and emits no query.
-Opening in remembered Branch mode or switching from Commit to Branch starts one
-query and focuses search. Closing, switching to Commit, pane-session
-replacement, or a newer query makes the older request identity inadmissible;
-late results are discarded. Foreground loss aborts through the same worker
-`workSignal` and invalidates the captured `workAdmissionGeneration`; it does not
-create a second picker lifecycle.
+Opening the picker starts one query regardless of remembered mode, while focus
+still follows the remembered Branch or Commit input. Switching modes preserves
+that in-modal preload; it does not start or cancel another request. Closing,
+pane-session replacement, or a newer query makes the older request identity
+inadmissible; late results are discarded. Foreground loss aborts through the
+same worker `workSignal` and invalidates the captured
+`workAdmissionGeneration`; it does not create a second picker lifecycle.
 
 After native provider dispatch begins, the generic control replay contract may
 finish the command even when the UI request has become obsolete. In that case
@@ -466,9 +466,9 @@ keyboard and active-descendant behavior. Each virtual row continues to render
 the unambiguous branch name, local or remote-tracking kind, abbreviated target
 revision, full assistive revision, and query-snapshot `Default` marker. Capture
 cutoff and truncation state remain query data, so every ready or empty result
-renders the 30-day explanation adjacent to the list; only truncated results add
-the capacity-limit and exact-commit explanation. None of that enters pane
-metadata.
+renders only the concise 30-day explanation adjacent to the list. Truncation
+remains available for diagnostics and proof but does not add picker copy. None
+of that enters pane metadata.
 
 ## Call-path delta
 
@@ -521,7 +521,7 @@ Host construction or comparison attempt
   → existing development presentation publication
 
 TARGET — REQUESTED CATALOG
-Branch activation
+Comparison picker opens
   → worker captures work generation + binds workSignal
   → worker review.comparisonTargets.query
   → provider reads live repository/target projection
@@ -545,7 +545,7 @@ Branch activation
 | Development construction/attempt → repository/admission capture → constant default resolver → revalidation | changed | both hosts publish the same compact default-identity contract through the shared coordinator |
 | catalog → comparison presentation → metadata stream | removed | strict contracts reject `targetCatalog` |
 | resolved default → compact symbolic identity → pane presentation → UI target comparison | added | one pushed fact truthfully classifies active or displayed symbolic targets without catalog data |
-| Branch activation → worker work generation/signal → query command → typed native call | added | foreground loss or correlated failure affects picker only |
+| Picker open → worker work generation/signal → query command → typed native call | added | foreground loss or correlated failure affects picker only |
 | native live authority projection → bounded Git capture → foreground revalidation | added | current target is read at admission; stale completion installs no body |
 | query call result → descriptor → content.open | added | single-use claim, framed terminal, bounded release |
 | decoded catalog → virtualized selector | changed | bounded mounted rows; full returned set remains searchable |
@@ -581,7 +581,7 @@ descriptor mismatch / second open / oversize / digest / decode failure
   → body released
   → picker failure; comparison unchanged
 
-close / Commit switch / newer query
+close / newer query
   → abort worker content work when possible
   → reject late result by query identity in all cases
   → release claimed body, or retain only one bounded pending body
@@ -665,8 +665,8 @@ interest rather than implying all content priority is subscription-derived.
 | CT-R1 | per-host repository/admission snapshot, constant default resolver, currentness revalidation, compact default symbolic identity, and shared comparison presentation | native/metadata interleavings prove one default lookup, no catalog enumeration in either host, identity clearing, stale completion rejection, current failure → absent, and correct active/displayed marker derivation |
 | CT-R2 | call registry, query source, content registry, worker query controller | strict contract parity and production-backed command → descriptor → content transcript |
 | CT-R3 | bounded agentstudio-git capture with canonical-ref deduplication plus Bridge byte encoder | real-Git upstream tests and Agent Studio integration cover cutoff and capture-time bounds including a future-dated tip, collapsed default/current roles, ordering, distinct-row capacity, both caps, and no fetch/write |
-| CT-R4 | owned Combobox plus external virtualizer and picker state | browser and visual proof cover focus, remembered modes, no Commit query, preserved row labels/kinds/revisions/accessibility, mounted-row bound, search, keyboard, selection, always-visible recency text, empty state, and conditional truncation text |
-| CT-R5 | worker request/work-admission identity and abort plus native foreground revalidation and query-source claim/release lifecycle | interleaving tests cover close, mode exit, foreground loss during capture, after descriptor issuance but before open, and during claimed streaming; supersession; late command/content results; no stale backing install; and teardown residue |
+| CT-R4 | owned Combobox plus external virtualizer and picker state | browser and visual proof cover one query on picker open in either remembered mode, immediate preloaded rows after switching Commit to Branch, focus, row labels/kinds/revisions/accessibility, mounted-row bound, search, keyboard, selection, always-visible concise recency text, and empty state |
+| CT-R5 | worker request/work-admission identity and abort plus native foreground revalidation and query-source claim/release lifecycle | interleaving tests cover close, mode switches that preserve the in-modal preload, foreground loss during capture, after descriptor issuance but before open, and during claimed streaming; supersession; late command/content results; no stale backing install; and teardown residue |
 | CT-R6 | live current-target projection plus explicit packaged/development compact-current paths and unchanged pane intent, comparison update, publication, and origin owners | both-host initialization and mutation-after-construction coverage, SQLite restart, development-server transcript, and packaged-app regression proof |
 
 The `agentstudio-git` repository owns public-contract and real-libgit2 proof for

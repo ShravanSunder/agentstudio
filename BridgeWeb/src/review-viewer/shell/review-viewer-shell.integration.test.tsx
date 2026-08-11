@@ -283,13 +283,9 @@ describe('review viewer shell', () => {
 	});
 
 	test('renders review mode as a compact segmented control instead of a filter menu', () => {
-		const requestedModes: string[] = [];
 		const element = requireTestElement(
 			BridgeReviewProjectionMenu({
 				projectionMode: { kind: 'normalReview' },
-				onProjectionModeChange: (mode): void => {
-					requestedModes.push(mode.kind);
-				},
 			}),
 		);
 
@@ -306,13 +302,6 @@ describe('review viewer shell', () => {
 		]);
 		expect(modeButtons.map((button) => button.props.disabled)).toEqual([false, true, true]);
 		expect(findElementByTestId(element, 'bridge-review-projection-menu')).toBeNull();
-
-		const plansButton = modeButtons[2];
-		if (plansButton?.props.onClick === undefined) {
-			throw new Error('expected plans/specs mode button');
-		}
-		plansButton.props.onClick();
-		expect(requestedModes).toEqual([]);
 	});
 
 	test('renders custom review controls without native select widgets', () => {

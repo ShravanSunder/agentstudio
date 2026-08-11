@@ -380,7 +380,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 				);
 			}
 			await waitForSettledReviewComparison({
-				expectedTargetLabel: 'Compare: HEAD',
+				expectedTargetLabel: 'Compare to: HEAD',
 				expectedTargetOID: fixture.oracle.baseRef,
 				page: pageA,
 				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
@@ -389,7 +389,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			// Act: process A commits the symbolic target through the real Compare Worktree UI.
 			await pageA.getByTestId(`comparison-branch-${fixture.oracle.comparisonTargetName}`).click();
 			const processAProof = await waitForSettledReviewComparison({
-				expectedTargetLabel: `Compare: ${fixture.oracle.comparisonTargetName}`,
+				expectedTargetLabel: `Compare to: ${fixture.oracle.comparisonTargetName}`,
 				expectedTargetOID: fixture.oracle.baseRef,
 				page: pageA,
 				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
@@ -412,7 +412,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			});
 			const processBProof = await waitForSettledReviewComparisonWithDiagnostics({
 				diagnostics: pageBDiagnostics,
-				expectedTargetLabel: `Compare: ${fixture.oracle.comparisonTargetName}`,
+				expectedTargetLabel: `Compare to: ${fixture.oracle.comparisonTargetName}`,
 				expectedTargetOID: movedTargetOID,
 				failureContext: (): string => `server=${serverB?.diagnostics() ?? '<stopped>'}`,
 				page: pageB,

@@ -10,29 +10,47 @@ The popup separates the current comparison from selecting a different target.
 The current state is shown first; Branch/Commit search is the selection state.
 
 ```text
-┌─ BASE BRANCH ─────────────────────────────────────┐
-│ origin/main · Default                             │
-│ Comparing from [ Common commit @ xxxxx ▾ ]        │
+┌───────────────────────────────────────────────────┐
+│ CURRENT COMPARISON                                │
+│ Branch: origin/main · Default                     │
+│ Comparing from: Common commit @ xxxxx             │
 └───────────────────────────────────────────────────┘
 
-┌─ BASE BRANCH ─────────────────────────────────────┐
-│ origin/main · Default                             │
-│ Comparing from [ Branch tip @ yyyyy ▾ ]           │
+┌───────────────────────────────────────────────────┐
+│ CURRENT COMPARISON                                │
+│ Branch: origin/main · Default                     │
+│ Comparing from: Branch tip @ yyyyy                │
 └───────────────────────────────────────────────────┘
 
-┌─ BASE BRANCH ─────────────────────────────────────┐
-│ journey-stack-base                                │
-│ Comparing from [ Common commit @ xxxxx ▾ ]        │
+┌───────────────────────────────────────────────────┐
+│ CURRENT COMPARISON                                │
+│ Branch: journey-stack-base                        │
+│ Comparing from: Common commit @ xxxxx             │
+└───────────────────────────────────────────────────┘
+
+┌─ COMPARE WORKTREE ────────────────────────────────┐
+│                                                   │
+│ Compare with           [Branch] [Commit]          │
+│ Compare branches from  [Common commit] [Branch tip]│
+│ Search branches…                                  │
+│ …                                                 │
+│ Showing branches from the last 30 days.           │
 └───────────────────────────────────────────────────┘
 ```
 
-Exact commits show `BASE COMMIT` and one commit hash without a comparison-basis
-selector. The popup does not show movement history, `Review starts from`,
-`Latest commit shared with`, or duplicate target/base hashes.
+The current-state block is read-only: it contains no dropdown, chevron, or
+mutation control. Branch selection owns the `Common commit` versus `Branch tip`
+choice before applying the selected branch. Changing that selection alone does
+not mutate the active comparison. Exact commits show `Commit: <hash>` without a
+comparison-basis selector. `COMPARE WORKTREE` has breathing room before a
+separate `Compare with` label and the Branch/Commit selector. The branch-result
+footer says only `Showing branches from the last 30 days.` The popup does not
+show movement history, `Review starts from`, `Latest commit shared with`, or
+duplicate target/base hashes.
 
 The current-state block uses the existing Agent Studio theme tokens. Target
 selection uses the existing Popover, ToggleGroup, Input/Combobox, Button, and
-DropdownMenu radio primitives with clear spacing and immediate input focus.
+owned shadcn/Base UI primitives with clear spacing and immediate input focus.
 
 ## Comparison behavior
 

@@ -58,19 +58,36 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		});
 
 		// Assert
-		const baseBranchLegend = rendered.getByText('Base branch', { exact: true });
-		await expect.element(baseBranchLegend).toBeVisible();
-		expect(getComputedStyle(baseBranchLegend.element()).textTransform).toBe('uppercase');
 		await expect
-			.element(rendered.getByText('origin/journey-integration', { exact: true }))
+			.element(rendered.getByRole('heading', { name: 'Current comparison' }))
+			.toBeVisible();
+		await expect
+			.element(rendered.getByText('Branch: origin/journey-integration', { exact: true }))
 			.toBeVisible();
 		await expect.element(rendered.getByText('Default', { exact: true })).toBeVisible();
-		await expect.element(rendered.getByText('Comparing from', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('Comparing from:', { exact: true })).toBeVisible();
 		await expect.element(rendered.getByText('Common commit @', { exact: true })).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
 		const currentState = rendered.getByTestId('bridge-review-comparison-current-state');
+		const currentTarget = rendered.getByTestId('bridge-review-comparison-current-target');
+		const currentBasis = rendered.getByTestId('bridge-review-comparison-current-basis');
+		expect(getComputedStyle(currentTarget.element()).fontSize).toBe(
+			getComputedStyle(currentBasis.element()).fontSize,
+		);
+		expect(getComputedStyle(currentTarget.element()).fontWeight).toBe(
+			getComputedStyle(currentBasis.element()).fontWeight,
+		);
+		expect(getComputedStyle(currentTarget.element()).color).toBe(
+			getComputedStyle(currentBasis.element()).color,
+		);
+		expect(currentState.element().querySelector('button')).toBeNull();
+		expect(
+			currentState
+				.element()
+				.querySelector('[data-testid="bridge-review-comparison-basis-trigger"]'),
+		).toBeNull();
 		const selectionState = rendered.getByTestId('bridge-review-comparison-target-selection');
 		const sectionDivider = rendered.getByTestId('bridge-review-comparison-section-divider');
 		const currentStateBounds = currentState.element().getBoundingClientRect();
@@ -82,13 +99,15 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		expect(selectionStateBounds.top - dividerBounds.bottom).toBeGreaterThanOrEqual(10);
 		const popupText =
 			rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? '';
-		expect(popupText).not.toContain('Current comparison');
+		expect(popupText).toContain('Current comparison');
 		expect(popupText).not.toContain('Review starts from');
 		expect(popupText).not.toContain('Latest commit shared with');
 		expect(popupText).not.toContain('Comparison refreshed');
+		expect(popupText).not.toContain('Base branch');
+		expect(popupText).not.toContain('origin/journey-integration @');
 	});
 
-	test('selects direct branch-tip comparison through the owned radio menu', async () => {
+	test('selects branch basis before applying the selected branch', async () => {
 		// Arrange
 		const applyTarget = vi.fn();
 		const symbolicTarget = {
@@ -126,28 +145,37 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 				}}
 				displayedReviewPackage={reviewPackage}
 				onApplyTarget={applyTarget}
+				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-			await rendered.getByTestId('bridge-review-comparison-basis-trigger').click();
 		});
 
-		// Act
+		// Act: choosing the basis alone must not mutate the active comparison.
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('menuitemradio', { name: 'Branch tip' }).click();
+			await rendered.getByRole('button', { name: 'Branch tip' }).click();
+		});
+		expect(applyTarget).not.toHaveBeenCalled();
+
+		// Act: the chosen basis is applied with the selected branch.
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('comparison-branch-origin-main').click();
 		});
 
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({
 			basis: 'branchTip',
-			kind: 'branch',
-			name: 'journey-stack-base',
+			branchName: 'main',
+			kind: 'originDefaultBranch',
+			remoteName: 'origin',
 		});
-		await expect.element(rendered.getByText('journey-stack-base', { exact: true })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveTextContent('Compare to: journey-stack-base');
 		expect(
 			(
-				rendered.getByTestId('bridge-review-comparison-content').element().textContent ?? ''
+				rendered.getByTestId('bridge-review-comparison-current-state').element().textContent ?? ''
 			).includes('Default'),
 		).toBe(false);
 	});
@@ -194,7 +222,9 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		});
 
 		// Assert
-		await expect.element(rendered.getByText('Base commit', { exact: true })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-state'))
+			.toHaveTextContent('Commit:dddddddddddd');
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('dddddddddddd');
@@ -254,7 +284,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare: master · Unavailable');
+			.toHaveTextContent('Compare to: master · Unavailable');
 		await expect.element(rendered.getByText('Comparison unavailable')).toBeVisible();
 		await expect
 			.element(
@@ -263,8 +293,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 				),
 			)
 			.toBeVisible();
-		await expect.element(rendered.getByText('Base branch', { exact: true })).toBeVisible();
-		await expect.element(rendered.getByText('master', { exact: true })).toBeVisible();
+		await expect.element(rendered.getByText('Branch: master', { exact: true })).toBeVisible();
 	});
 
 	test('focuses branch search when the comparison popover opens', async () => {
@@ -293,7 +322,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const selectorSurface = rendered.getByTestId('bridge-review-comparison-branch-selector');
 		await expect.element(selectorSurface).toBeVisible();
 		expect(getComputedStyle(selectorSurface.element()).borderTopWidth).toBe('1px');
-		expect(selectorSurface.element().querySelector('[data-slot="combobox-input"]')).not.toBeNull();
+		expect(selectorSurface.element().querySelector('[data-slot="input-group"]')).not.toBeNull();
 		expect(
 			rendered
 				.getByTestId('bridge-review-comparison-content')
@@ -314,17 +343,52 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		const title = rendered.getByRole('heading', { name: 'Compare Worktree' });
 		expect(getComputedStyle(title.element()).textTransform).toBe('uppercase');
+		const compareWithHeading = rendered.getByText('Compare with', { exact: true });
+		await expect.element(compareWithHeading).toBeVisible();
+		const targetKindSelector = rendered.getByRole('group', { name: 'Comparison target kind' });
+		const branchBasisHeading = rendered.getByText('Compare branches from', { exact: true });
+		const branchBasisSelector = rendered.getByRole('group', { name: 'Branch comparison basis' });
+		const targetKindLayout = compareWithHeading.element().parentElement;
+		const branchBasisLayout = branchBasisHeading.element().parentElement;
+		expect(targetKindLayout).not.toBeNull();
+		expect(branchBasisLayout).not.toBeNull();
+		expect(targetKindSelector.element().parentElement?.dataset['slot']).toBe('field');
+		expect(branchBasisSelector.element().parentElement?.dataset['slot']).toBe('field');
+		const titleBounds = title.element().getBoundingClientRect();
+		const compareWithBounds = compareWithHeading.element().getBoundingClientRect();
+		const selectorBounds = targetKindSelector.element().getBoundingClientRect();
+		const branchBasisHeadingBounds = branchBasisHeading.element().getBoundingClientRect();
+		const branchBasisSelectorBounds = branchBasisSelector.element().getBoundingClientRect();
+		expect(getComputedStyle(title.element().parentElement ?? title.element()).rowGap).toBe('8px');
+		expect(compareWithBounds.top).toBeGreaterThan(titleBounds.bottom);
+		expect(branchBasisHeadingBounds.left).toBe(compareWithBounds.left);
+		expect(branchBasisSelectorBounds.left).toBe(selectorBounds.left);
+		expect(selectorBounds.left).toBeGreaterThan(compareWithBounds.right);
+		expect(branchBasisSelectorBounds.left).toBeGreaterThan(branchBasisHeadingBounds.right);
+		expect(verticalCenter(selectorBounds)).toBe(verticalCenter(compareWithBounds));
+		expect(verticalCenter(branchBasisSelectorBounds)).toBe(
+			verticalCenter(branchBasisHeadingBounds),
+		);
+		expectToggleGroupTrackToFitItems(targetKindSelector.element());
+		expectToggleGroupTrackToFitItems(branchBasisSelector.element());
 	});
 
 	test('remembers commit mode when the comparison popover reopens', async () => {
 		// Arrange
-		const rendered = await renderComparisonTargetPicker();
+		const cancelTargetQuery = vi.fn();
+		const queryTargets = vi.fn();
+		const rendered = await renderComparisonTargetPicker({ cancelTargetQuery, queryTargets });
 		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
 		await act(async (): Promise<void> => {
 			await trigger.click();
-			await rendered.getByRole('button', { name: 'Commit' }).click();
+			await rendered.getByRole('button', { exact: true, name: 'Commit' }).click();
+		});
+		expect(queryTargets).toHaveBeenCalledTimes(1);
+		expect(cancelTargetQuery).not.toHaveBeenCalled();
+		await act(async (): Promise<void> => {
 			await trigger.click();
 		});
+		expect(cancelTargetQuery).toHaveBeenCalledTimes(1);
 
 		// Act
 		await act(async (): Promise<void> => {
@@ -336,6 +400,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 			.element(rendered.getByRole('button', { name: 'Commit', exact: true }))
 			.toHaveAttribute('aria-pressed', 'true');
 		await expect.element(rendered.getByRole('textbox', { name: 'Commit hash' })).toHaveFocus();
+		expect(queryTargets).toHaveBeenCalledTimes(2);
 	});
 
 	test('focuses the active text field when the comparison target kind changes', async () => {
@@ -347,7 +412,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Commit' }).click();
+			await rendered.getByRole('button', { exact: true, name: 'Commit' }).click();
 		});
 
 		// Assert
@@ -355,7 +420,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Act
 		await act(async (): Promise<void> => {
-			await rendered.getByRole('button', { name: 'Branch' }).click();
+			await rendered.getByRole('button', { exact: true, name: 'Branch' }).click();
 		});
 
 		// Assert
@@ -367,7 +432,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const rendered = await renderComparisonTargetPicker();
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
-			await rendered.getByRole('button', { name: 'Commit' }).click();
+			await rendered.getByRole('button', { exact: true, name: 'Commit' }).click();
 		});
 
 		// Assert
@@ -376,7 +441,30 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 	});
 });
 
-async function renderComparisonTargetPicker(): ReturnType<typeof render> {
+function expectToggleGroupTrackToFitItems(toggleGroup: Element): void {
+	const toggleItems = toggleGroup.querySelectorAll('button');
+	const firstToggleItem = toggleItems.item(0);
+	const lastToggleItem = toggleItems.item(toggleItems.length - 1);
+	expect(toggleItems.length).toBeGreaterThan(0);
+	const trackBounds = toggleGroup.getBoundingClientRect();
+	const leadingInset = firstToggleItem.getBoundingClientRect().left - trackBounds.left;
+	const trailingInset = trackBounds.right - lastToggleItem.getBoundingClientRect().right;
+	expect(leadingInset).toBeGreaterThanOrEqual(0);
+	expect(leadingInset).toBeLessThanOrEqual(3);
+	expect(trailingInset).toBeGreaterThanOrEqual(0);
+	expect(trailingInset).toBeLessThanOrEqual(3);
+}
+
+function verticalCenter(bounds: DOMRect): number {
+	return Math.round(bounds.top + bounds.height / 2);
+}
+
+async function renderComparisonTargetPicker(callbacks?: {
+	readonly cancelTargetQuery?: () => void;
+	readonly queryTargets?: () => void;
+}): ReturnType<typeof render> {
+	const cancelTargetQuery = callbacks?.cancelTargetQuery ?? vi.fn();
+	const queryTargets = callbacks?.queryTargets ?? vi.fn();
 	return render(
 		<BridgeReviewComparisonControl
 			comparisonPresentation={{
@@ -391,6 +479,8 @@ async function renderComparisonTargetPicker(): ReturnType<typeof render> {
 			}}
 			displayedReviewPackage={null}
 			onApplyTarget={vi.fn()}
+			onCancelTargetQuery={cancelTargetQuery}
+			onQueryTargets={queryTargets}
 			targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 		/>,
 	);

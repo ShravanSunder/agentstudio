@@ -67,20 +67,28 @@ export function BridgeViewerContextSwitcher(props: {
 			aria-label="Bridge viewer context"
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
+			onValueChange={(modes): void => {
+				const nextMode = modes[0];
+				switch (nextMode) {
+					case 'file':
+					case 'review':
+						if (nextMode !== props.mode) props.onModeChange(nextMode);
+						return;
+					case undefined:
+						return;
+					default:
+						return;
+				}
+			}}
 			role="group"
 			size="sm"
+			value={[props.mode]}
 		>
-			<BridgeViewerContextButton
-				isSelected={props.mode === 'file'}
-				label="Files"
-				mode="file"
-				onModeChange={props.onModeChange}
-			/>
+			<BridgeViewerContextButton isSelected={props.mode === 'file'} label="Files" mode="file" />
 			<BridgeViewerContextButton
 				isSelected={props.mode === 'review'}
 				label="Review"
 				mode="review"
-				onModeChange={props.onModeChange}
 			/>
 		</ToggleGroup>
 	);
@@ -90,7 +98,6 @@ function BridgeViewerContextButton(props: {
 	readonly isSelected: boolean;
 	readonly label: string;
 	readonly mode: 'file' | 'review';
-	readonly onModeChange: (mode: 'file' | 'review') => void;
 }): ReactElement {
 	return (
 		<ToggleGroupItem
@@ -102,14 +109,9 @@ function BridgeViewerContextButton(props: {
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}
 			data-bridge-viewer-context-target={props.mode}
 			data-testid={`bridge-viewer-context-${props.mode}`}
-			onClick={(): void => {
-				if (!props.isSelected) {
-					props.onModeChange(props.mode);
-				}
-			}}
-			pressed={props.isSelected}
 			size="sm"
 			title={props.label}
+			value={props.mode}
 		>
 			{props.mode === 'file' ? (
 				<FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />

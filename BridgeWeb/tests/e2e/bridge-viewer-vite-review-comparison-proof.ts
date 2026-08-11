@@ -90,8 +90,8 @@ export async function waitForSettledReviewComparison(props: {
 					const observedTargetOID = await props.page.evaluate(
 						(): string | null =>
 							document
-								.querySelector('[data-testid="bridge-review-comparison-target-revision"]')
-								?.getAttribute('title') ?? null,
+								.querySelector('[data-testid="bridge-review-comparison-current-state"]')
+								?.getAttribute('data-resolved-target-oid') ?? null,
 					);
 					if (observedTargetOID !== null) settledTargetOID = observedTargetOID;
 					if (
