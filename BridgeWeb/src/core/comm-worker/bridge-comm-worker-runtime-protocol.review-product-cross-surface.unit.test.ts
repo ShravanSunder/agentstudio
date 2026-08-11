@@ -6,11 +6,9 @@ import {
 } from './bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
-import {
-	drainBridgeCommWorkerPreparationUntilIdle,
-	makeReviewProductTransport,
-	reviewSnapshotWithContentEvent,
-} from './bridge-comm-worker-runtime-protocol.review-product.test-support.js';
+import { reviewSnapshotWithContentEvent } from './bridge-comm-worker-runtime-protocol.review-product-fixtures.test-support.js';
+import { drainBridgeCommWorkerPreparationUntilIdle } from './bridge-comm-worker-runtime-protocol.review-product-preparation.test-support.js';
+import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	assertBridgeCommWorkerPreparationDrain,
 	activateBridgeCommWorkerReviewViewerMode,

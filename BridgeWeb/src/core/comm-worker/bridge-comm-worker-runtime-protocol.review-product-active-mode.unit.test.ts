@@ -7,15 +7,15 @@ import {
 } from './bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import type { BridgeCommWorkerPreparationDrain } from './bridge-comm-worker-runtime-protocol.js';
+import { reviewSnapshotWithContentEvent } from './bridge-comm-worker-runtime-protocol.review-product-fixtures.test-support.js';
 import {
 	drainUntilReviewAttemptCount,
 	expectOriginalReviewContentAttemptsRemainActive,
 	makePendingReviewContentStream,
-	makeReviewProductTransport,
-	reviewSnapshotWithContentEvent,
 	startBridgeCommWorkerPreparationDrains,
 	type PendingReviewContentAttempt,
-} from './bridge-comm-worker-runtime-protocol.review-product.test-support.js';
+} from './bridge-comm-worker-runtime-protocol.review-product-preparation.test-support.js';
+import { makeReviewProductTransport } from './bridge-comm-worker-runtime-protocol.review-product-transport.test-support.js';
 import {
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
@@ -25,7 +25,7 @@ import type { BridgeProductSubscriptionEvent } from './bridge-product-subscripti
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 
 describe('Bridge comm worker Review product active viewer mode lifecycle', () => {
-	test('pauses active Review content while File is accepted and resumes the same transport', async () => {
+	test('preserves pending Review content across accepted, stale, and repeated viewer mode updates', async () => {
 		const events = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'review.metadata'>
 		>(64);

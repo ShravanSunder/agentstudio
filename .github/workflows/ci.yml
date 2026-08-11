@@ -212,28 +212,6 @@ jobs:
                 [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
               fi
 
-      - name: Compute Swift build input fingerprint
-        id: swift-build-inputs
-        run: |
-          fingerprint="$(scripts/swift-build-input-fingerprint.sh)"
-          toolchain_fingerprint="$({
-            xcodebuild -version 2>&1
-            swift --version 2>&1
-            xcrun --sdk macosx --show-sdk-version 2>&1
-          } | /usr/bin/shasum -a 256 | /usr/bin/awk '{ print $1 }')"
-          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          echo "toolchain=$toolchain_fingerprint" >> "$GITHUB_OUTPUT"
-
-      - name: Restore backend Swift cache seed
-        id: swift-build-cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: .build-ci
-          # This job restores the Swift test cache as a private build seed but never saves it.
-          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
-          restore-keys: |
-            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-
-
       - name: Build BridgeWeb Swift development backend
         run: pnpm --dir BridgeWeb run build:swift-dev-server
 
@@ -372,41 +350,11 @@ jobs:
                 [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" "$TERMINFO_DST/67/"
               fi
 
-      - name: Compute Swift build input fingerprint
-        id: swift-build-inputs
-        run: |
-          fingerprint="$(scripts/swift-build-input-fingerprint.sh)"
-          toolchain_fingerprint="$({
-            xcodebuild -version 2>&1
-            swift --version 2>&1
-            xcrun --sdk macosx --show-sdk-version 2>&1
-          } | /usr/bin/shasum -a 256 | /usr/bin/awk '{ print $1 }')"
-          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          echo "toolchain=$toolchain_fingerprint" >> "$GITHUB_OUTPUT"
-
-      - name: Restore Swift build cache
-        id: swift-build-cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: .build-ci
-          # The exact key is content-addressed so an exact hit contains compiled bundles for the current inputs.
-          key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}
-          restore-keys: |
-            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-
-
       - name: Prebuild Swift test bundles
-        if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
-          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
+          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "1200"
         run: mise run --skip-deps test:swift:prebuild
-
-      - name: Save Swift build cache
-        if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .build-ci
-          key: ${{ steps.swift-build-cache-restore.outputs.cache-primary-key }}
 
       - name: Test fast lane
         env:

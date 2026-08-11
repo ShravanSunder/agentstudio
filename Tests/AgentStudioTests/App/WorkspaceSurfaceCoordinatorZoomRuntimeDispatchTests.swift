@@ -30,7 +30,6 @@ struct ZoomRuntimeDispatchTests {
         let fakeRuntime = FakePaneRuntime(paneId: PaneId(existingUUID: sourcePane.id))
         coordinator.registerRuntime(fakeRuntime)
         let commandHandler = RuntimeZoomCommandHandlerProbe()
-        defer { commandHandler.finish() }
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -76,7 +75,7 @@ private final class RuntimeZoomCommandHandlerProbe: WorkspaceCommandHandling {
     }
 
     private(set) var targetedCommands: [TargetedCommand] = []
-    private var targetedCommandWaiter: CheckedContinuation<TargetedCommand?, Never>?
+    private var targetedCommandWaiter: CheckedContinuation<TargetedCommand, Never>?
 
     func execute(_: AppCommand) {}
 
@@ -86,30 +85,18 @@ private final class RuntimeZoomCommandHandlerProbe: WorkspaceCommandHandling {
         resolveTargetedCommandWaiter(with: targetedCommand)
     }
 
-    func nextTargetedCommand() async -> TargetedCommand? {
+    func nextTargetedCommand() async -> TargetedCommand {
         if let targetedCommand = targetedCommands.first {
             return targetedCommand
         }
 
-        let boundedFailureTask = Task { @MainActor [weak self] in
-            for _ in 0..<1000 {
-                guard !Task.isCancelled else { return }
-                await Task.yield()
-            }
-            self?.resolveTargetedCommandWaiter(with: nil)
-        }
-        defer { boundedFailureTask.cancel() }
         return await withCheckedContinuation { continuation in
             precondition(targetedCommandWaiter == nil)
             targetedCommandWaiter = continuation
         }
     }
 
-    func finish() {
-        resolveTargetedCommandWaiter(with: nil)
-    }
-
-    private func resolveTargetedCommandWaiter(with targetedCommand: TargetedCommand?) {
+    private func resolveTargetedCommandWaiter(with targetedCommand: TargetedCommand) {
         guard let targetedCommandWaiter else { return }
         self.targetedCommandWaiter = nil
         targetedCommandWaiter.resume(returning: targetedCommand)

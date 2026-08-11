@@ -16,7 +16,7 @@ struct CIFastLaneWorkflowTests {
         #expect(testTask.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-300}\""))
         #expect(
             testTask.contains(
-                "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-900}\""
+                "SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=\"${SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS:-1200}\""
             )
         )
         #expect(testTask.contains("SWIFT_TEST_INCLUDE_E2E=1"))
@@ -104,9 +104,6 @@ struct CIFastLaneWorkflowTests {
         let backendBuildRange = try #require(
             backendJob.range(of: "      - name: Build BridgeWeb Swift development backend")
         )
-        let fingerprintRange = try #require(
-            backendJob.range(of: "      - name: Compute Swift build input fingerprint")
-        )
         let integrationRange = try #require(
             backendJob.range(of: "      - name: Test BridgeWeb Swift integration")
         )
@@ -125,14 +122,14 @@ struct CIFastLaneWorkflowTests {
         #expect(!backendJob.contains("pnpm --dir BridgeWeb run test:e2e\n"))
         #expect(!swiftJob.contains("test:integration:node"))
         #expect(!swiftJob.contains("test:e2e"))
-        #expect(packagedBuildRange.upperBound < fingerprintRange.lowerBound)
+        #expect(packagedBuildRange.upperBound < backendBuildRange.lowerBound)
         #expect(resourceParallelRange.upperBound < backendBuildRange.lowerBound)
         #expect(backendBuildRange.upperBound < integrationRange.lowerBound)
         #expect(integrationRange.upperBound < e2eRange.lowerBound)
     }
 
-    @Test("backend job restores but does not save shared caches")
-    func backendJobRestoresButDoesNotSaveSharedCaches() throws {
+    @Test("backend job restores vendor caches without owning shared cache saves")
+    func backendJobRestoresVendorCachesWithoutOwningSharedCacheSaves() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: workflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: workflow)
@@ -142,74 +139,34 @@ struct CIFastLaneWorkflowTests {
         #expect(setupMiseStep.contains("cache_save: false"))
         #expect(!setupNodeStep.contains("cache: pnpm"))
         #expect(!setupNodeStep.contains("cache-dependency-path:"))
-        #expect(backendJob.contains("Restore backend Swift cache seed"))
         #expect(backendJob.contains("actions/cache/restore@v4"))
-        #expect(backendJob.contains("path: .build-ci"))
-        #expect(backendJob.contains("swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"))
+        #expect(backendJob.contains("Cache Ghostty artifacts"))
+        #expect(backendJob.contains("Cache zmx artifacts"))
+        #expect(backendJob.contains("Cache Zig compilation"))
+        #expect(!backendJob.contains("Restore backend Swift cache seed"))
+        #expect(!backendJob.contains("swift-test-v2-"))
         #expect(!backendJob.contains("uses: actions/cache@v4"))
         #expect(!backendJob.contains("actions/cache/save@v4"))
-        #expect(!backendJob.contains("Save Swift build cache"))
-        #expect(swiftJob.contains("Save Swift build cache"))
-        #expect(swiftJob.contains("actions/cache/save@v4"))
+        #expect(swiftJob.contains("uses: actions/cache@v4"))
     }
 
-    @Test("Swift build cache is content addressed and skips exact-hit prebuilds")
-    func swiftBuildCacheIsContentAddressedAndSkipsExactHitPrebuilds() throws {
+    @Test("Swift jobs always build cold without caching build outputs")
+    func swiftJobsAlwaysBuildColdWithoutCachingBuildOutputs() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
+        let backendJob = try workflowJob(named: "bridge-web-swift-backend", in: ciWorkflow)
         let swiftJob = try workflowJob(named: "swift-test-suite", in: ciWorkflow)
-        let fingerprintStep = try workflowStep(
-            named: "Compute Swift build input fingerprint",
-            in: swiftJob
-        )
-        let restoreCacheStep = try workflowStep(named: "Restore Swift build cache", in: swiftJob)
-        let saveCacheStep = try workflowStep(named: "Save Swift build cache", in: swiftJob)
         let prebuildStep = try workflowStep(named: "Prebuild Swift test bundles", in: swiftJob)
 
-        let fingerprintStepRange = try #require(swiftJob.range(of: fingerprintStep))
-        let restoreCacheStepRange = try #require(swiftJob.range(of: restoreCacheStep))
-        let bridgeBuildStepRange = try #require(
-            swiftJob.range(of: "          - name: BridgeWeb packaged build")
-        )
-        let resourceSetupStepRange = try #require(
-            swiftJob.range(of: "          - name: Setup dev resources")
-        )
-
-        #expect(fingerprintStep.contains("id: swift-build-inputs"))
-        #expect(fingerprintStep.contains("scripts/swift-build-input-fingerprint.sh"))
-        #expect(fingerprintStep.contains("xcodebuild -version"))
-        #expect(fingerprintStep.contains("swift --version"))
-        #expect(fingerprintStep.contains("xcrun --sdk macosx --show-sdk-version"))
-        #expect(fingerprintStep.contains("toolchain=$toolchain_fingerprint"))
-        #expect(fingerprintStep.contains("GITHUB_OUTPUT"))
-        #expect(bridgeBuildStepRange.lowerBound < fingerprintStepRange.lowerBound)
-        #expect(resourceSetupStepRange.lowerBound < fingerprintStepRange.lowerBound)
-        #expect(fingerprintStepRange.lowerBound < restoreCacheStepRange.lowerBound)
-        #expect(restoreCacheStep.contains("path: .build-ci"))
-        #expect(
-            restoreCacheStep.contains(
-                "key: swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-${{ steps.swift-build-inputs.outputs.toolchain }}-debug-${{ steps.swift-build-inputs.outputs.fingerprint }}"
-            )
-        )
-        #expect(!restoreCacheStep.contains("hashFiles"))
-        #expect(!restoreCacheStep.contains("github.sha"))
-        #expect(!restoreCacheStep.contains("github.ref"))
-        #expect(!restoreCacheStep.contains("github.event.pull_request.number"))
-        #expect(
-            restoreCacheStep.contains(
-                "swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"
-            )
-        )
-        #expect(
-            restoreCacheStep.contains(
-                "restore-keys: |\n            swift-test-v2-${{ runner.os }}-${{ runner.arch }}-xcode-"
-            )
-        )
-        #expect(restoreCacheStep.contains("actions/cache/restore@v4"))
-        #expect(prebuildStep.contains("if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'"))
-        #expect(saveCacheStep.contains("path: .build-ci"))
-        #expect(saveCacheStep.contains("if: steps.swift-build-cache-restore.outputs.cache-hit != 'true'"))
-        #expect(saveCacheStep.contains("actions/cache/save@v4"))
-        #expect(saveCacheStep.contains("steps.swift-build-cache-restore.outputs.cache-primary-key"))
+        #expect(!backendJob.contains("Compute Swift build input fingerprint"))
+        #expect(!backendJob.contains("Restore backend Swift cache seed"))
+        #expect(!backendJob.contains("swift-test-v2-"))
+        #expect(!swiftJob.contains("Compute Swift build input fingerprint"))
+        #expect(!swiftJob.contains("Restore Swift build cache"))
+        #expect(!swiftJob.contains("Save Swift build cache"))
+        #expect(!swiftJob.contains("swift-test-v2-"))
+        #expect(!prebuildStep.contains("if:"))
+        #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
+        #expect(prebuildStep.contains("run: mise run --skip-deps test:swift:prebuild"))
     }
 
     @Test("Swift preparation preserves independent parallel phases")
@@ -296,8 +253,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
     }
 
-    @Test("fast lane keeps cached parallel default")
-    func fastLaneKeepsCachedParallelDefault() throws {
+    @Test("fast lane keeps parallel defaults after cold prebuild")
+    func fastLaneKeepsParallelDefaultsAfterColdPrebuild() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let benchmarkWorkflow = try String(
             contentsOfFile: ".github/workflows/benchmarks.yml",
@@ -325,9 +282,8 @@ struct CIFastLaneWorkflowTests {
         #expect(ciWorkflow.contains("SWIFT_BUILD_DIR: .build-ci"))
         #expect(benchmarkWorkflow.contains("push:\n    branches: [main]"))
         #expect(benchmarkWorkflow.contains("workflow_dispatch:"))
-        #expect(ciWorkflow.contains("path: .build-ci"))
         #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
-        #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
+        #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"1200\""))
         #expect(prebuildStep.contains("run: mise run --skip-deps test:swift:prebuild"))
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
