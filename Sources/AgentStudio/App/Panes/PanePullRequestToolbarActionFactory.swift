@@ -7,6 +7,7 @@ enum PanePullRequestToolbarActionFactory {
         paneId: UUID,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        iconAccentColorHex: String?,
         openExternalURL: @escaping @MainActor @Sendable (URL) -> Bool
     ) -> PaneSurfaceToolbarAction? {
         guard
@@ -32,8 +33,9 @@ enum PanePullRequestToolbarActionFactory {
                     provenance: .localAction(rawValue: "openPullRequest")
                 ),
                 isEnabled: isEnabled,
-                isSelected: isEnabled,
-                selectionEmphasis: isEnabled ? .accent : .standard
+                isSelected: false,
+                selectionEmphasis: .standard,
+                iconAccentColorHex: isEnabled ? iconAccentColorHex : nil
             ),
             perform: {
                 guard let exactPullRequestURL else { return }
