@@ -17,6 +17,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     // MARK: - Properties
 
     private var hostingView: NSHostingView<CustomTabBar>!
+    private var hostingViewTopConstraint: NSLayoutConstraint!
+    private var hostingViewBottomConstraint: NSLayoutConstraint!
     weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
     /// Injection seams for window-drag handling on clicks that land outside any
@@ -65,11 +67,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         hostingView.safeAreaRegions = []
         addSubview(hostingView)
 
+        hostingViewTopConstraint = hostingView.topAnchor.constraint(equalTo: topAnchor)
+        hostingViewBottomConstraint = hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
         NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: topAnchor),
+            hostingViewTopConstraint,
             hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            hostingViewBottomConstraint,
         ])
 
         // Register as drag destination for internal reorder, tab drop, and pane drop
@@ -121,6 +125,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     // MARK: - Setup
+
+    /// Visually aligns the SwiftUI tab-strip content without moving this AppKit
+    /// event owner outside its parent's hit-test bounds.
+    func setContentCenterlineOffset(_ offset: CGFloat) {
+        hostingViewTopConstraint.constant = offset
+        hostingViewBottomConstraint.constant = offset
+    }
 
     func configure(adapter: TabBarAdapter, onReorder: @escaping (UUID, Int) -> Void) {
         self.tabBarAdapter = adapter

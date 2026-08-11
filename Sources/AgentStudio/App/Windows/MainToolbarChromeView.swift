@@ -44,20 +44,15 @@ final class MainToolbarChromeView: NSView {
         tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
         tabBarHostingView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tabBarHostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        tabBarHostingView.setContentCenterlineOffset(AppStyles.Shell.TabBar.stripCenterlineOffset)
         addSubview(tabBarHostingView)
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
-            tabBarHostingView.topAnchor.constraint(
-                equalTo: topAnchor,
-                constant: AppStyles.Shell.TabBar.stripCenterlineOffset
-            ),
+            tabBarHostingView.topAnchor.constraint(equalTo: topAnchor),
             tabBarHostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             tabBarHostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            tabBarHostingView.bottomAnchor.constraint(
-                equalTo: bottomAnchor,
-                constant: AppStyles.Shell.TabBar.stripCenterlineOffset
-            ),
+            tabBarHostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 

@@ -43,6 +43,22 @@ struct DraggableTabBarWindowDragTests {
         #expect(!source.contains("windowDragRegionHeight"))
     }
 
+    @Test("toolbar chrome keeps the entire tab host inside its hit-test bounds")
+    func toolbarChromeKeepsEntireTabHostInsideHitTestBounds() {
+        let fixture = makeHostingViewFixture()
+        let toolbarChromeView = MainToolbarChromeView(tabBarHostingView: fixture.hostingView)
+        toolbarChromeView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: 400,
+            height: AppStyles.Shell.TabBar.height
+        )
+
+        toolbarChromeView.layoutSubtreeIfNeeded()
+
+        #expect(toolbarChromeView.bounds.contains(fixture.hostingView.frame))
+    }
+
     @Test("tab host owns mouse down window-drag handling directly")
     func tabHostOwnsMouseDownWindowDragHandlingDirectly() throws {
         let source = try sourceContents("Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift")
