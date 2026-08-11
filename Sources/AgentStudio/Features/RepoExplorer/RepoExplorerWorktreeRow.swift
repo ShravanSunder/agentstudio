@@ -333,7 +333,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenNew()
                         } label: {
-                            menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openNewTerminal)
                         }
                         .disabled(!openNewTerminal.isEnabled)
                     }
@@ -344,7 +344,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenReviewInNewTab()
                         } label: {
-                            menuLabel(actionSpec: openReviewInNewTab.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openReviewInNewTab)
                         }
                         .disabled(!openReviewInNewTab.isEnabled)
                     }
@@ -355,7 +355,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenFilesInNewTab()
                         } label: {
-                            menuLabel(actionSpec: openFilesInNewTab.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openFilesInNewTab)
                         }
                         .disabled(!openFilesInNewTab.isEnabled)
                     }
@@ -370,7 +370,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenInPane()
                         } label: {
-                            menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openWorktreeInPane)
                         }
                         .disabled(!openWorktreeInPane.isEnabled)
                     }
@@ -379,7 +379,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onReview()
                         } label: {
-                            menuLabel(actionSpec: showBridgeReview.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: showBridgeReview)
                         }
                         .disabled(!showBridgeReview.isEnabled)
                     }
@@ -388,7 +388,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenFiles()
                         } label: {
-                            menuLabel(actionSpec: showBridgeFiles.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: showBridgeFiles)
                         }
                         .disabled(!showBridgeFiles.isEnabled)
                     }
@@ -476,19 +476,28 @@ package struct RepoExplorerWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(actionSpec: ActionSpec) -> some View {
+    private func worktreeContextMenuLabel(for command: RepoExplorerPresentedCommand) -> some View {
+        menuLabel(
+            actionSpec: command.commandSpec.actionSpec,
+            labelOverride: RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: command.command)
+        )
+    }
+
+    @ViewBuilder
+    private func menuLabel(actionSpec: ActionSpec, labelOverride: String? = nil) -> some View {
+        let label = labelOverride ?? actionSpec.label
         switch actionSpec.icon {
         case .system(let systemSymbol):
-            Label(actionSpec.label, systemImage: systemSymbol.rawValue)
+            Label(label, systemImage: systemSymbol.rawValue)
         case .octicon(let octiconSymbol):
             if let image = octiconLoader.image(named: octiconSymbol.rawValue) {
                 Label {
-                    Text(actionSpec.label)
+                    Text(label)
                 } icon: {
                     Image(nsImage: image)
                 }
             } else {
-                Label(actionSpec.label, systemImage: "questionmark.square.dashed")
+                Label(label, systemImage: "questionmark.square.dashed")
             }
         }
     }
