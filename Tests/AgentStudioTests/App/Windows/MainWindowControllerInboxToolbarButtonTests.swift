@@ -459,16 +459,6 @@ private func findDescendant<T: NSView>(in view: NSView, ofType type: T.Type) -> 
 }
 
 private final class InboxToolbarTestSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

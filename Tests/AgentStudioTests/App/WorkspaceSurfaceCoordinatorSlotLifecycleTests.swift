@@ -163,12 +163,6 @@ struct WorkspaceSurfaceCoordinatorSlotLifecycleTests {
 
 @MainActor
 private final class SlotLifecycleSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.finish()
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

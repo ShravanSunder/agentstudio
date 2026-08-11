@@ -181,12 +181,6 @@ struct WorkspaceSurfaceCoordinatorTabNamingTests {
 }
 
 private final class TabNamingSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.onTermination = { _ in }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

@@ -883,20 +883,10 @@ private func makePreparedTerminalAdmission(pane: Pane) throws -> TerminalActivat
 
 @MainActor
 private final class CapturingSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
     private(set) var lastConfig: Ghostty.SurfaceConfiguration?
     private(set) var lastMetadata: SurfaceMetadata?
     private(set) var createdPaneIds: [UUID] = []
     private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
-
-    init() {
-        self.cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

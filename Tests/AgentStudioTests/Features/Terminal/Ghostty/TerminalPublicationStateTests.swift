@@ -79,7 +79,8 @@ extension TerminalLocalActionAccumulatorTests {
         case .failedApplyRetry, .schedulerCancellationAfterAdmission:
             accumulator.offer(.titleChanged("A"), for: surfaceID)
             try drainTitle(successfully: false)
-            #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .followUpScheduled)
+            #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .idle)
+            #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .scheduled)
             try drainTitle(successfully: true)
             _ = accumulator.finishDrain(for: surfaceID, lane: .title)
         case .staleGeneration, .close, .schedulerCancellationBeforeMainActorAdmission:

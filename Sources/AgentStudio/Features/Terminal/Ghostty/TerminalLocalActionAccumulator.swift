@@ -300,6 +300,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         var activityPublicationState: PublicationState<TerminalScrollbarActivityAggregate> = .unknown
         var cwdPublicationState: PublicationState<String> = .unknown
         var cwdRetryRequired = false
+        var publicationRetryAwaitingDemand: Set<TerminalLocalActionLane> = []
 
         func phase(for lane: TerminalLocalActionLane) -> DrainPhase {
             phases[lane] ?? .idle
@@ -367,6 +368,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                     )
                 )
             let lane: TerminalLocalActionLane = isTitleAction(action) ? .title : .immediate
+            state.publicationRetryAwaitingDemand.remove(lane)
             let offeredAtNanoseconds = nowNanoseconds()
             var pending = state.pending(for: lane)
             if pending.firstOfferedAtNanoseconds == nil {
@@ -597,6 +599,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 state.titlePending.firstOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
                 state.titlePending.firstTitleOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
                 state.titleDeadlineNanoseconds = nowNanoseconds() &+ 1_000_000_000
+                state.publicationRetryAwaitingDemand.insert(.title)
             }
             if let activity = batch.activity,
                 state.activityPublicationState.isPending(activity),
@@ -607,6 +610,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 state.pending.presentation.scrollbarState = batch.presentation.scrollbarState
                 state.pending.firstOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
                 state.pending.firstNonTitleOfferedAtNanoseconds = batch.firstOfferedAtNanoseconds
+                state.publicationRetryAwaitingDemand.insert(.immediate)
             }
             statesBySurfaceID[batch.surfaceID] = state
         }
@@ -664,6 +668,11 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
         lock.withLock { () -> TerminalLocalAccumulatorDrainCompletion in
             guard var state = statesBySurfaceID[surfaceID], state.phase(for: lane) == .draining else { return .idle }
             if state.pending(for: lane).hasWork {
+                if state.publicationRetryAwaitingDemand.contains(lane) {
+                    state.setPhase(.idle, for: lane)
+                    statesBySurfaceID[surfaceID] = state
+                    return .idle
+                }
                 state.setPhase(.scheduled, for: lane)
                 var pending = state.pending(for: lane)
                 pending.metrics.followUpDrainCount += 1

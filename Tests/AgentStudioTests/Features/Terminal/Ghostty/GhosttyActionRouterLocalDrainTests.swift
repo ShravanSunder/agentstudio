@@ -59,6 +59,42 @@ private final class LocalDrainRoutingLookup: GhosttyActionRoutingLookup {
 }
 
 extension GhosttyActionRouterTests {
+    @Test("mounted surface without apply target does not self-reschedule failed title")
+    func mountedSurfaceWithoutApplyTargetDoesNotSelfRescheduleFailedTitle() async {
+        let surfaceID = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
+        let dependencies = TerminalLocalActionDrainDependencies(
+            mountedHostResolver: TerminalLocalActionMountedHostResolver(
+                surfaceForID: { requestedID in requestedID == surfaceID ? host : nil },
+                paneIDForSurfaceID: { requestedID in requestedID == surfaceID ? paneUUID : nil }
+            ),
+            runtimeRegistry: RuntimeRegistry(),
+            fallbackRuntimeRegistry: nil,
+            activityContext: { _ in nil },
+            submitActivityInput: { _ in }
+        )
+        defer {
+            Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+            Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.localActionAccumulator.offer(.titleChanged("pending"), for: surfaceID)
+                == .scheduled
+        )
+        Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+
+        await Ghostty.ActionRouter.drainLocalActions(
+            for: surfaceID,
+            lane: .title,
+            dependencies: dependencies
+        )
+
+        #expect(Ghostty.ActionRouter.localActionAccumulator.beginDrain(for: surfaceID, lane: .title) == nil)
+        #expect(Ghostty.ActionRouter.localActionAccumulator.hasPendingActions(for: surfaceID))
+    }
+
     @Test("successful title drain commits the applied projection")
     func successfulTitleDrainCommitsAppliedProjection() async {
         let surfaceID = UUIDv7.generate()

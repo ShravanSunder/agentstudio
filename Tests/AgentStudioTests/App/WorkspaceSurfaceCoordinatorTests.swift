@@ -919,18 +919,6 @@ private actor DelayingRecordingFilesystemSource: WorkspaceFilesystemSourceManagi
 }
 
 private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        self.cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdStream
-    }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

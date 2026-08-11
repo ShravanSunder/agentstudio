@@ -293,14 +293,6 @@ private final class PresentationFactsProjectionCompletionRecorder {
 
 @MainActor
 private final class PresentationFactsWindowSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdChanges = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.finish()
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdChanges
-    }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

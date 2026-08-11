@@ -34,7 +34,6 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
         let bus = makeTestPaneRuntimeEventBus()
         let store = WorkspaceStore()
-        let surfaceManager = CWDIdentitySurfaceManager()
         let repo = store.addRepo(at: URL(filePath: "/tmp/single-cwd-authority-repo"))
         let pane = store.createPane(
             launchDirectory: repo.repoPath,
@@ -50,7 +49,7 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
-            surfaceManager: surfaceManager,
+            surfaceManager: CWDIdentitySurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
             windowLifecycleStore: WindowLifecycleAtom(),
@@ -60,11 +59,6 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         let rawCwdPath = repo.repoPath.appending(path: "Sources").path
         let normalizedCwd = try #require(CWDNormalizer.normalize(rawCwdPath))
 
-        surfaceManager.sendCWDChange(surfaceId: UUIDv7.generate(), paneId: pane.id, cwd: normalizedCwd)
-        #expect(
-            store.pane(pane.id)?.metadata.cwd?.standardizedFileURL.path
-                == repo.repoPath.standardizedFileURL.path
-        )
         _ = await bus.post(
             RuntimeEnvelopeHarness.paneEnvelope(
                 event: .terminal(.cwdChanged(rawCwdPath)),
@@ -152,21 +146,6 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
 
 @MainActor
 private final class CWDIdentitySurfaceManager: WorkspaceSurfaceManaging {
-    private let continuation: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.Continuation
-    let surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        let stream = AsyncStream.makeStream(of: SurfaceManager.SurfaceCWDChangeEvent.self)
-        self.surfaceCWDChanges = stream.stream
-        self.continuation = stream.continuation
-    }
-
-    func sendCWDChange(surfaceId: UUID, paneId: UUID?, cwd: URL?) {
-        continuation.yield(
-            SurfaceManager.SurfaceCWDChangeEvent(surfaceId: surfaceId, paneId: paneId, cwd: cwd)
-        )
-    }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(
