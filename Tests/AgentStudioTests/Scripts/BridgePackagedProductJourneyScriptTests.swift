@@ -69,16 +69,12 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(runnerSource.contains("refs/remotes/origin/HEAD"))
         #expect(runnerSource.contains("refs/heads/$comparison_target_name"))
         #expect(verifierSource.contains("SELECT payload_json FROM pane_content_payload WHERE pane_id = ?"))
-        #expect(
-            verifierSource.contains(
-                #"symbolic_target == {"kind": "branch", "name": comparison_target_name}"#
-            )
-        )
-        #expect(
-            verifierSource.contains(
-                #"value == {"kind": "branch", "name": comparison_target_name}"#
-            )
-        )
+        let commonCommitBranchLiteral =
+            #"{"basis": "commonCommit", "kind": "branch", "name": comparison_target_name}"#
+        #expect(verifierSource.components(separatedBy: commonCommitBranchLiteral).count == 3)
+        #expect(verifierSource.contains(#"origin.get("baseRole") == "commonCommit""#))
+        #expect(verifierSource.contains(#"origin.get("baseOID") == base_oid"#))
+        #expect(!verifierSource.contains("contributionBaseOID"))
         #expect(
             verifierSource.contains(
                 #"payload["state"]["source"]["workspace"]["comparisonTarget"]"#

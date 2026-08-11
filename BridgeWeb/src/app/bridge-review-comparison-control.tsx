@@ -43,14 +43,19 @@ export function BridgeReviewComparisonControl(
 	const targetQueryState =
 		props.targetQueryState ?? ({ catalog: null, message: null, status: 'idle' } as const);
 	const onQueryTargets = props.onQueryTargets ?? ((): void => {});
-	const onCancelTargetQuery = props.onCancelTargetQuery ?? ((): void => {});
+	const onCancelTargetQuery = props.onCancelTargetQuery;
 	const branchSearchInputRef = useRef<HTMLInputElement>(null);
 	const commitInputRef = useRef<HTMLInputElement>(null);
+	const cancelTargetQueryAndClose = (): void => {
+		onCancelTargetQuery?.();
+		setOpen(false);
+	};
 	useEffect((): void => {
-		if (!isActive) {
+		if (!isActive && open) {
+			onCancelTargetQuery?.();
 			setOpen(false);
 		}
-	}, [isActive]);
+	}, [isActive, onCancelTargetQuery, open]);
 	useLayoutEffect((): void => {
 		if (!open) return;
 		const activeInput =
@@ -84,7 +89,7 @@ export function BridgeReviewComparisonControl(
 		}
 		props.onApplyTarget({ kind: 'commit', oid: normalizedOID });
 		setValidationMessage(null);
-		setOpen(false);
+		cancelTargetQueryAndClose();
 	};
 	if (!isActive) {
 		return null;
@@ -112,7 +117,7 @@ export function BridgeReviewComparisonControl(
 					setValidationMessage(null);
 					onQueryTargets();
 				} else {
-					onCancelTargetQuery();
+					onCancelTargetQuery?.();
 				}
 			}}
 			open={open}
@@ -154,7 +159,7 @@ export function BridgeReviewComparisonControl(
 								<ComparisonAttemptState
 									onRetry={(target): void => {
 										props.onApplyTarget(target);
-										setOpen(false);
+										cancelTargetQueryAndClose();
 									}}
 									presentation={statePresentation}
 								/>
@@ -216,7 +221,7 @@ export function BridgeReviewComparisonControl(
 							activeTarget={activeTarget}
 							onSelectTarget={(target): void => {
 								props.onApplyTarget(target);
-								setOpen(false);
+								cancelTargetQueryAndClose();
 							}}
 							searchInputRef={branchSearchInputRef}
 							targetQueryState={targetQueryState}

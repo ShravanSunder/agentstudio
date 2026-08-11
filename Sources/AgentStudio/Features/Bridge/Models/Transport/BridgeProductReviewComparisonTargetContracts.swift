@@ -1,6 +1,110 @@
 import AgentStudioCore
 import Foundation
 
+struct BridgeProductReviewComparisonTransportTarget: Decodable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case basis
+        case branchName
+        case kind
+        case name
+        case oid
+        case remoteName
+    }
+
+    private enum Kind: String, Decodable {
+        case branch
+        case commit
+        case localDefaultBranch
+        case originDefaultBranch
+        case ref
+    }
+
+    let workspaceTarget: WorkspaceReviewContributionTarget
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .localDefaultBranch:
+            try Self.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [.basis, .branchName, .kind],
+                contract: "local-default-branch Review comparison target"
+            )
+            let branchName = try container.decode(String.self, forKey: .branchName)
+            try Self.validateNonempty(branchName, decoder: decoder)
+            workspaceTarget = .localDefaultBranch(
+                branchName: branchName,
+                basis: try container.decode(WorkspaceReviewComparisonBasis.self, forKey: .basis)
+            )
+        case .originDefaultBranch:
+            try Self.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [.basis, .branchName, .kind, .remoteName],
+                contract: "origin-default-branch Review comparison target"
+            )
+            let branchName = try container.decode(String.self, forKey: .branchName)
+            let remoteName = try container.decode(String.self, forKey: .remoteName)
+            try Self.validateNonempty(branchName, decoder: decoder)
+            try Self.validateNonempty(remoteName, decoder: decoder)
+            workspaceTarget = .originDefaultBranch(
+                remoteName: remoteName,
+                branchName: branchName,
+                basis: try container.decode(WorkspaceReviewComparisonBasis.self, forKey: .basis)
+            )
+        case .branch:
+            try Self.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [.basis, .kind, .name],
+                contract: "branch Review comparison target"
+            )
+            let name = try container.decode(String.self, forKey: .name)
+            try Self.validateNonempty(name, decoder: decoder)
+            workspaceTarget = .branch(
+                name: name,
+                basis: try container.decode(WorkspaceReviewComparisonBasis.self, forKey: .basis)
+            )
+        case .commit:
+            try Self.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [.kind, .oid],
+                contract: "commit Review comparison target"
+            )
+            workspaceTarget = try WorkspaceReviewContributionTarget(from: decoder)
+        case .ref:
+            try Self.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [.basis, .kind, .name],
+                contract: "ref Review comparison target"
+            )
+            let name = try container.decode(String.self, forKey: .name)
+            try Self.validateNonempty(name, decoder: decoder)
+            workspaceTarget = .ref(
+                name: name,
+                basis: try container.decode(WorkspaceReviewComparisonBasis.self, forKey: .basis)
+            )
+        }
+    }
+
+    private static func rejectUnknownKeys(
+        from decoder: Decoder,
+        allowedKeys: Set<CodingKeys>,
+        contract: String
+    ) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(allowedKeys.map(\.rawValue)),
+            contract: contract
+        )
+    }
+
+    private static func validateNonempty(_ value: String, decoder: Decoder) throws {
+        try BridgeProductContractDecoding.validateNonemptyString(
+            value,
+            codingPath: decoder.codingPath
+        )
+    }
+}
+
 package struct BridgeReviewComparisonTargetsCaptureRequest: Sendable {
     package let currentTarget: WorkspaceReviewContributionTarget?
     package let capturedAtUnixMilliseconds: Int64

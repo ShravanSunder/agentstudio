@@ -412,12 +412,13 @@ def has_exact_origin(package, target_oid, reviewed_oid, base_oid):
         return False
     symbolic_target = origin.get("symbolicTarget", {})
     return (
-        origin.get("baseRole") == "contributionBase"
+        origin.get("baseRole") == "commonCommit"
         and origin.get("comparedRole") == "capturedWorkingTree"
-        and symbolic_target == {"kind": "branch", "name": comparison_target_name}
+        and symbolic_target
+        == {"basis": "commonCommit", "kind": "branch", "name": comparison_target_name}
         and origin.get("resolvedTargetOID") == target_oid
         and origin.get("reviewedHeadOID") == reviewed_oid
-        and origin.get("contributionBaseOID") == base_oid
+        and origin.get("baseOID") == base_oid
     )
 
 
@@ -671,7 +672,8 @@ try:
     wait_for(
         "persisted symbolic comparison target selected through the UI",
         lambda: persisted_comparison_target(review_pane_id),
-        lambda value: value == {"kind": "branch", "name": comparison_target_name},
+        lambda value: value
+        == {"basis": "commonCommit", "kind": "branch", "name": comparison_target_name},
     )
     generation_before_movement = selected_package.get("reviewGeneration")
     target_before, reviewed_before, target_after, reviewed_after = move_comparison_history()

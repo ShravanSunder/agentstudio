@@ -651,12 +651,13 @@ struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {
             contract: "Review comparison presentation"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        activeTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
-            WorkspaceReviewContributionTarget.self,
+        let transportTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeProductReviewComparisonTransportTarget.self,
             forKey: .activeTarget,
             from: container,
             codingPath: decoder.codingPath
         )
+        activeTarget = transportTarget?.workspaceTarget
         attempt = try container.decode(BridgePaneReviewComparisonAttempt.self, forKey: .attempt)
         displayedSnapshot = try container.decode(
             BridgePaneReviewDisplayedSnapshot.self,

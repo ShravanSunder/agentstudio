@@ -181,6 +181,92 @@ struct BridgeProductReviewComparisonContractTests {
         }
     }
 
+    @Test("comparison update rejects transport-invalid target variants")
+    func comparisonUpdateRejectsTransportInvalidTargetVariants() {
+        let invalidTargets = [
+            #"{"basis":"commonCommit","kind":"commit","oid":"0123456789abcdef0123456789abcdef01234567"}"#,
+            #"{"kind":"branch","name":"stack/base"}"#,
+            #"{"basis":"commonCommit","kind":"branch","name":"stack/base","oid":"0123456789abcdef0123456789abcdef01234567"}"#,
+            #"{"basis":"commonCommit","branchName":"main","kind":"originDefaultBranch","name":"main","remoteName":"origin"}"#,
+            #"{"basis":"commonCommit","kind":"branch","name":""}"#,
+        ]
+
+        for invalidTarget in invalidTargets {
+            let requestJSON = Data(
+                """
+                {"method":"review.comparison.update","request":{"target":\(invalidTarget)}}
+                """.utf8
+            )
+
+            #expect(throws: Error.self) {
+                _ = try BridgeProductStrictJSON.decode(
+                    BridgeProductCallRequest.self,
+                    from: requestJSON
+                )
+            }
+        }
+    }
+
+    @Test("strict transport target decodes every canonical variant")
+    func strictTransportTargetDecodesEveryCanonicalVariant() throws {
+        let targetCases: [(json: String, expected: WorkspaceReviewContributionTarget)] = [
+            (
+                #"{"basis":"commonCommit","branchName":"main","kind":"localDefaultBranch"}"#,
+                .localDefaultBranch(branchName: "main")
+            ),
+            (
+                #"{"basis":"branchTip","branchName":"main","kind":"originDefaultBranch","remoteName":"origin"}"#,
+                .originDefaultBranch(
+                    remoteName: "origin",
+                    branchName: "main",
+                    basis: .branchTip
+                )
+            ),
+            (
+                #"{"basis":"commonCommit","kind":"branch","name":"stack/base"}"#,
+                .branch(name: "stack/base")
+            ),
+            (
+                #"{"kind":"commit","oid":"0123456789abcdef0123456789abcdef01234567"}"#,
+                .commit(oid: "0123456789abcdef0123456789abcdef01234567")
+            ),
+            (
+                #"{"basis":"branchTip","kind":"ref","name":"refs/tags/release"}"#,
+                .ref(name: "refs/tags/release", basis: .branchTip)
+            ),
+        ]
+
+        for targetCase in targetCases {
+            let decoded = try JSONDecoder().decode(
+                BridgeProductReviewComparisonTransportTarget.self,
+                from: Data(targetCase.json.utf8)
+            )
+            #expect(decoded.workspaceTarget == targetCase.expected)
+        }
+    }
+
+    @Test("strict target admission is shared by presentation and immutable origin")
+    func strictTargetAdmissionIsSharedByPresentationAndOrigin() {
+        let presentationJSON = Data(
+            #"{"kind":"pane.presentation","wireVersion":2,"paneSessionId":"pane-session-1","workerInstanceId":"worker-instance-1","metadataStreamId":"metadata-stream-1","streamSequence":3,"presentationRevision":9,"nativeActivity":"foreground","refreshingLanes":[],"reviewComparison":{"activeTarget":{"kind":"branch","name":"stack/base"},"attempt":{"status":"selectionRequired"},"displayedSnapshot":{"status":"none"},"repositoryDefaultTarget":null}}"#
+                .utf8
+        )
+        let originJSON = Data(
+            #"{"baseOID":"aaaaaaaa","baseRole":"commonCommit","comparedRole":"capturedWorkingTree","kind":"contribution","resolvedTargetOID":"bbbbbbbb","reviewedHeadOID":"cccccccc","symbolicTarget":{"kind":"branch","name":"stack/base"}}"#
+                .utf8
+        )
+
+        #expect(throws: Error.self) {
+            _ = try BridgeProductStrictJSON.decode(
+                BridgeProductMetadataFrame.self,
+                from: presentationJSON
+            )
+        }
+        #expect(throws: Error.self) {
+            _ = try JSONDecoder().decode(BridgeReviewComparisonOrigin.self, from: originJSON)
+        }
+    }
+
     @Test("pane presentation carries canonical target attempt and snapshot identity")
     func panePresentationCarriesComparisonState() throws {
         // Arrange
@@ -301,6 +387,129 @@ struct BridgeProductReviewComparisonContractTests {
         #expect(queryCapture.descriptor.maximumBytes == queryCapture.body.count)
     }
 
+    @Test("comparison target byte truncation is exact deterministic and preserves role rows")
+    func comparisonTargetByteTruncationPreservesRoleRows() async throws {
+        // Arrange
+        let defaultTarget = BridgeReviewComparisonBranchTarget.local(
+            branchName: "default-\(String(repeating: "d", count: 256))",
+            oid: String(repeating: "a", count: 40)
+        )
+        let currentTarget = BridgeReviewComparisonBranchTarget.local(
+            branchName: "current-\(String(repeating: "c", count: 256))",
+            oid: String(repeating: "b", count: 40)
+        )
+        let ordinaryBranches = (0..<1998).map { index in
+            BridgeReviewComparisonBranchTarget.local(
+                branchName: "ordinary-\(index)-\(String(repeating: "x", count: 256))",
+                oid: String(format: "%040x", index)
+            )
+        }
+        let capture = BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
+            defaultTarget: defaultTarget,
+            currentTarget: currentTarget,
+            branches: [defaultTarget, currentTarget] + ordinaryBranches
+        )
+        let maximumEncodedBytes = 32 * 1024
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+
+        // Act
+        let first = try #require(
+            BridgePaneProductComparisonTargetQuerySource.makeCapture(
+                capture,
+                maximumEncodedBytes: maximumEncodedBytes,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
+            )
+        )
+        let second = try #require(
+            BridgePaneProductComparisonTargetQuerySource.makeCapture(
+                capture,
+                maximumEncodedBytes: maximumEncodedBytes,
+                foregroundWorkAdmission: refreshWorkAdmission.admission
+            )
+        )
+        let decodedCatalog = try JSONDecoder().decode(
+            BridgeReviewComparisonTargetCatalog.self,
+            from: first.body
+        )
+
+        // Assert
+        #expect(first.body == second.body)
+        #expect(first.body.count <= maximumEncodedBytes)
+        #expect(decodedCatalog.isTruncated)
+        #expect(decodedCatalog.defaultTarget == defaultTarget)
+        #expect(decodedCatalog.currentTarget == currentTarget)
+        #expect(decodedCatalog.branches.first == defaultTarget)
+        #expect(decodedCatalog.branches.dropFirst().first == currentTarget)
+        #expect(decodedCatalog.branches.count < capture.branches.count)
+
+        let firstOmittedBranch = capture.branches[decodedCatalog.branches.count]
+        let oneRowLargerCatalog = BridgeReviewComparisonTargetCatalog(
+            capturedAtUnixMilliseconds: capture.capturedAtUnixMilliseconds,
+            cutoffUnixMilliseconds: capture.cutoffUnixMilliseconds,
+            isTruncated: true,
+            defaultTarget: capture.defaultTarget,
+            currentTarget: capture.currentTarget,
+            branches: decodedCatalog.branches + [firstOmittedBranch]
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        #expect(try encoder.encode(oneRowLargerCatalog).count > maximumEncodedBytes)
+    }
+
+    @Test("comparison target byte truncation removes a row at the exact flag boundary")
+    func comparisonTargetByteTruncationRemovesRowAtExactFlagBoundary() async throws {
+        // Arrange
+        let defaultTarget = BridgeReviewComparisonBranchTarget.local(
+            branchName: "main",
+            oid: String(repeating: "a", count: 40)
+        )
+        let ordinaryTarget = BridgeReviewComparisonBranchTarget.local(
+            branchName: "feature/review-comparison",
+            oid: String(repeating: "b", count: 40)
+        )
+        let capture = BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
+            defaultTarget: defaultTarget,
+            currentTarget: nil,
+            branches: [defaultTarget, ordinaryTarget]
+        )
+        let completeCatalog = BridgeReviewComparisonTargetCatalog(
+            capturedAtUnixMilliseconds: capture.capturedAtUnixMilliseconds,
+            cutoffUnixMilliseconds: capture.cutoffUnixMilliseconds,
+            isTruncated: false,
+            defaultTarget: capture.defaultTarget,
+            currentTarget: capture.currentTarget,
+            branches: capture.branches
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let maximumEncodedBytes = try encoder.encode(completeCatalog).count - 1
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+
+        // Act
+        let queryCapture = BridgePaneProductComparisonTargetQuerySource.makeCapture(
+            capture,
+            maximumEncodedBytes: maximumEncodedBytes,
+            foregroundWorkAdmission: refreshWorkAdmission.admission
+        )
+
+        // Assert
+        let admittedCapture = try #require(queryCapture)
+        let decodedCatalog = try JSONDecoder().decode(
+            BridgeReviewComparisonTargetCatalog.self,
+            from: admittedCapture.body
+        )
+        #expect(decodedCatalog.isTruncated)
+        #expect(decodedCatalog.defaultTarget == defaultTarget)
+        #expect(decodedCatalog.branches == [defaultTarget])
+        #expect(admittedCapture.body.count < maximumEncodedBytes)
+    }
+
     @Test("foreground loss during target capture returns a query-local error")
     func foregroundLossDuringTargetCaptureReturnsQueryLocalError() async throws {
         // Arrange
@@ -401,7 +610,7 @@ struct BridgeProductReviewComparisonContractTests {
             {
               "call": {
                 "method": "review.comparison.update",
-                "request": { "target": { "kind": "branch", "name": "stack/base" } }
+                "request": { "target": { "basis": "commonCommit", "kind": "branch", "name": "stack/base" } }
               },
               "kind": "product.call",
               "paneSessionId": "\(bridgeProductTestPaneSessionId)",

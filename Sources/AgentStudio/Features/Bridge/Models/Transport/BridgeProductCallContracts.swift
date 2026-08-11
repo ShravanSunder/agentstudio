@@ -137,9 +137,9 @@ struct BridgeProductReviewComparisonUpdateRequest: Codable, Equatable, Sendable 
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.target = try container.decode(
-            WorkspaceReviewContributionTarget.self,
+            BridgeProductReviewComparisonTransportTarget.self,
             forKey: .target
-        )
+        ).workspaceTarget
     }
 }
 

@@ -49,9 +49,9 @@ package enum BridgeReviewComparisonOrigin: Codable, Equatable, Sendable {
             self = .contribution(
                 BridgeReviewContributionOrigin(
                     symbolicTarget: try container.decode(
-                        WorkspaceReviewContributionTarget.self,
+                        BridgeProductReviewComparisonTransportTarget.self,
                         forKey: .symbolicTarget
-                    ),
+                    ).workspaceTarget,
                     resolvedTargetOID: try Self.nonemptyOID(
                         from: container,
                         forKey: .resolvedTargetOID,

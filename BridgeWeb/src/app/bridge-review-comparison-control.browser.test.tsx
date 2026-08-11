@@ -309,6 +309,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Arrange
 		const activeTarget = { basis: 'commonCommit', kind: 'branch', name: 'release/next' } as const;
 		const applyTarget = vi.fn();
+		const cancelTargetQuery = vi.fn();
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
@@ -322,6 +323,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
+				onCancelTargetQuery={cancelTargetQuery}
 				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
@@ -344,6 +346,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(activeTarget);
+		expect(cancelTargetQuery).toHaveBeenCalledExactlyOnceWith();
 	});
 
 	test('shows searchable default, local, and remote-tracking branch choices', async () => {
@@ -630,6 +633,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 	])('applies $rowTestId immediately', async (scenario) => {
 		// Arrange
 		const applyTarget = vi.fn();
+		const cancelTargetQuery = vi.fn();
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
@@ -637,6 +641,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
+				onCancelTargetQuery={cancelTargetQuery}
 				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
 			/>,
 		);
@@ -649,11 +654,13 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith(scenario.expectedTarget);
+		expect(cancelTargetQuery).toHaveBeenCalledExactlyOnceWith();
 	});
 
 	test('accepts only a full hexadecimal commit OID', async () => {
 		// Arrange
 		const applyTarget = vi.fn();
+		const cancelTargetQuery = vi.fn();
 		const rendered = await render(
 			<BridgeReviewComparisonControl
 				comparisonPresentation={comparisonPresentation({
@@ -661,6 +668,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 				})}
 				displayedReviewPackage={null}
 				onApplyTarget={applyTarget}
+				onCancelTargetQuery={cancelTargetQuery}
 			/>,
 		);
 		await act(async (): Promise<void> => {
@@ -690,6 +698,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 
 		// Assert
 		expect(applyTarget).toHaveBeenCalledExactlyOnceWith({ kind: 'commit', oid: fullOID });
+		expect(cancelTargetQuery).toHaveBeenCalledExactlyOnceWith();
 	});
 
 	test('keeps the rendered predecessor labeled with its own target until the successor package arrives', async () => {
