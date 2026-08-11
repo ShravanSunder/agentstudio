@@ -1,3 +1,4 @@
+import AgentStudioCore
 import SwiftUI
 import Testing
 
@@ -78,9 +79,9 @@ struct RepoExplorerWorktreeRowTests {
         #expect(source.contains("LocalActionSpec.goToPane.actionSpec"))
         #expect(source.contains("LocalActionSpec.openInEditorMenu.actionSpec"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openWorktreeInPane)"))
-        #expect(source.contains("menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: openWorktreeInPane)"))
         #expect(source.contains("commandPresentation.contextMenuCommand(.openNewTerminalInTab)"))
-        #expect(source.contains("menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: openNewTerminal)"))
         #expect(!source.contains("AppCommand.openWorktreeInPane.definition.actionSpec"))
         #expect(!source.contains("AppCommand.openNewTerminalInTab.definition.actionSpec"))
         #expect(!source.contains("contextMenuCommand(.openWorktree)"))
@@ -93,6 +94,43 @@ struct RepoExplorerWorktreeRowTests {
         let goToPaneOffset = try #require(source.range(of: "LocalActionSpec.goToPane.actionSpec")?.lowerBound)
         #expect(createNewInTabOffset < createNewInPaneOffset)
         #expect(createNewInPaneOffset < goToPaneOffset)
+    }
+
+    @Test("context menu uses shared content labels for both creation destinations")
+    func contextMenuUsesSharedContentLabels() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("worktreeContextMenuLabel(for: openNewTerminal)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: openReviewInNewTab)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: openFilesInNewTab)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: openWorktreeInPane)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: showBridgeReview)"))
+        #expect(source.contains("worktreeContextMenuLabel(for: showBridgeFiles)"))
+    }
+
+    @Test("context menu labels use the same content vocabulary in tabs and panes")
+    func contextMenuLabelsUseSharedContentVocabulary() {
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .openNewTerminalInTab) == "Terminal"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .openWorktreeInPane) == "Terminal"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .openBridgeReviewInNewTab) == "Review"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .showBridgeReview) == "Review"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .openBridgeFilesInNewTab) == "Files"
+        )
+        #expect(
+            RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: .showBridgeFiles) == "Files"
+        )
     }
 
     @Test("repository header menu contains only pane navigation and path actions")
