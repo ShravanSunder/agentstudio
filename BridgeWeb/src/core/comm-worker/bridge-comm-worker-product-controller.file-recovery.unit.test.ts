@@ -33,8 +33,8 @@ describe('Bridge comm worker File metadata recovery', () => {
 		const replacementEvents = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'file.metadata'>
 		>(8);
-		const observedReplacementWindow = deferred<void>();
-		const observedFailure = deferred<void>();
+		const observedReplacementWindow = makeDeferred<void>();
+		const observedFailure = makeDeferred<void>();
 		let discoveryCount = 0;
 		let subscriptionCount = 0;
 		const subscriptions: readonly BridgeProductSubscription<'file.metadata'>[] = [
@@ -120,13 +120,19 @@ function fileEpochTransport(): BridgeProductTransportSession {
 	};
 }
 
-function deferred<TValue>(): {
+function makeDeferred<TValue>(): {
 	readonly promise: Promise<TValue>;
-	readonly resolve: (value: TValue | PromiseLike<TValue>) => void;
+	readonly resolve: (value: TValue) => void;
 } {
-	let resolve = (_value: TValue | PromiseLike<TValue>): void => {};
-	const promise = new Promise<TValue>((resolvePromise): void => {
-		resolve = resolvePromise;
+	let resolvePromise: ((value: TValue) => void) | null = null;
+	const promise = new Promise<TValue>((resolve): void => {
+		resolvePromise = resolve;
 	});
-	return { promise, resolve };
+	return {
+		promise,
+		resolve: (value): void => {
+			if (resolvePromise === null) throw new Error('Deferred promise resolver is unavailable.');
+			resolvePromise(value);
+		},
+	};
 }

@@ -73,7 +73,8 @@ export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 					bridgeProductReviewComparisonTargetsQueryResultSchema.parse(result).descriptor;
 				const contentStream = props.openContent(descriptor, abortController.signal);
 				const drain = (async (): Promise<void> => {
-					for await (const _frame of contentStream.frames) {
+					for await (const frame of contentStream.frames) {
+						void frame;
 						// The product transport validates and assembles the bounded body.
 					}
 				})();

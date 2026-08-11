@@ -25,7 +25,7 @@ describe('owned Bridge development server executable', () => {
 		const paneId = '019fe721-7d8b-7ca0-b5c7-89e5fd7463f3';
 
 		// Act
-		const arguments_ = bridgeDevelopmentServerArguments({
+		const developmentServerArguments = bridgeDevelopmentServerArguments({
 			dataRootPath: '/tmp/bridge-development-data',
 			initialTarget: 'refs/heads/review-base',
 			paneId,
@@ -34,7 +34,7 @@ describe('owned Bridge development server executable', () => {
 		});
 
 		// Assert
-		expect(arguments_).toEqual([
+		expect(developmentServerArguments).toEqual([
 			'--data-root',
 			'/tmp/bridge-development-data',
 			'--pane-id',
@@ -46,7 +46,7 @@ describe('owned Bridge development server executable', () => {
 			'--port',
 			'43871',
 		]);
-		expect(arguments_).not.toContain('--base');
+		expect(developmentServerArguments).not.toContain('--base');
 	});
 
 	test('resolves the prebuilt stable artifact path', () => {
