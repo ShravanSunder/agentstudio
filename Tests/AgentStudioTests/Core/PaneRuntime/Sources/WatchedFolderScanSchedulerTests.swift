@@ -546,6 +546,7 @@ private final class SchedulerTestClock: @unchecked Sendable {
 
 private actor ControlledWatchedFolderScanner {
     struct Start: Sendable {
+        let sessionID: RepoScannerSessionID
         let request: WatchedFolderScanRequest
         let scanRunGeneration: UInt64
     }
@@ -570,12 +571,18 @@ private actor ControlledWatchedFolderScanner {
             id: sessionID,
             advanceOneQuantum: {
                 await self.advance(
+                    sessionID: sessionID,
                     request: request,
                     scanRunGeneration: scanRunGeneration
                 )
             },
             cancel: {
-                Task { await self.cancel(sourceID: request.sourceID) }
+                Task {
+                    await self.cancel(
+                        sourceID: request.sourceID,
+                        sessionID: sessionID
+                    )
+                }
                 return .cancellationRequested
             },
             consumeValidationCompletion: { _ in
@@ -612,12 +619,17 @@ private actor ControlledWatchedFolderScanner {
     func cancelledQuantumCount() -> Int { totalCancelled }
 
     private func advance(
+        sessionID: RepoScannerSessionID,
         request: WatchedFolderScanRequest,
         scanRunGeneration: UInt64
     ) async -> RepoScannerQuantumOutcome {
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                let start = Start(request: request, scanRunGeneration: scanRunGeneration)
+                let start = Start(
+                    sessionID: sessionID,
+                    request: request,
+                    scanRunGeneration: scanRunGeneration
+                )
                 activeBySourceID[request.sourceID] = ActiveQuantum(
                     start: start,
                     continuation: continuation
@@ -630,20 +642,34 @@ private actor ControlledWatchedFolderScanner {
                 }
             }
         } onCancel: {
-            Task { await self.cancel(sourceID: request.sourceID) }
+            Task {
+                await self.cancel(
+                    sourceID: request.sourceID,
+                    sessionID: sessionID
+                )
+            }
         }
     }
 
     private func complete(_ start: Start, with outcome: RepoScannerQuantumOutcome) {
-        guard let active = activeBySourceID.removeValue(forKey: start.request.sourceID) else {
+        guard let active = activeBySourceID[start.request.sourceID],
+            active.start.sessionID == start.sessionID
+        else {
             Issue.record("expected an active controlled scanner quantum")
             return
         }
+        activeBySourceID.removeValue(forKey: start.request.sourceID)
         active.continuation.resume(returning: outcome)
     }
 
-    private func cancel(sourceID: FilesystemSourceID) {
-        guard let active = activeBySourceID.removeValue(forKey: sourceID) else { return }
+    private func cancel(
+        sourceID: FilesystemSourceID,
+        sessionID: RepoScannerSessionID
+    ) {
+        guard let active = activeBySourceID[sourceID],
+            active.start.sessionID == sessionID
+        else { return }
+        activeBySourceID.removeValue(forKey: sourceID)
         totalCancelled += 1
         active.continuation.resume(returning: .finished(cancelledResult()))
     }
