@@ -251,6 +251,54 @@ struct BridgeProductReviewComparisonContractTests {
         )
     }
 
+    @Test("comparison target query response is admitted by strict JSON vocabulary")
+    func comparisonTargetQueryResponseUsesRegisteredCaptureKeys() throws {
+        let responseJSON = Data(
+            #"{"call":{"method":"review.comparisonTargets.query","result":{"descriptor":{"capturedAtUnixMilliseconds":2000,"contentKind":"review.comparisonTargets","cutoffUnixMilliseconds":1000,"declaredByteLength":7,"descriptorId":"019FEEC5-A29D-7858-A3BD-AB969E228484","encoding":"utf-8","expectedSha256":"b4515e15c59bb425429f6a53644cb0c6b5696ceedfb5230e73ace9ee7cbae33e","maximumBytes":7}}},"kind":"call.completed","paneSessionId":"pane-session-1","requestId":"request-1","requestSequence":1,"wireVersion":2,"workerInstanceId":"worker-instance-1"}"#
+                .utf8
+        )
+
+        let response = try BridgeProductStrictJSON.decode(
+            BridgeProductControlResponse.self,
+            from: responseJSON
+        )
+
+        guard case .callCompleted(let completed) = response else {
+            Issue.record("Expected a completed comparison-target query response")
+            return
+        }
+        #expect(completed.call.method == "review.comparisonTargets.query")
+    }
+
+    @Test("comparison target query creates a descriptor for a catalog below the byte ceiling")
+    func comparisonTargetQueryCreatesDescriptorBelowByteCeiling() throws {
+        // Arrange
+        let capture = BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
+            defaultTarget: nil,
+            currentTarget: nil,
+            branches: [
+                .local(
+                    branchName: "stack/base",
+                    oid: "af70f11324247e802366a8f6ab1f4ea0ec5ae55f"
+                )
+            ]
+        )
+
+        // Act
+        let result = BridgePaneProductComparisonTargetQuerySource.makeCapture(
+            capture,
+            maximumEncodedBytes: 1024 * 1024
+        )
+
+        // Assert
+        let queryCapture = try #require(result)
+        #expect(queryCapture.descriptor.declaredByteLength == queryCapture.body.count)
+        #expect(queryCapture.descriptor.maximumBytes == queryCapture.body.count)
+    }
+
     private func sortedJSONObject<TValue: Encodable>(_ value: TValue) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

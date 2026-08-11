@@ -88,7 +88,7 @@ enum BridgePaneProductComparisonTargetQuerySource {
                         declaredByteLength: body.count,
                         descriptorId: UUIDv7.generate().uuidString,
                         expectedSha256: digest,
-                        maximumBytes: maximumEncodedBytes
+                        maximumBytes: body.count
                     )
                 else { return nil }
                 return BridgeProductReviewComparisonTargetsQueryCapture(
