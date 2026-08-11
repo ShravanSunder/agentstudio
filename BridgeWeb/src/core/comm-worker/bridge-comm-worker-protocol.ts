@@ -10,6 +10,7 @@ import {
 	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewComparisonUpdateCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
@@ -29,6 +30,7 @@ import {
 	type BridgeWorkerReviewIntakeReadyCommand,
 	type BridgeWorkerReviewComparisonUpdateCommand,
 	type BridgeWorkerReviewComparisonTargetsQueryCommand,
+	type BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerSelectCommand,
@@ -81,6 +83,11 @@ export interface EncodeBridgeWorkerReviewComparisonUpdateCommandProps extends En
 
 export type EncodeBridgeWorkerReviewComparisonTargetsQueryCommandProps =
 	EncodeBridgeWorkerCommandBaseProps;
+
+export type EncodeBridgeWorkerReviewComparisonTargetsQueryCancelCommandProps =
+	EncodeBridgeWorkerCommandBaseProps & {
+		readonly queryRequestId: string;
+	};
 
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly update: BridgeWorkerActiveViewerModeUpdateCommand['update'];
@@ -191,6 +198,15 @@ export function encodeBridgeWorkerReviewComparisonTargetsQueryCommand(
 	return bridgeWorkerReviewComparisonTargetsQueryCommandSchema.parse(
 		bridgeWorkerCommandEnvelope(props, 'reviewComparisonTargetsQuery'),
 	);
+}
+
+export function encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand(
+	props: EncodeBridgeWorkerReviewComparisonTargetsQueryCancelCommandProps,
+): BridgeWorkerReviewComparisonTargetsQueryCancelCommand {
+	return bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewComparisonTargetsQueryCancel'),
+		queryRequestId: props.queryRequestId,
+	});
 }
 
 export function encodeBridgeWorkerActiveViewerModeUpdateCommand(

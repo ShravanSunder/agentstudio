@@ -50,6 +50,7 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				},
 				requestId: message.requestId,
 			};
+		case 'reviewComparisonTargetsQueryCancel':
 		case 'hover':
 		case 'metadataInterestUpdate':
 		case 'fileQueryUpdate':
@@ -89,6 +90,7 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 		case 'reviewIntakeReady':
 		case 'reviewComparisonUpdate':
 		case 'reviewComparisonTargetsQuery':
+		case 'reviewComparisonTargetsQueryCancel':
 			return 'background';
 		default:
 			return assertNeverBridgeWorkerMessage(message);

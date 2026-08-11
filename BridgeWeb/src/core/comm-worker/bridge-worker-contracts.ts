@@ -39,6 +39,7 @@ import {
 	bridgeWorkerRenderReceiptIdentitySchema,
 } from './bridge-worker-render-fulfillment.js';
 import {
+	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 } from './bridge-worker-review-comparison-target-query-contracts.js';
@@ -47,10 +48,12 @@ import {
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
 export {
+	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 } from './bridge-worker-review-comparison-target-query-contracts.js';
 export type {
+	BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	BridgeWorkerReviewComparisonTargetsQueryCommand,
 	BridgeWorkerReviewComparisonTargetsQueryEvent,
 } from './bridge-worker-review-comparison-target-query-contracts.js';
@@ -364,6 +367,7 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerReviewIntakeReadyCommandSchema,
 	bridgeWorkerReviewComparisonUpdateCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerActiveViewerModeUpdateCommandSchema,
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,

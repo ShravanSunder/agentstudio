@@ -61,6 +61,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
+			.toHaveTextContent('mmmmmmmmmmmm');
 		expect(content.element().textContent).not.toMatch(
 			/Review starts from|Contribution|three-dot|merge base/u,
 		);
@@ -342,6 +345,94 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		expect(document.querySelector('[data-testid="comparison-branch-origin-main"]')).toBeNull();
 	});
 
+	test('keeps a 2,000-row branch catalog within a bounded mounted window', async () => {
+		// Arrange
+		const branches = Array.from({ length: 2_000 }, (_, index) => ({
+			branchName: `branch-${index}`,
+			kind: 'local' as const,
+			oid: index.toString(16).padStart(40, '0'),
+		}));
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({ displayedSnapshot: { status: 'none' } })}
+				displayedReviewPackage={null}
+				onApplyTarget={vi.fn()}
+				targetQueryState={{
+					catalog: targetCatalog({ branches }),
+					message: null,
+					status: 'ready',
+				}}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const mountedRows = document.querySelectorAll('[data-slot="combobox-item"]');
+		expect(mountedRows.length).toBeLessThanOrEqual(40);
+		expect(mountedRows.length).toBeGreaterThan(0);
+	});
+
+	test('explains the recent-window and capacity bounds beside ready branch results', async () => {
+		// Arrange
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({ displayedSnapshot: { status: 'none' } })}
+				displayedReviewPackage={null}
+				onApplyTarget={vi.fn()}
+				targetQueryState={{
+					catalog: targetCatalog({ isTruncated: true }),
+					message: null,
+					status: 'ready',
+				}}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const explanation = rendered.getByTestId('bridge-review-comparison-catalog-explanation');
+		await expect.element(explanation).toHaveTextContent('previous 30 days');
+		await expect.element(explanation).toHaveTextContent('default and current');
+		await expect.element(explanation).toHaveTextContent('capacity');
+		await expect.element(explanation).toHaveTextContent('exact commit');
+	});
+
+	test('preserves an empty catalog while explaining the recent-window boundary', async () => {
+		// Arrange
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({ displayedSnapshot: { status: 'none' } })}
+				displayedReviewPackage={null}
+				onApplyTarget={vi.fn()}
+				targetQueryState={{
+					catalog: targetCatalog({ branches: [] }),
+					message: 'No branch choices are available from the last 30 days.',
+					status: 'empty',
+				}}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		await expect
+			.element(rendered.getByText('No branch choices are available from the last 30 days.'))
+			.toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-catalog-explanation'))
+			.toHaveTextContent('previous 30 days');
+	});
+
 	test.each([
 		{
 			expectedTarget: {
@@ -506,6 +597,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-target-revision'))
+			.toHaveTextContent('222222222222');
 	});
 });
 
@@ -534,11 +628,16 @@ function comparisonPresentation(props: {
 	};
 }
 
-function targetCatalog(): BridgeProductReviewComparisonTargetCatalog {
+function targetCatalog(
+	props: {
+		readonly branches?: BridgeProductReviewComparisonTargetCatalog['branches'];
+		readonly isTruncated?: boolean;
+	} = {},
+): BridgeProductReviewComparisonTargetCatalog {
 	return {
 		capturedAtUnixMilliseconds: 1_700_000_000_000,
 		cutoffUnixMilliseconds: 1_699_000_000_000,
-		branches: [
+		branches: props.branches ?? [
 			{ branchName: 'main', kind: 'local', oid: 'a'.repeat(40) },
 			{ branchName: 'feature/stack', kind: 'local', oid: 'f'.repeat(40) },
 			{
@@ -561,7 +660,7 @@ function targetCatalog(): BridgeProductReviewComparisonTargetCatalog {
 			remoteName: 'origin',
 		},
 		currentTarget: null,
-		isTruncated: false,
+		isTruncated: props.isTruncated ?? false,
 	};
 }
 

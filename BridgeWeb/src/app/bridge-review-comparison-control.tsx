@@ -305,6 +305,13 @@ function ComparisonCurrentState(props: {
 						</span>
 					) : null}
 				</p>
+				<p className="flex min-w-0 items-baseline gap-1.5 text-[11px] text-[var(--bridge-text-muted)]">
+					<span className="truncate">{targetLabel} @</span>
+					<ComparisonRevision
+						testId="bridge-review-comparison-target-revision"
+						value={origin.resolvedTargetOID}
+					/>
+				</p>
 				<div className="flex min-w-0 items-center gap-2">
 					<span className="shrink-0 text-[11px] text-[var(--bridge-text-muted)]">
 						Comparing from

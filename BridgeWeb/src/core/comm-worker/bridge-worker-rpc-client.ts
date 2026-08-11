@@ -153,6 +153,7 @@ function bridgeWorkerCommandMatchesSurface(
 		case 'reviewIntakeReady':
 		case 'reviewComparisonUpdate':
 		case 'reviewComparisonTargetsQuery':
+		case 'reviewComparisonTargetsQueryCancel':
 		case 'reviewInvalidate':
 		case 'reviewProjectionUpdate':
 			return surface === 'review';

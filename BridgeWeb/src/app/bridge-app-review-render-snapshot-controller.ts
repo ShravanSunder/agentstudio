@@ -6,6 +6,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerReviewComparisonUpdateCommand,
 	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
+	encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -105,8 +106,13 @@ export type BridgeReviewComparisonTargetsQueryState =
 			readonly message: null;
 	  }
 	| {
-			readonly status: 'empty' | 'failed';
+			readonly status: 'failed';
 			readonly catalog: null;
+			readonly message: string;
+	  }
+	| {
+			readonly status: 'empty';
+			readonly catalog: BridgeProductReviewComparisonTargetCatalog;
 			readonly message: string;
 	  };
 
@@ -204,14 +210,27 @@ export function useBridgeReviewRenderSnapshotController(
 	useEffect((): (() => void) => {
 		const failureCallbacksByRequestId = markFileViewedFailureCallbacksRef.current;
 		const unsubscribeMessages = props.reviewClient.subscribeMessages((message): void => {
+			if (
+				message.kind === 'health' &&
+				message.status === 'degraded' &&
+				message.requestId === latestComparisonTargetsQueryRequestIdRef.current
+			) {
+				latestComparisonTargetsQueryRequestIdRef.current = null;
+				setComparisonTargetsQueryState({
+					catalog: null,
+					message: 'Comparison targets are unavailable.',
+					status: 'failed',
+				});
+				return;
+			}
 			if (message.kind === 'reviewComparisonTargetsQuery') {
 				if (message.requestId !== latestComparisonTargetsQueryRequestIdRef.current) return;
 				setComparisonTargetsQueryState(
 					message.status === 'ready' && message.catalog !== null
 						? { catalog: message.catalog, message: null, status: 'ready' }
-						: message.status === 'empty'
+						: message.status === 'empty' && message.catalog !== null
 							? {
-									catalog: null,
+									catalog: message.catalog,
 									message:
 										message.message ?? 'No branch choices are available from the last 30 days.',
 									status: 'empty',
@@ -328,6 +347,14 @@ export function useBridgeReviewRenderSnapshotController(
 				}),
 			);
 			latestComparisonTargetsQueryRequestIdRef.current = requestId;
+			if (props.reviewClient.lifecycle.getSnapshot().requestsById[requestId]?.state === 'failed') {
+				latestComparisonTargetsQueryRequestIdRef.current = null;
+				setComparisonTargetsQueryState({
+					catalog: null,
+					message: 'Comparison targets are unavailable.',
+					status: 'failed',
+				});
+			}
 		} catch {
 			latestComparisonTargetsQueryRequestIdRef.current = null;
 			setComparisonTargetsQueryState({
@@ -338,9 +365,22 @@ export function useBridgeReviewRenderSnapshotController(
 		}
 	}, [props.reviewClient]);
 	const cancelReviewComparisonTargetsQuery = useCallback((): void => {
+		const queryRequestId = latestComparisonTargetsQueryRequestIdRef.current;
 		latestComparisonTargetsQueryRequestIdRef.current = null;
 		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
-	}, []);
+		if (queryRequestId === null) return;
+		try {
+			props.reviewClient.send(
+				encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					queryRequestId,
+					requestId: 'review-client-owned',
+				}),
+			);
+		} catch {
+			// The picker is already locally cancelled; worker delivery is best effort.
+		}
+	}, [props.reviewClient]);
 	useEffect((): void => {
 		const lastVisibleIndex = Math.max(0, workerViewportItemIds.length - 1);
 		displayStore.setLocalViewport({

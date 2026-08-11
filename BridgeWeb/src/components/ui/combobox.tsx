@@ -1,7 +1,7 @@
 'use client';
 
 import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox';
-import type { ComponentProps, ReactElement } from 'react';
+import { forwardRef, type ComponentProps, type ReactElement } from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -20,28 +20,30 @@ function ComboboxInput({ className, ...props }: ComboboxPrimitive.Input.Props): 
 	);
 }
 
-function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): ReactElement {
-	return (
+const ComboboxList = forwardRef<HTMLDivElement, ComboboxPrimitive.List.Props>(
+	({ className, ...props }, ref): ReactElement => (
 		<ComboboxPrimitive.List
 			className={cn('mt-1 max-h-64 overflow-y-auto outline-none', className)}
 			data-slot="combobox-list"
+			ref={ref}
 			{...props}
 		/>
-	);
-}
+	),
+);
 
-function ComboboxItem({ className, ...props }: ComboboxPrimitive.Item.Props): ReactElement {
-	return (
+const ComboboxItem = forwardRef<HTMLDivElement, ComboboxPrimitive.Item.Props>(
+	({ className, ...props }, ref): ReactElement => (
 		<ComboboxPrimitive.Item
 			className={cn(
 				'flex cursor-default items-center rounded-md px-2 py-1.5 text-xs text-[var(--bridge-text-secondary)] outline-none data-highlighted:bg-[var(--bridge-list-hover-bg)] data-highlighted:text-[var(--bridge-text-primary)] data-selected:bg-[var(--bridge-header-control-active-bg)]',
 				className,
 			)}
 			data-slot="combobox-item"
+			ref={ref}
 			{...props}
 		/>
-	);
-}
+	),
+);
 
 function ComboboxEmpty({ className, ...props }: ComponentProps<'div'>): ReactElement {
 	return (

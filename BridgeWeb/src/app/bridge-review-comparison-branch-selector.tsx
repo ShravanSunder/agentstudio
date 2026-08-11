@@ -1,5 +1,7 @@
+import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { CheckIcon } from 'lucide-react';
-import { useState, type ReactElement, type RefObject } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from 'react';
 
 import {
 	Combobox,
@@ -8,7 +10,10 @@ import {
 	ComboboxItem,
 	ComboboxList,
 } from '../components/ui/combobox.js';
-import type { BridgeProductReviewComparisonBranchTarget } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
+import type {
+	BridgeProductReviewComparisonBranchTarget,
+	BridgeProductReviewComparisonTargetCatalog,
+} from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type {
 	BridgeWorkerPanelChromePatchPayload,
 	BridgeWorkerReviewComparisonUpdateCommand,
@@ -31,19 +36,25 @@ export function BridgeReviewComparisonBranchSelector(props: {
 }): ReactElement {
 	const [search, setSearch] = useState('');
 	const targetCatalog =
-		props.targetQueryState.status === 'ready' ? props.targetQueryState.catalog : null;
-	const branches =
-		targetCatalog?.branches.filter((branch) =>
-			branchTargetLabel(branch).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
-		) ?? [];
+		props.targetQueryState.status === 'ready' || props.targetQueryState.status === 'empty'
+			? props.targetQueryState.catalog
+			: null;
 	const selectedBranch =
 		targetCatalog?.branches.find((branch) => branchMatchesTarget(branch, props.activeTarget)) ??
 		null;
+	const [highlightedBranch, setHighlightedBranch] = useState<ReviewComparisonBranchTarget | null>(
+		null,
+	);
+	const [filteredBranchCount, setFilteredBranchCount] = useState(
+		targetCatalog?.branches.length ?? 0,
+	);
 	return (
 		<Combobox<ReviewComparisonBranchTarget>
+			items={targetCatalog?.branches ?? []}
 			inputValue={search}
 			isItemEqualToValue={branchTargetsEqual}
 			itemToStringLabel={branchTargetLabel}
+			onItemHighlighted={(branch): void => setHighlightedBranch(branch ?? null)}
 			onInputValueChange={setSearch}
 			onValueChange={(branch): void => {
 				if (branch !== null) {
@@ -51,6 +62,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				}
 			}}
 			open={true}
+			virtualized
 			value={selectedBranch}
 		>
 			<div
@@ -63,40 +75,33 @@ export function BridgeReviewComparisonBranchSelector(props: {
 					placeholder="Search branches…"
 					ref={props.searchInputRef}
 				/>
-				<ComboboxList className="m-0 max-h-56 py-1">
-					{branches.map((branch, index) => (
-						<ComboboxItem
-							data-testid={`comparison-branch-${branchTargetTestId(branch)}`}
-							index={index}
-							key={branchTargetKey(branch)}
-							value={branch}
-						>
-							<CheckIcon
-								aria-hidden="true"
-								className={cn(
-									'mr-2 size-3 shrink-0',
-									branchTargetsEqual(branch, selectedBranch) ? 'opacity-100' : 'opacity-0',
-								)}
-							/>
-							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-								<span className="truncate text-[var(--bridge-text-primary)]">
-									{branchTargetLabel(branch)}
-								</span>
-								<span className="flex min-w-0 items-baseline gap-1.5 text-[10px] text-[var(--bridge-text-muted)]">
-									{branchTargetsEqual(branch, targetCatalog?.defaultTarget ?? null) ? (
-										<span className="font-medium">Default</span>
-									) : null}
-									<span>{branch.kind === 'local' ? 'Local' : 'Remote-tracking'}</span>
-									<span aria-hidden="true">·</span>
-									<BranchRevision value={branch.oid} />
-								</span>
-							</span>
-						</ComboboxItem>
-					))}
-				</ComboboxList>
+				<VirtualizedBranchOptions
+					highlightedBranch={highlightedBranch}
+					onFilteredItemCountChange={setFilteredBranchCount}
+					selectedBranch={selectedBranch}
+					targetCatalog={targetCatalog}
+				/>
+				{targetCatalog === null ? null : (
+					<p
+						className="border-t border-[var(--bridge-border-subtle)] px-2 py-2 text-[10px] leading-relaxed text-[var(--bridge-text-muted)]"
+						data-testid="bridge-review-comparison-catalog-explanation"
+					>
+						Showing branches updated in the previous 30 days, from{' '}
+						{formatCatalogDate(targetCatalog.cutoffUnixMilliseconds)} through{' '}
+						{formatCatalogDate(targetCatalog.capturedAtUnixMilliseconds)}. The default and current
+						targets are retained when available.
+						{targetCatalog.isTruncated
+							? ' This list is limited by capacity; exact commit entry remains available for a pinned comparison.'
+							: ''}
+					</p>
+				)}
 				{props.targetQueryState.status === 'empty' ||
-				(props.targetQueryState.status === 'ready' && branches.length === 0) ? (
-					<ComboboxEmpty>No matching branches.</ComboboxEmpty>
+				(props.targetQueryState.status === 'ready' && filteredBranchCount === 0) ? (
+					<ComboboxEmpty>
+						{props.targetQueryState.status === 'empty'
+							? props.targetQueryState.message
+							: 'No matching branches.'}
+					</ComboboxEmpty>
 				) : null}
 				{props.targetQueryState.status === 'loading' ? (
 					<ComboboxEmpty>Loading branch choices…</ComboboxEmpty>
@@ -111,6 +116,83 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				) : null}
 			</div>
 		</Combobox>
+	);
+}
+
+function VirtualizedBranchOptions(props: {
+	readonly highlightedBranch: ReviewComparisonBranchTarget | null;
+	readonly onFilteredItemCountChange: (count: number) => void;
+	readonly selectedBranch: ReviewComparisonBranchTarget | null;
+	readonly targetCatalog: BridgeProductReviewComparisonTargetCatalog | null;
+}): ReactElement {
+	const { onFilteredItemCountChange } = props;
+	const filteredBranches = ComboboxPrimitive.useFilteredItems<ReviewComparisonBranchTarget>();
+	const scrollElementRef = useRef<HTMLDivElement>(null);
+	const virtualizer = useVirtualizer({
+		count: filteredBranches.length,
+		getScrollElement: (): HTMLDivElement | null => scrollElementRef.current,
+		estimateSize: (): number => 44,
+		overscan: 8,
+	});
+	const virtualRows = virtualizer.getVirtualItems();
+	useEffect((): void => {
+		onFilteredItemCountChange(filteredBranches.length);
+	}, [filteredBranches.length, onFilteredItemCountChange]);
+	useEffect((): void => {
+		if (props.highlightedBranch === null) return;
+		const highlightedIndex = filteredBranches.findIndex((branch) =>
+			branchTargetsEqual(branch, props.highlightedBranch),
+		);
+		if (highlightedIndex >= 0) virtualizer.scrollToIndex(highlightedIndex, { align: 'auto' });
+	}, [filteredBranches, props.highlightedBranch, virtualizer]);
+	return (
+		<div className="max-h-56 overflow-y-auto" ref={scrollElementRef}>
+			<ComboboxList
+				className="relative m-0 max-h-none overflow-visible py-1"
+				style={{ height: `${virtualizer.getTotalSize()}px` }}
+			>
+				{virtualRows.map((virtualRow) => {
+					const branch = filteredBranches[virtualRow.index];
+					if (branch === undefined) return null;
+					return (
+						<ComboboxItem
+							className="absolute left-0 top-0 w-full"
+							data-index={virtualRow.index}
+							data-testid={`comparison-branch-${branchTargetTestId(branch)}`}
+							index={virtualRow.index}
+							key={branchTargetKey(branch)}
+							ref={virtualizer.measureElement}
+							style={{ transform: `translateY(${virtualRow.start}px)` }}
+							value={branch}
+						>
+							<CheckIcon
+								aria-hidden="true"
+								className={cn(
+									'mr-2 size-3 shrink-0',
+									branchTargetsEqual(branch, props.selectedBranch) ? 'opacity-100' : 'opacity-0',
+								)}
+							/>
+							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+								<span className="truncate text-[var(--bridge-text-primary)]">
+									{branchTargetLabel(branch)}
+								</span>
+								<span className="flex min-w-0 items-baseline gap-1.5 text-[10px] text-[var(--bridge-text-muted)]">
+									{branchTargetsEqual(branch, props.targetCatalog?.defaultTarget ?? null) ? (
+										<span className="font-medium">Default</span>
+									) : null}
+									{branchTargetsEqual(branch, props.targetCatalog?.currentTarget ?? null) ? (
+										<span className="font-medium">Current</span>
+									) : null}
+									<span>{branch.kind === 'local' ? 'Local' : 'Remote-tracking'}</span>
+									<span aria-hidden="true">·</span>
+									<BranchRevision value={branch.oid} />
+								</span>
+							</span>
+						</ComboboxItem>
+					);
+				})}
+			</ComboboxList>
+		</div>
 	);
 }
 
@@ -183,4 +265,8 @@ function branchTargetKey(branch: ReviewComparisonBranchTarget): string {
 
 function branchTargetTestId(branch: ReviewComparisonBranchTarget): string {
 	return branchTargetLabel(branch).replaceAll('/', '-');
+}
+
+function formatCatalogDate(unixMilliseconds: number): string {
+	return new Date(unixMilliseconds).toISOString().slice(0, 10);
 }

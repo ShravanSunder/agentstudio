@@ -16,13 +16,18 @@ type ComparisonTargetsContentOpen = (
 
 export interface BridgeWorkerComparisonTargetsQueryRunner {
 	readonly abort: () => void;
+	readonly fail: (requestId: string) => void;
 	readonly run: (requestId: string, result: unknown) => Promise<void>;
 }
 
 export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
+	readonly getWorkAdmission: () => {
+		readonly generation: number;
+		readonly signal: AbortSignal;
+	};
+	readonly isCurrentWorkAdmission: (generation: number) => boolean;
 	readonly openContent: ComparisonTargetsContentOpen | undefined;
 	readonly publish: (event: BridgeWorkerReviewComparisonTargetsQueryEvent) => void;
-	readonly workSignal: AbortSignal;
 }): BridgeWorkerComparisonTargetsQueryRunner {
 	let active: { readonly abortController: AbortController; readonly requestId: string } | null =
 		null;
@@ -48,6 +53,7 @@ export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 	};
 	return {
 		abort,
+		fail: postFailure,
 		run: async (requestId, result): Promise<void> => {
 			if (props.openContent === undefined) {
 				postFailure(requestId);
@@ -55,10 +61,13 @@ export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 			}
 			abort();
 			const queryGeneration = generation;
+			const workAdmission = props.getWorkAdmission();
+			const workAdmissionGeneration = workAdmission.generation;
 			const abortController = new AbortController();
 			active = { abortController, requestId };
 			const abortForWorkLoss = (): void => abortController.abort();
-			props.workSignal.addEventListener('abort', abortForWorkLoss, { once: true });
+			if (workAdmission.signal.aborted) abortController.abort();
+			workAdmission.signal.addEventListener('abort', abortForWorkLoss, { once: true });
 			try {
 				const descriptor =
 					bridgeProductReviewComparisonTargetsQueryResultSchema.parse(result).descriptor;
@@ -72,6 +81,7 @@ export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 				if (
 					active?.requestId !== requestId ||
 					queryGeneration !== generation ||
+					!props.isCurrentWorkAdmission(workAdmissionGeneration) ||
 					abortController.signal.aborted
 				)
 					return;
@@ -98,12 +108,13 @@ export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 				if (
 					active?.requestId !== requestId ||
 					queryGeneration !== generation ||
+					!props.isCurrentWorkAdmission(workAdmissionGeneration) ||
 					abortController.signal.aborted
 				)
 					return;
 				postFailure(requestId);
 			} finally {
-				props.workSignal.removeEventListener('abort', abortForWorkLoss);
+				workAdmission.signal.removeEventListener('abort', abortForWorkLoss);
 				if (active?.requestId === requestId) active = null;
 			}
 		},

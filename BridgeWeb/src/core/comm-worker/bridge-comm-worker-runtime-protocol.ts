@@ -143,11 +143,17 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
 	let cancelReviewRenderFulfillmentWake: (() => void) | null = null;
+	let activeComparisonTargetsProductControlRequestId: string | null = null;
 	const panePresentationAuthority = new BridgeCommWorkerPanePresentationAuthority();
 	const comparisonTargetsQueryRunner = createBridgeWorkerComparisonTargetsQueryRunner({
+		getWorkAdmission: () => ({
+			generation: panePresentationAuthority.snapshot.workAdmissionGeneration,
+			signal: panePresentationAuthority.workSignal,
+		}),
+		isCurrentWorkAdmission: (generation): boolean =>
+			panePresentationAuthority.isCurrentWorkAdmission(generation),
 		openContent: openComparisonTargetsContent,
 		publish: (event): void => port.postMessage(event),
-		workSignal: panePresentationAuthority.workSignal,
 	});
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
@@ -502,6 +508,8 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				application.snapshot.nativeActivity === 'foreground' &&
 				!application.snapshot.refreshingLanes.includes('file');
 			if (application.leftForeground) {
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = null;
 				abortAllFileContentPreparations();
 				reviewDemandScheduling.suspend();
 			}
@@ -677,6 +685,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			handlerStartedAtMilliseconds -
 			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
 		const messages = handler.handleMessage(parsedMessage.data);
+		if (parsedMessage.data.command === 'reviewComparisonTargetsQueryCancel') {
+			if (activeComparisonTargetsProductControlRequestId === parsedMessage.data.queryRequestId) {
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = null;
+			}
+		}
 		if (
 			parsedMessage.data.command === 'activeViewerModeUpdate' &&
 			bridgeWorkerRuntimeMessagesContainReadyRequest({
@@ -686,6 +700,10 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			activeViewerMode !== parsedMessage.data.update.mode
 		) {
 			activeViewerMode = parsedMessage.data.update.mode;
+			if (activeViewerMode !== 'review') {
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = null;
+			}
 			if (activeViewerMode === 'file') {
 				reviewDemandScheduling.suspend();
 				resumeLatestSelectedFileViewContentReadyPreparation();
@@ -749,16 +767,26 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		for (const message of immediateMessages) {
 			port.postMessage(message);
 		}
+		if (
+			productControlCommand?.command.method === 'review.comparisonTargets.query' &&
+			!shouldSendProductControl
+		) {
+			comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
+		}
 		if (productControlCommand !== null && shouldSendProductControl) {
 			if (productControlCommand.command.method === 'review.comparisonTargets.query') {
 				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = productControlCommand.requestId;
 			}
 			void sendBridgeCommWorkerActionWithTimeout({
 				send: (): Promise<unknown> => sendProductControl(productControlCommand.command),
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			})
 				.then((actionResult: unknown): void => {
-					if (productControlCommand.command.method === 'review.comparisonTargets.query') {
+					if (
+						productControlCommand.command.method === 'review.comparisonTargets.query' &&
+						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
+					) {
 						void comparisonTargetsQueryRunner.run(productControlCommand.requestId, actionResult);
 					}
 					for (const message of messages) {
@@ -773,8 +801,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				})
 				.catch((_error: unknown): void => {
-					if (productControlCommand.command.method === 'review.comparisonTargets.query') {
+					if (
+						productControlCommand.command.method === 'review.comparisonTargets.query' &&
+						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
+					) {
 						comparisonTargetsQueryRunner.abort();
+						comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
+						activeComparisonTargetsProductControlRequestId = null;
 					}
 					port.postMessage(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({

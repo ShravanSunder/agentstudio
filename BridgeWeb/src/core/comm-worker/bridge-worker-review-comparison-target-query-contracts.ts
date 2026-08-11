@@ -36,6 +36,14 @@ export const bridgeWorkerReviewComparisonTargetsQueryCommandSchema =
 		.extend({ command: z.literal('reviewComparisonTargetsQuery') })
 		.strict();
 
+export const bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema =
+	bridgeWorkerMainToServerBaseSchema
+		.extend({
+			command: z.literal('reviewComparisonTargetsQueryCancel'),
+			queryRequestId: bridgeWorkerRequestIdSchema,
+		})
+		.strict();
+
 export const bridgeWorkerReviewComparisonTargetsQueryEventSchema =
 	bridgeWorkerServerToMainBaseSchema
 		.extend({
@@ -79,6 +87,9 @@ export const bridgeWorkerReviewComparisonTargetsQueryEventSchema =
 
 export type BridgeWorkerReviewComparisonTargetsQueryCommand = z.infer<
 	typeof bridgeWorkerReviewComparisonTargetsQueryCommandSchema
+>;
+export type BridgeWorkerReviewComparisonTargetsQueryCancelCommand = z.infer<
+	typeof bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema
 >;
 export type BridgeWorkerReviewComparisonTargetsQueryEvent = z.infer<
 	typeof bridgeWorkerReviewComparisonTargetsQueryEventSchema

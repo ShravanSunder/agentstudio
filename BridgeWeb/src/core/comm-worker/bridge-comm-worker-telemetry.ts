@@ -42,6 +42,7 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'reviewIntakeReady'
 	| 'reviewComparisonUpdate'
 	| 'reviewComparisonTargetsQuery'
+	| 'reviewComparisonTargetsQueryCancel'
 	| 'reviewInvalidate'
 	| 'reviewProjectionUpdate'
 	| 'renderDisposition'

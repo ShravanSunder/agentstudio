@@ -157,6 +157,46 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 			.toHaveTextContent('Compare: master');
 	});
 
+	test('settles a rejected comparison-target query instead of leaving the picker loading', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerHeaderControls={<div />}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+		const queryRequest = Object.entries(harness.lifecycleStore.getSnapshot().requestsById).find(
+			([, request]) => request.command === 'reviewComparisonTargetsQuery',
+		);
+		if (queryRequest === undefined) throw new Error('Expected a comparison-target query request.');
+		await act(async (): Promise<void> => {
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				message: 'Bridge comm worker failed to forward review.comparisonTargets.query.',
+				requestId: queryRequest[0],
+				status: 'degraded',
+				transferDescriptors: [],
+				wireVersion: 1,
+			});
+		});
+
+		// Assert
+		await expect.element(rendered.getByText('Comparison targets are unavailable.')).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Retry' })).toBeVisible();
+	});
+
 	test('keeps comparison meaning accessible while closed at the shared 24px control scale', async () => {
 		// Arrange
 		const harness = makeReviewSurfaceHarness();

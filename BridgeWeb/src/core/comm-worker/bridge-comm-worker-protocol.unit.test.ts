@@ -10,6 +10,7 @@ import {
 	encodeBridgeWorkerRenderDispositionCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerReviewComparisonUpdateCommand,
+	encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -21,6 +22,20 @@ import {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker protocol', () => {
+	test('encodes a typed comparison-target query cancellation intent', () => {
+		const command = encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand({
+			epoch: 3,
+			queryRequestId: 'request-comparison-targets-query',
+			requestId: 'request-comparison-targets-cancel',
+		});
+
+		expect(command).toMatchObject({
+			command: 'reviewComparisonTargetsQueryCancel',
+			queryRequestId: 'request-comparison-targets-query',
+		});
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
+	});
+
 	test('encodes select viewport hover ordinary RPC and mode commands through BridgeWorkerContracts', () => {
 		const commands = [
 			encodeBridgeWorkerSelectCommand({
