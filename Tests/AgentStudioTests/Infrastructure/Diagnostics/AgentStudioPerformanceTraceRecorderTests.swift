@@ -33,7 +33,8 @@ struct AgentStudioPerformanceTraceRecorderTests {
                 retainedEntryCount: 4,
                 retainedSizeBytes: 256
             ),
-            queueAge: .milliseconds(3)
+            queueAge: .milliseconds(3),
+            applyOutcome: .changed
         )
         recorder.recordTerminalEqualSuppressed(publicationKind: .title)
         recorder.recordTerminalCompactApply(
@@ -79,6 +80,11 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(
             contents.contains(
                 "\"agentstudio.performance.terminal.accumulator.drain.class\":\"title_deadline\""
+            )
+        )
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.terminal.accumulator.apply.outcome\":\"changed\""
             )
         )
         #expect(contents.contains("\"body\":\"performance.terminal.compact_apply\""))

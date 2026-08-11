@@ -148,6 +148,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.toggle.intent",
         "agentstudio.performance.tabbar.terminal.outcome",
         "agentstudio.performance.terminal.accumulator.drain.class",
+        "agentstudio.performance.terminal.accumulator.apply.outcome",
         "agentstudio.performance.terminal.publication.kind",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
@@ -913,6 +914,8 @@ extension AgentStudioOTLPTraceProjection {
             .contains(value)
         case "agentstudio.performance.tabbar.terminal.outcome":
             return ["published", "equal", "superseded", "cancelled"].contains(value)
+        case "agentstudio.performance.terminal.accumulator.apply.outcome":
+            return ["equal", "changed"].contains(value)
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)

@@ -282,6 +282,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: drainClass)
             )
         }
+        appendTerminalAccumulatorApplyOutcomeDimension(record: record, dimensions: &dimensions)
         appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimensions(record: record, dimensions: &dimensions)
@@ -319,6 +320,23 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         return dimensions
+    }
+
+    private static func appendTerminalAccumulatorApplyOutcomeDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.terminal.accumulator_drain",
+            case .string(let outcome) = record.attributes[
+                "agentstudio.performance.terminal.accumulator.apply.outcome"
+            ],
+            ["equal", "changed"].contains(outcome)
+        else {
+            return
+        }
+        dimensions.append(
+            AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome)
+        )
     }
 
     private static func appendTerminalEqualSuppressedDimension(

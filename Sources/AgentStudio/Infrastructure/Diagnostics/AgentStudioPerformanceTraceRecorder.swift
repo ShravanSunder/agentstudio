@@ -12,6 +12,11 @@ package enum TerminalPerformancePublicationKind: String, Equatable, Sendable {
     case title
 }
 
+package enum TerminalAccumulatorApplyOutcome: String, Equatable, Sendable {
+    case equal
+    case changed
+}
+
 package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
     let drainClass: TerminalAccumulatorDrainClass
     let offeredCount: UInt64
@@ -285,34 +290,41 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     package func recordTerminalAccumulatorDrain(
         _ snapshot: TerminalAccumulatorDrainPerformanceSnapshot,
-        queueAge: Duration
+        queueAge: Duration,
+        applyOutcome: TerminalAccumulatorApplyOutcome?
     ) {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.terminal.accumulator.drain.class": .string(
+                snapshot.drainClass.rawValue
+            ),
+            "agentstudio.performance.terminal.accumulator.offered.count": Self.traceInteger(
+                snapshot.offeredCount),
+            "agentstudio.performance.terminal.accumulator.replaced.count": Self.traceInteger(
+                snapshot.replacedCount),
+            "agentstudio.performance.terminal.accumulator.equal_suppressed.count": Self.traceInteger(
+                snapshot.equalSuppressedCount),
+            "agentstudio.performance.terminal.accumulator.scheduled_drain.count": Self.traceInteger(
+                snapshot.scheduledDrainCount),
+            "agentstudio.performance.terminal.accumulator.follow_up_drain.count": Self.traceInteger(
+                snapshot.followUpDrainCount),
+            "agentstudio.performance.terminal.accumulator.mainactor_task.count": Self.traceInteger(
+                snapshot.mainActorTaskCount),
+            "agentstudio.performance.terminal.activity_aggregate.count": Self.traceInteger(
+                snapshot.activityAggregateCount),
+            "agentstudio.performance.terminal.accumulator.retained_entry.count": Self.traceInteger(
+                snapshot.retainedEntryCount),
+            "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(
+                snapshot.retainedSizeBytes),
+        ]
+        if let applyOutcome {
+            attributes["agentstudio.performance.terminal.accumulator.apply.outcome"] = .string(
+                applyOutcome.rawValue
+            )
+        }
         recordDuration(
             .terminalAccumulatorDrain,
             duration: queueAge,
-            attributes: [
-                "agentstudio.performance.terminal.accumulator.drain.class": .string(
-                    snapshot.drainClass.rawValue
-                ),
-                "agentstudio.performance.terminal.accumulator.offered.count": Self.traceInteger(
-                    snapshot.offeredCount),
-                "agentstudio.performance.terminal.accumulator.replaced.count": Self.traceInteger(
-                    snapshot.replacedCount),
-                "agentstudio.performance.terminal.accumulator.equal_suppressed.count": Self.traceInteger(
-                    snapshot.equalSuppressedCount),
-                "agentstudio.performance.terminal.accumulator.scheduled_drain.count": Self.traceInteger(
-                    snapshot.scheduledDrainCount),
-                "agentstudio.performance.terminal.accumulator.follow_up_drain.count": Self.traceInteger(
-                    snapshot.followUpDrainCount),
-                "agentstudio.performance.terminal.accumulator.mainactor_task.count": Self.traceInteger(
-                    snapshot.mainActorTaskCount),
-                "agentstudio.performance.terminal.activity_aggregate.count": Self.traceInteger(
-                    snapshot.activityAggregateCount),
-                "agentstudio.performance.terminal.accumulator.retained_entry.count": Self.traceInteger(
-                    snapshot.retainedEntryCount),
-                "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(
-                    snapshot.retainedSizeBytes),
-            ]
+            attributes: attributes
         )
     }
 

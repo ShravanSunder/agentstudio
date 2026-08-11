@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
+WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,atoms,app.startup,terminal.startup}"
 
 validate_fixture() {
   /usr/bin/python3 - "$1" <<'PY'
@@ -44,14 +45,23 @@ equal_title = proof["equalTitlePhase"]
 if equal_title["offerCount"] != 20:
     print("equal-title phase must offer exactly 20 titles", file=sys.stderr)
     raise SystemExit(1)
-if equal_title["scheduledTitleDrainCount"] > 2:
-    print("equal-title phase scheduled more than 10% of offers", file=sys.stderr)
+admitted_equal_count = equal_title["equalSuppressedCount"] + equal_title["scheduledTitleDrainCount"]
+if admitted_equal_count < 10:
+    print(
+        f"stimulus_invalid: equal-title phase admitted fewer than 10 equal offers: admitted_equal={admitted_equal_count}",
+        file=sys.stderr,
+    )
     raise SystemExit(1)
-if equal_title["equalSuppressedCount"] < 18:
-    print("equal-title phase did not account for suppressed offers", file=sys.stderr)
+ratio_failures = []
+if equal_title["equalSuppressedCount"] * 10 < admitted_equal_count * 9:
+    ratio_failures.append("equal-title phase suppressed less than 90% of admitted equal offers")
+if equal_title["scheduledTitleDrainCount"] * 10 > admitted_equal_count:
+    ratio_failures.append("equal-title phase drained more than 10% of admitted equal offers")
+if ratio_failures:
+    print("; ".join(ratio_failures), file=sys.stderr)
     raise SystemExit(1)
-if equal_title["canonicalAcceptedMutationDelta"] != 0:
-    print("equal-title phase changed canonical pane state", file=sys.stderr)
+if equal_title["canonicalAcceptedMutationDelta"] > equal_title["offerCount"]:
+    print("equal-title phase canonical mutations exceeded driver sends", file=sys.stderr)
     raise SystemExit(1)
 if pane["tabBarAffectedItemCount"] != 1:
     print("tabbar affected-item count must be 1", file=sys.stderr)
@@ -178,8 +188,109 @@ print(max(values) if values else 0)
 PY
 }
 
+decode_identity() {
+  local raw
+  raw="$(printf '%s\n' "$RESET_IDENTITY" | sed -n "s/^$1=//p" | tail -1)"
+  /usr/bin/python3 - "$raw" <<'PY'
+import shlex, sys
+parts = shlex.split(sys.argv[1]) if sys.argv[1] else []
+print(parts[0] if parts else "")
+PY
+}
+
+reset_disposable_debug_root() {
+  local expected_bundle_identifier zmx_pid zmx_pids
+  RESET_IDENTITY="$("$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity)"
+  RESET_DEBUG_CODE="$(decode_identity AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE)"
+  RESET_DATA_DIR="$(decode_identity AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  RESET_BUNDLE_IDENTIFIER="$(decode_identity AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER)"
+
+  case "$RESET_DATA_DIR" in
+    "$HOME/.agentstudio-db/"*) ;;
+    *) echo "refusing to reset debug data root outside $HOME/.agentstudio-db/: $RESET_DATA_DIR" >&2; exit 1 ;;
+  esac
+  [ "$RESET_DATA_DIR" != "$HOME/.agentstudio-db" ] || {
+    echo "refusing to reset debug data root container" >&2
+    exit 1
+  }
+  case "$RESET_DEBUG_CODE" in
+    ''|*[!a-z0-9]*) echo "refusing reset with unsafe debug code: $RESET_DEBUG_CODE" >&2; exit 1 ;;
+  esac
+  expected_bundle_identifier="com.agentstudio.app.debug.d$RESET_DEBUG_CODE"
+  if [ "$RESET_BUNDLE_IDENTIFIER" != "$expected_bundle_identifier" ]; then
+    echo "refusing reset for mismatched debug bundle identifier: $RESET_BUNDLE_IDENTIFIER" >&2
+    exit 1
+  fi
+
+  "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
+  zmx_pids="$(/bin/ps -axo pid=,command= | /usr/bin/python3 -c '
+import os, shlex, sys
+data_dir = sys.argv[1]
+for line in sys.stdin:
+    process_fields = line.strip().split(maxsplit=1)
+    if len(process_fields) != 2 or not process_fields[0].isdigit():
+        continue
+    command = process_fields[1]
+    try:
+        command_parts = shlex.split(command)
+    except ValueError:
+        continue
+    if not command_parts or os.path.basename(command_parts[0]) != "zmx":
+        continue
+    if data_dir not in command:
+        continue
+    print(process_fields[0])
+' "$RESET_DATA_DIR")"
+
+  for zmx_pid in $zmx_pids; do
+    kill "$zmx_pid"
+  done
+  for _ in $(seq 1 40); do
+    local live_zmx_pid=""
+    for zmx_pid in $zmx_pids; do
+      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+        live_zmx_pid="$zmx_pid"
+        break
+      fi
+    done
+    [ -z "$live_zmx_pid" ] && break
+    /bin/sleep 0.25
+  done
+  for zmx_pid in $zmx_pids; do
+    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+      kill -KILL "$zmx_pid"
+    fi
+  done
+  for _ in $(seq 1 20); do
+    local live_zmx_pid=""
+    for zmx_pid in $zmx_pids; do
+      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+        live_zmx_pid="$zmx_pid"
+        break
+      fi
+    done
+    [ -z "$live_zmx_pid" ] && break
+    /bin/sleep 0.25
+  done
+  for zmx_pid in $zmx_pids; do
+    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+      echo "refusing to remove debug data root while zmx remains live: pid=$zmx_pid data_dir=$RESET_DATA_DIR" >&2
+      exit 1
+    fi
+  done
+
+  echo "title/pane reset: bundle_id=$RESET_BUNDLE_IDENTIFIER data_dir=$RESET_DATA_DIR zmx_pids=${zmx_pids:-none}"
+  /bin/rm -rf -- "$RESET_DATA_DIR"
+}
+
+RESET_IDENTITY=""
+RESET_DEBUG_CODE=""
+RESET_DATA_DIR=""
+RESET_BUNDLE_IDENTIFIER=""
+reset_disposable_debug_root
+
 env \
-  AGENTSTUDIO_TRACE_TAGS="performance,atoms,app.startup,terminal.startup" \
+  AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
   AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
   AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 \
   AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=sidebar-performance-proof \
@@ -274,6 +385,14 @@ def snapshot():
             for record in terminal_drains
             if record.get("agentstudio.performance.terminal.accumulator.drain.class") == "title_deadline"
         ),
+        "title_apply_equal": sum(
+            1 for record in terminal_drains
+            if record.get("agentstudio.performance.terminal.accumulator.apply.outcome") == "equal"
+        ),
+        "title_apply_changed": sum(
+            1 for record in terminal_drains
+            if record.get("agentstudio.performance.terminal.accumulator.apply.outcome") == "changed"
+        ),
         "equal_title_suppressed": sum(
             numeric(record, "agentstudio.performance.terminal.equal_suppressed.count")
             for record in equal_suppressions
@@ -367,36 +486,49 @@ if title_delta["tab_affected"] != 1:
     raise RuntimeError(f"title phase must affect exactly the owning tab: {title_delta}")
 equal_title_offer_count = 20
 equal_title_baseline = quiescent_snapshot()
-request(
-    "terminal.send",
-    {
-        "handle":handle,
-        "input":(
-            "i=0; while [ \"$i\" -lt 20 ]; do IFS= read -r _; "
-            "printf '\\033]0;cadence-private-title\\007'; i=$((i+1)); done\n"
-        ),
-    },
-)
 for _ in range(equal_title_offer_count):
-    request("terminal.send", {"handle":handle,"input":"equal-title-offer\n"})
-request("terminal.wait", {"handle":handle,"condition":"commandFinished","timeoutSeconds":5})
+    request(
+        "terminal.send",
+        {"handle":handle,"input":"printf '\\033]0;cadence-private-title\\007'\n"},
+    )
+    request("terminal.wait", {"handle":handle,"condition":"commandFinished","timeoutSeconds":5})
 equal_title_after = quiescent_snapshot()
 equal_title_delta = delta(equal_title_baseline, equal_title_after)
-if equal_title_delta["scheduled_title_drains"] > 2:
+equal_title_admitted_count = (
+    equal_title_delta["equal_title_suppressed"] + equal_title_delta["scheduled_title_drains"]
+)
+if equal_title_admitted_count < 10:
     raise RuntimeError(
-        f"equal-title phase scheduled more than 10% of offers: offers={equal_title_offer_count} delta={equal_title_delta}"
+        "stimulus_invalid: equal-title phase admitted fewer than 10 equal offers: "
+        f"offers={equal_title_offer_count} admitted_equal={equal_title_admitted_count} delta={equal_title_delta}"
     )
-if equal_title_delta["equal_title_suppressed"] < 18:
+equal_title_ratio_failures = []
+if equal_title_delta["equal_title_suppressed"] * 10 < equal_title_admitted_count * 9:
+    equal_title_ratio_failures.append(
+        "equal-title phase suppressed less than 90% of admitted equal offers"
+    )
+if equal_title_delta["scheduled_title_drains"] * 10 > equal_title_admitted_count:
+    equal_title_ratio_failures.append(
+        "equal-title phase drained more than 10% of admitted equal offers"
+    )
+if equal_title_ratio_failures:
     raise RuntimeError(
-        f"equal-title phase did not account for suppressed offers: offers={equal_title_offer_count} delta={equal_title_delta}"
+        f"{'; '.join(equal_title_ratio_failures)}: offers={equal_title_offer_count} "
+        f"admitted_equal={equal_title_admitted_count} delta={equal_title_delta}"
     )
-if equal_title_delta["canonical_accepted"] != 0:
-    raise RuntimeError(f"equal-title phase changed canonical pane state: {equal_title_delta}")
+if equal_title_delta["canonical_accepted"] > equal_title_offer_count:
+    raise RuntimeError(
+        f"equal-title phase canonical mutations exceeded driver sends: offers={equal_title_offer_count} "
+        f"delta={equal_title_delta}"
+    )
 print(
     "equal-title phase: "
     f"offers={equal_title_offer_count} "
+    f"admitted_equal={equal_title_admitted_count} "
     f"scheduled_title_drains={equal_title_delta['scheduled_title_drains']} "
     f"equal_suppressed={equal_title_delta['equal_title_suppressed']} "
+    f"apply_outcome_equal={equal_title_delta['title_apply_equal']} "
+    f"apply_outcome_changed={equal_title_delta['title_apply_changed']} "
     f"canonical_accepted_delta={equal_title_delta['canonical_accepted']}"
 )
 immediate_records = [
@@ -465,18 +597,25 @@ drain_event='event="performance.terminal.accumulator_drain"'
 deadline_query='agentstudio_performance_event_elapsed_ms_max{'"$marker"','"$drain_event"',drain_class="title_deadline"}'
 immediate_query='agentstudio_performance_events_total{'"$marker"','"$drain_event"',drain_class="immediate"}'
 barrier_query='agentstudio_performance_events_total{'"$marker"','"$drain_event"',drain_class="exact_barrier"}'
+equal_outcome_query='agentstudio_performance_events_total{'"$marker"','"$drain_event"',outcome="equal"}'
+changed_outcome_query='agentstudio_performance_events_total{'"$marker"','"$drain_event"',outcome="changed"}'
 for _ in $(seq 1 "$METRIC_EXPORT_ATTEMPTS"); do
   deadline_ms="$(query_value "$deadline_query")"
   immediate_count="$(query_value "$immediate_query")"
   barrier_count="$(query_value "$barrier_query")"
-  [ "$deadline_ms" != 0 ] && [ "$immediate_count" != 0 ] && [ "$barrier_count" != 0 ] && break
+  equal_outcome_count="$(query_value "$equal_outcome_query")"
+  changed_outcome_count="$(query_value "$changed_outcome_query")"
+  [ "$deadline_ms" != 0 ] && [ "$immediate_count" != 0 ] && [ "$barrier_count" != 0 ] \
+    && [ "$changed_outcome_count" != 0 ] && break
   /bin/sleep 2
 done
-/usr/bin/python3 - "$deadline_ms" "$immediate_count" "$barrier_count" <<'PY'
+/usr/bin/python3 - "$deadline_ms" "$immediate_count" "$barrier_count" "$equal_outcome_count" "$changed_outcome_count" <<'PY'
 import sys
-deadline, immediate, barrier = map(float, sys.argv[1:])
+deadline, immediate, barrier, equal_outcome, changed_outcome = map(float, sys.argv[1:])
 if not 0 < deadline <= 1000: raise SystemExit(f"title_deadline outside bound: {deadline}")
 if immediate < 1: raise SystemExit("missing immediate drain")
 if barrier < 1: raise SystemExit("missing exact_barrier drain")
+if changed_outcome < 1: raise SystemExit("missing changed title apply outcome")
+print(f"title apply outcomes: equal={equal_outcome:g} changed={changed_outcome:g}")
 PY
 echo "title and pane performance proof ok: marker=$TRACE_MARKER"

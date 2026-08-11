@@ -313,12 +313,14 @@ extension Ghostty.ActionRouter {
             routedRuntime
             ?? dependencies.fallbackRuntimeRegistry?.runtime(for: paneID) as? TerminalRuntime
 
+        var didChangeTitle = false
         let equalWriteSuppressedCount: Int
         if let runtime {
             if let surfaceTitle = batch.titleMetadata?.surfaceTitle,
                 surfaceView.title != surfaceTitle
             {
                 surfaceView.titleDidChange(surfaceTitle)
+                didChangeTitle = true
             }
             equalWriteSuppressedCount = runtime.applyLocalActionBatch(batch)
             let didApplyRuntimeTitle: Bool
@@ -332,6 +334,7 @@ extension Ghostty.ActionRouter {
                 didApplyRuntimeTitle = false
             }
             if let titleMetadata = batch.titleMetadata, didApplyRuntimeTitle {
+                didChangeTitle = true
                 localActionAccumulator.acknowledgeSuccessfulTitlePublication(
                     titleMetadata,
                     for: surfaceID
@@ -362,7 +365,8 @@ extension Ghostty.ActionRouter {
             queueAge: terminalAccumulatorQueueAge(
                 firstOfferedAtNanoseconds: batch.firstOfferedAtNanoseconds,
                 currentUptimeNanoseconds: currentUptimeNanoseconds
-            )
+            ),
+            applyOutcome: batch.titleMetadata == nil ? nil : (didChangeTitle ? .changed : .equal)
         )
     }
 
@@ -503,7 +507,8 @@ extension Ghostty.ActionRouter {
         surfaceViewObjectID: ObjectIdentifier,
         expectedSurfaceID: UUID,
         routingLookup: any GhosttyActionRoutingLookup,
-        accumulator: TerminalLocalActionAccumulator = localActionAccumulator
+        accumulator: TerminalLocalActionAccumulator = localActionAccumulator,
+        precedingTitleApplyObserver: @MainActor (Bool) -> Void = { _ in }
     ) -> Bool {
         guard
             isCurrentSurfaceLifetime(
@@ -521,6 +526,7 @@ extension Ghostty.ActionRouter {
                 surfaceViewObjectID: surfaceViewObjectID,
                 routingLookup: routingLookup
             )
+            precedingTitleApplyObserver(didApplyPrecedingTitle)
             if didApplyPrecedingTitle {
                 accumulator.acknowledgeSuccessfulTitlePublication(
                     precedingTitle.metadata,
