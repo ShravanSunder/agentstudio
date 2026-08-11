@@ -75,7 +75,13 @@ final class WorkspaceCacheCoordinator {
         consumeTask = Task.detached { [bus, applier, consumeDirect] in
             let subscription = await bus.subscribe(
                 policy: .criticalUnbounded,
-                subscriberName: "WorkspaceCacheCoordinator"
+                subscriberName: "WorkspaceCacheCoordinator",
+                factInterest: .matching([
+                    .systemTopology,
+                    .systemWorkspaceActivity,
+                    .worktreeGitWorkingDirectory,
+                    .worktreeForge,
+                ])
             )
             for await envelope in subscription {
                 if Task.isCancelled { break }

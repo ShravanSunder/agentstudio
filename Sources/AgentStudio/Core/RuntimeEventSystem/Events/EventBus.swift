@@ -4,6 +4,26 @@ import os
 
 private let paneEventBusLogger = Logger(subsystem: "com.agentstudio", category: "PaneEventBus")
 
+package struct EventBusFactTopic: Hashable, Sendable {
+    let identifier: String
+
+    package init(_ identifier: String) {
+        self.identifier = identifier
+    }
+}
+
+package struct FactInterestDescriptor: Hashable, Sendable {
+    let topics: Set<EventBusFactTopic>
+
+    package static func matching(_ topics: Set<EventBusFactTopic>) -> Self {
+        Self(topics: topics)
+    }
+}
+
+package protocol EventBusFactTopicProviding: Sendable {
+    var eventBusFactTopic: EventBusFactTopic { get }
+}
+
 package enum BusSubscriberPolicy: Hashable, Sendable {
     package static let standardLossyBufferLimit = 256
     static let criticalPressureWarningLimit = standardLossyBufferLimit * 4
@@ -136,6 +156,7 @@ package actor EventBus<Envelope: Sendable> {
         let subscriberName: String
         let policy: BusSubscriberPolicy
         let replayStatus: EventBusReplayStatus
+        let factInterest: FactInterestDescriptor?
         var yieldedCount: UInt64 = 0
         var consumedCount: UInt64 = 0
         var liveDroppedCount: UInt64 = 0
@@ -181,7 +202,8 @@ package actor EventBus<Envelope: Sendable> {
 
     package func subscribe(
         policy: BusSubscriberPolicy,
-        subscriberName: String
+        subscriberName: String,
+        factInterest: FactInterestDescriptor? = nil
     ) -> EventBusSubscription<Envelope> {
         let subscriberID = UUID()
         let replaySnapshot = replaySnapshot()
@@ -193,10 +215,12 @@ package actor EventBus<Envelope: Sendable> {
                 continuation: continuation,
                 subscriberName: subscriberName,
                 policy: policy,
-                replayStatus: replaySnapshot.status
+                replayStatus: replaySnapshot.status,
+                factInterest: factInterest
             )
             self.performanceReporter?.recordEventBusSubscriberAdded()
             replayLoop: for envelope in replaySnapshot.envelopes {
+                guard self.shouldDeliver(envelope, to: factInterest) else { continue replayLoop }
                 switch continuation.yield(envelope) {
                 case .enqueued:
                     self.recordYielded(subscriberID)
@@ -232,6 +256,7 @@ package actor EventBus<Envelope: Sendable> {
         var terminatedSubscriberIds: [UUID] = []
 
         for (subscriberId, subscriber) in subscribers {
+            guard shouldDeliver(envelope, to: subscriber.factInterest) else { continue }
             switch subscriber.continuation.yield(envelope) {
             case .enqueued:
                 recordYielded(subscriberId)
@@ -271,6 +296,7 @@ package actor EventBus<Envelope: Sendable> {
         for envelope in envelopes {
             appendReplay(envelope)
             for (subscriberId, subscriber) in subscribers where !terminatedSubscriberIds.contains(subscriberId) {
+                guard shouldDeliver(envelope, to: subscriber.factInterest) else { continue }
                 switch subscriber.continuation.yield(envelope) {
                 case .enqueued:
                     recordYielded(subscriberId)
@@ -343,6 +369,12 @@ package actor EventBus<Envelope: Sendable> {
         if diagnostics.requiresRecovery {
             retainedRecoveryDiagnostics.append(diagnostics)
         }
+    }
+
+    private func shouldDeliver(_ envelope: Envelope, to interest: FactInterestDescriptor?) -> Bool {
+        guard let interest else { return true }
+        guard let topicProvider = envelope as? any EventBusFactTopicProviding else { return true }
+        return interest.topics.contains(topicProvider.eventBusFactTopic)
     }
 
     private func recordConsumed(_ id: UUID) {

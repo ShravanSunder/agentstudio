@@ -107,7 +107,8 @@ package actor ForgeActor {
         if subscriptionTask == nil {
             let stream = await runtimeBus.subscribe(
                 policy: .lossyNewest(subscriptionBufferLimit),
-                subscriberName: "ForgeActor"
+                subscriberName: "ForgeActor",
+                factInterest: .matching([.worktreeGitWorkingDirectory])
             )
             subscriptionTask = Task { [weak self] in
                 for await runtimeEnvelope in stream {

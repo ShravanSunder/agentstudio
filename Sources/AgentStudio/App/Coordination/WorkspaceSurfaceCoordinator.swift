@@ -374,7 +374,14 @@ final class WorkspaceSurfaceCoordinator {
             guard let self else { return }
             let subscription = await self.paneEventBus.subscribe(
                 policy: .criticalUnbounded,
-                subscriberName: "WorkspaceSurfaceCoordinator"
+                subscriberName: "WorkspaceSurfaceCoordinator",
+                factInterest: .matching([
+                    .worktreeFilesystem,
+                    .worktreeGitWorkingDirectory,
+                    .paneTerminal,
+                    .paneFilesystemContext,
+                    .paneError,
+                ])
             )
             for await envelope in subscription {
                 if Task.isCancelled { break }

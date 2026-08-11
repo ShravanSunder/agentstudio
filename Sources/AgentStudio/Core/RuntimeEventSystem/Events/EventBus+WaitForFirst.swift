@@ -15,9 +15,14 @@ extension EventBus {
     package func waitForFirst<Result: Sendable>(
         policy: BusSubscriberPolicy,
         subscriberName: String,
+        factInterest: FactInterestDescriptor? = nil,
         _ extract: @Sendable @escaping (Envelope) -> Result?
     ) async -> Result? {
-        let subscription = subscribe(policy: policy, subscriberName: subscriberName)
+        let subscription = subscribe(
+            policy: policy,
+            subscriberName: subscriberName,
+            factInterest: factInterest
+        )
         for await envelope in subscription {
             if let result = extract(envelope) {
                 return result
@@ -42,6 +47,7 @@ extension EventBus {
     func waitForFirst<Result: Sendable>(
         policy: BusSubscriberPolicy,
         subscriberName: String,
+        factInterest: FactInterestDescriptor? = nil,
         timeout: Duration,
         clock: (any Clock<Duration> & Sendable)? = nil,
         _ extract: @Sendable @escaping (Envelope) -> Result?
@@ -49,7 +55,11 @@ extension EventBus {
         let delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         return await withTaskGroup(of: Result?.self) { group in
             group.addTask {
-                let subscription = await self.subscribe(policy: policy, subscriberName: subscriberName)
+                let subscription = await self.subscribe(
+                    policy: policy,
+                    subscriberName: subscriberName,
+                    factInterest: factInterest
+                )
                 for await envelope in subscription {
                     if let result = extract(envelope) {
                         return result
