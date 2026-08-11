@@ -18,78 +18,80 @@ struct WorkspaceSurfaceCoordinatorPullRequestDemandTests {
 
     @Test("visible active tab and sidebar demand is content-distinct and clears with the window")
     func visibleDemandTracksTabSidebarAndWindow() async throws {
-        let store = WorkspaceStore()
-        let firstRepo = store.addRepo(at: URL(fileURLWithPath: "/tmp/pr-demand-first"))
-        let firstWorktree = try #require(firstRepo.worktrees.first)
-        let firstPane = store.createPane(
-            launchDirectory: firstWorktree.path,
-            facets: PaneContextFacets(
-                repoId: firstRepo.id,
-                worktreeId: firstWorktree.id,
-                cwd: firstWorktree.path
+        try await withAsyncTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore()
+            let firstRepo = store.addRepo(at: URL(fileURLWithPath: "/tmp/pr-demand-first"))
+            let firstWorktree = try #require(firstRepo.worktrees.first)
+            let firstPane = store.createPane(
+                launchDirectory: firstWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: firstRepo.id,
+                    worktreeId: firstWorktree.id,
+                    cwd: firstWorktree.path
+                )
             )
-        )
-        let firstTab = Tab(paneId: firstPane.id)
-        store.appendTab(firstTab)
+            let firstTab = Tab(paneId: firstPane.id)
+            store.appendTab(firstTab)
 
-        let secondRepo = store.addRepo(at: URL(fileURLWithPath: "/tmp/pr-demand-second"))
-        let secondWorktree = try #require(secondRepo.worktrees.first)
-        let secondPane = store.createPane(
-            launchDirectory: secondWorktree.path,
-            facets: PaneContextFacets(
-                repoId: secondRepo.id,
-                worktreeId: secondWorktree.id,
-                cwd: secondWorktree.path
+            let secondRepo = store.addRepo(at: URL(fileURLWithPath: "/tmp/pr-demand-second"))
+            let secondWorktree = try #require(secondRepo.worktrees.first)
+            let secondPane = store.createPane(
+                launchDirectory: secondWorktree.path,
+                facets: PaneContextFacets(
+                    repoId: secondRepo.id,
+                    worktreeId: secondWorktree.id,
+                    cwd: secondWorktree.path
+                )
             )
-        )
-        let secondTab = Tab(paneId: secondPane.id)
-        store.appendTab(secondTab)
-        store.setActiveTab(firstTab.id)
+            let secondTab = Tab(paneId: secondPane.id)
+            store.appendTab(secondTab)
+            store.setActiveTab(firstTab.id)
 
-        let source = PullRequestDemandRecordingFilesystemSource()
-        let windowLifecycle = WindowLifecycleAtom()
-        let coordinator = WorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: PullRequestDemandSurfaceManager(),
-            runtimeRegistry: RuntimeRegistry(),
-            paneEventBus: EventBus<RuntimeEnvelope>(),
-            filesystemSource: source,
-            windowLifecycleStore: windowLifecycle,
-            bridgePaneAttendance: BridgePaneAttendanceAtom()
-        )
-        let sidebarWorktreeId = UUIDv7.generate()
-        let owningWindowId = UUIDv7.generate()
-        atom(\.sidebarVisibleWorktreesRuntime).setVisibleWorktreeIds([])
-        coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
-        #expect(await source.waitForLastSnapshot([]))
+            let source = PullRequestDemandRecordingFilesystemSource()
+            let windowLifecycle = WindowLifecycleAtom()
+            let coordinator = WorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: ViewRegistry(),
+                runtime: SessionRuntime(store: store),
+                surfaceManager: PullRequestDemandSurfaceManager(),
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: EventBus<RuntimeEnvelope>(),
+                filesystemSource: source,
+                windowLifecycleStore: windowLifecycle,
+                bridgePaneAttendance: BridgePaneAttendanceAtom()
+            )
+            let sidebarWorktreeId = UUIDv7.generate()
+            let owningWindowId = UUIDv7.generate()
+            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
+            coordinator.bindPullRequestDemand(toOwningWindowId: owningWindowId)
+            #expect(await source.waitForLastSnapshot([]))
 
-        windowLifecycle.recordWindowRegistered(owningWindowId)
-        windowLifecycle.recordWindowPresentation(
-            WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
-            for: owningWindowId
-        )
-        #expect(await source.waitForLastSnapshot([firstWorktree.id]))
+            windowLifecycle.recordWindowRegistered(owningWindowId)
+            windowLifecycle.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: true, isMiniaturized: false, isOccluded: false),
+                for: owningWindowId
+            )
+            #expect(await source.waitForLastSnapshot([firstWorktree.id]))
 
-        atom(\.sidebarVisibleWorktreesRuntime).setVisibleWorktreeIds([sidebarWorktreeId])
-        #expect(await source.waitForLastSnapshot([firstWorktree.id, sidebarWorktreeId]))
-        let snapshotCountBeforeDuplicate = await source.snapshotCount
-        atom(\.sidebarVisibleWorktreesRuntime).setVisibleWorktreeIds([sidebarWorktreeId])
-        for _ in 0..<20 { await Task.yield() }
-        #expect(await source.snapshotCount == snapshotCountBeforeDuplicate)
+            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
+            #expect(await source.waitForLastSnapshot([firstWorktree.id, sidebarWorktreeId]))
+            let snapshotCountBeforeDuplicate = await source.snapshotCount
+            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([sidebarWorktreeId])
+            for _ in 0..<20 { await Task.yield() }
+            #expect(await source.snapshotCount == snapshotCountBeforeDuplicate)
 
-        store.setActiveTab(secondTab.id)
-        #expect(await source.waitForLastSnapshot([secondWorktree.id, sidebarWorktreeId]))
+            store.setActiveTab(secondTab.id)
+            #expect(await source.waitForLastSnapshot([secondWorktree.id, sidebarWorktreeId]))
 
-        windowLifecycle.recordWindowPresentation(
-            WindowPresentationFacts(isVisible: false, isMiniaturized: false, isOccluded: true),
-            for: owningWindowId
-        )
-        #expect(await source.waitForLastSnapshot([]))
+            windowLifecycle.recordWindowPresentation(
+                WindowPresentationFacts(isVisible: false, isMiniaturized: false, isOccluded: true),
+                for: owningWindowId
+            )
+            #expect(await source.waitForLastSnapshot([]))
 
-        atom(\.sidebarVisibleWorktreesRuntime).setVisibleWorktreeIds([])
-        await coordinator.shutdown()
+            coreAtoms.sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds([])
+            await coordinator.shutdown()
+        }
     }
 }
 

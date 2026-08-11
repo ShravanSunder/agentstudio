@@ -110,6 +110,18 @@ struct GitEnrichmentEventPipelineIntegrationTests {
         ) { harness in
             await waitForBusSubscriberCount(harness.bus, atLeast: 3)
 
+            await harness.forgeActor.register(
+                worktreeId: worktreeA,
+                repoId: repoA,
+                rootPath: URL(fileURLWithPath: "/tmp/repo-a")
+            )
+            await harness.forgeActor.register(
+                worktreeId: worktreeB,
+                repoId: repoB,
+                rootPath: URL(fileURLWithPath: "/tmp/repo-b")
+            )
+            await harness.forgeActor.setDemand(worktreeIds: [worktreeA, worktreeB])
+
             harness.repoCache.setWorktreeEnrichment(
                 WorktreeEnrichment(worktreeId: worktreeA, repoId: repoA, branch: "main")
             )
