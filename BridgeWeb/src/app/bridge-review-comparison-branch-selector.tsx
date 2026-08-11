@@ -156,6 +156,8 @@ function VirtualizedBranchOptions(props: {
 					if (branch === undefined) return null;
 					return (
 						<ComboboxItem
+							aria-posinset={virtualRow.index + 1}
+							aria-setsize={filteredBranches.length}
 							className="absolute left-0 top-0 w-full"
 							data-index={virtualRow.index}
 							data-testid={`comparison-branch-${branchTargetTestId(branch)}`}

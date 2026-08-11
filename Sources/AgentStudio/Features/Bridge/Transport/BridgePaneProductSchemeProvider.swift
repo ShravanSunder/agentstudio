@@ -470,10 +470,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 session: session
             )
         case .reviewComparisonTargets(let queryRequest):
+            let pendingCapture = pendingComparisonTargetQuery
+            pendingComparisonTargetQuery = nil
             guard
-                let capture = pendingComparisonTargetQuery,
-                capture.descriptor.descriptorId == queryRequest.descriptor.descriptorId,
-                capture.descriptor.expectedSha256 == queryRequest.descriptor.expectedSha256
+                let capture = pendingCapture,
+                capture.descriptor == queryRequest.descriptor
             else {
                 try? await enqueueUnavailableContentTerminal(
                     for: lease,
@@ -483,7 +484,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 )
                 return
             }
-            pendingComparisonTargetQuery = nil
             try await runBufferedContentProducer(
                 BufferedContentBody(
                     data: capture.body,

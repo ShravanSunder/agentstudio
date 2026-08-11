@@ -98,6 +98,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 						revision: reviewPackage.revision,
 						status: 'current',
 					},
+					repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
 				})}
 				displayedReviewPackage={reviewPackage}
 				onApplyTarget={vi.fn()}
@@ -117,6 +118,46 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
+		await expect.element(rendered.getByText('Default', { exact: true })).toBeVisible();
+	});
+
+	test('does not label the local default branch when the repository default is remote-tracking', async () => {
+		// Arrange
+		const reviewPackage = contributionPackage({
+			baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			packageId: 'package-local-default-not-remote-default',
+			resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+			revision: 5,
+			symbolicTarget: {
+				basis: 'commonCommit',
+				branchName: 'main',
+				kind: 'localDefaultBranch',
+			},
+		});
+		const rendered = await render(
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({
+					displayedSnapshot: {
+						packageId: reviewPackage.packageId,
+						reviewGeneration: reviewPackage.reviewGeneration,
+						revision: reviewPackage.revision,
+						status: 'current',
+					},
+					repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
+				})}
+				displayedReviewPackage={reviewPackage}
+				onApplyTarget={vi.fn()}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const currentState = rendered.getByTestId('bridge-review-comparison-current-state');
+		expect(currentState.element().textContent).not.toContain('Default');
 	});
 
 	test('explains when a comparison target must be chosen', async () => {
@@ -374,6 +415,19 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const mountedRows = document.querySelectorAll('[data-slot="combobox-item"]');
 		expect(mountedRows.length).toBeLessThanOrEqual(40);
 		expect(mountedRows.length).toBeGreaterThan(0);
+		const firstRow = rendered.getByTestId('comparison-branch-branch-0');
+		await expect.element(firstRow).toHaveAttribute('aria-setsize', '2000');
+		await expect.element(firstRow).toHaveAttribute('aria-posinset', '1');
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('combobox', { name: 'Search branches' }).fill('branch-19');
+		});
+
+		// Assert
+		const filteredNonFirstRow = rendered.getByTestId('comparison-branch-branch-190');
+		await expect.element(filteredNonFirstRow).toHaveAttribute('aria-setsize', '111');
+		await expect.element(filteredNonFirstRow).toHaveAttribute('aria-posinset', '2');
 	});
 
 	test('explains the recent-window and capacity bounds beside ready branch results', async () => {
