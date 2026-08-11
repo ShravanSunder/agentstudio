@@ -929,7 +929,7 @@ CommandBarView.executeItem(item)
 │   └─ state.pushLevel(level) — drill into nested target picker
 │
 └─ .custom(closure)
-    └─ onDismiss() → closure() — e.g., NotificationCenter.post(.selectTabById)
+    └─ onDismiss() → closure() — for a UI-local action without an `AppCommand` identity
 ```
 
 The command bar records the selected item ID in `recentItemIds` (persisted to `UserDefaults`) before executing. Dimmed items (commands where `dispatcher.canDispatch()` returns false) are blocked from execution on both click and Enter key.

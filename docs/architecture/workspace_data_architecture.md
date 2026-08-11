@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
+Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, terminal activity router, and inbox router consume their own matched facts. The sidebar is a pure reader of the state owners via `@Observable` binding — zero imperative fetches, zero mutations.
 
 Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
 `local.sqlite` before any hydration, then retains one writable owner for each
@@ -849,7 +849,7 @@ Topology facts flow through a layered pipeline. Each layer's output is the next 
 LAYER              COMPONENT                        OWNS
 ─────              ─────────                        ────
 Fact Producer      FilesystemActor                  Observing filesystem, emitting raw facts
-Publication        EventBus                         Fan-out to all subscribers (dumb pipe)
+Publication        EventBus                         Match fact topics; replay and delivery diagnostics
 Accumulator        WorkspaceCacheCoordinator         Interpreting facts, sequencing effects
 Reconciler         WorktreeReconciler (pure func)   Identity preservation, diff computation
 State              WorkspaceStore                   Canonical truth, mutation methods
