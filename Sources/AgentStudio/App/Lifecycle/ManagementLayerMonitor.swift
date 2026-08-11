@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import Observation
 
@@ -26,8 +27,14 @@ final class ManagementLayerMonitor {
     var isActive: Bool { managementLayer.isActive }
 
     private var keyboardMonitor: Any?
+    private let interactionProbe: AgentStudioInteractionPerformanceProbe?
+    private var pendingCommandRefreshCorrelationId: UUID?
 
-    init(startKeyboardMonitoring: Bool = true) {
+    init(
+        startKeyboardMonitoring: Bool = true,
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
+    ) {
+        self.interactionProbe = interactionProbe
         if startKeyboardMonitoring {
             self.startKeyboardMonitoring()
         }
@@ -54,6 +61,20 @@ final class ManagementLayerMonitor {
         }
     }
 
+    func prepareCommandRefreshSettlement(correlationId: UUID) {
+        pendingCommandRefreshCorrelationId = correlationId
+        withObservationTracking {
+            _ = managementLayer.isActive
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                guard self?.pendingCommandRefreshCorrelationId == correlationId else { return }
+                self?.pendingCommandRefreshCorrelationId = nil
+                self?.interactionProbe?.settleInteraction(correlationId: correlationId)
+            }
+        }
+    }
+
     // MARK: - Keyboard Blocking
 
     /// Monitors all keyDown events. During management layer:
@@ -73,7 +94,7 @@ final class ManagementLayerMonitor {
                 self.deactivate()
                 return nil
             case .dispatch(let shortcut):
-                AppCommandDispatcher.shared.dispatch(shortcut.command)
+                AppCommandDispatcher.shared.dispatchKeyboardShortcut(shortcut)
                 return nil
             case .passThrough:
                 return event

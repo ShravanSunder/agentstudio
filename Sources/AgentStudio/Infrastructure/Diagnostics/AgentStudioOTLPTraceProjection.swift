@@ -123,6 +123,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.action.name",
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
+        "agentstudio.performance.interaction.kind",
         "agentstudio.inbox.claim.lane",
         "agentstudio.inbox.claim.semantic",
         "agentstudio.inbox.decision",
@@ -910,6 +911,9 @@ extension AgentStudioOTLPTraceProjection {
             .contains(value)
         case "agentstudio.performance.tabbar.terminal.outcome":
             return ["published", "equal", "superseded", "cancelled"].contains(value)
+        case "agentstudio.performance.interaction.kind":
+            return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
+                .contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",

@@ -38,17 +38,23 @@ func withIsolatedCommandDispatcher<T>(
     await CommandDispatcherTestIsolation.shared.acquire()
     let previousHandler = AppCommandDispatcher.shared.handler
     let previousRouter = AppCommandDispatcher.shared.appCommandRouter
+    let previousInteractionProbe = AppCommandDispatcher.shared.interactionProbe
+    let previousCommandRefreshCallback = AppCommandDispatcher.shared.onCommandRefreshAccepted
     configure()
 
     do {
         let result = try await body()
         AppCommandDispatcher.shared.handler = previousHandler
         AppCommandDispatcher.shared.appCommandRouter = previousRouter
+        AppCommandDispatcher.shared.interactionProbe = previousInteractionProbe
+        AppCommandDispatcher.shared.onCommandRefreshAccepted = previousCommandRefreshCallback
         await CommandDispatcherTestIsolation.shared.release()
         return result
     } catch {
         AppCommandDispatcher.shared.handler = previousHandler
         AppCommandDispatcher.shared.appCommandRouter = previousRouter
+        AppCommandDispatcher.shared.interactionProbe = previousInteractionProbe
+        AppCommandDispatcher.shared.onCommandRefreshAccepted = previousCommandRefreshCallback
         await CommandDispatcherTestIsolation.shared.release()
         throw error
     }

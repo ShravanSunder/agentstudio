@@ -87,6 +87,32 @@ struct ArchitectureLintCommandTests {
         }
     }
 
+    @Test("report-only diagnostics print without failing the command")
+    func reportOnlyDiagnosticsPrintWithoutFailingCommand() throws {
+        let fixture = fixturePath("Good")
+        let result = runCommand(
+            arguments: [fixture],
+            workspaceRootPath: fixture,
+            rules: [AlwaysReportArchitectureRule()]
+        )
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("report: [agentstudio_test_report_only]"))
+    }
+
+    @Test("warning diagnostics continue to fail the command")
+    func warningDiagnosticsContinueToFailCommand() throws {
+        let fixture = fixturePath("Good")
+        let result = runCommand(
+            arguments: [fixture],
+            workspaceRootPath: fixture,
+            rules: [AlwaysWarningArchitectureRule()]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.contains("warning: [agentstudio_test_warning]"))
+    }
+
     private func fixturePath(_ name: String) -> String {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -97,7 +123,8 @@ struct ArchitectureLintCommandTests {
 
     private func runCommand(
         arguments: [String],
-        workspaceRootPath: String = FileManager.default.currentDirectoryPath
+        workspaceRootPath: String = FileManager.default.currentDirectoryPath,
+        rules: [any ArchitectureRule] = ArchitectureRuleRegistry.rules
     ) -> CommandRunResult {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-architecture-lint-\(UUID().uuidString)")
@@ -116,7 +143,7 @@ struct ArchitectureLintCommandTests {
             fileManager: .default,
             standardOutput: outputHandle,
             standardError: errorHandle,
-            rules: ArchitectureRuleRegistry.rules,
+            rules: rules,
             workspaceRootPath: workspaceRootPath
         )
 
@@ -127,6 +154,36 @@ struct ArchitectureLintCommandTests {
         let output = (try? String(contentsOf: outputURL, encoding: .utf8)) ?? ""
         let error = (try? String(contentsOf: errorURL, encoding: .utf8)) ?? ""
         return CommandRunResult(exitCode: exitCode, output: output + error)
+    }
+}
+
+private struct AlwaysReportArchitectureRule: ArchitectureRule {
+    let id = "agentstudio_test_report_only"
+    let severity = ArchitectureSeverity.report
+    let message = "test report-only diagnostic"
+
+    func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
+        [
+            diagnostic(
+                context: context,
+                position: context.sourceFile.positionAfterSkippingLeadingTrivia
+            )
+        ]
+    }
+}
+
+private struct AlwaysWarningArchitectureRule: ArchitectureRule {
+    let id = "agentstudio_test_warning"
+    let severity = ArchitectureSeverity.warning
+    let message = "test warning diagnostic"
+
+    func validate(context: ArchitectureLintContext) -> [ArchitectureDiagnostic] {
+        [
+            diagnostic(
+                context: context,
+                position: context.sourceFile.positionAfterSkippingLeadingTrivia
+            )
+        ]
     }
 }
 

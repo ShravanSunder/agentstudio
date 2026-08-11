@@ -6,6 +6,22 @@ import Testing
 
 @Suite
 struct RuleParityTests {
+    @Test("performance guard fixtures report all four advisory rules")
+    func performanceGuardFixturesReportAllFourAdvisoryRules() throws {
+        let diagnostics = try lintFixtureCorpus("Bad")
+        let performanceRuleIDs = Set(
+            diagnostics.filter {
+                $0.ruleID.hasPrefix("agentstudio_observation_capture_")
+                    || $0.ruleID.hasPrefix("agentstudio_mainactor_unbounded_")
+                    || $0.ruleID.hasPrefix("agentstudio_performance_constants_")
+                    || $0.ruleID.hasPrefix("agentstudio_nonisolated_async_")
+            }.map(\.ruleID)
+        )
+
+        #expect(performanceRuleIDs.count == 4)
+        #expect(diagnostics.filter { performanceRuleIDs.contains($0.ruleID) }.allSatisfy { $0.severity == .report })
+    }
+
     @Test("bad fixture corpus exercises every migrated rule")
     func badFixtureCorpusExercisesEveryMigratedRule() throws {
         let diagnostics = try lintFixtureCorpus("Bad")

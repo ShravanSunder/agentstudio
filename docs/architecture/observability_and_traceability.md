@@ -141,6 +141,7 @@ Allowed OTLP atom fields are aggregate or controlled vocabulary only:
 
 ```text
 agentstudio.performance.atom.kind
+agentstudio.performance.atom.label
 agentstudio.performance.atom.operation
 agentstudio.performance.atom.slot.count
 agentstudio.performance.atom.cached_key.count
@@ -153,6 +154,20 @@ Raw atom keys, repo paths, pane ids, workspace ids, object identifiers, and
 dictionary payloads must not be exported over OTLP. If an investigation needs a
 local forensic field, keep it JSONL-only unless a design update explicitly
 extends the OTLP allowlist.
+
+The atom `label` is a controlled lane identity such as
+`pane_graph_canonical`; it is not an atom key or entity identifier. Atom
+metrics retain the controlled `kind`, `operation`, and `label` dimensions plus
+aggregate slot/cache/input-revision/accepted-change counts and cache-hit state.
+
+`performance.runtime_delivery.snapshot` exports aggregate delivery health.
+Runtime-channel outbound pending/dropped/retired-undelivered counts remain
+separate from EventBus live drops, replay drops, retired-undelivered counts,
+active-subscriber count, and active delivery debt. Delivery debt means items
+already admitted but still owed to active subscribers; it is not a drop count.
+OTLP metrics use the equivalent scrubbed
+`agentstudio_performance_runtime_delivery_*` series and never export subscriber
+names or payloads.
 
 ## Proof Model
 

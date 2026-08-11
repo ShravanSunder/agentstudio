@@ -134,6 +134,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case gitStatusUnavailable = "performance.git.status_unavailable"
         case gitSuppressedInputSkipped = "performance.git.suppressed_input_skipped"
         case gitTick = "performance.git.tick"
+        case interactionLatency = "performance.interaction.latency"
         case managementLayerAppKitState = "performance.management_layer.appkit_state"
         case managementLayerCommand = "performance.management_layer.command"
         case paneActionExecution = "performance.pane_action.execution"
@@ -141,6 +142,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestore = "performance.pane_view.restore"
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
+        case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"
         case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"
@@ -242,6 +244,19 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         var mergedAttributes = attributes()
         mergedAttributes["agentstudio.performance.elapsed_ms"] = .double(Self.milliseconds(from: duration))
         record(event, attributes: mergedAttributes)
+    }
+
+    package func recordInteractionLatency(
+        kind: AgentStudioInteractionKind,
+        duration: Duration
+    ) {
+        recordDuration(
+            .interactionLatency,
+            duration: duration,
+            attributes: [
+                "agentstudio.performance.interaction.kind": .string(kind.rawValue)
+            ]
+        )
     }
 
     package func recordRepoAndWorktreeLookup(

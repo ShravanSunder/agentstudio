@@ -1,6 +1,25 @@
 import AgentStudioInfrastructure
 import SwiftUI
 
+private struct SplitViewLayoutPublicationKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct InteractionPerformanceProbeEnvironmentKey: EnvironmentKey {
+    static let defaultValue: AgentStudioInteractionPerformanceProbe? = nil
+}
+
+extension EnvironmentValues {
+    package var agentStudioInteractionPerformanceProbe: AgentStudioInteractionPerformanceProbe? {
+        get { self[InteractionPerformanceProbeEnvironmentKey.self] }
+        set { self[InteractionPerformanceProbeEnvironmentKey.self] = newValue }
+    }
+}
+
 /// A split view shows a left and right (or top and bottom) view with a divider in the middle for resizing.
 /// The terminology "left" and "right" is always used but for vertical splits "left" is "top" and "right" is "bottom".
 ///
@@ -36,6 +55,8 @@ package struct SplitView<L: View, R: View>: View {
 
     /// The current fractional width of the split view. 0.5 means L/R are equally sized.
     @Binding var split: CGFloat
+    @Environment(\.agentStudioInteractionPerformanceProbe) private var interactionProbe
+    @State private var frameMeasurement = DividerFrameMeasurementState()
 
     /// Gap size between panes (the background color shows through as the separator)
     private let splitterGapSize: CGFloat = 2
@@ -75,6 +96,10 @@ package struct SplitView<L: View, R: View>: View {
                 }
             }
             .clipped()
+            .preference(key: SplitViewLayoutPublicationKey.self, value: split)
+            .onPreferenceChange(SplitViewLayoutPublicationKey.self) { _ in
+                frameMeasurement.layoutDidPublish(using: interactionProbe)
+            }
             .accessibilityElement(children: .contain)
             .accessibilityLabel(splitViewLabel)
         }
@@ -117,6 +142,7 @@ package struct SplitView<L: View, R: View>: View {
                     )
                     onResizeBegin?()
                 }
+                frameMeasurement.admitSample(using: interactionProbe)
                 switch direction {
                 case .horizontal:
                     let new = min(max(minSize, gesture.location.x), size.width - minSize)

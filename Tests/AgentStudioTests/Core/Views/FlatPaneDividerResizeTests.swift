@@ -2,9 +2,35 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite
 struct FlatPaneDividerResizeTests {
+
+    @Test("measurement admits one sample until layout publication")
+    func measurementAdmitsOneSamplePerPublicationFrame() {
+        let clock = DividerInteractionTestClock(nowNanoseconds: 1_000_000)
+        let recorder = DividerInteractionTestRecorder()
+        let probe = AgentStudioInteractionPerformanceProbe(
+            nowNanoseconds: clock.now,
+            recordDuration: recorder.record
+        )
+        var measurement = DividerFrameMeasurementState()
+
+        let firstSampleAdmitted = measurement.admitSample(using: probe)
+        let duplicateSampleAdmitted = measurement.admitSample(using: probe)
+        #expect(firstSampleAdmitted)
+        #expect(!duplicateSampleAdmitted)
+        #expect(recorder.records.isEmpty)
+        clock.nowNanoseconds = 2_000_000
+        measurement.layoutDidPublish(using: probe)
+        let nextFrameSampleAdmitted = measurement.admitSample(using: probe)
+        #expect(nextFrameSampleAdmitted)
+        clock.nowNanoseconds = 4_000_000
+        measurement.layoutDidPublish(using: probe)
+
+        #expect(recorder.records.map(\.duration) == [.milliseconds(1), .milliseconds(2)])
+    }
 
     // MARK: - Pure computation tests
 
@@ -147,5 +173,28 @@ struct FlatPaneDividerResizeTests {
                 "Frame \(frame): ratio \(ratio) should equal \(expectedRatio)"
             )
         }
+    }
+}
+
+private final class DividerInteractionTestClock: @unchecked Sendable {
+    var nowNanoseconds: UInt64
+
+    init(nowNanoseconds: UInt64) {
+        self.nowNanoseconds = nowNanoseconds
+    }
+
+    func now() -> UInt64 { nowNanoseconds }
+}
+
+private final class DividerInteractionTestRecorder: @unchecked Sendable {
+    struct Record {
+        let kind: AgentStudioInteractionKind
+        let duration: Duration
+    }
+
+    private(set) var records: [Record] = []
+
+    func record(kind: AgentStudioInteractionKind, duration: Duration) {
+        records.append(.init(kind: kind, duration: duration))
     }
 }

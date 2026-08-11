@@ -3,10 +3,41 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @MainActor
-struct ManagementLayerTests {
+@Suite("ManagementLayerMonitor")
+struct ManagementLayerMonitorTests {
+    @Test("management layer publication settles command refresh after invalidation")
+    func managementLayerPublicationSettlesCommandRefreshAfterInvalidation() async {
+        await withAsyncTestCoreAtoms { _ in
+            let clock = ManagementLayerProbeClock(nowNanoseconds: 2_000_000)
+            let recorder = ManagementLayerProbeRecorder()
+            let probe = AgentStudioInteractionPerformanceProbe(
+                nowNanoseconds: clock.now,
+                recordDuration: recorder.record
+            )
+            let monitor = ManagementLayerMonitor(
+                startKeyboardMonitoring: false,
+                interactionProbe: probe
+            )
+            let correlationId = UUIDv7.generate()
+
+            probe.beginInteraction(.commandRefresh, correlationId: correlationId)
+            monitor.prepareCommandRefreshSettlement(correlationId: correlationId)
+            clock.nowNanoseconds = 5_000_000
+            monitor.toggle()
+
+            #expect(recorder.records.isEmpty)
+            await eventually("command refresh settlement is published") {
+                recorder.records.count == 1
+            }
+            #expect(recorder.records.first?.0 == .commandRefresh)
+            #expect(recorder.records.first?.1 == .milliseconds(3))
+        }
+    }
+
     private func makeMonitor() -> ManagementLayerMonitor {
         ManagementLayerMonitor(startKeyboardMonitoring: false)
     }
@@ -391,5 +422,23 @@ struct ManagementLayerTests {
             let definition = AppCommandDispatcher.shared.definition(for: .watchFolder)
             #expect(definition.requiresManagementLayer == false)
         }
+    }
+}
+
+private final class ManagementLayerProbeClock: @unchecked Sendable {
+    var nowNanoseconds: UInt64
+
+    init(nowNanoseconds: UInt64) {
+        self.nowNanoseconds = nowNanoseconds
+    }
+
+    func now() -> UInt64 { nowNanoseconds }
+}
+
+private final class ManagementLayerProbeRecorder: @unchecked Sendable {
+    private(set) var records: [(AgentStudioInteractionKind, Duration)] = []
+
+    func record(kind: AgentStudioInteractionKind, duration: Duration) {
+        records.append((kind, duration))
     }
 }

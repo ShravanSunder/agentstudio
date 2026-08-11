@@ -48,10 +48,16 @@ struct ZoomRuntimeDispatchTests {
                     )
                 )
 
-                await eventually("toggleSplitZoom should dispatch targeted semantic Pane Zoom") {
-                    commandHandler.targetedCommands.count == 1
-                }
+                let targetedCommand = await commandHandler.nextTargetedCommand()
 
+                #expect(
+                    targetedCommand
+                        == RuntimeZoomCommandHandlerProbe.TargetedCommand(
+                            command: .zoomPane,
+                            target: sourcePane.id,
+                            targetType: .pane
+                        )
+                )
                 #expect(
                     commandHandler.targetedCommands == [
                         RuntimeZoomCommandHandlerProbe.TargetedCommand(
@@ -77,17 +83,29 @@ private final class RuntimeZoomCommandHandlerProbe: WorkspaceCommandHandling {
     }
 
     private(set) var targetedCommands: [TargetedCommand] = []
+    private var targetedCommandWaiters: [CheckedContinuation<TargetedCommand, Never>] = []
 
     func execute(_: AppCommand) {}
 
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        targetedCommands.append(
-            TargetedCommand(
-                command: command,
-                target: target,
-                targetType: targetType
-            )
+        let targetedCommand = TargetedCommand(
+            command: command,
+            target: target,
+            targetType: targetType
         )
+        targetedCommands.append(targetedCommand)
+        if !targetedCommandWaiters.isEmpty {
+            targetedCommandWaiters.removeFirst().resume(returning: targetedCommand)
+        }
+    }
+
+    func nextTargetedCommand() async -> TargetedCommand {
+        if let targetedCommand = targetedCommands.first {
+            return targetedCommand
+        }
+        return await withCheckedContinuation { continuation in
+            targetedCommandWaiters.append(continuation)
+        }
     }
 
     func canExecute(_: AppCommand) -> Bool {

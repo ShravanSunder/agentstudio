@@ -113,6 +113,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private let interactionProbe: AgentStudioInteractionPerformanceProbe?
+    private var pendingTabMovePublication: PendingTabMovePublication?
     private var hasShutdown = false
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -133,6 +135,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneAtom: store.paneAtom,
             managementLayerAtom: atom(\.managementLayer)
         )
+    }
+
+    private struct PendingTabMovePublication {
+        let correlationId: UUID
+        let movedTabId: UUID
+        let expectedOrderedTabIds: [UUID]
     }
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
@@ -244,6 +252,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
         bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
         registersAsCommandHandler: Bool = true,
         embedsTabBarInView: Bool = true
     ) {
@@ -274,6 +283,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.interactionProbe =
+            interactionProbe
+            ?? performanceTraceRecorder.map {
+                AgentStudioInteractionPerformanceProbe(recorder: $0)
+            }
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
         self.arrangementPanelPresentation = arrangementPanelPresentation
@@ -392,11 +406,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             },
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
+                self?.acknowledgeTabBarPublication(frames: frames)
             }
         )
         let hostingView = DraggableTabBarHostingView(rootView: tabBar)
-        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
-            self?.handleTabReorder(fromId: fromId, toIndex: toIndex)
+        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex, correlationId in
+            self?.handleTabReorder(
+                fromId: fromId,
+                toIndex: toIndex,
+                correlationId: correlationId
+            )
         }
         hostingView.dragPayloadProvider = { [weak self] tabId in
             self?.createDragPayload(for: tabId)
@@ -1162,7 +1181,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     for: paneId,
                     viewerPresentation: viewerPresentation
                 ) ?? .hidden
-            }
+            },
+            interactionProbe: interactionProbe
         )
 
         return PersistentTabHostView(tabId: tabId, rootView: contentView)
@@ -1727,7 +1747,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             else {
                 return false
             }
-            AppCommandDispatcher.shared.dispatch(shortcut.command)
+            AppCommandDispatcher.shared.dispatchKeyboardShortcut(shortcut)
             return true
         }
 
@@ -1750,7 +1770,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 return false
             }
             if AppCommandDispatcher.shared.canDispatch(shortcut.command) {
-                AppCommandDispatcher.shared.dispatch(shortcut.command)
+                AppCommandDispatcher.shared.dispatchKeyboardShortcut(shortcut)
                 return true
             }
             if AppShortcutDispatchPolicy.shouldConsumeUnavailableGlobalShortcut(
@@ -2525,8 +2545,25 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Tab Reordering
 
-    private func handleTabReorder(fromId: UUID, toIndex: Int) {
+    private func handleTabReorder(fromId: UUID, toIndex: Int, correlationId: UUID) {
+        interactionProbe?.beginInteraction(.tabMove, correlationId: correlationId)
         dispatchAction(.reorderTab(tabId: fromId, newIndex: toIndex))
+        pendingTabMovePublication = PendingTabMovePublication(
+            correlationId: correlationId,
+            movedTabId: fromId,
+            expectedOrderedTabIds: store.tabShellAtom.orderedTabIds
+        )
+    }
+
+    func acknowledgeTabBarPublication(frames: [UUID: CGRect]) {
+        guard let pendingTabMovePublication,
+            tabBarAdapter.tabs.map(\.id) == pendingTabMovePublication.expectedOrderedTabIds,
+            frames[pendingTabMovePublication.movedTabId] != nil
+        else { return }
+        self.pendingTabMovePublication = nil
+        interactionProbe?.settleInteraction(
+            correlationId: pendingTabMovePublication.correlationId
+        )
     }
 
     // MARK: - Drag Payload

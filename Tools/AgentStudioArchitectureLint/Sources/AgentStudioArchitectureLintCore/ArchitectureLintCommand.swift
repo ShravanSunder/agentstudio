@@ -67,7 +67,7 @@ public struct ArchitectureLintCommand {
             for diagnostic in diagnostics.sorted() {
                 writeOutput(diagnostic.rendered)
             }
-            return diagnostics.isEmpty ? 0 : 1
+            return diagnostics.contains { $0.severity.affectsExitCode } ? 1 : 0
         } catch {
             writeError("agentstudio-architecture-lint: \(error)\n")
             return 2

@@ -3,11 +3,46 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("App command dispatcher mode preflight")
 struct AppCommandDispatcherModePreflightTests {
+    @Test("keyboard Cmd+R admits a probe while programmatic dispatch does not")
+    func keyboardCommandRefreshAdmitsProbeOnlyAtKeyboardIngress() async throws {
+        let clock = CommandRefreshProbeClock(nowNanoseconds: 1_000_000)
+        let recorder = CommandRefreshProbeRecorder()
+        let probe = AgentStudioInteractionPerformanceProbe(
+            nowNanoseconds: clock.now,
+            recordDuration: recorder.record
+        )
+        let shellOwner = RecordingDispatcherShellCommandOwner(executionResult: true)
+        var admittedCorrelationIds: [UUID] = []
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.appCommandRouter = shellOwner
+                AppCommandDispatcher.shared.interactionProbe = probe
+                AppCommandDispatcher.shared.onCommandRefreshAccepted = {
+                    admittedCorrelationIds.append($0)
+                }
+            },
+            body: {
+                AppCommandDispatcher.shared.dispatchKeyboardShortcut(.toggleManagementLayer)
+                AppCommandDispatcher.shared.dispatch(.toggleManagementLayer)
+
+                #expect(admittedCorrelationIds.count == 1)
+                #expect(recorder.records.isEmpty)
+                #expect(
+                    shellOwner.interactions.filter {
+                        $0 == .contextualExecution(command: .toggleManagementLayer)
+                    }.count == 2
+                )
+            }
+        )
+    }
+
     // Mutation caught: headless IPC targeted dispatch is narrowed by interactive AppCommandTargeting.
     @Test("targeted preflight keeps interactive targeting separate from headless IPC authority")
     func targetedPreflightKeepsInteractiveTargetingSeparateFromHeadlessIPCAuthority() {
@@ -190,6 +225,24 @@ struct AppCommandDispatcherModePreflightTests {
                 }
             )
         }
+    }
+}
+
+private final class CommandRefreshProbeClock: @unchecked Sendable {
+    var nowNanoseconds: UInt64
+
+    init(nowNanoseconds: UInt64) {
+        self.nowNanoseconds = nowNanoseconds
+    }
+
+    func now() -> UInt64 { nowNanoseconds }
+}
+
+private final class CommandRefreshProbeRecorder: @unchecked Sendable {
+    private(set) var records: [(AgentStudioInteractionKind, Duration)] = []
+
+    func record(kind: AgentStudioInteractionKind, duration: Duration) {
+        records.append((kind, duration))
     }
 }
 

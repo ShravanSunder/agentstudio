@@ -6,6 +6,16 @@ import Foundation
 import Observation
 import SwiftUI
 
+enum RepoExplorerOutlineApplyOutcome: String, Equatable, Sendable {
+    case equal
+    case changed
+}
+
+struct RepoExplorerOutlineApplyMeasurement: Equatable, Sendable {
+    let duration: Duration
+    let rowCount: Int
+    let outcome: RepoExplorerOutlineApplyOutcome
+}
 package typealias BridgeAttendanceSnapshot =
     @MainActor () -> [UUID: UInt64]
 
@@ -813,14 +823,17 @@ package struct RepoExplorerView: View {
             )
         )
 
-        let clock = ContinuousClock()
-        let applyStart = clock.now
-        cachedProjectionResult = result
+        let previousRowIDs = currentRowIndex.entries.map(\.id)
+        let nextRowIDs = result.rowIndex.entries.map(\.id)
+        let outlineApplyMeasurement = Self.measureOutlineApplyProxy(
+            previousRowIDs: previousRowIDs,
+            nextRowIDs: nextRowIDs,
+            apply: { cachedProjectionResult = result }
+        )
         projectionTask = nil
-        let applyDuration = applyStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
-            duration: applyDuration,
+            duration: outlineApplyMeasurement.duration,
             attributes: sidebarProjectionTraceAttributes(
                 for: RepoExplorerProjectionRequest(
                     generation: result.generation,
@@ -832,12 +845,14 @@ package struct RepoExplorerView: View {
                 phase: "mainactor_apply",
                 extra: [
                     "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(
-                        AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)),
+                        AgentStudioPerformanceTraceRecorder.milliseconds(
+                            from: outlineApplyMeasurement.duration)),
                     "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
                     "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
                 ]
             )
         )
+        recordOutlineApplyProxy(outlineApplyMeasurement)
         if Self.shouldReportInitialProjection(
             hasReportedInitialProjection: hasReportedInitialProjection
         ) {
@@ -846,6 +861,36 @@ package struct RepoExplorerView: View {
         }
     }
 
+    private func recordOutlineApplyProxy(_ measurement: RepoExplorerOutlineApplyMeasurement) {
+        performanceTraceRecorder?.recordDuration(
+            .repoExplorerOutlineApplyProxy,
+            duration: measurement.duration,
+            attributes: [
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string(
+                    measurement.outcome.rawValue),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count": .int(measurement.rowCount),
+            ]
+        )
+    }
+}
+extension RepoExplorerView {
+    static func measureOutlineApplyProxy(
+        previousRowIDs: [String],
+        nextRowIDs: [String],
+        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        apply: () -> Void
+    ) -> RepoExplorerOutlineApplyMeasurement {
+        let startedAtNanoseconds = nowNanoseconds()
+        apply()
+        let completedAtNanoseconds = nowNanoseconds()
+        return RepoExplorerOutlineApplyMeasurement(
+            duration: .nanoseconds(
+                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
+            ),
+            rowCount: nextRowIDs.count,
+            outcome: previousRowIDs == nextRowIDs ? .equal : .changed
+        )
+    }
 }
 
 extension RepoExplorerView {

@@ -1,6 +1,39 @@
 import AgentStudioInfrastructure
 import SwiftUI
 
+private struct DividerLayoutPublicationKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
+package struct DividerFrameMeasurementState {
+    private var pendingCorrelationId: UUID?
+
+    package init() {}
+
+    @discardableResult
+    package mutating func admitSample(
+        using interactionProbe: AgentStudioInteractionPerformanceProbe?
+    ) -> Bool {
+        guard pendingCorrelationId == nil, let interactionProbe else { return false }
+        let correlationId = UUIDv7.generate()
+        interactionProbe.beginInteraction(.dividerFrame, correlationId: correlationId)
+        pendingCorrelationId = correlationId
+        return true
+    }
+
+    package mutating func layoutDidPublish(
+        using interactionProbe: AgentStudioInteractionPerformanceProbe?
+    ) {
+        guard let pendingCorrelationId else { return }
+        self.pendingCorrelationId = nil
+        interactionProbe?.settleInteraction(correlationId: pendingCorrelationId)
+    }
+}
+
 package struct FlatPaneDivider: View {
     let dividerId: UUID
     let frame: CGRect
@@ -18,6 +51,8 @@ package struct FlatPaneDivider: View {
     @State private var hasStartedResize = false
     @State private var initialLeftWidth: CGFloat = 0
     @State private var initialRightWidth: CGFloat = 0
+    @State private var frameMeasurement = DividerFrameMeasurementState()
+    @Environment(\.agentStudioInteractionPerformanceProbe) private var interactionProbe
 
     package init(
         dividerId: UUID,
@@ -78,42 +113,54 @@ package struct FlatPaneDivider: View {
     }
 
     package var body: some View {
-        if case .noResize = resizeIntent {
-            Color.clear
-                .frame(width: splitterHitSize, height: frame.height)
-                .position(x: frame.midX, y: frame.midY)
-        } else {
-            Color.clear
-                .frame(width: splitterHitSize, height: frame.height)
-                .contentShape(Rectangle())
-                .position(x: frame.midX, y: frame.midY)
-                .backport.pointerStyle(.resizeLeftRight)
-                .gesture(
-                    DragGesture()
-                        .onChanged { gesture in
-                            guard layout.dividerIds.contains(dividerId) else { return }
-                            if !hasStartedResize {
-                                hasStartedResize = true
-                                initialLeftWidth = resizeLeftPaneWidth
-                                initialRightWidth = resizeRightPaneWidth
-                                isSplitResizing = true
-                            }
+        Group {
+            if case .noResize = resizeIntent {
+                Color.clear
+                    .frame(width: splitterHitSize, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY)
+            } else {
+                Color.clear
+                    .frame(width: splitterHitSize, height: frame.height)
+                    .contentShape(Rectangle())
+                    .position(x: frame.midX, y: frame.midY)
+                    .backport.pointerStyle(.resizeLeftRight)
+                    .preference(key: DividerLayoutPublicationKey.self, value: frame)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { gesture in
+                                guard layout.dividerIds.contains(dividerId) else { return }
+                                if !hasStartedResize {
+                                    hasStartedResize = true
+                                    initialLeftWidth = resizeLeftPaneWidth
+                                    initialRightWidth = resizeRightPaneWidth
+                                    isSplitResizing = true
+                                }
 
-                            let localRatio = Self.computeResizeRatio(
-                                initialLeftWidth: initialLeftWidth,
-                                initialRightWidth: initialRightWidth,
-                                translationWidth: gesture.translation.width,
-                                minSize: minSize
-                            )
-                            guard let command = Self.resizeCommand(for: resizeIntent, tabId: tabId, ratio: localRatio)
-                            else { return }
-                            actionDispatcher.dispatch(command)
-                        }
-                        .onEnded { _ in
-                            hasStartedResize = false
-                            isSplitResizing = false
-                        }
-                )
+                                frameMeasurement.admitSample(using: interactionProbe)
+                                let localRatio = Self.computeResizeRatio(
+                                    initialLeftWidth: initialLeftWidth,
+                                    initialRightWidth: initialRightWidth,
+                                    translationWidth: gesture.translation.width,
+                                    minSize: minSize
+                                )
+                                guard
+                                    let command = Self.resizeCommand(
+                                        for: resizeIntent,
+                                        tabId: tabId,
+                                        ratio: localRatio
+                                    )
+                                else { return }
+                                actionDispatcher.dispatch(command)
+                            }
+                            .onEnded { _ in
+                                hasStartedResize = false
+                                isSplitResizing = false
+                            }
+                    )
+            }
+        }
+        .onPreferenceChange(DividerLayoutPublicationKey.self) { _ in
+            frameMeasurement.layoutDidPublish(using: interactionProbe)
         }
     }
 }

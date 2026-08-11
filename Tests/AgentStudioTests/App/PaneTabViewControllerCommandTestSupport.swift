@@ -54,7 +54,8 @@ func makeHarness(
     workspaceWindowId: UUID? = nil,
     bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
     paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
-    bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil
+    bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil,
+    interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
 ) -> Harness {
     makePaneTabViewControllerCommandHarness(
         createSurfaceResult: createSurfaceResult,
@@ -64,7 +65,8 @@ func makeHarness(
         workspaceWindowId: workspaceWindowId,
         bridgeGitReadScheduler: bridgeGitReadScheduler,
         paneEventBus: paneEventBus,
-        bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler
+        bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler,
+        interactionProbe: interactionProbe
     )
 }
 
@@ -77,7 +79,8 @@ func makePaneTabViewControllerCommandHarness(
     workspaceWindowId: UUID? = nil,
     bridgeGitReadScheduler: BridgeGitReadScheduler = BridgeGitReadScheduler(topology: .recoveryBaseline),
     paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
-    bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil
+    bridgeViewerSurfaceRequestHandler: (@MainActor (BridgeProductSurface, UUID) -> Bool)? = nil,
+    interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
 ) -> PaneTabViewControllerCommandHarness {
     // Command execution still reads the app-global management-layer atom for
     // visibility and shortcut policy. Reset it so parallel suites cannot leak
@@ -101,10 +104,6 @@ func makePaneTabViewControllerCommandHarness(
         presenter: paneInboxPresenter,
         launchRecorder: launchRecorder
     )
-    let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
-        appLifecycleStore: appLifecycleStore,
-        windowLifecycleStore: windowLifecycleStore
-    )
     let coordinator = WorkspaceSurfaceCoordinator(
         store: store,
         viewRegistry: viewRegistry,
@@ -123,7 +122,10 @@ func makePaneTabViewControllerCommandHarness(
         store: store,
         octiconLoader: makeTestOcticonLoader(),
         repoCache: RepoCacheAtom(),
-        applicationLifecycleMonitor: applicationLifecycleMonitor,
+        applicationLifecycleMonitor: ApplicationLifecycleMonitor(
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore
+        ),
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: windowLifecycleStore,
         workspaceWindowId: workspaceWindowId,
@@ -161,6 +163,7 @@ func makePaneTabViewControllerCommandHarness(
         arrangementInlineRenameState: arrangementInlineRenameState,
         arrangementPanelPresentation: arrangementPanelPresentation,
         bridgeViewerSurfaceRequestHandler: bridgeViewerSurfaceRequestHandler,
+        interactionProbe: interactionProbe,
         registersAsCommandHandler: false
     )
     return PaneTabViewControllerCommandHarness(

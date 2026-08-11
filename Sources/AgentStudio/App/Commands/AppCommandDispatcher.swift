@@ -1,5 +1,6 @@
 import AgentStudioCommandBar
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioRepoExplorer
 import Foundation
 import Observation
@@ -15,6 +16,8 @@ final class AppCommandDispatcher: AppCommandDispatching {
     private(set) var definitions: [AppCommand: AppCommandSpec] = [:]
     weak var handler: WorkspaceCommandHandling?
     weak var appCommandRouter: ShellCommandHandling?
+    var interactionProbe: AgentStudioInteractionPerformanceProbe?
+    var onCommandRefreshAccepted: (@MainActor (UUID) -> Void)?
 
     private init() {
         for definition in AppCommand.allCases.map(\.definition) {
@@ -35,6 +38,19 @@ final class AppCommandDispatcher: AppCommandDispatching {
             return
         }
         handler.execute(command)
+    }
+
+    func dispatchKeyboardShortcut(_ shortcut: AppShortcut) {
+        guard shortcut == .toggleManagementLayer else {
+            dispatch(shortcut.command)
+            return
+        }
+        guard canDispatch(shortcut.command) else { return }
+
+        let correlationId = UUIDv7.generate()
+        interactionProbe?.beginInteraction(.commandRefresh, correlationId: correlationId)
+        onCommandRefreshAccepted?(correlationId)
+        dispatch(shortcut.command)
     }
 
     @discardableResult
