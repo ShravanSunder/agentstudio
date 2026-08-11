@@ -9,8 +9,6 @@ import os.log
 
 @MainActor
 protocol WorkspaceSurfaceManaging: AnyObject {
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { get }
-
     func syncFocus(activeSurfaceId: UUID?)
 
     func createSurface(
@@ -71,7 +69,6 @@ final class WorkspaceSurfaceCoordinator {
     var preparedContentVisibilitySignalHandler: @MainActor ([PaneId]) -> Set<PaneId> = { _ in [] }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
-    private var cwdChangesTask: Task<Void, Never>?
     private var paneEventIngressTask: Task<Void, Never>?
     private var runtimeEventBridgeTasks: [PaneId: Task<Void, Never>] = [:]
     private var criticalRuntimeEventsTask: Task<Void, Never>?
@@ -198,7 +195,6 @@ final class WorkspaceSurfaceCoordinator {
         self.performanceTraceRecorder = performanceTraceRecorder
         self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
-        subscribeToCWDChanges()
         setupPrePersistHook()
         setupFilesystemSourceSync()
         startObservingActivePaneWorktree()
@@ -210,7 +206,6 @@ final class WorkspaceSurfaceCoordinator {
     isolated deinit {
         isObservingActivePaneWorktree = false
         activePaneWorktreeObservationGeneration &+= 1
-        cwdChangesTask?.cancel()
         paneEventIngressTask?.cancel()
         for task in runtimeEventBridgeTasks.values {
             task.cancel()
@@ -235,15 +230,12 @@ final class WorkspaceSurfaceCoordinator {
         for paneId in viewRegistry.allBridgeViews.keys {
             teardownView(for: paneId)
         }
-        let activeCWDTask = cwdChangesTask
         let activePaneEventIngressTask = paneEventIngressTask
         let activeCriticalRuntimeEventsTask = criticalRuntimeEventsTask
         let activeBatchedRuntimeEventsTask = batchedRuntimeEventsTask
         let activeFilesystemSyncTask = filesystemSyncTask
         let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
 
-        cwdChangesTask?.cancel()
-        cwdChangesTask = nil
         paneEventIngressTask?.cancel()
         paneEventIngressTask = nil
         criticalRuntimeEventsTask?.cancel()
@@ -264,9 +256,6 @@ final class WorkspaceSurfaceCoordinator {
 
         await filesystemProjectionIndex.shutdown()
 
-        if let activeCWDTask {
-            await activeCWDTask.value
-        }
         if let activePaneEventIngressTask {
             await activePaneEventIngressTask.value
         }
@@ -302,26 +291,6 @@ final class WorkspaceSurfaceCoordinator {
     @discardableResult
     func removeFirstUndoEntry() -> WorkspaceMutationCoordinator.CloseEntry {
         undoStack.removeFirst()
-    }
-
-    // MARK: - CWD Propagation
-
-    private func subscribeToCWDChanges() {
-        cwdChangesTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await event in self.surfaceManager.surfaceCWDChanges {
-                if Task.isCancelled { break }
-                self.onSurfaceCWDChanged(event)
-            }
-        }
-    }
-
-    private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
-        guard let paneId = event.paneId else { return }
-        // Surface CWD events already arrive as file URLs from the hosting layer.
-        // Runtime envelopes carry raw shell strings, so that path normalizes at
-        // the runtime ingress before entering the shared atom update path.
-        updatePaneCWDAndResolvedContext(paneId: paneId, cwd: event.cwd)
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
