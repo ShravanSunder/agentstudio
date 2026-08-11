@@ -40,6 +40,19 @@ if any(value and value in rendered for value in proof["sensitiveValues"]):
     print("sensitive terminal content survived OTLP projection", file=sys.stderr)
     raise SystemExit(1)
 pane = proof["pane"]
+equal_title = proof["equalTitlePhase"]
+if equal_title["offerCount"] != 20:
+    print("equal-title phase must offer exactly 20 titles", file=sys.stderr)
+    raise SystemExit(1)
+if equal_title["scheduledTitleDrainCount"] > 2:
+    print("equal-title phase scheduled more than 10% of offers", file=sys.stderr)
+    raise SystemExit(1)
+if equal_title["equalSuppressedCount"] < 18:
+    print("equal-title phase did not account for suppressed offers", file=sys.stderr)
+    raise SystemExit(1)
+if equal_title["canonicalAcceptedMutationDelta"] != 0:
+    print("equal-title phase changed canonical pane state", file=sys.stderr)
+    raise SystemExit(1)
 if pane["tabBarAffectedItemCount"] != 1:
     print("tabbar affected-item count must be 1", file=sys.stderr)
     raise SystemExit(1)
@@ -244,6 +257,8 @@ def snapshot():
     atom_mutations = [record for record in records if record.get("_msg") == "performance.atom.mutation"]
     canonical = [record for record in atom_mutations if record.get("agentstudio.performance.atom.label") == "pane_graph_canonical"]
     structural = [record for record in atom_mutations if record.get("agentstudio.performance.atom.label") == "pane_graph_structural"]
+    terminal_drains = [record for record in records if record.get("_msg") == "performance.terminal.accumulator_drain"]
+    equal_suppressions = [record for record in records if record.get("_msg") == "performance.terminal.equal_suppressed"]
     return {
         "repo_events": len(repo),
         "repo_affected": sum(numeric(record, "agentstudio.performance.repo_explorer.affected_item.count") for record in repo),
@@ -254,6 +269,16 @@ def snapshot():
         "canonical_accepted": sum(numeric(record, "agentstudio.performance.atom.accepted_change.count") for record in canonical),
         "structural_accepted": sum(numeric(record, "agentstudio.performance.atom.accepted_change.count") for record in structural),
         "membership_accepted": sum(numeric(record, "agentstudio.performance.atom.accepted_change.count") for record in structural if record.get("agentstudio.performance.atom.operation") in ("set", "remove")),
+        "scheduled_title_drains": sum(
+            numeric(record, "agentstudio.performance.terminal.accumulator.scheduled_drain.count")
+            for record in terminal_drains
+            if record.get("agentstudio.performance.terminal.accumulator.drain.class") == "title_deadline"
+        ),
+        "equal_title_suppressed": sum(
+            numeric(record, "agentstudio.performance.terminal.equal_suppressed.count")
+            for record in equal_suppressions
+            if record.get("agentstudio.performance.terminal.publication.kind") == "title"
+        ),
     }
 def delta(before, after):
     return {key: after[key] - before[key] for key in before}
@@ -340,6 +365,40 @@ if any(title_delta[key] != 0 for key in ("repo_events", "repo_affected", "repo_r
     raise RuntimeError(f"title phase performed Repo work: {title_delta}")
 if title_delta["tab_affected"] != 1:
     raise RuntimeError(f"title phase must affect exactly the owning tab: {title_delta}")
+equal_title_offer_count = 20
+equal_title_baseline = quiescent_snapshot()
+request(
+    "terminal.send",
+    {
+        "handle":handle,
+        "input":(
+            "i=0; while [ \"$i\" -lt 20 ]; do IFS= read -r _; "
+            "printf '\\033]0;cadence-private-title\\007'; i=$((i+1)); done\n"
+        ),
+    },
+)
+for _ in range(equal_title_offer_count):
+    request("terminal.send", {"handle":handle,"input":"equal-title-offer\n"})
+request("terminal.wait", {"handle":handle,"condition":"commandFinished","timeoutSeconds":5})
+equal_title_after = quiescent_snapshot()
+equal_title_delta = delta(equal_title_baseline, equal_title_after)
+if equal_title_delta["scheduled_title_drains"] > 2:
+    raise RuntimeError(
+        f"equal-title phase scheduled more than 10% of offers: offers={equal_title_offer_count} delta={equal_title_delta}"
+    )
+if equal_title_delta["equal_title_suppressed"] < 18:
+    raise RuntimeError(
+        f"equal-title phase did not account for suppressed offers: offers={equal_title_offer_count} delta={equal_title_delta}"
+    )
+if equal_title_delta["canonical_accepted"] != 0:
+    raise RuntimeError(f"equal-title phase changed canonical pane state: {equal_title_delta}")
+print(
+    "equal-title phase: "
+    f"offers={equal_title_offer_count} "
+    f"scheduled_title_drains={equal_title_delta['scheduled_title_drains']} "
+    f"equal_suppressed={equal_title_delta['equal_title_suppressed']} "
+    f"canonical_accepted_delta={equal_title_delta['canonical_accepted']}"
+)
 immediate_records = [
     record for record in marker_records()
     if record.get("_msg") == "performance.terminal.accumulator_drain"

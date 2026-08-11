@@ -175,6 +175,39 @@ struct TitlePanePerformanceWorkloadScriptTests {
         #expect(result.stderr.contains("sensitive terminal content survived OTLP projection"))
     }
 
+    @Test("rejects excess scheduled drains during equal-title phase")
+    func rejectsExcessEqualTitleScheduledDrains() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.scheduledTitleDrainCount = 3
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("equal-title phase scheduled more than 10% of offers"))
+    }
+
+    @Test("rejects missing equal-title suppression outcomes")
+    func rejectsMissingEqualTitleSuppressions() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.equalSuppressedCount = 17
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("equal-title phase did not account for suppressed offers"))
+    }
+
+    @Test("rejects canonical mutations during equal-title phase")
+    func rejectsEqualTitleCanonicalMutations() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.canonicalAcceptedMutationDelta = 1
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("equal-title phase changed canonical pane state"))
+    }
+
     @Test("rejects non-proportional pane and command work")
     func rejectsNonProportionalPaneAndCommandWork() async throws {
         var fixture = TerminalTitleCadenceFixture.complete
@@ -249,6 +282,7 @@ private struct TerminalTitleCadenceFixture: Codable {
     var titleDeadlineMetricMilliseconds: Double?
     var ipc: TerminalTitleCadenceIPCProof
     var pane: TitlePaneObservationProof
+    var equalTitlePhase: EqualTitlePhaseProof
     var renderedOTLP: String
     var sensitiveValues: [String]
 
@@ -299,9 +333,22 @@ private struct TerminalTitleCadenceFixture: Codable {
             capabilityRepoCapabilitySnapshotCount: 1,
             capabilityTabBarAffectedItemCount: 0
         ),
+        equalTitlePhase: EqualTitlePhaseProof(
+            offerCount: 20,
+            scheduledTitleDrainCount: 2,
+            equalSuppressedCount: 18,
+            canonicalAcceptedMutationDelta: 0
+        ),
         renderedOTLP: "performance.terminal.accumulator_drain controlled fields only",
         sensitiveValues: ["cadence-private-title", "printf-private-payload"]
     )
+}
+
+private struct EqualTitlePhaseProof: Codable {
+    var offerCount: Int
+    var scheduledTitleDrainCount: Int
+    var equalSuppressedCount: Int
+    var canonicalAcceptedMutationDelta: Int
 }
 
 private struct TitlePaneObservationProof: Codable {

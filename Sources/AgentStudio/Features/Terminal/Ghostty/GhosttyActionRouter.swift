@@ -719,7 +719,10 @@ extension Ghostty {
             let disposition = admitTranslatedActionToTerminalRuntime(
                 event,
                 surfaceID: expectedSurfaceID,
-                accumulator: localActionAccumulator
+                accumulator: localActionAccumulator,
+                equalSuppressionObserver: { publicationKind in
+                    recordTerminalEqualSuppressed(publicationKind: publicationKind)
+                }
             )
             let precedingTitle: TerminalPrecedingTitleBarrier?
             switch disposition {

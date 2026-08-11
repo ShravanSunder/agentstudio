@@ -6,6 +6,12 @@ package enum TerminalAccumulatorDrainClass: String, Equatable, Sendable {
     case exactBarrier = "exact_barrier"
 }
 
+package enum TerminalPerformancePublicationKind: String, Equatable, Sendable {
+    case activity
+    case cwd
+    case title
+}
+
 package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
     let drainClass: TerminalAccumulatorDrainClass
     let offeredCount: UInt64
@@ -160,6 +166,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case tabBarWorker = "performance.tabbar.worker"
         case terminalAccumulatorDrain = "performance.terminal.accumulator_drain"
         case terminalCompactApply = "performance.terminal.compact_apply"
+        case terminalEqualSuppressed = "performance.terminal.equal_suppressed"
         case terminalForceGeometrySync = "performance.terminal.force_geometry_sync"
         case terminalGeometrySync = "performance.terminal.geometry_sync"
         case terminalMountLayout = "performance.terminal.mount_layout"
@@ -305,6 +312,20 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                     snapshot.retainedEntryCount),
                 "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(
                     snapshot.retainedSizeBytes),
+            ]
+        )
+    }
+
+    package func recordTerminalEqualSuppressed(
+        publicationKind: TerminalPerformancePublicationKind
+    ) {
+        record(
+            .terminalEqualSuppressed,
+            attributes: [
+                "agentstudio.performance.terminal.publication.kind": .string(
+                    publicationKind.rawValue
+                ),
+                "agentstudio.performance.terminal.equal_suppressed.count": .int(1),
             ]
         )
     }

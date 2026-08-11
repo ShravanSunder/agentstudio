@@ -415,6 +415,34 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func terminalEqualSuppressionProjectsAsCounterWithPublicationKind() throws {
+        let record = Self.projectedPerformanceRecord(
+            body: "performance.terminal.equal_suppressed",
+            attributes: [
+                "agentstudio.performance.terminal.publication.kind": .string("title"),
+                "agentstudio.performance.terminal.equal_suppressed.count": .int(1),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "publication_kind", value: "title")
+            )
+        )
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .counter(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_equal_suppressed_count"
+                        && sample.value == 1
+                }
+                return false
+            }
+        )
+    }
+
+    @Test
     func commonQuiescenceRecordsProjectExactAggregateGaugeSeries() throws {
         let records = [
             Self.projectedPerformanceRecord(

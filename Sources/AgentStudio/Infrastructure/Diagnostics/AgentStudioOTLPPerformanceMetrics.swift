@@ -282,6 +282,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: drainClass)
             )
         }
+        appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimensions(record: record, dimensions: &dimensions)
         }
@@ -318,6 +319,24 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         return dimensions
+    }
+
+    private static func appendTerminalEqualSuppressedDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.terminal.equal_suppressed",
+            case .string(let publicationKind) = record.attributes[
+                "agentstudio.performance.terminal.publication.kind"
+            ],
+            ["activity", "cwd", "title"].contains(publicationKind)
+        else { return }
+        dimensions.append(
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "publication_kind",
+                value: publicationKind
+            )
+        )
     }
 
     private static func appendBridgeDimensions(
@@ -368,6 +387,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio_performance_terminal_accumulator_scheduled_drain_count",
         "agentstudio_performance_terminal_activity_aggregate_count",
         "agentstudio_performance_terminal_equal_write_suppressed_count",
+        "agentstudio_performance_terminal_equal_suppressed_count",
         "agentstudio_performance_trace_identity_coalesced_request_count",
         "agentstudio_performance_trace_identity_equal_snapshot_suppressed_count",
         "agentstudio_performance_trace_identity_fleet_capture_count",

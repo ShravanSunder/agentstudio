@@ -91,13 +91,15 @@ extension Ghostty.ActionRouter {
     static func admitTranslatedActionToTerminalRuntime(
         _ event: GhosttyEvent,
         surfaceID: UUID,
-        accumulator: TerminalLocalActionAccumulator
+        accumulator: TerminalLocalActionAccumulator,
+        equalSuppressionObserver: (TerminalPerformancePublicationKind) -> Void = { _ in }
     ) -> GhosttyTranslatedActionAdmission {
         switch GhosttyActionDisposition.classify(event) {
         case .exactFactOrControl:
             if case .cwdChanged(let cwdPath) = event,
                 accumulator.admitCWDPublication(cwdPath, for: surfaceID) == .equalSuppressed
             {
+                equalSuppressionObserver(.cwd)
                 return .handledLocally
             }
             return .routeExactFactOrControl(
@@ -107,10 +109,18 @@ extension Ghostty.ActionRouter {
             offerLocalPresentation(presentation, for: surfaceID, accumulator: accumulator)
             return .handledLocally
         case .latestSemanticMetadata(let metadata):
-            offerLatestSemanticMetadata(metadata, for: surfaceID, accumulator: accumulator)
+            if offerLatestSemanticMetadata(metadata, for: surfaceID, accumulator: accumulator)
+                == .equalSuppressed
+            {
+                equalSuppressionObserver(.title)
+            }
             return .handledLocally
         case .activityEvidence(let evidence):
-            offerLocalActivityEvidence(evidence, for: surfaceID, accumulator: accumulator)
+            if offerLocalActivityEvidence(evidence, for: surfaceID, accumulator: accumulator)
+                == .equalSuppressed
+            {
+                equalSuppressionObserver(.activity)
+            }
             return .handledLocally
         case .exactLocalLifecycle(let lifecycle):
             offerLocalLifecycle(lifecycle, for: surfaceID, accumulator: accumulator)
@@ -204,10 +214,10 @@ extension Ghostty.ActionRouter {
         _ evidence: TerminalLocalActivityEvidence,
         for surfaceID: UUID,
         accumulator: TerminalLocalActionAccumulator
-    ) {
+    ) -> TerminalLocalAccumulatorOfferResult {
         switch evidence {
         case .scrollbar(let state):
-            accumulator.offer(
+            return accumulator.offer(
                 .scrollbar(
                     state,
                     observedAtMilliseconds: Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
@@ -221,12 +231,12 @@ extension Ghostty.ActionRouter {
         _ metadata: TerminalLatestSemanticMetadataAction,
         for surfaceID: UUID,
         accumulator: TerminalLocalActionAccumulator
-    ) {
+    ) -> TerminalLocalAccumulatorOfferResult {
         switch metadata {
         case .titleChanged(let title):
-            accumulator.offer(.titleChanged(title), for: surfaceID)
+            return accumulator.offer(.titleChanged(title), for: surfaceID)
         case .tabTitleChanged(let title):
-            accumulator.offer(.tabTitleChanged(title), for: surfaceID)
+            return accumulator.offer(.tabTitleChanged(title), for: surfaceID)
         }
     }
 
