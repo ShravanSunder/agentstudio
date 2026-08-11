@@ -58,7 +58,7 @@
 	--foreground: #cdd6f4;
 	--card: #1e1e2e;
 	--card-foreground: #cdd6f4;
-	--popover: #252338;
+	--popover: var(--card);
 	--popover-foreground: #cdd6f4;
 	--primary: #89b4fa;
 	--primary-foreground: #11111b;
@@ -92,7 +92,7 @@
 	--bridge-header-control-active-bg: #313244;
 	--bridge-surface-bg: #181825;
 	--bridge-surface-raised-bg: #313244;
-	--bridge-menu-bg: #252338;
+	--bridge-menu-bg: var(--popover);
 	--bridge-surface-muted-bg: #313244;
 	--bridge-border-subtle: var(--border);
 	--bridge-border-opaque: var(--input);
@@ -176,10 +176,6 @@ button,
 input,
 select {
 	font: inherit;
-}
-
-button {
-	color: inherit;
 }
 
 button:not(:disabled),

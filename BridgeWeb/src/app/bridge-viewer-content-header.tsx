@@ -3,9 +3,10 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import {
-	bridgeViewerChromeButtonClassName,
 	bridgeViewerChromeHeaderClassName,
 	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeSegmentButtonClassName,
+	bridgeViewerChromeSegmentedControlClassName,
 } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
@@ -65,6 +66,7 @@ export function BridgeViewerContextSwitcher(props: {
 	return (
 		<ToggleGroup
 			aria-label="Bridge viewer context"
+			className={bridgeViewerChromeSegmentedControlClassName}
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
 			onValueChange={(modes): void => {
@@ -103,7 +105,7 @@ function BridgeViewerContextButton(props: {
 		<ToggleGroupItem
 			aria-label={props.label}
 			className={cn(
-				bridgeViewerChromeButtonClassName,
+				bridgeViewerChromeSegmentButtonClassName,
 				props.isSelected ? 'shadow-none' : undefined,
 			)}
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}

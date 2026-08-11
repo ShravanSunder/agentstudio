@@ -19,7 +19,15 @@ import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-wor
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
+import { bridgeViewerButtonClassName } from './bridge-viewer-button.js';
 import { cn } from './class-name.js';
+
+const comparisonTriggerClassName = cn(
+	buttonVariants({ size: 'sm', variant: 'outline' }),
+	bridgeViewerButtonClassName,
+	'border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)]',
+	'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
+);
 
 export interface BridgeReviewComparisonControlProps {
 	readonly comparisonPresentation: BridgeWorkerPanelChromePatchPayload['reviewComparison'];
@@ -98,10 +106,10 @@ export function BridgeReviewComparisonControl(
 		return (
 			<span
 				aria-describedby={descriptionId}
-				className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'max-w-56')}
+				className={comparisonTriggerClassName}
 				data-testid="bridge-review-comparison-trigger"
 			>
-				<span className="truncate">{label}</span>
+				<span>{label}</span>
 				<span className="sr-only" id={descriptionId}>
 					{sharedHistoryDescription}
 				</span>
@@ -125,10 +133,10 @@ export function BridgeReviewComparisonControl(
 			<PopoverTrigger
 				aria-describedby={descriptionId}
 				aria-label={label}
-				className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'max-w-56')}
+				className={comparisonTriggerClassName}
 				data-testid="bridge-review-comparison-trigger"
 			>
-				<span className="truncate">{label}</span>
+				<span>{label}</span>
 				<ChevronDownIcon aria-hidden="true" className="size-3 shrink-0" />
 			</PopoverTrigger>
 			<span className="sr-only" id={descriptionId}>
@@ -183,9 +191,10 @@ export function BridgeReviewComparisonControl(
 						className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
 						orientation="horizontal"
 					>
-						<FieldTitle className="text-muted-foreground">Compare with</FieldTitle>
+						<FieldTitle className="text-muted-foreground">Comparing with</FieldTitle>
 						<ToggleGroup
 							aria-label="Comparison target kind"
+							className="grid w-full grid-cols-2"
 							role="group"
 							size="sm"
 							spacing={0}
@@ -193,6 +202,7 @@ export function BridgeReviewComparisonControl(
 							variant="outline"
 						>
 							<ToggleGroupItem
+								className="w-full"
 								onPressedChange={(pressed): void => {
 									if (pressed) {
 										setSelectionMode('branch');
@@ -204,6 +214,7 @@ export function BridgeReviewComparisonControl(
 								Branch
 							</ToggleGroupItem>
 							<ToggleGroupItem
+								className="w-full"
 								onPressedChange={(pressed): void => {
 									if (pressed) {
 										setSelectionMode('commit');

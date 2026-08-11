@@ -107,8 +107,10 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		const chromeControlTextSize = '11px';
 
 		expect(Math.round(switcherBox.height)).toBe(railToolbarButtonTokenHeight);
-		expect(Math.round(fileButtonBox.height)).toBe(railToolbarButtonTokenHeight);
-		expect(Math.round(reviewButtonBox.height)).toBe(railToolbarButtonTokenHeight);
+		expect(Math.round(fileButtonBox.height)).toBe(20);
+		expect(Math.round(reviewButtonBox.height)).toBe(20);
+		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
 		expect(fileButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(reviewButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(fileButton.getAttribute('aria-label')).toBe('Files');
@@ -117,12 +119,10 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(reviewButton.getAttribute('aria-pressed')).toBe('false');
 		expect(fileButton.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
 		expect(reviewButton.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
-		expect(fileButton.className).toContain('h-6');
-		expect(reviewButton.className).toContain('h-6');
+		expect(fileButton.className).toContain('h-5');
+		expect(reviewButton.className).toContain('h-5');
 		expect(getComputedStyle(fileButton).fontSize).toBe(chromeControlTextSize);
 		expect(getComputedStyle(reviewButton).fontSize).toBe(chromeControlTextSize);
-		expect(fileButton.className).not.toContain('h-5');
-		expect(reviewButton.className).not.toContain('h-5');
 		expect(fileButton.textContent).toBe('Files');
 		expect(reviewButton.textContent).toBe('Review');
 
@@ -155,6 +155,8 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 		expect(switcher.getAttribute('data-slot')).toBe('toggle-group');
 		expect(switcher.getAttribute('role')).toBe('radiogroup');
 		expect(Math.round(switcher.getBoundingClientRect().height)).toBe(24);
+		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
 		expect(segments).toHaveLength(3);
 		expect(segments.map((segment) => segment.getAttribute('data-slot'))).toEqual([
 			'toggle-group-item',
@@ -162,7 +164,7 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 			'toggle-group-item',
 		]);
 		expect(segments.map((segment) => Math.round(segment.getBoundingClientRect().height))).toEqual([
-			24, 24, 24,
+			20, 20, 20,
 		]);
 		expect(segments.map((segment) => getComputedStyle(segment).fontSize)).toEqual([
 			'11px',

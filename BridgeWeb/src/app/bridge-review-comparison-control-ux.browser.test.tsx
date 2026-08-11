@@ -331,7 +331,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		).not.toBeNull();
 	});
 
-	test('uses the product small-caps treatment for the popup title', async () => {
+	test('uses one compact standard layout for the comparison selectors', async () => {
 		// Arrange
 		const rendered = await renderComparisonTargetPicker();
 
@@ -343,10 +343,10 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		const title = rendered.getByRole('heading', { name: 'Compare Worktree' });
 		expect(getComputedStyle(title.element()).textTransform).toBe('uppercase');
-		const compareWithHeading = rendered.getByText('Compare with', { exact: true });
+		const compareWithHeading = rendered.getByText('Comparing with', { exact: true });
 		await expect.element(compareWithHeading).toBeVisible();
 		const targetKindSelector = rendered.getByRole('group', { name: 'Comparison target kind' });
-		const branchBasisHeading = rendered.getByText('Compare branches from', { exact: true });
+		const branchBasisHeading = rendered.getByText('Using', { exact: true });
 		const branchBasisSelector = rendered.getByRole('group', { name: 'Branch comparison basis' });
 		const targetKindLayout = compareWithHeading.element().parentElement;
 		const branchBasisLayout = branchBasisHeading.element().parentElement;
@@ -369,8 +369,49 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		expect(verticalCenter(branchBasisSelectorBounds)).toBe(
 			verticalCenter(branchBasisHeadingBounds),
 		);
+		expect(selectorBounds.width).toBe(branchBasisSelectorBounds.width);
+		expect(Math.round(selectorBounds.height)).toBe(Math.round(branchBasisSelectorBounds.height));
+		const toggleItems = [
+			...targetKindSelector.element().querySelectorAll('button'),
+			...branchBasisSelector.element().querySelectorAll('button'),
+		];
+		const toggleItemWidths = toggleItems.map((item) => item.getBoundingClientRect().width);
+		expect(Math.max(...toggleItemWidths) - Math.min(...toggleItemWidths)).toBeLessThanOrEqual(1);
+		expect(new Set(toggleItems.map((item) => getComputedStyle(item).fontSize))).toEqual(
+			new Set(['11px']),
+		);
 		expectToggleGroupTrackToFitItems(targetKindSelector.element());
 		expectToggleGroupTrackToFitItems(branchBasisSelector.element());
+	});
+
+	test('uses the neutral popover surface and shared compact toolbar trigger treatment', async () => {
+		// Arrange
+		const rendered = await renderComparisonTargetPicker();
+		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
+		expect(getComputedStyle(trigger.element()).fontSize).toBe('11px');
+		expect(getComputedStyle(trigger.element()).lineHeight).toBe('11px');
+		expect(getComputedStyle(trigger.element()).color).toBe('rgb(186, 194, 222)');
+
+		// Act
+		await act(async (): Promise<void> => {
+			await trigger.click();
+		});
+
+		// Assert
+		const content = rendered.getByTestId('bridge-review-comparison-content');
+		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(30, 30, 46)');
+	});
+
+	test('keeps the complete selected target readable in the closed toolbar control', async () => {
+		// Arrange
+		const targetBranchName = 'feature/review-comparison-target-with-a-realistic-long-name';
+		const rendered = await renderComparisonTargetPicker({ targetBranchName });
+
+		// Assert
+		const trigger = rendered.getByTestId('bridge-review-comparison-trigger').element();
+		const label = rendered.getByText(`Compare to: ${targetBranchName}`, { exact: true }).element();
+		expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+		expect(trigger.scrollWidth).toBeLessThanOrEqual(trigger.clientWidth);
 	});
 
 	test('remembers commit mode when the comparison popover reopens', async () => {
@@ -442,6 +483,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 });
 
 function expectToggleGroupTrackToFitItems(toggleGroup: Element): void {
+	const subpixelRoundingTolerance = 0.01;
 	const toggleItems = toggleGroup.querySelectorAll('button');
 	const firstToggleItem = toggleItems.item(0);
 	const lastToggleItem = toggleItems.item(toggleItems.length - 1);
@@ -449,9 +491,9 @@ function expectToggleGroupTrackToFitItems(toggleGroup: Element): void {
 	const trackBounds = toggleGroup.getBoundingClientRect();
 	const leadingInset = firstToggleItem.getBoundingClientRect().left - trackBounds.left;
 	const trailingInset = trackBounds.right - lastToggleItem.getBoundingClientRect().right;
-	expect(leadingInset).toBeGreaterThanOrEqual(0);
+	expect(leadingInset).toBeGreaterThanOrEqual(-subpixelRoundingTolerance);
 	expect(leadingInset).toBeLessThanOrEqual(3);
-	expect(trailingInset).toBeGreaterThanOrEqual(0);
+	expect(trailingInset).toBeGreaterThanOrEqual(-subpixelRoundingTolerance);
 	expect(trailingInset).toBeLessThanOrEqual(3);
 }
 
@@ -462,15 +504,17 @@ function verticalCenter(bounds: DOMRect): number {
 async function renderComparisonTargetPicker(callbacks?: {
 	readonly cancelTargetQuery?: () => void;
 	readonly queryTargets?: () => void;
+	readonly targetBranchName?: string;
 }): ReturnType<typeof render> {
 	const cancelTargetQuery = callbacks?.cancelTargetQuery ?? vi.fn();
 	const queryTargets = callbacks?.queryTargets ?? vi.fn();
+	const targetBranchName = callbacks?.targetBranchName ?? 'main';
 	return render(
 		<BridgeReviewComparisonControl
 			comparisonPresentation={{
 				activeTarget: {
 					basis: 'commonCommit',
-					branchName: 'main',
+					branchName: targetBranchName,
 					kind: 'localDefaultBranch',
 				},
 				attempt: { reviewGeneration: 1, status: 'settled' },

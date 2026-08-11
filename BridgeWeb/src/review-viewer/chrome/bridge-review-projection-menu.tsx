@@ -2,8 +2,9 @@ import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import {
-	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeSegmentIconButtonClassName,
+	bridgeViewerChromeSegmentedControlClassName,
 } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
@@ -18,6 +19,7 @@ export function BridgeReviewProjectionMenu(props: {
 	return (
 		<ToggleGroup
 			aria-label="Review mode"
+			className={bridgeViewerChromeSegmentedControlClassName}
 			data-bridge-segmented-control="review-mode"
 			data-testid="bridge-review-mode-segmented-control"
 			role="radiogroup"
@@ -32,7 +34,7 @@ export function BridgeReviewProjectionMenu(props: {
 						aria-checked={isSelected ? 'true' : 'false'}
 						aria-label={spec.label}
 						className={cn(
-							bridgeViewerChromeIconButtonClassName,
+							bridgeViewerChromeSegmentIconButtonClassName,
 							isSelected ? 'shadow-none' : undefined,
 						)}
 						data-testid="bridge-review-mode-segment"
