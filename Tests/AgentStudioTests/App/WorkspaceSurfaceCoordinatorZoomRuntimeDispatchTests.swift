@@ -25,6 +25,11 @@ struct ZoomRuntimeDispatchTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus
         )
+        await assertEventuallyAsync("coordinator bus subscriber should be active") {
+            await paneEventBus.diagnosticsSnapshot().activeSubscribers.contains {
+                $0.subscriberName == "WorkspaceSurfaceCoordinator"
+            }
+        }
         let sourcePane = store.createPane()
         let sourceTab = Tab(paneId: sourcePane.id)
         store.appendTab(sourceTab)
