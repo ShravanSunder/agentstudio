@@ -2,6 +2,7 @@ import { useFileTree } from '@pierre/trees/react';
 import {
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useSyncExternalStore,
 	type MouseEvent as ReactMouseEvent,
@@ -143,7 +144,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 		}
 	}, [model, onVisibleFileDemandChange, telemetryRecorder, telemetryTraceContext]);
 
-	useEffect((): (() => void) => {
+	useLayoutEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
 		let animationFrameId: number | null = null;
 		const rebindScrollElement = (): void => {

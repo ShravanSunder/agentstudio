@@ -23,6 +23,7 @@ import {
 	actUpdate,
 	interactAndWaitForBridgeFileViewerQueryCompletion,
 	installBridgeFileViewerNoopResizeObserver,
+	makeDeferredContent,
 	settleBridgeFileViewerBrowserUpdates,
 	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
@@ -52,6 +53,7 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 			path: 'src/query-lifecycle.ts',
 		});
 		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		const deferredContent = makeDeferredContent();
 
 		// Act
 		await render(
@@ -61,12 +63,16 @@ describe('BridgeFileViewerApp query and content lifecycle Browser Mode', () => {
 					onWorkerCommand: (message): void => {
 						dispatchedMessages.push(message);
 					},
-					readContent: async (): Promise<string> => content,
+					readContent: (): Promise<string> => deferredContent.promise,
 				}}
 				initialMetadataEvents={makeFileMetadataEvents(descriptor)}
 			/>,
 		);
 		await waitForMetadataTreeRowCount(1);
+		await waitForOpenFileState('loading');
+		await actUpdate((): void => {
+			deferredContent.resolve(content);
+		});
 		await waitForOpenFileState('ready');
 		await settleBridgeFileViewerBrowserUpdates();
 

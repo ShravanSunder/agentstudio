@@ -347,20 +347,21 @@ describe('Bridge local-first validate-only aggregate', () => {
 		);
 	});
 
-	test('rejects components from different run identities', async () => {
+	test('rejects components with different run identity fingerprints', async () => {
 		const nativeComponent = cloneNativeComponent();
 		nativeComponent.runIdentity.runIdentityFingerprint = 'a'.repeat(64);
-		const staleFixtureComponent = cloneNativeComponent();
-		staleFixtureComponent.runIdentity.fixtureChecksum = 'b'.repeat(64);
 
 		await expectValidationFailure(
 			makeFixture({ nativeComponent }),
 			/different run identity fingerprints/u,
 		);
-		await expectValidationFailure(
-			makeFixture({ nativeComponent: staleFixtureComponent }),
-			/different run identities/u,
-		);
+	});
+
+	test('rejects components with different run identity facts', async () => {
+		const nativeComponent = cloneNativeComponent();
+		nativeComponent.runIdentity.fixtureChecksum = 'b'.repeat(64);
+
+		await expectValidationFailure(makeFixture({ nativeComponent }), /different run identities/u);
 	});
 
 	test('rejects every nonzero correctness failure count', () => {
