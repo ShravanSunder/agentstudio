@@ -177,12 +177,13 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.actor.shutdown()
     }
 
-    @Test("event ingestion continues while a repository provider is blocked")
-    func eventIngestionContinuesWhileProviderIsBlocked() async {
+    @Test("a blocked provider cannot restore facts after the final branch membership switches")
+    func blockedProviderCannotRestoreDepartedBranchFacts() async {
         let fixture = await ForgeActorFixture.make()
         defer { fixture.stopObserving() }
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
+        let departedBranchURL = URL(string: "https://github.com/acme/studio/pull/41")!
 
         await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/old")])
         await fixture.actor.setDemand(worktreeIds: [worktreeId])
@@ -207,7 +208,12 @@ struct ForgeActorAdmissionEdgeTests {
         )
         #expect(await fixture.events.waitForBranchInvalidation(repoId: repoId, branch: "feature/old"))
 
-        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        await fixture.provider.resolve(
+            callAt: 0,
+            with: .complete([
+                ForgePullRequest(headRefName: "feature/old", url: departedBranchURL)
+            ])
+        )
         #expect(await fixture.provider.waitForCallCount(2))
         await fixture.provider.resolve(callAt: 1, with: .complete([]))
         #expect(
@@ -217,6 +223,7 @@ struct ForgeActorAdmissionEdgeTests {
                 expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
             )
         )
+        #expect(await fixture.events.facts(for: repoId, branch: "feature/old") == nil)
         await fixture.actor.shutdown()
     }
 

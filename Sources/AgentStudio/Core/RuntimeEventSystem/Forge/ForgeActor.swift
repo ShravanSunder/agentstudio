@@ -430,11 +430,14 @@ package actor ForgeActor {
         case .complete(let pullRequests):
             state.lastSuccessfulRefreshAt = completionTime
             state.backoffUntil = nil
+            let stillRepresentedRequestedBranches = request.demandedBranches.intersection(
+                representedBranches(repoId: request.repoId)
+            )
             event = .pullRequestsChanged(
                 repoId: request.repoId,
                 factsByBranch: ForgePullRequestFactsProjector.project(
                     pullRequests: pullRequests,
-                    demandedBranches: request.demandedBranches
+                    demandedBranches: stillRepresentedRequestedBranches
                 )
             )
         case .truncated:
@@ -557,6 +560,15 @@ package actor ForgeActor {
                 guard let membership = membershipByWorktreeId[worktreeId],
                     membership.repoId == repoId
                 else { return nil }
+                return membership.branch
+            }
+        )
+    }
+
+    private func representedBranches(repoId: UUID) -> Set<String> {
+        Set(
+            membershipByWorktreeId.values.compactMap { membership in
+                guard membership.repoId == repoId else { return nil }
                 return membership.branch
             }
         )
