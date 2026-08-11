@@ -746,8 +746,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate((): void => {
 			deferredRefreshContent.resolve(replacementContent);
 		});
-		await actFrame();
-		await actFrame();
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('inactiveRefreshReplacement');
 
 		expect(openFileState()).toBe('ready');
 		expect(visibleCodeText()).not.toContain('inactiveRefreshInitial');
