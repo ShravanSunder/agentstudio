@@ -7,6 +7,7 @@ enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
     case retainForReplay
 }
 
+// swiftlint:disable type_body_length
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private struct BufferedContentBody: Sendable {
         let data: Data
@@ -30,6 +31,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductReviewComparisonUpdateRequest,
             BridgeProductAdmissionContext
         ) async -> Void
+    private let queryReviewComparisonTargets: @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture?
     private let contentDemandAdmission: BridgeContentDemandAdmission
     private let fileContentReaderFactory: BridgePaneProductFileContentReaderFactory
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
@@ -40,6 +42,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     private nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
+    private var pendingComparisonTargetQuery: BridgeProductReviewComparisonTargetsQueryCapture?
 
     init(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
@@ -69,6 +72,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductReviewComparisonUpdateRequest,
                 BridgeProductAdmissionContext
             ) async -> Void = { _, _ in },
+        queryReviewComparisonTargets:
+            @escaping @Sendable () async ->
+            BridgeProductReviewComparisonTargetsQueryCapture? = { nil },
         initialPanePresentation: BridgePaneProductPresentationSnapshot? = nil,
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
@@ -96,8 +102,10 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
         self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
+        self.queryReviewComparisonTargets = queryReviewComparisonTargets
     }
 
+    // swiftlint:disable:next function_body_length
     func response(
         for request: BridgeProductControlRequest
     ) async -> BridgeProductControlResponse {
@@ -126,6 +134,26 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewComparisonUpdate
+                    )
+                case .reviewComparisonTargetsQuery:
+                    guard let capture = await queryReviewComparisonTargets() else {
+                        return try .requestError(
+                            correlating: request,
+                            code: .internal,
+                            nextExpectedRequestSequence: request.requestSequence + 1,
+                            retryAfterMilliseconds: nil,
+                            retryable: true,
+                            safeMessage: "Comparison targets are unavailable"
+                        )
+                    }
+                    pendingComparisonTargetQuery = capture
+                    return try .callCompleted(
+                        correlating: request,
+                        result: .reviewComparisonTargetsQuery(
+                            BridgeProductReviewComparisonTargetsQueryResult(
+                                descriptor: capture.descriptor
+                            )
+                        )
                     )
                 case .reviewMarkFileViewed:
                     return try .callCompleted(
@@ -430,6 +458,32 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     data: body.data,
                     endOfSource: body.isFinalRange,
                     sha256: body.sha256
+                ),
+                lease: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
+        case .reviewComparisonTargets(let queryRequest):
+            guard
+                let capture = pendingComparisonTargetQuery,
+                capture.descriptor.descriptorId == queryRequest.descriptor.descriptorId,
+                capture.descriptor.expectedSha256 == queryRequest.descriptor.expectedSha256
+            else {
+                try? await enqueueUnavailableContentTerminal(
+                    for: lease,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    session: session
+                )
+                return
+            }
+            pendingComparisonTargetQuery = nil
+            try await runBufferedContentProducer(
+                BufferedContentBody(
+                    data: capture.body,
+                    endOfSource: true,
+                    sha256: capture.descriptor.expectedSha256
                 ),
                 lease: lease,
                 productAdmission: productAdmission,
@@ -843,6 +897,8 @@ extension BridgePaneProductSchemeProvider {
                 )
             case .reviewComparisonUpdate(let updateRequest):
                 await applyReviewComparisonUpdate(updateRequest, productAdmission)
+            case .reviewComparisonTargetsQuery:
+                break
             case .reviewMarkFileViewed(let markRequest):
                 await markReviewItemViewed(markRequest.itemId, productAdmission)
             case .reviewIntakeReady(let intakeRequest):
@@ -885,6 +941,8 @@ extension BridgePaneProductSchemeProvider {
             contentWorkAdmission = refreshWorkAdmissionSource.acquire()
         case .reviewContent:
             contentWorkAdmission = refreshWorkAdmissionSource.acquireReviewContentContinuation()
+        case .reviewComparisonTargets:
+            contentWorkAdmission = refreshWorkAdmissionSource.acquire()
         }
         await runContentProducer(
             request: request,
@@ -920,6 +978,16 @@ extension BridgePaneProductSchemeProvider {
                     productAdmission: productAdmission,
                     session: session,
                     contentWorkAdmission: contentWorkAdmission
+                )
+            }
+        case .reviewComparisonTargets:
+            return { lease in
+                await self.runContentProducer(
+                    request: request,
+                    lease: lease,
+                    productAdmission: productAdmission,
+                    session: session,
+                    contentWorkAdmission: self.refreshWorkAdmissionSource.acquire()
                 )
             }
         }

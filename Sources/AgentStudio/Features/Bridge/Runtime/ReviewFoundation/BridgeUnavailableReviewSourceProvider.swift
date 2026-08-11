@@ -1,7 +1,7 @@
 import Foundation
 
 actor BridgeUnavailableReviewSourceProvider: BridgeReviewSourceProvider {
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog? {
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         nil
     }
 

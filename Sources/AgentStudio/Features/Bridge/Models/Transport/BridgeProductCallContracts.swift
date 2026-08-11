@@ -143,6 +143,31 @@ struct BridgeProductReviewComparisonUpdateRequest: Codable, Equatable, Sendable 
     }
 }
 
+struct BridgeProductReviewComparisonTargetsQueryRequest: Codable, Equatable, Sendable {
+    private struct EmptyCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue _: String) { nil }
+        init?(intValue _: Int) { nil }
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: [],
+            contract: "review.comparisonTargets.query request"
+        )
+        _ = try decoder.container(keyedBy: EmptyCodingKey.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        _ = encoder.container(keyedBy: EmptyCodingKey.self)
+    }
+}
+
 struct BridgeProductReviewPublicationAppliedRequest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case publicationId
@@ -330,6 +355,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case fileActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewComparisonUpdate(BridgeProductReviewComparisonUpdateRequest)
+    case reviewComparisonTargetsQuery(BridgeProductReviewComparisonTargetsQueryRequest)
     case reviewIntakeReady(BridgeProductReviewIntakeReadyRequest)
     case reviewMarkFileViewed(BridgeProductReviewMarkFileViewedRequest)
     case reviewPublicationApplied(BridgeProductReviewPublicationAppliedRequest)
@@ -345,6 +371,7 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
         case .reviewComparisonUpdate: "review.comparison.update"
+        case .reviewComparisonTargetsQuery: "review.comparisonTargets.query"
         case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
         case .reviewPublicationApplied: "review.publication.applied"
@@ -354,7 +381,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .fileSourceCurrent, .fileActiveViewerModeUpdate: .file
-        case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
+        case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
+            .reviewMarkFileViewed,
             .reviewPublicationApplied:
             .review
         }
@@ -384,6 +412,13 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             self = .reviewComparisonUpdate(
                 try container.decode(
                     BridgeProductReviewComparisonUpdateRequest.self,
+                    forKey: .request
+                )
+            )
+        case "review.comparisonTargets.query":
+            self = .reviewComparisonTargetsQuery(
+                try container.decode(
+                    BridgeProductReviewComparisonTargetsQueryRequest.self,
                     forKey: .request
                 )
             )
@@ -422,6 +457,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
             try container.encode(request, forKey: .request)
         case .reviewComparisonUpdate(let request):
             try container.encode(request, forKey: .request)
+        case .reviewComparisonTargetsQuery(let request):
+            try container.encode(request, forKey: .request)
         case .reviewMarkFileViewed(let request):
             try container.encode(request, forKey: .request)
         case .reviewIntakeReady(let request):
@@ -437,6 +474,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case fileActiveViewerModeUpdate
     case reviewActiveViewerModeUpdate
     case reviewComparisonUpdate
+    case reviewComparisonTargetsQuery(BridgeProductReviewComparisonTargetsQueryResult)
     case reviewIntakeReady
     case reviewMarkFileViewed
     case reviewPublicationApplied
@@ -452,6 +490,7 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
         case .reviewComparisonUpdate: "review.comparison.update"
+        case .reviewComparisonTargetsQuery: "review.comparisonTargets.query"
         case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
         case .reviewPublicationApplied: "review.publication.applied"
@@ -461,7 +500,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     var surface: BridgeProductSurface {
         switch self {
         case .fileSourceCurrent, .fileActiveViewerModeUpdate: .file
-        case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
+        case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
+            .reviewMarkFileViewed,
             .reviewPublicationApplied:
             .review
         }
@@ -500,6 +540,13 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
             self = .reviewComparisonUpdate
+        case "review.comparisonTargets.query":
+            self = .reviewComparisonTargetsQuery(
+                try container.decode(
+                    BridgeProductReviewComparisonTargetsQueryResult.self,
+                    forKey: .result
+                )
+            )
         case "review.markFileViewed":
             try BridgeProductContractDecoding.decodeRequiredNull(
                 forKey: .result,
@@ -539,6 +586,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate, .reviewComparisonUpdate,
             .reviewIntakeReady, .reviewMarkFileViewed, .reviewPublicationApplied:
             try container.encodeNil(forKey: .result)
+        case .reviewComparisonTargetsQuery(let result):
+            try container.encode(result, forKey: .result)
         }
     }
 }

@@ -581,113 +581,41 @@ enum BridgePaneReviewComparisonAttempt: Codable, Equatable, Sendable {
     }
 }
 
-package enum BridgeReviewComparisonBranchTarget: Codable, Equatable, Sendable {
-    case local(branchName: String, oid: String)
-    case remoteTracking(remoteName: String, branchName: String, oid: String)
-
+package struct BridgeReviewComparisonDefaultTargetIdentity: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case branchName
-        case kind
-        case oid
         case remoteName
     }
 
-    private enum Kind: String, Codable {
-        case local
-        case remoteTracking
-    }
+    let remoteName: String
+    let branchName: String
 
-    package init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(Kind.self, forKey: .kind) {
-        case .local:
-            try BridgeProductContractDecoding.rejectUnknownKeys(
-                from: decoder,
-                allowedKeys: [
-                    CodingKeys.branchName.rawValue,
-                    CodingKeys.kind.rawValue,
-                    CodingKeys.oid.rawValue,
-                ],
-                contract: "local Review comparison branch target"
-            )
-            self = .local(
-                branchName: try container.decode(String.self, forKey: .branchName),
-                oid: try container.decode(String.self, forKey: .oid)
-            )
-        case .remoteTracking:
-            try BridgeProductContractDecoding.rejectUnknownKeys(
-                from: decoder,
-                allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-                contract: "remote-tracking Review comparison branch target"
-            )
-            self = .remoteTracking(
-                remoteName: try container.decode(String.self, forKey: .remoteName),
-                branchName: try container.decode(String.self, forKey: .branchName),
-                oid: try container.decode(String.self, forKey: .oid)
-            )
-        }
-    }
-
-    package func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .local(let branchName, let oid):
-            try container.encode(branchName, forKey: .branchName)
-            try container.encode(Kind.local, forKey: .kind)
-            try container.encode(oid, forKey: .oid)
-        case .remoteTracking(let remoteName, let branchName, let oid):
-            try container.encode(branchName, forKey: .branchName)
-            try container.encode(Kind.remoteTracking, forKey: .kind)
-            try container.encode(oid, forKey: .oid)
-            try container.encode(remoteName, forKey: .remoteName)
-        }
-    }
-}
-
-package struct BridgeReviewComparisonTargetCatalog: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case branches
-        case defaultTarget
-    }
-
-    let defaultTarget: BridgeReviewComparisonBranchTarget?
-    let branches: [BridgeReviewComparisonBranchTarget]
-
-    package init(
-        defaultTarget: BridgeReviewComparisonBranchTarget?,
-        branches: [BridgeReviewComparisonBranchTarget]
-    ) {
-        self.defaultTarget = defaultTarget
-        self.branches = branches
+    package init(remoteName: String, branchName: String) {
+        self.remoteName = remoteName
+        self.branchName = branchName
     }
 
     package init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
             from: decoder,
             allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
-            contract: "Review comparison target catalog"
+            contract: "Review comparison default target identity"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.defaultTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
-            BridgeReviewComparisonBranchTarget.self,
-            forKey: .defaultTarget,
-            from: container,
-            codingPath: decoder.codingPath
-        )
-        self.branches = try container.decode(
-            [BridgeReviewComparisonBranchTarget].self,
-            forKey: .branches
-        )
+        self.branchName = try container.decode(String.self, forKey: .branchName)
+        self.remoteName = try container.decode(String.self, forKey: .remoteName)
+        guard !branchName.isEmpty, !remoteName.isEmpty else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review comparison default target identity must be non-empty",
+                codingPath: decoder.codingPath
+            )
+        }
     }
 
     package func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(branches, forKey: .branches)
-        if let defaultTarget {
-            try container.encode(defaultTarget, forKey: .defaultTarget)
-        } else {
-            try container.encodeNil(forKey: .defaultTarget)
-        }
+        try container.encode(branchName, forKey: .branchName)
+        try container.encode(remoteName, forKey: .remoteName)
     }
 }
 
@@ -696,24 +624,24 @@ struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {
         case activeTarget
         case attempt
         case displayedSnapshot
-        case targetCatalog
+        case repositoryDefaultTarget
     }
 
     let activeTarget: WorkspaceReviewContributionTarget?
     let attempt: BridgePaneReviewComparisonAttempt
     let displayedSnapshot: BridgePaneReviewDisplayedSnapshot
-    let targetCatalog: BridgeReviewComparisonTargetCatalog?
+    let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
 
     init(
         activeTarget: WorkspaceReviewContributionTarget?,
         attempt: BridgePaneReviewComparisonAttempt,
         displayedSnapshot: BridgePaneReviewDisplayedSnapshot,
-        targetCatalog: BridgeReviewComparisonTargetCatalog? = nil
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil
     ) {
         self.activeTarget = activeTarget
         self.attempt = attempt
         self.displayedSnapshot = displayedSnapshot
-        self.targetCatalog = targetCatalog
+        self.repositoryDefaultTarget = repositoryDefaultTarget
     }
 
     init(from decoder: Decoder) throws {
@@ -734,9 +662,9 @@ struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {
             BridgePaneReviewDisplayedSnapshot.self,
             forKey: .displayedSnapshot
         )
-        targetCatalog = try BridgeProductContractDecoding.decodeRequiredNullable(
-            BridgeReviewComparisonTargetCatalog.self,
-            forKey: .targetCatalog,
+        repositoryDefaultTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeReviewComparisonDefaultTargetIdentity.self,
+            forKey: .repositoryDefaultTarget,
             from: container,
             codingPath: decoder.codingPath
         )
@@ -747,7 +675,7 @@ struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {
         try container.encode(activeTarget, forKey: .activeTarget)
         try container.encode(attempt, forKey: .attempt)
         try container.encode(displayedSnapshot, forKey: .displayedSnapshot)
-        try container.encode(targetCatalog, forKey: .targetCatalog)
+        try container.encode(repositoryDefaultTarget, forKey: .repositoryDefaultTarget)
     }
 }
 

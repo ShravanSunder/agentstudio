@@ -111,7 +111,7 @@ final class BridgePaneProductCommittedCallTarget {
             sourceProtocol = .review
             update = request
         case .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
-            .reviewPublicationApplied:
+            .reviewPublicationApplied, .reviewComparisonTargetsQuery:
             return
         }
         let activeSource = update.activeSource.map {

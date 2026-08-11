@@ -92,7 +92,7 @@ package actor BridgeDevelopmentProductHost {
         let reviewProvider = makeReviewProvider(source.worktreeRoot, gitReadContext)
         let reviewPipeline = BridgeReviewPipeline(provider: reviewProvider)
         let initialReviewTarget = try Self.reviewTarget(from: source.paneState)
-        let reviewComparisonTargetCatalog = try await Self.loadReviewComparisonTargetCatalog(
+        let reviewComparisonDefaultTarget = try await Self.loadReviewComparisonDefaultTarget(
             from: reviewProvider
         )
 
@@ -118,7 +118,7 @@ package actor BridgeDevelopmentProductHost {
         }
         let refreshAdmissionCoordinator = await Self.makeRefreshAdmissionCoordinator(
             initialReviewTarget: initialReviewTarget,
-            targetCatalog: reviewComparisonTargetCatalog
+            repositoryDefaultTarget: reviewComparisonDefaultTarget
         )
         let refreshWorkAdmissionSource = await MainActor.run {
             refreshAdmissionCoordinator.workAdmissionSource
@@ -603,11 +603,11 @@ package actor BridgeDevelopmentProductHost {
         )
     }
 
-    private static func loadReviewComparisonTargetCatalog(
+    private static func loadReviewComparisonDefaultTarget(
         from reviewProvider: any BridgeReviewSourceProvider
-    ) async throws -> BridgeReviewComparisonTargetCatalog? {
+    ) async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
         do {
-            return try await reviewProvider.reviewComparisonTargets()
+            return try await reviewProvider.resolveReviewDefaultTarget()
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -618,7 +618,7 @@ package actor BridgeDevelopmentProductHost {
     @MainActor
     private static func makeRefreshAdmissionCoordinator(
         initialReviewTarget: WorkspaceReviewContributionTarget,
-        targetCatalog: BridgeReviewComparisonTargetCatalog?
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
     ) -> BridgePaneRefreshAdmissionCoordinator {
         BridgePaneRefreshAdmissionCoordinator(
             initialActivity: .foreground,
@@ -626,7 +626,7 @@ package actor BridgeDevelopmentProductHost {
                 activeTarget: initialReviewTarget,
                 attempt: .pending(reviewGeneration: 0),
                 displayedSnapshot: .absent,
-                targetCatalog: targetCatalog
+                repositoryDefaultTarget: repositoryDefaultTarget
             )
         )
     }

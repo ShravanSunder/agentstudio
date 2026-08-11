@@ -51,13 +51,13 @@ extension BridgePaneController {
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
     ) async throws {
         guard case .workspace(_, let baseline) = bridgePaneState.source else { return }
-        let targetCatalog: BridgeReviewComparisonTargetCatalog?
+        let resolvedDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
         do {
-            targetCatalog = try await reviewSourceProvider.reviewComparisonTargets()
+            resolvedDefaultTarget = try await reviewSourceProvider.resolveReviewDefaultTarget()
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            targetCatalog = nil
+            resolvedDefaultTarget = nil
         }
         guard
             isReviewPackageLoadCurrent(
@@ -66,17 +66,17 @@ extension BridgePaneController {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         else { return }
-        refreshAdmissionCoordinator.publishReviewComparisonTargetCatalog(targetCatalog)
+        refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(resolvedDefaultTarget)
         _ = scheduleProductPresentationPublication()
         guard baseline == nil else { return }
         guard
-            case .remoteTracking(let remoteName, let branchName, _) = targetCatalog?.defaultTarget,
+            let resolvedDefaultTarget,
             let initialContributionTargetCommit
         else { return }
         let mutationResult = initialContributionTargetCommit(
             .originDefaultBranch(
-                remoteName: remoteName,
-                branchName: branchName,
+                remoteName: resolvedDefaultTarget.remoteName,
+                branchName: resolvedDefaultTarget.branchName,
                 basis: .commonCommit
             )
         )

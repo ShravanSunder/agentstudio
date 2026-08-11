@@ -7,7 +7,7 @@ import Foundation
 /// deltas are Bridge concepts. A backend may be called directly only when its
 /// public DTOs exactly match these contracts; otherwise use one thin mapper.
 package protocol BridgeReviewSourceProvider: Sendable {
-    func reviewComparisonTargets() async throws -> BridgeReviewComparisonTargetCatalog?
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity?
     func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
         -> BridgeContributionComparisonCapture
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint

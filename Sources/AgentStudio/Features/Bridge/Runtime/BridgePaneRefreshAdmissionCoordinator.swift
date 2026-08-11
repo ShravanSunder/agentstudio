@@ -142,15 +142,15 @@ final class BridgePaneRefreshAdmissionCoordinator {
         )
     }
 
-    func publishReviewComparisonTargetCatalog(
-        _ targetCatalog: BridgeReviewComparisonTargetCatalog?
+    func publishReviewComparisonDefaultTarget(
+        _ repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
     ) {
         guard let reviewComparison else { return }
         let nextComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: reviewComparison.activeTarget,
             attempt: reviewComparison.attempt,
             displayedSnapshot: reviewComparison.displayedSnapshot,
-            targetCatalog: targetCatalog
+            repositoryDefaultTarget: repositoryDefaultTarget
         )
         guard nextComparison != reviewComparison else { return }
         self.reviewComparison = nextComparison
@@ -165,7 +165,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
             activeTarget: activeTarget,
             attempt: .pending(reviewGeneration: reviewGeneration),
             displayedSnapshot: reviewComparison?.displayedSnapshot.stalePredecessor ?? .absent,
-            targetCatalog: reviewComparison?.targetCatalog
+            repositoryDefaultTarget: reviewComparison?.repositoryDefaultTarget
         )
         guard nextComparison != reviewComparison else { return }
         reviewComparison = nextComparison
@@ -187,7 +187,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
             activeTarget: reviewComparison.activeTarget,
             attempt: .settled(reviewGeneration: reviewGeneration),
             displayedSnapshot: .current(displayedSnapshotIdentity),
-            targetCatalog: reviewComparison.targetCatalog
+            repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
         )
         presentationRevision += 1
     }
@@ -207,7 +207,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
                 retryable: retryable
             ),
             displayedSnapshot: reviewComparison.displayedSnapshot.stalePredecessor,
-            targetCatalog: reviewComparison.targetCatalog
+            repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
         )
         presentationRevision += 1
     }
