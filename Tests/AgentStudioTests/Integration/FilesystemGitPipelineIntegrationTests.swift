@@ -282,6 +282,72 @@ struct FilesystemGitPipelineIntegrationTests {
         await pipeline.shutdown()
     }
 
+    @Test("watched-folder refresh requests git status only for intersecting registered worktrees")
+    func watchedFolderRefreshRequestsGitStatusOnlyForIntersectingRegisteredWorktrees() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus())
+        let pipeline = FilesystemGitPipeline(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero,
+            gitPeriodicRefreshInterval: nil
+        )
+        await pipeline.start()
+
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "pipeline-watched-scope-\(UUIDv7.generate().uuidString)")
+        let watchedFolder = fixtureRoot.appending(path: "watched")
+        let worktreeRoots = [
+            watchedFolder.appending(path: "worktree-a"),
+            fixtureRoot.appending(path: "unrelated/worktree-b"),
+            fixtureRoot.appending(path: "unrelated/worktree-c"),
+        ]
+        for worktreeRoot in worktreeRoots {
+            try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        for worktreeRoot in worktreeRoots {
+            await pipeline.register(
+                worktreeId: UUIDv7.generate(),
+                repoId: UUIDv7.generate(),
+                rootPath: worktreeRoot
+            )
+        }
+        let registrationReadsCompleted = await eventually("all registration reads should complete") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(registrationReadsCompleted)
+        await provider.resetRecordedRequests()
+
+        let watchedPaths = [WatchedPath(path: watchedFolder)]
+        let summary = await pipeline.refreshWatchedFolders(watchedPaths)
+        let affectedReadCompleted = await eventually("affected worktree git read should complete") {
+            await provider.callCount >= 1
+        }
+        #expect(affectedReadCompleted)
+
+        #expect(await provider.callCount(for: worktreeRoots[0]) == 1)
+        #expect(await provider.callCount(for: worktreeRoots[1]) == 0)
+        #expect(await provider.callCount(for: worktreeRoots[2]) == 0)
+        #expect(Set(summary.repoPathsByWatchedFolder.keys) == [watchedFolder.standardizedFileURL])
+
+        await provider.resetRecordedRequests()
+        _ = await pipeline.refreshWatchedFolders([])
+        let refreshAllReadsCompleted = await eventually("explicit refresh-all should read every worktree") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(refreshAllReadsCompleted)
+        for worktreeRoot in worktreeRoots {
+            #expect(await provider.callCount(for: worktreeRoot) == 1)
+        }
+
+        await pipeline.shutdown()
+    }
+
     private func makeTrackedStatus(
         aheadCount: Int = 0,
         behindCount: Int = 0,
@@ -450,6 +516,7 @@ struct FilesystemGitPipelineIntegrationTests {
 private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private var currentStatus: GitWorkingTreeStatus?
     private(set) var callCount = 0
+    private var callCountByRootPath: [URL: Int] = [:]
 
     init(status: GitWorkingTreeStatus?) {
         self.currentStatus = status
@@ -459,8 +526,18 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
         currentStatus = status
     }
 
-    func statusResult(for _: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
+    func resetRecordedRequests() {
+        callCount = 0
+        callCountByRootPath.removeAll(keepingCapacity: true)
+    }
+
+    func callCount(for rootPath: URL) -> Int {
+        callCountByRootPath[rootPath.standardizedFileURL, default: 0]
+    }
+
+    func statusResult(for rootPath: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
         callCount += 1
+        callCountByRootPath[rootPath.standardizedFileURL, default: 0] += 1
         guard let currentStatus else {
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
         }

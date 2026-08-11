@@ -115,7 +115,11 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
         let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
-        await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        if watchedPaths.isEmpty {
+            await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        } else {
+            await gitWorkingDirectoryProjector.refreshRegisteredWorktreesIntersecting(watchedPaths.map(\.path))
+        }
         return summary
     }
 

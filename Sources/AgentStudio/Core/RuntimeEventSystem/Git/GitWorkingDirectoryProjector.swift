@@ -329,6 +329,39 @@ package actor GitWorkingDirectoryProjector {
         }
     }
 
+    package func refreshRegisteredWorktreesIntersecting(_ watchedPaths: [URL]) {
+        let canonicalWatchedPaths = watchedPaths.map { watchedPath in
+            FilesystemRootOwnership.canonicalRootPath(for: watchedPath)
+        }
+        for (worktreeId, rootPath) in rootPathByWorktreeId.sorted(by: { lhs, rhs in
+            lhs.key.uuidString < rhs.key.uuidString
+        }) {
+            let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
+            guard
+                canonicalWatchedPaths.contains(where: { watchedPath in
+                    Self.pathsIntersect(canonicalRootPath, watchedPath)
+                })
+            else { continue }
+            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
+        }
+    }
+
+    nonisolated private static func pathsIntersect(_ lhs: String, _ rhs: String) -> Bool {
+        isSameOrDescendantPath(lhs, of: rhs) || isSameOrDescendantPath(rhs, of: lhs)
+    }
+
+    nonisolated private static func isSameOrDescendantPath(_ path: String, of rootPath: String) -> Bool {
+        let comparisonPath = path.lowercased()
+        let comparisonRootPath = rootPath.lowercased()
+        if comparisonPath == comparisonRootPath {
+            return true
+        }
+        if comparisonRootPath == "/" {
+            return comparisonPath.hasPrefix("/")
+        }
+        return comparisonPath.hasPrefix(comparisonRootPath + "/")
+    }
+
     func startDrainTask(worktreeId: UUID) {
         nextWorktreeTaskGeneration &+= 1
         let taskGeneration = nextWorktreeTaskGeneration
