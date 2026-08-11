@@ -366,7 +366,7 @@ struct CIFastLaneWorkflowTests {
         let aggregateLaneMode = try shellCase(named: "test", in: swiftTestTaskScript)
 
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
-        #expect(ciLargeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"300\""))
+        #expect(ciLargeLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(ciLargeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(ciLargeLaneStep.contains("run: mise run --skip-deps --raw test:swift:large"))
