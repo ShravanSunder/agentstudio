@@ -50,7 +50,7 @@ struct GitHubWebviewLaunchResolverTests {
     }
 
     @Test
-    func resolvesPullListURL_whenPullRequestSignalExists() throws {
+    func resolvesExactPullRequestURLWhenBranchFactHasOne() throws {
         let store = makeStore()
         let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
@@ -79,17 +79,58 @@ struct GitHubWebviewLaunchResolverTests {
                 updatedAt: Date()
             )
         )
-        cache.setPullRequestCount(4, for: worktree.id)
+        cache.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                branch: "feature/exact-pr"
+            )
+        )
+        let exactPullRequestURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
+        cache.applyPullRequestFacts(
+            repoId: repo.id,
+            factsByBranch: [
+                "feature/exact-pr": PullRequestFacts(openCount: 1, exactOpenURL: exactPullRequestURL)
+            ]
+        )
 
         let url = GitHubWebviewLaunchResolver.urlForActivePane(store: store, repoCache: cache)
 
-        #expect(url == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls"))
+        #expect(url == exactPullRequestURL)
         #expect(
             GitHubWebviewLaunchResolver.pullRequestsURL(
                 for: pane.id,
                 store: store,
                 repoCache: cache
-            ) == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")
+            ) == exactPullRequestURL
+        )
+    }
+
+    @Test
+    func pullRequestURLIsUnavailableWhenBranchFactHasNoExactURL() throws {
+        let store = makeStore()
+        let cache = RepoCacheAtom()
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        let worktree = try #require(store.repos.first(where: { $0.id == repo.id })?.worktrees.first)
+        let pane = store.createPane(
+            launchDirectory: worktree.path,
+            title: "Terminal",
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+        )
+        cache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/no-url")
+        )
+        cache.applyPullRequestFacts(
+            repoId: repo.id,
+            factsByBranch: ["feature/no-url": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
+        )
+
+        #expect(
+            GitHubWebviewLaunchResolver.pullRequestsURL(
+                for: pane.id,
+                store: store,
+                repoCache: cache
+            ) == nil
         )
     }
 

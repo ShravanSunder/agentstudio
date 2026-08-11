@@ -99,7 +99,12 @@ struct PaneSurfaceToolbarHost: View {
             paneId: locationTargetPaneId,
             store: store
         )
-        let openPullRequestAction = makeOpenPullRequestAction(for: locationTargetPaneId)
+        let openPullRequestAction = PanePullRequestToolbarActionFactory.make(
+            paneId: locationTargetPaneId,
+            store: store,
+            repoCache: repoCache,
+            openExternalURL: { NSWorkspace.shared.open($0) }
+        )
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
             paneId: locationTargetPaneId,
@@ -167,32 +172,4 @@ struct PaneSurfaceToolbarHost: View {
         paneInboxPresentation?.clearRequest(request)
     }
 
-    private func makeOpenPullRequestAction(for paneId: UUID) -> PaneSurfaceToolbarAction? {
-        guard
-            let url = GitHubWebviewLaunchResolver.pullRequestsURL(
-                for: paneId,
-                store: store,
-                repoCache: repoCache
-            )
-        else {
-            return nil
-        }
-
-        let actionSpec = LocalActionSpec.openPullRequest.actionSpec
-        return PaneSurfaceToolbarAction(
-            state: PaneSurfaceToolbarAction.State(
-                label: actionSpec.label,
-                accessibilityIdentifier: "paneSurfaceToolbar.pullRequest",
-                icon: actionSpec.icon,
-                tooltip: actionSpec.controlTooltipRenderValue(
-                    provenance: .localAction(rawValue: "openPullRequest")
-                ),
-                isEnabled: true,
-                isSelected: false
-            ),
-            perform: {
-                _ = NSWorkspace.shared.open(url)
-            }
-        )
-    }
 }

@@ -168,7 +168,10 @@ struct WorkspaceLauncherProjectorTests {
                     branch: "main"
                 )
             )
-            atoms.core.repoCache.setPullRequestCount(3, for: worktree.id)
+            atoms.core.repoCache.applyPullRequestFacts(
+                repoId: repo.id,
+                factsByBranch: ["main": PullRequestFacts(openCount: 3, exactOpenURL: nil)]
+            )
             let approvalPaneId = UUID()
             atoms.inboxNotification.append(
                 InboxNotification(

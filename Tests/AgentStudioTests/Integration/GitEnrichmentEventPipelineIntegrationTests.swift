@@ -41,8 +41,13 @@ struct GitEnrichmentEventPipelineIntegrationTests {
                     origin: "git@github.com:askluna/agent-studio.git"
                 )
             },
-            forgeProvider: StubForgeStatusProvider.stub { _, branches in
-                Dictionary(uniqueKeysWithValues: branches.map { ($0, 1) })
+            forgeProvider: StubForgeStatusProvider.stub { _ in
+                .complete([
+                    ForgePullRequest(
+                        headRefName: "feature/enrichment",
+                        url: URL(string: "https://github.com/askluna/agent-studio/pull/1")!
+                    )
+                ])
             }
         ) { harness in
             await waitForBusSubscriberCount(harness.bus, atLeast: 3)
@@ -91,12 +96,16 @@ struct GitEnrichmentEventPipelineIntegrationTests {
 
         await withEnrichmentHarness(
             gitProvider: StubGitWorkingTreeStatusProvider.stub { _ in nil },
-            forgeProvider: StubForgeStatusProvider.stub { origin, branches in
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    counts[branch] = origin.contains("repo-a") ? 1 : 2
-                }
-                return counts
+            forgeProvider: StubForgeStatusProvider.stub { origin in
+                let count = origin.contains("repo-a") ? 1 : 2
+                return .complete(
+                    (0..<count).map { index in
+                        ForgePullRequest(
+                            headRefName: "main",
+                            url: URL(string: "https://github.com/acme/repo/pull/\(index + 1)")!
+                        )
+                    }
+                )
             }
         ) { harness in
             await waitForBusSubscriberCount(harness.bus, atLeast: 3)
@@ -138,8 +147,8 @@ struct GitEnrichmentEventPipelineIntegrationTests {
             )
 
             await assertEventuallyMain("forge counts should converge independently per repo") {
-                harness.repoCache.pullRequestCountByWorktreeId[worktreeA] == 1
-                    && harness.repoCache.pullRequestCountByWorktreeId[worktreeB] == 2
+                harness.repoCache.pullRequestFactsForTest(worktreeId: worktreeA)?.openCount == 1
+                    && harness.repoCache.pullRequestFactsForTest(worktreeId: worktreeB)?.openCount == 2
             }
         }
     }

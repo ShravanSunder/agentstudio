@@ -277,6 +277,11 @@ package enum AppPolicies {
         }
     }
 
+    package enum Forge {
+        package static let pullRequestResultLimit: Int = 200
+        package static let automaticRefreshMinimumInterval: Duration = .seconds(180)
+    }
+
     package enum WatchedFolderScanning {
         package static let maximumConcurrentTraversalQuanta: Int = 2
         package static let fallbackCadence: Duration = .seconds(300)

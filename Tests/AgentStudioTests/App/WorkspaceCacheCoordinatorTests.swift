@@ -176,7 +176,10 @@ final class WorkspaceCacheCoordinatorTests {
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repo.id, branch: "main")
         )
-        repoCache.setPullRequestCount(2, for: worktreeId)
+        repoCache.applyPullRequestFacts(
+            repoId: repo.id,
+            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
+        )
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -187,7 +190,7 @@ final class WorkspaceCacheCoordinatorTests {
         #expect(workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
-        #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
+        #expect(repoCache.pullRequestFactsByBranch.isEmpty)
     }
 
     @Test
@@ -240,7 +243,11 @@ final class WorkspaceCacheCoordinatorTests {
                 branch: "main"
             )
         )
-        repoCache.setPullRequestCount(5, for: worktreeId)
+        let mainBranchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
+        repoCache.applyPullRequestFacts(
+            repoId: repo.id,
+            factsByBranch: ["main": PullRequestFacts(openCount: 5, exactOpenURL: nil)]
+        )
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -251,7 +258,7 @@ final class WorkspaceCacheCoordinatorTests {
         )
 
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
-        #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
+        #expect(repoCache.pullRequestFacts(for: mainBranchKey)?.openCount == 5)
         #expect(workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
         #expect(effectRecorder.deltas.count == 1)
         #expect(effectRecorder.deltas.single?.removedWorktrees.single?.id == worktreeId)
@@ -393,9 +400,7 @@ final class WorkspaceCacheCoordinatorTests {
 
         let repoId = UUID()
         let worktreeId = UUID()
-        coordinator.startConsuming()
-        await waitForSubscriber(bus: bus)
-
+        await coordinator.startConsuming()
         await bus.post(
             .worktree(
                 WorktreeEnvelope.test(
@@ -472,9 +477,7 @@ final class WorkspaceCacheCoordinatorTests {
         )
         let repoId = UUID()
         let worktreeId = UUID()
-        coordinator.startConsuming()
-        await waitForSubscriber(bus: bus)
-
+        await coordinator.startConsuming()
         await bus.post(
             .worktree(
                 WorktreeEnvelope.test(
@@ -562,7 +565,7 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
-    func enrichment_pullRequestCountsChanged_mapsByBranch() {
+    func enrichment_pullRequestsChanged_mapsByBranch() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
@@ -592,7 +595,14 @@ final class WorkspaceCacheCoordinatorTests {
         )
 
         let envelope = WorktreeEnvelope.test(
-            event: .forge(.pullRequestCountsChanged(repoId: repoId, countsByBranch: ["feature/runtime": 3])),
+            event: .forge(
+                .pullRequestsChanged(
+                    repoId: repoId,
+                    factsByBranch: [
+                        "feature/runtime": PullRequestFacts(openCount: 3, exactOpenURL: nil)
+                    ]
+                )
+            ),
             repoId: repoId,
             worktreeId: nil,
             source: .system(.service(.gitForge(provider: "github")))
@@ -600,8 +610,16 @@ final class WorkspaceCacheCoordinatorTests {
 
         coordinator.handleEnrichment(envelope)
 
-        #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == 3)
-        #expect(repoCache.pullRequestCountByWorktreeId[otherWorktreeId] == nil)
+        #expect(
+            repoCache.pullRequestFacts(
+                for: RepoBranchKey(repoId: repoId, branch: "feature/runtime")!
+            )?.openCount == 3
+        )
+        #expect(
+            repoCache.pullRequestFacts(
+                for: RepoBranchKey(repoId: otherRepoId, branch: "feature/runtime")!
+            ) == nil
+        )
     }
 
     @Test
@@ -804,13 +822,6 @@ final class WorkspaceCacheCoordinatorTests {
         }
         Issue.record("\(description) timed out")
         return false
-    }
-
-    private func waitForSubscriber(bus: EventBus<RuntimeEnvelope>, maxTurns: Int = 50) async {
-        for _ in 0..<maxTurns {
-            if await bus.subscriberCount > 0 { return }
-            await Task.yield()
-        }
     }
 
     private func waitUntilYielding(

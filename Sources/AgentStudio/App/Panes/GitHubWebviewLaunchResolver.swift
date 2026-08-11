@@ -47,14 +47,22 @@ enum GitHubWebviewLaunchResolver {
         guard
             let pane = store.paneAtom.pane(paneId),
             let context = repoContext(for: pane, store: store),
-            let slug = repoCache.repoEnrichment(for: context.repo.id)?.remoteSlug,
-            let worktreeId = context.worktreeId,
-            (repoCache.pullRequestCount(for: worktreeId) ?? 0) > 0
+            let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL
         else {
             return nil
         }
 
-        return githubURL(path: "/\(slug)/pulls")
+        return exactOpenURL
+    }
+
+    static func hasResolvableWorktreeContext(
+        for paneId: UUID,
+        store: WorkspaceStore
+    ) -> Bool {
+        guard let pane = store.paneAtom.pane(paneId),
+            let context = repoContext(for: pane, store: store)
+        else { return false }
+        return context.worktreeId != nil
     }
 
     private static func url(
@@ -74,14 +82,11 @@ enum GitHubWebviewLaunchResolver {
             return fallbackURL
         }
 
-        let path =
-            if let worktreeId = context.worktreeId,
-                (repoCache.pullRequestCount(for: worktreeId) ?? 0) > 0
-            {
-                "/\(slug)/pulls"
-            } else {
-                "/\(slug)"
-            }
+        if let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL {
+            return exactOpenURL
+        }
+
+        let path = "/\(slug)"
 
         guard let url = githubURL(path: path) else {
             logger.error("Failed to build GitHub URL for path=\(path, privacy: .public)")
@@ -112,5 +117,19 @@ enum GitHubWebviewLaunchResolver {
             return nil
         }
         return (resolved.repo, resolved.worktree.id)
+    }
+
+    private static func pullRequestFacts(
+        for context: (repo: Repo, worktreeId: UUID?),
+        repoCache: RepoCacheAtom
+    ) -> PullRequestFacts? {
+        guard
+            let worktreeId = context.worktreeId,
+            let enrichment = repoCache.worktreeEnrichment(for: worktreeId),
+            let key = RepoBranchKey(repoId: context.repo.id, branch: enrichment.branch)
+        else {
+            return nil
+        }
+        return repoCache.pullRequestFacts(for: key)
     }
 }

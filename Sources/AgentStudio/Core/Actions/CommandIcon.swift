@@ -94,6 +94,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
 
 package enum OcticonSymbol: String, CaseIterable, Equatable, Sendable {
     case codeSquare = "octicon-code-square"
+    case gitPullRequest = "octicon-git-pull-request"
     case vscode = "octicon-vscode"
 }
 

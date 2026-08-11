@@ -63,20 +63,19 @@ final class WorkspaceCacheCoordinator {
         consumeTask?.cancel()
     }
 
-    func startConsuming() {
+    func startConsuming() async {
         guard consumeTask == nil else { return }
-        let bus = self.bus
+        let subscription = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "WorkspaceCacheCoordinator"
+        )
         let applier = makeEnrichmentApplier()
         let flushTask = applier.startFlushTask()
         let consumeDirect: @MainActor @Sendable (RuntimeEnvelope) -> Void = { [weak self] envelope in
             self?.consume(envelope)
         }
         // swiftlint:disable:next no_task_detached
-        consumeTask = Task.detached { [bus, applier, consumeDirect] in
-            let subscription = await bus.subscribe(
-                policy: .criticalUnbounded,
-                subscriberName: "WorkspaceCacheCoordinator"
-            )
+        consumeTask = Task.detached { [subscription, applier, consumeDirect] in
             for await envelope in subscription {
                 if Task.isCancelled { break }
                 if Self.canCoalesce(envelope) {
@@ -544,14 +543,15 @@ final class WorkspaceCacheCoordinator {
             }
         case .forge(let forgeEvent):
             switch forgeEvent {
-            case .pullRequestCountsChanged(let repoId, let countsByBranch):
-                // Branch-to-worktree mapping is resolved through current enrichment branch values.
-                for (worktreeId, enrichment) in repoCache.worktreeEnrichmentSnapshot()
-                where enrichment.repoId == repoId {
-                    if let count = countsByBranch[enrichment.branch] {
-                        repoCache.setPullRequestCount(count, for: worktreeId)
-                    }
-                }
+            case .pullRequestsChanged(let repoId, let factsByBranch):
+                repoCache.applyPullRequestFacts(
+                    repoId: repoId,
+                    factsByBranch: factsByBranch
+                )
+            case .pullRequestBranchesInvalidated(let repoId, let branches):
+                repoCache.removePullRequestFacts(repoId: repoId, branches: branches)
+            case .pullRequestRepositoryInvalidated(let repoId):
+                repoCache.removePullRequestFacts(forRepository: repoId)
             case .refreshFailed(let repoId, let error):
                 Self.logger.error(
                     "Forge refresh failed for repoId=\(repoId.uuidString, privacy: .public): \(error, privacy: .public)"
@@ -562,7 +562,7 @@ final class WorkspaceCacheCoordinator {
                 )
             case .rateLimited(let repoId, let retryAfterSeconds):
                 Self.logger.warning(
-                    "Forge provider rate limited for repoId=\(repoId.uuidString, privacy: .public); retryAfterSeconds=\(retryAfterSeconds, privacy: .public)"
+                    "Forge provider rate limited for repoId=\(repoId.uuidString, privacy: .public); retryAfterSeconds=\(String(describing: retryAfterSeconds), privacy: .public)"
                 )
             }
         case .filesystem, .security:

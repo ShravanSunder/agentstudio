@@ -116,7 +116,6 @@ struct WorkspaceLocalSchemaContractTests {
             "idx_notification_claim_exact",
             "idx_notification_claim_session",
             "idx_cache_worktree_repo",
-            "idx_cache_pull_request_repo",
         ]
 
         let productIndexNames = Set(indexNames.filter { !$0.hasPrefix("sqlite_autoindex_") })
@@ -216,9 +215,6 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("worktree_id", 1), ("repo_id", 0), ("branch", 0), ("is_main_worktree", 0),
         ("updated_at", 0), ("payload_json", 0),
     ],
-    "cache_pull_request_count": [
-        ("worktree_id", 1), ("repo_id", 0), ("count", 0), ("updated_at", 0),
-    ],
 ]
 
 private let localSchemaExpectedTypes: [String: [String]] = [
@@ -246,7 +242,6 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "cache_metadata": ["INTEGER", "INTEGER", "REAL"],
     "cache_repo_enrichment": ["TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "REAL", "TEXT"],
     "cache_worktree_enrichment": ["TEXT", "TEXT", "TEXT", "INTEGER", "REAL", "TEXT"],
-    "cache_pull_request_count": ["TEXT", "TEXT", "INTEGER", "REAL"],
 ]
 
 private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
@@ -280,7 +275,6 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
     "cache_metadata": ["source_revision"],
     "cache_repo_enrichment": ["state", "updated_at"],
     "cache_worktree_enrichment": ["repo_id", "is_main_worktree", "updated_at"],
-    "cache_pull_request_count": ["count", "updated_at"],
 ]
 
 private func assertLocalSchemaStructuralContract(in databaseQueue: DatabaseQueue) throws {
@@ -379,7 +373,6 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "cache_metadata": 2,
         "cache_repo_enrichment": 0,
         "cache_worktree_enrichment": 1,
-        "cache_pull_request_count": 1,
     ]
     for (tableName, expectedCheckCount) in expectedCheckCounts {
         let tableDefinition = try #require(tableSQL[tableName])
@@ -405,7 +398,6 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(tableSQL["cache_metadata"]?.contains("singleton_id = 1") == true)
     #expect(tableSQL["cache_metadata"]?.contains("source_revision >= 0") == true)
     #expect(tableSQL["cache_worktree_enrichment"]?.contains("is_main_worktree IN (0, 1)") == true)
-    #expect(tableSQL["cache_pull_request_count"]?.contains("count >= 0") == true)
 }
 
 extension WorkspaceLocalSchemaContractTests {

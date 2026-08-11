@@ -20,6 +20,12 @@ struct RepoExplorerFavoriteControlVisibility: Equatable {
 }
 
 struct RepoExplorerWorktreeRowContent: View {
+    struct PullRequestChipPresentation: Equatable {
+        let icon: SidebarChip.Icon
+        let text: String?
+        let usesAccent: Bool
+    }
+
     let octiconLoader: OcticonLoader
     let checkoutTitle: String
     let branchName: String
@@ -82,6 +88,21 @@ struct RepoExplorerWorktreeRowContent: View {
 
     static func favoriteActionSpec(isFavorite: Bool) -> AppCommandSpec {
         (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
+    }
+
+    static func pullRequestChipPresentation(prCount: Int?) -> PullRequestChipPresentation {
+        guard let prCount else {
+            return PullRequestChipPresentation(
+                icon: .system(.arrowClockwise),
+                text: nil,
+                usesAccent: false
+            )
+        }
+        return PullRequestChipPresentation(
+            icon: .octicon("octicon-git-pull-request"),
+            text: "\(prCount)",
+            usesAccent: prCount > 0
+        )
     }
 
     var body: some View {
@@ -179,17 +200,18 @@ struct RepoExplorerWorktreeRowContent: View {
                     hasSyncSignal: hasSyncSignal
                 )
 
+                let pullRequestChip = Self.pullRequestChipPresentation(prCount: branchStatus.prCount)
                 SidebarChip(
-                    iconAsset: "octicon-git-pull-request",
+                    icon: pullRequestChip.icon,
                     octiconLoader: octiconLoader,
-                    text: "\(branchStatus.prCount ?? 0)",
-                    style: (branchStatus.prCount ?? 0) > 0 ? .accent(iconColor) : .neutral
+                    text: pullRequestChip.text,
+                    style: pullRequestChip.usesAccent ? .accent(iconColor) : .neutral
                 )
 
                 if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
                     Button(action: onUnreadPillTap) {
                         SidebarChip(
-                            iconAsset: "octicon-bell",
+                            icon: .octicon("octicon-bell"),
                             octiconLoader: octiconLoader,
                             text: "\(unreadCount)",
                             style: .accent(iconColor)

@@ -15,17 +15,17 @@ private final class RepoCacheAtomFamilyInvalidationCounter: @unchecked Sendable 
 }
 
 @MainActor
-private func observeWorktreeFacts(
+private func observePullRequestFacts(
     in cacheAtom: RepoEnrichmentCacheAtom,
-    worktreeId: UUID,
+    key: RepoBranchKey,
     counter: RepoCacheAtomFamilyInvalidationCounter
 ) {
     withObservationTracking {
-        _ = cacheAtom.worktreeFacts(for: worktreeId)
+        _ = cacheAtom.pullRequestFacts(for: key)
     } onChange: {
         MainActor.assumeIsolated {
             counter.record()
-            observeWorktreeFacts(in: cacheAtom, worktreeId: worktreeId, counter: counter)
+            observePullRequestFacts(in: cacheAtom, key: key, counter: counter)
         }
     }
 }
@@ -33,6 +33,14 @@ private func observeWorktreeFacts(
 @MainActor
 @Suite(.serialized)
 struct RepoCacheAtomFamilyTests {
+    @Test
+    func repoBranchKeyRejectsOnlyEmptyBranchAndPreservesExactBranchText() {
+        let repoId = UUID()
+
+        #expect(RepoBranchKey(repoId: repoId, branch: "") == nil)
+        #expect(RepoBranchKey(repoId: repoId, branch: " feature/exact ")?.branch == " feature/exact ")
+    }
+
     @Test
     func repoEnrichmentKeyReadInvalidatesOnlyMatchingRepo() {
         let cacheAtom = RepoEnrichmentCacheAtom()
@@ -60,116 +68,87 @@ struct RepoCacheAtomFamilyTests {
     }
 
     @Test
-    func worktreeFactsKeyReadCombinesEnrichmentAndPullRequestCount() {
+    func pullRequestFactsKeyReadInvalidatesOnlyMatchingRepositoryBranch() {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let repoId = UUID()
-        let worktreeId = UUID()
-
-        cacheAtom.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
-        )
-        cacheAtom.setPullRequestCount(3, for: worktreeId)
-
-        let facts = cacheAtom.worktreeFacts(for: worktreeId)
-
-        #expect(facts?.enrichment?.branch == "main")
-        #expect(facts?.pullRequestCount == 3)
-    }
-
-    @Test
-    func worktreeFactsMutationsPreserveOtherSource() {
-        let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
-        let worktreeId = UUID()
-
-        cacheAtom.setPullRequestCount(2, for: worktreeId)
-        cacheAtom.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
-        )
-
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.pullRequestCount == 2)
-
-        cacheAtom.setPullRequestCount(5, for: worktreeId)
-
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.enrichment?.branch == "main")
-
-        cacheAtom.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "feature")
-        )
-
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.pullRequestCount == 5)
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.enrichment?.branch == "feature")
-    }
-
-    @Test
-    func worktreeEnrichmentReaderIgnoresPullRequestOnlyChanges() {
-        let cacheAtom = RepoEnrichmentCacheAtom()
-        let repoId = UUID()
-        let worktreeId = UUID()
+        let watchedKey = RepoBranchKey(repoId: repoId, branch: "main")!
+        let unrelatedKey = RepoBranchKey(repoId: repoId, branch: "feature/unrelated")!
         let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
 
-        cacheAtom.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: [
+                "main": PullRequestFacts(
+                    openCount: 1, exactOpenURL: URL(string: "https://github.com/acme/repo/pull/1")),
+                "feature/unrelated": PullRequestFacts(openCount: 2, exactOpenURL: nil),
+            ]
         )
 
         withObservationTracking {
-            _ = cacheAtom.worktreeEnrichment(for: worktreeId)
+            _ = cacheAtom.pullRequestFacts(for: watchedKey)
         } onChange: {
             invalidationCounter.record()
         }
 
-        cacheAtom.setPullRequestCount(2, for: worktreeId)
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: ["feature/unrelated": PullRequestFacts(openCount: 3, exactOpenURL: nil)]
+        )
 
         #expect(!invalidationCounter.didFire)
-        #expect(cacheAtom.worktreeEnrichment(for: worktreeId)?.branch == "main")
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.pullRequestCount == 2)
+        #expect(cacheAtom.pullRequestFacts(for: watchedKey)?.openCount == 1)
+        #expect(cacheAtom.pullRequestFacts(for: unrelatedKey)?.openCount == 3)
     }
 
     @Test
-    func removeWorktreeClearsFactsAndSnapshots() {
+    func applyPullRequestFactsMergesOnlyRefreshedBranches() {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let repoId = UUID()
-        let worktreeId = UUID()
-        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+        let branchAKey = RepoBranchKey(repoId: repoId, branch: "feature/a")!
+        let branchBKey = RepoBranchKey(repoId: repoId, branch: "feature/b")!
 
-        cacheAtom.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: [
+                "feature/a": PullRequestFacts(openCount: 1, exactOpenURL: nil),
+                "feature/b": PullRequestFacts(openCount: 2, exactOpenURL: nil),
+            ]
         )
-        cacheAtom.setPullRequestCount(4, for: worktreeId)
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: ["feature/a": PullRequestFacts(openCount: 4, exactOpenURL: nil)]
+        )
 
-        withObservationTracking {
-            _ = cacheAtom.worktreeFacts(for: worktreeId)
-        } onChange: {
-            invalidationCounter.record()
-        }
-
-        cacheAtom.removeWorktree(worktreeId)
-
-        #expect(invalidationCounter.count == 1)
-        #expect(cacheAtom.worktreeFacts(for: worktreeId) == nil)
-        #expect(cacheAtom.worktreeEnrichmentSnapshot()[worktreeId] == nil)
-        #expect(cacheAtom.pullRequestCountSnapshot()[worktreeId] == nil)
+        #expect(cacheAtom.pullRequestFacts(for: branchAKey)?.openCount == 4)
+        #expect(cacheAtom.pullRequestFacts(for: branchBKey)?.openCount == 2)
     }
 
     @Test
-    func worktreeFactsRetainObservationIdentityAcrossRemovalAndReinsertion() {
+    func pullRequestFactsRetainObservationIdentityAcrossRemovalAndReinsertion() {
         let cacheAtom = RepoEnrichmentCacheAtom()
-        let worktreeId = UUID()
+        let repoId = UUID()
+        let key = RepoBranchKey(repoId: repoId, branch: "main")!
         let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
-        cacheAtom.setPullRequestCount(1, for: worktreeId)
-        observeWorktreeFacts(
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
+        )
+        observePullRequestFacts(
             in: cacheAtom,
-            worktreeId: worktreeId,
+            key: key,
             counter: invalidationCounter
         )
 
-        cacheAtom.removeWorktree(worktreeId)
+        cacheAtom.removePullRequestFacts(repoId: repoId, branches: ["main"])
         #expect(invalidationCounter.count == 1)
-        #expect(cacheAtom.worktreeFacts(for: worktreeId) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: key) == nil)
 
-        cacheAtom.setPullRequestCount(2, for: worktreeId)
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
+        )
         #expect(invalidationCounter.count == 2)
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.pullRequestCount == 2)
+        #expect(cacheAtom.pullRequestFacts(for: key)?.openCount == 2)
     }
 
     @Test
@@ -177,47 +156,91 @@ struct RepoCacheAtomFamilyTests {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let validRepoId = UUID()
         let staleRepoId = UUID()
-        let validWorktreeId = UUID()
-        let staleWorktreeId = UUID()
+        let validBranchKey = RepoBranchKey(repoId: validRepoId, branch: "main")!
+        let staleBranchKey = RepoBranchKey(repoId: staleRepoId, branch: "main")!
 
         #expect(cacheAtom.repoEnrichment(for: validRepoId) == nil)
         #expect(cacheAtom.repoEnrichment(for: staleRepoId) == nil)
-        #expect(cacheAtom.worktreeFacts(for: validWorktreeId) == nil)
-        #expect(cacheAtom.worktreeFacts(for: staleWorktreeId) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: validBranchKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: staleBranchKey) == nil)
         #expect(cacheAtom.repoEnrichmentStorageSlotCount == 2)
-        #expect(cacheAtom.worktreeEnrichmentStorageSlotCount == 2)
-        #expect(cacheAtom.pullRequestCountStorageSlotCount == 2)
+        #expect(cacheAtom.pullRequestFactsStorageSlotCount == 2)
 
         #expect(cacheAtom.repoEnrichmentStorageSlotCount == 2)
-        #expect(cacheAtom.worktreeEnrichmentStorageSlotCount == 2)
-        #expect(cacheAtom.pullRequestCountStorageSlotCount == 2)
+        #expect(cacheAtom.pullRequestFactsStorageSlotCount == 2)
 
         cacheAtom.setRepoEnrichment(Self.localRepoEnrichment(repoId: validRepoId, displayName: "agent-studio"))
-        cacheAtom.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: validWorktreeId, repoId: validRepoId, branch: "main")
+        cacheAtom.applyPullRequestFacts(
+            repoId: validRepoId,
+            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
         )
-        cacheAtom.setPullRequestCount(1, for: validWorktreeId)
 
         #expect(cacheAtom.repoEnrichment(for: validRepoId)?.displayName == "agent-studio")
-        #expect(cacheAtom.worktreeFacts(for: validWorktreeId)?.enrichment?.branch == "main")
-        #expect(cacheAtom.worktreeFacts(for: validWorktreeId)?.pullRequestCount == 1)
+        #expect(cacheAtom.pullRequestFacts(for: validBranchKey)?.openCount == 1)
     }
 
     @Test
-    func snapshotMethodsPreserveLegacyDictionaryShape() {
+    func pullRequestFactsSnapshotUsesRepositoryBranchKeys() {
         let cacheAtom = RepoEnrichmentCacheAtom()
         let repoId = UUID()
-        let worktreeId = UUID()
+        let key = RepoBranchKey(repoId: repoId, branch: "main")!
         let repoEnrichment = Self.localRepoEnrichment(repoId: repoId, displayName: "agent-studio")
-        let worktreeEnrichment = WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
 
         cacheAtom.setRepoEnrichment(repoEnrichment)
-        cacheAtom.setWorktreeEnrichment(worktreeEnrichment)
-        cacheAtom.setPullRequestCount(8, for: worktreeId)
+        cacheAtom.applyPullRequestFacts(
+            repoId: repoId,
+            factsByBranch: ["main": PullRequestFacts(openCount: 8, exactOpenURL: nil)]
+        )
 
         #expect(cacheAtom.repoEnrichmentSnapshot()[repoId] == repoEnrichment)
-        #expect(cacheAtom.worktreeEnrichmentSnapshot()[worktreeId] == worktreeEnrichment)
-        #expect(cacheAtom.pullRequestCountSnapshot()[worktreeId] == 8)
+        #expect(cacheAtom.pullRequestFactsSnapshot()[key]?.openCount == 8)
+    }
+
+    @Test
+    func contentEqualPullRequestFactsWriteSkipsKeyInvalidationAndAggregateRevision() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUID()
+        let key = RepoBranchKey(repoId: repoId, branch: "main")!
+        let facts = PullRequestFacts(
+            openCount: 1,
+            exactOpenURL: URL(string: "https://github.com/acme/repo/pull/1")
+        )
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+
+        cacheAtom.applyPullRequestFacts(repoId: repoId, factsByBranch: ["main": facts])
+        let revisionBeforeEqualWrite = cacheAtom.cacheRevision
+        withObservationTracking {
+            _ = cacheAtom.pullRequestFacts(for: key)
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        cacheAtom.applyPullRequestFacts(repoId: repoId, factsByBranch: ["main": facts])
+
+        #expect(!invalidationCounter.didFire)
+        #expect(cacheAtom.cacheRevision == revisionBeforeEqualWrite)
+    }
+
+    @Test
+    func repositoryInvalidationRemovesOnlyMatchingRepositoryFacts() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let removedRepoId = UUID()
+        let retainedRepoId = UUID()
+        let removedKey = RepoBranchKey(repoId: removedRepoId, branch: "main")!
+        let retainedKey = RepoBranchKey(repoId: retainedRepoId, branch: "main")!
+        cacheAtom.applyPullRequestFacts(
+            repoId: removedRepoId,
+            factsByBranch: ["main": PullRequestFacts(openCount: 1, exactOpenURL: nil)]
+        )
+        cacheAtom.applyPullRequestFacts(
+            repoId: retainedRepoId,
+            factsByBranch: ["main": PullRequestFacts(openCount: 2, exactOpenURL: nil)]
+        )
+
+        cacheAtom.removePullRequestFacts(forRepository: removedRepoId)
+
+        #expect(cacheAtom.pullRequestFacts(for: removedKey) == nil)
+        #expect(cacheAtom.pullRequestFacts(for: retainedKey)?.openCount == 2)
     }
 
     @Test
@@ -243,7 +266,7 @@ struct RepoCacheAtomFamilyTests {
         let revisionBeforeEqualWrite = cacheAtom.cacheRevision
 
         withObservationTracking {
-            _ = cacheAtom.worktreeFacts(for: worktreeId)
+            _ = cacheAtom.worktreeEnrichment(for: worktreeId)
         } onChange: {
             invalidationCounter.record()
         }
@@ -252,7 +275,7 @@ struct RepoCacheAtomFamilyTests {
 
         #expect(!invalidationCounter.didFire)
         #expect(cacheAtom.cacheRevision == revisionBeforeEqualWrite)
-        #expect(cacheAtom.worktreeFacts(for: worktreeId)?.enrichment?.updatedAt == initial.updatedAt)
+        #expect(cacheAtom.worktreeEnrichment(for: worktreeId)?.updatedAt == initial.updatedAt)
     }
 
     @Test

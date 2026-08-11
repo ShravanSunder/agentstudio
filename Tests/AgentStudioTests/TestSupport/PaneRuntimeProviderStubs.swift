@@ -47,20 +47,20 @@ extension GitWorkingTreeStatusProvider where Self == StubGitWorkingTreeStatusPro
 }
 
 package struct StubForgeStatusProvider: ForgeStatusProvider {
-    package let handler: @Sendable (String, Set<String>) async throws -> [String: Int]
+    package let handler: @Sendable (String) async -> ForgePullRequestQueryOutcome
 
-    package init(handler: @escaping @Sendable (String, Set<String>) async throws -> [String: Int]) {
+    package init(handler: @escaping @Sendable (String) async -> ForgePullRequestQueryOutcome) {
         self.handler = handler
     }
 
-    package func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
-        try await handler(origin, branches)
+    package func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
+        await handler(origin)
     }
 }
 
 extension ForgeStatusProvider where Self == StubForgeStatusProvider {
     package static func stub(
-        _ handler: @escaping @Sendable (String, Set<String>) async throws -> [String: Int]
+        _ handler: @escaping @Sendable (String) async -> ForgePullRequestQueryOutcome
     ) -> StubForgeStatusProvider {
         StubForgeStatusProvider(handler: handler)
     }

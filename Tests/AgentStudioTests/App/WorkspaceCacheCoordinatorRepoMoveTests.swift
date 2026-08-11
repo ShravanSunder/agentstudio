@@ -72,7 +72,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         #expect(workspaceStore.isRepoUnavailable(repo.id))
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[persistedMainWorktreeId] == nil)
-        #expect(repoCache.pullRequestCountByWorktreeId[persistedMainWorktreeId] == nil)
+        #expect(repoCache.pullRequestFactsByBranch.isEmpty)
         #expect(
             workspaceStore.pane(pane.id)?.residency
                 == .orphaned(reason: .worktreeNotFound(path: repoPath.path))
