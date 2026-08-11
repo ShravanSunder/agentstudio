@@ -162,6 +162,19 @@ package struct RepoExplorerWorktreeCommandPresentation {
         contextMenuCommandsByIdentity[command]
     }
 
+    static func contextMenuLabel(for command: AppCommand) -> String? {
+        switch command {
+        case .openNewTerminalInTab, .openWorktreeInPane:
+            return "Terminal"
+        case .openBridgeReviewInNewTab, .showBridgeReview:
+            return "Review"
+        case .openBridgeFilesInNewTab, .showBridgeFiles:
+            return "Files"
+        default:
+            return nil
+        }
+    }
+
     func inlineCommand(_ command: AppCommand) -> RepoExplorerPresentedCommand? {
         inlineCommandsByIdentity[command]
     }

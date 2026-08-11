@@ -77,8 +77,45 @@ struct PaneSurfaceToolbarHost: View {
     let workspaceWindowId: UUID?
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let openExternalURL: @MainActor @Sendable (URL) -> Void
 
     @State private var paneInboxPopoverOpen = false
+
+    init(
+        anchorPaneId: UUID,
+        locationTargetPaneId: UUID,
+        toolbarSurface: AppCommandToolbarSurface,
+        drawer: Drawer?,
+        leadingToolbarActions: [PaneSurfaceToolbarAction],
+        contextToolbarActions: [PaneSurfaceToolbarAction],
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        octiconLoader: OcticonLoader,
+        editorChooser: EditorChooserState,
+        paneInboxPresentation: PaneInboxPresentation?,
+        workspaceWindowId: UUID?,
+        actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        openExternalURL: @escaping @MainActor @Sendable (URL) -> Void = { url in
+            _ = NSWorkspace.shared.open(url)
+        }
+    ) {
+        self.anchorPaneId = anchorPaneId
+        self.locationTargetPaneId = locationTargetPaneId
+        self.toolbarSurface = toolbarSurface
+        self.drawer = drawer
+        self.leadingToolbarActions = leadingToolbarActions
+        self.contextToolbarActions = contextToolbarActions
+        self.store = store
+        self.repoCache = repoCache
+        self.octiconLoader = octiconLoader
+        self.editorChooser = editorChooser
+        self.paneInboxPresentation = paneInboxPresentation
+        self.workspaceWindowId = workspaceWindowId
+        self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.openExternalURL = openExternalURL
+    }
 
     var body: some View {
         let commandPresentation = DrawerToolbarCommandPresentation.resolve(
@@ -103,7 +140,10 @@ struct PaneSurfaceToolbarHost: View {
             paneId: locationTargetPaneId,
             store: store,
             repoCache: repoCache,
-            openExternalURL: { NSWorkspace.shared.open($0) }
+            openExternalURL: {
+                openExternalURL($0)
+                return true
+            }
         )
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
