@@ -38,6 +38,7 @@ import {
 	actClick,
 	actFrame,
 	actUpdate,
+	interactAndWaitForBridgeFileViewerQueryCompletion,
 	metadataInterestPathsForLane,
 	makeTestTelemetryRecorder,
 	openFileBodyPreview,
@@ -419,7 +420,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			),
 		);
 		const sourceFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Source' });
-		await actClickAndSettleFileViewerMenu(sourceFilterOption);
+		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+			sourceFilterOption.click();
+		});
+		await actFrame();
 		await waitForFileFilterCount('1/6');
 		await waitForFileViewerTreeItemButtonInAct({
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
