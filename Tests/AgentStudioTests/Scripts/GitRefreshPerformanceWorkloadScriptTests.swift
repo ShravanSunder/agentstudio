@@ -90,8 +90,8 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         }
     }
 
-    @Test("required performance metric inventory includes topology lookups")
-    func requiredPerformanceMetricInventoryIncludesTopologyLookups() throws {
+    @Test("required performance metric inventory gates git lanes without topology lookups")
+    func requiredPerformanceMetricInventoryGatesGitLanesWithoutTopologyLookups() throws {
         let source = try String(contentsOf: URL(fileURLWithPath: scriptPath), encoding: .utf8)
         let inventoryStart = try #require(
             source.range(of: "required_performance_metric_event_names() {")
@@ -104,7 +104,9 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         )
         let inventory = source[inventoryStart.lowerBound..<inventoryEnd.lowerBound]
 
-        #expect(inventory.contains("performance.topology.repo_and_worktree"))
+        #expect(!inventory.contains("performance.topology.repo_and_worktree"))
+        #expect(source.contains("wait_for_trace_event performance.git.status 30"))
+        #expect(source.contains("require_status_latency_metrics"))
     }
 
     private static func expectSharedObservabilityContract(_ source: String) {
@@ -173,6 +175,15 @@ struct GitRefreshPerformanceWorkloadScriptTests {
         #expect(source.contains("action=command-bar-repo-filter"))
         #expect(source.contains("startup command-bar repo filter smoke"))
         #expect(source.contains("wait_for_command_bar_repo_filter_event"))
+        #expect(source.contains("wait_for_startup_diagnostic_completion"))
+        #expect(source.contains("app.startup_diagnostic_action.completed"))
+        #expect(source.contains("app.startup_diagnostic_action.blocked"))
+        #expect(source.contains("startup diagnostic reported blocked"))
+        #expect(
+            source.contains(
+                "perf:report candidate selection requires AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR=1"
+            )
+        )
         #expect(source.contains("agentstudio.performance.commandbar.query_character.count\\\":\\\"?[1-9][0-9]*\\\"?"))
     }
 

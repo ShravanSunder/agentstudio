@@ -52,6 +52,18 @@ extension AppDelegate {
                 AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 await Task.yield()
                 self.commandBarController.state.rawInput = "# repo"
+                self.startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.command_exercised",
+                    phase: "startup_diagnostic_action",
+                    outcome: "succeeded",
+                    attributes: self.startupDiagnosticTraceAttributes(for: action)
+                )
+                self.startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.completed",
+                    phase: "startup_diagnostic_action",
+                    outcome: "succeeded",
+                    attributes: self.startupDiagnosticTraceAttributes(for: action)
+                )
             case .tccUpgradeProbe:
                 await self.runTCCUpgradeProbeDiagnostic(action: action)
             #if DEBUG

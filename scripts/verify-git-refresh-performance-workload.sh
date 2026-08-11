@@ -1322,7 +1322,6 @@ performance.tabbar.publication
 performance.tabbar.visible
 performance.sidebar.projection
 performance.sidebar.row_index
-performance.topology.repo_and_worktree
 performance.coordinator.write
 EOF
 }
@@ -1649,6 +1648,23 @@ wait_for_command_bar_repo_filter_event() {
     fi
     sleep 1
   done
+  return 1
+}
+
+wait_for_startup_diagnostic_completion() {
+  local timeout_seconds="$1"
+  local deadline=$((SECONDS + timeout_seconds))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ "$(victoria_event_count app.startup_diagnostic_action.completed)" -gt 0 ]; then
+      return 0
+    fi
+    if [ "$(victoria_event_count app.startup_diagnostic_action.blocked)" -gt 0 ]; then
+      echo "startup diagnostic reported blocked" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  echo "timed out waiting for startup diagnostic completion" >&2
   return 1
 }
 
@@ -2032,6 +2048,14 @@ fi
 
 if ! drive_command_bar_smoke; then
   echo "command-bar smoke did not run; see $ARTIFACT/commandbar-smoke.log" >&2
+fi
+if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
+  if ! wait_for_startup_diagnostic_completion 20; then
+    summarize_traces
+    exit 1
+  fi
+else
+  echo "perf:report candidate selection requires AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR=1; startup diagnostic completion wait skipped"
 fi
 
 start_writers

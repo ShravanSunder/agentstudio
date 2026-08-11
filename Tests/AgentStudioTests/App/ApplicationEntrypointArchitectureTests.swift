@@ -154,6 +154,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
+        try assertCommandBarRepoFilterEmitsTerminalCompletion(startupDiagnosticsSource)
         #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
         let diagnosticTaskIndex = try #require(
             startupDiagnosticsSource.range(of: "Task { @MainActor")?.lowerBound)
@@ -209,6 +210,30 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+    }
+
+    private func assertCommandBarRepoFilterEmitsTerminalCompletion(
+        _ startupDiagnosticsSource: String
+    ) throws {
+        let caseStart = try #require(
+            startupDiagnosticsSource.range(of: "case .commandBarRepoFilter:")?.lowerBound)
+        let caseEnd = try #require(
+            startupDiagnosticsSource.range(
+                of: "case .tccUpgradeProbe:",
+                range: caseStart..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let commandBarRepoFilterCase = startupDiagnosticsSource[caseStart..<caseEnd]
+        let rawInputIndex = try #require(
+            commandBarRepoFilterCase.range(of: "commandBarController.state.rawInput = \"# repo\"")?.lowerBound)
+        let exercisedIndex = try #require(
+            commandBarRepoFilterCase.range(of: "app.startup_diagnostic_action.command_exercised")?.lowerBound)
+        let completedIndex = try #require(
+            commandBarRepoFilterCase.range(of: "app.startup_diagnostic_action.completed")?.lowerBound)
+        #expect(rawInputIndex < exercisedIndex)
+        #expect(exercisedIndex < completedIndex)
+        #expect(commandBarRepoFilterCase.contains("phase: \"startup_diagnostic_action\""))
+        #expect(commandBarRepoFilterCase.contains("outcome: \"succeeded\""))
+        #expect(commandBarRepoFilterCase.contains("attributes: self.startupDiagnosticTraceAttributes(for: action)"))
     }
 
     private func assertStartupDiagnosticActivationPrecedesOpeningTerminal(
