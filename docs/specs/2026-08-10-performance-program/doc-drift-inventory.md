@@ -70,6 +70,11 @@ triggers (LUNA-402) · 4 keyed observation/off-main (LUNA-403) · 5 startup
 | M8 | Resolved in slice 2 | `pane_runtime_eventbus_design.md` documents per-source replay, truncation, drop classes, recovery diagnostics, and delivery debt. |
 | M9 | Resolved in slice 2 | `pane_runtime_architecture.md` documents independent terminal drain lanes and title admission slack. |
 | R19 | Checked in slice 2; no slice-2-owned flip | The four R4 report-only lexical surfaces cover keyed observation reads, MainActor collection-wide work, performance constants, and nonisolated blocking I/O. None covers terminal publication admission, CWD authority, EventBus fact-interest matching, or this documentation cleanup; no rule was broadened. |
+| D2 | Resolved in slice 3 | `workspace_data_architecture.md` documents demand-gated bounded admission, pending/retry path unions, adaptive cadence, capacity retry, circuit-breaker backoff, quarantine, and scoped status projection. |
+| D8 | Resolved in slice 3 | `pane_runtime_architecture.md` names the implemented `DarwinFSEventStreamClient`/`FilesystemActor` path, bounded fine ingress, and coarse affected-worktree overflow debt. |
+| D12 | Resolved in slice 3 | `pane_runtime_eventbus_design.md` records the running `ForgeActor` and its per-repo single-flight, backoff, follow-up debt, and equality-suppressed publication. |
+| M6 | Resolved in slice 3 | `workspace_data_architecture.md` explains the Git projector's priority reservation, demand admission, retry/backoff, quarantine, and pathspec/full-status policy. |
+| R19 | Checked in slice 3; no slice-3 flip | `agentstudio_performance_constants_in_app_policies` covers slice-3 timing, cadence, capacity, and backoff constants, but the current production/test scan reports ten pre-existing findings outside slice-3 trigger owners, so it remains report-only. The keyed-read, MainActor collection-work, and nonisolated blocking-I/O surfaces are not slice-3-owned and also remain report-only. |
 
 ## Exclusions
 

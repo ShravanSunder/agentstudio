@@ -31,6 +31,11 @@ private struct FilesystemSourceSyncWriteMetrics {
     let filesystemSourceDuration: Duration
 }
 
+private struct FilesystemProjectionAffectedKeys {
+    let paneIds: Set<UUID>
+    let worktreeIds: Set<UUID>
+}
+
 @MainActor
 extension WorkspaceSurfaceCoordinator {
     func syncFilesystemRootsAndActivity() {
@@ -123,10 +128,6 @@ extension WorkspaceSurfaceCoordinator {
         let capturedPaneContextGeneration = paneContextGeneration
         let capturedTopologyGeneration = filesystemAppliedTopologyGeneration
 
-        // Product invalidation owns exact repo/worktree identity and must not be
-        // discarded when the separately derived pane projection becomes stale.
-        await publishProductFileEnvelopeIfNeeded(envelope)
-
         let indexStart = clock.now
         let projectionResult = await filesystemProjectionIndex.projectPaneFilesystem(
             PaneFilesystemProjectionRequest(
@@ -144,6 +145,12 @@ extension WorkspaceSurfaceCoordinator {
         else {
             return true
         }
+
+        let affectedKeys = Self.affectedKeys(from: projectionResult.intents)
+        await publishProductFileEnvelopeIfNeeded(
+            envelope,
+            affectedKeys: affectedKeys
+        )
 
         let applyStart = clock.now
         let derivedEnvelopes = projectionResult.intents.map(makeFilesystemProjectionEnvelope)
@@ -190,9 +197,34 @@ extension WorkspaceSurfaceCoordinator {
         return PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event).performancePhase
     }
 
-    private func publishProductFileEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async {
+    nonisolated private static func affectedKeys(
+        from intents: [PaneFilesystemProjectionIntent]
+    ) -> FilesystemProjectionAffectedKeys {
+        var paneIds: Set<UUID> = []
+        var worktreeIds: Set<UUID> = []
+        for intent in intents {
+            switch intent {
+            case .cwdSubtreeChanged(let projection):
+                paneIds.insert(projection.paneId)
+                worktreeIds.insert(projection.context.worktreeId)
+            case .gitWorkingTreeInCwd(let projection):
+                paneIds.insert(projection.paneId)
+                worktreeIds.insert(projection.context.worktreeId)
+            }
+        }
+        return FilesystemProjectionAffectedKeys(
+            paneIds: paneIds,
+            worktreeIds: worktreeIds
+        )
+    }
+
+    private func publishProductFileEnvelopeIfNeeded(
+        _ envelope: RuntimeEnvelope,
+        affectedKeys: FilesystemProjectionAffectedKeys
+    ) async {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard let worktreeId = worktreeEnvelope.worktreeId else { return }
+        guard affectedKeys.worktreeIds.contains(worktreeId) else { return }
 
         // Close the observation callback scheduling gap before admitting work from
         // this raw event. The same canonical facts remain the sole activity mint.
@@ -209,7 +241,8 @@ extension WorkspaceSurfaceCoordinator {
 
         for bridgeView in viewRegistry.allBridgeViews.values {
             let controller = bridgeView.controller
-            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
+            guard affectedKeys.paneIds.contains(controller.paneId),
+                controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
                 controller.runtime.metadata.worktreeId == worktreeId
             else {
                 continue

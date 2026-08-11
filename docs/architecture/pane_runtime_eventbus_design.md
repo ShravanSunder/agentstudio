@@ -343,7 +343,9 @@ These invariants are required for correct primary sidebar grouping and chip rend
 3. **Need pane/worktree fan-out without duplicate subscriptions**
    Both source and projector publish facts to the shared EventBus; stores/projectors subscribe as needed.
 4. **Need bounded behavior under bursts**
-   `FilesystemActor` batches by path, `GitWorkingDirectoryProjector` coalesces by `worktreeId` (latest wins).
+   `FilesystemActor` bounds fine ingress and carries coarse affected-worktree
+   overflow debt; `GitWorkingDirectoryProjector` unions affected paths by
+   `worktreeId`, demand-gates them, and admits bounded status computes.
 5. **Need clear ownership boundaries**
    Local working-directory projection lives here; remote GitHub/forge status remains with forge services.
 
@@ -1128,7 +1130,7 @@ Concrete list of what runs where, with Swift 6.2 keywords:
 | `actor EventBus` | App-wide singleton | Subscriber management, fan-out | `actor` (cooperative pool) |
 | `actor FilesystemActor` | App-wide singleton (keyed by worktree) | FSEvents, debounce, path filtering, topology scanning | `actor` (cooperative pool) |
 | `actor GitWorkingDirectoryProjector` | App-wide singleton (keyed by worktree) | Git status, branch, origin enrichment from filesystem facts | `actor` (cooperative pool) |
-| `actor ForgeActor` | App-wide singleton (keyed by repo) | Forge PR status, checks, reviews (future) | `actor` (cooperative pool) |
+| `actor ForgeActor` | App-wide singleton (keyed by repo) | Implemented forge PR-count enrichment with per-repo single-flight, policy backoff, coalesced follow-up debt, and equal-map publication suppression | `actor` (cooperative pool) |
 | `actor ContainerActor` | Per-terminal (deferred) | Container health, devcontainer status | `actor` (cooperative pool) |
 | Plugin actors | Per-plugin (deferred) | Plugin domain work; bus access mediated via `PluginContext` struct | `actor` (cooperative pool) |
 | Cooperative pool (anonymous) | Per-call | Heavy per-pane one-shot work (search, parse, extract, hash) | `@concurrent nonisolated` on static func |
