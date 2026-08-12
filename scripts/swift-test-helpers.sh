@@ -43,6 +43,10 @@ large_serial_non_webkit_filter_pattern() {
   echo "${patterns[*]}"
 }
 
+appkit_process_isolated_filter_pattern() {
+  echo "TabContextMenuAppKitIntegrationTests"
+}
+
 aggregate_serial_non_webkit_filter_pattern() {
   local patterns=(
     EagerDerivedAtomTests
@@ -52,7 +56,6 @@ aggregate_serial_non_webkit_filter_pattern() {
     TabBarAffectedItemTelemetryTests
     MainSplitViewControllerSidebarStateTests
     FlatTabStripContainerAllMinimizedTests
-    TabContextMenuAppKitIntegrationTests
   )
   local IFS="|"
   echo "${patterns[*]}"
@@ -135,6 +138,7 @@ run_large_non_webkit_swift_tests() {
       "${parallel_args[@]}" \
       --filter "$(large_non_webkit_filter_pattern)" \
       --skip "$(aggregate_serial_non_webkit_filter_pattern)" \
+      --skip "$(appkit_process_isolated_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 
     run_swift_with_timeout \
@@ -149,8 +153,16 @@ run_large_non_webkit_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
+      --skip "$(appkit_process_isolated_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
+
+  run_swift_with_timeout \
+    "process-isolated AppKit context menu suite" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    --filter "$(appkit_process_isolated_filter_pattern)" \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 }
 
 webkit_suite_filters() {

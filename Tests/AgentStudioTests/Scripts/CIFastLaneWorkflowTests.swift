@@ -377,8 +377,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!aggregateLaneMode.contains("run_non_serialized_swift_tests"))
     }
 
-    @Test("aggregate lane isolates executor-sensitive and AppKit-global tests")
-    func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() throws {
+    @Test("aggregate lane isolates executor-sensitive tests without sharing the AppKit context-menu process")
+    func aggregateLaneIsolatesExecutorSensitiveTestsWithoutSharingAppKitContextMenuProcess() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let aggregateFilter = try shellFunction(
             named: "aggregate_serial_non_webkit_filter_pattern",
@@ -399,10 +399,10 @@ struct CIFastLaneWorkflowTests {
             "TabBarAffectedItemTelemetryTests",
             "MainSplitViewControllerSidebarStateTests",
             "FlatTabStripContainerAllMinimizedTests",
-            "TabContextMenuAppKitIntegrationTests",
         ] {
             #expect(aggregateFilter.contains(suiteName))
         }
+        #expect(!aggregateFilter.contains("TabContextMenuAppKitIntegrationTests"))
         #expect(fullRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(fullRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
         #expect(aggregateRunner.contains("serial aggregate-only non-WebKit suites"))
@@ -413,6 +413,39 @@ struct CIFastLaneWorkflowTests {
             )
         )
         #expect(fastRunner.contains("run_aggregate_serial_non_webkit_swift_tests"))
+    }
+
+    @Test("large lane runs AppKit context-menu tests once in a dedicated process")
+    func largeLaneRunsAppKitContextMenuTestsOnceInDedicatedProcess() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let largeRunner = try shellFunction(
+            named: "run_large_non_webkit_swift_tests",
+            in: helperScript
+        )
+        let isolatedFilter = try shellFunction(
+            named: "appkit_process_isolated_filter_pattern",
+            in: helperScript
+        )
+
+        #expect(isolatedFilter.contains("echo \"TabContextMenuAppKitIntegrationTests\""))
+        #expect(!isolatedFilter.contains("|"))
+        #expect(
+            largeRunner.contains(
+                "--filter \"$(large_non_webkit_filter_pattern)\" \\\n      --skip \"$(aggregate_serial_non_webkit_filter_pattern)\" \\\n      --skip \"$(appkit_process_isolated_filter_pattern)\""
+            )
+        )
+        #expect(
+            largeRunner.contains(
+                "--filter \"$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\" \\\n      --skip \"$(appkit_process_isolated_filter_pattern)\""
+            )
+        )
+        #expect(largeRunner.contains("process-isolated AppKit context menu suite"))
+        #expect(
+            occurrences(
+                of: "--filter \"$(appkit_process_isolated_filter_pattern)\"",
+                in: largeRunner
+            ) == 1
+        )
     }
 
     @Test("real zmx lifecycle proof stays in its dedicated E2E lane")
@@ -526,6 +559,10 @@ struct CIFastLaneWorkflowTests {
             return String(tail)
         }
         return String(tail[..<endRange.lowerBound])
+    }
+
+    private func occurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
     }
 }
 
