@@ -319,8 +319,8 @@ Events from boundary actors. Real work (filesystem scanning, network I/O) justif
 | `worktreeDiscovered` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1-10ms | Rare | Yes |
 | `worktreeRemoved` | `GitWorkingDirectoryProjector` | `WorktreeEnvelope` | 1ms | Rare | Yes |
 | `securityEvent` | Security backend | `WorktreeEnvelope` | Varies | Rare | Yes |
-| `pullRequestCountsChanged` | `ForgeActor` | `WorktreeEnvelope` | 100ms-2s (`gh` CLI or HTTP) | Event-driven + polling ~30-60s | Yes |
-| `checksUpdated` | `ForgeActor` | `WorktreeEnvelope` | 100ms-2s (`gh` CLI or HTTP) | Event-driven + polling ~30-60s | Yes |
+| `pullRequestCountsChanged` | `ForgeActor` | `WorktreeEnvelope` | 100ms-2s (`gh` CLI or HTTP) | Demand-gated triggers + next eligibility deadline | Yes |
+| `checksUpdated` | `ForgeActor` | `WorktreeEnvelope` | 100ms-2s (`gh` CLI or HTTP) | Explicit admitted refresh | Yes |
 | `refreshFailed` | `ForgeActor` | `WorktreeEnvelope` | <1ms | On failure | Yes |
 | Future: `containerHealthChanged` | `ContainerActor` | `WorktreeEnvelope` | 100ms+ (Docker API / HTTP) | Polling ~5-10s | Yes |
 
@@ -422,12 +422,16 @@ actor GitWorkingDirectoryProjector {
 
 App-wide singleton, keyed by repo internally. Owns git forge domain: PR status, checks, reviews, merge readiness. **Transport-agnostic** — uses `ProcessExecutor` (`gh` CLI) or `URLSession` (direct API) internally, whichever fits. The actor boundary is the domain, not the transport.
 
-**Event-driven, not purely polling.** ForgeActor subscribes to the `EventBus` for `.branchChanged` and `.originChanged` events from `GitWorkingDirectoryProjector`. These trigger targeted forge API queries for the affected repo/branch. A self-driven polling timer (30-60s) serves as fallback for events that don't originate from local git changes (e.g., CI checks completing remotely, upstream PR merges).
+**Demand-driven, not periodically polling.** ForgeActor subscribes to the
+`EventBus` for branch and origin facts from `GitWorkingDirectoryProjector`.
+Demand, branch, origin, manual, and freshness-deadline triggers enter one
+per-repository admission path. One reschedulable next-deadline task represents
+future eligibility for demanded repositories; there is no fleet-wide poll.
 
 **ForgeActor triggers:**
-- `.branchChanged` (via bus subscription) → immediate PR status refresh
-- `.originChanged` (via bus subscription) → scope update + full refresh
-- Self-driven polling timer (30-60s) → fallback for remote-only events
+- `.branchChanged` (via bus subscription) → membership update + admitted refresh request
+- `.originChanged` (via bus subscription) → invalidate old scope + admitted refresh request
+- Next eligibility deadline → one policy-derived retry for demanded stale data
 - Command-plane: `forgeActor.refresh(repo:)` after explicit git push
 
 **ForgeActor does NOT:**
@@ -445,7 +449,7 @@ App-wide singleton, keyed by repo internally. Owns git forge domain: PR status, 
 ```swift
 /// App-wide forge API actor, keyed by repo internally.
 /// Subscribes to bus for .branchChanged/.originChanged events.
-/// Self-polls as fallback for remote-only changes.
+/// Schedules only the next demanded eligibility deadline.
 ///
 /// Transport-agnostic: uses ProcessExecutor (gh CLI) today,
 /// URLSession (direct HTTP) later, or both per-repo.
@@ -459,28 +463,14 @@ actor ForgeActor {
     func register(repo: RepoId, remote: URL) { ... }
     func unregister(repo: RepoId) { ... }
 
-    /// Start consuming bus events + fallback polling.
-    func start() async {
-        // Bus subscription: react to branch/origin changes
-        Task {
-            for await envelope in await bus.subscribe() {
-                guard case .worktree(let wt) = envelope else { continue }
-                switch wt.event {
-                case .gitWorkingDirectory(.branchChanged):
-                    await refreshForBranch(wt.repoId, branch: /* from event */)
-                case .gitWorkingDirectory(.originChanged):
-                    await refreshAll(wt.repoId)
-                default: break
-                }
-            }
-        }
-        // Fallback polling for remote-only events
-        for await _ in clock.timer(interval: .seconds(30)) {
-            for (repo, _) in repoState {
-                await pollIfStale(repo)
-            }
-        }
-    }
+    /// Start consuming bus events and demand eligibility deadlines.
+    func start() async { ... }
+
+    /// Replace current product demand and recompute the next deadline.
+    func setDemand(worktreeIds: Set<WorktreeId>) { ... }
+
+    /// All trigger kinds enter the same per-repository admission function.
+    private func requestRefresh(_ trigger: ForgeRefreshTrigger) { ... }
 
     /// On-demand refresh (e.g., after git push completes).
     func refresh(repo: RepoId) async { ... }
@@ -755,8 +745,8 @@ projector are source-specific additions.
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** | Consumes `.branchChanged`, `.originChanged` from GitWorkingDirectoryProjector. Event-driven triggers replace pure polling. |
-| **In** | Timer-driven fallback polling (`clock.timer(interval:)`) | No stream needed | Actor owns fallback polling loop (~30-60s) for remote-only events (CI checks, upstream merges). |
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** | Consumes branch and origin facts from GitWorkingDirectoryProjector; they update membership and request refresh through demand admission. |
+| **In** | One reschedulable eligibility deadline | No stream needed | Actor recomputes the earliest demanded repository deadline when demand or successful freshness changes. |
 | **In** | `register(repo:remote:)` / `unregister(repo:)` | Direct call | `WorkspaceCacheCoordinator` manages repo registration. |
 | **In** | On-demand refresh (after `git push`) | Direct call from coordinator | `await forgeActor.refresh(repo:)` — known target, request-response. |
 | **Internal** | `@concurrent nonisolated` via ProcessExecutor or URLSession | Direct call (await) | Transport-agnostic I/O. One request, one response. |

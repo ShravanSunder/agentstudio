@@ -72,6 +72,7 @@ the question, then inspect current code/tests before making claims.
    Do not call unit tests, mocks, or fake integration coverage a smoke. If a
    higher proof layer is blocked, report the blocker separately from the
    passing lower-layer proof.
+   For expensive derived facts driven by product demand, read [Demand-Driven Derived-State Refresh](docs/architecture/demand_driven_derived_state_refresh.md) before adding observers, debounces, polling, timers, or caches.
 4. Observability: use the shared Victoria path below. AgentStudio produces
    telemetry; the shared stack owns VictoriaMetrics, VictoriaLogs, and
    VictoriaTraces. Prefer marker-scoped verifiers over screenshots, stale JSONL,
