@@ -335,6 +335,7 @@ struct CIFastLaneWorkflowTests {
         #expect(largeRunner.contains("--parallel"))
         #expect(largeRunner.contains("--num-workers \"$SWIFT_TEST_NUM_WORKERS\""))
         #expect(largeRunner.contains("--filter \"$(large_non_webkit_filter_pattern)\""))
+        #expect(largeRunner.contains("--skip \"$(aggregate_serial_non_webkit_filter_pattern)\""))
         #expect(largeRunner.contains("serial large process suites"))
         #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
         #expect(!largeSerialFilter.contains("AgentStudioAppIPCServiceCommandTests"))
@@ -398,6 +399,7 @@ struct CIFastLaneWorkflowTests {
             "TabBarAffectedItemTelemetryTests",
             "MainSplitViewControllerSidebarStateTests",
             "FlatTabStripContainerAllMinimizedTests",
+            "TabContextMenuAppKitIntegrationTests",
         ] {
             #expect(aggregateFilter.contains(suiteName))
         }
