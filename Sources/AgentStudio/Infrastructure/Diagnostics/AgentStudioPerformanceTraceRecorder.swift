@@ -287,7 +287,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     package func recordStartupUsable(
         launchToUsable: Duration,
-        layoutSettleToUsable: Duration
+        layoutSettleToUsable: Duration,
+        source: String
     ) {
         recordDuration(
             .startupUsable,
@@ -295,7 +296,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             attributes: [
                 "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(
                     Self.milliseconds(from: layoutSettleToUsable)
-                )
+                ),
+                "agentstudio.performance.startup.source": .string(source),
             ]
         )
     }

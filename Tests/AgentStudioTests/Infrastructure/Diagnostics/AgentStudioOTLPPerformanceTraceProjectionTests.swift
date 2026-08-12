@@ -20,6 +20,7 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 attributes: [
                     "agentstudio.performance.elapsed_ms": .double(125),
                     "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(8),
+                    "agentstudio.performance.startup.source": .string("presented"),
                     "agentstudio.performance.startup.pane_id": .string("private"),
                 ]
             ))
@@ -29,6 +30,7 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
             projection.attributes["agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms"]
                 == .double(8))
         #expect(projection.attributes["agentstudio.performance.startup.pane_id"] == nil)
+        #expect(projection.attributes["agentstudio.performance.startup.source"] == .string("presented"))
     }
 
     @Test("interaction latency keeps controlled kind and scrubs correlation id")

@@ -5,13 +5,15 @@ import Foundation
 @MainActor
 final class ApplicationLifecycleMonitor {
     typealias ScheduleFirstDisplayCommit = (@escaping @MainActor () -> Void) -> Void
+    typealias ScheduleFirstMainRunLoopDrain = (@escaping @MainActor () -> Void) -> Void
 
     private let appLifecycleStore: AppLifecycleAtom
     private let windowLifecycleStore: WindowLifecycleAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let now: @MainActor () -> ContinuousClock.Instant
     private var scheduleFirstDisplayCommit: ScheduleFirstDisplayCommit
-    private var didScheduleFirstDisplayCommit = false
+    private let scheduleFirstMainRunLoopDrain: ScheduleFirstMainRunLoopDrain
+    private var didScheduleFirstInteractiveFrameSources = false
     private var launchLayoutSettledInstant: ContinuousClock.Instant?
 
     init(
@@ -19,18 +21,26 @@ final class ApplicationLifecycleMonitor {
         windowLifecycleStore: WindowLifecycleAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
-        scheduleFirstDisplayCommit: @escaping ScheduleFirstDisplayCommit = { _ in }
+        scheduleFirstDisplayCommit: @escaping ScheduleFirstDisplayCommit = { _ in },
+        scheduleFirstMainRunLoopDrain: @escaping ScheduleFirstMainRunLoopDrain = { completion in
+            RunLoop.main.perform(inModes: [.common]) {
+                MainActor.assumeIsolated {
+                    completion()
+                }
+            }
+        }
     ) {
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore
         self.performanceTraceRecorder = performanceTraceRecorder
         self.now = now
         self.scheduleFirstDisplayCommit = scheduleFirstDisplayCommit
+        self.scheduleFirstMainRunLoopDrain = scheduleFirstMainRunLoopDrain
     }
 
     func installFirstDisplayCommitScheduler(_ scheduler: @escaping ScheduleFirstDisplayCommit) {
         scheduleFirstDisplayCommit = scheduler
-        scheduleFirstDisplayCommitIfReady()
+        scheduleFirstInteractiveFrameSourcesIfReady()
     }
 
     func handleApplicationDidBecomeActive() {
@@ -82,7 +92,7 @@ final class ApplicationLifecycleMonitor {
             "ApplicationLifecycleMonitor.handleTerminalContainerBoundsChanged bounds=\(NSStringFromRect(bounds))"
         )
         windowLifecycleStore.recordTerminalContainerBounds(bounds)
-        scheduleFirstDisplayCommitIfReady()
+        scheduleFirstInteractiveFrameSourcesIfReady()
     }
 
     func handleLaunchLayoutSettled() {
@@ -93,30 +103,42 @@ final class ApplicationLifecycleMonitor {
             launchLayoutSettledInstant = now()
             windowLifecycleStore.recordLaunchLayoutSettled()
         }
-        scheduleFirstDisplayCommitIfReady()
+        scheduleFirstInteractiveFrameSourcesIfReady()
     }
 
     func handleFirstDisplayCommitCompleted() {
+        publishFirstInteractiveFrame(source: .presented)
+    }
+
+    func handleFirstMainRunLoopDrainCompleted() {
+        publishFirstInteractiveFrame(source: .occludedFallback)
+    }
+
+    private func publishFirstInteractiveFrame(source: FirstInteractiveFrameSource) {
         guard windowLifecycleStore.isReadyForLaunchRestore else { return }
-        guard windowLifecycleStore.recordFirstInteractiveFramePublished() else { return }
+        guard windowLifecycleStore.recordFirstInteractiveFramePublished(source: source) else { return }
         guard let performanceTraceRecorder,
             let launchLayoutSettledInstant
         else { return }
         let usableInstant = now()
         performanceTraceRecorder.recordStartupUsable(
             launchToUsable: performanceTraceRecorder.startupLaunchInstant.duration(to: usableInstant),
-            layoutSettleToUsable: launchLayoutSettledInstant.duration(to: usableInstant)
+            layoutSettleToUsable: launchLayoutSettledInstant.duration(to: usableInstant),
+            source: source.rawValue
         )
     }
 
-    private func scheduleFirstDisplayCommitIfReady() {
+    private func scheduleFirstInteractiveFrameSourcesIfReady() {
         guard windowLifecycleStore.isReadyForLaunchRestore,
-            !didScheduleFirstDisplayCommit,
+            !didScheduleFirstInteractiveFrameSources,
             !windowLifecycleStore.didPublishFirstInteractiveFrame
         else { return }
-        didScheduleFirstDisplayCommit = true
+        didScheduleFirstInteractiveFrameSources = true
         scheduleFirstDisplayCommit { [weak self] in
             self?.handleFirstDisplayCommitCompleted()
+        }
+        scheduleFirstMainRunLoopDrain { [weak self] in
+            self?.handleFirstMainRunLoopDrainCompleted()
         }
     }
 }

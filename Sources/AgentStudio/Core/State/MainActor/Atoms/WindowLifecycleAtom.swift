@@ -24,6 +24,11 @@ package struct WindowPresentationFacts: Equatable, Sendable {
     )
 }
 
+package enum FirstInteractiveFrameSource: String, Equatable, Sendable {
+    case presented
+    case occludedFallback = "occluded_fallback"
+}
+
 @Observable
 @MainActor
 package final class WindowLifecycleAtom {
@@ -36,6 +41,7 @@ package final class WindowLifecycleAtom {
     package private(set) var isLaunchLayoutSettled = false
     /// App-owned usable-frame proxy. This is not a Ghostty renderer-present fact.
     package private(set) var didPublishFirstInteractiveFrame = false
+    package private(set) var firstInteractiveFrameSource: FirstInteractiveFrameSource?
     private var firstInteractiveFrameWaiters: [CheckedContinuation<Void, Never>] = []
 
     package var isReadyForLaunchRestore: Bool {
@@ -153,9 +159,10 @@ package final class WindowLifecycleAtom {
     }
 
     @discardableResult
-    package func recordFirstInteractiveFramePublished() -> Bool {
+    package func recordFirstInteractiveFramePublished(source: FirstInteractiveFrameSource) -> Bool {
         guard !didPublishFirstInteractiveFrame else { return false }
         didPublishFirstInteractiveFrame = true
+        firstInteractiveFrameSource = source
         let waiters = firstInteractiveFrameWaiters
         firstInteractiveFrameWaiters.removeAll()
         for waiter in waiters {

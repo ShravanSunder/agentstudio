@@ -614,6 +614,7 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
         #expect(state.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER="))
 
         let openArgs = try String(contentsOf: openArgsURL, encoding: .utf8)
+        #expect(openArgs.split(separator: "\n").contains("-g"))
         #expect(openArgs.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=cross-tab-move-geometry-smoke"))
         #expect(openArgs.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER="))
         #expect(openArgs.contains("AGENTSTUDIO_RESTORE_TRACE=1"))
@@ -635,6 +636,39 @@ struct ObservabilityDebugLaunchScriptVerifierTests {
                 .map(String.init)
                 .first { $0.hasPrefix("AGENTSTUDIO_IPC_SOCKET_DIR=") }?
                 .replacingOccurrences(of: "AGENTSTUDIO_IPC_SOCKET_DIR=", with: "") ?? "")
+    }
+
+    @Test("debug launcher foreground activation is explicit opt in")
+    func debugLauncherForegroundActivationIsExplicitOptIn() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        let openArgsURL = fixture.url("open-args")
+        let launchedAppURL = fixture.url("launched-app")
+        let buildPath = try fixture.makeDebugBuildExecutable(
+            """
+            #!/bin/bash
+            sleep 30
+            """
+        )
+        var environment = try launchServicesDiagnosticEnvironment(
+            fixture: fixture,
+            openArgsURL: openArgsURL,
+            launchedAppURL: launchedAppURL,
+            stateFile: stateFile
+        )
+        environment["AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE"] = "1"
+
+        let result = try fixture.runScript(
+            "scripts/run-debug-observability.sh",
+            arguments: ["--build-path", buildPath.path, "--skip-build", "--detach"],
+            environment: environment
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+        let openArguments = try String(contentsOf: openArgsURL, encoding: .utf8)
+            .split(separator: "\n")
+        #expect(!openArguments.contains("-g"))
     }
 
     @Test("debug observability verifier requires requested startup diagnostic telemetry")

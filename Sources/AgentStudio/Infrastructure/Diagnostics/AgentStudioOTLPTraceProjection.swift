@@ -128,6 +128,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.startup.source",
         "agentstudio.performance.repo_explorer.facet",
         "agentstudio.performance.repo_explorer.key_class",
         "agentstudio.performance.repo_explorer.outcome",
@@ -932,6 +933,8 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.startup.source":
+            return ["presented", "occluded_fallback"].contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",

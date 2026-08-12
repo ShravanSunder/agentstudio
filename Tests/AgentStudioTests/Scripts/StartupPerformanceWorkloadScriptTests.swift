@@ -10,12 +10,18 @@ struct StartupPerformanceWorkloadScriptTests {
         let result = try runScript(arguments: ["--dry-run"])
 
         #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("sample_count=10"))
-        #expect(result.stdout.contains("trace_tags=performance,app.startup"))
+        #expect(result.stdout.contains("pair_count=4"))
+        #expect(result.stdout.contains("phase=cold-empty"))
+        #expect(result.stdout.contains("phase=restored-cohort terminal_count=8"))
+        #expect(result.stdout.contains("order=A/B/A/B"))
+        #expect(result.stdout.contains("trace_tags=performance,app.startup,terminal.startup"))
         #expect(result.stdout.contains("trace_flush=immediate"))
-        #expect(result.stdout.contains("startup_diagnostic=command-bar-repo-filter"))
-        #expect(result.stdout.contains("completion=app.startup_diagnostic_action.completed"))
+        #expect(result.stdout.contains("completion=performance.startup.usable"))
+        #expect(result.stdout.contains("completion_attempts=45"))
+        #expect(result.stdout.contains("settlement=terminal.startup.surface_create_succeeded count=8"))
         #expect(result.stdout.contains("usable_lane=performance.startup.usable"))
+        #expect(result.stdout.contains("usable_source=presented|occluded_fallback"))
+        #expect(result.stdout.contains("settlement_wait_seconds=15"))
         #expect(result.stdout.contains("renderer_probe=program_instrument_gap"))
     }
 
@@ -23,11 +29,11 @@ struct StartupPerformanceWorkloadScriptTests {
     func rejectsTooFewSamples() throws {
         let result = try runScript(
             arguments: ["--dry-run"],
-            environment: ["AGENTSTUDIO_STARTUP_PERFORMANCE_SAMPLE_COUNT": "9"]
+            environment: ["AGENTSTUDIO_STARTUP_PERFORMANCE_PAIR_COUNT": "3"]
         )
 
         #expect(result.exitCode == 2)
-        #expect(result.stderr.contains("must be an integer >= 10"))
+        #expect(result.stderr.contains("must be an integer >= 4"))
     }
 
     @Test("script carries identity guarded reset and bounded completion wait")
@@ -39,9 +45,16 @@ struct StartupPerformanceWorkloadScriptTests {
         #expect(source.contains("refusing reset for mismatched debug bundle identifier"))
         #expect(source.contains("AGENTSTUDIO_TRACE_FLUSH=immediate"))
         #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=performance,app.startup"))
-        #expect(source.contains("app.startup_diagnostic_action.completed"))
         #expect(source.contains("performance.startup.usable"))
-        #expect(source.contains("seq 1 \"$COMPLETION_ATTEMPTS\""))
+        #expect(source.contains("agentstudio.performance.startup.source"))
+        #expect(source.contains("source_breakdown"))
+        #expect(source.contains("terminal.startup.surface_create_succeeded"))
+        #expect(source.contains("AGENTSTUDIO_STARTUP_PERFORMANCE_BASELINE_BUILD_PATH"))
+        #expect(source.contains("AGENTSTUDIO_STARTUP_PERFORMANCE_CANDIDATE_BUILD_PATH"))
+        #expect(source.contains("workloadFixtureMaterializesThroughStrictSQLite"))
+        #expect(source.contains("raw-samples.tsv"))
+        #expect(source.contains("summary.json"))
+        #expect(source.contains("seq 1 \"$wait_attempts\""))
         #expect(!source.contains("AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF"))
     }
 

@@ -22,7 +22,8 @@ struct AgentStudioPerformanceTraceRecorderTests {
 
         recorder.recordStartupUsable(
             launchToUsable: .milliseconds(125),
-            layoutSettleToUsable: .milliseconds(8)
+            layoutSettleToUsable: .milliseconds(8),
+            source: "occluded_fallback"
         )
         try await recorder.drain()
 
@@ -31,6 +32,7 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"body\":\"performance.startup.usable\""))
         #expect(contents.contains("\"agentstudio.performance.elapsed_ms\":125"))
         #expect(contents.contains("\"agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms\":8"))
+        #expect(contents.contains("\"agentstudio.performance.startup.source\":\"occluded_fallback\""))
         #expect(!contents.contains("pane_id"))
         #expect(!contents.contains("surface_id"))
     }

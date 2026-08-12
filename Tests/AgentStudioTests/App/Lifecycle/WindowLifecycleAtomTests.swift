@@ -19,6 +19,7 @@ struct WindowLifecycleAtomTests {
         #expect(atom.isLaunchLayoutSettled == false)
         #expect(atom.isReadyForLaunchRestore == false)
         #expect(atom.didPublishFirstInteractiveFrame == false)
+        #expect(atom.firstInteractiveFrameSource == nil)
     }
 
     @Test("registered windows start with conservative hidden presentation facts")
@@ -192,16 +193,17 @@ struct WindowLifecycleAtomTests {
     func firstInteractiveFrameRecordsOnlyOnce() {
         let atom = WindowLifecycleAtom()
 
-        let firstAccepted = atom.recordFirstInteractiveFramePublished()
-        let duplicateAccepted = atom.recordFirstInteractiveFramePublished()
+        let firstAccepted = atom.recordFirstInteractiveFramePublished(source: .occludedFallback)
+        let duplicateAccepted = atom.recordFirstInteractiveFramePublished(source: .presented)
 
         #expect(firstAccepted)
         #expect(!duplicateAccepted)
         #expect(atom.didPublishFirstInteractiveFrame)
+        #expect(atom.firstInteractiveFrameSource == .occludedFallback)
     }
 
-    @Test("first interactive frame releases every pending activation waiter")
-    func firstInteractiveFrameReleasesEveryPendingWaiter() async {
+    @Test("occluded fallback releases every pending activation waiter")
+    func occludedFallbackReleasesEveryPendingActivationWaiter() async {
         let atom = WindowLifecycleAtom()
         let firstWaiter = Task { @MainActor in
             await atom.waitUntilFirstInteractiveFramePublished()
@@ -213,7 +215,7 @@ struct WindowLifecycleAtomTests {
         }
         await Task.yield()
 
-        let accepted = atom.recordFirstInteractiveFramePublished()
+        let accepted = atom.recordFirstInteractiveFramePublished(source: .occludedFallback)
 
         #expect(accepted)
         #expect(await firstWaiter.value)
