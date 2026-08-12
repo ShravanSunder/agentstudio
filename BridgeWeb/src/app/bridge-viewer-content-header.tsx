@@ -66,7 +66,7 @@ export function BridgeViewerContextSwitcher(props: {
 	return (
 		<ToggleGroup
 			aria-label="Bridge viewer context"
-			className={bridgeViewerChromeSegmentedControlClassName}
+			className={cn(bridgeViewerChromeSegmentedControlClassName, 'grid grid-cols-2')}
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
 			onValueChange={(modes): void => {
@@ -106,6 +106,7 @@ function BridgeViewerContextButton(props: {
 			aria-label={props.label}
 			className={cn(
 				bridgeViewerChromeSegmentButtonClassName,
+				'w-full',
 				props.isSelected ? 'shadow-none' : undefined,
 			)}
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}

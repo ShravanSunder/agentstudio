@@ -109,6 +109,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(Math.round(switcherBox.height)).toBe(railToolbarButtonTokenHeight);
 		expect(Math.round(fileButtonBox.height)).toBe(20);
 		expect(Math.round(reviewButtonBox.height)).toBe(20);
+		expect(Math.abs(fileButtonBox.width - reviewButtonBox.width)).toBeLessThanOrEqual(1);
 		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
 		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
 		expect(fileButton.getAttribute('data-slot')).toBe('toggle-group-item');

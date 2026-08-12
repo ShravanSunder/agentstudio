@@ -208,7 +208,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerHeaderControls={<div data-testid="review-viewer-context-switcher" />}
 			/>,
 		);
 
@@ -231,6 +231,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const viewSettingsTrigger = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-review-view-settings-trigger"]'),
 		);
+		const contextSwitcher = requireHTMLElement(
+			document.querySelector('[data-testid="review-viewer-context-switcher"]'),
+		);
 		const descriptionId = trigger.getAttribute('aria-describedby');
 		const topbarBox = topbar.getBoundingClientRect();
 		const controlsBox = controls.getBoundingClientRect();
@@ -239,6 +242,10 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(Math.round(topbarBox.height)).toBe(36);
 		expect(Math.round(triggerBox.height)).toBe(24);
 		expect(Math.round(viewSettingsBox.height)).toBe(24);
+		expect(trigger.compareDocumentPosition(contextSwitcher)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(contextSwitcher.compareDocumentPosition(viewSettingsTrigger)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
 		expect(triggerBox.right).toBeLessThanOrEqual(viewSettingsBox.left);
 		expect(triggerBox.top).toBeGreaterThanOrEqual(topbarBox.top);
 		expect(triggerBox.bottom).toBeLessThanOrEqual(topbarBox.bottom);

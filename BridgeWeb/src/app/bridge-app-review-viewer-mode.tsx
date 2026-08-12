@@ -286,7 +286,6 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	);
 	const contentHeaderControls = (
 		<>
-			{viewerHeaderControls}
 			<BridgeReviewComparisonControl
 				comparisonPresentation={panelChromeSlice.reviewComparison}
 				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
@@ -296,6 +295,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				onQueryTargets={queryReviewComparisonTargets}
 				targetQueryState={comparisonTargetsQueryState}
 			/>
+			{viewerHeaderControls}
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeReviewDefaultViewSettings}
