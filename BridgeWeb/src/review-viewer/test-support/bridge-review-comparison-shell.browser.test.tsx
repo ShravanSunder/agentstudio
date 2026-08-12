@@ -45,7 +45,10 @@ describe('Bridge Review comparison shell Browser Mode', () => {
 		await expect
 			.element(rendered.getByRole('status'))
 			.toHaveTextContent('Loading comparison with feature/new-target');
-		await expect.element(rendered.getByRole('progressbar')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-loading-spinner'))
+			.toBeVisible();
+		expect(rendered.getByRole('progressbar').query()).toBeNull();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-initial-shell'))
 			.toBeVisible();

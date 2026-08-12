@@ -340,12 +340,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 				content={
 					<section
 						aria-label="Selected content"
-						className={cn(
-							'grid h-full min-h-0 min-w-0 overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]',
-							props.comparisonPaneState.kind === 'settled'
-								? 'grid-rows-[auto_minmax(0,1fr)]'
-								: 'grid-rows-[auto_auto_minmax(0,1fr)]',
-						)}
+						className="grid h-full min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
 						data-testid="bridge-review-code-scroll"
 					>
 						<BridgeViewerContentHeader

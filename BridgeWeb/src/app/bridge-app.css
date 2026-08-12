@@ -114,6 +114,7 @@
 	--bridge-scrollbar-thumb: rgb(205 214 244 / 0.24);
 	--bridge-scrollbar-thumb-hover: rgb(205 214 244 / 0.36);
 	--bridge-scrollbar-track: transparent;
+	--bridge-motion-fast: 120ms;
 	--bridge-list-hover-bg: #313244;
 	--bridge-list-selected-bg: #45475a;
 	--bridge-added: #a6e3a1;
@@ -154,6 +155,48 @@
 	--diffs-token-inserted: var(--bridge-added);
 	--diffs-token-deleted: var(--bridge-deleted);
 	--diffs-token-changed: var(--bridge-warning);
+}
+
+@keyframes bridge-comparison-status-enter {
+	from {
+		grid-template-rows: 0fr;
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+
+	to {
+		grid-template-rows: 1fr;
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes bridge-comparison-status-exit {
+	from {
+		grid-template-rows: 1fr;
+		opacity: 1;
+		transform: translateY(0);
+	}
+
+	to {
+		grid-template-rows: 0fr;
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+}
+
+.bridge-review-comparison-status-region[data-motion-state='entering'] {
+	animation: bridge-comparison-status-enter var(--bridge-motion-fast) ease-out both;
+}
+
+.bridge-review-comparison-status-region[data-motion-state='exiting'] {
+	animation: bridge-comparison-status-exit var(--bridge-motion-fast) ease-in both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bridge-review-comparison-status-region {
+		animation-duration: 0.01ms !important;
+	}
 }
 
 html,
