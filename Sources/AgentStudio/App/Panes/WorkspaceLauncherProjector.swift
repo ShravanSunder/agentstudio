@@ -173,10 +173,14 @@ enum WorkspaceLauncherProjector {
         inboxAtom: InboxNotificationAtom,
         iconColorHex: String?
     ) -> WorkspaceRecentCardModel {
-        let worktreeFacts = repoCache.worktreeFacts(for: worktree.id)
+        let worktreeEnrichment = repoCache.worktreeEnrichment(for: worktree.id)
+        let pullRequestFacts = worktreeEnrichment.flatMap { enrichment in
+            RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
+                .flatMap(repoCache.pullRequestFacts(for:))
+        }
         let branchStatus = RepoExplorerView.branchStatus(
-            enrichment: worktreeFacts?.enrichment,
-            pullRequestCount: worktreeFacts?.pullRequestCount
+            enrichment: worktreeEnrichment,
+            pullRequestFacts: pullRequestFacts
         )
         let chipModel = WorkspaceStatusChipsModel(
             branchStatus: branchStatus,
@@ -187,7 +191,7 @@ enum WorkspaceLauncherProjector {
         )
         let branchName = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
-            enrichment: worktreeFacts?.enrichment
+            enrichment: worktreeEnrichment
         )
 
         let worktreeDisplayName: String = {

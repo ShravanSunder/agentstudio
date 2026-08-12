@@ -151,13 +151,18 @@ package struct RepoExplorerView: View {
     }
 
     private var projectionRequest: RepoExplorerProjectionRequest {
-        RepoExplorerProjectionRequest(
+        let worktreeEnrichmentSnapshot = sidebarWorktreeEnrichmentSnapshot
+        return RepoExplorerProjectionRequest(
             generation: 0,
             snapshot: sidebarSnapshot,
             collapsedGroupIds: Set(sidebarCache.collapsedGroups.map(\.rawValue)),
             isFiltering: isFiltering,
             trigger: initialProjectionTrigger,
-            worktreeFactsByWorktreeId: sidebarWorktreeFactsByWorktreeId
+            worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: Self.pullRequestFactsSnapshot(
+                for: worktreeEnrichmentSnapshot,
+                repoCache: repoCache
+            )
         )
     }
 
@@ -170,7 +175,12 @@ package struct RepoExplorerView: View {
         for repositoryID in repositoryIDs {
             guard let repository = store.repositoryTopologyAtom.repo(repositoryID) else { continue }
             for worktree in repository.worktrees {
-                _ = repoCache.worktreeFacts(for: worktree.id)
+                let enrichment = repoCache.worktreeEnrichment(for: worktree.id)
+                if let enrichment,
+                    let branchKey = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
+                {
+                    _ = repoCache.pullRequestFacts(for: branchKey)
+                }
                 observedSlotCount += 1
             }
         }
@@ -199,8 +209,8 @@ package struct RepoExplorerView: View {
         return observedSlotCount
     }
 
-    private var sidebarWorktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] {
-        Self.worktreeFactsByWorktreeId(
+    private var sidebarWorktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] {
+        Self.worktreeEnrichmentSnapshot(
             for: sidebarRepos.flatMap(\.worktrees).map(\.id),
             repoCache: repoCache
         )
@@ -756,7 +766,8 @@ package struct RepoExplorerView: View {
                 collapsedGroupIds: request.collapsedGroupIds,
                 isFiltering: request.isFiltering,
                 trigger: .dataRefresh,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+                worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
+                pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
             )
             if let scopedResult = RepoExplorerProjectionWorker.applyScopedChange(
                 scopedChange,
@@ -811,7 +822,8 @@ package struct RepoExplorerView: View {
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             trigger: projectionTrigger,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+            worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
         )
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
@@ -960,26 +972,6 @@ package struct RepoExplorerView: View {
         )
     }
 }
-extension RepoExplorerView {
-    static func measureOutlineApplyProxy(
-        previousRowIDs: [String],
-        nextRowIDs: [String],
-        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
-        apply: () -> Void
-    ) -> RepoExplorerOutlineApplyMeasurement {
-        let startedAtNanoseconds = nowNanoseconds()
-        apply()
-        let completedAtNanoseconds = nowNanoseconds()
-        return RepoExplorerOutlineApplyMeasurement(
-            duration: .nanoseconds(
-                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
-            ),
-            rowCount: nextRowIDs.count,
-            outcome: previousRowIDs == nextRowIDs ? .equal : .changed
-        )
-    }
-}
-
 extension RepoExplorerView {
     @ViewBuilder
     private var repoToolbarRow: some View {

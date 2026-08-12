@@ -8,7 +8,6 @@ package final class RepoEnrichmentCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
-        let pullRequestCountByWorktreeId: [UUID: Int]
         let sourceRevision: UInt64
         let lastRebuiltAt: Date?
     }
@@ -21,15 +20,14 @@ package final class RepoEnrichmentCacheAtom {
         telemetryLabel: "worktree_enrichment",
         isContentEqual: { lhs, rhs in lhs.hasSameCacheContent(as: rhs) }
     )
-    @ObservationIgnored private let pullRequestCountMap = AtomFamily<UUID, Int>(
-        telemetryLabel: "pull_request_count",
+    @ObservationIgnored private let pullRequestFactsMap = AtomFamily<RepoBranchKey, PullRequestFacts>(
+        telemetryLabel: "pull_request_facts",
         isContentEqual: ==
     )
-    @ObservationIgnored private var worktreeFactsNodesByWorktreeId: [UUID: DerivedAtom<RepoWorktreeCacheFacts?>] = [:]
     @ObservationIgnored private let cacheRevisionAtom = AtomRevision()
     @ObservationIgnored private let repoEnrichmentRevisionAtom = AtomRevision()
     @ObservationIgnored private let worktreeEnrichmentRevisionAtom = AtomRevision()
-    @ObservationIgnored private let pullRequestCountRevisionAtom = AtomRevision()
+    @ObservationIgnored private let pullRequestFactsRevisionAtom = AtomRevision()
     private(set) var sourceRevision: UInt64 = 0
     private(set) var lastRebuiltAt: Date?
 
@@ -55,9 +53,9 @@ package final class RepoEnrichmentCacheAtom {
         return worktreeEnrichmentSnapshot()
     }
 
-    var pullRequestCountByWorktreeId: [UUID: Int] {
-        _ = pullRequestCountRevisionAtom.value
-        return pullRequestCountSnapshot()
+    package var pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts] {
+        _ = pullRequestFactsRevisionAtom.value
+        return pullRequestFactsSnapshot()
     }
 
     var repoEnrichmentStorageSlotCount: Int {
@@ -68,8 +66,8 @@ package final class RepoEnrichmentCacheAtom {
         worktreeEnrichmentMap.storageSlotCount
     }
 
-    var pullRequestCountStorageSlotCount: Int {
-        pullRequestCountMap.storageSlotCount
+    var pullRequestFactsStorageSlotCount: Int {
+        pullRequestFactsMap.storageSlotCount
     }
 
     package func repoEnrichment(for repoId: UUID) -> RepoEnrichment? {
@@ -80,41 +78,20 @@ package final class RepoEnrichmentCacheAtom {
         worktreeEnrichmentMap.value(for: worktreeId)
     }
 
-    func pullRequestCount(for worktreeId: UUID) -> Int? {
-        pullRequestCountMap.value(for: worktreeId)
-    }
-
-    func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
-        worktreeFactsNode(for: worktreeId).value
+    package func pullRequestFacts(for key: RepoBranchKey) -> PullRequestFacts? {
+        pullRequestFactsMap.value(for: key)
     }
 
     func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
         repoEnrichmentMap.snapshot()
     }
 
-    package func worktreeFactsSnapshot() -> [UUID: RepoWorktreeCacheFacts] {
-        let worktreeEnrichmentsByWorktreeId = worktreeEnrichmentSnapshot()
-        let pullRequestCountsByWorktreeId = pullRequestCountSnapshot()
-        let worktreeIds = Set(worktreeEnrichmentsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
-        return Dictionary(
-            uniqueKeysWithValues: worktreeIds.map { worktreeId in
-                (
-                    worktreeId,
-                    RepoWorktreeCacheFacts(
-                        enrichment: worktreeEnrichmentsByWorktreeId[worktreeId],
-                        pullRequestCount: pullRequestCountsByWorktreeId[worktreeId]
-                    )
-                )
-            }
-        )
-    }
-
     func worktreeEnrichmentSnapshot() -> [UUID: WorktreeEnrichment] {
         worktreeEnrichmentMap.snapshot()
     }
 
-    func pullRequestCountSnapshot() -> [UUID: Int] {
-        pullRequestCountMap.snapshot()
+    package func pullRequestFactsSnapshot() -> [RepoBranchKey: PullRequestFacts] {
+        pullRequestFactsMap.snapshot()
     }
 
     func setRepoEnrichment(_ enrichment: RepoEnrichment) {
@@ -141,27 +118,36 @@ package final class RepoEnrichmentCacheAtom {
         }
     }
 
-    func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
+    package func applyPullRequestFacts(_ factsByKey: [RepoBranchKey: PullRequestFacts]) {
         mutate { mutation in
-            let shouldBumpRevision = pullRequestCountMap.snapshotValue(for: worktreeId) != count
-            pullRequestCountMap.setValue(count, for: worktreeId, mutation: mutation)
-            if shouldBumpRevision {
-                pullRequestCountRevisionAtom.bump()
+            var didChangeContent = false
+            for (key, facts) in factsByKey {
+                if pullRequestFactsMap.snapshotValue(for: key) != facts {
+                    didChangeContent = true
+                }
+                pullRequestFactsMap.setValue(facts, for: key, mutation: mutation)
+            }
+            if didChangeContent {
+                pullRequestFactsRevisionAtom.bump()
             }
         }
+    }
+
+    package func removePullRequestFacts(keys: Set<RepoBranchKey>) {
+        removePullRequestFactKeys(keys)
+    }
+
+    package func removePullRequestFacts(forRepository repoId: UUID) {
+        let keys = pullRequestFactsMap.snapshot().keys.filter { $0.repoId == repoId }
+        removePullRequestFactKeys(keys)
     }
 
     func removeWorktree(_ worktreeId: UUID) {
         mutate { mutation in
             let hadWorktreeEnrichment = worktreeEnrichmentMap.snapshotValue(for: worktreeId) != nil
-            let hadPullRequestCount = pullRequestCountMap.snapshotValue(for: worktreeId) != nil
             worktreeEnrichmentMap.removeValue(for: worktreeId, mutation: mutation)
-            pullRequestCountMap.removeValue(for: worktreeId, mutation: mutation)
             if hadWorktreeEnrichment {
                 worktreeEnrichmentRevisionAtom.bump()
-            }
-            if hadPullRequestCount {
-                pullRequestCountRevisionAtom.bump()
             }
         }
     }
@@ -171,14 +157,10 @@ package final class RepoEnrichmentCacheAtom {
             enrichment.repoId == repoId ? worktreeId : nil
         }
         let hadRepoEnrichment = repoEnrichmentMap.snapshotValue(for: repoId) != nil
-        let pullRequestIdsToRemove = worktreeIdsToRemove.filter {
-            pullRequestCountMap.snapshotValue(for: $0) != nil
-        }
         mutate { mutation in
             repoEnrichmentMap.removeValue(for: repoId, mutation: mutation)
             for worktreeId in worktreeIdsToRemove {
                 worktreeEnrichmentMap.removeValue(for: worktreeId, mutation: mutation)
-                pullRequestCountMap.removeValue(for: worktreeId, mutation: mutation)
             }
             if hadRepoEnrichment {
                 repoEnrichmentRevisionAtom.bump()
@@ -186,10 +168,8 @@ package final class RepoEnrichmentCacheAtom {
             if !worktreeIdsToRemove.isEmpty {
                 worktreeEnrichmentRevisionAtom.bump()
             }
-            if !pullRequestIdsToRemove.isEmpty {
-                pullRequestCountRevisionAtom.bump()
-            }
         }
+        removePullRequestFacts(forRepository: repoId)
     }
 
     func markRebuilt(sourceRevision: UInt64, at timestamp: Date = Date()) {
@@ -210,11 +190,9 @@ package final class RepoEnrichmentCacheAtom {
             worktreeEnrichmentMap.snapshot(),
             state.worktreeEnrichmentByWorktreeId
         )
-        let shouldBumpPullRequestRevision = pullRequestCountMap.snapshot() != state.pullRequestCountByWorktreeId
         mutate { mutation in
             repoEnrichmentMap.replaceAll(state.repoEnrichmentByRepoId, mutation: mutation)
             worktreeEnrichmentMap.replaceAll(state.worktreeEnrichmentByWorktreeId, mutation: mutation)
-            pullRequestCountMap.replaceAll(state.pullRequestCountByWorktreeId, mutation: mutation)
             if sourceRevision != state.sourceRevision || lastRebuiltAt != state.lastRebuiltAt {
                 sourceRevision = state.sourceRevision
                 lastRebuiltAt = state.lastRebuiltAt
@@ -226,9 +204,6 @@ package final class RepoEnrichmentCacheAtom {
             if shouldBumpWorktreeRevision {
                 worktreeEnrichmentRevisionAtom.bump()
             }
-            if shouldBumpPullRequestRevision {
-                pullRequestCountRevisionAtom.bump()
-            }
         }
     }
 
@@ -236,10 +211,10 @@ package final class RepoEnrichmentCacheAtom {
         mutate { mutation in
             let hadRepoEnrichment = !repoEnrichmentMap.snapshot().isEmpty
             let hadWorktreeEnrichment = !worktreeEnrichmentMap.snapshot().isEmpty
-            let hadPullRequestCount = !pullRequestCountMap.snapshot().isEmpty
+            let hadPullRequestFacts = !pullRequestFactsMap.snapshot().isEmpty
             repoEnrichmentMap.removeAll(mutation: mutation)
             worktreeEnrichmentMap.removeAll(mutation: mutation)
-            pullRequestCountMap.removeAll(mutation: mutation)
+            pullRequestFactsMap.removeAll(mutation: mutation)
             if sourceRevision != 0 || lastRebuiltAt != nil {
                 sourceRevision = 0
                 lastRebuiltAt = nil
@@ -251,8 +226,8 @@ package final class RepoEnrichmentCacheAtom {
             if hadWorktreeEnrichment {
                 worktreeEnrichmentRevisionAtom.bump()
             }
-            if hadPullRequestCount {
-                pullRequestCountRevisionAtom.bump()
+            if hadPullRequestFacts {
+                pullRequestFactsRevisionAtom.bump()
             }
         }
     }
@@ -263,33 +238,15 @@ package final class RepoEnrichmentCacheAtom {
         mutation.commit()
     }
 
-    private func worktreeFactsNode(for worktreeId: UUID) -> DerivedAtom<RepoWorktreeCacheFacts?> {
-        if let existingNode = worktreeFactsNodesByWorktreeId[worktreeId] {
-            return existingNode
-        }
-
-        let worktreeEnrichmentMap = worktreeEnrichmentMap
-        let pullRequestCountMap = pullRequestCountMap
-        let node = DerivedAtom<RepoWorktreeCacheFacts?>(
-            inputRevisions: {
-                [
-                    worktreeEnrichmentMap.revision(for: worktreeId),
-                    pullRequestCountMap.revision(for: worktreeId),
-                ]
-            },
-            isContentEqual: ==,
-            compute: {
-                let enrichment = worktreeEnrichmentMap.snapshotValue(for: worktreeId)
-                let pullRequestCount = pullRequestCountMap.snapshotValue(for: worktreeId)
-                guard enrichment != nil || pullRequestCount != nil else { return nil }
-                return RepoWorktreeCacheFacts(
-                    enrichment: enrichment,
-                    pullRequestCount: pullRequestCount
-                )
+    private func removePullRequestFactKeys<S: Sequence>(_ keys: S) where S.Element == RepoBranchKey {
+        let existingKeys = keys.filter { pullRequestFactsMap.snapshotValue(for: $0) != nil }
+        guard !existingKeys.isEmpty else { return }
+        mutate { mutation in
+            for key in existingKeys {
+                pullRequestFactsMap.removeValue(for: key, mutation: mutation)
             }
-        )
-        worktreeFactsNodesByWorktreeId[worktreeId] = node
-        return node
+            pullRequestFactsRevisionAtom.bump()
+        }
     }
 
     private static func repoEnrichmentSnapshotsMatch(
@@ -320,7 +277,6 @@ package final class RepoCacheAtom {
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
-        let pullRequestCountByWorktreeId: [UUID: Int]
         let sourceRevision: UInt64
         let lastRebuiltAt: Date?
     }
@@ -341,8 +297,8 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.worktreeEnrichmentByWorktreeId
     }
 
-    var pullRequestCountByWorktreeId: [UUID: Int] {
-        enrichmentCacheAtom.pullRequestCountByWorktreeId
+    package var pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts] {
+        enrichmentCacheAtom.pullRequestFactsByBranch
     }
 
     var sourceRevision: UInt64 {
@@ -373,12 +329,8 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.worktreeEnrichment(for: worktreeId)
     }
 
-    package func pullRequestCount(for worktreeId: UUID) -> Int? {
-        enrichmentCacheAtom.pullRequestCount(for: worktreeId)
-    }
-
-    package func worktreeFacts(for worktreeId: UUID) -> RepoWorktreeCacheFacts? {
-        enrichmentCacheAtom.worktreeFacts(for: worktreeId)
+    package func pullRequestFacts(for key: RepoBranchKey) -> PullRequestFacts? {
+        enrichmentCacheAtom.pullRequestFacts(for: key)
     }
 
     package func repoEnrichmentSnapshot() -> [UUID: RepoEnrichment] {
@@ -389,12 +341,8 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.worktreeEnrichmentSnapshot()
     }
 
-    func pullRequestCountSnapshot() -> [UUID: Int] {
-        enrichmentCacheAtom.pullRequestCountSnapshot()
-    }
-
-    package func worktreeFactsSnapshot() -> [UUID: RepoWorktreeCacheFacts] {
-        enrichmentCacheAtom.worktreeFactsSnapshot()
+    package func pullRequestFactsSnapshot() -> [RepoBranchKey: PullRequestFacts] {
+        enrichmentCacheAtom.pullRequestFactsSnapshot()
     }
 
     package func setRepoEnrichment(_ enrichment: RepoEnrichment) {
@@ -405,8 +353,16 @@ package final class RepoCacheAtom {
         enrichmentCacheAtom.setWorktreeEnrichment(enrichment)
     }
 
-    package func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
-        enrichmentCacheAtom.setPullRequestCount(count, for: worktreeId)
+    package func applyPullRequestFacts(_ factsByKey: [RepoBranchKey: PullRequestFacts]) {
+        enrichmentCacheAtom.applyPullRequestFacts(factsByKey)
+    }
+
+    package func removePullRequestFacts(keys: Set<RepoBranchKey>) {
+        enrichmentCacheAtom.removePullRequestFacts(keys: keys)
+    }
+
+    package func removePullRequestFacts(forRepository repoId: UUID) {
+        enrichmentCacheAtom.removePullRequestFacts(forRepository: repoId)
     }
 
     package func removeWorktree(_ worktreeId: UUID) {
@@ -426,7 +382,6 @@ package final class RepoCacheAtom {
             .init(
                 repoEnrichmentByRepoId: state.repoEnrichmentByRepoId,
                 worktreeEnrichmentByWorktreeId: state.worktreeEnrichmentByWorktreeId,
-                pullRequestCountByWorktreeId: state.pullRequestCountByWorktreeId,
                 sourceRevision: state.sourceRevision,
                 lastRebuiltAt: state.lastRebuiltAt
             )

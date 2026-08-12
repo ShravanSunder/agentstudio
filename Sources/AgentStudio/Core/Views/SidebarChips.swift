@@ -2,6 +2,11 @@ import AgentStudioInfrastructure
 import SwiftUI
 
 package struct SidebarChip: View {
+    package enum Icon: Equatable {
+        case octicon(String)
+        case system(SystemSymbol)
+    }
+
     package enum Style {
         case neutral
         case info
@@ -22,18 +27,18 @@ package struct SidebarChip: View {
         }
     }
 
-    let iconAsset: String
+    let icon: Icon
     let octiconLoader: OcticonLoader
     let text: String?
     let style: Style
 
     package init(
-        iconAsset: String,
+        icon: Icon,
         octiconLoader: OcticonLoader,
         text: String?,
         style: Style
     ) {
-        self.iconAsset = iconAsset
+        self.icon = icon
         self.octiconLoader = octiconLoader
         self.text = text
         self.style = style
@@ -41,11 +46,17 @@ package struct SidebarChip: View {
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
-            OcticonImage(
-                name: iconAsset,
-                size: AppStyles.Shell.Sidebar.chipIconSize,
-                loader: octiconLoader
-            )
+            switch icon {
+            case .octicon(let assetName):
+                OcticonImage(
+                    name: assetName,
+                    size: AppStyles.Shell.Sidebar.chipIconSize,
+                    loader: octiconLoader
+                )
+            case .system(let symbol):
+                Image(systemName: symbol.rawValue)
+                    .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
+            }
             if let text {
                 Text(text)
                     .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())

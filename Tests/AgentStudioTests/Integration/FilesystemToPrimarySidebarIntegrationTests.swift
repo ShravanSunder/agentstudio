@@ -31,6 +31,9 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                 statusByRootPath: statusByRootPath,
                 financeRemote: financeRemote
             )
+            await testSystem.pipeline.setPullRequestDemandWorktrees(
+                Set(intake.financeWorktreeIdByBranch.values)
+            )
 
             let enrichmentConverged = await eventually("remote identity enrichment should converge for finance repos") {
                 guard !intake.financeRepoIds.isEmpty else { return false }
@@ -56,9 +59,9 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                     return false
                 }
                 return
-                    testSystem.repoCache.pullRequestCountByWorktreeId[primaryBranchId] == 1
-                    && testSystem.repoCache.pullRequestCountByWorktreeId[transactionTableId] == 2
-                    && testSystem.repoCache.pullRequestCountByWorktreeId[rlvrForkingId] == 3
+                    testSystem.repoCache.pullRequestFactsForTest(worktreeId: primaryBranchId)?.openCount == 1
+                    && testSystem.repoCache.pullRequestFactsForTest(worktreeId: transactionTableId)?.openCount == 2
+                    && testSystem.repoCache.pullRequestFactsForTest(worktreeId: rlvrForkingId)?.openCount == 3
             }
             #expect(prCountsConverged)
 
@@ -125,21 +128,33 @@ struct FilesystemToPrimarySidebarIntegrationTests {
                         origin: nil
                     )
             },
-            forgeStatusProvider: StubForgeStatusProvider.stub { _, branches in
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    switch branch {
-                    case "master":
-                        counts[branch] = 1
-                    case "transaction-table-3":
-                        counts[branch] = 2
-                    case "rlvr-forking":
-                        counts[branch] = 3
-                    default:
-                        counts[branch] = 1
-                    }
-                }
-                return counts
+            forgeStatusProvider: StubForgeStatusProvider.stub { _ in
+                .complete([
+                    ForgePullRequest(
+                        headRefName: "master",
+                        url: URL(string: "https://github.com/acme/studio/pull/1")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "transaction-table-3",
+                        url: URL(string: "https://github.com/acme/studio/pull/2")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "transaction-table-3",
+                        url: URL(string: "https://github.com/acme/studio/pull/3")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "rlvr-forking",
+                        url: URL(string: "https://github.com/acme/studio/pull/4")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "rlvr-forking",
+                        url: URL(string: "https://github.com/acme/studio/pull/5")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "rlvr-forking",
+                        url: URL(string: "https://github.com/acme/studio/pull/6")!
+                    ),
+                ])
             },
             gitCoalescingWindow: .zero
         )
@@ -297,7 +312,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
         operation: @MainActor () async throws -> Void
     ) async rethrows {
         await testSystem.pipeline.start()
-        testSystem.coordinator.startConsuming()
+        await testSystem.coordinator.startConsuming()
         do {
             try await operation()
             await testSystem.pipeline.shutdown()

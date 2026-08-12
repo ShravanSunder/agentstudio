@@ -42,7 +42,10 @@ struct PaneManagementContextTests {
                     branch: "main"
                 )
             )
-            atoms.repoCache.setPullRequestCount(2, for: worktree.id)
+            let branchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
+            atoms.repoCache.applyPullRequestFacts([
+                branchKey: PullRequestFacts(openCount: 2, exactOpenURL: nil)
+            ])
 
             let context = PaneManagementContext.project(
                 paneId: pane.id,

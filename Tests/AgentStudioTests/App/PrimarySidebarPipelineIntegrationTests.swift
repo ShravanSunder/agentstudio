@@ -29,14 +29,60 @@ struct PrimarySidebarPipelineIntegrationTests {
         ) {
             let repoA = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-repo-a"))
             let repoB = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-repo-b"))
-            let worktreeA = UUID()
-            let worktreeB = UUID()
+            guard let worktreeA = repoA.worktrees.first?.id,
+                let worktreeB = repoB.worktrees.first?.id
+            else {
+                Issue.record("Expected each repository to have its primary worktree")
+                return
+            }
+            let repoARefreshSubscription = await bus.subscribe(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "PrimarySidebarPipeline.repoARefresh"
+            )
+            let repoBRefreshSubscription = await bus.subscribe(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "PrimarySidebarPipeline.repoBRefresh"
+            )
+            let repoARefresh = Task<[String: PullRequestFacts]?, Never> {
+                for await envelope in repoARefreshSubscription {
+                    guard case .worktree(let worktreeEnvelope) = envelope,
+                        case .forge(.pullRequestsChanged(let repoId, let factsByBranch)) = worktreeEnvelope.event,
+                        repoId == repoA.id
+                    else { continue }
+                    return factsByBranch
+                }
+                return nil
+            }
+            let repoBRefresh = Task<[String: PullRequestFacts]?, Never> {
+                for await envelope in repoBRefreshSubscription {
+                    guard case .worktree(let worktreeEnvelope) = envelope,
+                        case .forge(.pullRequestsChanged(let repoId, let factsByBranch)) = worktreeEnvelope.event,
+                        repoId == repoB.id
+                    else { continue }
+                    return factsByBranch
+                }
+                return nil
+            }
 
+            await forgeActor.register(
+                worktreeId: worktreeA,
+                repoId: repoA.id,
+                rootPath: repoA.repoPath
+            )
+            await forgeActor.register(
+                worktreeId: worktreeB,
+                repoId: repoB.id,
+                rootPath: repoB.repoPath
+            )
+            await forgeActor.setDemand(worktreeIds: [worktreeA, worktreeB])
             await postWorktreeRegistered(bus: bus, worktreeId: worktreeA, repoId: repoA.id, rootPath: repoA.repoPath)
             await postWorktreeRegistered(bus: bus, worktreeId: worktreeB, repoId: repoB.id, rootPath: repoB.repoPath)
 
             await postBranchChanged(bus: bus, worktreeId: worktreeA, repoId: repoA.id, from: "seed", to: "main")
             await postBranchChanged(bus: bus, worktreeId: worktreeB, repoId: repoB.id, from: "seed", to: "main")
+
+            #expect(await repoARefresh.value?["main"]?.openCount == 1)
+            #expect(await repoBRefresh.value?["main"]?.openCount == 1)
 
             let identityConverged = await eventually("repo identity should resolve for both repos") {
                 guard case .some(.resolvedRemote(_, _, let identityA, _)) = repoCache.repoEnrichmentByRepoId[repoA.id]
@@ -53,8 +99,8 @@ struct PrimarySidebarPipelineIntegrationTests {
 
             let pullRequestCountsConverged = await eventually("forge pull request counts should map to both worktrees")
             {
-                repoCache.pullRequestCountByWorktreeId[worktreeA] == 1
-                    && repoCache.pullRequestCountByWorktreeId[worktreeB] == 1
+                repoCache.pullRequestFactsForTest(worktreeId: worktreeA)?.openCount == 1
+                    && repoCache.pullRequestFactsForTest(worktreeId: worktreeB)?.openCount == 1
             }
             #expect(pullRequestCountsConverged)
         }
@@ -118,24 +164,25 @@ struct PrimarySidebarPipelineIntegrationTests {
         }
     }
 
-    @Test("message-driven origin and branch events trigger a single forge path per event")
-    func messageDrivenOriginAndBranchEventsDoNotDoubleInvokeForge() async {
+    @Test("message-driven origin and branch events trigger one admitted repository refresh")
+    func messageDrivenOriginAndBranchEventsTriggerOneAdmittedRefresh() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
         let callCounter = ForgeProviderCallCounter()
         let forgeActor = ForgeActor(
             bus: bus,
-            statusProvider: .stub { _, branches in
+            statusProvider: .stub { _ in
                 await callCounter.increment()
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    counts[branch] = 1
-                }
-                return counts
+                return .complete([
+                    ForgePullRequest(
+                        headRefName: "main",
+                        url: URL(string: "https://github.com/askluna/agent-studio/pull/1")!
+                    )
+                ])
             },
             providerName: "stub",
-            pollInterval: .seconds(60)
+            monotonicNow: { .zero }
         )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -144,9 +191,9 @@ struct PrimarySidebarPipelineIntegrationTests {
             scopeSyncHandler: { change in
                 switch change {
                 case .registerForgeRepo(let repoId, let remote):
-                    await forgeActor.register(repo: repoId, remote: remote)
+                    await forgeActor.setOrigin(repo: repoId, remote: remote)
                 case .unregisterForgeRepo(let repoId):
-                    await forgeActor.unregister(repo: repoId)
+                    await forgeActor.removeRepository(repo: repoId)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
                 case .updateWatchedFolders:
@@ -158,6 +205,12 @@ struct PrimarySidebarPipelineIntegrationTests {
         await withStartedForgeScopeCoordinator(bus: bus, coordinator: coordinator, forgeActor: forgeActor) {
             let repo = workspaceStore.addRepo(at: URL(fileURLWithPath: "/tmp/pipeline-forge-dedupe"))
             let worktreeId = UUID()
+            await forgeActor.register(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                rootPath: repo.repoPath
+            )
+            await forgeActor.setDemand(worktreeIds: [worktreeId])
             await postOriginChanged(
                 bus: bus,
                 repoId: repo.id,
@@ -167,14 +220,15 @@ struct PrimarySidebarPipelineIntegrationTests {
             )
             await postBranchChanged(bus: bus, worktreeId: worktreeId, repoId: repo.id, from: "seed", to: "main")
 
-            let reachedExpectedCalls = await eventually("forge provider should be invoked for origin+branch once each")
-            {
-                await callCounter.value() >= 2
+            let reachedExpectedCalls = await eventually(
+                "forge provider should be invoked once after origin and branch resolve"
+            ) {
+                await callCounter.value() == 1
             }
             #expect(reachedExpectedCalls)
         }
 
-        #expect(await callCounter.value() == 2)
+        #expect(await callCounter.value() == 1)
     }
 
     @Test("origin change updates resolved identity grouping")
@@ -266,6 +320,7 @@ struct PrimarySidebarPipelineIntegrationTests {
         ) {
             var financeWorktreeIdByBranch: [String: UUID] = [:]
             var financeRepoIds: [UUID] = []
+            var registeredWorktreeIds: Set<UUID> = []
             for repoPath in discoveredRepoPaths {
                 let repo = workspaceStore.addRepo(at: repoPath)
                 guard let worktree = repo.worktrees.first else { continue }
@@ -276,8 +331,15 @@ struct PrimarySidebarPipelineIntegrationTests {
                         financeWorktreeIdByBranch[branch] = worktree.id
                     }
                 }
+                await forgeActor.register(
+                    worktreeId: worktree.id,
+                    repoId: repo.id,
+                    rootPath: repoPath
+                )
+                registeredWorktreeIds.insert(worktree.id)
                 await postWorktreeRegistered(bus: bus, worktreeId: worktree.id, repoId: repo.id, rootPath: repoPath)
             }
+            await forgeActor.setDemand(worktreeIds: registeredWorktreeIds)
 
             let identityConverged = await eventually("all finance repos should share one remote group key") {
                 guard !financeRepoIds.isEmpty else { return false }
@@ -300,9 +362,9 @@ struct PrimarySidebarPipelineIntegrationTests {
                     return false
                 }
                 return
-                    repoCache.pullRequestCountByWorktreeId[primaryBranchId] == 1
-                    && repoCache.pullRequestCountByWorktreeId[transactionTableId] == 2
-                    && repoCache.pullRequestCountByWorktreeId[rlvrForkingId] == 3
+                    repoCache.pullRequestFactsForTest(worktreeId: primaryBranchId)?.openCount == 1
+                    && repoCache.pullRequestFactsForTest(worktreeId: transactionTableId)?.openCount == 2
+                    && repoCache.pullRequestFactsForTest(worktreeId: rlvrForkingId)?.openCount == 3
             }
             #expect(pullRequestCountsConverged)
 
@@ -333,24 +395,40 @@ struct PrimarySidebarPipelineIntegrationTests {
     ) -> (ForgeActor, WorkspaceCacheCoordinator, GitWorkingDirectoryProjector) {
         let forgeActor = ForgeActor(
             bus: bus,
-            statusProvider: .stub { _, branches in
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    switch branch {
-                    case "master":
-                        counts[branch] = 1
-                    case "transaction-table-3":
-                        counts[branch] = 2
-                    case "rlvr-forking":
-                        counts[branch] = 3
-                    default:
-                        counts[branch] = 1
-                    }
-                }
-                return counts
+            statusProvider: .stub { _ in
+                .complete([
+                    ForgePullRequest(
+                        headRefName: "main",
+                        url: URL(string: "https://github.com/askluna/agent-studio/pull/1")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "master",
+                        url: URL(string: "https://github.com/askluna/askluna-finance/pull/1")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "transaction-table-3",
+                        url: URL(string: "https://github.com/askluna/askluna-finance/pull/2")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "transaction-table-3",
+                        url: URL(string: "https://github.com/askluna/askluna-finance/pull/3")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "rlvr-forking",
+                        url: URL(string: "https://github.com/askluna/askluna-finance/pull/4")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "rlvr-forking",
+                        url: URL(string: "https://github.com/askluna/askluna-finance/pull/5")!
+                    ),
+                    ForgePullRequest(
+                        headRefName: "rlvr-forking",
+                        url: URL(string: "https://github.com/askluna/askluna-finance/pull/6")!
+                    ),
+                ])
             },
             providerName: "stub",
-            pollInterval: .seconds(60)
+            monotonicNow: { .zero }
         )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -359,9 +437,9 @@ struct PrimarySidebarPipelineIntegrationTests {
             scopeSyncHandler: { change in
                 switch change {
                 case .registerForgeRepo(let repoId, let remote):
-                    await forgeActor.register(repo: repoId, remote: remote)
+                    await forgeActor.setOrigin(repo: repoId, remote: remote)
                 case .unregisterForgeRepo(let repoId):
-                    await forgeActor.unregister(repo: repoId)
+                    await forgeActor.removeRepository(repo: repoId)
                 case .refreshForgeRepo(let repoId, let correlationId):
                     await forgeActor.refresh(repo: repoId, correlationId: correlationId)
                 case .updateWatchedFolders:
@@ -554,7 +632,7 @@ struct PrimarySidebarPipelineIntegrationTests {
         forgeActor: ForgeActor,
         operation: @MainActor () async throws -> Void
     ) async rethrows {
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
         await projector.start()
         await forgeActor.start()
         do {
@@ -580,7 +658,7 @@ struct PrimarySidebarPipelineIntegrationTests {
         forgeActor: ForgeActor,
         operation: @MainActor () async throws -> Void
     ) async rethrows {
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
         await forgeActor.start()
         do {
             try await operation()

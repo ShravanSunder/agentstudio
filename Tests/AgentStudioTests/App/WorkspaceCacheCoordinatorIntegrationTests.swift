@@ -157,7 +157,10 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repo.id, branch: "main")
         )
-        repoCache.setPullRequestCount(3, for: worktreeId)
+        let mainBranchKey = RepoBranchKey(repoId: repo.id, branch: "main")!
+        repoCache.applyPullRequestFacts([
+            mainBranchKey: PullRequestFacts(openCount: 3, exactOpenURL: nil)
+        ])
 
         // User-initiated removal
         coordinator.handleRepoRemoval(repoId: repo.id)
@@ -168,7 +171,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         // All cache entries should be pruned
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
-        #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)
+        #expect(repoCache.pullRequestFactsByBranch.isEmpty)
 
         // Forge scope should be unregistered
         let converged = await eventually("forge unregister should fire") {
@@ -400,9 +403,6 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             scopeSyncHandler: { _ in }
         )
         await withStartedCoordinator(bus: bus, coordinator: coordinator) {
-            // Wait for subscription Task to actually subscribe to the bus
-            await waitForSubscriber(bus: bus)
-
             let repoPath = URL(fileURLWithPath: "/tmp/bus-topology-test")
             let postResult = await bus.post(
                 .system(
@@ -438,9 +438,6 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             scopeSyncHandler: { _ in }
         )
         await withStartedCoordinator(bus: bus, coordinator: coordinator) {
-            // Wait for subscription Task to actually subscribe to the bus
-            await waitForSubscriber(bus: bus)
-
             let repoPath = URL(fileURLWithPath: "/tmp/boot-rescan-dedup")
 
             // Simulate boot replay posting .repoDiscovered
@@ -491,8 +488,6 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             scopeSyncHandler: { _ in }
         )
         await withStartedCoordinator(bus: bus, coordinator: coordinator) {
-            await waitForSubscriber(bus: bus)
-
             let burstCount = BusSubscriberPolicy.standardLossyBufferLimit + 1
             let repoPaths = (0..<burstCount).map { index in
                 URL(fileURLWithPath: "/tmp/topology-critical-remove-\(index)")
@@ -607,7 +602,10 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         repoCache.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: removedWorktreeId, repoId: repo.id, branch: "removed")
         )
-        repoCache.setPullRequestCount(7, for: removedWorktreeId)
+        let removedBranchKey = RepoBranchKey(repoId: repo.id, branch: "removed")!
+        repoCache.applyPullRequestFacts([
+            removedBranchKey: PullRequestFacts(openCount: 7, exactOpenURL: nil)
+        ])
 
         coordinator.handleTopology(
             SystemEnvelope.test(
@@ -624,7 +622,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         let remainingPaths = Set(try! #require(workspaceStore.repos.first).worktrees.map(\.path))
         #expect(remainingPaths == Set([repoPath, keepPath]))
         #expect(repoCache.worktreeEnrichmentByWorktreeId[removedWorktreeId] == nil)
-        #expect(repoCache.pullRequestCountByWorktreeId[removedWorktreeId] == nil)
+        #expect(repoCache.pullRequestFacts(for: removedBranchKey)?.openCount == 7)
         #expect(effectHandler.deltas.count == 2)
         let lastDelta = try! #require(effectHandler.deltas.last)
         #expect(lastDelta.repoId == repo.id)
@@ -732,8 +730,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             scopeSyncHandler: { _ in }
         )
 
-        coordinator.startConsuming()
-        await waitForSubscriber(bus: bus)
+        await coordinator.startConsuming()
         #expect(await bus.subscriberCount == 1)
 
         await coordinator.shutdown()
@@ -742,15 +739,6 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     }
 
     // MARK: - Helpers
-
-    /// Polls the bus until at least one subscriber is registered, ensuring the
-    /// coordinator's `startConsuming()` Task has completed its `subscribe()` call.
-    private func waitForSubscriber(bus: EventBus<RuntimeEnvelope>, maxTurns: Int = 50) async {
-        for _ in 0..<maxTurns {
-            if await bus.subscriberCount > 0 { return }
-            await Task.yield()
-        }
-    }
 
     private func eventually(
         _ description: String,
@@ -772,7 +760,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         coordinator: WorkspaceCacheCoordinator,
         operation: @MainActor () async throws -> Void
     ) async rethrows {
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
         do {
             try await operation()
             await coordinator.shutdown()
@@ -792,7 +780,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         projector: GitWorkingDirectoryProjector,
         operation: @MainActor () async throws -> Void
     ) async rethrows {
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
         await projector.start()
         do {
             try await operation()
