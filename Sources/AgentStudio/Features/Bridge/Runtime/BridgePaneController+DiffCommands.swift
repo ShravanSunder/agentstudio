@@ -120,7 +120,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     }
 
     struct ReviewPackageLoadReset {
+        let buildReason: BridgeReviewPackageBuildReason
         let reviewGeneration: BridgeReviewGeneration
+        let shouldPresentComparisonReplacement: Bool
     }
 
     private struct ReviewPackageLoadCommit {
@@ -152,7 +154,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return .failure(.invalidPayload(description: "Bridge pane is closed"))
         }
         var reviewLoadStage = "designation"
-        let buildReason = consumePendingReviewPackageBuildReason(default: .initialIntake)
         do {
             try await adoptInitialContributionTargetIfEligible(
                 reset: reset,
@@ -162,7 +163,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             let constructionResult = try await loadReviewPackageResult(
                 artifact: artifact,
                 reviewGeneration: reset.reviewGeneration,
-                buildReason: buildReason,
+                buildReason: reset.buildReason,
                 reviewLoadStage: &reviewLoadStage,
                 packageTraceContext: packageTraceContext
             )
@@ -176,7 +177,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else {
                 await constructionResult.releaseArtifactPin()
-                pendingReviewPackageBuildReasons.insert(buildReason)
+                pendingReviewPackageBuildReasons.insert(reset.buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             let load = try await makeReviewPackageLoadData(
@@ -199,7 +200,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else {
                 await load.releaseArtifactPin()
-                pendingReviewPackageBuildReasons.insert(buildReason)
+                pendingReviewPackageBuildReasons.insert(reset.buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             return await completeReviewPackageLoad(
@@ -213,11 +214,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     foregroundWorkAdmission: foregroundWorkAdmission,
                     traceContext: packageTraceContext
                 ),
-                buildReason: buildReason
+                buildReason: reset.buildReason
             )
         } catch BridgeProviderFailure.providerUnavailable {
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                pendingReviewPackageBuildReasons.insert(buildReason)
+                pendingReviewPackageBuildReasons.insert(reset.buildReason)
                 return .failure(.invalidPayload(description: "Stale bridge review load"))
             }
             guard
@@ -238,7 +239,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 reviewLoadStage: reviewLoadStage,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
-                buildReason: buildReason
+                buildReason: reset.buildReason
             )
         }
     }
@@ -364,6 +365,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         guard
             let reset = foregroundWorkAdmission.withValidAdmission({
                 productAdmission.withValidAdmission {
+                    let buildReason = consumePendingReviewPackageBuildReason(default: .initialIntake)
+                    let shouldPresentComparisonReplacement =
+                        buildReason == .initialIntake || pendingComparisonReviewGeneration != nil
                     if reviewPublicationCoordinator.diagnosticSnapshot.active == nil {
                         paneState.diff.setStatus(.loading)
                     }
@@ -374,14 +378,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     pendingComparisonReviewGeneration = nil
                     nextReviewGeneration = reviewGeneration
                     return ReviewPackageLoadReset(
-                        reviewGeneration: reviewGeneration
+                        buildReason: buildReason,
+                        reviewGeneration: reviewGeneration,
+                        shouldPresentComparisonReplacement: shouldPresentComparisonReplacement
                     )
                 }
             }).flatMap({ $0 })
         else {
             return nil
         }
-        if case .workspace(_, let baseline) = bridgePaneState.source,
+        if reset.shouldPresentComparisonReplacement,
+            case .workspace(_, let baseline) = bridgePaneState.source,
             let activeTarget = baseline?.contributionTarget
         {
             refreshAdmissionCoordinator.beginReviewComparisonAttempt(
@@ -569,7 +576,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }
         do {
             _ = try await resolveAndPublishReviewComparisonDefaultTargetIfCurrent(
-                reset: ReviewPackageLoadReset(reviewGeneration: refreshGeneration),
+                reset: ReviewPackageLoadReset(
+                    buildReason: .filesystemRefresh,
+                    reviewGeneration: refreshGeneration,
+                    shouldPresentComparisonReplacement: false
+                ),
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission
             )

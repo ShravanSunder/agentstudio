@@ -177,6 +177,42 @@ extension WebKitSerializedTests {
             #expect(controller.pendingReviewPackageBuildReasons.isEmpty)
         }
 
+        @Test("filesystem reload preserves settled comparison presentation")
+        func filesystemReloadPreservesSettledComparisonPresentation() async throws {
+            let target = WorkspaceReviewContributionTarget.branch(name: "main")
+            let comparison = makeComparison()
+            let provider = makeContributionProvider(comparison: comparison)
+            let controller = makeController(
+                target: target,
+                comparison: comparison,
+                provider: provider
+            )
+            defer { controller.teardown() }
+            guard case .success = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+            else {
+                Issue.record("Expected initial contribution load to succeed")
+                return
+            }
+            let settledBeforeRefresh = try #require(
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison
+            )
+            let contributionCaptureGate = BridgeContributionCaptureGate()
+            await provider.setContributionCaptureGate(contributionCaptureGate)
+
+            controller.scheduleReviewPackageReloadForProductResync(reason: .filesystemRefresh)
+            await contributionCaptureGate.waitForStart()
+            let presentationDuringRefresh = controller.refreshAdmissionCoordinator
+                .productPresentationSnapshot.reviewComparison
+            await contributionCaptureGate.releaseAll()
+            await waitForActiveReviewRefreshTaskToFinish(controller)
+
+            #expect(presentationDuringRefresh == settledBeforeRefresh)
+            #expect(
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison?
+                    .attempt == settledBeforeRefresh.attempt
+            )
+        }
+
         @Test("successor comparison clears and refreshes repository default identity")
         func successorComparisonClearsAndRefreshesRepositoryDefaultIdentity() async throws {
             // Arrange
