@@ -172,6 +172,50 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         )
     }
 
+    @Test
+    func tabBarContextMenuProjectionKeepsOnlyLowCardinalityInputFacts() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 604,
+            severityText: .info,
+            body: "performance.tabbar.context_menu",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.tabbar.context_menu.phase": .string("input"),
+                "agentstudio.performance.tabbar.context_menu.host_hit": .bool(true),
+                "agentstudio.performance.tabbar.context_menu.tab_hit": .bool(true),
+                "agentstudio.performance.tabbar.context_menu.hit_view_class": .string(
+                    "SwiftUI._NSHostingView"
+                ),
+                "agentstudio.performance.tabbar.context_menu.static_menu_available": .bool(false),
+                "agentstudio.performance.tabbar.context_menu.tab_id": .string(
+                    "01987654-3210-7abc-8def-0123456789ab"
+                ),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.context_menu.phase"]
+                == .string("input")
+        )
+        #expect(projection.attributes["agentstudio.performance.tabbar.context_menu.host_hit"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.tabbar.context_menu.tab_hit"] == .bool(true))
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.context_menu.hit_view_class"]
+                == .string("SwiftUI._NSHostingView")
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.context_menu.static_menu_available"]
+                == .bool(false)
+        )
+        #expect(projection.attributes["agentstudio.performance.tabbar.context_menu.tab_id"] == nil)
+    }
+
     private func performanceProjectionRecord(worktreeID: UUID) -> AgentStudioTraceRecord {
         AgentStudioTraceRecord(
             timeUnixNano: 600,
