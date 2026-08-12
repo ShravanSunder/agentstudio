@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	BRIDGE_PRODUCT_REVIEW_COMPARISON_TARGET_MAXIMUM_ROWS,
 	bridgeProductReviewComparisonOriginSchema,
+	bridgeProductReviewComparisonTargetCatalogSchema,
 	bridgeProductReviewComparisonTargetSchema,
 } from './bridge-product-review-comparison-contracts.js';
 
@@ -73,6 +75,29 @@ describe('Bridge product review comparison contracts', () => {
 				...commonCommitOrigin,
 				baseRole: 'contributionBase',
 				contributionBaseOID: 'legacy-base-oid',
+			}).success,
+		).toBe(false);
+	});
+
+	test('enforces the comparison-target catalog row ceiling', () => {
+		const branch = { branchName: 'main', kind: 'local', oid: 'a'.repeat(40) } as const;
+		const catalog = {
+			branches: Array.from(
+				{ length: BRIDGE_PRODUCT_REVIEW_COMPARISON_TARGET_MAXIMUM_ROWS },
+				() => branch,
+			),
+			capturedAtUnixMilliseconds: 2_000,
+			currentTarget: null,
+			cutoffUnixMilliseconds: 1_000,
+			defaultTarget: null,
+			isTruncated: false,
+		};
+
+		expect(bridgeProductReviewComparisonTargetCatalogSchema.safeParse(catalog).success).toBe(true);
+		expect(
+			bridgeProductReviewComparisonTargetCatalogSchema.safeParse({
+				...catalog,
+				branches: [...catalog.branches, branch],
 			}).success,
 		).toBe(false);
 	});

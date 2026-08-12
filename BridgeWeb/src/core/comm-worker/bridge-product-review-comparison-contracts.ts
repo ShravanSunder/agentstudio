@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const BRIDGE_PRODUCT_REVIEW_COMPARISON_TARGET_MAXIMUM_ROWS = 2_000;
+
 export const bridgeProductReviewComparisonBasisSchema = z.enum(['commonCommit', 'branchTip']);
 export const bridgeProductReviewComparisonBaseRoleSchema = z.enum([
 	'commonCommit',
@@ -76,7 +78,9 @@ export const bridgeProductReviewComparisonBranchTargetSchema = z.discriminatedUn
 
 export const bridgeProductReviewComparisonTargetCatalogSchema = z
 	.object({
-		branches: z.array(bridgeProductReviewComparisonBranchTargetSchema),
+		branches: z
+			.array(bridgeProductReviewComparisonBranchTargetSchema)
+			.max(BRIDGE_PRODUCT_REVIEW_COMPARISON_TARGET_MAXIMUM_ROWS),
 		capturedAtUnixMilliseconds: z.number().int().nonnegative(),
 		cutoffUnixMilliseconds: z.number().int().nonnegative(),
 		currentTarget: bridgeProductReviewComparisonBranchTargetSchema.nullable(),

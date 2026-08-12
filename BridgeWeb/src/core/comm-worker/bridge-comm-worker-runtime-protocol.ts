@@ -508,6 +508,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				application.snapshot.nativeActivity === 'foreground' &&
 				!application.snapshot.refreshingLanes.includes('file');
 			if (application.leftForeground) {
+				if (activeComparisonTargetsProductControlRequestId !== null) {
+					comparisonTargetsQueryRunner.fail(activeComparisonTargetsProductControlRequestId);
+				}
 				comparisonTargetsQueryRunner.abort();
 				activeComparisonTargetsProductControlRequestId = null;
 				abortAllFileContentPreparations();

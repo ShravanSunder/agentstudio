@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { encodeBridgeWorkerActiveViewerModeUpdateCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerActiveViewerModeUpdateCommand,
+	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
+} from './bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
 	createRecordingBridgeCommWorkerPort,
@@ -19,6 +22,61 @@ import type {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker updating panel chrome', () => {
+	test('settles the current comparison-target query when native foreground is lost', async () => {
+		// Arrange
+		const fileEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(16);
+		const presentation = createPanePresentationTestTransport({ fileEvents, reviewEvents });
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		let resolveQuery!: (result: unknown) => void;
+		const queryResult = new Promise<unknown>((resolve): void => {
+			resolveQuery = resolve;
+		});
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: presentation.productTransport,
+			sendProductControl: async (command): Promise<unknown> =>
+				command.method === 'review.comparisonTargets.query' ? queryResult : null,
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		presentation.publish({
+			nativeActivity: 'foreground',
+			presentationRevision: 1,
+			refreshingLanes: [],
+		});
+		dispatch.message(
+			encodeBridgeWorkerReviewComparisonTargetsQueryCommand({
+				epoch: 1,
+				requestId: 'comparison-targets-before-foreground-loss',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Act
+		presentation.publish({
+			nativeActivity: 'loadedHidden',
+			presentationRevision: 2,
+			refreshingLanes: [],
+		});
+		resolveQuery({ descriptor: null });
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		const queryEvents = postedMessages
+			.map(({ message }) => message)
+			.filter(
+				(message) =>
+					message.kind === 'reviewComparisonTargetsQuery' &&
+					message.requestId === 'comparison-targets-before-foreground-loss',
+			);
+		expect(queryEvents).toEqual([expect.objectContaining({ status: 'failed' })]);
+	});
+
 	test('reopens failed File metadata after the coalesced native File refresh settles', async () => {
 		// Arrange — removing refresh-settlement recovery makes this test fail.
 		const firstFileEvents = new BridgeProductBoundedAsyncQueue<

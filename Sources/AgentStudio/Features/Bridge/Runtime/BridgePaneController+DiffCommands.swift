@@ -567,15 +567,6 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         else {
             return .stale
         }
-        if case .workspace(_, let baseline) = bridgePaneState.source,
-            let activeTarget = baseline?.contributionTarget
-        {
-            refreshAdmissionCoordinator.beginReviewComparisonAttempt(
-                activeTarget: activeTarget,
-                reviewGeneration: refreshGeneration.rawValue
-            )
-            _ = scheduleProductPresentationPublication()
-        }
         do {
             _ = try await resolveAndPublishReviewComparisonDefaultTargetIfCurrent(
                 reset: ReviewPackageLoadReset(reviewGeneration: refreshGeneration),
@@ -583,8 +574,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         } catch is CancellationError {
+            failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshCancelled")
             return .stale
         } catch {
+            failReviewComparisonRefresh(refreshGeneration, failureKind: "defaultTargetUnavailable")
             return .failed
         }
         return await performReviewPackageRefresh(
@@ -621,6 +614,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 }) == true
             else {
                 await constructionResult.releaseArtifactPin()
+                failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshSuperseded")
                 return .stale
             }
 
@@ -643,6 +637,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             else {
                 await load.releaseArtifactPin()
+                failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshSuperseded")
                 return .stale
             }
             guard !Self.isUnchangedSameLineageLoad(load, currentPublication: currentPublication)
@@ -672,6 +667,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
             guard case .committed = disposition else {
+                failReviewComparisonRefresh(refreshGeneration, failureKind: "publicationRejected")
                 return Task.isCancelled || foregroundWorkAdmission.withValidAdmission({ true }) == nil
                     ? .stale
                     : .failed
@@ -686,6 +682,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             return .failed
         } catch is CancellationError {
+            failReviewComparisonRefresh(refreshGeneration, failureKind: "refreshCancelled")
             return .stale
         } catch {
             bridgeDiffCommandLogger.debug(
@@ -698,6 +695,17 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             return foregroundWorkAdmission.withValidAdmission({ true }) == nil ? .stale : .failed
         }
+    }
+
+    private func failReviewComparisonRefresh(
+        _ reviewGeneration: BridgeReviewGeneration,
+        failureKind: String
+    ) {
+        failReviewComparisonAttempt(
+            reviewGeneration: reviewGeneration,
+            failureKind: failureKind,
+            retryable: true
+        )
     }
 
     private func settleReviewComparisonAttempt(

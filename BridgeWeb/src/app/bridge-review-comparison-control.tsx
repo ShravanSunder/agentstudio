@@ -65,11 +65,11 @@ export function BridgeReviewComparisonControl(
 		setOpen(false);
 	};
 	useEffect((): void => {
-		if ((!isActive || disabled) && open) {
+		if (!isActive && open) {
 			onCancelTargetQuery?.();
 			setOpen(false);
 		}
-	}, [disabled, isActive, onCancelTargetQuery, open]);
+	}, [isActive, onCancelTargetQuery, open]);
 	useLayoutEffect((): void => {
 		if (!open) return;
 		const activeInput =

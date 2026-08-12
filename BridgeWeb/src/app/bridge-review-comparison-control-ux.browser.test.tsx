@@ -1,4 +1,5 @@
 import { act } from 'react';
+import type { ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -307,6 +308,45 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		await expect.element(rendered.getByRole('combobox', { name: 'Search branches' })).toHaveFocus();
+	});
+
+	test('keeps an open target picker and its query result during same-session refresh', async () => {
+		// Arrange
+		const cancelTargetQuery = vi.fn();
+		const queryTargets = vi.fn();
+		const comparisonControl = (disabled: boolean): ReactElement => (
+			<BridgeReviewComparisonControl
+				comparisonPresentation={{
+					activeTarget: {
+						basis: 'commonCommit',
+						branchName: 'main',
+						kind: 'localDefaultBranch',
+					},
+					attempt: { reviewGeneration: 1, status: disabled ? 'pending' : 'settled' },
+					displayedSnapshot: { status: 'none' },
+					repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
+				}}
+				disabled={disabled}
+				displayedReviewPackage={null}
+				onApplyTarget={vi.fn()}
+				onCancelTargetQuery={cancelTargetQuery}
+				onQueryTargets={queryTargets}
+				targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
+			/>
+		);
+		const rendered = await render(comparisonControl(false));
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Act
+		await rendered.rerender(comparisonControl(true));
+
+		// Assert
+		await expect.element(rendered.getByTestId('bridge-review-comparison-content')).toBeVisible();
+		await expect.element(rendered.getByText('origin/main', { exact: true })).toBeVisible();
+		expect(queryTargets).toHaveBeenCalledTimes(1);
+		expect(cancelTargetQuery).not.toHaveBeenCalled();
 	});
 
 	test('presents branch search and choices inside one bounded selector surface', async () => {

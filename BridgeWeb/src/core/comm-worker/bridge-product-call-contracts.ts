@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bridgeProductReviewComparisonTargetsContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
 	type BridgeProductAssert,
 	bridgeProductIdentifierSchema,
@@ -51,18 +52,7 @@ export const bridgeProductReviewComparisonUpdateResultSchema = z.null();
 export const bridgeProductReviewComparisonTargetsQueryRequestSchema = z.object({}).strict();
 export const bridgeProductReviewComparisonTargetsQueryResultSchema = z
 	.object({
-		descriptor: z
-			.object({
-				capturedAtUnixMilliseconds: z.number().int().nonnegative(),
-				contentKind: z.literal('review.comparisonTargets'),
-				cutoffUnixMilliseconds: z.number().int().nonnegative(),
-				declaredByteLength: z.number().int().positive(),
-				descriptorId: bridgeProductIdentifierSchema,
-				encoding: z.literal('utf-8'),
-				expectedSha256: z.string().regex(/^[0-9a-f]{64}$/iu),
-				maximumBytes: z.number().int().positive(),
-			})
-			.strict(),
+		descriptor: bridgeProductReviewComparisonTargetsContentDescriptorSchema,
 	})
 	.strict();
 

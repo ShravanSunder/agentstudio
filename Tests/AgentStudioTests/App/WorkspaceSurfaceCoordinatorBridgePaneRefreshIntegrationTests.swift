@@ -157,7 +157,7 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("same-repo Git-internal invalidation crosses worktrees for a contribution review")
+        @Test("same-repo Git-internal invalidation refreshes contribution review without replacement state")
         func sameRepoGitInternalInvalidationCrossesWorktreesForContributionReview() async throws {
             // Arrange
             let setup = try makeWorkspaceRefreshTestSetup(addCrossWorktreeEventSource: true)
@@ -174,9 +174,8 @@ extension WebKitSerializedTests {
             )
 
             // Assert
-            let successorGeneration = generationBeforeInvalidation.next()
-            #expect(setup.controller.nextReviewGeneration == successorGeneration)
-            #expect(setup.controller.pendingComparisonReviewGeneration == successorGeneration)
+            #expect(setup.controller.nextReviewGeneration == generationBeforeInvalidation)
+            #expect(setup.controller.pendingComparisonReviewGeneration == nil)
             #expect(
                 setup.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact?
                     .requiresReviewRefresh == true
@@ -212,11 +211,12 @@ extension WebKitSerializedTests {
             await setup.harness.finish()
         }
 
-        @Test("suppressed-only Git-internal duplicates reuse one pending contribution generation")
-        func suppressedOnlyGitInternalDuplicatesReuseOnePendingContributionGeneration() async throws {
+        @Test("suppressed-only Git-internal duplicates do not enter comparison replacement state")
+        func suppressedOnlyGitInternalDuplicatesDoNotEnterComparisonReplacementState() async throws {
             // Arrange
             let setup = try makeWorkspaceRefreshTestSetup(addCrossWorktreeEventSource: true)
             await prepareHiddenBridgePaneForCrossWorktreeInvalidation(setup)
+            let generationBeforeInvalidation = setup.controller.nextReviewGeneration
 
             // Act
             let suppressedOnlyEnvelope = crossWorktreeFilesystemEnvelope(
@@ -227,16 +227,13 @@ extension WebKitSerializedTests {
             _ = await setup.harness.coordinator.handleFilesystemEnvelopeIfNeeded(
                 suppressedOnlyEnvelope
             )
-            let firstPendingGeneration = try #require(
-                setup.controller.pendingComparisonReviewGeneration
-            )
             _ = await setup.harness.coordinator.handleFilesystemEnvelopeIfNeeded(
                 suppressedOnlyEnvelope
             )
 
             // Assert
-            #expect(setup.controller.pendingComparisonReviewGeneration == firstPendingGeneration)
-            #expect(setup.controller.nextReviewGeneration == firstPendingGeneration)
+            #expect(setup.controller.pendingComparisonReviewGeneration == nil)
+            #expect(setup.controller.nextReviewGeneration == generationBeforeInvalidation)
             #expect(
                 setup.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact?
                     .fileChangeset == nil

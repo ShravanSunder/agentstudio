@@ -29,6 +29,7 @@ const bridgeProductDeclaredByteLengthSchema = bridgeProductNonnegativeSequenceSc
 const bridgeProductContentSequenceSchema = bridgeProductPositiveSequenceSchema.max(0xff_ff_ff_ff);
 
 export const BRIDGE_PRODUCT_MAXIMUM_REVIEW_CONTENT_RANGE_BYTES = 512 * 1024;
+export const BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES = 1024 * 1024;
 
 export const bridgeProductReviewContentDigestSchema = z.discriminatedUnion('authority', [
 	z
@@ -151,7 +152,7 @@ export const bridgeProductReviewComparisonTargetsContentDescriptorSchema = z
 		encoding: z.literal('utf-8'),
 		expectedSha256: bridgeProductSha256Schema,
 		maximumBytes: bridgeProductPositiveSequenceSchema.max(
-			BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
+			BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES,
 		),
 	})
 	.strict()

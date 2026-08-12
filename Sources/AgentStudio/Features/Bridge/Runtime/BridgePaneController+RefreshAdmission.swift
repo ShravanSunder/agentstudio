@@ -109,25 +109,7 @@ extension BridgePaneController {
                 requiresReviewRefresh: true
             )
         }
-        beginPendingContributionRefreshIfNeeded()
         scheduleWorktreeProductCatchUpIfPossible()
-    }
-
-    private func beginPendingContributionRefreshIfNeeded() {
-        guard refreshAdmissionCoordinator.diagnosticSnapshot.activity != .closed,
-            pendingComparisonReviewGeneration == nil,
-            case .workspace(_, let baseline) = bridgePaneState.source,
-            let activeTarget = baseline?.contributionTarget
-        else { return }
-
-        let reviewGeneration = nextReviewGeneration.next()
-        nextReviewGeneration = reviewGeneration
-        pendingComparisonReviewGeneration = reviewGeneration
-        refreshAdmissionCoordinator.beginReviewComparisonAttempt(
-            activeTarget: activeTarget,
-            reviewGeneration: reviewGeneration.rawValue
-        )
-        _ = scheduleProductPresentationPublication()
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {

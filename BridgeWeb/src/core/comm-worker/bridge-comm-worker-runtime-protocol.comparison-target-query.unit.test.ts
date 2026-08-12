@@ -77,22 +77,36 @@ describe('Bridge comm worker comparison-target query runtime', () => {
 		}
 	});
 
-	test('acknowledges a worker-only comparison-target cancellation intent', async () => {
+	test('cancels an active comparison-target query without publishing its late result', async () => {
 		// Arrange
 		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		let resolveQuery!: (result: unknown) => void;
+		const queryResult = new Promise<unknown>((resolve): void => {
+			resolveQuery = resolve;
+		});
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			sendProductControl: async (command): Promise<unknown> =>
+				command.method === 'review.comparisonTargets.query' ? queryResult : null,
 		});
 
 		// Act
 		dispatch.message(
-			encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand({
+			encodeBridgeWorkerReviewComparisonTargetsQueryCommand({
 				epoch: 1,
+				requestId: 'request-comparison-targets-query',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+		dispatch.message(
+			encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand({
+				epoch: 2,
 				queryRequestId: 'request-comparison-targets-query',
 				requestId: 'request-comparison-targets-cancel',
 			}),
 		);
+		resolveQuery({ descriptor: null });
 		await flushBridgeWorkerRuntimeContinuations();
 
 		// Assert
@@ -101,6 +115,12 @@ describe('Bridge comm worker comparison-target query runtime', () => {
 				kind: 'health',
 				requestId: 'request-comparison-targets-cancel',
 				status: 'ready',
+			}),
+		);
+		expect(postedMessages.map(({ message }) => message)).not.toContainEqual(
+			expect.objectContaining({
+				kind: 'reviewComparisonTargetsQuery',
+				requestId: 'request-comparison-targets-query',
 			}),
 		);
 	});

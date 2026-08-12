@@ -42,7 +42,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     private nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
-    private var pendingComparisonTargetQuery: BridgeProductReviewComparisonTargetsQueryCapture?
+    package var pendingComparisonTargetQuery: BridgeProductReviewComparisonTargetsQueryCapture?
 
     init(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
@@ -470,10 +470,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 session: session
             )
         case .reviewComparisonTargets(let queryRequest):
-            guard
-                let capture = pendingComparisonTargetQuery,
-                capture.descriptor == queryRequest.descriptor
-            else {
+            guard let capture = consumeComparisonTargetCapture(queryRequest.descriptor) else {
                 try? await enqueueUnavailableContentTerminal(
                     for: lease,
                     productAdmission: productAdmission,
@@ -482,7 +479,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 )
                 return
             }
-            pendingComparisonTargetQuery = nil
             try await runBufferedContentProducer(
                 BufferedContentBody(
                     data: capture.body,

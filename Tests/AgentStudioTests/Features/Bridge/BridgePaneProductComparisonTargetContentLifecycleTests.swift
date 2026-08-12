@@ -121,6 +121,35 @@ struct BridgeComparisonTargetContentLifecycleTests {
         #expect(second.errorMessage == "Content descriptor is not active")
     }
 
+    @Test("foreground loss invalidates a captured comparison target body")
+    @MainActor
+    func foregroundLossInvalidatesCapturedBody() async throws {
+        let body = Data("comparison-target-body".utf8)
+        let admissionCoordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground
+        )
+        let capturedAdmission = try #require(admissionCoordinator.acquireForegroundWork())
+        let capture = try makeCapture(
+            body: body,
+            suffix: "foreground-loss",
+            foregroundWorkAdmission: capturedAdmission
+        )
+        let provider = makeProvider(
+            capture: capture,
+            refreshWorkAdmissionSource: admissionCoordinator.workAdmissionSource
+        )
+        _ = await provider.response(for: try queryRequest())
+
+        admissionCoordinator.applyActivity(.loadedHidden)
+        let result = try await openContent(
+            provider: provider,
+            request: contentRequest(descriptor: capture.descriptor, suffix: "foreground-loss")
+        )
+
+        #expect(result.body.isEmpty)
+        #expect(result.errorMessage == "Content descriptor is not active")
+    }
+
     @Test("close and drain releases a pending comparison capture")
     func closeAndDrainReleasesPendingCapture() async throws {
         let capture = try await makeCapture(body: Data("comparison-target-body".utf8), suffix: "cleanup")
@@ -167,6 +196,20 @@ struct BridgeComparisonTargetContentLifecycleTests {
     }
 
     private func makeProvider(
+        capture: BridgeProductReviewComparisonTargetsQueryCapture,
+        refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
+    ) -> BridgePaneProductSchemeProvider {
+        BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            queryReviewComparisonTargets: { capture },
+            refreshWorkAdmissionSource: refreshWorkAdmissionSource
+        )
+    }
+
+    private func makeProvider(
         captureQueue: ComparisonTargetCaptureQueue
     ) async -> BridgePaneProductSchemeProvider {
         let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
@@ -184,6 +227,18 @@ struct BridgeComparisonTargetContentLifecycleTests {
         body: Data,
         suffix: String
     ) async throws -> BridgeProductReviewComparisonTargetsQueryCapture {
+        try makeCapture(
+            body: body,
+            suffix: suffix,
+            foregroundWorkAdmission: (await BridgePaneRefreshWorkAdmissionTestContext.foreground()).admission
+        )
+    }
+
+    private func makeCapture(
+        body: Data,
+        suffix: String,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
+    ) throws -> BridgeProductReviewComparisonTargetsQueryCapture {
         let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
         let descriptor = try BridgeProductReviewComparisonTargetsContentDescriptor(
             capturedAtUnixMilliseconds: 2000,
@@ -198,7 +253,7 @@ struct BridgeComparisonTargetContentLifecycleTests {
         return BridgeProductReviewComparisonTargetsQueryCapture(
             descriptor: descriptor,
             body: body,
-            foregroundWorkAdmission: (await BridgePaneRefreshWorkAdmissionTestContext.foreground()).admission
+            foregroundWorkAdmission: foregroundWorkAdmission
         )
     }
 
