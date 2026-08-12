@@ -325,7 +325,6 @@ struct WorkspaceLocalRepositoryTests {
         let cacheState = WorkspaceLocalRepository.CacheStateRecord(
             repoEnrichmentByRepoId: [repoId: repoEnrichment],
             worktreeEnrichmentByWorktreeId: [worktreeId: worktreeEnrichment],
-            pullRequestCountByWorktreeId: [worktreeId: 7],
             sourceRevision: 42,
             lastRebuiltAt: Date(timeIntervalSince1970: 700)
         )
@@ -385,7 +384,6 @@ struct WorkspaceLocalRepositoryTests {
             cacheState: .init(
                 repoEnrichmentByRepoId: [repoId: .awaitingOrigin(repoId: repoId)],
                 worktreeEnrichmentByWorktreeId: [:],
-                pullRequestCountByWorktreeId: [:],
                 sourceRevision: 3,
                 lastRebuiltAt: Date(timeIntervalSince1970: 200)
             ),
@@ -452,16 +450,12 @@ private func assertCacheQueryColumns(
                     repo.organization_name,
                     repo.display_name,
                     worktree.branch,
-                    worktree.is_main_worktree,
-                    pull_request.repo_id AS pull_request_repo_id,
-                    pull_request.count AS pull_request_count
+                    worktree.is_main_worktree
                 FROM cache_metadata metadata
                 JOIN cache_repo_enrichment repo
                     ON repo.repo_id = ?
                 JOIN cache_worktree_enrichment worktree
                     ON worktree.worktree_id = ?
-                JOIN cache_pull_request_count pull_request
-                    ON pull_request.worktree_id = worktree.worktree_id
                 WHERE metadata.singleton_id = 1
                 """,
             arguments: [repoId.uuidString, worktreeId.uuidString]
@@ -477,8 +471,6 @@ private func assertCacheQueryColumns(
     let displayName: String = row["display_name"]
     let branch: String = row["branch"]
     let isMainWorktree: Int = row["is_main_worktree"]
-    let pullRequestRepoId: String = row["pull_request_repo_id"]
-    let pullRequestCount: Int = row["pull_request_count"]
 
     #expect(sourceRevision == 42)
     #expect(lastRebuiltAt == 700)
@@ -489,6 +481,4 @@ private func assertCacheQueryColumns(
     #expect(displayName == "agentstudio")
     #expect(branch == "sqlite")
     #expect(isMainWorktree == 0)
-    #expect(pullRequestRepoId == repoId.uuidString)
-    #expect(pullRequestCount == 7)
 }

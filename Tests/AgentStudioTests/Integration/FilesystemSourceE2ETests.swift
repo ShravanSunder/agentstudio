@@ -61,7 +61,7 @@ extension E2ESerializedTests {
                 repoCache: repoCache,
                 scopeSyncHandler: { _ in }
             )
-            cacheCoordinator.startConsuming()
+            await cacheCoordinator.startConsuming()
             await filesystemSource.start()
 
             let coordinator = WorkspaceSurfaceCoordinator(
