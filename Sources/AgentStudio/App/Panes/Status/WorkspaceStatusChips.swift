@@ -55,14 +55,16 @@ struct WorkspaceStatusChipRow: View {
             )
 
             SidebarChip(
-                iconAsset: "octicon-git-pull-request",
+                icon: model.branchStatus.prCount == nil
+                    ? .system(.arrowClockwise)
+                    : .octicon("octicon-git-pull-request"),
                 octiconLoader: octiconLoader,
-                text: "\(model.branchStatus.prCount ?? 0)",
+                text: model.branchStatus.prCount.map(String.init),
                 style: (model.branchStatus.prCount ?? 0) > 0 ? .accent(accentColor) : .neutral
             )
 
             SidebarChip(
-                iconAsset: "octicon-bell",
+                icon: .octicon("octicon-bell"),
                 octiconLoader: octiconLoader,
                 text: "\(model.notificationCount)",
                 style: model.notificationCount > 0 ? .accent(accentColor) : .neutral

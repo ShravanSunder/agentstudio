@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct RepoCacheStoreTests {
     @Test
-    func flushAndRestoreRoundTripsSQLiteEnrichmentState() async throws {
+    func flushAndRestoreRoundTripsSQLiteEnrichmentWithoutPullRequestFacts() async throws {
         let workspaceId = UUID()
         let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
         let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
@@ -25,7 +25,10 @@ struct RepoCacheStoreTests {
         cacheAtom.setWorktreeEnrichment(
             WorktreeEnrichment(worktreeId: worktreeId, repoId: repoId, branch: "main")
         )
-        cacheAtom.setPullRequestCount(3, for: worktreeId)
+        let branchKey = RepoBranchKey(repoId: repoId, branch: "main")!
+        cacheAtom.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 3, exactOpenURL: nil)
+        ])
         cacheAtom.markRebuilt(sourceRevision: 42, at: Date(timeIntervalSince1970: 123))
         try await store.flushAsync(for: workspaceId)
 
@@ -37,7 +40,7 @@ struct RepoCacheStoreTests {
 
         #expect(restoredCacheAtom.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
         #expect(restoredCacheAtom.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
-        #expect(restoredCacheAtom.pullRequestCountByWorktreeId[worktreeId] == 3)
+        #expect(restoredCacheAtom.pullRequestFactsByBranch.isEmpty)
         #expect(restoredCacheAtom.sourceRevision == 42)
         #expect(restoredCacheAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
     }
@@ -56,7 +59,7 @@ struct RepoCacheStoreTests {
 
         #expect(cacheAtom.repoEnrichmentByRepoId.isEmpty)
         #expect(cacheAtom.worktreeEnrichmentByWorktreeId.isEmpty)
-        #expect(cacheAtom.pullRequestCountByWorktreeId.isEmpty)
+        #expect(cacheAtom.pullRequestFactsByBranch.isEmpty)
         #expect(cacheAtom.sourceRevision == 0)
     }
 

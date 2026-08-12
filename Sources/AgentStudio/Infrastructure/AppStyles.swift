@@ -209,11 +209,10 @@ package enum AppStyles {
             package static let height: CGFloat = 40
             package static let tabPillHeight: CGFloat = 32
             package static let tabPillSpacing: CGFloat = 2
-            /// Shifts the whole tab-strip hosting view up so the pill centerline
-            /// matches the native toolbar controls' centerline. NSToolbar resolves
-            /// the strip item's flexible-height frame lower than the row's visual
-            /// center; value is pixel-measured against the circle controls.
-            package static let stripCenterlineOffset: CGFloat = -3
+            /// Aligns the full-height tab-strip host so the pill centerline matches
+            /// the native toolbar controls. The value is pixel-measured in the
+            /// unified-compact toolbar after the custom item resolves to 40 points.
+            package static let stripCenterlineOffset: CGFloat = 1
             package static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 

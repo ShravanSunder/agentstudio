@@ -13,10 +13,12 @@ protocol WorkspaceFilesystemSourceManaging: AnyObject, Sendable {
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
     func setActivePaneWorktree(worktreeId: UUID?) async
     func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async
+    func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async
 }
 
 extension WorkspaceFilesystemSourceManaging {
     func setSidebarVisibleWorktrees(_: Set<UUID>) async {}
+    func setPullRequestDemandWorktrees(_: Set<UUID>) async {}
 }
 
 extension FilesystemActor: WorkspaceFilesystemSourceManaging {}

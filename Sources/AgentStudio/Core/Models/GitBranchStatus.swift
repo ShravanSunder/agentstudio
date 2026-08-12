@@ -40,16 +40,17 @@ package struct GitBranchStatus: Equatable, Sendable {
 
     package static func merge(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestCountsByWorktreeId: [UUID: Int]
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts]
     ) -> [UUID: Self] {
-        let allWorktreeIds = Set(worktreeEnrichmentsByWorktreeId.keys).union(pullRequestCountsByWorktreeId.keys)
         var mergedByWorktreeId: [UUID: Self] = [:]
-        mergedByWorktreeId.reserveCapacity(allWorktreeIds.count)
+        mergedByWorktreeId.reserveCapacity(worktreeEnrichmentsByWorktreeId.count)
 
-        for worktreeId in allWorktreeIds {
+        for (worktreeId, enrichment) in worktreeEnrichmentsByWorktreeId {
+            let pullRequestFacts = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
+                .flatMap { pullRequestFactsByBranch[$0] }
             mergedByWorktreeId[worktreeId] = status(
-                enrichment: worktreeEnrichmentsByWorktreeId[worktreeId],
-                pullRequestCount: pullRequestCountsByWorktreeId[worktreeId]
+                enrichment: enrichment,
+                pullRequestFacts: pullRequestFacts
             )
         }
 
@@ -58,13 +59,13 @@ package struct GitBranchStatus: Equatable, Sendable {
 
     package static func status(
         enrichment: WorktreeEnrichment?,
-        pullRequestCount: Int?
+        pullRequestFacts: PullRequestFacts?
     ) -> Self {
         guard let enrichment else {
             return Self(
                 isDirty: Self.unknown.isDirty,
                 syncState: Self.unknown.syncState,
-                prCount: pullRequestCount,
+                prCount: pullRequestFacts?.openCount,
                 linesAdded: Self.unknown.linesAdded,
                 linesDeleted: Self.unknown.linesDeleted
             )
@@ -107,7 +108,7 @@ package struct GitBranchStatus: Equatable, Sendable {
         return Self(
             isDirty: isDirty,
             syncState: syncState,
-            prCount: pullRequestCount,
+            prCount: pullRequestFacts?.openCount,
             linesAdded: summary?.linesAdded ?? 0,
             linesDeleted: summary?.linesDeleted ?? 0
         )
