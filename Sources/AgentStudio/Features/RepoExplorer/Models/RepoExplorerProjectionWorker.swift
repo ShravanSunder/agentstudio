@@ -14,7 +14,8 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let collapsedGroupIds: Set<String>
     let isFiltering: Bool
     let trigger: AppPolicies.SidebarProjection.Trigger
-    let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
+    let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
+    let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
 
     init(
         generation: Int,
@@ -22,14 +23,16 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         collapsedGroupIds: Set<String>,
         isFiltering: Bool,
         trigger: AppPolicies.SidebarProjection.Trigger,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
+        worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] = [:],
+        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:]
     ) {
         self.generation = generation
         self.snapshot = snapshot
         self.collapsedGroupIds = collapsedGroupIds
         self.isFiltering = isFiltering
         self.trigger = trigger
-        self.worktreeFactsByWorktreeId = worktreeFactsByWorktreeId
+        self.worktreeEnrichmentSnapshot = worktreeEnrichmentSnapshot
+        self.pullRequestFactsSnapshot = pullRequestFactsSnapshot
     }
 
     func scopedChange(from previous: Self) -> RepoExplorerScopedProjectionChange? {
@@ -42,19 +45,22 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             previous.snapshot.bridgePaneCommandCandidatesByWorktreeId
                 == snapshot.bridgePaneCommandCandidatesByWorktreeId,
             previous.collapsedGroupIds == collapsedGroupIds,
-            previous.isFiltering == isFiltering
+            previous.isFiltering == isFiltering,
+            previous.pullRequestFactsSnapshot == pullRequestFactsSnapshot
         else { return nil }
 
         if previous.snapshot.repos == snapshot.repos {
-            let changedWorktreeIds = Set(previous.worktreeFactsByWorktreeId.keys)
-                .union(worktreeFactsByWorktreeId.keys)
-                .filter { previous.worktreeFactsByWorktreeId[$0] != worktreeFactsByWorktreeId[$0] }
+            let changedWorktreeIds = Set(previous.worktreeEnrichmentSnapshot.keys)
+                .union(worktreeEnrichmentSnapshot.keys)
+                .filter {
+                    previous.worktreeEnrichmentSnapshot[$0] != worktreeEnrichmentSnapshot[$0]
+                }
             return changedWorktreeIds.count == 1
                 ? changedWorktreeIds.first.map(RepoExplorerScopedProjectionChange.worktreeFact)
                 : nil
         }
 
-        guard previous.worktreeFactsByWorktreeId == worktreeFactsByWorktreeId,
+        guard previous.worktreeEnrichmentSnapshot == worktreeEnrichmentSnapshot,
             previous.snapshot.repos.count == snapshot.repos.count
         else { return nil }
         let changedRepos = zip(previous.snapshot.repos, snapshot.repos).filter { before, after in
@@ -193,12 +199,13 @@ actor RepoExplorerProjectionWorker {
         try Task.checkCancellation()
         let branchStatusByWorktreeId = try branchStatusByWorktreeId(
             snapshot: request.snapshot,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+            worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
+            pullRequestFactsByBranch: request.pullRequestFactsSnapshot,
             cancellationCheck: { try Task.checkCancellation() }
         )
         let branchNameByWorktreeId = try branchNameByWorktreeId(
             snapshot: request.snapshot,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+            worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
             cancellationCheck: { try Task.checkCancellation() }
         )
         let bridgeCommandResolutionByWorktreeId = try bridgeCommandResolutionByWorktreeId(
@@ -243,15 +250,14 @@ actor RepoExplorerProjectionWorker {
 
     private static func branchStatusByWorktreeId(
         snapshot: RepoExplorerSnapshot,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts],
+        worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
         cancellationCheck: () throws -> Void
     ) throws -> [UUID: GitBranchStatus] {
         let worktreeIds = snapshot.repos.flatMap(\.worktrees).map(\.id)
-        let worktreeEnrichmentsByWorktreeId = worktreeFactsByWorktreeId.compactMapValues(\.enrichment)
-        let pullRequestCountsByWorktreeId = worktreeFactsByWorktreeId.compactMapValues(\.pullRequestCount)
         var branchStatusByWorktreeId = GitBranchStatus.merge(
-            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
+            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentByWorktreeId,
+            pullRequestFactsByBranch: pullRequestFactsByBranch
         )
         branchStatusByWorktreeId.reserveCapacity(max(branchStatusByWorktreeId.count, worktreeIds.count))
         for (index, worktreeId) in worktreeIds.enumerated() where branchStatusByWorktreeId[worktreeId] == nil {
@@ -263,14 +269,14 @@ actor RepoExplorerProjectionWorker {
 
     private static func branchNameByWorktreeId(
         snapshot: RepoExplorerSnapshot,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts],
+        worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
         cancellationCheck: () throws -> Void
     ) throws -> [UUID: String] {
         var branchNames: [UUID: String] = [:]
         for (index, worktree) in snapshot.repos.flatMap(\.worktrees).enumerated() {
             if index.isMultiple(of: 256) { try cancellationCheck() }
             branchNames[worktree.id] = branchName(
-                enrichment: worktreeFactsByWorktreeId[worktree.id]?.enrichment
+                enrichment: worktreeEnrichmentByWorktreeId[worktree.id]
             )
         }
         return branchNames
@@ -368,13 +374,16 @@ actor RepoExplorerProjectionWorker {
         else { return nil }
         var branchStatuses = previous.branchStatusByWorktreeId
         var branchNames = previous.branchNameByWorktreeId
-        let facts = request.worktreeFactsByWorktreeId[worktreeId]
-        branchStatuses[worktreeId] =
-            GitBranchStatus.merge(
-                worktreeEnrichmentsByWorktreeId: facts?.enrichment.map { [worktreeId: $0] } ?? [:],
-                pullRequestCountsByWorktreeId: facts?.pullRequestCount.map { [worktreeId: $0] } ?? [:]
-            )[worktreeId] ?? .unknown
-        branchNames[worktreeId] = branchName(enrichment: facts?.enrichment)
+        let enrichment = request.worktreeEnrichmentSnapshot[worktreeId]
+        let pullRequestFacts =
+            enrichment
+            .flatMap { RepoBranchKey(repoId: $0.repoId, branch: $0.branch) }
+            .flatMap { request.pullRequestFactsSnapshot[$0] }
+        branchStatuses[worktreeId] = GitBranchStatus.status(
+            enrichment: enrichment,
+            pullRequestFacts: pullRequestFacts
+        )
+        branchNames[worktreeId] = branchName(enrichment: enrichment)
         return RepoExplorerProjectionResult(
             generation: request.generation,
             snapshot: request.snapshot,

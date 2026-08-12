@@ -138,6 +138,9 @@ extension AppDelegate {
         workspaceSurfaceCoordinator.bindBridgePaneActivities(
             toOwningWindowId: workspaceWindowId
         )
+        workspaceSurfaceCoordinator.bindPullRequestDemand(
+            toOwningWindowId: workspaceWindowId
+        )
         return mainWindowController
     }
 }

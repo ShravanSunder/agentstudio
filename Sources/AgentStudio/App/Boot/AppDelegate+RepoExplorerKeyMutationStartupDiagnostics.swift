@@ -239,15 +239,24 @@ import Foundation
         }
 
         private func runRenderedWorktreeFactMutations() async {
-            guard let worktreeId = store.repositoryTopologyAtom.repos.first?.worktrees.first?.id else { return }
-            let currentCount = atomStore.core.repoCache.pullRequestCount(for: worktreeId)
-            var nextCount = currentCount == 0 ? 1 : 0
+            guard
+                let repository = store.repositoryTopologyAtom.repos.first,
+                let worktree = repository.worktrees.first
+            else { return }
+            var enrichment =
+                atomStore.core.repoCache.worktreeEnrichment(for: worktree.id)
+                ?? WorktreeEnrichment(
+                    worktreeId: worktree.id,
+                    repoId: repository.id,
+                    branch: "diagnostic-a",
+                    isMainWorktree: worktree.isMainWorktree
+                )
             for _ in 0..<100 {
                 let captureSequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
                     for: "capture_rebuild"
                 )
-                atomStore.core.repoCache.setPullRequestCount(nextCount, for: worktreeId)
-                nextCount = nextCount == 0 ? 1 : 0
+                enrichment.updateBranch(enrichment.branch == "diagnostic-a" ? "diagnostic-b" : "diagnostic-a")
+                atomStore.core.repoCache.setWorktreeEnrichment(enrichment)
                 recordRepoExplorerAtomSlotMutation()
                 guard
                     await waitForRepoExplorerKeyedWakeStage(

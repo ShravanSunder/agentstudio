@@ -115,7 +115,7 @@ extension AppDelegate {
         case .startForgeActor:
             bootChainPipelineStep(filesystemSource) { await $0.startForgeActor() }
         case .startCacheCoordinator:
-            workspaceCacheCoordinator.startConsuming()
+            await workspaceCacheCoordinator.startConsuming()
         case .triggerInitialTopologySync:
             bootTriggerInitialTopologySync()
         case .armPersistenceObservation:
