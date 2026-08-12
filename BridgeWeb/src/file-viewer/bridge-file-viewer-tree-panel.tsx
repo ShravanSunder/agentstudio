@@ -119,17 +119,22 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					leading: (
 						<>
 							{props.viewerContextSwitcher}
-							<span className="sr-only" data-testid="worktree-file-filter-count">
-								{visibleCountLabel}
-							</span>
-							<span className="sr-only" data-testid="worktree-file-provenance">
-								{sourceLabel}
+							<span
+								aria-live="polite"
+								className="sr-only"
+								data-testid="worktree-file-status"
+								role="status"
+							>
+								<span className="sr-only" data-testid="worktree-file-filter-count">
+									{visibleCountLabel}
+								</span>
+								<span className="sr-only" data-testid="worktree-file-provenance">
+									{sourceLabel}
+								</span>
 							</span>
 						</>
 					),
-					leadingAriaLive: 'polite',
 					leadingClassName: 'flex-1',
-					leadingRole: 'status',
 					leadingTestId: 'bridge-file-viewer-rail-toolbar-leading',
 					testId: 'bridge-file-viewer-rail-toolbar',
 					trailing: (
