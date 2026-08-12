@@ -10,6 +10,7 @@ import WebKit
 
 struct BridgeProductWebKitTwoPanePositionSnapshot: Decodable, Equatable, Sendable {
     let activeMode: String?
+    let comparisonStatusText: String?
     let fileCodeScrollTop: Double
     let fileRenderedPath: String?
     let fileSelectedPath: String?
@@ -315,6 +316,17 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     private static func exerciseJourney(
         _ input: JourneyInput
     ) async throws -> BridgeProductWebKitTwoPaneJourneyProof {
+        do {
+            return try await exercisePreparedJourney(input)
+        } catch {
+            await input.paneOneReviewProvider.releaseBlockedComparisons()
+            throw error
+        }
+    }
+
+    private static func exercisePreparedJourney(
+        _ input: JourneyInput
+    ) async throws -> BridgeProductWebKitTwoPaneJourneyProof {
         let preparation = try await prepareJourney(input)
         let updatingState = try await beginBlockedRefresh(input)
 
@@ -430,10 +442,10 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         try await requireBlockedComparison(input.paneOneReviewProvider, expectedCount: 1)
         let paneOneForegroundRefreshPassCount =
             input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot.refreshPassCount
-        let updatingReviewStatus = try await requireStatus(
+        let updatingReviewStatus = try await requireComparisonStatus(
             input.paneOne.page,
             activeMode: "review",
-            expectedText: "Updating review…"
+            expectedText: "Loading comparison with main…"
         )
         guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
             throw JourneyError.conditionFailed("File mode did not activate during refresh")
@@ -702,6 +714,26 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         return observed
     }
 
+    private static func requireComparisonStatus(
+        _ page: WebPage,
+        activeMode: String,
+        expectedText: String
+    ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
+        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
+        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
+            observed = try? await positionSnapshot(page)
+            guard let observed else { return false }
+            return observed.activeMode == activeMode
+                && observed.comparisonStatusText == expectedText
+                && observed.fileStatusText == nil
+                && observed.reviewStatusText == nil
+        }
+        guard found, let observed else {
+            throw JourneyError.conditionFailed("comparison loading chrome was not isolated")
+        }
+        return observed
+    }
+
     private static func requireNoUpdatingStatus(
         _ page: WebPage
     ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
@@ -755,6 +787,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
             return JSON.stringify({
               activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
+              comparisonStatusText: reviewHost?.querySelector('[data-testid="bridge-review-comparison-status-banner"]')?.textContent ?? null,
               fileCodeScrollTop: fileCodeScroll?.scrollTop ?? 0,
               fileRenderedPath: fileCanvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
               fileSelectedPath: fileShell?.getAttribute('data-selected-display-path') ?? null,
