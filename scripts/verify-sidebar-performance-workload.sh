@@ -7,7 +7,7 @@ STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
-WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
+WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,atoms,app.startup,terminal.startup}"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
 REQUIRED_METRIC_READBACK_ATTEMPTS=45
@@ -513,6 +513,7 @@ record_required_sidebar_metric_matrix() {
     record_required_metric_series "$mode_name" surface_switch not_applicable surface_switch \
       "surface_switch_${mode_name}_end_to_end" "$REQUIRED_SAMPLE_COUNT"
   done
+
 }
 
 metric_env_value() {
@@ -820,6 +821,46 @@ finally:
 PY
 }
 
+run_repo_explorer_key_mutation_phase() {
+  local first_phase_pid="${APP_PID:?missing first phase app pid}"
+  stop_pid "$first_phase_pid"
+  APP_PID=""
+
+  TRACE_MARKER="$TRACE_MARKER_K"
+  env \
+    AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
+    AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
+    AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-key-mutation-proof \
+    AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    wait_for_debug_observability
+  APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  TRACE_MARKER="$TRACE_MARKER_W"
+}
+
+run_repo_explorer_interaction_phase() {
+  wait_for_required_metric_count keyed_wake_presence \
+    "agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_K")\",event=\"performance.repo_explorer.keyed_wake\"}" \
+    1 >/dev/null
+  local key_phase_pid="${APP_PID:?missing key phase app pid}"
+  stop_pid "$key_phase_pid"
+  APP_PID=""
+  TRACE_MARKER="$TRACE_MARKER_I"
+  env \
+    AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
+    AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
+    AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-interaction-proof \
+    AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" wait_for_debug_observability
+  APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  TRACE_MARKER="$TRACE_MARKER_W"
+}
+
 performance_threshold_check() {
   local label="${1:?missing label}"
   local baseline_value="${2:?missing baseline value}"
@@ -890,18 +931,54 @@ wait_for_sidebar_metric_value() {
   printf '%s\n%s\n%s\n' "$metrics_count" "$metrics_value" "$metrics_response"
 }
 
+keyed_wake_count() {
+  local key_class="${1:?missing key class}"
+  local stage="${2:?missing stage}"
+  local selector='agent.proof.marker="'"$(metric_label_selector "$TRACE_MARKER_K")"'",event="performance.repo_explorer.keyed_wake",key_class="'"$key_class"'",stage="'"$stage"'"'
+  local response
+  local value
+  response="$(query_victoria_metrics "sum(agentstudio_performance_events_total{$selector})")"
+  value="$(metric_max_value "$response")"
+  printf '%s\n' "${value:-0}"
+}
+
+assert_keyed_wake_contract() {
+  local key_class="${1:?missing key class}"
+  local stage="${2:?missing stage}"
+  local expected="${3:?missing expected count}"
+  local actual
+  actual="$(keyed_wake_count "$key_class" "$stage")"
+  if [ "$expected" = "bounded" ]; then
+    /usr/bin/python3 - "$key_class" "$stage" "$actual" "$WORKLOAD_CYCLES" <<'PY'
+import sys
+key_class, stage, actual, limit = sys.argv[1], sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
+if actual < 1 or actual > limit:
+    raise SystemExit(f"{key_class} {stage} expected 1..{limit}, got {actual:g}")
+PY
+    return
+  fi
+  if [ "$actual" != "$expected" ] && [ "$actual" != "${expected}.0" ]; then
+    echo "$key_class $stage expected $expected, got $actual" >&2
+    exit 1
+  fi
+}
+
 validate_controls
 validate_workload_cycles
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
 TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
 TRACE_NONCE="$(/usr/bin/uuidgen)"
-TRACE_MARKER="$(opaque_trace_marker "$TRACE_NAME" "$TRACE_NONCE")"
+TRACE_MARKER_W="$(opaque_trace_marker "${TRACE_NAME}-w" "$TRACE_NONCE")"
+TRACE_MARKER_K="$(opaque_trace_marker "${TRACE_NAME}-k" "$(/usr/bin/uuidgen)")"
+TRACE_MARKER_I="$(opaque_trace_marker "${TRACE_NAME}-i" "$(/usr/bin/uuidgen)")"
+TRACE_MARKER="$TRACE_MARKER_W"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
 REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
 METRIC_VALUES_FILE="$ARTIFACT/metric-values.env"
+KEYED_WAKE_VALUES_FILE="$ARTIFACT/keyed-wake-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 WORKTREE_FIXTURE_KEY="$(hashed_identity "$(canonical_path "$PROJECT_ROOT")")"
 WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES")"
@@ -971,6 +1048,31 @@ ipc_metadata_path="${AGENTSTUDIO_OBSERVABILITY_IPC_METADATA:-$state_data_dir/ipc
 ipc_debug_token_path="${AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN:-$state_data_dir/ipc/debug-token}"
 AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
   run_authenticated_sidebar_ipc_workload "$ipc_metadata_path" "$ipc_debug_token_path"
+record_required_sidebar_metric_matrix
+run_repo_explorer_key_mutation_phase
+run_repo_explorer_interaction_phase
+
+: >"$KEYED_WAKE_VALUES_FILE"
+for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane unrendered_attendance relevant missing_declared_key; do
+  for stage in capture_rebuild membership_path affected_row whole_surface atom_slot eager_admission projection_worker mainactor_apply final_projection; do
+    printf '%s=%s\n' \
+      "keyed_wake_${key_class}_${stage}" \
+      "$(keyed_wake_count "$key_class" "$stage")" >>"$KEYED_WAKE_VALUES_FILE"
+  done
+done
+eager_family_admission_count="$(keyed_wake_count relevant eager_admission)"
+assert_keyed_wake_contract rendered_repo_favorite whole_surface 0
+assert_keyed_wake_contract rendered_repo_favorite affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_repo_favorite capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact whole_surface 0
+assert_keyed_wake_contract rendered_worktree_fact affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract unrelated_tab_arrangement_pane capture_rebuild 0
+assert_keyed_wake_contract unrendered_attendance capture_rebuild 0
+assert_keyed_wake_contract relevant whole_surface 0
+assert_keyed_wake_contract relevant affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract relevant capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract missing_declared_key membership_path "$WORKLOAD_CYCLES"
 
 metrics_result="$(wait_for_sidebar_metric_count)"
 metrics_count="$(printf '%s\n' "$metrics_result" | sed -n '1p')"
@@ -1175,8 +1277,6 @@ surface_switch_inbox_end_to_end_elapsed_ms_count="$(
   wait_for_required_metric_count surface_switch_inbox_end_to_end_elapsed_ms_count \
     "$(metric_event_elapsed_count_query inbox surface_switch not_applicable surface_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
-record_required_sidebar_metric_matrix
-
 if [ "$mode" = "baseline" ]; then
   {
     echo "trace_name=$TRACE_NAME"
@@ -1443,9 +1543,17 @@ fi
   echo "surface_switch_inbox_end_to_end_elapsed_ms_count=$surface_switch_inbox_end_to_end_elapsed_ms_count"
   echo "sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"
   echo "repo_sort.ipc_sequence=descending,ascending"
+  echo "eager_family_admission_count=$eager_family_admission_count"
+  echo "marker_w=$TRACE_MARKER_W"
+  echo "marker_k=$TRACE_MARKER_K"
+  echo "marker_i=$TRACE_MARKER_I"
+  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,unrendered_attendance,unread_facet_change,missing_key_insertion"
+  echo "interaction_phase=command_bar_open,command_bar_close,tab_move_program_instrument_gap,cmd_r_program_instrument_gap,divider_program_instrument_gap"
+  echo "divider_frame=program_instrument_gap"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then
     echo "baseline_file=$BASELINE_FILE"
   fi
 } >"$SUMMARY_FILE"
 append_required_metric_values "$SUMMARY_FILE"
+cat "$KEYED_WAKE_VALUES_FILE" >>"$SUMMARY_FILE"
 echo "sidebar performance workload ok: $SUMMARY_FILE"

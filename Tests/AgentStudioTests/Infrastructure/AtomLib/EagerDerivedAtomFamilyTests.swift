@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import AgentStudioInfrastructure
@@ -71,6 +72,61 @@ private func makeEagerDerivedAtomTestFamily(
 @Suite(.serialized)
 @MainActor
 struct EagerDerivedAtomFamilyTests {
+    @Test
+    func eagerFamilyEmitsAdmissionAndCompletionTelemetryWithoutKeysOrValues() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("eager-derived-family-telemetry", isDirectory: true)
+        try? FileManager.default.removeItem(at: traceDirectory)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "eager-derived-family-telemetry",
+                "AGENTSTUDIO_TRACE_TAGS": "atoms",
+            ]),
+            processIdentifier: 919,
+            timeUnixNano: { 779 }
+        )
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
+        defer {
+            AtomPerformanceTelemetry.shared.resetForTests()
+            try? FileManager.default.removeItem(at: traceDirectory)
+        }
+        let completionRecorder = EagerDerivedAtomFamilyCompletionRecorder()
+        let family = EagerDerivedAtomTestFamily(
+            telemetryLabel: "repo_explorer_projection",
+            requestIdentity: \EagerDerivedAtomTestRequest.identity,
+            isValueEqual: { lhs, rhs in lhs.content == rhs.content },
+            project: projectEagerDerivedAtomTestRequest,
+            onProjectionCompletion: { key, completion in
+                completionRecorder.record(key: key, completion: completion)
+            }
+        )
+        defer { family.stop() }
+
+        let projectionCount = EagerDerivedAtomTestCounter()
+        family.admit(
+            makeEagerDerivedAtomTestRequest(
+                identity: 1,
+                outputContent: 7,
+                projectionCount: projectionCount
+            ),
+            for: 41
+        )
+        #expect(await completionRecorder.wait(forKey: 41, completion: .published(1)))
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.atom.derived\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.kind\":\"eager_derived_family\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.label\":\"repo_explorer_projection\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"admit\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.operation\":\"completion\""))
+        #expect(contents.contains("\"agentstudio.performance.atom.outcome\":\"published\""))
+        #expect(!contents.contains("private-request-value"))
+    }
+
     @Test
     func materializationReusesOneChildPerKeyAndKeepsKeysIsolated() {
         let family = makeEagerDerivedAtomTestFamily()

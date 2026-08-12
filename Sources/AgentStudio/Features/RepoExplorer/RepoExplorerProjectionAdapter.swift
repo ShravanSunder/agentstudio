@@ -39,6 +39,8 @@ final class RepoExplorerProjectionAdapter {
             }
     ) {
         projectionFamily = RepoExplorerMaterializedProjectionFamily(
+            telemetryLabel: "repo_explorer_projection",
+            recordsRepoExplorerKeyedWake: true,
             requestIdentity: \.generation,
             isValueEqual: Self.hasEqualPublishedContent,
             project: project,

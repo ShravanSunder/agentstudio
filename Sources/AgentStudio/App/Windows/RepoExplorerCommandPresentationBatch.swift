@@ -63,6 +63,17 @@ final class RepoExplorerCommandPresentationBatch {
                 previous: snapshot.results,
                 next: nextSnapshot.results
             )
+            if affectedItemCount == 1 {
+                AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                    stage: "command_affected_row",
+                    outcome: "changed"
+                )
+            } else {
+                AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                    stage: "command_whole_surface",
+                    outcome: "changed"
+                )
+            }
             snapshot = nextSnapshot
             performanceTraceRecorder?.record(
                 .repoExplorerCommandPresentation,

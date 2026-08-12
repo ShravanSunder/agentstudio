@@ -6,6 +6,9 @@ package final class AtomPerformanceTelemetry {
 
     private var traceRuntime: AgentStudioTraceRuntime?
     private var eventQueue: AgentStudioTraceEventQueue?
+    private var repoExplorerKeyClass: String?
+    private var repoExplorerFacet: String?
+    private var repoExplorerRowRelation: String?
 
     private init() {}
 
@@ -29,6 +32,43 @@ package final class AtomPerformanceTelemetry {
         if eventQueue == nil {
             try await traceRuntime?.flush()
         }
+    }
+
+    package func setRepoExplorerKeyedWakeContext(
+        keyClass: String?,
+        facet: String? = nil,
+        rowRelation: String? = nil
+    ) {
+        repoExplorerKeyClass = keyClass
+        repoExplorerFacet = facet
+        repoExplorerRowRelation = rowRelation
+    }
+
+    package var isRepoExplorerKeyedWakeContextActive: Bool {
+        repoExplorerKeyClass != nil
+    }
+
+    package func recordRepoExplorerKeyedWake(stage: String, outcome: String) {
+        guard let traceRuntime, traceRuntime.isEnabled(.atoms), let eventQueue,
+            let repoExplorerKeyClass
+        else { return }
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.repo_explorer.stage": .string(stage),
+            "agentstudio.performance.repo_explorer.key_class": .string(repoExplorerKeyClass),
+            "agentstudio.performance.repo_explorer.outcome": .string(outcome),
+        ]
+        if let repoExplorerFacet {
+            attributes["agentstudio.performance.repo_explorer.facet"] = .string(repoExplorerFacet)
+        }
+        if let repoExplorerRowRelation {
+            attributes["agentstudio.performance.repo_explorer.row_relation"] = .string(repoExplorerRowRelation)
+        }
+        eventQueue.record(
+            tag: .atoms,
+            body: AgentStudioPerformanceTraceRecorder.Event.repoExplorerKeyedWake.rawValue,
+            eventTimeUnixNano: traceRuntime.timestampUnixNano(),
+            attributes: attributes
+        )
     }
 
     func recordRead(
@@ -84,6 +124,20 @@ package final class AtomPerformanceTelemetry {
         )
     }
 
+    func recordEagerDerivedFamily(
+        label: String,
+        operation: String,
+        outcome: String? = nil
+    ) {
+        record(
+            .atomDerived,
+            kind: "eager_derived_family",
+            label: label,
+            operation: operation,
+            outcome: outcome
+        )
+    }
+
     private func record(
         _ event: AgentStudioPerformanceTraceRecorder.Event,
         kind: String,
@@ -93,7 +147,8 @@ package final class AtomPerformanceTelemetry {
         slotCount: Int? = nil,
         cachedKeyCount: Int? = nil,
         inputRevisionCount: Int? = nil,
-        cacheHit: Bool? = nil
+        cacheHit: Bool? = nil,
+        outcome: String? = nil
     ) {
         guard let traceRuntime, traceRuntime.isEnabled(.atoms), let eventQueue else { return }
         var attributes: [String: AgentStudioTraceValue] = [
@@ -117,6 +172,9 @@ package final class AtomPerformanceTelemetry {
         }
         if let cacheHit {
             attributes["agentstudio.performance.atom.cache_hit"] = .bool(cacheHit)
+        }
+        if let outcome {
+            attributes["agentstudio.performance.atom.outcome"] = .string(outcome)
         }
         eventQueue.record(
             tag: .atoms,

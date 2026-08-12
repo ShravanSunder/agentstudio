@@ -113,6 +113,29 @@ worktree enrichment, and PR counts are owned as separate `AtomFamily`
 instances; `RepoCacheAtom` exposes keyed reads for hot consumers and snapshot
 methods for persistence/cold bulk bridges.
 
+`WorkspacePaneGraphAtom` uses the same keyed vocabulary for two paired views of
+each pane. `paneStateMap` is the canonical `AtomFamily<UUID, PaneGraphState>`;
+`paneStructuralFactsMap` is the structural
+`AtomFamily<UUID, PaneStructuralFacts>` used by hot consumers that need only
+residency, content type, Bridge eligibility, CWD, or drawer placement. Every
+accepted pane mutation inserts, updates, or removes both slots through one
+`AtomMutationContext`, then advances `acceptedCommitRevision` once. Readers
+therefore cannot observe a canonical pane revision without its matching
+structural facts. The commit eagerly populates structural slots for the full
+accepted pane-id set; it does not wait for the first row read.
+
+Hot pane consumers call `paneState(_:)` or `paneStructuralFacts(_:)` for the
+declared pane id. Full `paneStateSnapshot()` and `AtomFamily.snapshot()` reads
+remain cold bridges for persistence, batch mutation, validation, and explicit
+whole-graph derivation; they are not observation-capture contracts.
+`PaneObservationResolver` accepts pane/drawer lookup closures and resolves the
+currently attended or rendered pane ids without materializing every rich
+`Pane`. `TabBarAdapter` separately observes tab membership, registers one
+generation-guarded keyed observer and eager projection slot per retained tab,
+and removes both when that tab leaves membership. Collection publication waits
+until every retained slot has a current value, so no partial retained set is
+published.
+
 Worktree enrichment diffing must use the narrow comparator helpers rather than
 raw `WorktreeEnrichment` equality. Lint rule
 `agentstudio_worktree_enrichment_comparator` protects that performance boundary
@@ -159,7 +182,7 @@ facts, snapshots, deltas, or intents.
 | application repository topology | `RepositoryTopologyAtom` | direct keyed/by-id topology reads; `WorkspaceStore` references the shared owner |
 | workspace identity | `WorkspaceIdentityAtom` | direct identity reads |
 | window memory | `WorkspaceWindowMemoryAtom` | direct window-memory reads |
-| `WorkspacePaneAtom` | `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom` | `WorkspacePaneDerived` |
+| `WorkspacePaneAtom` | paired canonical `PaneGraphState` and `PaneStructuralFacts` families in `WorkspacePaneGraphAtom`, plus `WorkspaceDrawerCursorAtom` | keyed structural reads, `PaneObservationResolver`, and rich `WorkspacePaneDerived` composition |
 | `WorkspaceTabShellAtom` | `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom` | `WorkspaceTabLayoutDerived` |
 | `WorkspaceTabArrangementAtom` | `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom` | `WorkspaceTabLayoutDerived` |
 | `RepoCacheAtom` | `RepoEnrichmentCacheAtom` | repo/sidebar read models |

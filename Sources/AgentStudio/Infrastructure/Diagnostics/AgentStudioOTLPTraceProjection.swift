@@ -1,5 +1,9 @@
 import Foundation
 
+// This exhaustive allowlist is intentionally centralized so every OTLP field
+// is audited through one projection boundary.
+// swiftlint:disable type_body_length
+
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
@@ -124,6 +128,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.repo_explorer.facet",
+        "agentstudio.performance.repo_explorer.key_class",
+        "agentstudio.performance.repo_explorer.outcome",
+        "agentstudio.performance.repo_explorer.row_relation",
+        "agentstudio.performance.repo_explorer.stage",
         "agentstudio.inbox.claim.lane",
         "agentstudio.inbox.claim.semantic",
         "agentstudio.inbox.decision",
@@ -135,6 +144,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.atom.kind",
         "agentstudio.performance.atom.label",
         "agentstudio.performance.atom.operation",
+        "agentstudio.performance.atom.outcome",
         "agentstudio.performance.git.backoff.reason",
         "agentstudio.performance.git.status_scope",
         "agentstudio.performance.git.status_unavailable.reason",
@@ -166,6 +176,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.runtime.event",
         "agentstudio.sqlite.database",
         "agentstudio.startup_diagnostic.action",
+        "agentstudio.startup_diagnostic.repo_explorer_key_mutation.phase",
         "agentstudio.startup_diagnostic.bridge.file_view.expected_bootstrap.protocol",
         "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.protocol",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_frame_kind",
@@ -643,6 +654,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.repo.count",
         "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
         "agentstudio.startup_diagnostic.fixture.worktree.count",
+        "agentstudio.startup_diagnostic.repo_explorer_key_mutation.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
         "agentstudio.tcc.probe.sequence",
         "agentstudio.tcc.tccdb.path_row.count",

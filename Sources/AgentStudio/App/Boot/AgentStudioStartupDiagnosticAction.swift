@@ -21,6 +21,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case bridgeProductPaintCorrelation = "bridge-product-paint-correlation"
             case bridgeProductStreamWebKitFeasibility = "bridge-product-stream-webkit-feasibility"
             case sidebarPerformanceProof = "sidebar-performance-proof"
+            case repoExplorerKeyMutationProof = "repo-explorer-key-mutation-proof"
+            case repoExplorerInteractionProof = "repo-explorer-interaction-proof"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -69,6 +71,10 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "bridgeProductStreamWebKitFeasibility"
             case .sidebarPerformanceProof:
                 "sidebarPerformanceProof"
+            case .repoExplorerKeyMutationProof:
+                "repoExplorerKeyMutationProof"
+            case .repoExplorerInteractionProof:
+                "repoExplorerInteractionProof"
         #endif
         case .addWatchFolder:
             "addWatchFolder"

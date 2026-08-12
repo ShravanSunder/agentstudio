@@ -35,6 +35,10 @@ struct SidebarSurfaceSwitchMetricState {
 }
 
 struct SidebarSurfaceHost: View {
+    enum SurfaceSwitchPublicationMode: Equatable {
+        case cachedThenDelta
+    }
+
     enum ChildKind: Equatable {
         case repoExplorer
         case inbox
@@ -62,6 +66,8 @@ struct SidebarSurfaceHost: View {
         SidebarSurfaceChrome<EmptyView>.policy
     }
 
+    static let surfaceSwitchPublicationMode: SurfaceSwitchPublicationMode = .cachedThenDelta
+
     var body: some View {
         SidebarSurfaceChrome {
             currentSurface
@@ -73,14 +79,18 @@ struct SidebarSurfaceHost: View {
                 surface: newSurface,
                 at: ContinuousClock().now
             )
+            let sequence = surfaceSwitchSequence
+            Task { @MainActor in
+                await Task.yield()
+                completeSurfaceSwitch(sequence: sequence, surface: newSurface)
+            }
         }
     }
 
     @ViewBuilder
     private var currentSurface: some View {
         let initialProjectionTrigger = surfaceSwitchSequence == 0 ? "data_refresh" : "surface_switch"
-        switch uiState.sidebarSurface {
-        case .repos:
+        ZStack {
             RepoExplorerView(
                 store: store,
                 octiconLoader: octiconLoader,
@@ -115,7 +125,6 @@ struct SidebarSurfaceHost: View {
                     completeSurfaceSwitch(sequence: sequence, surface: .repos)
                 }
             )
-            .id(surfaceSwitchSequence)
             .task {
                 guard repoCommandPresentationBatch == nil else { return }
                 let batch = RepoExplorerCommandPresentationBatch(
@@ -132,7 +141,10 @@ struct SidebarSurfaceHost: View {
                 repoCommandPresentationBatch?.stop()
                 repoCommandPresentationBatch = nil
             }
-        case .inbox:
+            .opacity(uiState.sidebarSurface == .repos ? 1 : 0)
+            .allowsHitTesting(uiState.sidebarSurface == .repos)
+            .accessibilityHidden(uiState.sidebarSurface != .repos)
+
             InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
                 octiconLoader: octiconLoader,
@@ -184,7 +196,9 @@ struct SidebarSurfaceHost: View {
                 },
                 onRefocusActivePane: onDismissInbox
             )
-            .id(surfaceSwitchSequence)
+            .opacity(uiState.sidebarSurface == .inbox ? 1 : 0)
+            .allowsHitTesting(uiState.sidebarSurface == .inbox)
+            .accessibilityHidden(uiState.sidebarSurface != .inbox)
         }
     }
 

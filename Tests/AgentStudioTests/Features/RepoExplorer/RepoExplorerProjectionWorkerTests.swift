@@ -10,6 +10,33 @@ struct RepoExplorerProjectionWorkerTests {
         case cancelled
     }
 
+    @Test("one rendered repo favorite change is classified as a scoped row delta")
+    func renderedRepoFavoriteChangeIsScoped() {
+        let repoId = UUID()
+        let initialRepo = repo(id: repoId, name: "agent-studio")
+        let before = request(repos: [initialRepo])
+        let after = request(repos: [withFavorite(initialRepo)])
+
+        #expect(after.scopedChange(from: before) == .repo(repoId))
+    }
+
+    @Test("scoped favorite projection matches the full reference without whole-surface projection")
+    func scopedFavoriteProjectionMatchesReference() throws {
+        let repoId = UUID()
+        let initialRepo = repo(id: repoId, name: "agent-studio")
+        let before = request(repos: [initialRepo])
+        let after = request(repos: [withFavorite(initialRepo)])
+        let previous = try RepoExplorerProjectionWorker.project(before)
+
+        let scoped = try #require(
+            RepoExplorerProjectionWorker.applyScopedChange(.repo(repoId), request: after, previous: previous)
+        )
+        let reference = try RepoExplorerProjectionWorker.project(after)
+
+        #expect(scoped.projection == reference.projection)
+        #expect(scoped.rowIndex == reference.rowIndex)
+    }
+
     @Test("worker projects sidebar model and row index off caller isolation")
     func workerProjectsSidebarModelAndRowIndex() async throws {
         let repoId = UUID()
@@ -136,6 +163,57 @@ struct RepoExplorerProjectionWorkerTests {
                 "worktree:repo:\(repoId.uuidString):\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
             ])
         #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
+    }
+
+    @Test("worker resolves Bridge command candidates off the capture path")
+    func workerResolvesBridgeCommandCandidates() throws {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let paneId = UUID()
+        let worktree = Worktree(
+            id: worktreeId,
+            repoId: repoId,
+            name: "feature",
+            path: URL(fileURLWithPath: "/tmp/feature")
+        )
+        let snapshot = RepoExplorerSnapshot(
+            repos: [
+                RepoPresentationItem(
+                    id: repoId,
+                    name: "agent-studio",
+                    repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    stableKey: "agent-studio",
+                    worktrees: [worktree]
+                )
+            ],
+            repoEnrichmentByRepoId: [:],
+            query: "",
+            bridgePaneCommandCandidatesByWorktreeId: [
+                worktreeId: [
+                    BridgePaneCommandCandidate(
+                        paneId: paneId,
+                        worktreeId: worktreeId,
+                        isBridgePane: true,
+                        isPaneActive: true,
+                        isCurrentActivePane: true,
+                        attendanceOrdinal: 1,
+                        tabIndex: 0,
+                        paneIndexInTab: 0
+                    )
+                ]
+            ]
+        )
+        let request = RepoExplorerProjectionRequest(
+            generation: 8,
+            snapshot: snapshot,
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .dataRefresh
+        )
+
+        let result = try RepoExplorerProjectionWorker.project(request)
+
+        #expect(result.bridgeCommandResolutionByWorktreeId[worktreeId] == .reuse(paneId: paneId))
     }
 
     @Test("projection checks cancellation periodically within placement work")
@@ -294,6 +372,38 @@ struct RepoExplorerProjectionWorkerTests {
                     isMainWorktree: true
                 )
             ]
+        )
+    }
+
+    private func request(repos: [RepoPresentationItem]) -> RepoExplorerProjectionRequest {
+        RepoExplorerProjectionRequest(
+            generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) },
+            snapshot: RepoExplorerSnapshot(
+                repos: repos,
+                repoEnrichmentByRepoId: Dictionary(
+                    uniqueKeysWithValues: repos.map {
+                        ($0.id, resolvedRemote(repoId: $0.id, displayName: $0.name))
+                    }
+                ),
+                groupingMode: .repo,
+                query: ""
+            ),
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .dataRefresh
+        )
+    }
+
+    private func withFavorite(_ repo: RepoPresentationItem) -> RepoPresentationItem {
+        RepoPresentationItem(
+            id: repo.id,
+            name: repo.name,
+            repoPath: repo.repoPath,
+            stableKey: repo.stableKey,
+            isFavorite: true,
+            note: repo.note,
+            tags: repo.tags,
+            worktrees: repo.worktrees
         )
     }
 

@@ -87,6 +87,10 @@ extension AppDelegate {
                     await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
                 case .sidebarPerformanceProof:
                     await self.runSidebarPerformanceProofDiagnostic(action: action)
+                case .repoExplorerKeyMutationProof:
+                    await self.runRepoExplorerKeyMutationProofDiagnostic(action: action)
+                case .repoExplorerInteractionProof:
+                    await self.runRepoExplorerInteractionProofDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {

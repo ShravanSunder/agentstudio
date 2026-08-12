@@ -75,6 +75,15 @@ triggers (LUNA-402) · 4 keyed observation/off-main (LUNA-403) · 5 startup
 | D12 | Resolved in slice 3 | `pane_runtime_eventbus_design.md` records the running `ForgeActor` and its per-repo single-flight, backoff, follow-up debt, and equality-suppressed publication. |
 | M6 | Resolved in slice 3 | `workspace_data_architecture.md` explains the Git projector's priority reservation, demand admission, retry/backoff, quarantine, and pathspec/full-status policy. |
 | R19 | Checked in slice 3; no slice-3 flip | `agentstudio_performance_constants_in_app_policies` covers slice-3 timing, cadence, capacity, and backoff constants, but the current production/test scan reports ten pre-existing findings outside slice-3 trigger owners, so it remains report-only. The keyed-read, MainActor collection-work, and nonisolated blocking-I/O surfaces are not slice-3-owned and also remain report-only. |
+| D3 | Resolved in slice 4 | `atom_persistence_boundaries.md` documents paired canonical and structural pane `AtomFamily` slots plus the accepted commit revision. |
+| D15 | Resolved in slice 4 | `component_architecture.md` now says ten invariants, matching the authoritative invariant list. |
+| D16 | Resolved in slice 4 | The `AGENTS.md`/`CLAUDE.md` owning table names paired canonical/structural pane families and the accepted commit revision. |
+| M1 | Resolved in slice 4 | `atom_persistence_boundaries.md` defines canonical versus structural pane facts and their atomic paired commit. |
+| M2 | Resolved in slice 4 | `atom_persistence_boundaries.md` defines per-pane structural reads for residency, Bridge eligibility, CWD, and drawer placement. |
+| M3 | Resolved in slice 4 | `atom_persistence_boundaries.md` documents `PaneObservationResolver` lookup-based attended/rendered resolution. |
+| M5 | Resolved in slice 4 | `workspace_data_architecture.md` documents keyed Repo Explorer capture, eager cancellation/supersession, off-main projection/row-index work, and MainActor result/command snapshot publication. |
+| M12 | Resolved in slice 4 | `atom_persistence_boundaries.md` documents eager structural slot population and generation-guarded per-tab eager observer registration/removal. |
+| R19 | Checked in slice 4; flip blocked | The production `Sources` scan found zero `agentstudio_observation_capture_keyed_reads` diagnostics, but the full lint surface found one pre-existing finding outside slice-4 owners at `Tests/AgentStudioTests/Features/CommandBar/CommandBarResultSessionTests.swift:264`. The rule remains report-only with detection and allowlists unchanged; the other three guards have no slice-4-owned promotion. |
 
 ## Exclusions
 

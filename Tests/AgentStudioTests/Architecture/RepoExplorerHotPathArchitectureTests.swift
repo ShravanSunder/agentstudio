@@ -53,6 +53,14 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains(".onChange(of: projectionRequestKey)"))
         #expect(source.contains("withObservationTracking"))
         #expect(source.contains("private func observeProjectionInputs("))
+        #expect(source.contains("let inputRevision = withObservationTracking"))
+        #expect(source.contains("projectionInputRevision"))
+        #expect(!source.contains("let request = withObservationTracking"))
+        #expect(
+            source.contains(
+                "let request = projectionRequest\n        let requestBuildDuration"
+            )
+        )
         #expect(
             source.contains(
                 """

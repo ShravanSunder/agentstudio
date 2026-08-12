@@ -523,7 +523,20 @@ WorkspaceSidebarState          → filter and sidebar shell composition
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
-This is not a "join" problem — each store has one clear job. The bus ensures both are in sync. The sidebar does not do complex data merging; it reads structure from one, display data from the other.
+Repo Explorer captures only the declared repo/worktree membership and keyed
+topology, cache, pane-placement, unread, zoom, capability, and Bridge-attendance
+facts needed by its rendered rows. The immutable capture is admitted to the
+existing `EagerDerivedAtomFamily`; `RepoExplorerProjectionWorker` builds the
+projection, branch maps, and immutable `RepoExplorerRowIndex` off MainActor.
+Cancellation, supersession, removal, and generation checks prevent stale work
+from binding. MainActor owns only keyed capture, current-generation result
+binding, and command-presentation snapshot publication. Whole dictionaries and
+topology snapshots remain persistence/cold-batch bridges, not hot sidebar
+observation inputs.
+
+This is not a broad live "join" problem — each store has one clear job and the
+capture declares the exact keys being combined. The bus keeps owners current;
+the sidebar performs no imperative fetches or mutations.
 
 Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detached HEAD"`. No branch field on the `Worktree` model itself.
 

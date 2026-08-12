@@ -133,6 +133,27 @@ struct AgentStudioStartupDiagnosticActionParsingTests {
         #expect(action.commandName == "sidebarPerformanceProof")
     }
 
+    @Test("startup diagnostic action parses Repo Explorer key mutation proof command")
+    func parsesRepoExplorerKeyMutationProofCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: "repo-explorer-key-mutation-proof"
+            ]))
+
+        #expect(action.kind == .repoExplorerKeyMutationProof)
+        #expect(action.commandName == "repoExplorerKeyMutationProof")
+    }
+
+    @Test
+    func parsesRepoExplorerInteractionProofCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: "repo-explorer-interaction-proof"
+            ]))
+        #expect(action.kind == .repoExplorerInteractionProof)
+        #expect(action.commandName == "repoExplorerInteractionProof")
+    }
+
     @Test("startup diagnostic action parses TCC upgrade probe command")
     func parsesTCCUpgradeProbeCommand() throws {
         let action = try #require(
