@@ -47,7 +47,6 @@ struct PaneLeafContainer: View {
     let toolbarPresentation: PaneSurfaceToolbarPresentation
     let managementChromePresentation: PaneManagementChromePresentation
 
-    @State private var isHovered: Bool = false
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -143,23 +142,6 @@ struct PaneLeafContainer: View {
 
     private var isClosing: Bool {
         closeTransitionCoordinator.closingPaneIds.contains(paneHost.id)
-    }
-
-    /// True when hover is active either via tracking events or by direct pointer query.
-    /// The direct pointer query fixes the Cmd+E case where management layer toggles
-    /// while the pointer is already inside the pane and no hover transition fires.
-    private var isManagementHovered: Bool {
-        guard !suppressMainPaneManagementInteraction else { return false }
-        return isHovered || isPointerInsidePaneView
-    }
-
-    private var isPointerInsidePaneView: Bool {
-        guard !suppressMainPaneManagementInteraction else { return false }
-        guard managementLayer.isActive else { return false }
-        guard let window = paneHost.window else { return false }
-        let pointInWindow = window.mouseLocationOutsideOfEventStream
-        let pointInPane = paneHost.convert(pointInWindow, from: nil)
-        return paneHost.bounds.contains(pointInPane)
     }
 
     /// Downcast to terminal view for terminal-specific features.
@@ -291,18 +273,6 @@ struct PaneLeafContainer: View {
                         .fill(Color.black)
                         .opacity(AppStyles.Shell.ManagementLayer.modeDimmingOpacity)
                         .allowsHitTesting(false)
-                }
-
-                // Hover border: drag affordance in management layer
-                if managementLayer.isActive
-                    && isManagementHovered
-                    && !isSplitResizing
-                    && !suppressMainPaneManagementInteraction
-                {
-                    RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel)
-                        .strokeBorder(Color.white.opacity(AppStyles.General.Stroke.visible), lineWidth: 1)
-                        .allowsHitTesting(false)
-                        .animation(.easeInOut(duration: AppStyles.General.Animation.fast), value: isManagementHovered)
                 }
 
                 // Drag handle: compact centered pill in management layer.
@@ -512,7 +482,14 @@ struct PaneLeafContainer: View {
                 }
             }
             .contentShape(Rectangle())
-            .onHover { isHovered = suppressMainPaneManagementInteraction ? false : $0 }
+            .modifier(
+                PaneManagementHoverBorder(
+                    paneHost: paneHost,
+                    isManagementLayerActive: managementLayer.isActive,
+                    isSplitResizing: isSplitResizing,
+                    suppressMainPaneManagementInteraction: suppressMainPaneManagementInteraction
+                )
+            )
             .onTapGesture {
                 if let drawerParentPaneId {
                     onPaneFocusTrigger(

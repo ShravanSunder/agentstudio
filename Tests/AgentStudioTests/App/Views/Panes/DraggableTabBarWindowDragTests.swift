@@ -209,7 +209,8 @@ struct DraggableTabBarWindowDragTests {
         window.contentView = hostingView
 
         let pillFrame = CGRect(x: 20, y: 4, width: 100, height: AppStyles.Shell.TabBar.tabPillHeight)
-        hostingView.updateTabFrames([UUID(): pillFrame])
+        let tabId = UUIDv7.generate()
+        hostingView.updateTabFrames([tabId: pillFrame])
 
         return HostingViewFixture(
             hostingView: hostingView,

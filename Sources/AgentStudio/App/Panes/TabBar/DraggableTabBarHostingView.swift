@@ -49,9 +49,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var dwellState = DragDwellState.idle
 
     private var managementLayerObservation: Task<Void, Never>?
+    private var contextMenuEventMonitor: Any?
 
     isolated deinit {
         managementLayerObservation?.cancel()
+        if let contextMenuEventMonitor {
+            NSEvent.removeMonitor(contextMenuEventMonitor)
+        }
     }
 
     // MARK: - Initialization
@@ -84,6 +88,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         panGesture.isEnabled = atom(\.managementLayer).isActive
         addGestureRecognizer(panGesture)
         observeManagementLayer()
+        contextMenuEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.rightMouseDown, .leftMouseDown]
+        ) { [weak self] event in
+            self?.routeContextMenuEvent(event) ?? event
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -149,6 +158,25 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     // MARK: - Hit Testing
+
+    func routeContextMenuEvent(_ event: NSEvent) -> NSEvent? {
+        guard
+            event.window === window,
+            Self.isContextClick(event),
+            tabAtPoint(convert(event.locationInWindow, from: nil)) != nil,
+            let contextMenu = hostingView.menu(for: event)
+        else {
+            return event
+        }
+
+        NSMenu.popUpContextMenu(contextMenu, with: event, for: hostingView)
+        return nil
+    }
+
+    private static func isContextClick(_ event: NSEvent) -> Bool {
+        event.type == .rightMouseDown
+            || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+    }
 
     /// Find which tab is at the given point (in NSView coordinates)
     private func tabAtPoint(_ point: NSPoint) -> UUID? {
