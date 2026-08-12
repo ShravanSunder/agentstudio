@@ -73,6 +73,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func shutdown() async {
+        await forgeActor.setDemand(worktreeIds: [])
         await filesystemActor.shutdown()
         await gitWorkingDirectoryProjector.shutdown()
         await forgeActor.shutdown()
@@ -82,10 +83,12 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         // Ensure projector subscription is active before lifecycle facts are posted.
         await startGitProjector()
         await startForgeActor()
+        await forgeActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {
+        await forgeActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
@@ -109,6 +112,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await gitWorkingDirectoryProjector.setSidebarVisibleWorktrees(worktreeIds)
     }
 
+    func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async {
+        await forgeActor.setDemand(worktreeIds: worktreeIds)
+    }
+
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
     }
@@ -126,9 +133,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     func applyScopeChange(_ change: ScopeChange) async {
         switch change {
         case .registerForgeRepo(let repoId, let remote):
-            await forgeActor.register(repo: repoId, remote: remote)
+            await forgeActor.setOrigin(repo: repoId, remote: remote)
         case .unregisterForgeRepo(let repoId):
-            await forgeActor.unregister(repo: repoId)
+            await forgeActor.removeRepository(repo: repoId)
         case .refreshForgeRepo(let repoId, let correlationId):
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
         case .updateWatchedFolders(let watchedPaths):

@@ -1,242 +1,195 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
 
 @testable import AgentStudioCore
-@testable import AgentStudioInfrastructure
-
 @MainActor
 @Suite("ForgeActor")
 struct ForgeActorTests {
     @Test("overlapping refreshes keep at most one provider call in flight per repo")
     func overlappingRefreshesKeepOneProviderCallInFlightPerRepo() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let provider = SuspendedForgeStatusProvider()
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: provider,
-            providerName: "suspended",
-            pollInterval: .seconds(60)
-        )
-
-        let registerTask = Task {
-            await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
-        }
-        await provider.waitForStartedCallCount(1)
-        let overlappingRefreshTask = Task { await actor.refresh(repo: repoId) }
-        for _ in 0..<50 {
-            await Task.yield()
-        }
-
-        #expect(await provider.maximumActiveCallCount == 1)
-
-        await provider.finishNextCall(returning: [:])
-        await provider.waitForStartedCallCount(2)
-        await provider.finishNextCall(returning: [:])
-        await registerTask.value
-        await overlappingRefreshTask.value
-        await actor.shutdown()
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/one")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.actor.refresh(repo: repoId)
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.callCount == 1)
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
-    @Test("equal successful count maps publish only once")
+    @Test("equal successful facts publish only once")
     func equalSuccessfulCountMapsPublishOnlyOnce() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let observer = ObservedForgeEvents()
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: StubForgeStatusProvider(handler: { _, _ in ["main": 1] }),
-            providerName: "stub",
-            pollInterval: .seconds(60)
-        )
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
-        await observer.waitForPullRequestCount(1, repoId: repoId)
-        await actor.refresh(repo: repoId)
-        await actor.refresh(repo: repoId)
-        for _ in 0..<50 {
-            await Task.yield()
-        }
-
-        #expect(await observer.pullRequestCount(for: repoId) == 1)
-        await actor.shutdown()
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let pullRequestURL = URL(string: "https://github.com/acme/studio/pull/1")!
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/equal")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        let result = ForgePullRequest(headRefName: "feature/equal", url: pullRequestURL)
+        await fixture.provider.resolve(callAt: 0, with: .complete([result]))
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/equal",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: pullRequestURL)
+            ))
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .complete([result]))
+        await Task.yield()
+        #expect(await fixture.events.pullRequestEventCount(for: repoId) == 1)
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("provider failures retry at exact exponential backoff deadlines")
     func providerFailuresRetryAtExactBackoffDeadlines() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let provider = SuspendedForgeStatusProvider()
-        let clock = TestPushClock()
-        let observer = ObservedForgeEvents()
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: provider,
-            providerName: "suspended",
-            pollInterval: .seconds(60),
-            sleepClock: clock
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/failure")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailure(repoId: repoId))
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 2))
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 2))
+        #expect(await fixture.provider.waitForCallCount(3))
+        await fixture.provider.resolve(
+            callAt: 2,
+            with: .complete([
+                ForgePullRequest(
+                    headRefName: "feature/failure",
+                    url: URL(string: "https://github.com/acme/studio/pull/2")!
+                )
+            ])
         )
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
-        await provider.waitForStartedCallCount(1)
-        await provider.failNextCall()
-        #expect(
-            await eventually("first forge failure should publish") {
-                await observer.refreshFailedCount(for: repoId) == 1
-            })
-        await clock.waitForPendingSleepCount()
-        #expect(await provider.startedCount == 1)
-
-        clock.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
-        await provider.waitForStartedCallCount(2)
-        await provider.failNextCall()
-        #expect(
-            await eventually("second forge failure should publish") {
-                await observer.refreshFailedCount(for: repoId) == 2
-            })
-        await clock.waitForPendingSleepCount()
-        #expect(await provider.startedCount == 2)
-
-        clock.advance(
-            by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 2)
-        )
-        await provider.waitForStartedCallCount(3)
-        await provider.finishNextCall(returning: ["main": 1])
-        await observer.waitForPullRequestCount(1, repoId: repoId)
-
-        #expect(await provider.startedCount == 3)
-        await actor.shutdown()
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
-    @Test("changed count map publishes after an equal result was suppressed")
+    @Test("changed facts publish after an equal result was suppressed")
     func changedCountMapPublishesAfterEqualSuppression() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let provider = SequencedForgeStatusProvider(
-            results: [["main": 1], ["main": 1], ["main": 2]]
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/changed")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        let firstURL = URL(string: "https://github.com/acme/studio/pull/3")!
+        await fixture.provider.resolve(
+            callAt: 0,
+            with: .complete([ForgePullRequest(headRefName: "feature/changed", url: firstURL)])
         )
-        let observer = ObservedForgeEvents()
-        let actor = ForgeActor(bus: bus, statusProvider: provider, providerName: "sequenced")
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
-        await observer.waitForPullRequestCount(1, repoId: repoId)
-        await actor.refresh(repo: repoId)
-        await provider.waitForCallCount(2)
-        await actor.refresh(repo: repoId)
-        await provider.waitForCallCount(3)
-        await observer.waitForPullRequestCount(2, repoId: repoId)
-
-        #expect(await observer.pullRequestCount(for: repoId) == 2)
-        #expect(await observer.lastPullRequestCounts(for: repoId) == ["main": 2])
-        await actor.shutdown()
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/changed",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: firstURL)
+            ))
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(
+            callAt: 1,
+            with: .complete([ForgePullRequest(headRefName: "feature/changed", url: firstURL)])
+        )
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(3))
+        let secondURL = URL(string: "https://github.com/acme/studio/pull/4")!
+        await fixture.provider.resolve(
+            callAt: 2,
+            with: .complete([ForgePullRequest(headRefName: "feature/changed", url: secondURL)])
+        )
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/changed",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: secondURL)
+            ))
+        #expect(await fixture.events.pullRequestEventCount(for: repoId) == 2)
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("different repos may refresh concurrently")
     func differentReposMayRefreshConcurrently() async {
-        let provider = SuspendedForgeStatusProvider()
-        let actor = ForgeActor(
-            bus: EventBus<RuntimeEnvelope>(),
-            statusProvider: provider,
-            providerName: "suspended"
-        )
-
-        await actor.register(repo: UUID(), remote: "git@github.com:askluna/first.git")
-        await actor.register(repo: UUID(), remote: "git@github.com:askluna/second.git")
-        await provider.waitForStartedCallCount(2)
-
-        #expect(await provider.maximumActiveCallCount == 2)
-        await provider.finishNextCall(returning: [:])
-        await provider.finishNextCall(returning: [:])
-        await actor.shutdown()
+        let fixture = await ForgeActorFixture.make()
+        let firstRepoId = UUIDv7.generate()
+        let secondRepoId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        await fixture.register(repoId: firstRepoId, worktrees: [(firstWorktreeId, "feature/first")])
+        await fixture.register(repoId: secondRepoId, worktrees: [(secondWorktreeId, "feature/second")])
+        await fixture.actor.setDemand(worktreeIds: [firstWorktreeId, secondWorktreeId])
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
-    @Test("unregister cancels the repo provider flight")
+    @Test("repository removal cancels its provider flight")
     func unregisterCancelsRepoProviderFlight() async {
-        let repoId = UUID()
+        let bus = EventBus<RuntimeEnvelope>()
         let provider = CancellationObservingForgeStatusProvider()
-        let actor = ForgeActor(
-            bus: EventBus<RuntimeEnvelope>(),
-            statusProvider: provider,
-            providerName: "cancellation-observing"
+        let actor = ForgeActor(bus: bus, statusProvider: provider, providerName: "cancellation-observing")
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await actor.start()
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/acme-cancel"),
+            branch: "feature/cancel"
         )
-
-        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
+        await actor.setOrigin(repo: repoId, remote: "git@github.com:acme/studio.git")
+        await actor.setDemand(worktreeIds: [worktreeId])
         await provider.waitUntilStarted()
-        await actor.unregister(repo: repoId)
+        await actor.removeRepository(repo: repoId)
         await provider.waitUntilCancelled()
-
         #expect(await provider.didObserveCancellation)
         await actor.shutdown()
     }
 
-    @Test("reacts to originChanged and branchChanged by emitting pull request counts")
+    @Test("reacts to origin and branch projector events")
     func reactsToGitProjectorEvents() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let worktreeId = UUID()
-        let observer = ObservedForgeEvents()
-
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: StubForgeStatusProvider(handler: { _, branches in
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    counts[branch] = 1
-                }
-                return counts
-            }),
-            providerName: "stub",
-            pollInterval: .seconds(60)
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.actor.register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/acme-events"),
+            branch: "main"
         )
-        await actor.start()
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await bus.post(
+        _ = await fixture.bus.post(
             .worktree(
                 WorktreeEnvelope.test(
                     event: .gitWorkingDirectory(
                         .originChanged(
                             repoId: repoId,
                             from: "",
-                            to: "git@github.com:askluna/agent-studio.git"
-                        )
-                    ),
+                            to: "git@github.com:acme/studio.git"
+                        )),
                     repoId: repoId,
                     worktreeId: worktreeId,
                     source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
-            )
-        )
-        await bus.post(
+                )))
+        _ = await fixture.bus.post(
             .worktree(
                 WorktreeEnvelope.test(
                     event: .gitWorkingDirectory(
@@ -245,291 +198,574 @@ struct ForgeActorTests {
                             repoId: repoId,
                             from: "main",
                             to: "feature/runtime"
-                        )
-                    ),
+                        )),
                     repoId: repoId,
                     worktreeId: worktreeId,
                     source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )))
+        #expect(await fixture.events.waitForBranchInvalidation(repoId: repoId, branch: "main"))
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(
+            callAt: 0,
+            with: .complete([
+                ForgePullRequest(
+                    headRefName: "feature/runtime",
+                    url: URL(string: "https://github.com/acme/studio/pull/5")!
                 )
-            )
+            ])
         )
-
-        let receivedCounts = await eventually("forge counts event should be emitted") {
-            await observer.lastPullRequestCounts(for: repoId)?["feature/runtime"] == 1
-        }
-        #expect(receivedCounts)
-
-        await actor.shutdown()
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/runtime",
+                expected: PullRequestFacts(
+                    openCount: 1, exactOpenURL: URL(string: "https://github.com/acme/studio/pull/5")!)
+            ))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
-    @Test("emits refreshFailed when provider throws")
+    @Test("emits refreshFailed when provider fails")
     func pollingFallbackErrorPath() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let worktreeId = UUID()
-        let observer = ObservedForgeEvents()
-
-        enum ForgeProviderError: Error {
-            case networkUnavailable
-        }
-
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: StubForgeStatusProvider(handler: { _, _ in
-                throw ForgeProviderError.networkUnavailable
-            }),
-            providerName: "stub",
-            pollInterval: .seconds(60)
-        )
-        await actor.start()
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await bus.post(
-            .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .originChanged(
-                            repoId: repoId,
-                            from: "",
-                            to: "git@github.com:askluna/agent-studio.git"
-                        )
-                    ),
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
-            )
-        )
-        await bus.post(
-            .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .branchChanged(
-                            worktreeId: worktreeId,
-                            repoId: repoId,
-                            from: "main",
-                            to: "feature/runtime"
-                        )
-                    ),
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
-            )
-        )
-
-        let receivedFailure = await eventually("forge failure should be emitted") {
-            await observer.refreshFailedCount(for: repoId) > 0
-        }
-        #expect(receivedFailure)
-
-        await actor.shutdown()
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/error")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailure(repoId: repoId))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
-    @Test("register/unregister command-plane APIs control scope explicitly")
+    @Test("register and unregister command-plane APIs control scope explicitly")
     func commandPlaneRegisterAndUnregister() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let observer = ObservedForgeEvents()
-
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: StubForgeStatusProvider(handler: { _, branches in
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    counts[branch] = 2
-                }
-                return counts
-            }),
-            providerName: "stub",
-            pollInterval: .seconds(60)
-        )
-        await actor.start()
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await actor.register(repo: repoId, remote: "git@github.com:askluna/agent-studio.git")
-        await bus.post(
-            .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .branchChanged(
-                            worktreeId: UUID(),
-                            repoId: repoId,
-                            from: "main",
-                            to: "feature/runtime"
-                        )
-                    ),
-                    repoId: repoId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
-            )
-        )
-        let registered = await eventually("command-plane register should emit counts") {
-            await observer.lastPullRequestCounts(for: repoId)?["feature/runtime"] == 2
-        }
-        #expect(registered)
-
-        await actor.unregister(repo: repoId)
-        await actor.refresh(repo: repoId)
-        let refreshFailureCount = await observer.refreshFailedCount(for: repoId)
-        #expect(refreshFailureCount == 0)
-
-        await actor.shutdown()
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/runtime")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        await fixture.actor.unregister(worktreeId: worktreeId)
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.callCount == 1)
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
     @Test("shutdown cancels subscriptions so post-shutdown events are ignored")
     func shutdownStopsConsumingBusEvents() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let repoId = UUID()
-        let worktreeId = UUID()
-        let observer = ObservedForgeEvents()
-
-        let actor = ForgeActor(
-            bus: bus,
-            statusProvider: StubForgeStatusProvider(handler: { _, branches in
-                var counts: [String: Int] = [:]
-                for branch in branches {
-                    counts[branch] = 1
-                }
-                return counts
-            }),
-            providerName: "stub",
-            pollInterval: .seconds(60)
-        )
-        await actor.start()
-
-        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
-        let observeTask = Task {
-            for await envelope in stream {
-                await observer.record(envelope)
-            }
-        }
-        defer { observeTask.cancel() }
-
-        await actor.shutdown()
-
-        await bus.post(
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        await fixture.actor.shutdown()
+        _ = await fixture.bus.post(
             .worktree(
                 WorktreeEnvelope.test(
                     event: .gitWorkingDirectory(
                         .originChanged(
                             repoId: repoId,
                             from: "",
-                            to: "git@github.com:askluna/agent-studio.git"
-                        )
-                    ),
+                            to: "git@github.com:acme/studio.git"
+                        )),
                     repoId: repoId,
                     worktreeId: worktreeId,
                     source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
-            )
+                )))
+        #expect(await fixture.events.facts(for: repoId, branch: "feature/runtime") == nil)
+        await fixture.stopObserving()
+    }
+    @Test("missing demanded branch starts an immediate repository refresh")
+    func missingDemandStartsImmediateRefresh() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let pullRequestURL = URL(string: "https://github.com/acme/studio/pull/42")!
+
+        await fixture.actor.register(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/acme-studio"),
+            branch: "feature/toolbar"
         )
-        await bus.post(
-            .worktree(
-                WorktreeEnvelope.test(
-                    event: .gitWorkingDirectory(
-                        .branchChanged(
-                            worktreeId: worktreeId,
-                            repoId: repoId,
-                            from: "main",
-                            to: "feature/runtime"
-                        )
-                    ),
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    source: .system(.builtin(.gitWorkingDirectoryProjector))
-                )
-            )
+        await fixture.actor.setOrigin(repo: repoId, remote: "git@github.com:acme/studio.git")
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+
+        await fixture.provider.resolve(
+            callAt: 0,
+            with: .complete([
+                ForgePullRequest(headRefName: "feature/toolbar", url: pullRequestURL)
+            ])
         )
 
-        let emittedAfterShutdown = await observer.lastPullRequestCounts(for: repoId) != nil
-        #expect(!emittedAfterShutdown)
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/toolbar",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: pullRequestURL)
+            )
+        )
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
     }
 
-    private func eventually(
-        _ description: String,
-        maxTurns: Int = 200,
-        condition: @escaping @MainActor () async -> Bool
-    ) async -> Bool {
-        for _ in 0..<maxTurns {
-            if await condition() {
-                return true
+    @Test("one active request admits only one latest-scope follow-up")
+    func oneActiveRequestAndOneLatestFollowUp() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let latestWorktreeId = UUIDv7.generate()
+
+        await fixture.register(
+            repoId: repoId,
+            worktrees: [
+                (firstWorktreeId, "feature/first"),
+                (secondWorktreeId, "feature/second"),
+                (latestWorktreeId, "feature/latest"),
+            ]
+        )
+        await fixture.actor.setDemand(worktreeIds: [firstWorktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+
+        await fixture.actor.setDemand(worktreeIds: [secondWorktreeId])
+        await fixture.actor.setDemand(worktreeIds: [latestWorktreeId])
+        #expect(await fixture.provider.callCount == 1)
+
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        #expect(await fixture.provider.waitForCallCount(2))
+        #expect(await fixture.provider.callCount == 2)
+
+        let latestURL = URL(string: "https://github.com/acme/studio/pull/99")!
+        await fixture.provider.resolve(
+            callAt: 1,
+            with: .complete([
+                ForgePullRequest(headRefName: "feature/latest", url: latestURL)
+            ])
+        )
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/latest",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: latestURL)
+            )
+        )
+        #expect(await fixture.events.facts(for: repoId, branch: "feature/second") == nil)
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("fresh demand waits for the single three-minute deadline")
+    func freshDemandWaitsForDeadline() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/fresh")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/fresh",
+                expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
+            )
+        )
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+
+        fixture.advance(by: .seconds(179))
+        await Task.yield()
+        #expect(await fixture.provider.callCount == 1)
+
+        fixture.advance(by: .seconds(1))
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("empty demand cancels future automatic GitHub work")
+    func emptyDemandStopsAutomaticRefresh() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/visible")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/visible",
+                expected: PullRequestFacts(openCount: 0, exactOpenURL: nil)
+            )
+        )
+
+        await fixture.actor.setDemand(worktreeIds: [])
+        fixture.advance(by: .seconds(600))
+        await Task.yield()
+
+        #expect(await fixture.provider.callCount == 1)
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("rate-limit retry respects retry-after and the three-minute minimum")
+    func rateLimitBackoffControlsDeadline() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/rate-limit")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .rateLimited(retryAfterSeconds: 300))
+        #expect(await fixture.events.waitForRateLimit(repoId: repoId, retryAfterSeconds: 300))
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+
+        fixture.advance(by: .seconds(299))
+        await Task.yield()
+        #expect(await fixture.provider.callCount == 1)
+
+        fixture.advance(by: .seconds(1))
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("origin replacement invalidates prior facts and rejects the obsolete completion")
+    func originReplacementRejectsObsoleteCompletion() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/origin")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+
+        await fixture.actor.setOrigin(repo: repoId, remote: "https://github.com/acme/replacement.git")
+        #expect(await fixture.events.waitForRepositoryInvalidation(repoId: repoId))
+        #expect(await fixture.provider.waitForCallCount(2))
+
+        let obsoleteURL = URL(string: "https://github.com/acme/studio/pull/1")!
+        await fixture.provider.resolve(
+            callAt: 0,
+            with: .complete([ForgePullRequest(headRefName: "feature/origin", url: obsoleteURL)])
+        )
+        let currentURL = URL(string: "https://github.com/acme/replacement/pull/2")!
+        await fixture.provider.resolve(
+            callAt: 1,
+            with: .complete([ForgePullRequest(headRefName: "feature/origin", url: currentURL)])
+        )
+
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/origin",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: currentURL)
+            )
+        )
+        #expect(await fixture.events.containsExactURL(obsoleteURL) == false)
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
+    @Test("only final live membership removal invalidates a shared branch")
+    func finalMembershipRemovalInvalidatesSharedBranch() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+
+        await fixture.register(
+            repoId: repoId,
+            worktrees: [
+                (firstWorktreeId, "feature/shared"),
+                (secondWorktreeId, "feature/shared"),
+            ]
+        )
+        await fixture.actor.unregister(worktreeId: firstWorktreeId)
+        #expect(await fixture.events.invalidatedBranches(for: repoId).isEmpty)
+
+        await fixture.actor.unregister(worktreeId: secondWorktreeId)
+
+        #expect(await fixture.events.waitForBranchInvalidation(repoId: repoId, branch: "feature/shared"))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+}
+
+struct ForgeActorFixture {
+    let bus: EventBus<RuntimeEnvelope>
+    let actor: ForgeActor
+    let provider: GatedForgeStatusProvider
+    let events: ObservedForgeEvents
+    let clock: TestPushClock
+    let monotonicNow: ManualForgeMonotonicNow
+    let observationTask: Task<Void, Never>
+
+    static func make() async -> Self {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = GatedForgeStatusProvider()
+        let events = ObservedForgeEvents()
+        let clock = TestPushClock()
+        let monotonicNow = ManualForgeMonotonicNow()
+        let actor = ForgeActor(
+            bus: bus,
+            statusProvider: provider,
+            providerName: "stub",
+            monotonicNow: { monotonicNow.value },
+            sleepClock: clock
+        )
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        let observationTask = Task {
+            for await envelope in stream {
+                await events.record(envelope)
             }
+        }
+        await actor.start()
+        return Self(
+            bus: bus,
+            actor: actor,
+            provider: provider,
+            events: events,
+            clock: clock,
+            monotonicNow: monotonicNow,
+            observationTask: observationTask
+        )
+    }
+
+    func register(repoId: UUID, worktrees: [(UUID, String)]) async {
+        for (index, worktree) in worktrees.enumerated() {
+            await actor.register(
+                worktreeId: worktree.0,
+                repoId: repoId,
+                rootPath: URL(fileURLWithPath: "/tmp/acme-studio-\(index)"),
+                branch: worktree.1
+            )
+        }
+        await actor.setOrigin(repo: repoId, remote: "git@github.com:acme/studio.git")
+    }
+
+    func advance(by duration: Duration) {
+        monotonicNow.advance(by: duration)
+        clock.advance(by: duration)
+    }
+
+    func stopObserving() async {
+        observationTask.cancel()
+        await observationTask.value
+    }
+}
+
+final class ManualForgeMonotonicNow: @unchecked Sendable {
+    private let lock = NSLock()
+    private var elapsed = Duration.zero
+
+    var value: Duration { lock.withLock { elapsed } }
+
+    func advance(by duration: Duration) {
+        lock.withLock { elapsed += duration }
+    }
+}
+
+actor GatedForgeStatusProvider: ForgeStatusProvider {
+    private struct PendingCall {
+        let origin: String
+        let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>
+    }
+
+    private var calls: [PendingCall] = []
+
+    var callCount: Int { calls.count }
+
+    func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
+        await withCheckedContinuation { continuation in
+            calls.append(PendingCall(origin: origin, continuation: continuation))
+        }
+    }
+
+    func resolve(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
+        guard calls.indices.contains(index) else {
+            Issue.record("No Forge provider call at index \(index); recorded \(calls.count)")
+            return
+        }
+        calls[index].continuation.resume(returning: outcome)
+    }
+
+    func waitForCallCount(_ expectedCount: Int, maxTurns: Int = 500) async -> Bool {
+        for _ in 0..<maxTurns {
+            if calls.count >= expectedCount { return true }
             await Task.yield()
         }
-        Issue.record("\(description) timed out")
+        Issue.record("Expected \(expectedCount) Forge provider calls, received \(calls.count)")
         return false
     }
 }
 
-private actor ObservedForgeEvents {
-    private var pullRequestCountsByRepoId: [UUID: [String: Int]] = [:]
-    private var pullRequestEventCountByRepoId: [UUID: Int] = [:]
-    private var pullRequestCountWaitersByRepoId: [UUID: [(Int, CheckedContinuation<Void, Never>)]] = [:]
-    private var refreshFailuresByRepoId: [UUID: Int] = [:]
+actor ObservedForgeEvents {
+    private var recordedEvents: [ForgeEvent] = []
 
     func record(_ envelope: RuntimeEnvelope) {
-        guard case .worktree(let worktreeEnvelope) = envelope else { return }
-        guard case .forge(let forgeEvent) = worktreeEnvelope.event else { return }
-        switch forgeEvent {
-        case .pullRequestCountsChanged(let repoId, let countsByBranch):
-            pullRequestCountsByRepoId[repoId] = countsByBranch
-            pullRequestEventCountByRepoId[repoId, default: 0] += 1
-            let eventCount = pullRequestEventCountByRepoId[repoId, default: 0]
-            let waiters = pullRequestCountWaitersByRepoId.removeValue(forKey: repoId) ?? []
-            var pendingWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
-            for (expectedCount, continuation) in waiters {
-                if eventCount >= expectedCount {
-                    continuation.resume()
-                } else {
-                    pendingWaiters.append((expectedCount, continuation))
-                }
-            }
-            pullRequestCountWaitersByRepoId[repoId] = pendingWaiters
-        case .refreshFailed(let repoId, _):
-            refreshFailuresByRepoId[repoId, default: 0] += 1
-        case .checksUpdated, .rateLimited:
-            return
+        guard case .worktree(let worktreeEnvelope) = envelope,
+            case .forge(let forgeEvent) = worktreeEnvelope.event
+        else { return }
+        recordedEvents.append(forgeEvent)
+    }
+
+    func facts(for repoId: UUID, branch: String) -> PullRequestFacts? {
+        for event in recordedEvents.reversed() {
+            guard case .pullRequestsChanged(let eventRepoId, let factsByBranch) = event,
+                eventRepoId == repoId
+            else { continue }
+            if let facts = factsByBranch[branch] { return facts }
+        }
+        return nil
+    }
+
+    func waitForFacts(
+        repoId: UUID,
+        branch: String,
+        expected: PullRequestFacts,
+        maxTurns: Int = 500
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if facts(for: repoId, branch: branch) == expected { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected Forge facts for branch \(branch)")
+        return false
+    }
+
+    func invalidatedBranches(for repoId: UUID) -> Set<String> {
+        recordedEvents.reduce(into: []) { result, event in
+            guard case .pullRequestBranchesInvalidated(let eventRepoId, let branches) = event,
+                eventRepoId == repoId
+            else { return }
+            result.formUnion(branches)
         }
     }
 
-    func lastPullRequestCounts(for repoId: UUID) -> [String: Int]? {
-        pullRequestCountsByRepoId[repoId]
+    func waitForBranchInvalidation(repoId: UUID, branch: String, maxTurns: Int = 500) async -> Bool {
+        for _ in 0..<maxTurns {
+            if invalidatedBranches(for: repoId).contains(branch) { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected branch invalidation for \(branch)")
+        return false
     }
 
-    func pullRequestCount(for repoId: UUID) -> Int {
-        pullRequestEventCountByRepoId[repoId, default: 0]
+    func waitForRepositoryInvalidation(repoId: UUID, maxTurns: Int = 500) async -> Bool {
+        for _ in 0..<maxTurns {
+            if recordedEvents.contains(where: { event in
+                guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
+                return eventRepoId == repoId
+            }) {
+                return true
+            }
+            await Task.yield()
+        }
+        Issue.record("Expected repository invalidation")
+        return false
     }
 
-    func waitForPullRequestCount(_ expectedCount: Int, repoId: UUID) async {
-        guard pullRequestEventCountByRepoId[repoId, default: 0] < expectedCount else { return }
-        await withCheckedContinuation { continuation in
-            pullRequestCountWaitersByRepoId[repoId, default: []].append((expectedCount, continuation))
+    func repositoryInvalidationCount(repoId: UUID) -> Int {
+        recordedEvents.count { event in
+            guard case .pullRequestRepositoryInvalidated(let eventRepoId) = event else { return false }
+            return eventRepoId == repoId
+        }
+    }
+
+    func waitForRepositoryInvalidationCount(
+        repoId: UUID,
+        expectedCount: Int,
+        maxTurns: Int = 500
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if repositoryInvalidationCount(repoId: repoId) == expectedCount { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected \(expectedCount) repository invalidations")
+        return false
+    }
+
+    func waitForRefreshFailure(repoId: UUID, maxTurns: Int = 500) async -> Bool {
+        for _ in 0..<maxTurns {
+            if recordedEvents.contains(where: { event in
+                guard case .refreshFailed(let eventRepoId, _) = event else { return false }
+                return eventRepoId == repoId
+            }) {
+                return true
+            }
+            await Task.yield()
+        }
+        Issue.record("Expected Forge refresh failure")
+        return false
+    }
+
+    func waitForRateLimit(repoId: UUID, retryAfterSeconds: Int, maxTurns: Int = 500) async -> Bool {
+        for _ in 0..<maxTurns {
+            if recordedEvents.contains(where: { event in
+                guard case .rateLimited(let eventRepoId, let eventRetryAfter) = event else { return false }
+                return eventRepoId == repoId && eventRetryAfter == retryAfterSeconds
+            }) {
+                return true
+            }
+            await Task.yield()
+        }
+        Issue.record("Expected typed Forge rate limit")
+        return false
+    }
+
+    func containsExactURL(_ url: URL) -> Bool {
+        recordedEvents.contains { event in
+            guard case .pullRequestsChanged(_, let factsByBranch) = event else { return false }
+            return factsByBranch.values.contains { $0.exactOpenURL == url }
+        }
+    }
+
+    func pullRequestEventCount(for repoId: UUID) -> Int {
+        recordedEvents.count { event in
+            guard case .pullRequestsChanged(let eventRepoId, _) = event else { return false }
+            return eventRepoId == repoId
+        }
+    }
+
+    func refreshFailureCount(for repoId: UUID) -> Int {
+        recordedEvents.count { event in
+            guard case .refreshFailed(let eventRepoId, _) = event else { return false }
+            return eventRepoId == repoId
         }
     }
 
     func refreshFailedCount(for repoId: UUID) -> Int {
-        refreshFailuresByRepoId[repoId, default: 0]
+        refreshFailureCount(for: repoId)
+    }
+
+    func waitForRefreshFailureCount(
+        repoId: UUID,
+        expectedCount: Int,
+        maxTurns: Int = 500
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if refreshFailureCount(for: repoId) >= expectedCount { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected (expectedCount) Forge refresh failures")
+        return false
     }
 }
 
 private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
     private struct PendingCall {
-        let continuation: CheckedContinuation<[String: Int], Error>
+        let continuation: CheckedContinuation<ForgePullRequestQueryOutcome, Never>
     }
 
     private var pendingCalls: [PendingCall] = []
@@ -542,13 +778,13 @@ private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
         startedCallCount
     }
 
-    func pullRequestCounts(origin _: String, branches _: Set<String>) async throws -> [String: Int] {
+    func pullRequests(origin _: String) async -> ForgePullRequestQueryOutcome {
         startedCallCount += 1
         activeCallCount += 1
         maximumActiveCallCount = max(maximumActiveCallCount, activeCallCount)
         resumeSatisfiedStartedCallWaiters()
         defer { activeCallCount -= 1 }
-        return try await withCheckedThrowingContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             pendingCalls.append(PendingCall(continuation: continuation))
         }
     }
@@ -562,12 +798,20 @@ private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
 
     func finishNextCall(returning counts: [String: Int]) {
         let pendingCall = pendingCalls.removeFirst()
-        pendingCall.continuation.resume(returning: counts)
+        let pullRequests = counts.flatMap { branch, count in
+            (0..<count).map { index in
+                ForgePullRequest(
+                    headRefName: branch,
+                    url: URL(string: "https://example.test/pull/\(index)")!
+                )
+            }
+        }
+        pendingCall.continuation.resume(returning: .complete(pullRequests))
     }
 
     func failNextCall() {
         let pendingCall = pendingCalls.removeFirst()
-        pendingCall.continuation.resume(throwing: SuspendedProviderError.failed)
+        pendingCall.continuation.resume(returning: .failed(message: "failed"))
     }
 
     private func resumeSatisfiedStartedCallWaiters() {
@@ -583,10 +827,6 @@ private actor SuspendedForgeStatusProvider: ForgeStatusProvider {
     }
 }
 
-private enum SuspendedProviderError: Error {
-    case failed
-}
-
 private actor SequencedForgeStatusProvider: ForgeStatusProvider {
     private var results: [[String: Int]]
     private var callCount = 0
@@ -596,11 +836,19 @@ private actor SequencedForgeStatusProvider: ForgeStatusProvider {
         self.results = results
     }
 
-    func pullRequestCounts(origin _: String, branches _: Set<String>) async throws -> [String: Int] {
+    func pullRequests(origin _: String) async -> ForgePullRequestQueryOutcome {
         let result = results.removeFirst()
         callCount += 1
         resumeSatisfiedCallCountWaiters()
-        return result
+        let pullRequests = result.flatMap { branch, count in
+            (0..<count).map { index in
+                ForgePullRequest(
+                    headRefName: branch,
+                    url: URL(string: "https://example.test/pull/\(index)")!
+                )
+            }
+        }
+        return .complete(pullRequests)
     }
 
     func waitForCallCount(_ expectedCount: Int) async {
@@ -633,7 +881,7 @@ private actor CancellationObservingForgeStatusProvider: ForgeStatusProvider {
         didCancel
     }
 
-    func pullRequestCounts(origin _: String, branches _: Set<String>) async throws -> [String: Int] {
+    func pullRequests(origin _: String) async -> ForgePullRequestQueryOutcome {
         didStart = true
         let waiters = startWaiters
         startWaiters.removeAll(keepingCapacity: false)
@@ -651,7 +899,7 @@ private actor CancellationObservingForgeStatusProvider: ForgeStatusProvider {
         for waiter in pendingCancellationWaiters {
             waiter.resume()
         }
-        throw CancellationError()
+        return .failed(message: "cancelled")
     }
 
     func waitUntilStarted() async {

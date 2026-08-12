@@ -37,14 +37,12 @@ package struct WorkspaceLocalRepository: Sendable {
     struct CacheStateRecord: Equatable, Sendable {
         var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
-        var pullRequestCountByWorktreeId: [UUID: Int]
         var sourceRevision: UInt64
         var lastRebuiltAt: Date?
 
         static let empty = Self(
             repoEnrichmentByRepoId: [:],
             worktreeEnrichmentByWorktreeId: [:],
-            pullRequestCountByWorktreeId: [:],
             sourceRevision: 0,
             lastRebuiltAt: nil
         )

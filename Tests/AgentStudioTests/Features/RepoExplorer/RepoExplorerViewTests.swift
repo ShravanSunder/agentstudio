@@ -38,6 +38,23 @@ struct RepoExplorerViewTests {
         #expect(equal.outcome == .equal)
     }
 
+    @Test("pull request chip distinguishes not-fetched, confirmed zero, and positive facts")
+    func pullRequestChipPresentationDistinguishesFactStates() {
+        let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
+        let confirmedZero = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 0)
+        let positive = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
+
+        #expect(unknown.icon == .system(.arrowClockwise))
+        #expect(unknown.text == nil)
+        #expect(unknown.usesAccent == false)
+        #expect(confirmedZero.icon == .octicon("octicon-git-pull-request"))
+        #expect(confirmedZero.text == "0")
+        #expect(confirmedZero.usesAccent == false)
+        #expect(positive.icon == .octicon("octicon-git-pull-request"))
+        #expect(positive.text == "2")
+        #expect(positive.usesAccent)
+    }
+
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {
         let repoId = UUID()
@@ -469,7 +486,7 @@ struct RepoExplorerViewTests {
 
         let status = RepoExplorerView.branchStatus(
             enrichment: enrichment,
-            pullRequestCount: 3
+            pullRequestFacts: PullRequestFacts(openCount: 3, exactOpenURL: nil)
         )
 
         #expect(status.isDirty == true)

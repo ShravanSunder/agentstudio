@@ -2,81 +2,45 @@ import AgentStudioInfrastructure
 import Foundation
 import os
 
-package protocol ForgeStatusProvider: Sendable {
-    func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int]
-}
-
-enum ForgeStatusProviderError: Error, Sendable {
-    case unsupportedRemote(String)
-    case commandFailed(message: String)
-    case invalidResponse(String)
-}
-
-package struct GitHubCLIForgeStatusProvider: ForgeStatusProvider {
-    private struct PullRequestHead: Decodable {
-        let headRefName: String
-    }
-
-    private let processExecutor: any ProcessExecutor
-
-    package init(processExecutor: any ProcessExecutor = DefaultProcessExecutor(timeout: 8)) {
-        self.processExecutor = processExecutor
-    }
-
-    package func pullRequestCounts(origin: String, branches: Set<String>) async throws -> [String: Int] {
-        let trackedBranches = Set(branches.filter { !$0.isEmpty })
-        guard !trackedBranches.isEmpty else { return [:] }
-
-        guard let repoSlug = RemoteIdentityNormalizer.extractSlug(origin) else {
-            throw ForgeStatusProviderError.unsupportedRemote(origin)
-        }
-
-        let result = try await processExecutor.execute(
-            command: "gh",
-            args: [
-                "pr",
-                "list",
-                "--repo", repoSlug,
-                "--state", "open",
-                "--json", "headRefName",
-                "--limit", "200",
-            ],
-            cwd: nil,
-            environment: nil
-        )
-
-        guard result.succeeded else {
-            let message = result.stderr.isEmpty ? result.stdout : result.stderr
-            throw ForgeStatusProviderError.commandFailed(message: message)
-        }
-
-        guard let data = result.stdout.data(using: .utf8) else {
-            throw ForgeStatusProviderError.invalidResponse("gh output is not valid UTF-8")
-        }
-        let pullRequests = try JSONDecoder().decode([PullRequestHead].self, from: data)
-        var counts = Dictionary(uniqueKeysWithValues: trackedBranches.map { ($0, 0) })
-        for pullRequest in pullRequests {
-            guard trackedBranches.contains(pullRequest.headRefName) else { continue }
-            counts[pullRequest.headRefName, default: 0] += 1
-        }
-        return counts
-    }
-}
-
 package actor ForgeActor {
-    private struct RepoRefreshState {
-        var generation: UInt64 = 0
-        var inFlightTask: Task<Void, Never>?
-        var backoffTask: Task<Void, Never>?
-        var hasPendingRefresh = false
-        var pendingCorrelationId: UUID?
-        var consecutiveFailureCount = 0
-        var lastPublishedCountsByBranch: [String: Int]?
+    private struct WorktreeMembership: Sendable {
+        let repoId: UUID
+        let rootPath: URL
+        var branch: String?
     }
 
-    private enum RefreshResult: Sendable {
-        case success([String: Int])
-        case failure(String)
+    private struct RepositoryRefreshState {
+        var origin: String?
+        var generation: UInt64 = 0
+        var lastSuccessfulRefreshAt: Duration?
+        var lastAttemptAt: Duration?
+        var backoffUntil: Duration?
+        var activeRequestId: UInt64?
+        var pendingFollowUp = false
+        var consecutiveFailureCount = 0
+        var lastPublishedFactsByBranch: [String: PullRequestFacts]?
+    }
+
+    private struct ProviderRequest: Sendable {
+        let id: UInt64
+        let repoId: UUID
+        let origin: String
+        let generation: UInt64
+        let demandedBranches: Set<String>
+        let correlationId: UUID?
+    }
+
+    private enum RefreshTrigger {
+        case automatic
+        case manual
+        case followUp
+
+        var bypassesFreshness: Bool {
+            switch self {
+            case .automatic: false
+            case .manual, .followUp: true
+            }
+        }
     }
 
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ForgeActor")
@@ -85,148 +49,215 @@ package actor ForgeActor {
     private let statusProvider: any ForgeStatusProvider
     private let providerName: String
     private let envelopeClock: ContinuousClock
-    private let pollInterval: Duration
+    private let monotonicNow: @Sendable () -> Duration
     private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
 
     private var subscriptionTask: Task<Void, Never>?
-    private var pollingTask: Task<Void, Never>?
+    private var deadlineTask: Task<Void, Never>?
+    private var providerTasksByRepoId: [UUID: Task<Void, Never>] = [:]
+    private var nextDeadlineGeneration: UInt64 = 0
+    private var nextProviderRequestId: UInt64 = 0
     private var nextEnvelopeSequence: UInt64 = 0
-    private var repoOriginByRepoId: [UUID: String] = [:]
-    private var branchesByRepoId: [UUID: Set<String>] = [:]
-    private var refreshStateByRepoId: [UUID: RepoRefreshState] = [:]
+    private var membershipByWorktreeId: [UUID: WorktreeMembership] = [:]
+    private var demandedWorktreeIds: Set<UUID> = []
+    private var refreshStateByRepoId: [UUID: RepositoryRefreshState] = [:]
+    private var isShuttingDown = false
 
     package init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         statusProvider: any ForgeStatusProvider,
         providerName: String = "github",
         envelopeClock: ContinuousClock = ContinuousClock(),
-        pollInterval: Duration = AppPolicies.ForgeRefresh.defaultPollingInterval,
+        monotonicNow: @escaping @Sendable () -> Duration = {
+            .seconds(ProcessInfo.processInfo.systemUptime)
+        },
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         subscriptionBufferLimit: Int = 256
     ) {
-        self.runtimeBus = bus
+        runtimeBus = bus
         self.statusProvider = statusProvider
         self.providerName = providerName
         self.envelopeClock = envelopeClock
-        self.pollInterval = pollInterval
+        self.monotonicNow = monotonicNow
         delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.subscriptionBufferLimit = subscriptionBufferLimit
     }
 
     isolated deinit {
         subscriptionTask?.cancel()
-        pollingTask?.cancel()
-        for refreshState in refreshStateByRepoId.values {
-            refreshState.inFlightTask?.cancel()
-            refreshState.backoffTask?.cancel()
+        deadlineTask?.cancel()
+        for task in providerTasksByRepoId.values {
+            task.cancel()
         }
     }
 
     package func start() async {
-        if subscriptionTask == nil {
-            let stream = await runtimeBus.subscribe(
-                policy: .lossyNewest(subscriptionBufferLimit),
-                subscriberName: "ForgeActor",
-                factInterest: .matching([.worktreeGitWorkingDirectory])
-            )
-            subscriptionTask = Task { [weak self] in
-                for await runtimeEnvelope in stream {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { return }
-                    await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
-                }
-            }
-        }
-
-        if pollingTask == nil {
-            let delay = self.delay
-            let pollInterval = self.pollInterval
-            pollingTask = Task { [weak self, delay, pollInterval] in
-                while !Task.isCancelled {
-                    do {
-                        try await delay.wait(pollInterval)
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                        Self.logger.warning(
-                            "Unexpected forge polling sleep failure: \(String(describing: error), privacy: .public)"
-                        )
-                        continue
-                    }
-
-                    guard !Task.isCancelled else { return }
-                    guard let self else { return }
-                    await self.refreshTrackedRepos()
-                }
+        guard subscriptionTask == nil else { return }
+        let stream = await runtimeBus.subscribe(
+            policy: .lossyNewest(subscriptionBufferLimit),
+            subscriberName: "ForgeActor",
+            factInterest: .matching([.worktreeGitWorkingDirectory])
+        )
+        subscriptionTask = Task { [weak self] in
+            for await runtimeEnvelope in stream {
+                guard !Task.isCancelled, let self else { return }
+                await self.handleIncomingRuntimeEnvelope(runtimeEnvelope)
             }
         }
     }
 
-    package func register(repo repoId: UUID, remote: String) async {
-        let trimmedRemote = remote.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRemote.isEmpty else {
-            await unregister(repo: repoId)
+    package func register(
+        worktreeId: UUID,
+        repoId: UUID,
+        rootPath: URL,
+        branch: String? = nil
+    ) async {
+        let normalizedBranch = Self.normalizedBranch(branch)
+        let priorMembership = membershipByWorktreeId[worktreeId]
+        membershipByWorktreeId[worktreeId] = WorktreeMembership(
+            repoId: repoId,
+            rootPath: rootPath.standardizedFileURL,
+            branch: normalizedBranch
+        )
+
+        if let priorMembership,
+            priorMembership.repoId != repoId || priorMembership.branch != normalizedBranch
+        {
+            await invalidateBranchIfUnrepresented(
+                repoId: priorMembership.repoId,
+                branch: priorMembership.branch
+            )
+        }
+        requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+        rescheduleDeadline()
+    }
+
+    package func unregister(worktreeId: UUID) async {
+        guard let removedMembership = membershipByWorktreeId.removeValue(forKey: worktreeId) else { return }
+        demandedWorktreeIds.remove(worktreeId)
+        await invalidateBranchIfUnrepresented(
+            repoId: removedMembership.repoId,
+            branch: removedMembership.branch
+        )
+        requestRefreshIfDemanded(
+            repoId: removedMembership.repoId,
+            trigger: .automatic,
+            correlationId: nil
+        )
+        rescheduleDeadline()
+    }
+
+    package func setOrigin(repo repoId: UUID, remote: String) async {
+        guard let normalizedOrigin = remote.trimmedNonEmpty else {
+            await clearOrigin(repoId: repoId)
             return
         }
 
-        repoOriginByRepoId[repoId] = trimmedRemote
-        if branchesByRepoId[repoId] == nil {
-            branchesByRepoId[repoId] = []
+        var state = refreshStateByRepoId[repoId] ?? RepositoryRefreshState()
+        guard state.origin != normalizedOrigin else { return }
+        let replacedExistingOrigin = state.origin != nil
+
+        cancelProviderRequest(repoId: repoId)
+        state.generation &+= 1
+        state.origin = normalizedOrigin
+        state.lastSuccessfulRefreshAt = nil
+        state.lastAttemptAt = nil
+        state.backoffUntil = nil
+        state.activeRequestId = nil
+        state.pendingFollowUp = false
+        state.consecutiveFailureCount = 0
+        state.lastPublishedFactsByBranch = nil
+        refreshStateByRepoId[repoId] = state
+
+        if replacedExistingOrigin {
+            await emitForgeEvent(
+                repoId: repoId,
+                correlationId: nil,
+                event: .pullRequestRepositoryInvalidated(repoId: repoId)
+            )
         }
-        requestRefresh(repoId: repoId, correlationId: nil)
+        requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+        rescheduleDeadline()
     }
 
-    package func unregister(repo repoId: UUID) async {
-        repoOriginByRepoId.removeValue(forKey: repoId)
-        branchesByRepoId.removeValue(forKey: repoId)
-        let refreshState = refreshStateByRepoId.removeValue(forKey: repoId)
-        refreshState?.inFlightTask?.cancel()
-        refreshState?.backoffTask?.cancel()
+    package func removeRepository(repo repoId: UUID) async {
+        cancelProviderRequest(repoId: repoId)
+        refreshStateByRepoId.removeValue(forKey: repoId)
+        let removedWorktreeIds = Set(
+            membershipByWorktreeId.compactMap { worktreeId, membership in
+                membership.repoId == repoId ? worktreeId : nil
+            }
+        )
+        for worktreeId in removedWorktreeIds {
+            membershipByWorktreeId.removeValue(forKey: worktreeId)
+        }
+        demandedWorktreeIds.subtract(removedWorktreeIds)
+        await emitForgeEvent(
+            repoId: repoId,
+            correlationId: nil,
+            event: .pullRequestRepositoryInvalidated(repoId: repoId)
+        )
+        rescheduleDeadline()
+    }
+
+    package func setDemand(worktreeIds: Set<UUID>) async {
+        guard demandedWorktreeIds != worktreeIds else { return }
+        let previouslyDemandedRepoIds = demandedRepoIds()
+        demandedWorktreeIds = worktreeIds
+        let currentlyDemandedRepoIds = demandedRepoIds()
+
+        for repoId in previouslyDemandedRepoIds.subtracting(currentlyDemandedRepoIds) {
+            if var state = refreshStateByRepoId[repoId] {
+                state.pendingFollowUp = false
+                refreshStateByRepoId[repoId] = state
+            }
+        }
+        for repoId in currentlyDemandedRepoIds {
+            requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+        }
+        rescheduleDeadline()
     }
 
     package func refresh(repo repoId: UUID, correlationId: UUID? = nil) async {
-        requestRefresh(repoId: repoId, correlationId: correlationId)
+        requestRefreshIfDemanded(repoId: repoId, trigger: .manual, correlationId: correlationId)
+        rescheduleDeadline()
     }
 
     package func shutdown() async {
-        let activeSubscription = subscriptionTask
-        let activePolling = pollingTask
+        guard !isShuttingDown else { return }
+        isShuttingDown = true
+        let activeSubscriptionTask = subscriptionTask
+        let activeDeadlineTask = deadlineTask
+        let activeProviderTasks = Array(providerTasksByRepoId.values)
 
         subscriptionTask?.cancel()
-        pollingTask?.cancel()
+        deadlineTask?.cancel()
+        for task in activeProviderTasks {
+            task.cancel()
+        }
         subscriptionTask = nil
-        pollingTask = nil
+        deadlineTask = nil
+        providerTasksByRepoId.removeAll(keepingCapacity: false)
 
-        if let activeSubscription {
-            await activeSubscription.value
-        }
-        if let activePolling {
-            await activePolling.value
-        }
+        if let activeSubscriptionTask { await activeSubscriptionTask.value }
+        if let activeDeadlineTask { await activeDeadlineTask.value }
+        for task in activeProviderTasks { await task.value }
 
-        for refreshState in refreshStateByRepoId.values {
-            refreshState.inFlightTask?.cancel()
-            refreshState.backoffTask?.cancel()
-        }
-
-        repoOriginByRepoId.removeAll(keepingCapacity: false)
-        branchesByRepoId.removeAll(keepingCapacity: false)
+        membershipByWorktreeId.removeAll(keepingCapacity: false)
+        demandedWorktreeIds.removeAll(keepingCapacity: false)
         refreshStateByRepoId.removeAll(keepingCapacity: false)
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
-        switch envelope {
-        case .worktree(let worktreeEnvelope):
-            guard case .gitWorkingDirectory(let gitEvent) = worktreeEnvelope.event else { return }
-            await handleGitWorkingDirectoryEvent(
-                gitEvent,
-                repoId: worktreeEnvelope.repoId,
-                correlationId: worktreeEnvelope.correlationId
-            )
-        case .system, .pane:
-            return
-        }
+        guard case .worktree(let worktreeEnvelope) = envelope,
+            case .gitWorkingDirectory(let gitEvent) = worktreeEnvelope.event
+        else { return }
+        await handleGitWorkingDirectoryEvent(
+            gitEvent,
+            repoId: worktreeEnvelope.repoId,
+            correlationId: worktreeEnvelope.correlationId
+        )
     }
 
     private func handleGitWorkingDirectoryEvent(
@@ -236,165 +267,344 @@ package actor ForgeActor {
     ) async {
         switch event {
         case .snapshotChanged(let snapshot):
-            if let branch = snapshot.branch, !branch.isEmpty {
-                branchesByRepoId[repoId, default: []].insert(branch)
-            }
-        case .branchChanged(_, _, _, let to):
-            if !to.isEmpty {
-                branchesByRepoId[repoId, default: []].insert(to)
-            }
-            await refresh(repo: repoId, correlationId: correlationId)
+            await updateMembershipBranch(
+                worktreeId: snapshot.worktreeId,
+                repoId: snapshot.repoId,
+                rootPath: snapshot.rootPath,
+                branch: snapshot.branch,
+                correlationId: correlationId
+            )
+        case .branchChanged(let worktreeId, _, _, let to):
+            guard let membership = membershipByWorktreeId[worktreeId] else { return }
+            await updateMembershipBranch(
+                worktreeId: worktreeId,
+                repoId: membership.repoId,
+                rootPath: membership.rootPath,
+                branch: to,
+                correlationId: correlationId
+            )
         case .originChanged(_, _, let to):
-            await register(repo: repoId, remote: to)
+            await setOrigin(repo: repoId, remote: to)
         case .originUnavailable:
-            return
-        case .worktreeDiscovered(_, _, let branch, _):
-            if !branch.isEmpty {
-                branchesByRepoId[repoId, default: []].insert(branch)
-            }
+            await clearOrigin(repoId: repoId)
+        case .worktreeDiscovered(_, let worktreePath, let branch, _):
+            guard
+                let matchingMembership = membershipByWorktreeId.first(where: { _, membership in
+                    membership.repoId == repoId
+                        && membership.rootPath == worktreePath.standardizedFileURL
+                })
+            else { return }
+            await updateMembershipBranch(
+                worktreeId: matchingMembership.key,
+                repoId: repoId,
+                rootPath: worktreePath,
+                branch: branch,
+                correlationId: correlationId
+            )
         case .worktreeRemoved, .diffAvailable:
             return
         }
     }
 
-    private func refreshTrackedRepos() async {
-        guard !Task.isCancelled else { return }
-        let repoIds = Array(repoOriginByRepoId.keys)
-        for repoId in repoIds {
-            requestRefresh(repoId: repoId, correlationId: nil)
-        }
-    }
-
-    private func requestRefresh(repoId: UUID, correlationId: UUID?) {
-        guard !Task.isCancelled else { return }
-        guard let origin = repoOriginByRepoId[repoId], !origin.isEmpty else { return }
-        var refreshState = refreshStateByRepoId[repoId] ?? RepoRefreshState()
-        guard refreshState.inFlightTask == nil, refreshState.backoffTask == nil else {
-            refreshState.hasPendingRefresh = true
-            refreshState.pendingCorrelationId = correlationId
-            refreshStateByRepoId[repoId] = refreshState
-            return
-        }
-
-        refreshState.generation += 1
-        let generation = refreshState.generation
-        let trackedBranches = branchesByRepoId[repoId] ?? []
-        let statusProvider = self.statusProvider
-        let refreshTask = Task { [weak self, statusProvider] in
-            let result: RefreshResult
-            do {
-                result = .success(
-                    try await statusProvider.pullRequestCounts(
-                        origin: origin,
-                        branches: trackedBranches
-                    )
-                )
-            } catch {
-                result = .failure(String(describing: error))
-            }
-            guard !Task.isCancelled else { return }
-            await self?.finishRefresh(
-                repoId: repoId,
-                generation: generation,
-                correlationId: correlationId,
-                result: result
-            )
-        }
-        refreshState.inFlightTask = refreshTask
-        refreshStateByRepoId[repoId] = refreshState
-    }
-
-    private func finishRefresh(
+    private func updateMembershipBranch(
+        worktreeId: UUID,
         repoId: UUID,
-        generation: UInt64,
-        correlationId: UUID?,
-        result: RefreshResult
+        rootPath: URL,
+        branch: String?,
+        correlationId: UUID?
     ) async {
-        guard var refreshState = refreshStateByRepoId[repoId], refreshState.generation == generation else {
+        guard let priorMembership = membershipByWorktreeId[worktreeId] else { return }
+        let normalizedBranch = Self.normalizedBranch(branch)
+        membershipByWorktreeId[worktreeId] = WorktreeMembership(
+            repoId: repoId,
+            rootPath: rootPath.standardizedFileURL,
+            branch: normalizedBranch
+        )
+        if priorMembership.repoId != repoId || priorMembership.branch != normalizedBranch {
+            await invalidateBranchIfUnrepresented(
+                repoId: priorMembership.repoId,
+                branch: priorMembership.branch
+            )
+        }
+        if demandedWorktreeIds.contains(worktreeId) {
+            requestRefreshIfDemanded(
+                repoId: repoId,
+                trigger: .automatic,
+                correlationId: correlationId
+            )
+        }
+        rescheduleDeadline()
+    }
+
+    private func clearOrigin(repoId: UUID) async {
+        guard var state = refreshStateByRepoId[repoId], state.origin != nil else { return }
+        cancelProviderRequest(repoId: repoId)
+        state.generation &+= 1
+        state.origin = nil
+        state.lastSuccessfulRefreshAt = nil
+        state.lastAttemptAt = nil
+        state.backoffUntil = nil
+        state.activeRequestId = nil
+        state.pendingFollowUp = false
+        state.consecutiveFailureCount = 0
+        state.lastPublishedFactsByBranch = nil
+        refreshStateByRepoId[repoId] = state
+        await emitForgeEvent(
+            repoId: repoId,
+            correlationId: nil,
+            event: .pullRequestRepositoryInvalidated(repoId: repoId)
+        )
+        rescheduleDeadline()
+    }
+
+    private func invalidateBranchIfUnrepresented(repoId: UUID, branch: String?) async {
+        guard let branch,
+            membershipByWorktreeId.values.contains(where: {
+                $0.repoId == repoId && $0.branch == branch
+            }) == false
+        else { return }
+        await emitForgeEvent(
+            repoId: repoId,
+            correlationId: nil,
+            event: .pullRequestBranchesInvalidated(repoId: repoId, branches: [branch])
+        )
+    }
+
+    private func requestRefreshIfDemanded(
+        repoId: UUID,
+        trigger: RefreshTrigger,
+        correlationId: UUID?
+    ) {
+        guard !isShuttingDown else { return }
+        let demandedBranches = demandedBranches(repoId: repoId)
+        guard !demandedBranches.isEmpty else {
+            if var state = refreshStateByRepoId[repoId] {
+                state.pendingFollowUp = false
+                refreshStateByRepoId[repoId] = state
+            }
+            return
+        }
+        guard var state = refreshStateByRepoId[repoId], let origin = state.origin else { return }
+
+        if state.activeRequestId != nil {
+            state.pendingFollowUp = true
+            refreshStateByRepoId[repoId] = state
             return
         }
 
-        switch result {
-        case .success(let countsByBranch):
-            refreshState.consecutiveFailureCount = 0
-            if refreshState.lastPublishedCountsByBranch != countsByBranch {
-                refreshState.lastPublishedCountsByBranch = countsByBranch
-                refreshStateByRepoId[repoId] = refreshState
-                await emitForgeEvent(
-                    repoId: repoId,
-                    correlationId: correlationId,
-                    event: .pullRequestCountsChanged(repoId: repoId, countsByBranch: countsByBranch)
-                )
-                guard
-                    let latestRefreshState = refreshStateByRepoId[repoId],
-                    latestRefreshState.generation == generation
-                else { return }
-                refreshState = latestRefreshState
-            }
-        case .failure(let errorDescription):
-            refreshState.consecutiveFailureCount += 1
-            refreshState.hasPendingRefresh = true
-            refreshStateByRepoId[repoId] = refreshState
-            await emitForgeEvent(
-                repoId: repoId,
-                correlationId: correlationId,
-                event: .refreshFailed(repoId: repoId, error: errorDescription)
-            )
-            guard
-                let latestRefreshState = refreshStateByRepoId[repoId],
-                latestRefreshState.generation == generation
-            else { return }
-            refreshState = latestRefreshState
+        let now = monotonicNow()
+        if let nextEligibleAt = nextEligibleRefreshAt(state: state, bypassFreshness: trigger.bypassesFreshness),
+            now < nextEligibleAt
+        {
+            state.pendingFollowUp = true
+            refreshStateByRepoId[repoId] = state
+            return
         }
 
-        refreshState.inFlightTask = nil
-        refreshStateByRepoId[repoId] = refreshState
-        if refreshState.consecutiveFailureCount > 0 {
-            scheduleBackoff(repoId: repoId, generation: generation)
-        } else {
-            startPendingRefreshIfNeeded(repoId: repoId)
+        nextProviderRequestId &+= 1
+        let request = ProviderRequest(
+            id: nextProviderRequestId,
+            repoId: repoId,
+            origin: origin,
+            generation: state.generation,
+            demandedBranches: demandedBranches,
+            correlationId: correlationId
+        )
+        state.activeRequestId = request.id
+        state.lastAttemptAt = now
+        state.pendingFollowUp = false
+        refreshStateByRepoId[repoId] = state
+
+        let statusProvider = self.statusProvider
+        providerTasksByRepoId[repoId] = Task { [weak self, statusProvider] in
+            let outcome = await statusProvider.pullRequests(origin: request.origin)
+            guard let self else { return }
+            await self.completeProviderRequest(request, outcome: outcome)
         }
     }
 
-    private func scheduleBackoff(repoId: UUID, generation: UInt64) {
-        guard var refreshState = refreshStateByRepoId[repoId], refreshState.generation == generation else {
+    private func completeProviderRequest(
+        _ request: ProviderRequest,
+        outcome: ForgePullRequestQueryOutcome
+    ) async {
+        guard !isShuttingDown else {
+            providerTasksByRepoId.removeValue(forKey: request.repoId)
             return
         }
+        guard var state = refreshStateByRepoId[request.repoId],
+            state.activeRequestId == request.id,
+            state.generation == request.generation,
+            state.origin == request.origin
+        else { return }
+
+        providerTasksByRepoId.removeValue(forKey: request.repoId)
+        state.activeRequestId = nil
+        let completionTime = monotonicNow()
+        var event: ForgeEvent?
+
+        switch outcome {
+        case .complete(let pullRequests):
+            state.lastSuccessfulRefreshAt = completionTime
+            state.backoffUntil = nil
+            state.consecutiveFailureCount = 0
+            let stillRepresentedRequestedBranches = request.demandedBranches.intersection(
+                representedBranches(repoId: request.repoId)
+            )
+            let factsByBranch = ForgePullRequestFactsProjector.project(
+                pullRequests: pullRequests,
+                demandedBranches: stillRepresentedRequestedBranches
+            )
+            let factsChanged = state.lastPublishedFactsByBranch != factsByBranch
+            state.lastPublishedFactsByBranch = factsByBranch
+            event =
+                factsChanged
+                ? .pullRequestsChanged(repoId: request.repoId, factsByBranch: factsByBranch)
+                : nil
+        case .truncated:
+            state.backoffUntil = minimumRetryAt(state: state, completionTime: completionTime)
+            event = .refreshFailed(
+                repoId: request.repoId,
+                error: "GitHub pull request result reached the 200-item cap"
+            )
+        case .rateLimited(let retryAfterSeconds):
+            let retryAfterDeadline = retryAfterSeconds.map {
+                completionTime + .seconds(Int64($0))
+            }
+            state.backoffUntil = max(
+                minimumRetryAt(state: state, completionTime: completionTime),
+                retryAfterDeadline ?? .zero
+            )
+            event = .rateLimited(repoId: request.repoId, retryAfterSeconds: retryAfterSeconds)
+        case .failed(let message):
+            state.consecutiveFailureCount += 1
+            state.backoffUntil =
+                completionTime
+                + AppPolicies.ForgeRefresh.failureBackoffDelay(
+                    forConsecutiveFailureCount: state.consecutiveFailureCount
+                )
+            event = .refreshFailed(repoId: request.repoId, error: message)
+        }
+
+        refreshStateByRepoId[request.repoId] = state
+        if let event {
+            await emitForgeEvent(
+                repoId: request.repoId,
+                correlationId: request.correlationId,
+                event: event
+            )
+        }
+
+        guard var currentState = refreshStateByRepoId[request.repoId],
+            currentState.generation == request.generation,
+            currentState.activeRequestId == nil
+        else { return }
+        if currentState.pendingFollowUp {
+            currentState.pendingFollowUp = false
+            refreshStateByRepoId[request.repoId] = currentState
+            requestRefreshIfDemanded(
+                repoId: request.repoId,
+                trigger: .followUp,
+                correlationId: nil
+            )
+        }
+        rescheduleDeadline()
+    }
+
+    private func minimumRetryAt(
+        state: RepositoryRefreshState,
+        completionTime: Duration
+    ) -> Duration {
+        (state.lastAttemptAt ?? completionTime) + AppPolicies.Forge.automaticRefreshMinimumInterval
+    }
+
+    private func nextEligibleRefreshAt(
+        state: RepositoryRefreshState,
+        bypassFreshness: Bool
+    ) -> Duration? {
+        var nextEligibleAt = state.backoffUntil
+        if !bypassFreshness, let lastSuccessfulRefreshAt = state.lastSuccessfulRefreshAt {
+            let freshnessDeadline =
+                lastSuccessfulRefreshAt + AppPolicies.Forge.automaticRefreshMinimumInterval
+            nextEligibleAt = max(nextEligibleAt ?? .zero, freshnessDeadline)
+        }
+        return nextEligibleAt
+    }
+
+    private func rescheduleDeadline() {
+        nextDeadlineGeneration &+= 1
+        let deadlineGeneration = nextDeadlineGeneration
+        deadlineTask?.cancel()
+        deadlineTask = nil
+        guard !isShuttingDown else { return }
+
+        let now = monotonicNow()
+        let deadlines = demandedRepoIds().compactMap { repoId -> Duration? in
+            guard let state = refreshStateByRepoId[repoId],
+                state.origin != nil,
+                state.activeRequestId == nil
+            else { return nil }
+            return nextEligibleRefreshAt(state: state, bypassFreshness: false)
+        }
+        guard let earliestDeadline = deadlines.min() else { return }
+        let waitDuration = max(.zero, earliestDeadline - now)
         let delay = self.delay
-        let backoffDelay = AppPolicies.ForgeRefresh.failureBackoffDelay(
-            forConsecutiveFailureCount: refreshState.consecutiveFailureCount
-        )
-        let backoffTask = Task { [weak self, delay] in
+        deadlineTask = Task { [weak self, delay] in
             do {
-                try await delay.wait(backoffDelay)
+                try await delay.wait(waitDuration)
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
-            await self?.finishBackoff(repoId: repoId, generation: generation)
+            guard !Task.isCancelled, let self else { return }
+            await self.deadlineDidFire(generation: deadlineGeneration)
         }
-        refreshState.backoffTask = backoffTask
-        refreshStateByRepoId[repoId] = refreshState
     }
 
-    private func finishBackoff(repoId: UUID, generation: UInt64) {
-        guard var refreshState = refreshStateByRepoId[repoId], refreshState.generation == generation else {
-            return
+    private func deadlineDidFire(generation: UInt64) {
+        guard generation == nextDeadlineGeneration else { return }
+        deadlineTask = nil
+        let repoIds = demandedRepoIds()
+        for repoId in repoIds {
+            requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
         }
-        refreshState.backoffTask = nil
-        refreshStateByRepoId[repoId] = refreshState
-        startPendingRefreshIfNeeded(repoId: repoId)
+        rescheduleDeadline()
     }
 
-    private func startPendingRefreshIfNeeded(repoId: UUID) {
-        guard var refreshState = refreshStateByRepoId[repoId], refreshState.hasPendingRefresh else {
-            return
+    private func cancelProviderRequest(repoId: UUID) {
+        providerTasksByRepoId.removeValue(forKey: repoId)?.cancel()
+        if var state = refreshStateByRepoId[repoId] {
+            state.activeRequestId = nil
+            state.pendingFollowUp = false
+            refreshStateByRepoId[repoId] = state
         }
-        let correlationId = refreshState.pendingCorrelationId
-        refreshState.hasPendingRefresh = false
-        refreshState.pendingCorrelationId = nil
-        refreshStateByRepoId[repoId] = refreshState
-        requestRefresh(repoId: repoId, correlationId: correlationId)
+    }
+
+    private func demandedRepoIds() -> Set<UUID> {
+        Set(demandedWorktreeIds.compactMap { membershipByWorktreeId[$0]?.repoId })
+    }
+
+    private func demandedBranches(repoId: UUID) -> Set<String> {
+        Set(
+            demandedWorktreeIds.compactMap { worktreeId in
+                guard let membership = membershipByWorktreeId[worktreeId],
+                    membership.repoId == repoId
+                else { return nil }
+                return membership.branch
+            }
+        )
+    }
+
+    private func representedBranches(repoId: UUID) -> Set<String> {
+        Set(
+            membershipByWorktreeId.values.compactMap { membership in
+                guard membership.repoId == repoId else { return nil }
+                return membership.branch
+            }
+        )
+    }
+
+    private static func normalizedBranch(_ branch: String?) -> String? {
+        guard let branch, !branch.isEmpty else { return nil }
+        return branch
     }
 
     private func emitForgeEvent(
@@ -402,7 +612,7 @@ package actor ForgeActor {
         correlationId: UUID?,
         event: ForgeEvent
     ) async {
-        nextEnvelopeSequence += 1
+        nextEnvelopeSequence &+= 1
         let runtimeEnvelope = RuntimeEnvelope.worktree(
             WorktreeEnvelope(
                 source: .system(.service(.gitForge(provider: providerName))),

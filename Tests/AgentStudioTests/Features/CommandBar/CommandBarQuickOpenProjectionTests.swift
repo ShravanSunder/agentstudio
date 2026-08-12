@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -122,6 +123,66 @@ struct CommandBarQuickOpenProjectionTests {
 
             #expect(items.filter { $0.group == "Current" }.count == 1)
             #expect(items.first?.id == "directory-\(StableKey.fromPath(home))")
+        }
+    }
+
+    @Test("Current preserves worktree activation when a watched root matches its path")
+    func watchedRootMatchingWorktreePreservesWorktreeActivation() throws {
+        try withTestCoreAtoms { coreAtoms in
+            let store = WorkspaceStore(
+                identityAtom: coreAtoms.workspaceIdentity,
+                repositoryTopologyAtom: coreAtoms.workspaceRepositoryTopology
+            )
+            let repositoryID = UUIDv7.generate()
+            let mainWorktree = Worktree(
+                repoId: repositoryID,
+                name: "main",
+                path: URL(filePath: "/tmp/quick-open-watched-repository"),
+                isMainWorktree: true
+            )
+            let linkedWorktree = Worktree(
+                repoId: repositoryID,
+                name: "feature",
+                path: URL(filePath: "/tmp/quick-open-watched-repository-feature")
+            )
+            let repository = Repo(
+                id: repositoryID,
+                name: "watched-repository",
+                repoPath: mainWorktree.path,
+                worktrees: [mainWorktree, linkedWorktree]
+            )
+            let preparation = RepositoryTopologyReplacement.prepare(
+                repositories: [repository],
+                watchedPaths: [WatchedPath(path: linkedWorktree.path)],
+                unavailableRepositoryIDs: []
+            )
+            guard case .prepared(let replacement) = preparation else {
+                Issue.record("Expected valid watched-worktree topology fixture")
+                return
+            }
+            store.repositoryTopologyAtom.replaceTopology(replacement)
+
+            let items = quickOpenItems(
+                queryState: .empty,
+                store: store,
+                focusedPane: nil
+            )
+
+            let currentWorktreeItem = try #require(
+                items.first { $0.group == "Current" && $0.id == "repo-wt-\(linkedWorktree.id.uuidString)" }
+            )
+            guard
+                case .quickOpen(.worktree(let projectedStableKey)) = currentWorktreeItem.action
+            else {
+                Issue.record("Expected the Current row to preserve worktree activation")
+                return
+            }
+            #expect(projectedStableKey == linkedWorktree.stableKey)
+            #expect(
+                !items.contains {
+                    $0.id == "directory-\(StableKey.fromPath(linkedWorktree.path))"
+                }
+            )
         }
     }
 
