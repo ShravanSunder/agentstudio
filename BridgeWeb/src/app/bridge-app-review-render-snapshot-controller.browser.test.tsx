@@ -82,7 +82,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const harness = makeReviewSurfaceHarness();
 		const onActiveSourceChange = vi.fn();
 		const telemetryRecorderRef = { current: createBridgeTelemetryRecorder(null) };
-		const viewerHeaderControls = <div />;
+		const viewerContextSwitcher = <div />;
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
@@ -91,7 +91,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
-				viewerHeaderControls={viewerHeaderControls}
+				viewerContextSwitcher={viewerContextSwitcher}
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					onNavigationSourceChange={vi.fn()}
 					reviewClient={harness.reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
-					viewerHeaderControls={viewerHeaderControls}
+					viewerContextSwitcher={viewerContextSwitcher}
 				/>,
 			);
 			await Promise.resolve();
@@ -141,7 +141,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 
@@ -168,7 +168,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 
@@ -208,7 +208,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div data-testid="review-viewer-context-switcher" />}
+				viewerContextSwitcher={<div data-testid="review-viewer-context-switcher" />}
 			/>,
 		);
 
@@ -234,6 +234,9 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const contextSwitcher = requireHTMLElement(
 			document.querySelector('[data-testid="review-viewer-context-switcher"]'),
 		);
+		const reviewType = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-mode-segmented-control"]'),
+		);
 		const descriptionId = trigger.getAttribute('aria-describedby');
 		const topbarBox = topbar.getBoundingClientRect();
 		const controlsBox = controls.getBoundingClientRect();
@@ -242,10 +245,15 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(Math.round(topbarBox.height)).toBe(36);
 		expect(Math.round(triggerBox.height)).toBe(24);
 		expect(Math.round(viewSettingsBox.height)).toBe(24);
-		expect(trigger.compareDocumentPosition(contextSwitcher)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-		expect(contextSwitcher.compareDocumentPosition(viewSettingsTrigger)).toBe(
+		expect(trigger.compareDocumentPosition(reviewType)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(reviewType.compareDocumentPosition(viewSettingsTrigger)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING,
 		);
+		expect(controls.contains(reviewType)).toBe(true);
+		expect(controls.contains(contextSwitcher)).toBe(false);
+		expect(
+			contextSwitcher.closest('[data-testid="bridge-review-rail-toolbar-leading"]'),
+		).not.toBeNull();
 		expect(triggerBox.right).toBeLessThanOrEqual(viewSettingsBox.left);
 		expect(triggerBox.top).toBeGreaterThanOrEqual(topbarBox.top);
 		expect(triggerBox.bottom).toBeLessThanOrEqual(topbarBox.bottom);
@@ -270,7 +278,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 		await act(async (): Promise<void> => {
@@ -307,7 +315,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-empty-shell')).toBeVisible();
@@ -495,7 +503,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
@@ -598,7 +606,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 			{ container: renderContainer },
 		);
@@ -712,7 +720,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					onNavigationSourceChange={vi.fn()}
 					reviewClient={reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
-					viewerHeaderControls={<div />}
+					viewerContextSwitcher={<div />}
 				/>,
 			);
 			await settleRenderedReviewFrame();

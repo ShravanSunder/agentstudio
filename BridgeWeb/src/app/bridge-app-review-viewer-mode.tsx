@@ -8,13 +8,17 @@ import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-
 import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import { BridgeReviewProjectionMenu } from '../review-viewer/chrome/bridge-review-projection-menu.js';
 import {
 	bridgeCodeViewOptions,
 	createBridgeReviewViewSettingsDefaults,
 	deriveBridgeReviewCodeViewOptions,
 } from '../review-viewer/code-view/bridge-code-view-options.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
+import type {
+	BridgeReviewProjectionMode,
+	BridgeReviewSearchMode,
+} from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
@@ -67,7 +71,7 @@ export interface BridgeReviewViewerModeProps {
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly target?: EventTarget;
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
-	readonly viewerHeaderControls: ReactElement;
+	readonly viewerContextSwitcher: ReactElement;
 }
 
 type BridgeReviewFilterCandidate = Extract<
@@ -89,7 +93,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		reviewClient,
 		target = document,
 		telemetryRecorderRef,
-		viewerHeaderControls,
+		viewerContextSwitcher,
 	} = props;
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const presentationPositionKey = useId();
@@ -134,6 +138,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		bridgeReviewDefaultViewSettings,
 	);
 	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
+	const [projectionMode, setProjectionMode] = useState<BridgeReviewProjectionMode>({
+		kind: 'normalReview',
+	});
 	useEffect((): void => {
 		if (!isActive) {
 			setFacetMenuOpen(false);
@@ -295,7 +302,10 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				onQueryTargets={queryReviewComparisonTargets}
 				targetQueryState={comparisonTargetsQueryState}
 			/>
-			{viewerHeaderControls}
+			<BridgeReviewProjectionMenu
+				onProjectionModeChange={setProjectionMode}
+				projectionMode={projectionMode}
+			/>
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeReviewDefaultViewSettings}
@@ -383,6 +393,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
+		projectionMode,
 		codeViewControlHandleRef,
 		facetMenuOpen,
 		categoryFilter,
@@ -423,6 +434,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		<BridgeReviewViewerShellBoundary
 			isActive={isActive}
 			presentationState={presentationState}
+			viewerContextSwitcher={viewerContextSwitcher}
 			viewerHeaderControls={contentHeaderControls}
 		/>
 	);
@@ -433,6 +445,7 @@ function reviewPresentationState(props: {
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
 	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
+	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly codeViewControlHandleRef: { current: BridgeCodeViewControlHandle | null };
 	readonly facetMenuOpen: boolean;
 	readonly categoryFilter: BridgeReviewFilterCandidate['categoryFilter'];
@@ -496,6 +509,7 @@ function reviewPresentationState(props: {
 			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
 			panelChromeSlice: props.panelChromeSlice,
+			projectionMode: props.projectionMode,
 			presentationPositionKey: props.presentationPositionKey,
 			presentationRegistry: props.presentationSnapshot.presentationRegistry,
 			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,

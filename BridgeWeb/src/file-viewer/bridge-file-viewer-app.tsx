@@ -67,7 +67,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		onDisplaySourceChange,
 		telemetryRecorder,
 		telemetryTraceContext,
-		viewerHeaderControls,
+		viewerContextSwitcher,
 	} = props;
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
 	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
@@ -94,7 +94,6 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	);
 	const contentHeaderControls = (
 		<>
-			{viewerHeaderControls}
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeFilesDefaultViewSettings}
@@ -295,6 +294,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			fallback={
 				<BridgeFileViewerLazyLoadingFrame
 					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
 					viewerHeaderControls={contentHeaderControls}
 				/>
 			}
@@ -337,6 +337,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				telemetryTraceContext={telemetryTraceContext ?? null}
 				totalTreeHeight={totalTreeHeight}
 				totalTreeRowCount={totalTreeRowCount}
+				viewerContextSwitcher={viewerContextSwitcher}
 				viewerHeaderControls={contentHeaderControls}
 				{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
 				{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}

@@ -73,6 +73,16 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		await clickContext('file');
 		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
 		await settleBridgeFileViewerBrowserUpdates();
+		const contextSwitcher = document.querySelector<HTMLElement>(
+			'[data-testid="bridge-viewer-context-switcher"]',
+		);
+		expect(contextSwitcher).not.toBeNull();
+		expect(
+			contextSwitcher?.closest('[data-testid="bridge-file-viewer-rail-toolbar-leading"]'),
+		).not.toBeNull();
+		expect(
+			contextSwitcher?.closest('[data-testid="bridge-viewer-content-topbar-controls"]'),
+		).toBeNull();
 		expect(sourceDiscoveryCount).toBe(1);
 		expect(metadataSubscriptionOpenCount).toBe(1);
 		handshake.dispose();

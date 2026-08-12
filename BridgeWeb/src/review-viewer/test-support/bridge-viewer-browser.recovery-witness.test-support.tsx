@@ -190,7 +190,7 @@ export async function renderBridgeReviewRecoveryWitness(
 				onNavigationSourceChange={(): void => {}}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>
 		</div>
 	);

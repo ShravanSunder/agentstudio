@@ -897,6 +897,7 @@ function ReviewBoundaryActivationProbe(props: {
 			<BridgeReviewViewerShellBoundary
 				isActive={false}
 				presentationState={presentationState}
+				viewerContextSwitcher={<div>Context switcher</div>}
 				viewerHeaderControls={<div>Review controls</div>}
 			/>
 		</>

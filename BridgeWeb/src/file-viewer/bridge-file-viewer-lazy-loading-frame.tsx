@@ -1,10 +1,13 @@
 import type { ReactElement, ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
+import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
+import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 
 export function BridgeFileViewerLazyLoadingFrame(props: {
 	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
@@ -31,12 +34,21 @@ export function BridgeFileViewerLazyLoadingFrame(props: {
 				}
 				contentTestId="bridge-file-viewer-content-panel"
 				handleTestId="bridge-file-viewer-rail-resize-handle"
-				rail={
-					<aside
-						className="h-full min-h-0 min-w-0 border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
-						data-testid="bridge-file-viewer-lazy-loading-sidebar"
-					/>
-				}
+				rail={BridgeViewerRightRailShell({
+					body: <div className="h-full min-h-0" />,
+					bodyClassName: 'min-h-0 flex-1 overflow-hidden',
+					bodyTestId: 'bridge-file-viewer-lazy-loading-sidebar-body',
+					border: 'subtle',
+					layout: 'grid',
+					testId: 'bridge-file-viewer-lazy-loading-sidebar',
+					toolbar: BridgeViewerRailToolbar({
+						leading: props.viewerContextSwitcher,
+						leadingTestId: 'bridge-file-viewer-rail-toolbar-leading',
+						testId: 'bridge-file-viewer-rail-toolbar',
+						trailing: null,
+						trailingTestId: 'bridge-file-viewer-rail-toolbar-trailing',
+					}),
+				})}
 				railTestId="bridge-file-viewer-resizable-rail"
 			/>
 		</main>

@@ -1,5 +1,5 @@
 import { FileTree } from '@pierre/trees/react';
-import type { ReactElement, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref } from 'react';
 
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
@@ -56,6 +56,7 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly treeRowByPath: {
 		readonly get: (path: string) => BridgeFileViewerDisplayTreeRow | undefined;
 	};
+	readonly viewerContextSwitcher?: ReactNode;
 }
 
 const bridgeFileViewerTreeRowHeightPixels = 24;
@@ -117,6 +118,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					className: 'min-w-0 gap-2',
 					leading: (
 						<>
+							{props.viewerContextSwitcher}
 							<span className="sr-only" data-testid="worktree-file-filter-count">
 								{visibleCountLabel}
 							</span>

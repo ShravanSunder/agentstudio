@@ -65,6 +65,7 @@ export interface BridgeFileViewerShellProps {
 		readonly source: 'localProjection' | 'providerFacts' | null;
 	};
 	readonly totalTreeRowCount: number;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }
 
@@ -178,6 +179,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 						totalTreeHeightPixels={props.totalTreeHeight.heightPixels}
 						totalTreeHeightSource={props.totalTreeHeight.source}
 						totalTreeRowCount={props.totalTreeRowCount}
+						viewerContextSwitcher={props.viewerContextSwitcher}
 						projectedTreeRowCount={props.displayModel.projectedRowCount}
 						treeRowByPath={props.displayModel.treeRowByPath}
 					/>

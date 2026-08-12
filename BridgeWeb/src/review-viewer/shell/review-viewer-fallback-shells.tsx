@@ -8,12 +8,14 @@ import { Skeleton } from '../../components/ui/skeleton.js';
 
 export function BridgeReviewEmptyShell(props: {
 	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
 			isActive={props.isActive}
 			title="Waiting for review metadata"
+			viewerContextSwitcher={props.viewerContextSwitcher}
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
 			<section
@@ -34,12 +36,14 @@ export function BridgeReviewEmptyShell(props: {
 
 export function BridgeReviewProjectionPendingShell(props: {
 	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
 			isActive={props.isActive}
 			title="Projecting review"
+			viewerContextSwitcher={props.viewerContextSwitcher}
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
 			<section
@@ -58,12 +62,14 @@ export function BridgeReviewProjectionPendingShell(props: {
 
 export function BridgeReviewProjectionFailedShell(props: {
 	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
 			isActive={props.isActive}
 			title="Review projection unavailable"
+			viewerContextSwitcher={props.viewerContextSwitcher}
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
 			<section
@@ -82,12 +88,14 @@ export function BridgeReviewProjectionFailedShell(props: {
 
 export function BridgeReviewMetadataLoadingShell(props: {
 	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
 			isActive={props.isActive}
 			title="Loading review metadata"
+			viewerContextSwitcher={props.viewerContextSwitcher}
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
 			<section
@@ -107,12 +115,14 @@ export function BridgeReviewMetadataLoadingShell(props: {
 export function BridgeReviewMetadataFailedShell(props: {
 	readonly error: string | null;
 	readonly isActive?: boolean | undefined;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
 			isActive={props.isActive}
 			title="Review metadata unavailable"
+			viewerContextSwitcher={props.viewerContextSwitcher}
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
 			<section
@@ -135,6 +145,7 @@ function BridgeReviewFallbackFrame(props: {
 	readonly children: ReactNode;
 	readonly isActive?: boolean | undefined;
 	readonly title: string;
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
@@ -177,7 +188,7 @@ function BridgeReviewFallbackFrame(props: {
 					layout: 'stack',
 					testId: 'bridge-review-sidebar',
 					toolbar: BridgeViewerRailToolbar({
-						leading: <Skeleton className="h-6 w-14 bg-[var(--bridge-surface-raised-bg)]" />,
+						leading: props.viewerContextSwitcher,
 						leadingTestId: 'bridge-review-rail-toolbar-leading',
 						testId: 'bridge-review-rail-toolbar',
 						trailing: (

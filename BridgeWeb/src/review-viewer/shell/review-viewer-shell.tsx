@@ -30,7 +30,6 @@ import type {
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
-import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import type { BridgeReviewCodeViewOptions } from '../code-view/bridge-code-view-options.js';
 import type { SelectedContentPaintTelemetryStart } from '../code-view/bridge-code-view-panel-types.js';
@@ -77,7 +76,6 @@ export interface ReviewViewerShellProps {
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly projectionMode?: BridgeReviewProjectionMode;
-	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 	readonly treeSearchText?: string;
 	readonly treeAcceptedSearchText?: string;
 	readonly treeSelectionRevealRequest?: BridgeReviewTreeSelectionRevealRequest | null;
@@ -107,6 +105,7 @@ export interface ReviewViewerShellProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
+	readonly viewerContextSwitcher?: ReactNode;
 	readonly viewerHeaderControls?: ReactNode;
 }
 
@@ -478,14 +477,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 						/>
 					),
 					toolbar: BridgeViewerRailToolbar({
-						leading: (
-							<BridgeReviewProjectionMenu
-								projectionMode={projectionMode}
-								{...(props.onProjectionModeChange === undefined
-									? {}
-									: { onProjectionModeChange: props.onProjectionModeChange })}
-							/>
-						),
+						leading: props.viewerContextSwitcher,
 						leadingTestId: 'bridge-review-rail-toolbar-leading',
 						testId: 'bridge-review-rail-toolbar',
 						trailing: [
