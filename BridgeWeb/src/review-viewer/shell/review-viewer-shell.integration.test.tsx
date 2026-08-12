@@ -720,6 +720,8 @@ function renderReviewViewerShellForTest(
 	props: Omit<
 		ReviewViewerShellProps,
 		| 'panelChromeSlice'
+		| 'comparisonPaneState'
+		| 'onRetryComparison'
 		| 'facetMenuOpen'
 		| 'onFacetMenuOpenChange'
 		| 'presentationPositionKey'
@@ -727,6 +729,8 @@ function renderReviewViewerShellForTest(
 		| 'renderFulfillmentCoordinator'
 	> & {
 		readonly panelChromeSlice?: ReviewViewerShellProps['panelChromeSlice'];
+		readonly comparisonPaneState?: ReviewViewerShellProps['comparisonPaneState'];
+		readonly onRetryComparison?: ReviewViewerShellProps['onRetryComparison'];
 		readonly presentationPositionKey?: string;
 		readonly presentationRegistry?: BridgeReviewItemRegistry;
 	},
@@ -738,6 +742,8 @@ function renderReviewViewerShellForTest(
 		props: {
 			...props,
 			facetMenuOpen: false,
+			comparisonPaneState: props.comparisonPaneState ?? { kind: 'settled' },
+			onRetryComparison: props.onRetryComparison ?? ((): void => {}),
 			onFacetMenuOpenChange: (): void => {},
 			panelChromeSlice: props.panelChromeSlice ?? {},
 			presentationPositionKey: props.presentationPositionKey ?? 'review-shell-test-position',
@@ -802,6 +808,7 @@ function traversalChildrenForElement(
 }
 
 interface TestElementProps {
+	readonly 'aria-busy'?: string;
 	readonly 'aria-checked'?: string;
 	readonly 'aria-label'?: string;
 	readonly ariaPressed?: boolean;
@@ -836,6 +843,7 @@ interface TestElementProps {
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;
 	readonly handleTestId?: string;
+	readonly inert?: boolean;
 	readonly onClick?: () => void;
 	readonly onValueChange?: () => void;
 	readonly rail?: ReactNode;

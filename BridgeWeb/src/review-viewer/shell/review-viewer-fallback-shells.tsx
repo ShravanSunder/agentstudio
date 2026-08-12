@@ -1,9 +1,13 @@
 import type { ReactElement, ReactNode } from 'react';
 
+import type { BridgeReviewComparisonPaneState } from '../../app/bridge-review-comparison-pane-state.js';
+import { BridgeReviewComparisonStatusBanner } from '../../app/bridge-review-comparison-status-banner.js';
+import type { BridgeReviewComparisonTarget } from '../../app/bridge-review-comparison-target.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
+import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 
 export function BridgeReviewEmptyShell(props: {
@@ -141,8 +145,50 @@ export function BridgeReviewMetadataFailedShell(props: {
 	);
 }
 
+export function BridgeReviewComparisonInitialShell(props: {
+	readonly comparisonPaneState: Extract<
+		BridgeReviewComparisonPaneState,
+		{ readonly kind: 'failedInitial' | 'loadingInitial' }
+	>;
+	readonly isActive?: boolean | undefined;
+	readonly onRetryComparison: (target: BridgeReviewComparisonTarget) => void;
+	readonly viewerContextSwitcher?: ReactNode;
+	readonly viewerHeaderControls?: ReactNode;
+}): ReactElement {
+	const isLoading = props.comparisonPaneState.kind === 'loadingInitial';
+	return (
+		<BridgeReviewFallbackFrame
+			comparisonStatusBanner={
+				<BridgeReviewComparisonStatusBanner
+					onRetry={props.onRetryComparison}
+					state={props.comparisonPaneState}
+				/>
+			}
+			isActive={props.isActive}
+			title={isLoading ? 'Loading comparison' : 'Comparison unavailable'}
+			viewerContextSwitcher={props.viewerContextSwitcher}
+			viewerHeaderControls={props.viewerHeaderControls}
+		>
+			<section
+				aria-label="Review comparison status"
+				className="flex h-full min-h-[260px] items-center justify-center px-8"
+				data-testid="bridge-review-comparison-initial-shell"
+			>
+				{isLoading ? (
+					<div className="flex w-72 flex-col gap-3 text-[var(--bridge-text-secondary)]">
+						<BridgeReviewFallbackSkeleton />
+					</div>
+				) : (
+					<p className="text-sm text-[var(--bridge-text-secondary)]">Comparison unavailable</p>
+				)}
+			</section>
+		</BridgeReviewFallbackFrame>
+	);
+}
+
 function BridgeReviewFallbackFrame(props: {
 	readonly children: ReactNode;
+	readonly comparisonStatusBanner?: ReactNode;
 	readonly isActive?: boolean | undefined;
 	readonly title: string;
 	readonly viewerContextSwitcher?: ReactNode;
@@ -157,13 +203,21 @@ function BridgeReviewFallbackFrame(props: {
 				autosaveId="bridge-viewer-right-rail"
 				isActive={props.isActive}
 				content={
-					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+					<section
+						className={cn(
+							'grid h-full min-h-0 min-w-0 overflow-hidden',
+							props.comparisonStatusBanner === undefined
+								? 'grid-rows-[auto_minmax(0,1fr)]'
+								: 'grid-rows-[auto_auto_minmax(0,1fr)]',
+						)}
+					>
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
 							eyebrow="Review"
 							statusText={null}
 							title={props.title}
 						/>
+						{props.comparisonStatusBanner}
 						<section
 							className="min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
 							data-testid="bridge-review-fallback-canvas"

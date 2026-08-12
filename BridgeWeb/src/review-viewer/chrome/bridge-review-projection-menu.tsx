@@ -11,6 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.j
 import type { BridgeReviewProjectionMode } from '../models/review-projection-models.js';
 
 export function BridgeReviewProjectionMenu(props: {
+	readonly disabled?: boolean;
 	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 }): ReactElement {
@@ -28,7 +29,7 @@ export function BridgeReviewProjectionMenu(props: {
 		>
 			{projectionButtonSpecs.map((spec) => {
 				const isSelected = spec.mode.kind === activeProjectionKind;
-				const isEnabled = spec.mode.kind === 'normalReview';
+				const isEnabled = spec.mode.kind === 'normalReview' && props.disabled !== true;
 				return (
 					<ToggleGroupItem
 						aria-checked={isSelected ? 'true' : 'false'}

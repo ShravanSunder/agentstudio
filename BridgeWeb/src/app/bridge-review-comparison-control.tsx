@@ -19,6 +19,10 @@ import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-wor
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
+import {
+	bridgeReviewComparisonTargetLabel,
+	type BridgeReviewComparisonTarget,
+} from './bridge-review-comparison-target.js';
 import { bridgeViewerButtonClassName } from './bridge-viewer-button.js';
 import { cn } from './class-name.js';
 
@@ -32,6 +36,7 @@ const comparisonTriggerClassName = cn(
 export interface BridgeReviewComparisonControlProps {
 	readonly comparisonPresentation: BridgeWorkerPanelChromePatchPayload['reviewComparison'];
 	readonly displayedReviewPackage: BridgeReviewPackage | null;
+	readonly disabled?: boolean;
 	readonly isActive?: boolean;
 	readonly onApplyTarget: (target: BridgeWorkerReviewComparisonUpdateCommand['target']) => void;
 	readonly onCancelTargetQuery?: () => void;
@@ -44,6 +49,7 @@ export function BridgeReviewComparisonControl(
 ): ReactElement | null {
 	const descriptionId = useId();
 	const isActive = props.isActive ?? true;
+	const disabled = props.disabled ?? false;
 	const [commitOID, setCommitOID] = useState('');
 	const [open, setOpen] = useState(false);
 	const [selectionMode, setSelectionMode] = useState<'branch' | 'commit'>('branch');
@@ -59,11 +65,11 @@ export function BridgeReviewComparisonControl(
 		setOpen(false);
 	};
 	useEffect((): void => {
-		if (!isActive && open) {
+		if ((!isActive || disabled) && open) {
 			onCancelTargetQuery?.();
 			setOpen(false);
 		}
-	}, [isActive, onCancelTargetQuery, open]);
+	}, [disabled, isActive, onCancelTargetQuery, open]);
 	useLayoutEffect((): void => {
 		if (!open) return;
 		const activeInput =
@@ -135,6 +141,7 @@ export function BridgeReviewComparisonControl(
 				aria-label={label}
 				className={comparisonTriggerClassName}
 				data-testid="bridge-review-comparison-trigger"
+				disabled={disabled}
 			>
 				<span>{label}</span>
 				<ChevronDownIcon aria-hidden="true" className="size-3 shrink-0" />
@@ -453,9 +460,7 @@ function isDisplayedPackageAwaitingPresentationDelivery(
 	);
 }
 
-type ReviewComparisonTarget = NonNullable<
-	NonNullable<BridgeReviewComparisonControlProps['comparisonPresentation']>['activeTarget']
->;
+type ReviewComparisonTarget = BridgeReviewComparisonTarget;
 
 type ContributionOrigin = Extract<
 	NonNullable<BridgeReviewPackage['comparisonOrigin']>,
@@ -551,11 +556,16 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 	if (displayedContribution?.heading === 'Previous comparison') {
 		const displayedTargetLabel = comparisonTargetLabel(displayedContribution.origin.symbolicTarget);
 		const attemptStatus = props.comparisonPresentation?.attempt.status;
+		const requestedTarget = props.comparisonPresentation?.activeTarget;
+		const requestedTargetLabel =
+			requestedTarget === undefined || requestedTarget === null
+				? displayedTargetLabel
+				: comparisonTargetLabel(requestedTarget);
 		return attemptStatus === 'pending' ||
 			(attemptStatus === 'settled' && isDisplayedPackageAwaitingPresentationDelivery(props))
-			? `Compare to: ${displayedTargetLabel} · Updating`
+			? `Compare to: ${requestedTargetLabel} · Updating`
 			: attemptStatus === 'unavailable'
-				? `Compare to: ${displayedTargetLabel} · Unavailable`
+				? `Compare to: ${requestedTargetLabel} · Unavailable`
 				: `Compare to: ${displayedTargetLabel} · Stale`;
 	}
 	const activeTarget = props.comparisonPresentation?.activeTarget;
@@ -620,18 +630,7 @@ function comparisonTargetDescription(target: ReviewComparisonTarget, targetLabel
 }
 
 function comparisonTargetLabel(target: ReviewComparisonTarget): string {
-	switch (target.kind) {
-		case 'localDefaultBranch':
-			return target.branchName;
-		case 'originDefaultBranch':
-			return `${target.remoteName}/${target.branchName}`;
-		case 'branch':
-		case 'ref':
-			return target.name;
-		case 'commit':
-			return target.oid;
-	}
-	return unreachableComparisonValue(target);
+	return bridgeReviewComparisonTargetLabel(target);
 }
 
 function unreachableComparisonValue(value: never): never {

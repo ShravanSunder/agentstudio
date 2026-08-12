@@ -292,7 +292,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: master · Updating');
+			.toHaveTextContent('Compare to: feature/new-target · Updating');
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-content'))
@@ -792,7 +792,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert — closed chrome names the requested target while popup details retain the package visible now.
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: master · Updating');
+			.toHaveTextContent('Compare to: feature/new-target · Updating');
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});

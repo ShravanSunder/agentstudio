@@ -453,7 +453,6 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 		expect(harness.selectionScrollToPathSampleCount()).toBe(initialSelectionScrollCount);
 	});
 	test('defers an inactive ready presentation and resets it after a fallback state', async () => {
-		// Arrange
 		const readyPresentation = makeReadyReviewPresentationState('activation-review');
 		const rendered = await renderInsideAct(
 			<ReviewBoundaryActivationProbe readyPresentation={readyPresentation} />,
@@ -462,12 +461,10 @@ describe('Bridge Review production recovery Browser witnesses', () => {
 			.element(rendered.getByTestId('bridge-review-projection-pending-shell'))
 			.toBeVisible();
 
-		// Act
 		await act(async (): Promise<void> => {
 			await rendered.getByRole('button', { name: 'Show empty Review fallback' }).click();
 		});
 
-		// Assert
 		await expect.element(rendered.getByTestId('bridge-review-empty-shell')).toBeVisible();
 
 		// Act
@@ -895,7 +892,9 @@ function ReviewBoundaryActivationProbe(props: {
 				Restore ready Review presentation
 			</button>
 			<BridgeReviewViewerShellBoundary
+				comparisonPaneState={{ kind: 'settled' }}
 				isActive={false}
+				onRetryComparison={(): void => {}}
 				presentationState={presentationState}
 				viewerContextSwitcher={<div>Context switcher</div>}
 				viewerHeaderControls={<div>Review controls</div>}
@@ -963,7 +962,9 @@ function makeReadyReviewPresentationState(
 	return {
 		presentationKey,
 		shellProps: {
+			comparisonPaneState: { kind: 'settled' },
 			facetMenuOpen: false,
+			onRetryComparison: (): void => {},
 			onFacetMenuOpenChange: (): void => {},
 			onSelectItem: (): void => {},
 			panelChromeSlice: {},

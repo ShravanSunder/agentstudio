@@ -35,7 +35,12 @@ export default defineConfig({
 		},
 	},
 	optimizeDeps: {
-		include: ['@base-ui/react/combobox', '@pierre/diffs/worker', 'react-dom/client'],
+		include: [
+			'@base-ui/react/combobox',
+			'@base-ui/react/progress',
+			'@pierre/diffs/worker',
+			'react-dom/client',
+		],
 	},
 	test: {
 		globals: true,

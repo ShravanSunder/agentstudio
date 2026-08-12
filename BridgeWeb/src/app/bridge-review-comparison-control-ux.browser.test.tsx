@@ -284,7 +284,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: master · Unavailable');
+			.toHaveTextContent('Compare to: release/next · Unavailable');
 		await expect.element(rendered.getByText('Comparison unavailable')).toBeVisible();
 		await expect
 			.element(

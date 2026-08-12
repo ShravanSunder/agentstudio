@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 
 import {
+	BridgeReviewComparisonInitialShell,
 	BridgeReviewEmptyShell,
 	BridgeReviewMetadataFailedShell,
 	BridgeReviewMetadataLoadingShell,
@@ -9,6 +10,8 @@ import {
 	BridgeReviewProjectionPendingShell,
 } from '../review-viewer/shell/review-viewer-fallback-shells.js';
 import type { ReviewViewerShellProps } from '../review-viewer/shell/review-viewer-shell.js';
+import type { BridgeReviewComparisonPaneState } from './bridge-review-comparison-pane-state.js';
+import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
 const LazyReviewViewerShell = lazy(async () => {
 	const reviewViewerShellModule = await import('../review-viewer/shell/review-viewer-shell.js');
@@ -31,7 +34,9 @@ export type BridgeReviewViewerPresentationState =
 	  };
 
 export interface BridgeReviewViewerShellBoundaryProps {
+	readonly comparisonPaneState: BridgeReviewComparisonPaneState;
 	readonly isActive: boolean;
+	readonly onRetryComparison: (target: BridgeReviewComparisonTarget) => void;
 	readonly presentationState: BridgeReviewViewerPresentationState;
 	readonly viewerContextSwitcher: ReactNode;
 	readonly viewerHeaderControls: ReactNode;
@@ -40,7 +45,14 @@ export interface BridgeReviewViewerShellBoundaryProps {
 export function BridgeReviewViewerShellBoundary(
 	props: BridgeReviewViewerShellBoundaryProps,
 ): ReactElement {
-	const { isActive, presentationState, viewerContextSwitcher, viewerHeaderControls } = props;
+	const {
+		comparisonPaneState,
+		isActive,
+		onRetryComparison,
+		presentationState,
+		viewerContextSwitcher,
+		viewerHeaderControls,
+	} = props;
 	const [hasActivatedReadyPresentation, setHasActivatedReadyPresentation] = useState(false);
 	useEffect((): void => {
 		if (presentationState.status !== 'ready') {
@@ -51,6 +63,21 @@ export function BridgeReviewViewerShellBoundary(
 			setHasActivatedReadyPresentation(true);
 		}
 	}, [isActive, presentationState]);
+
+	if (
+		comparisonPaneState.kind === 'loadingInitial' ||
+		comparisonPaneState.kind === 'failedInitial'
+	) {
+		return (
+			<BridgeReviewComparisonInitialShell
+				comparisonPaneState={comparisonPaneState}
+				isActive={isActive}
+				onRetryComparison={onRetryComparison}
+				viewerContextSwitcher={viewerContextSwitcher}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
+	}
 
 	switch (presentationState.status) {
 		case 'empty':

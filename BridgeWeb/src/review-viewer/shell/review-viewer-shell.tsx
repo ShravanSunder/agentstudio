@@ -1,6 +1,12 @@
 import { useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
 
 import type { BridgeFileTreeFilterCandidate } from '../../app/bridge-app-control.js';
+import {
+	bridgeReviewComparisonPaneIsLoading,
+	type BridgeReviewComparisonPaneState,
+} from '../../app/bridge-review-comparison-pane-state.js';
+import { BridgeReviewComparisonStatusBanner } from '../../app/bridge-review-comparison-status-banner.js';
+import type { BridgeReviewComparisonTarget } from '../../app/bridge-review-comparison-target.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import type { BridgeViewerFileCategory } from '../../app/bridge-viewer-file-class-options.js';
 import type { BridgeViewerFacetMenuOption } from '../../app/bridge-viewer-filter-menu.js';
@@ -13,6 +19,7 @@ import {
 	BridgeViewerSearchStatus,
 } from '../../app/bridge-viewer-search-field.js';
 import type { BridgeViewerSearchError } from '../../app/bridge-viewer-search-state.js';
+import { cn } from '../../app/class-name.js';
 import { useBridgeViewerSearchFocusRestoration } from '../../app/use-bridge-viewer-search-focus-restoration.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
@@ -54,6 +61,8 @@ export interface ReviewViewerShellProps {
 	readonly presentationRegistry: BridgeReviewItemRegistry;
 	readonly presentationPositionKey: string;
 	readonly reviewPackage: BridgeReviewPackage;
+	readonly comparisonPaneState: BridgeReviewComparisonPaneState;
+	readonly onRetryComparison: (target: BridgeReviewComparisonTarget) => void;
 	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
 	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderFulfillmentCoordinator;
@@ -139,9 +148,12 @@ export function renderReviewViewerShellPresentation(presentation: {
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const categoryFilter = props.categoryFilter ?? 'all';
 	const statusText =
-		props.isActive === true && props.panelChromeSlice.isLoading === true
+		props.comparisonPaneState.kind === 'settled' &&
+		props.isActive === true &&
+		props.panelChromeSlice.isLoading === true
 			? (props.panelChromeSlice.message ?? null)
 			: null;
+	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(props.comparisonPaneState);
 	const treeSearchText = props.treeSearchText ?? '';
 	const treeSearchMode = props.treeSearchMode ?? { kind: 'text' };
 	const treeAcceptedSearchText = props.treeAcceptedSearchText ?? treeSearchText;
@@ -328,7 +340,12 @@ export function renderReviewViewerShellPresentation(presentation: {
 				content={
 					<section
 						aria-label="Selected content"
-						className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
+						className={cn(
+							'grid h-full min-h-0 min-w-0 overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]',
+							props.comparisonPaneState.kind === 'settled'
+								? 'grid-rows-[auto_minmax(0,1fr)]'
+								: 'grid-rows-[auto_auto_minmax(0,1fr)]',
+						)}
 						data-testid="bridge-review-code-scroll"
 					>
 						<BridgeViewerContentHeader
@@ -337,10 +354,19 @@ export function renderReviewViewerShellPresentation(presentation: {
 							statusText={statusText}
 							title={contentHeaderTitle}
 						/>
+						<BridgeReviewComparisonStatusBanner
+							onRetry={props.onRetryComparison}
+							state={props.comparisonPaneState}
+						/>
 						<section
 							aria-label="Code canvas"
-							className="relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
+							aria-busy={comparisonIsLoading ? 'true' : undefined}
+							className={cn(
+								'relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)] transition-opacity',
+								comparisonIsLoading ? 'pointer-events-none opacity-50' : undefined,
+							)}
 							data-testid="bridge-review-canvas"
+							inert={comparisonIsLoading || undefined}
 						>
 							{!hasChangedFiles ? (
 								<BridgeReviewEmptyCanvas />
@@ -408,8 +434,13 @@ export function renderReviewViewerShellPresentation(presentation: {
 					body: (
 						<nav
 							aria-label="Changed files"
-							className="h-full min-h-0"
+							aria-busy={comparisonIsLoading ? 'true' : undefined}
+							className={cn(
+								'h-full min-h-0 transition-opacity',
+								comparisonIsLoading ? 'pointer-events-none opacity-50' : undefined,
+							)}
 							data-testid="bridge-review-rail-tree-slot"
+							inert={comparisonIsLoading || undefined}
 						>
 							{hasChangedFiles ? (
 								<BridgeReviewTreesPanel

@@ -39,6 +39,10 @@ import {
 } from './bridge-app-review-viewer-shell-boundary.js';
 import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 import {
+	bridgeReviewComparisonPaneIsLoading,
+	bridgeReviewComparisonPaneState,
+} from './bridge-review-comparison-pane-state.js';
+import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
 	type BridgeViewerSearchAction,
@@ -291,11 +295,17 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			}),
 		[catalogSnapshot, displayStore, reviewSourceSlice],
 	);
+	const comparisonPaneState = bridgeReviewComparisonPaneState({
+		comparisonPresentation: panelChromeSlice.reviewComparison,
+		displayedReviewPackage: presentationSnapshot?.reviewPackage ?? null,
+	});
+	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
 	const contentHeaderControls = (
 		<>
 			<BridgeReviewComparisonControl
 				comparisonPresentation={panelChromeSlice.reviewComparison}
 				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
+				disabled={comparisonIsLoading}
 				isActive={isActive}
 				onApplyTarget={controller.updateReviewComparisonTarget}
 				onCancelTargetQuery={cancelReviewComparisonTargetsQuery}
@@ -303,12 +313,14 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				targetQueryState={comparisonTargetsQueryState}
 			/>
 			<BridgeReviewProjectionMenu
+				disabled={comparisonIsLoading}
 				onProjectionModeChange={setProjectionMode}
 				projectionMode={projectionMode}
 			/>
 			{isActive ? (
 				<BridgeViewerViewSettingsMenu
 					defaultSettings={bridgeReviewDefaultViewSettings}
+					disabled={comparisonIsLoading}
 					onChange={setViewSettings}
 					onOpenChange={setViewSettingsMenuOpen}
 					open={viewSettingsMenuOpen}
@@ -393,6 +405,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
+		comparisonPaneState,
+		onRetryComparison: controller.updateReviewComparisonTarget,
 		projectionMode,
 		codeViewControlHandleRef,
 		facetMenuOpen,
@@ -432,7 +446,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	});
 	return (
 		<BridgeReviewViewerShellBoundary
+			comparisonPaneState={comparisonPaneState}
 			isActive={isActive}
+			onRetryComparison={controller.updateReviewComparisonTarget}
 			presentationState={presentationState}
 			viewerContextSwitcher={viewerContextSwitcher}
 			viewerHeaderControls={contentHeaderControls}
@@ -441,6 +457,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 }
 
 function reviewPresentationState(props: {
+	readonly comparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
+	readonly onRetryComparison: BridgeReviewRenderSnapshotController['updateReviewComparisonTarget'];
 	readonly codeViewOptions: ReturnType<typeof deriveBridgeReviewCodeViewOptions>;
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
@@ -496,6 +514,7 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			comparisonPaneState: props.comparisonPaneState,
 			codeViewOptions: props.codeViewOptions,
 			facetMenuOpen: props.facetMenuOpen,
 			categoryFilter: props.categoryFilter,
@@ -508,6 +527,7 @@ function reviewPresentationState(props: {
 			onFilterChange: props.onFilterChange,
 			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
+			onRetryComparison: props.onRetryComparison,
 			panelChromeSlice: props.panelChromeSlice,
 			projectionMode: props.projectionMode,
 			presentationPositionKey: props.presentationPositionKey,
