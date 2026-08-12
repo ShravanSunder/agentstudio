@@ -27,6 +27,7 @@ struct TabContextMenuAppKitIntegrationTests {
             target: .active
         )
         fixture.menuPresentationSpy.reset()
+        fixture.commandInvocationSpy.reset()
 
         try await assertRenameContextMenuPresentation(
             fixture: fixture,
@@ -35,6 +36,7 @@ struct TabContextMenuAppKitIntegrationTests {
             target: .inactive
         )
         fixture.menuPresentationSpy.reset()
+        fixture.commandInvocationSpy.reset()
 
         try await assertRenameContextMenuPresentation(
             fixture: fixture,
@@ -43,6 +45,7 @@ struct TabContextMenuAppKitIntegrationTests {
             target: .active
         )
         fixture.menuPresentationSpy.reset()
+        fixture.commandInvocationSpy.reset()
 
         try assertSecondaryClickOutsideTabPillsIsForwarded(fixture: fixture)
         fixture.menuPresentationSpy.reset()
@@ -123,6 +126,33 @@ struct TabContextMenuAppKitIntegrationTests {
                 AppCommand.renameTab.definition.label
             )
         )
+
+        guard target == .inactive else {
+            #expect(fixture.commandInvocationSpy.invocations.isEmpty)
+            return
+        }
+
+        let renameMenuItem = try #require(
+            Self.menuItem(
+                titled: AppCommand.renameTab.definition.label,
+                in: presentation.menu
+            )
+        )
+        let renameAction = try #require(renameMenuItem.action)
+
+        let actionWasSent = NSApp.sendAction(
+            renameAction,
+            to: renameMenuItem.target,
+            from: renameMenuItem
+        )
+
+        #expect(actionWasSent)
+        await eventually("inactive tab rename menu item should dispatch its targeted command") {
+            fixture.commandInvocationSpy.invocations.count == 1
+        }
+        let invocation = try #require(fixture.commandInvocationSpy.invocations.first)
+        #expect(invocation.command == .renameTab)
+        #expect(invocation.targetTabId == fixture.inactiveTabId)
     }
 
     @MainActor
@@ -134,6 +164,7 @@ struct TabContextMenuAppKitIntegrationTests {
         let inactiveTabId: UUID
         let toolbarDelegate: ToolbarDelegate
         let menuPresentationSpy: MenuPresentationSpy
+        let commandInvocationSpy: CommandInvocationSpy
 
         func makeMouseEvent(
             type: NSEvent.EventType,
@@ -216,6 +247,23 @@ struct TabContextMenuAppKitIntegrationTests {
         }
     }
 
+    private final class CommandInvocationSpy {
+        struct Invocation {
+            let command: AppCommand
+            let targetTabId: UUID
+        }
+
+        private(set) var invocations: [Invocation] = []
+
+        func record(command: AppCommand, targetTabId: UUID) {
+            invocations.append(Invocation(command: command, targetTabId: targetTabId))
+        }
+
+        func reset() {
+            invocations.removeAll(keepingCapacity: true)
+        }
+    }
+
     private final class ToolbarDelegate: NSObject, NSToolbarDelegate {
         private static let tabBarItemIdentifier = NSToolbarItem.Identifier("test.workspaceTabs")
         private let chromeView: MainToolbarChromeView
@@ -268,11 +316,12 @@ struct TabContextMenuAppKitIntegrationTests {
         let activeTab = Tab(paneId: activePane.id, name: "Active Tab")
         store.appendTab(activeTab)
 
+        let commandInvocationSpy = CommandInvocationSpy()
         let tabBar = CustomTabBar(
             adapter: adapter,
             onSelect: { _ in },
             canDispatchCommand: { _, _ in true },
-            onCommand: { _, _ in },
+            onCommand: commandInvocationSpy.record,
             onShowArrangements: { _ in }
         )
         let hostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -313,7 +362,8 @@ struct TabContextMenuAppKitIntegrationTests {
             activeTabId: activeTab.id,
             inactiveTabId: inactiveTab.id,
             toolbarDelegate: toolbarDelegate,
-            menuPresentationSpy: menuPresentationSpy
+            menuPresentationSpy: menuPresentationSpy,
+            commandInvocationSpy: commandInvocationSpy
         )
     }
 
@@ -342,5 +392,19 @@ struct TabContextMenuAppKitIntegrationTests {
         menu.items.flatMap { item in
             [item.title] + (item.submenu.map(allMenuTitles) ?? [])
         }
+    }
+
+    private static func menuItem(titled title: String, in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if item.title == title {
+                return item
+            }
+            if let submenu = item.submenu,
+                let matchingItem = menuItem(titled: title, in: submenu)
+            {
+                return matchingItem
+            }
+        }
+        return nil
     }
 }
