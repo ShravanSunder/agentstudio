@@ -111,8 +111,8 @@ struct RepoExplorerCommandPresentationBatchTests {
         )
     }
 
-    @Test("capability generation follows structural owners while title-only mutation stays quiet")
-    func capabilityGenerationTracksStructuralChangesButNotTitles() async throws {
+    @Test("capability generation ignores structural facts outside the visible worktree set")
+    func capabilityGenerationIgnoresUnrelatedStructuralFacts() async throws {
         try await withIsolatedCommandDispatcher(
             configure: {
                 AppCommandDispatcher.shared.handler = nil
@@ -171,33 +171,30 @@ struct RepoExplorerCommandPresentationBatchTests {
                         sourcePaneId: pane.id,
                         viewerPresentation: .unavailable
                     )
-                    await eventually("zoom capability generation") {
-                        batch.snapshot.generation > managementGeneration
-                    }
-                    let zoomGeneration = batch.snapshot.generation
+                    for _ in 0..<20 { await Task.yield() }
+                    #expect(batch.snapshot.generation == managementGeneration)
 
                     let secondPane = store.createPane()
                     store.appendTab(Tab(paneId: secondPane.id))
-                    await eventually("tab capability generation") {
-                        batch.snapshot.generation > zoomGeneration
+                    await eventually("active tab capability generation") {
+                        batch.snapshot.generation > managementGeneration
                     }
-                    let tabGeneration = batch.snapshot.generation
+                    let activeTabGeneration = batch.snapshot.generation
 
                     _ = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
                             path: "repo-command-batch-\(UUIDv7.generate().uuidString)"
                         )
                     )
-                    await eventually("topology capability generation") {
-                        batch.snapshot.generation > tabGeneration
-                    }
+                    for _ in 0..<20 { await Task.yield() }
+                    #expect(batch.snapshot.generation == activeTabGeneration)
                 }
             }
         )
     }
 
-    @Test("drawer expansion and collapse advance capability generation")
-    func drawerVisibilityAdvancesCapabilityGeneration() async {
+    @Test("drawer changes outside the visible worktree set stay quiet")
+    func unrelatedDrawerVisibilityStaysQuiet() async {
         installTestAtomRegistryIfNeeded()
 
         let store = WorkspaceStore()
@@ -219,16 +216,13 @@ struct RepoExplorerCommandPresentationBatchTests {
         #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
 
         store.toggleDrawer(for: pane.id)
-        await eventually("drawer expansion capability generation") {
-            batch.snapshot.generation > collapsedGeneration
-        }
-        let expandedGeneration = batch.snapshot.generation
+        for _ in 0..<20 { await Task.yield() }
+        #expect(batch.snapshot.generation == collapsedGeneration)
         #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == true)
 
         store.toggleDrawer(for: pane.id)
-        await eventually("drawer collapse capability generation") {
-            batch.snapshot.generation > expandedGeneration
-        }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(batch.snapshot.generation == collapsedGeneration)
         #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
     }
 }

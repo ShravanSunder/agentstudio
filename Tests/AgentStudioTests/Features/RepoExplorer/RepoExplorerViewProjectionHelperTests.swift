@@ -38,9 +38,9 @@ private final class BridgeAttendanceSnapshotReadRecorder {
         self.ordinalByPaneId = ordinalByPaneId
     }
 
-    func readSnapshot() -> [UUID: UInt64] {
+    func readOrdinal(for paneId: UUID) -> UInt64? {
         readCount += 1
-        return ordinalByPaneId
+        return ordinalByPaneId[paneId]
     }
 }
 
@@ -255,7 +255,7 @@ struct RepoExplorerViewProjectionHelperTests {
             store: WorkspaceStore(startsObserving: false),
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            bridgeAttendanceSnapshot: { [:] },
+            bridgeAttendanceSnapshot: { _ in nil },
             commandDispatcher: dispatcher,
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
@@ -272,7 +272,7 @@ struct RepoExplorerViewProjectionHelperTests {
     }
 
     @Test("Bridge attendance snapshot is read once and deterministically populates pane candidates")
-    func bridgeAttendanceSnapshotIsReadOncePerProjection() throws {
+    func bridgeAttendanceReadsOnlyDeclaredPaneKeys() throws {
         // Arrange
         let store = WorkspaceStore(startsObserving: false)
         let firstPane = store.createPane()
@@ -289,7 +289,7 @@ struct RepoExplorerViewProjectionHelperTests {
             store: store,
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
+            bridgeAttendanceSnapshot: snapshotRecorder.readOrdinal,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
@@ -323,7 +323,7 @@ struct RepoExplorerViewProjectionHelperTests {
 
         // Assert
         let candidates = try #require(candidatesByWorktreeId[worktreeId])
-        #expect(snapshotRecorder.readCount == 1)
+        #expect(snapshotRecorder.readCount == 2)
         #expect(candidates.map(\.paneId) == [firstPane.id, secondPane.id])
         #expect(candidates.map(\.attendanceOrdinal) == [7, 19])
     }
@@ -348,7 +348,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 store: store,
                 octiconLoader: makeRepoExplorerTestOcticonLoader(),
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                bridgeAttendanceSnapshot: { [:] },
+                bridgeAttendanceSnapshot: { _ in nil },
                 commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
@@ -399,7 +399,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 store: store,
                 octiconLoader: makeRepoExplorerTestOcticonLoader(),
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                bridgeAttendanceSnapshot: { [:] },
+                bridgeAttendanceSnapshot: { _ in nil },
                 commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},

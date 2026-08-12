@@ -82,49 +82,7 @@ actor RepoExplorerProjectionWorker {
         // Runs CPU-bound sidebar projection outside actor/main-actor isolation; cancellation is forwarded below.
         // swiftlint:disable:next no_task_detached
         let projectionTask = Task.detached(priority: .userInitiated) {
-            try Task.checkCancellation()
-            let clock = ContinuousClock()
-            let workerStart = clock.now
-            let projectionStart = clock.now
-            let projection = try RepoExplorerProjection.projectCancellable(
-                request.snapshot,
-                cancellationCheck: { try Task.checkCancellation() }
-            )
-            let projectionDuration = projectionStart.duration(to: clock.now)
-            try Task.checkCancellation()
-            let rowIndexStart = clock.now
-            let rowIndex = RepoExplorerRowIndex(
-                projection: projection,
-                collapsedGroupIds: request.collapsedGroupIds,
-                isFiltering: request.isFiltering
-            )
-            let rowIndexDuration = rowIndexStart.duration(to: clock.now)
-            try Task.checkCancellation()
-            let branchStatusByWorktreeId = try Self.branchStatusByWorktreeId(
-                snapshot: request.snapshot,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
-                cancellationCheck: { try Task.checkCancellation() }
-            )
-            let branchNameByWorktreeId = try Self.branchNameByWorktreeId(
-                snapshot: request.snapshot,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
-                cancellationCheck: { try Task.checkCancellation() }
-            )
-            try Task.checkCancellation()
-            return RepoExplorerProjectionResult(
-                generation: request.generation,
-                snapshot: request.snapshot,
-                collapsedGroupIds: request.collapsedGroupIds,
-                isFiltering: request.isFiltering,
-                trigger: request.trigger,
-                projection: projection,
-                rowIndex: rowIndex,
-                workerDuration: workerStart.duration(to: clock.now),
-                projectionDuration: projectionDuration,
-                rowIndexDuration: rowIndexDuration,
-                branchStatusByWorktreeId: branchStatusByWorktreeId,
-                branchNameByWorktreeId: branchNameByWorktreeId
-            )
+            try Self.project(request)
         }
 
         return try await withTaskCancellationHandler {
@@ -132,6 +90,54 @@ actor RepoExplorerProjectionWorker {
         } onCancel: {
             projectionTask.cancel()
         }
+    }
+
+    static func project(
+        _ request: RepoExplorerProjectionRequest
+    ) throws -> RepoExplorerProjectionResult {
+        try Task.checkCancellation()
+        let clock = ContinuousClock()
+        let workerStart = clock.now
+        let projectionStart = clock.now
+        let projection = try RepoExplorerProjection.projectCancellable(
+            request.snapshot,
+            cancellationCheck: { try Task.checkCancellation() }
+        )
+        let projectionDuration = projectionStart.duration(to: clock.now)
+        try Task.checkCancellation()
+        let rowIndexStart = clock.now
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: request.collapsedGroupIds,
+            isFiltering: request.isFiltering
+        )
+        let rowIndexDuration = rowIndexStart.duration(to: clock.now)
+        try Task.checkCancellation()
+        let branchStatusByWorktreeId = try branchStatusByWorktreeId(
+            snapshot: request.snapshot,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+            cancellationCheck: { try Task.checkCancellation() }
+        )
+        let branchNameByWorktreeId = try branchNameByWorktreeId(
+            snapshot: request.snapshot,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+            cancellationCheck: { try Task.checkCancellation() }
+        )
+        try Task.checkCancellation()
+        return RepoExplorerProjectionResult(
+            generation: request.generation,
+            snapshot: request.snapshot,
+            collapsedGroupIds: request.collapsedGroupIds,
+            isFiltering: request.isFiltering,
+            trigger: request.trigger,
+            projection: projection,
+            rowIndex: rowIndex,
+            workerDuration: workerStart.duration(to: clock.now),
+            projectionDuration: projectionDuration,
+            rowIndexDuration: rowIndexDuration,
+            branchStatusByWorktreeId: branchStatusByWorktreeId,
+            branchNameByWorktreeId: branchNameByWorktreeId
+        )
     }
 
     private static func branchStatusByWorktreeId(

@@ -125,8 +125,8 @@ extension AppDelegate {
             inboxSidebarState: dependencies.inboxSidebarState,
             paneInboxPresentationState: dependencies.paneInboxPresentationState,
             repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
-            bridgeAttendanceSnapshot: {
-                dependencies.bridgePaneAttendance.ordinalSnapshot()
+            bridgeAttendanceSnapshot: { paneId in
+                dependencies.bridgePaneAttendance.ordinal(for: paneId)
             },
             paneInboxPresenter: dependencies.paneInboxNotificationPresenter,
             performanceTraceRecorder: dependencies.performanceTraceRecorder,

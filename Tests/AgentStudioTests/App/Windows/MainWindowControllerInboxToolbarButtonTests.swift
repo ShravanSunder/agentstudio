@@ -395,8 +395,8 @@ private func withMainWindowControllerHarness<T>(
             inboxSidebarState: InboxSidebarState(),
             paneInboxPresentationState: atoms.paneInboxPresentationState,
             repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
-            bridgeAttendanceSnapshot: {
-                atoms.bridgePaneAttendance.ordinalSnapshot()
+            bridgeAttendanceSnapshot: { paneId in
+                atoms.bridgePaneAttendance.ordinal(for: paneId)
             },
             paneInboxPresenter: paneInboxPresenter
         )

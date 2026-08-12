@@ -104,6 +104,40 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(result.rowIndex.entries.count == 6)
     }
 
+    @Test("eager projection seam produces the complete result synchronously")
+    func eagerProjectionSeamProducesCompleteResultSynchronously() throws {
+        let repoId = UUID()
+        let repo = repo(id: repoId, name: "agent-studio")
+        let snapshot = RepoExplorerSnapshot(
+            repos: [repo],
+            repoEnrichmentByRepoId: [
+                repoId: resolvedRemote(repoId: repoId, displayName: "agent-studio")
+            ],
+            groupingMode: .repo,
+            sortOrder: .ascending,
+            query: ""
+        )
+        let request = RepoExplorerProjectionRequest(
+            generation: 7,
+            snapshot: snapshot,
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .dataRefresh
+        )
+
+        let result = try RepoExplorerProjectionWorker.project(request)
+
+        #expect(result.generation == 7)
+        #expect(result.snapshot == snapshot)
+        #expect(
+            result.rowIndex.entries.map(\.id) == [
+                "section-header:repositories",
+                "group:repo:\(repoId.uuidString)",
+                "worktree:repo:\(repoId.uuidString):\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
+            ])
+        #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
+    }
+
     @Test("projection checks cancellation periodically within placement work")
     func projectionChecksCancellationWithinPlacementWork() {
         let repoId = UUID()
@@ -153,6 +187,96 @@ struct RepoExplorerProjectionWorkerTests {
             }
         }
         #expect(checkpointCount == 3)
+    }
+
+    @Test("keyed eager sequence matches the ungated reference through removal and restoration")
+    @MainActor
+    func keyedEagerSequenceMatchesUngatedReference() async throws {
+        let repoId = UUID()
+        let initialRepo = repo(id: repoId, name: "agent-studio")
+        let addedRepo = repo(id: UUID(), name: "agent-vm", isFavorite: true)
+        let snapshots = [
+            RepoExplorerSnapshot(
+                repos: [initialRepo],
+                repoEnrichmentByRepoId: [
+                    repoId: resolvedRemote(repoId: repoId, displayName: "agent-studio")
+                ],
+                groupingMode: .repo,
+                sortOrder: .ascending,
+                query: ""
+            ),
+            RepoExplorerSnapshot(
+                repos: [addedRepo, initialRepo],
+                repoEnrichmentByRepoId: [
+                    repoId: resolvedRemote(repoId: repoId, displayName: "agent-studio"),
+                    addedRepo.id: resolvedRemote(repoId: addedRepo.id, displayName: "agent-vm"),
+                ],
+                groupingMode: .repo,
+                sortOrder: .ascending,
+                query: ""
+            ),
+            RepoExplorerSnapshot(
+                repos: [addedRepo],
+                repoEnrichmentByRepoId: [
+                    addedRepo.id: resolvedRemote(repoId: addedRepo.id, displayName: "agent-vm")
+                ],
+                groupingMode: .repo,
+                sortOrder: .ascending,
+                query: ""
+            ),
+            RepoExplorerSnapshot(
+                repos: [initialRepo, addedRepo],
+                repoEnrichmentByRepoId: [
+                    repoId: resolvedRemote(repoId: repoId, displayName: "agent-studio"),
+                    addedRepo.id: resolvedRemote(repoId: addedRepo.id, displayName: "agent-vm"),
+                ],
+                groupingMode: .repo,
+                sortOrder: .descending,
+                query: ""
+            ),
+        ]
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+
+        for (offset, snapshot) in snapshots.enumerated() {
+            let request = RepoExplorerProjectionRequest(
+                generation: offset + 1,
+                snapshot: snapshot,
+                collapsedGroupIds: [],
+                isFiltering: false,
+                trigger: .dataRefresh
+            )
+            let referenceProjection = RepoExplorerProjection.project(snapshot)
+            let referenceRows = RepoExplorerRowIndex(
+                projection: referenceProjection,
+                collapsedGroupIds: [],
+                isFiltering: false
+            )
+
+            adapter.admit(request)
+            for _ in 0..<10_000
+            where adapter.publishedResult?.generation != request.generation {
+                await Task.yield()
+            }
+            let result = try #require(adapter.publishedResult)
+            #expect(result.generation == request.generation)
+            #expect(result.projection == referenceProjection)
+            #expect(result.rowIndex.entries.map(\.id) == referenceRows.entries.map(\.id))
+        }
+
+        let finalResult = adapter.publishedResult
+        adapter.stop()
+        adapter.admit(
+            RepoExplorerProjectionRequest(
+                generation: 99,
+                snapshot: .init(repos: [], repoEnrichmentByRepoId: [:], groupingMode: .repo, query: ""),
+                collapsedGroupIds: [],
+                isFiltering: false,
+                trigger: .dataRefresh
+            )
+        )
+        for _ in 0..<100 { await Task.yield() }
+        #expect(adapter.publishedResult == finalResult)
     }
 
     private func repo(id: UUID, name: String, isFavorite: Bool = false) -> RepoPresentationItem {

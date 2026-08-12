@@ -85,8 +85,8 @@ private func makeMainSplitViewControllerHarness(
         inboxSidebarState: atoms.inboxSidebarState,
         paneInboxPresentationState: atoms.paneInboxPresentationState,
         repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
-        bridgeAttendanceSnapshot: {
-            atoms.bridgePaneAttendance.ordinalSnapshot()
+        bridgeAttendanceSnapshot: { paneId in
+            atoms.bridgePaneAttendance.ordinal(for: paneId)
         },
         bridgePaneAttendance: atoms.bridgePaneAttendance,
         editorChooser: atoms.editorChooser,

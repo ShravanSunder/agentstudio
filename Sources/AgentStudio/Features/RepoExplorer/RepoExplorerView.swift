@@ -17,7 +17,7 @@ struct RepoExplorerOutlineApplyMeasurement: Equatable, Sendable {
     let outcome: RepoExplorerOutlineApplyOutcome
 }
 package typealias BridgeAttendanceSnapshot =
-    @MainActor () -> [UUID: UInt64]
+    @MainActor (UUID) -> UInt64?
 
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
@@ -103,8 +103,7 @@ package struct RepoExplorerView: View {
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
     @State private var debounceTask: Task<Void, Never>?
-    @State private var projectionWorker = RepoExplorerProjectionWorker()
-    @State private var projectionTask: Task<Void, Never>?
+    @State private var projectionAdapter = RepoExplorerProjectionAdapter()
     @State private var projectionGeneration = 0
     @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
@@ -192,8 +191,7 @@ package struct RepoExplorerView: View {
         }
         .onDisappear {
             debounceTask?.cancel()
-            projectionTask?.cancel()
-            projectionTask = nil
+            projectionAdapter.stop()
             projectionObservationID = nil
             updateSidebarVisibleWorktrees([])
             RepoExplorerFocusPublisher.publish(
@@ -250,6 +248,10 @@ package struct RepoExplorerView: View {
                 request: request,
                 requestBuildDuration: requestBuildStart.duration(to: clock.now)
             )
+        }
+        .onChange(of: projectionAdapter.publishedResult) { _, result in
+            guard let result else { return }
+            applyProjectionResult(result)
         }
         .onChange(of: focusedField) { _, newValue in
             RepoExplorerFocusPublisher.publish(
@@ -693,7 +695,9 @@ package struct RepoExplorerView: View {
             return
         }
 
-        if projectionTask != nil, let cancelledRequest = cachedProjectionRequest {
+        if projectionAdapter.materializedProjection?.hasUnsettledProjectionTasks == true,
+            let cancelledRequest = cachedProjectionRequest
+        {
             performanceTraceRecorder?.record(
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
@@ -733,31 +737,7 @@ package struct RepoExplorerView: View {
             )
         )
         cachedProjectionRequest = generatedRequest
-        projectionTask?.cancel()
-        let worker = projectionWorker
-        projectionTask = Task { @MainActor in
-            guard !Task.isCancelled else { return }
-            do {
-                let result = try await worker.project(generatedRequest)
-                guard !Task.isCancelled else { return }
-                applyProjectionResult(result)
-            } catch is CancellationError {
-                clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
-            } catch {
-                failProjectionIfCurrent(generation: generatedRequest.generation)
-            }
-        }
-    }
-
-    private func clearProjectionTaskIfCurrent(generation: Int) {
-        guard generation == projectionGeneration else { return }
-        projectionTask = nil
-    }
-
-    private func failProjectionIfCurrent(generation: Int) {
-        guard generation == projectionGeneration else { return }
-        cachedProjectionRequest = nil
-        projectionTask = nil
+        projectionAdapter.admit(generatedRequest)
     }
 
     private func applyProjectionResult(_ result: RepoExplorerProjectionResult) {
@@ -830,7 +810,6 @@ package struct RepoExplorerView: View {
             nextRowIDs: nextRowIDs,
             apply: { cachedProjectionResult = result }
         )
-        projectionTask = nil
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
             duration: outlineApplyMeasurement.duration,
