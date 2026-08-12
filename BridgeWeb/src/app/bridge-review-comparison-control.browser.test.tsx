@@ -1,4 +1,4 @@
-import { act } from 'react';
+import { act, type ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { userEvent } from 'vitest/browser';
@@ -551,6 +551,48 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		const explanation = rendered.getByTestId('bridge-review-comparison-catalog-explanation');
 		await expect.element(explanation).toHaveTextContent('Showing branches from the last 30 days.');
 		expect(explanation.element().textContent).toBe('Showing branches from the last 30 days.');
+	});
+
+	test('shows shadcn skeleton rows until the virtualized branch catalog is ready', async () => {
+		// Arrange
+		const comparisonControl = (status: 'loading' | 'ready'): ReactElement => (
+			<BridgeReviewComparisonControl
+				comparisonPresentation={comparisonPresentation({ displayedSnapshot: { status: 'none' } })}
+				displayedReviewPackage={null}
+				onApplyTarget={vi.fn()}
+				targetQueryState={
+					status === 'loading'
+						? { catalog: null, message: null, status }
+						: { catalog: targetCatalog(), message: null, status }
+				}
+			/>
+		);
+		const rendered = await render(comparisonControl('loading'));
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+
+		// Assert
+		const loadingViewport = rendered.getByTestId('bridge-review-comparison-branch-skeleton');
+		await expect.element(loadingViewport).toBeVisible();
+		expect(loadingViewport.element().querySelectorAll('[data-slot="skeleton"]')).toHaveLength(4);
+		expect(
+			document.querySelector('[data-testid="bridge-review-comparison-branch-scroll"]'),
+		).toBeNull();
+		expect(document.body.textContent).not.toContain('Loading branch choices…');
+
+		// Act
+		await rendered.rerender(comparisonControl('ready'));
+
+		// Assert
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-branch-scroll'))
+			.toBeVisible();
+		expect(
+			document.querySelector('[data-testid="bridge-review-comparison-branch-skeleton"]'),
+		).toBeNull();
 	});
 
 	test('preserves an empty catalog while explaining the recent-window boundary', async () => {

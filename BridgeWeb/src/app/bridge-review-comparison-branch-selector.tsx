@@ -11,6 +11,7 @@ import {
 	ComboboxList,
 } from '../components/ui/combobox.js';
 import { Field, FieldTitle } from '../components/ui/field.js';
+import { Skeleton } from '../components/ui/skeleton.js';
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import type {
 	BridgeProductReviewComparisonBranchTarget,
@@ -115,12 +116,16 @@ export function BridgeReviewComparisonBranchSelector(props: {
 						ref={props.searchInputRef}
 						showTrigger={false}
 					/>
-					<VirtualizedBranchOptions
-						highlightedBranch={highlightedBranch}
-						onFilteredItemCountChange={setFilteredBranchCount}
-						selectedBranch={selectedBranch}
-						targetCatalog={targetCatalog}
-					/>
+					{props.targetQueryState.status === 'loading' ? (
+						<BranchOptionsSkeleton />
+					) : (
+						<VirtualizedBranchOptions
+							highlightedBranch={highlightedBranch}
+							onFilteredItemCountChange={setFilteredBranchCount}
+							selectedBranch={selectedBranch}
+							targetCatalog={targetCatalog}
+						/>
+					)}
 					{targetCatalog === null ? null : (
 						<p
 							className="border-t border-border px-2 py-2 text-xs/relaxed text-muted-foreground"
@@ -136,9 +141,6 @@ export function BridgeReviewComparisonBranchSelector(props: {
 								? props.targetQueryState.message
 								: 'No matching branches.'}
 						</ComboboxEmpty>
-					) : null}
-					{props.targetQueryState.status === 'loading' ? (
-						<ComboboxEmpty className="flex">Loading branch choices…</ComboboxEmpty>
 					) : null}
 					{props.targetQueryState.status === 'failed' ? (
 						<ComboboxEmpty className="flex">
@@ -156,6 +158,21 @@ export function BridgeReviewComparisonBranchSelector(props: {
 					) : null}
 				</div>
 			</Combobox>
+		</div>
+	);
+}
+
+function BranchOptionsSkeleton(): ReactElement {
+	return (
+		<div
+			aria-hidden="true"
+			className="flex h-44 flex-col gap-2 px-3 py-3"
+			data-testid="bridge-review-comparison-branch-skeleton"
+		>
+			<Skeleton className="h-8 w-full" />
+			<Skeleton className="h-8 w-11/12" />
+			<Skeleton className="h-8 w-full" />
+			<Skeleton className="h-8 w-4/5" />
 		</div>
 	);
 }
