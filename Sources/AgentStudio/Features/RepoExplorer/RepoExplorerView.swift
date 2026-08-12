@@ -102,7 +102,6 @@ package struct RepoExplorerView: View {
     @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
-
     @State private var debounceTask: Task<Void, Never>?
     @State private var projectionWorker = RepoExplorerProjectionWorker()
     @State private var projectionTask: Task<Void, Never>?
@@ -110,11 +109,12 @@ package struct RepoExplorerView: View {
     @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
     @State private var projectionObservationID: UUID?
-
     private static let filterDebounceMilliseconds = 25
 
     private var sidebarRepos: [RepoPresentationItem] {
-        store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:))
+        store.repositoryTopologyAtom.repositoryIdsInOrder.compactMap { repositoryID in
+            store.repositoryTopologyAtom.repo(repositoryID).map(RepoPresentationItem.init(repo:))
+        }
     }
 
     private var sidebarSnapshot: RepoExplorerSnapshot {

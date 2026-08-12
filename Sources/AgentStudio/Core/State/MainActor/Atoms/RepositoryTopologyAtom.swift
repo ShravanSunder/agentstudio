@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -65,6 +66,16 @@ package final class RepositoryTopologyAtom {
     private(set) var unavailableRepoIds: Set<UUID> = []
     package private(set) var worktreePathIndexGeneration: UInt64 = 0
 
+    @ObservationIgnored private let repositoryFamily = AtomFamily<UUID, Repo>(
+        telemetryLabel: "repository_topology_repository",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let worktreeFamily = AtomFamily<UUID, Worktree>(
+        telemetryLabel: "repository_topology_worktree",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let topologyRevisionAtom = AtomRevision()
+    @ObservationIgnored private let orderedMembershipRevisionAtom = AtomRevision()
     @ObservationIgnored private var worktreePathIndex: [RepositoryTopologyPathIndexEntry] = []
     @ObservationIgnored private var deferredWorktreePathIndexRebuildDepth = 0
     @ObservationIgnored private var deferredWorktreePathIndexRebuildNeeded = false
@@ -73,6 +84,8 @@ package final class RepositoryTopologyAtom {
     @ObservationIgnored private var watchedPathsByID: [UUID: WatchedPath] = [:]
     @ObservationIgnored private var repositoryIDsByStableKey: [String: UUID] = [:]
     @ObservationIgnored private var worktreeIDsByStableKey: [String: UUID] = [:]
+    @ObservationIgnored private var orderedRepositoryIDs: [UUID] = []
+    @ObservationIgnored private var orderedWorktreeIDs: [UUID] = []
     @ObservationIgnored private var worktreePathAmbiguityReporter: (@MainActor () -> Void)?
 
     package init() {}
@@ -84,16 +97,18 @@ package final class RepositoryTopologyAtom {
     }
 
     var allWorktreeIds: Set<UUID> {
-        _ = repos
-        return Set(worktreesByID.keys)
+        _ = orderedMembershipRevisionAtom.value
+        return worktreeFamily.membershipKeys()
     }
 
-    var repositoryIdsInOrder: [UUID] {
-        repos.map(\.id)
+    package var repositoryIdsInOrder: [UUID] {
+        _ = orderedMembershipRevisionAtom.value
+        return orderedRepositoryIDs
     }
 
-    var worktreeIdsInOrder: [UUID] {
-        repos.flatMap(\.worktrees).map(\.id)
+    package var worktreeIdsInOrder: [UUID] {
+        _ = orderedMembershipRevisionAtom.value
+        return orderedWorktreeIDs
     }
 
     var watchedPathIdsInOrder: [UUID] {
@@ -123,7 +138,17 @@ package final class RepositoryTopologyAtom {
         guard repositoriesChanged || watchedPathsChanged || unavailableRepositoriesChanged else { return }
 
         if repositoriesChanged {
+            let previousRepositoryIDs = orderedRepositoryIDs
+            let previousWorktreeIDs = orderedWorktreeIDs
             repos = replacement.repositories
+            orderedRepositoryIDs = replacement.repositories.map(\.id)
+            orderedWorktreeIDs = replacement.repositories.flatMap(\.worktrees).map(\.id)
+            synchronizeEntityFamilies()
+            if previousRepositoryIDs != orderedRepositoryIDs
+                || previousWorktreeIDs != orderedWorktreeIDs
+            {
+                orderedMembershipRevisionAtom.bump()
+            }
         }
         if watchedPathsChanged {
             watchedPaths = replacement.watchedPaths
@@ -140,23 +165,21 @@ package final class RepositoryTopologyAtom {
     }
 
     package func repo(_ id: UUID) -> Repo? {
-        _ = repos
-        return repositoriesByID[id]
+        repositoryFamily.value(for: id)
     }
 
     package func worktree(_ id: UUID) -> Worktree? {
-        _ = repos
-        return worktreesByID[id]
+        worktreeFamily.value(for: id)
     }
 
     package func repo(stableKey: String) -> Repo? {
-        _ = repos
+        _ = orderedMembershipRevisionAtom.value
         guard let repositoryID = repositoryIDsByStableKey[stableKey] else { return nil }
         return repo(repositoryID)
     }
 
     package func worktree(stableKey: String) -> Worktree? {
-        _ = repos
+        _ = orderedMembershipRevisionAtom.value
         guard let worktreeID = worktreeIDsByStableKey[stableKey] else { return nil }
         return worktree(worktreeID)
     }
@@ -190,13 +213,36 @@ package final class RepositoryTopologyAtom {
     }
 
     package func repo(containing worktreeId: UUID) -> Repo? {
-        _ = repos
-        guard let worktree = worktreesByID[worktreeId] else { return nil }
-        return repositoriesByID[worktree.repoId]
+        guard let worktree = worktree(worktreeId) else { return nil }
+        return repo(worktree.repoId)
     }
 
     package func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
         captureReadSnapshot().repoAndWorktree(containing: cwd)
+    }
+
+    package func repoAndWorktree(
+        containing cwd: URL?,
+        among worktreeIDs: Set<UUID>
+    ) -> (repo: Repo, worktree: Worktree)? {
+        guard let cwd else { return nil }
+        let normalizedCWD = cwd.standardizedFileURL.path
+
+        for entry in worktreePathIndex where worktreeIDs.contains(entry.worktreeId) {
+            guard
+                normalizedCWD == entry.normalizedWorktreePath
+                    || normalizedCWD.hasPrefix(entry.normalizedWorktreePath + "/")
+            else { continue }
+            guard
+                let repository = repo(entry.repoId),
+                let worktree = worktree(entry.worktreeId)
+            else { return nil }
+            return (repository, worktree)
+        }
+        for worktreeID in worktreeIDs {
+            _ = worktree(worktreeID)
+        }
+        return nil
     }
 
     package func captureReadSnapshot() -> RepositoryTopologyReadSnapshot {
@@ -228,6 +274,9 @@ package final class RepositoryTopologyAtom {
         repository.tags = tags
         repos[repositoryIndex] = repository
         repositoriesByID[repositoryID] = repository
+        let mutation = AtomMutationContext(aggregateRevision: topologyRevisionAtom)
+        repositoryFamily.setValue(repository, for: repositoryID, mutation: mutation)
+        mutation.commit()
     }
 
     func applyValidatedWorktreeNote(worktreeID: UUID, note: String?) {
@@ -242,6 +291,10 @@ package final class RepositoryTopologyAtom {
         let updatedWorktree = repos[repositoryIndex].worktrees[worktreeIndex]
         worktreesByID[worktreeID] = updatedWorktree
         repositoriesByID[worktree.repoId] = repos[repositoryIndex]
+        let mutation = AtomMutationContext(aggregateRevision: topologyRevisionAtom)
+        worktreeFamily.setValue(updatedWorktree, for: worktreeID, mutation: mutation)
+        repositoryFamily.setValue(repos[repositoryIndex], for: worktree.repoId, mutation: mutation)
+        mutation.commit()
     }
 
     package func isRepoUnavailable(_ repoId: UUID) -> Bool {
@@ -267,6 +320,19 @@ package final class RepositoryTopologyAtom {
                     worktrees.count == 1 ? (stableKey, worktrees[0].id) : nil
                 }
         )
+    }
+
+    private func synchronizeEntityFamilies() {
+        let mutation = AtomMutationContext(aggregateRevision: topologyRevisionAtom)
+        repositoryFamily.replaceAll(
+            Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) }),
+            mutation: mutation
+        )
+        worktreeFamily.replaceAll(
+            Dictionary(uniqueKeysWithValues: repos.flatMap(\.worktrees).map { ($0.id, $0) }),
+            mutation: mutation
+        )
+        mutation.commit()
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {

@@ -10,6 +10,7 @@ DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
 WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
+REQUIRED_METRIC_READBACK_ATTEMPTS=45
 WORKLOAD_FIXTURE_VERSION=sidebar-workload-v2
 
 usage() {
@@ -68,6 +69,133 @@ fi
 
 canonical_path() {
   /usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+decode_identity_value() {
+  local identity="$1"
+  local key="$2"
+  local raw_value
+  raw_value="$(printf '%s\n' "$identity" | sed -n "s/^$key=//p" | tail -1)"
+  /usr/bin/python3 - "$raw_value" <<'PY'
+import shlex
+import sys
+
+parts = shlex.split(sys.argv[1]) if sys.argv[1] else []
+print(parts[0] if parts else "")
+PY
+}
+
+stop_pid() {
+  local pid="$1"
+  [ -n "$pid" ] || return 0
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    wait "$pid" >/dev/null 2>&1 || true
+  fi
+}
+
+owned_zmx_pids() {
+  /bin/ps -axo pid=,command= | /usr/bin/python3 -c '
+import os, shlex, sys
+data_dir = sys.argv[1]
+for line in sys.stdin:
+    process_fields = line.strip().split(maxsplit=1)
+    if len(process_fields) != 2 or not process_fields[0].isdigit():
+        continue
+    command = process_fields[1]
+    try:
+        command_parts = shlex.split(command)
+    except ValueError:
+        continue
+    if not command_parts or os.path.basename(command_parts[0]) != "zmx":
+        continue
+    if data_dir in command:
+        print(process_fields[0])
+' "$RESET_DATA_DIR"
+}
+
+reset_disposable_debug_root() {
+  local expected_bundle_identifier zmx_pid zmx_pids
+  RESET_IDENTITY="$("$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity)"
+  RESET_DEBUG_CODE="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE)"
+  RESET_DATA_DIR="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  RESET_BUNDLE_IDENTIFIER="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER)"
+
+  case "$RESET_DATA_DIR" in
+    "$HOME/.agentstudio-db/"*) ;;
+    *) echo "refusing to reset debug data root outside $HOME/.agentstudio-db/: $RESET_DATA_DIR" >&2; return 1 ;;
+  esac
+  [ "$RESET_DATA_DIR" != "$HOME/.agentstudio-db" ] || {
+    echo "refusing to reset debug data root container" >&2
+    return 1
+  }
+  case "$RESET_DEBUG_CODE" in
+    ''|*[!a-z0-9]*) echo "refusing reset with unsafe debug code: $RESET_DEBUG_CODE" >&2; return 1 ;;
+  esac
+  expected_bundle_identifier="com.agentstudio.app.debug.d$RESET_DEBUG_CODE"
+  if [ "$RESET_BUNDLE_IDENTIFIER" != "$expected_bundle_identifier" ]; then
+    echo "refusing reset for mismatched debug bundle identifier: $RESET_BUNDLE_IDENTIFIER" >&2
+    return 1
+  fi
+
+  "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
+  zmx_pids="$(owned_zmx_pids)"
+  for zmx_pid in $zmx_pids; do
+    kill "$zmx_pid"
+  done
+  for _ in $(seq 1 40); do
+    local live_zmx_pid=""
+    for zmx_pid in $zmx_pids; do
+      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+        live_zmx_pid="$zmx_pid"
+        break
+      fi
+    done
+    [ -z "$live_zmx_pid" ] && break
+    /bin/sleep 0.25
+  done
+  for zmx_pid in $zmx_pids; do
+    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+      kill -KILL "$zmx_pid"
+    fi
+  done
+  for _ in $(seq 1 20); do
+    local live_zmx_pid=""
+    for zmx_pid in $zmx_pids; do
+      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+        live_zmx_pid="$zmx_pid"
+        break
+      fi
+    done
+    [ -z "$live_zmx_pid" ] && break
+    /bin/sleep 0.25
+  done
+  for zmx_pid in $zmx_pids; do
+    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+      echo "refusing to remove debug data root while zmx remains live: pid=$zmx_pid data_dir=$RESET_DATA_DIR" >&2
+      return 1
+    fi
+  done
+
+  echo "sidebar reset: bundle_id=$RESET_BUNDLE_IDENTIFIER data_dir=$RESET_DATA_DIR zmx_pids=${zmx_pids:-none}"
+  /bin/rm -rf -- "$RESET_DATA_DIR"
+}
+
+cleanup() {
+  local cleanup_pid="$APP_PID"
+  if [ -z "$cleanup_pid" ] && [ -f "$STATE_FILE" ] \
+    && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]
+  then
+    cleanup_pid="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  fi
+  case "$cleanup_pid" in
+    ''|*[!0-9]*) ;;
+    *) stop_pid "$cleanup_pid" ;;
+  esac
+
+  if [ -n "$RESET_DATA_DIR" ]; then
+    reset_disposable_debug_root || true
+  fi
 }
 
 validate_loopback_url() {
@@ -283,7 +411,7 @@ wait_for_required_metric_count() {
   local minimum="$3"
   local attempt
   local value
-  for attempt in $(seq 1 30); do
+  for attempt in $(seq 1 "$REQUIRED_METRIC_READBACK_ATTEMPTS"); do
     value="$(metric_value_or_empty "$query")"
     if [ -n "$value" ]; then
       if /usr/bin/python3 - "$value" "$minimum" <<'PY'
@@ -311,7 +439,7 @@ wait_for_required_metric_value() {
   local query="$2"
   local attempt
   local value
-  for attempt in $(seq 1 30); do
+  for attempt in $(seq 1 "$REQUIRED_METRIC_READBACK_ATTEMPTS"); do
     value="$(metric_value_or_empty "$query")"
     if [ -n "$value" ]; then
       printf '%s\n' "$value"
@@ -805,7 +933,16 @@ if [ "$mode" = "prepare-only" ]; then
   exit 0
 fi
 
+APP_PID=""
+RESET_IDENTITY=""
+RESET_DEBUG_CODE=""
+RESET_DATA_DIR=""
+RESET_BUNDLE_IDENTIFIER=""
+trap cleanup EXIT INT TERM
+reset_disposable_debug_root
+
 env \
+  AGENTSTUDIO_TRACE_FLUSH=immediate \
   AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
   AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
   AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
@@ -816,6 +953,7 @@ env \
 
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   wait_for_debug_observability
+APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
 
 activation_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)"
 ipc_auth_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)"

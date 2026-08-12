@@ -379,6 +379,59 @@ struct RepoExplorerViewProjectionHelperTests {
         }
     }
 
+    @Test("sidebar projection capture ignores unrelated topology metadata and observes rendered metadata")
+    func sidebarProjectionCaptureIgnoresUnrelatedTopologyMetadataMutation() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let renderedRepo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-rendered"))
+            let renderedWorktree = try #require(renderedRepo.worktrees.first)
+            let unrelatedRepo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-unrelated"))
+            let pane = store.createPane(
+                launchDirectory: renderedWorktree.path,
+                facets: PaneContextFacets(cwd: renderedWorktree.path)
+            )
+            store.appendTab(Tab(paneId: pane.id))
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                bridgeAttendanceSnapshot: { [:] },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let renderedRepos = [RepoPresentationItem(repo: renderedRepo)]
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+
+            withObservationTracking {
+                _ = view.makeSidebarSnapshot(
+                    repos: renderedRepos,
+                    repoEnrichmentByRepoId: [:],
+                    groupingMode: .repo,
+                    sortOrder: .ascending,
+                    query: ""
+                )
+            } onChange: {
+                invalidationRecorder.record()
+            }
+
+            store.mutationCoordinator.setRepoFavorite(unrelatedRepo.id, isFavorite: true)
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+
+            store.mutationCoordinator.setRepoFavorite(renderedRepo.id, isFavorite: true)
+
+            #expect(invalidationRecorder.invalidationCount == 1)
+        }
+    }
+
     @Test("source group icon uses same checkout color contract as worktree rows")
     func sourceGroupIconUsesCheckoutColorContract() {
         let repoId = UUID()
