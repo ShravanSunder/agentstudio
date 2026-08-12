@@ -61,3 +61,10 @@ Instrumentation now observes boundaries 1 through 3. It is pass-through, records
 - Fresh observability run: `mise run run-debug-observability -- --detach` launched the current source through LaunchServices as PID `69585` with marker `debug-observability-s08a-1786537209-67895`; `mise run verify-debug-observability` exited 0 and found `app.did_finish_launching.succeeded` for that run.
 - Fresh post-gate Computer Use proof against PID `69585`: the tab strip retained its existing visual treatment; secondary-clicking `(470, 13)` exposed the same native menu hierarchy; dismissing it and primary-clicking `(755, 13)` selected the target tab normally.
 - `git diff --check` exited 0. The tab-bar diff adds no layout, sizing, spacing, color, hover, selection, or animation modifier; it only removes the failed SwiftUI context-menu attachment and routes secondary-click presentation through AppKit.
+
+## PR review correction
+
+- CodeRabbit correctly identified that the diagnostic `hit_view_class` value used a raw runtime class name, which violated the repository's bounded OTLP-label contract.
+- RED: the focused OTLP projection suite rejected the new requirement because `SwiftUI._NSHostingView` was still exported.
+- The host now emits only `swiftui`, `appkit`, or `none`, and the OTLP projection independently allowlists exactly those values.
+- GREEN: `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1200 mise run test:swift -- --filter 'AgentStudioOTLPPerformanceTraceProjectionTests|DraggableTabBarWindowDragTests'` passed 16 tests in 2 suites. This correction changes telemetry labels only; it does not touch menu presentation or tab appearance.

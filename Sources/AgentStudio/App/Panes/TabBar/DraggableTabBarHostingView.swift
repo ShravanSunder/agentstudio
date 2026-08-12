@@ -172,7 +172,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 "agentstudio.performance.tabbar.context_menu.phase": .string("host_hit_test"),
                 "agentstudio.performance.tabbar.context_menu.host_hit": .bool(hitView != nil),
                 "agentstudio.performance.tabbar.context_menu.hit_view_class": .string(
-                    hitView.map { NSStringFromClass(type(of: $0)) } ?? "none"
+                    Self.contextMenuHitViewLabel(hitView)
                 ),
                 "agentstudio.performance.tabbar.context_menu.static_menu_available": .bool(
                     hitView?.menu != nil
@@ -180,6 +180,11 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             ]
         )
         return hitView
+    }
+
+    private static func contextMenuHitViewLabel(_ hitView: NSView?) -> String {
+        guard let hitView else { return "none" }
+        return NSStringFromClass(type(of: hitView)).hasPrefix("SwiftUI.") ? "swiftui" : "appkit"
     }
 
     // MARK: - Setup

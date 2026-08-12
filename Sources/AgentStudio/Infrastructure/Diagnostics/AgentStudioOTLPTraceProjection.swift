@@ -919,6 +919,8 @@ extension AgentStudioOTLPTraceProjection {
             return ["published", "equal", "superseded", "cancelled"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.phase":
             return ["input", "host_hit_test"].contains(value)
+        case "agentstudio.performance.tabbar.context_menu.hit_view_class":
+            return ["swiftui", "appkit", "none"].contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",
