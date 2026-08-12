@@ -68,3 +68,15 @@ Instrumentation now observes boundaries 1 through 3. It is pass-through, records
 - RED: the focused OTLP projection suite rejected the new requirement because `SwiftUI._NSHostingView` was still exported.
 - The host now emits only `swiftui`, `appkit`, or `none`, and the OTLP projection independently allowlists exactly those values.
 - GREEN: `SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1200 mise run test:swift -- --filter 'AgentStudioOTLPPerformanceTraceProjectionTests|DraggableTabBarWindowDragTests'` passed 16 tests in 2 suites. This correction changes telemetry labels only; it does not touch menu presentation or tab appearance.
+- Exact-head review found the first fixed-label classifier relied on a demangled
+  `SwiftUI.` class prefix, while the captured live class was mangled as
+  `_TtCC7SwiftUI...`; the safe label was therefore semantically `appkit`.
+- RED: the real hosting-view hit trace test required `hit_view_class=swiftui`
+  and failed because the emitted value was `appkit`.
+- The classifier now uses the owned `NSHostingView` subtree boundary rather than
+  runtime class names, and the permanent AppKit/SwiftUI architecture document
+  records AppKit's narrow secondary-click ownership.
+- The first structural-classifier run exposed a fixture defect: the window-hosted
+  test skipped layout, so `super.hitTest` returned the outer AppKit host instead of
+  entering the SwiftUI subtree. After one real `layoutSubtreeIfNeeded()` pass, the
+  focused trace test passed and emitted `hit_view_class=swiftui`.

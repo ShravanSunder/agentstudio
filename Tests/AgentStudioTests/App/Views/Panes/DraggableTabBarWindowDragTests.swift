@@ -103,6 +103,11 @@ struct DraggableTabBarWindowDragTests {
         #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.tab_hit\":true"))
         #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.phase\":\"host_hit_test\""))
         #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.host_hit\":true"))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.tabbar.context_menu.hit_view_class\":\"swiftui\""
+            )
+        )
     }
 
     @Test("a secondary click on a tab requests its native context menu and consumes the event")
@@ -226,7 +231,8 @@ struct DraggableTabBarWindowDragTests {
 
     /// Builds a `DraggableTabBarHostingView` hosted as the content view of a real,
     /// never-ordered-front borderless window, with one tab-pill frame seeded directly
-    /// via `updateTabFrames` (bypassing SwiftUI layout entirely). `mouseDown` converts
+    /// via `updateTabFrames`. The window performs one layout pass so hit testing reaches
+    /// the hosted SwiftUI subtree. `mouseDown` converts
     /// `event.locationInWindow` through `convert(_:from:)`, which needs a real window
     /// to resolve correctly; a borderless window sized to the view's bounds keeps
     /// window-base coordinates identical to the view's own local coordinates.
@@ -275,6 +281,7 @@ struct DraggableTabBarWindowDragTests {
             defer: false
         )
         window.contentView = hostingView
+        window.contentView?.layoutSubtreeIfNeeded()
 
         let tabId = UUIDv7.generate()
         let pillFrame = CGRect(x: 20, y: 4, width: 100, height: AppStyles.Shell.TabBar.tabPillHeight)

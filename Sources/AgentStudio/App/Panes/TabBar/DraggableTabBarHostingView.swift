@@ -8,8 +8,8 @@ import UniformTypeIdentifiers
 // MARK: - Draggable Tab Bar Container
 
 /// Container view that wraps NSHostingView and handles drag-to-reorder for tabs.
-/// Uses NSPanGestureRecognizer to detect drags while letting SwiftUI handle all other
-/// interactions (clicks, close buttons, right-clicks, hover).
+/// Uses NSPanGestureRecognizer for tab drags, AppKit for secondary-click menus and
+/// empty-strip window dragging, and SwiftUI for visual and primary-click interactions.
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private static let paneDragHoverDwellDuration: TimeInterval = 0.1
     private static let doubleClickActionDefaultsKey = "AppleActionOnDoubleClick"
@@ -172,7 +172,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 "agentstudio.performance.tabbar.context_menu.phase": .string("host_hit_test"),
                 "agentstudio.performance.tabbar.context_menu.host_hit": .bool(hitView != nil),
                 "agentstudio.performance.tabbar.context_menu.hit_view_class": .string(
-                    Self.contextMenuHitViewLabel(hitView)
+                    contextMenuHitViewLabel(hitView)
                 ),
                 "agentstudio.performance.tabbar.context_menu.static_menu_available": .bool(
                     hitView?.menu != nil
@@ -182,9 +182,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         return hitView
     }
 
-    private static func contextMenuHitViewLabel(_ hitView: NSView?) -> String {
+    private func contextMenuHitViewLabel(_ hitView: NSView?) -> String {
         guard let hitView else { return "none" }
-        return NSStringFromClass(type(of: hitView)).hasPrefix("SwiftUI.") ? "swiftui" : "appkit"
+        return hitView === hostingView || hitView.isDescendant(of: hostingView) ? "swiftui" : "appkit"
     }
 
     // MARK: - Setup
