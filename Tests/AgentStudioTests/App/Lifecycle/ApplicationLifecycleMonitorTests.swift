@@ -162,4 +162,46 @@ struct ApplicationLifecycleMonitorTests {
         #expect(windowStore.isReadyForLaunchRestore == true)
     }
 
+    @Test("display completion is scheduled only after launch layout readiness")
+    func schedulesDisplayCompletionAtReadinessEdge() {
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        var scheduledCompletion: (@MainActor () -> Void)?
+        var scheduleCount = 0
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore,
+            scheduleFirstDisplayCommit: { completion in
+                scheduleCount += 1
+                scheduledCompletion = completion
+            }
+        )
+
+        monitor.handleLaunchLayoutSettled()
+        #expect(scheduleCount == 0)
+        monitor.handleTerminalContainerBoundsChanged(CGRect(x: 0, y: 0, width: 1140, height: 824))
+        #expect(scheduleCount == 1)
+        #expect(!windowStore.didPublishFirstInteractiveFrame)
+
+        scheduledCompletion?()
+        #expect(windowStore.didPublishFirstInteractiveFrame)
+
+        monitor.handleLaunchLayoutSettled()
+        #expect(scheduleCount == 1)
+    }
+
+    @Test("completion before launch readiness cannot publish the proxy frame")
+    func ignoresPreReadyDisplayCompletion() {
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+
+        monitor.handleFirstDisplayCommitCompleted()
+
+        #expect(!windowStore.didPublishFirstInteractiveFrame)
+    }
+
 }

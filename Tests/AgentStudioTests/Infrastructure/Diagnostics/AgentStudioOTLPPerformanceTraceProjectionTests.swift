@@ -5,6 +5,32 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceTraceProjectionTests {
+    @Test("startup usable keeps only bounded duration fields")
+    func startupUsableKeepsSafeDurations() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 120,
+                severityText: .info,
+                body: "performance.startup.usable",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: [:],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.performance.elapsed_ms": .double(125),
+                    "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(8),
+                    "agentstudio.performance.startup.pane_id": .string("private"),
+                ]
+            ))
+
+        #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(125))
+        #expect(
+            projection.attributes["agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms"]
+                == .double(8))
+        #expect(projection.attributes["agentstudio.performance.startup.pane_id"] == nil)
+    }
+
     @Test("interaction latency keeps controlled kind and scrubs correlation id")
     func interactionLatencyKeepsKindAndScrubsCorrelationId() {
         let projection = AgentStudioOTLPTraceProjection.project(

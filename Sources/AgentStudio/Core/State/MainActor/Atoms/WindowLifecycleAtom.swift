@@ -34,6 +34,8 @@ package final class WindowLifecycleAtom {
     // Transient window facts for launch restore. Never persisted.
     package private(set) var terminalContainerBounds: CGRect = .zero
     package private(set) var isLaunchLayoutSettled = false
+    /// App-owned usable-frame proxy. This is not a Ghostty renderer-present fact.
+    package private(set) var didPublishFirstInteractiveFrame = false
 
     package var isReadyForLaunchRestore: Bool {
         isLaunchLayoutSettled && !terminalContainerBounds.isEmpty
@@ -147,5 +149,12 @@ package final class WindowLifecycleAtom {
         RestoreTrace.log(
             "WindowLifecycleAtom.recordLaunchLayoutSettled bounds=\(NSStringFromRect(terminalContainerBounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
         )
+    }
+
+    @discardableResult
+    package func recordFirstInteractiveFramePublished() -> Bool {
+        guard !didPublishFirstInteractiveFrame else { return false }
+        didPublishFirstInteractiveFrame = true
+        return true
     }
 }

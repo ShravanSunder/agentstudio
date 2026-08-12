@@ -408,6 +408,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.coordinator.unregistered.count",
         "agentstudio.performance.coordinator.worktree.count",
         "agentstudio.performance.elapsed_ms",
+        "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms",
         "agentstudio.performance.filesystem.drain_task.count",
         "agentstudio.performance.filesystem.affected_key_request.count",
         "agentstudio.performance.filesystem.full_reconciliation_request.count",

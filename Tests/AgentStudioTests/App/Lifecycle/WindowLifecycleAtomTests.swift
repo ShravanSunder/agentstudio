@@ -18,6 +18,7 @@ struct WindowLifecycleAtomTests {
         #expect(atom.terminalContainerBounds == .zero)
         #expect(atom.isLaunchLayoutSettled == false)
         #expect(atom.isReadyForLaunchRestore == false)
+        #expect(atom.didPublishFirstInteractiveFrame == false)
     }
 
     @Test("registered windows start with conservative hidden presentation facts")
@@ -185,5 +186,17 @@ struct WindowLifecycleAtomTests {
         atom.recordLaunchLayoutSettled()
 
         #expect(atom.isReadyForLaunchRestore == false)
+    }
+
+    @Test("first interactive frame is a transient one-shot fact")
+    func firstInteractiveFrameRecordsOnlyOnce() {
+        let atom = WindowLifecycleAtom()
+
+        let firstAccepted = atom.recordFirstInteractiveFramePublished()
+        let duplicateAccepted = atom.recordFirstInteractiveFramePublished()
+
+        #expect(firstAccepted)
+        #expect(!duplicateAccepted)
+        #expect(atom.didPublishFirstInteractiveFrame)
     }
 }

@@ -244,7 +244,8 @@ extension AppDelegate {
         windowLifecycleStore = atomStore.core.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(

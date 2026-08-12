@@ -6,6 +6,31 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
+    @Test("startup usable projects launch and layout phase distributions")
+    func startupUsableProjectsBothDurations() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 120,
+            severityText: .info,
+            body: "performance.startup.usable",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(125),
+                "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(8),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.elapsedMilliseconds == 125)
+        #expect(
+            metricEvent.samples.map(\.label)
+                == ["agentstudio_performance_startup_layout_settle_to_usable_elapsed_ms"])
+    }
+
     @Test("Repo Explorer keyed-wake contract becomes bounded metric dimensions")
     func repoExplorerKeyedWakeBecomesBoundedMetricDimensions() throws {
         let record = AgentStudioOTLPProjectedLogRecord(

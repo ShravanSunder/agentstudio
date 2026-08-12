@@ -163,6 +163,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarRowIndex = "performance.sidebar.row_index"
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
+        case startupUsable = "performance.startup.usable"
         case tabBarCurrent = "performance.tabbar.current"
         case tabBarCapture = "performance.tabbar.capture"
         case tabBarPublication = "performance.tabbar.publication"
@@ -186,6 +187,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private var topologyLookupAdmission = TopologyLookupTraceAdmission()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
+    private var recordedStartupLaunchInstant: ContinuousClock.Instant
 
     package init(
         traceRuntime: AgentStudioTraceRuntime?,
@@ -193,6 +195,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         processMemorySampleWait: @escaping AgentStudioProcessMemorySampler.WaitForNextSample =
             AgentStudioProcessMemorySampler.waitOneSecond
     ) {
+        self.recordedStartupLaunchInstant = ContinuousClock.now
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.performance) {
             runtimeDeliveryPerformanceReporter?.enable()
@@ -235,6 +238,16 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         eventQueue != nil
     }
 
+    package var startupLaunchInstant: ContinuousClock.Instant {
+        lock.withLock { recordedStartupLaunchInstant }
+    }
+
+    package func markStartupLaunchStarted() {
+        lock.withLock {
+            recordedStartupLaunchInstant = ContinuousClock.now
+        }
+    }
+
     package func record(
         _ event: Event,
         attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:]
@@ -268,6 +281,21 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             duration: duration,
             attributes: [
                 "agentstudio.performance.interaction.kind": .string(kind.rawValue)
+            ]
+        )
+    }
+
+    package func recordStartupUsable(
+        launchToUsable: Duration,
+        layoutSettleToUsable: Duration
+    ) {
+        recordDuration(
+            .startupUsable,
+            duration: launchToUsable,
+            attributes: [
+                "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(
+                    Self.milliseconds(from: layoutSettleToUsable)
+                )
             ]
         )
     }
