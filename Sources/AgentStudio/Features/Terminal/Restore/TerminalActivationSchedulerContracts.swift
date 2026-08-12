@@ -83,6 +83,42 @@ struct TerminalActivationSchedulerDiagnostics: Equatable, Sendable {
     let currentSimultaneousAdmissions: Int
     let maximumSimultaneousAdmissions: Int
     let workerCount: Int
+    let yieldCount: Int
+}
+
+package protocol TerminalActivationReleaseSignal: Sendable {
+    func waitUntilReleased() async
+}
+
+package actor TerminalActivationReleaseGate: TerminalActivationReleaseSignal {
+    private var isReleased: Bool
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    package init(isReleased: Bool) {
+        self.isReleased = isReleased
+    }
+
+    package func hold() {
+        precondition(waiters.isEmpty, "terminal activation gate cannot close while activation is waiting")
+        isReleased = false
+    }
+
+    package func release() {
+        guard !isReleased else { return }
+        isReleased = true
+        let releasedWaiters = waiters
+        waiters.removeAll()
+        for waiter in releasedWaiters {
+            waiter.resume()
+        }
+    }
+
+    package func waitUntilReleased() async {
+        guard !isReleased else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
 }
 
 package enum TerminalActivationPromotionResult: Equatable, Sendable {

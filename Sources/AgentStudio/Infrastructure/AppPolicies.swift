@@ -112,7 +112,7 @@ package enum AppPolicies {
     }
 
     package enum TerminalActivation {
-        package static let maximumConcurrentAdmissions: Int = 4
+        package static let restoreMaximumConcurrentAdmissions: Int = 1
     }
 
     package enum TerminalLocalAction {

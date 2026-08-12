@@ -36,6 +36,7 @@ package final class WindowLifecycleAtom {
     package private(set) var isLaunchLayoutSettled = false
     /// App-owned usable-frame proxy. This is not a Ghostty renderer-present fact.
     package private(set) var didPublishFirstInteractiveFrame = false
+    private var firstInteractiveFrameWaiters: [CheckedContinuation<Void, Never>] = []
 
     package var isReadyForLaunchRestore: Bool {
         isLaunchLayoutSettled && !terminalContainerBounds.isEmpty
@@ -155,6 +156,18 @@ package final class WindowLifecycleAtom {
     package func recordFirstInteractiveFramePublished() -> Bool {
         guard !didPublishFirstInteractiveFrame else { return false }
         didPublishFirstInteractiveFrame = true
+        let waiters = firstInteractiveFrameWaiters
+        firstInteractiveFrameWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
         return true
+    }
+
+    package func waitUntilFirstInteractiveFramePublished() async {
+        guard !didPublishFirstInteractiveFrame else { return }
+        await withCheckedContinuation { continuation in
+            firstInteractiveFrameWaiters.append(continuation)
+        }
     }
 }

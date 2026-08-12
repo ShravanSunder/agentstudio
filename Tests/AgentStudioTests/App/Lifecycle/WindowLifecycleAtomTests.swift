@@ -199,4 +199,25 @@ struct WindowLifecycleAtomTests {
         #expect(!duplicateAccepted)
         #expect(atom.didPublishFirstInteractiveFrame)
     }
+
+    @Test("first interactive frame releases every pending activation waiter")
+    func firstInteractiveFrameReleasesEveryPendingWaiter() async {
+        let atom = WindowLifecycleAtom()
+        let firstWaiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+            return true
+        }
+        let secondWaiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+            return true
+        }
+        await Task.yield()
+
+        let accepted = atom.recordFirstInteractiveFramePublished()
+
+        #expect(accepted)
+        #expect(await firstWaiter.value)
+        #expect(await secondWaiter.value)
+        await atom.waitUntilFirstInteractiveFramePublished()
+    }
 }

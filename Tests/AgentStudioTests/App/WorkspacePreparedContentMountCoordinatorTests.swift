@@ -9,6 +9,42 @@ import Testing
 @MainActor
 @Suite("Workspace prepared content mount coordinator")
 struct WorkspacePreparedContentMountCoordinatorTests {
+    @Test("publishes the complete terminal placeholder cohort before activation")
+    func publishesCompleteTerminalPlaceholderCohortBeforeActivation() async throws {
+        // Arrange
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let firstDescriptor = makePreparedContentCoordinatorTerminalDescriptor(title: "First")
+        let secondDescriptor = makePreparedContentCoordinatorTerminalDescriptor(title: "Second")
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(
+                entries: [firstDescriptor, secondDescriptor]
+            ),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let terminalPort = RecordingPreparedContentTerminalPort()
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: terminalPort,
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+        var publishedPaneIDs: [PaneId] = []
+
+        // Act
+        let publication = coordinator.publishTerminalPlaceholders { descriptor in
+            #expect(terminalPort.admissions.isEmpty)
+            publishedPaneIDs.append(descriptor.paneID)
+        }
+
+        // Assert
+        #expect(publication.paneIDs == [firstDescriptor.paneID, secondDescriptor.paneID])
+        #expect(publishedPaneIDs == publication.paneIDs)
+        #expect(terminalPort.admissions.isEmpty)
+    }
+
     @Test("empty accepted cohort settles both lanes and completes initial restore")
     func emptyCohortCompletesInitialRestore() async throws {
         // Arrange
