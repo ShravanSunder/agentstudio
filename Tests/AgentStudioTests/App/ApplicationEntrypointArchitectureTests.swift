@@ -224,10 +224,15 @@ struct ApplicationEntrypointArchitectureTests {
                 "atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)"))
         #expect(diagnosticSource.contains("mainWindowController?.expandSidebar()"))
         #expect(!diagnosticSource.contains("AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)"))
+        #expect(
+            diagnosticSource.contains(
+                "await waitForRepoExplorerProjectionReadiness(fixture: fixture)"))
         let readinessIndex = try #require(
-            diagnosticSource.range(of: "await waitForRepoExplorerProjectionReadiness()")?.lowerBound)
+            diagnosticSource.range(
+                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+            )?.lowerBound)
         let mutationIndex = try #require(
-            diagnosticSource.range(of: "runRenderedRepoFavoriteMutations()")?.lowerBound)
+            diagnosticSource.range(of: "self.runRenderedRepoFavoriteMutations()")?.lowerBound)
         #expect(readinessIndex < mutationIndex)
         #expect(
             !diagnosticSource.contains(

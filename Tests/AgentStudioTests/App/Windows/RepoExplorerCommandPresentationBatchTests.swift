@@ -195,34 +195,34 @@ struct RepoExplorerCommandPresentationBatchTests {
 
     @Test("drawer changes outside the visible worktree set stay quiet")
     func unrelatedDrawerVisibilityStaysQuiet() async {
-        installTestAtomRegistryIfNeeded()
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let pane = store.createPane()
+            store.appendTab(Tab(paneId: pane.id))
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
+                dispatcher: .shared
+            )
+            batch.start()
+            defer { batch.stop() }
 
-        let store = WorkspaceStore()
-        let pane = store.createPane()
-        store.appendTab(Tab(paneId: pane.id))
-        let batch = RepoExplorerCommandPresentationBatch(
-            store: store,
-            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
-            dispatcher: .shared
-        )
-        batch.start()
-        defer { batch.stop() }
+            await eventually("initial drawer capability generation") {
+                batch.snapshot.generation > 0
+            }
+            let collapsedGeneration = batch.snapshot.generation
+            #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
 
-        await eventually("initial drawer capability generation") {
-            batch.snapshot.generation > 0
+            store.toggleDrawer(for: pane.id)
+            for _ in 0..<20 { await Task.yield() }
+            #expect(batch.snapshot.generation == collapsedGeneration)
+            #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == true)
+
+            store.toggleDrawer(for: pane.id)
+            for _ in 0..<20 { await Task.yield() }
+            #expect(batch.snapshot.generation == collapsedGeneration)
+            #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
         }
-        let collapsedGeneration = batch.snapshot.generation
-        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
-
-        store.toggleDrawer(for: pane.id)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(batch.snapshot.generation == collapsedGeneration)
-        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == true)
-
-        store.toggleDrawer(for: pane.id)
-        for _ in 0..<20 { await Task.yield() }
-        #expect(batch.snapshot.generation == collapsedGeneration)
-        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
     }
 }
