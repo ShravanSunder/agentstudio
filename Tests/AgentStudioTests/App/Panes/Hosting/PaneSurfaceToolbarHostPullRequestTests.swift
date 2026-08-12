@@ -15,9 +15,12 @@ struct PaneSurfaceToolbarHostPullRequestTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("cached PR worktree mounts Open PR and opens its pulls URL")
-    func cachedPullRequestMountsAndOpensPullsURL() throws {
-        let fixture = try makeFixture(pullRequestCount: 1)
+    @Test("exact branch PR mounts Open PR and opens its exact URL")
+    func exactPullRequestMountsAndOpensExactURL() throws {
+        let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
+        let fixture = try makeFixture(
+            pullRequestFacts: PullRequestFacts(openCount: 1, exactOpenURL: exactURL)
+        )
         let opener = ExternalURLRecorder()
         let mount = mountToolbar(fixture: fixture, opener: opener)
         defer {
@@ -35,33 +38,33 @@ struct PaneSurfaceToolbarHostPullRequestTests {
         #expect(button.accessibilityLabel() == "Open PR")
         #expect(button.isAccessibilityEnabled())
         #expect(button.accessibilityPerformPress())
-        #expect(
-            opener.openedURLs == [
-                URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
-            ]
-        )
+        #expect(opener.openedURLs == [exactURL])
     }
 
-    @Test("PR control is hidden without a positive cached PR count")
-    func pullRequestControlRequiresPositiveCount() throws {
-        for pullRequestCount in [nil, 0] as [Int?] {
-            let fixture = try makeFixture(pullRequestCount: pullRequestCount)
-            let mount = mountToolbar(fixture: fixture, opener: ExternalURLRecorder())
+    @Test("PR control remains visible and disabled without an exact URL")
+    func pullRequestControlWithoutExactURLIsVisibleAndDisabled() throws {
+        for pullRequestFacts in [nil, PullRequestFacts(openCount: 0, exactOpenURL: nil)] {
+            let opener = ExternalURLRecorder()
+            let fixture = try makeFixture(pullRequestFacts: pullRequestFacts)
+            let mount = mountToolbar(fixture: fixture, opener: opener)
             defer {
                 mount.window.orderOut(nil)
                 mount.window.close()
             }
 
-            #expect(
+            let button = try #require(
                 findAccessibilityPressBridge(
                     in: mount.hostingView,
                     identifier: "paneSurfaceToolbar.pullRequest"
-                ) == nil
+                )
             )
+            #expect(!button.isAccessibilityEnabled())
+            #expect(!button.accessibilityPerformPress())
+            #expect(opener.openedURLs.isEmpty)
         }
     }
 
-    private func makeFixture(pullRequestCount: Int?) throws -> PullRequestToolbarFixture {
+    private func makeFixture(pullRequestFacts: PullRequestFacts?) throws -> PullRequestToolbarFixture {
         let store = WorkspaceStore()
         let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-pr-button"))
@@ -94,8 +97,16 @@ struct PaneSurfaceToolbarHostPullRequestTests {
                 updatedAt: Date()
             )
         )
-        if let pullRequestCount {
-            cache.setPullRequestCount(pullRequestCount, for: worktree.id)
+        cache.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                branch: "feature/pr-toolbar"
+            )
+        )
+        if let pullRequestFacts {
+            let branchKey = RepoBranchKey(repoId: repo.id, branch: "feature/pr-toolbar")!
+            cache.applyPullRequestFacts([branchKey: pullRequestFacts])
         }
 
         return PullRequestToolbarFixture(

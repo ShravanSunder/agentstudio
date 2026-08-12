@@ -8,7 +8,6 @@ private let repoCacheStoreLogger = Logger(subsystem: "com.agentstudio", category
 struct RepoCacheSaveCapture: Sendable {
     let repoEnrichmentByRepoID: [UUID: RepoEnrichment]
     let worktreeEnrichmentByWorktreeID: [UUID: WorktreeEnrichment]
-    let pullRequestCountByWorktreeID: [UUID: Int]
     let sourceRevision: UInt64
     let lastRebuiltAt: Date?
 }
@@ -16,7 +15,6 @@ struct RepoCacheSaveCapture: Sendable {
 struct RepoCachePersistedProjection: Equatable, Sendable {
     let repoEnrichmentByRepoID: [UUID: RepoCacheRepoEnrichmentProjection]
     let worktreeEnrichmentByWorktreeID: [UUID: RepoCacheWorktreeEnrichmentProjection]
-    let pullRequestCountByWorktreeID: [UUID: Int]
     let sourceRevision: UInt64
     let lastRebuiltAt: Date?
 }
@@ -67,7 +65,6 @@ enum RepoCacheSavePreparer {
         let cacheState = WorkspaceLocalRepository.CacheStateRecord(
             repoEnrichmentByRepoId: capture.repoEnrichmentByRepoID,
             worktreeEnrichmentByWorktreeId: capture.worktreeEnrichmentByWorktreeID,
-            pullRequestCountByWorktreeId: capture.pullRequestCountByWorktreeID,
             sourceRevision: capture.sourceRevision,
             lastRebuiltAt: capture.lastRebuiltAt
         )
@@ -78,7 +75,6 @@ enum RepoCacheSavePreparer {
             worktreeEnrichmentByWorktreeID: capture.worktreeEnrichmentByWorktreeID.mapValues {
                 RepoCacheWorktreeEnrichmentProjection(enrichment: $0)
             },
-            pullRequestCountByWorktreeID: capture.pullRequestCountByWorktreeID,
             sourceRevision: capture.sourceRevision,
             lastRebuiltAt: capture.lastRebuiltAt
         )
@@ -157,7 +153,6 @@ package final class RepoCacheStore {
                 .init(
                     repoEnrichmentByRepoId: cacheState.repoEnrichmentByRepoId,
                     worktreeEnrichmentByWorktreeId: cacheState.worktreeEnrichmentByWorktreeId,
-                    pullRequestCountByWorktreeId: cacheState.pullRequestCountByWorktreeId,
                     sourceRevision: cacheState.sourceRevision,
                     lastRebuiltAt: cacheState.lastRebuiltAt
                 )
@@ -250,7 +245,6 @@ package final class RepoCacheStore {
         RepoCacheSaveCapture(
             repoEnrichmentByRepoID: cacheAtom.repoEnrichmentSnapshot(),
             worktreeEnrichmentByWorktreeID: cacheAtom.worktreeEnrichmentSnapshot(),
-            pullRequestCountByWorktreeID: cacheAtom.pullRequestCountSnapshot(),
             sourceRevision: cacheAtom.sourceRevision,
             lastRebuiltAt: cacheAtom.lastRebuiltAt
         )

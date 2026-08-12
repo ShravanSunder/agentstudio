@@ -77,10 +77,12 @@ package enum GitWorkingDirectoryEvent: Sendable {
 }
 
 package enum ForgeEvent: Sendable {
-    case pullRequestCountsChanged(repoId: UUID, countsByBranch: [String: Int])
+    case pullRequestsChanged(repoId: UUID, factsByBranch: [String: PullRequestFacts])
+    case pullRequestBranchesInvalidated(repoId: UUID, branches: Set<String>)
+    case pullRequestRepositoryInvalidated(repoId: UUID)
     case checksUpdated(repoId: UUID, status: ForgeChecksStatus)
     case refreshFailed(repoId: UUID, error: String)
-    case rateLimited(repoId: UUID, retryAfterSeconds: Int)
+    case rateLimited(repoId: UUID, retryAfterSeconds: Int?)
 }
 
 package enum ForgeChecksStatus: String, Sendable {

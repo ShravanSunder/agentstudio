@@ -287,7 +287,7 @@ struct GitTopologyPipelineHarness {
             topologyEffectHandler: workspaceSurfaceCoordinator,
             scopeSyncHandler: { _ in }
         )
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
 
         return Self(
             bus: bus,
@@ -374,10 +374,9 @@ struct GitEnrichmentPipelineHarness {
         let forgeActor = ForgeActor(
             bus: bus,
             statusProvider: forgeProvider,
-            providerName: "stub",
-            pollInterval: .seconds(60)
+            providerName: "stub"
         )
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
         return Self(
             bus: bus,
             workspaceStore: workspaceStore,

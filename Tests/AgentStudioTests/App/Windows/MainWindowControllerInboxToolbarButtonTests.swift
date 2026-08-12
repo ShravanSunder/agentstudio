@@ -103,6 +103,46 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
+    @Test("visible tab pill edges remain hit-testable from the window root")
+    func visibleTabPillEdgesRemainHitTestableFromWindowRoot() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let toolbar = try #require(harness.window.toolbar)
+            let workspaceTabsItem = try #require(
+                toolbar.items.first(where: { $0.itemIdentifier.rawValue == "workspaceTabs" })
+            )
+            let toolbarChromeView = try #require(workspaceTabsItem.view)
+            let tabBarHostingView = try #require(
+                findDescendant(in: toolbarChromeView, ofType: DraggableTabBarHostingView.self)
+            )
+            let pane = harness.store.createPane(title: "Toolbar hit testing")
+            let tab = Tab(paneId: pane.id, name: "Toolbar hit testing")
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+
+            await assertEventuallyMain("tab pill should render in the native toolbar") {
+                harness.window.contentView?.layoutSubtreeIfNeeded()
+                return tabBarHostingView.tabFrameInView(for: tab.id) != nil
+            }
+
+            let tabPillFrame = try #require(tabBarHostingView.tabFrameInView(for: tab.id))
+            let windowRootView = try #require(harness.window.contentView?.superview)
+            let pillEdgePoints = [
+                NSPoint(x: tabPillFrame.midX, y: tabPillFrame.minY + 1),
+                NSPoint(x: tabPillFrame.midX, y: tabPillFrame.maxY - 1),
+            ]
+
+            for pointInTabBar in pillEdgePoints {
+                let pointInWindow = tabBarHostingView.convert(pointInTabBar, to: nil)
+                let resolvedHitView = windowRootView.hitTest(pointInWindow)
+                #expect(
+                    resolvedHitView === tabBarHostingView
+                        || resolvedHitView?.isDescendant(of: tabBarHostingView) == true,
+                    "pill=\(tabPillFrame) host=\(tabBarHostingView.frame) point=\(pointInTabBar) hit=\(String(describing: resolvedHitView))"
+                )
+            }
+        }
+    }
+
     @Test("workspace tabs keep overflow controls but exclude native toolbar controls")
     func workspaceTabsKeepOverflowControlsButExcludeNativeToolbarControls() throws {
         let tabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")

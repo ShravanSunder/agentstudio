@@ -104,6 +104,12 @@ final class WorkspaceSurfaceCoordinator {
     var bridgePaneActivityCoordinatorsByPaneId: [UUID: BridgePaneActivityCoordinator] = [:]
     var bridgePaneActivityOwningWindowId: UUID?
     var bridgePaneActivityObservationGeneration: UInt64 = 0
+    var pullRequestDemandOwningWindowId: UUID?
+    var pullRequestDemandObservationGeneration: UInt64 = 0
+    var pullRequestDemandDeliveryTask: Task<Void, Never>?
+    var pullRequestDemandInFlightWorktreeIds: Set<UUID>?
+    var pendingPullRequestDemandWorktreeIds: Set<UUID>?
+    var lastDeliveredPullRequestDemandWorktreeIds: Set<UUID>?
     var bridgeGitReadActivityPropagationTask: Task<Void, Never>?
     var zoomCompanionContinuityBySourcePaneId: [UUID: ZoomCompanionContinuity] = [:]
 
@@ -220,9 +226,12 @@ final class WorkspaceSurfaceCoordinator {
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
         bridgePaneActivityObservationGeneration &+= 1
+        pullRequestDemandObservationGeneration &+= 1
+        pullRequestDemandDeliveryTask?.cancel()
         let filesystemSource = filesystemSource
         let filesystemProjectionIndex = filesystemProjectionIndex
         Task {
+            await filesystemSource.setPullRequestDemandWorktrees([])
             await filesystemProjectionIndex.shutdown()
             await filesystemSource.shutdown()
         }
@@ -232,6 +241,7 @@ final class WorkspaceSurfaceCoordinator {
         retireAllZoomCompanions()
         closeAllBridgePaneActivityAuthorities()
         bridgePaneActivityObservationGeneration &+= 1
+        pullRequestDemandObservationGeneration &+= 1
         for paneId in viewRegistry.allBridgeViews.keys {
             teardownView(for: paneId)
         }
@@ -240,6 +250,7 @@ final class WorkspaceSurfaceCoordinator {
         let activeCriticalRuntimeEventsTask = criticalRuntimeEventsTask
         let activeBatchedRuntimeEventsTask = batchedRuntimeEventsTask
         let activeFilesystemSyncTask = filesystemSyncTask
+        let activePullRequestDemandDeliveryTask = pullRequestDemandDeliveryTask
         let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
 
         cwdChangesTask?.cancel()
@@ -256,6 +267,10 @@ final class WorkspaceSurfaceCoordinator {
         pendingFilesystemPaneUpdatesByPaneId.removeAll()
         pendingActivePaneWorktreeUpdate = false
         stopObservingActivePaneWorktree()
+        pullRequestDemandDeliveryTask?.cancel()
+        pullRequestDemandDeliveryTask = nil
+        pullRequestDemandInFlightWorktreeIds = nil
+        pendingPullRequestDemandWorktreeIds = nil
 
         for task in activeRuntimeBridgeTasks {
             task.cancel()
@@ -279,6 +294,9 @@ final class WorkspaceSurfaceCoordinator {
         if let activeFilesystemSyncTask {
             await activeFilesystemSyncTask.value
         }
+        if let activePullRequestDemandDeliveryTask {
+            await activePullRequestDemandDeliveryTask.value
+        }
         for task in activeRuntimeBridgeTasks {
             await task.value
         }
@@ -287,6 +305,7 @@ final class WorkspaceSurfaceCoordinator {
         await drainBridgeGitReadActivityPropagation()
         await worktreeProductConstructionCoordinator.shutdown()
         await bridgeGitReadScheduler.shutdown()
+        await filesystemSource.setPullRequestDemandWorktrees([])
         await filesystemSource.shutdown()
     }
 
