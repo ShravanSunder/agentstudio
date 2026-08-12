@@ -44,7 +44,7 @@ extension AppDelegate {
             initialFramesByPaneID = [:]
         }
         _ = preparedMountOwners.terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID)
-        let placeholderOwner = workspaceSurfaceCoordinator
+        let placeholderOwner: WorkspaceSurfaceCoordinator = workspaceSurfaceCoordinator
         let placeholderPublication = preparedMountOwners.coordinator.publishTerminalPlaceholders { descriptor in
             placeholderOwner.registerPreparedTerminalPlaceholders(for: descriptor)
         }
