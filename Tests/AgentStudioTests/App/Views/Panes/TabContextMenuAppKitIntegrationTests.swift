@@ -15,31 +15,84 @@ struct TabContextMenuAppKitIntegrationTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("secondary click on a tab pill begins tracking the Rename context menu")
-    func secondaryClickOnTabPillBeginsTrackingRenameContextMenu() async throws {
-        try await assertRenameContextMenuTracks(
+    @Test("tab context-menu routing preserves toolbar interactions")
+    func tabContextMenuRoutingPreservesToolbarInteractions() async throws {
+        let fixture = try await makeMountedFixture()
+        defer { fixture.tearDown() }
+
+        try await assertRenameContextMenuPresentation(
+            fixture: fixture,
             clickType: .rightMouseDown,
             modifierFlags: [],
             target: .active
         )
-    }
+        fixture.menuPresentationSpy.reset()
 
-    @Test("secondary click on an inactive tab pill begins tracking the Rename context menu")
-    func secondaryClickOnInactiveTabPillBeginsTrackingRenameContextMenu() async throws {
-        try await assertRenameContextMenuTracks(
+        try await assertRenameContextMenuPresentation(
+            fixture: fixture,
             clickType: .rightMouseDown,
             modifierFlags: [],
             target: .inactive
         )
-    }
+        fixture.menuPresentationSpy.reset()
 
-    @Test("control-click on a tab pill begins tracking the Rename context menu")
-    func controlClickOnTabPillBeginsTrackingRenameContextMenu() async throws {
-        try await assertRenameContextMenuTracks(
+        try await assertRenameContextMenuPresentation(
+            fixture: fixture,
             clickType: .leftMouseDown,
             modifierFlags: [.control],
             target: .active
         )
+        fixture.menuPresentationSpy.reset()
+
+        try assertSecondaryClickOutsideTabPillsIsForwarded(fixture: fixture)
+        fixture.menuPresentationSpy.reset()
+
+        try assertOrdinaryPrimaryClickOnTabIsForwarded(fixture: fixture)
+        fixture.menuPresentationSpy.reset()
+
+        try assertSecondaryClickFromDifferentWindowIsForwarded(fixture: fixture)
+    }
+
+    private func assertSecondaryClickOutsideTabPillsIsForwarded(fixture: Fixture) throws {
+        let event = try fixture.makeMouseEventOutsideTabPills(type: .rightMouseDown)
+
+        let forwardedEvent = fixture.hostingView.routeContextMenuEvent(event)
+
+        #expect(forwardedEvent === event)
+        #expect(fixture.menuPresentationSpy.presentations.isEmpty)
+    }
+
+    private func assertOrdinaryPrimaryClickOnTabIsForwarded(fixture: Fixture) throws {
+        let event = try fixture.makeMouseEvent(
+            type: .leftMouseDown,
+            target: .active
+        )
+
+        let forwardedEvent = fixture.hostingView.routeContextMenuEvent(event)
+
+        #expect(forwardedEvent === event)
+        #expect(fixture.menuPresentationSpy.presentations.isEmpty)
+    }
+
+    private func assertSecondaryClickFromDifferentWindowIsForwarded(fixture: Fixture) throws {
+        let otherWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { otherWindow.close() }
+        let event = try Self.makeMouseEvent(
+            type: .rightMouseDown,
+            modifierFlags: [],
+            pointInWindow: NSPoint(x: 50, y: 50),
+            window: otherWindow
+        )
+
+        let forwardedEvent = fixture.hostingView.routeContextMenuEvent(event)
+
+        #expect(forwardedEvent === event)
+        #expect(fixture.menuPresentationSpy.presentations.isEmpty)
     }
 
     private enum TargetTab {
@@ -47,66 +100,32 @@ struct TabContextMenuAppKitIntegrationTests {
         case inactive
     }
 
-    private func assertRenameContextMenuTracks(
+    private func assertRenameContextMenuPresentation(
+        fixture: Fixture,
         clickType: NSEvent.EventType,
         modifierFlags: NSEvent.ModifierFlags,
         target: TargetTab
     ) async throws {
-        let fixture = try makeFixture()
-        do {
-            fixture.window.makeKeyAndOrderFront(nil)
-            fixture.window.contentView?.layoutSubtreeIfNeeded()
+        let event = try fixture.makeMouseEvent(
+            type: clickType,
+            modifierFlags: modifierFlags,
+            target: target
+        )
 
-            await eventually("seeded tab projection should mount") {
-                fixture.window.contentView?.layoutSubtreeIfNeeded()
-                return fixture.adapter.tabs.count == 2
-            }
+        let forwardedEvent = fixture.hostingView.routeContextMenuEvent(event)
 
-            fixture.hostingView.updateTabFrames([
-                fixture.activeTabId: CGRect(
-                    x: 10,
-                    y: 4,
-                    width: 100,
-                    height: AppStyles.Shell.TabBar.tabPillHeight
-                ),
-                fixture.inactiveTabId: CGRect(
-                    x: 120,
-                    y: 4,
-                    width: 100,
-                    height: AppStyles.Shell.TabBar.tabPillHeight
-                ),
-            ])
-            let targetTabId =
-                switch target {
-                case .active: fixture.activeTabId
-                case .inactive: fixture.inactiveTabId
-                }
-            let pillFrame = try #require(fixture.hostingView.tabFrameInView(for: targetTabId))
-            let pointInWindow = fixture.hostingView.convert(
-                NSPoint(x: pillFrame.midX, y: pillFrame.midY),
-                to: nil
+        #expect(forwardedEvent == nil)
+        #expect(fixture.menuPresentationSpy.presentations.count == 1)
+        let presentation = try #require(fixture.menuPresentationSpy.presentations.first)
+        #expect(presentation.event === event)
+        #expect(
+            Self.allMenuTitles(in: presentation.menu).contains(
+                AppCommand.renameTab.definition.label
             )
-            let trackedMenu = try await dispatchContextClickAndCaptureTrackedMenu(
-                type: clickType,
-                modifierFlags: modifierFlags,
-                pointInWindow: pointInWindow,
-                window: fixture.window,
-                hostingView: fixture.hostingView
-            )
-
-            #expect(trackedMenu != nil)
-            #expect(
-                Self.allMenuTitles(in: trackedMenu ?? NSMenu()).contains(
-                    AppCommand.renameTab.definition.label
-                )
-            )
-        } catch {
-            fixture.tearDown()
-            throw error
-        }
-        fixture.tearDown()
+        )
     }
 
+    @MainActor
     private struct Fixture {
         let window: NSWindow
         let hostingView: DraggableTabBarHostingView
@@ -114,6 +133,60 @@ struct TabContextMenuAppKitIntegrationTests {
         let activeTabId: UUID
         let inactiveTabId: UUID
         let toolbarDelegate: ToolbarDelegate
+        let menuPresentationSpy: MenuPresentationSpy
+
+        func makeMouseEvent(
+            type: NSEvent.EventType,
+            modifierFlags: NSEvent.ModifierFlags = [],
+            target: TargetTab
+        ) throws -> NSEvent {
+            let targetTabId =
+                switch target {
+                case .active: activeTabId
+                case .inactive: inactiveTabId
+                }
+            let pillFrame = try #require(hostingView.tabFrameInView(for: targetTabId))
+            return try makeMouseEvent(
+                type: type,
+                modifierFlags: modifierFlags,
+                pointInHostingView: NSPoint(x: pillFrame.midX, y: pillFrame.midY)
+            )
+        }
+
+        func makeMouseEvent(
+            type: NSEvent.EventType,
+            modifierFlags: NSEvent.ModifierFlags = [],
+            pointInHostingView: NSPoint
+        ) throws -> NSEvent {
+            try TabContextMenuAppKitIntegrationTests.makeMouseEvent(
+                type: type,
+                modifierFlags: modifierFlags,
+                pointInWindow: hostingView.convert(pointInHostingView, to: nil),
+                window: window
+            )
+        }
+
+        func makeMouseEventOutsideTabPills(type: NSEvent.EventType) throws -> NSEvent {
+            let tabFrames = try [
+                #require(hostingView.tabFrameInView(for: activeTabId)),
+                #require(hostingView.tabFrameInView(for: inactiveTabId)),
+            ]
+            let hostingBounds = hostingView.bounds.insetBy(dx: 1, dy: 1)
+            let candidatePoints = [
+                NSPoint(x: hostingBounds.minX, y: hostingBounds.minY),
+                NSPoint(x: hostingBounds.midX, y: hostingBounds.minY),
+                NSPoint(x: hostingBounds.maxX, y: hostingBounds.minY),
+                NSPoint(x: hostingBounds.minX, y: hostingBounds.maxY),
+                NSPoint(x: hostingBounds.midX, y: hostingBounds.maxY),
+                NSPoint(x: hostingBounds.maxX, y: hostingBounds.maxY),
+            ]
+            let pointOutsideTabPills = try #require(
+                candidatePoints.first { point in
+                    !tabFrames.contains { $0.contains(point) }
+                }
+            )
+            return try makeMouseEvent(type: type, pointInHostingView: pointOutsideTabPills)
+        }
 
         @MainActor
         func tearDown() {
@@ -123,6 +196,23 @@ struct TabContextMenuAppKitIntegrationTests {
             window.contentView = nil
             window.orderOut(nil)
             window.close()
+        }
+    }
+
+    private final class MenuPresentationSpy {
+        struct Presentation {
+            let menu: NSMenu
+            let event: NSEvent
+        }
+
+        private(set) var presentations: [Presentation] = []
+
+        func present(menu: NSMenu, event: NSEvent, view: NSView) {
+            presentations.append(Presentation(menu: menu, event: event))
+        }
+
+        func reset() {
+            presentations.removeAll(keepingCapacity: true)
         }
     }
 
@@ -156,11 +246,7 @@ struct TabContextMenuAppKitIntegrationTests {
         }
     }
 
-    private final class MenuTrackingState {
-        var trackedMenu: NSMenu?
-    }
-
-    private func makeFixture() throws -> Fixture {
+    private func makeMountedFixture() async throws -> Fixture {
         let atoms = makeTestAtomRegistry()
         let store = WorkspaceStore(
             identityAtom: atoms.core.workspaceIdentity,
@@ -190,6 +276,9 @@ struct TabContextMenuAppKitIntegrationTests {
             onShowArrangements: { _ in }
         )
         let hostingView = DraggableTabBarHostingView(rootView: tabBar)
+        hostingView.configure(adapter: adapter, onReorder: { _, _ in })
+        let menuPresentationSpy = MenuPresentationSpy()
+        hostingView.presentResolvedContextMenu = menuPresentationSpy.present
         let chromeView = MainToolbarChromeView(tabBarHostingView: hostingView)
         let toolbarDelegate = ToolbarDelegate(chromeView: chromeView)
 
@@ -207,126 +296,32 @@ struct TabContextMenuAppKitIntegrationTests {
         window.toolbar = toolbar
         window.toolbarStyle = .unifiedCompact
 
+        window.makeKeyAndOrderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        await eventually("seeded tab pills should mount and report their frames") {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            return adapter.tabs.count == 2
+                && adapter.tabFrames[activeTab.id] != nil
+                && adapter.tabFrames[inactiveTab.id] != nil
+        }
+
         return Fixture(
             window: window,
             hostingView: hostingView,
             adapter: adapter,
             activeTabId: activeTab.id,
             inactiveTabId: inactiveTab.id,
-            toolbarDelegate: toolbarDelegate
+            toolbarDelegate: toolbarDelegate,
+            menuPresentationSpy: menuPresentationSpy
         )
     }
 
-    private func dispatchContextClickAndCaptureTrackedMenu(
+    private static func makeMouseEvent(
         type: NSEvent.EventType,
         modifierFlags: NSEvent.ModifierFlags,
         pointInWindow: NSPoint,
-        window: NSWindow,
-        hostingView: DraggableTabBarHostingView
-    ) async throws -> NSMenu? {
-        let menuTrackingState = MenuTrackingState()
-        let observationTask = Task { @MainActor in
-            for await notification in NotificationCenter.default.notifications(
-                named: NSMenu.didBeginTrackingNotification
-            ) {
-                menuTrackingState.trackedMenu = notification.object as? NSMenu
-                return
-            }
-        }
-        await Task.yield()
-
-        let mouseUpType: NSEvent.EventType = type == .rightMouseDown ? .rightMouseUp : .leftMouseUp
-        let mouseUpEventNumber = 2
-        let mouseUp = try makeMouseEvent(
-            type: mouseUpType,
-            modifierFlags: modifierFlags,
-            pointInWindow: pointInWindow,
-            window: window,
-            eventNumber: mouseUpEventNumber
-        )
-        NSApp.postEvent(mouseUp, atStart: false)
-
-        do {
-            let mouseDown = try makeMouseEvent(
-                type: type,
-                modifierFlags: modifierFlags,
-                pointInWindow: pointInWindow,
-                window: window,
-                eventNumber: 1
-            )
-            let forwardedEvent = hostingView.routeContextMenuEvent(mouseDown)
-            #expect(forwardedEvent == nil)
-
-            await eventually("a context menu should begin tracking") {
-                menuTrackingState.trackedMenu != nil
-            }
-        } catch {
-            await cleanUpMenuTracking(
-                menu: menuTrackingState.trackedMenu,
-                observationTask: observationTask,
-                mouseUpType: mouseUpType,
-                mouseUpEventNumber: mouseUpEventNumber,
-                windowNumber: window.windowNumber
-            )
-            throw error
-        }
-
-        await cleanUpMenuTracking(
-            menu: menuTrackingState.trackedMenu,
-            observationTask: observationTask,
-            mouseUpType: mouseUpType,
-            mouseUpEventNumber: mouseUpEventNumber,
-            windowNumber: window.windowNumber
-        )
-        return menuTrackingState.trackedMenu
-    }
-
-    private func cleanUpMenuTracking(
-        menu: NSMenu?,
-        observationTask: Task<Void, Never>,
-        mouseUpType: NSEvent.EventType,
-        mouseUpEventNumber: Int,
-        windowNumber: Int
-    ) async {
-        menu?.cancelTracking()
-        observationTask.cancel()
-        await observationTask.value
-        removePostedMouseUpIfStillQueued(
-            type: mouseUpType,
-            eventNumber: mouseUpEventNumber,
-            windowNumber: windowNumber
-        )
-    }
-
-    private func removePostedMouseUpIfStillQueued(
-        type: NSEvent.EventType,
-        eventNumber: Int,
-        windowNumber: Int
-    ) {
-        guard
-            let queuedEvent = NSApp.nextEvent(
-                matching: NSEvent.EventTypeMask(rawValue: 1 << type.rawValue),
-                until: .distantPast,
-                inMode: .default,
-                dequeue: true
-            )
-        else { return }
-
-        guard
-            queuedEvent.eventNumber == eventNumber,
-            queuedEvent.windowNumber == windowNumber
-        else {
-            NSApp.postEvent(queuedEvent, atStart: true)
-            return
-        }
-    }
-
-    private func makeMouseEvent(
-        type: NSEvent.EventType,
-        modifierFlags: NSEvent.ModifierFlags,
-        pointInWindow: NSPoint,
-        window: NSWindow,
-        eventNumber: Int
+        window: NSWindow
     ) throws -> NSEvent {
         try #require(
             NSEvent.mouseEvent(
@@ -336,7 +331,7 @@ struct TabContextMenuAppKitIntegrationTests {
                 timestamp: 1,
                 windowNumber: window.windowNumber,
                 context: nil,
-                eventNumber: eventNumber,
+                eventNumber: 1,
                 clickCount: 1,
                 pressure: 1
             )

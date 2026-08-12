@@ -24,6 +24,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     var performWindowDrag: ((NSEvent) -> Void)?
     var performWindowZoom: (() -> Void)?
     var performWindowMiniaturize: (() -> Void)?
+    var presentResolvedContextMenu: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
     /// Called when a tab is clicked (mouse down + up without drag) during management layer.
     /// The pan gesture recognizer consumes mouse events, preventing SwiftUI's
     /// onTapGesture from firing. This callback forwards the click as a selection.
@@ -169,7 +172,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             return event
         }
 
-        NSMenu.popUpContextMenu(contextMenu, with: event, for: hostingView)
+        presentResolvedContextMenu(contextMenu, event, hostingView)
         return nil
     }
 
