@@ -597,6 +597,7 @@ struct DrawerIconBar: View {
         return Button(action: action.perform) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
                 paneSurfaceActionIcon(action.state.icon)
+                    .foregroundStyle(paneSurfaceActionIconForeground(action, isHovered: isHovered))
                     .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
 
                 if let visibleLabel = action.state.visibleLabel {
@@ -654,6 +655,17 @@ struct DrawerIconBar: View {
             )
         }
         return action.state.isSelected || isHovered ? .primary : .secondary
+    }
+
+    private func paneSurfaceActionIconForeground(
+        _ action: PaneSurfaceToolbarAction,
+        isHovered: Bool
+    ) -> Color {
+        guard let iconAccentColorHex = action.state.iconAccentColorHex else {
+            return paneSurfaceActionForeground(action, isHovered: isHovered)
+        }
+        return Color(nsColor: NSColor(hex: iconAccentColorHex) ?? .controlAccentColor)
+            .opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     private func paneSurfaceActionFill(

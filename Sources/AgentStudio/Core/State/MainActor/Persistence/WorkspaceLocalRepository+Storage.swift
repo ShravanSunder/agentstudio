@@ -287,7 +287,6 @@ enum WorkspaceLocalRepositoryStorage {
             "cache_metadata",
             "cache_repo_enrichment",
             "cache_worktree_enrichment",
-            "cache_pull_request_count",
         ] {
             try database.execute(sql: "DELETE FROM \(table)")
         }
@@ -316,17 +315,6 @@ enum WorkspaceLocalRepositoryStorage {
         for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
             try WorkspaceLocalRepositoryCodecs.insertWorktreeEnrichment(database, enrichment: enrichment)
         }
-        for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
-            try WorkspaceLocalRepositoryCodecs.insertPullRequestCount(
-                database,
-                row: .init(
-                    worktreeId: worktreeId,
-                    repoId: cacheState.worktreeEnrichmentByWorktreeId[worktreeId]?.repoId,
-                    count: count,
-                    updatedAtValue: updatedAt.timeIntervalSince1970
-                )
-            )
-        }
     }
 
     static func fetchCacheRows(
@@ -342,7 +330,6 @@ enum WorkspaceLocalRepositoryStorage {
         return .init(
             repoEnrichmentByRepoId: try WorkspaceLocalRepositoryCodecs.fetchRepoEnrichments(database),
             worktreeEnrichmentByWorktreeId: try WorkspaceLocalRepositoryCodecs.fetchWorktreeEnrichments(database),
-            pullRequestCountByWorktreeId: try WorkspaceLocalRepositoryCodecs.fetchPullRequestCounts(database),
             sourceRevision: UInt64(sourceRevisionValue),
             lastRebuiltAt: lastRebuiltAtValue.map(Date.init(timeIntervalSince1970:))
         )

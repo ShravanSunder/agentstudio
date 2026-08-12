@@ -17,6 +17,7 @@ package struct PaneSurfaceToolbarAction {
         package let isSelected: Bool
         package let visibleLabel: String?
         package let selectionEmphasis: SelectionEmphasis
+        package let iconAccentColorHex: String?
 
         package init(
             label: String,
@@ -26,7 +27,8 @@ package struct PaneSurfaceToolbarAction {
             isEnabled: Bool,
             isSelected: Bool,
             visibleLabel: String? = nil,
-            selectionEmphasis: SelectionEmphasis = .standard
+            selectionEmphasis: SelectionEmphasis = .standard,
+            iconAccentColorHex: String? = nil
         ) {
             self.label = label
             self.accessibilityIdentifier = accessibilityIdentifier
@@ -36,6 +38,7 @@ package struct PaneSurfaceToolbarAction {
             self.isSelected = isSelected
             self.visibleLabel = visibleLabel
             self.selectionEmphasis = selectionEmphasis
+            self.iconAccentColorHex = iconAccentColorHex
         }
     }
 
@@ -60,7 +63,8 @@ package struct PaneSurfaceToolbarAction {
                 isEnabled: isEnabled,
                 isSelected: isSelected,
                 visibleLabel: state.visibleLabel,
-                selectionEmphasis: state.selectionEmphasis
+                selectionEmphasis: state.selectionEmphasis,
+                iconAccentColorHex: state.iconAccentColorHex
             ),
             perform: perform
         )
@@ -84,7 +88,8 @@ package struct PaneSurfaceToolbarAction {
                 isEnabled: isEnabled,
                 isSelected: isSelected,
                 visibleLabel: visibleLabel,
-                selectionEmphasis: selectionEmphasis ?? state.selectionEmphasis
+                selectionEmphasis: selectionEmphasis ?? state.selectionEmphasis,
+                iconAccentColorHex: state.iconAccentColorHex
             ),
             perform: perform
         )
@@ -100,7 +105,8 @@ package struct PaneSurfaceToolbarAction {
                 isEnabled: state.isEnabled,
                 isSelected: state.isSelected,
                 visibleLabel: visibleLabel,
-                selectionEmphasis: state.selectionEmphasis
+                selectionEmphasis: state.selectionEmphasis,
+                iconAccentColorHex: state.iconAccentColorHex
             ),
             perform: perform
         )

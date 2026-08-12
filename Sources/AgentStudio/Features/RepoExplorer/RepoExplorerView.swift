@@ -138,18 +138,23 @@ package struct RepoExplorerView: View {
     }
 
     private var projectionRequest: RepoExplorerProjectionRequest {
-        RepoExplorerProjectionRequest(
+        let worktreeEnrichmentSnapshot = sidebarWorktreeEnrichmentSnapshot
+        return RepoExplorerProjectionRequest(
             generation: 0,
             snapshot: sidebarSnapshot,
             collapsedGroupIds: Set(sidebarCache.collapsedGroups.map(\.rawValue)),
             isFiltering: isFiltering,
             trigger: initialProjectionTrigger,
-            worktreeFactsByWorktreeId: sidebarWorktreeFactsByWorktreeId
+            worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: Self.pullRequestFactsSnapshot(
+                for: worktreeEnrichmentSnapshot,
+                repoCache: repoCache
+            )
         )
     }
 
-    private var sidebarWorktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] {
-        Self.worktreeFactsByWorktreeId(
+    private var sidebarWorktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] {
+        Self.worktreeEnrichmentSnapshot(
             for: sidebarRepos.flatMap(\.worktrees).map(\.id),
             repoCache: repoCache
         )
@@ -708,7 +713,8 @@ package struct RepoExplorerView: View {
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             trigger: projectionTrigger,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+            worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
         )
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,

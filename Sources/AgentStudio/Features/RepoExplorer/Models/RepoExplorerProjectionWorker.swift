@@ -9,7 +9,8 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let collapsedGroupIds: Set<String>
     let isFiltering: Bool
     let trigger: AppPolicies.SidebarProjection.Trigger
-    let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
+    let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
+    let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
 
     init(
         generation: Int,
@@ -17,14 +18,16 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         collapsedGroupIds: Set<String>,
         isFiltering: Bool,
         trigger: AppPolicies.SidebarProjection.Trigger,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
+        worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] = [:],
+        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:]
     ) {
         self.generation = generation
         self.snapshot = snapshot
         self.collapsedGroupIds = collapsedGroupIds
         self.isFiltering = isFiltering
         self.trigger = trigger
-        self.worktreeFactsByWorktreeId = worktreeFactsByWorktreeId
+        self.worktreeEnrichmentSnapshot = worktreeEnrichmentSnapshot
+        self.pullRequestFactsSnapshot = pullRequestFactsSnapshot
     }
 }
 
@@ -102,12 +105,13 @@ actor RepoExplorerProjectionWorker {
             try Task.checkCancellation()
             let branchStatusByWorktreeId = try Self.branchStatusByWorktreeId(
                 snapshot: request.snapshot,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+                worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
+                pullRequestFactsByBranch: request.pullRequestFactsSnapshot,
                 cancellationCheck: { try Task.checkCancellation() }
             )
             let branchNameByWorktreeId = try Self.branchNameByWorktreeId(
                 snapshot: request.snapshot,
-                worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId,
+                worktreeEnrichmentByWorktreeId: request.worktreeEnrichmentSnapshot,
                 cancellationCheck: { try Task.checkCancellation() }
             )
             try Task.checkCancellation()
@@ -136,15 +140,14 @@ actor RepoExplorerProjectionWorker {
 
     private static func branchStatusByWorktreeId(
         snapshot: RepoExplorerSnapshot,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts],
+        worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts],
         cancellationCheck: () throws -> Void
     ) throws -> [UUID: GitBranchStatus] {
         let worktreeIds = snapshot.repos.flatMap(\.worktrees).map(\.id)
-        let worktreeEnrichmentsByWorktreeId = worktreeFactsByWorktreeId.compactMapValues(\.enrichment)
-        let pullRequestCountsByWorktreeId = worktreeFactsByWorktreeId.compactMapValues(\.pullRequestCount)
         var branchStatusByWorktreeId = GitBranchStatus.merge(
-            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
+            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentByWorktreeId,
+            pullRequestFactsByBranch: pullRequestFactsByBranch
         )
         branchStatusByWorktreeId.reserveCapacity(max(branchStatusByWorktreeId.count, worktreeIds.count))
         for (index, worktreeId) in worktreeIds.enumerated() where branchStatusByWorktreeId[worktreeId] == nil {
@@ -156,14 +159,14 @@ actor RepoExplorerProjectionWorker {
 
     private static func branchNameByWorktreeId(
         snapshot: RepoExplorerSnapshot,
-        worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts],
+        worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
         cancellationCheck: () throws -> Void
     ) throws -> [UUID: String] {
         var branchNames: [UUID: String] = [:]
         for (index, worktree) in snapshot.repos.flatMap(\.worktrees).enumerated() {
             if index.isMultiple(of: 256) { try cancellationCheck() }
             branchNames[worktree.id] = branchName(
-                enrichment: worktreeFactsByWorktreeId[worktree.id]?.enrichment
+                enrichment: worktreeEnrichmentByWorktreeId[worktree.id]
             )
         }
         return branchNames

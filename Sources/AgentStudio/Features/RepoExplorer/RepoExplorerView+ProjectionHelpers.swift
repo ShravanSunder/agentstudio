@@ -7,20 +7,33 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     let snapshot: RepoExplorerSnapshot
     let collapsedGroupIds: Set<String>
     let isFiltering: Bool
-    let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
+    let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
+    let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
 }
 
 extension RepoExplorerView {
-    static func worktreeFactsByWorktreeId(
+    static func worktreeEnrichmentSnapshot(
         for worktreeIds: [UUID],
         repoCache: RepoCacheAtom
-    ) -> [UUID: RepoWorktreeCacheFacts] {
-        var factsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
-        factsByWorktreeId.reserveCapacity(worktreeIds.count)
+    ) -> [UUID: WorktreeEnrichment] {
+        var enrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:]
+        enrichmentByWorktreeId.reserveCapacity(worktreeIds.count)
         for worktreeId in worktreeIds {
-            factsByWorktreeId[worktreeId] = repoCache.worktreeFacts(for: worktreeId)
+            enrichmentByWorktreeId[worktreeId] = repoCache.worktreeEnrichment(for: worktreeId)
         }
-        return factsByWorktreeId
+        return enrichmentByWorktreeId
+    }
+
+    static func pullRequestFactsSnapshot(
+        for worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment],
+        repoCache: RepoCacheAtom
+    ) -> [RepoBranchKey: PullRequestFacts] {
+        var factsByBranch: [RepoBranchKey: PullRequestFacts] = [:]
+        for enrichment in worktreeEnrichmentSnapshot.values {
+            guard let key = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch) else { continue }
+            factsByBranch[key] = repoCache.pullRequestFacts(for: key)
+        }
+        return factsByBranch
     }
 
     static func projectionRequestKey(
@@ -30,7 +43,8 @@ extension RepoExplorerView {
             snapshot: request.snapshot,
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
-            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
+            worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
         )
     }
 
@@ -363,19 +377,19 @@ extension RepoExplorerView {
 
     static func mergeBranchStatuses(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestCountsByWorktreeId: [UUID: Int]
+        pullRequestFactsByBranch: [RepoBranchKey: PullRequestFacts]
     ) -> [UUID: GitBranchStatus] {
         GitBranchStatus.merge(
             worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
+            pullRequestFactsByBranch: pullRequestFactsByBranch
         )
     }
 
     package static func branchStatus(
         enrichment: WorktreeEnrichment?,
-        pullRequestCount: Int?
+        pullRequestFacts: PullRequestFacts?
     ) -> GitBranchStatus {
-        GitBranchStatus.status(enrichment: enrichment, pullRequestCount: pullRequestCount)
+        GitBranchStatus.status(enrichment: enrichment, pullRequestFacts: pullRequestFacts)
     }
 
     static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {

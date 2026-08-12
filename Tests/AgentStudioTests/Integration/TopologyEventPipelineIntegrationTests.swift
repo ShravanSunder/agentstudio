@@ -125,7 +125,7 @@ struct TopologyEventPipelineIntegrationTests {
                     branch: "hotfix"
                 )
             )
-            harness.repoCache.setPullRequestCount(4, for: removedWorktree.id)
+            harness.repoCache.setPullRequestFactsForTest(openCount: 4, worktreeId: removedWorktree.id)
 
             let baselineSnapshot = await harness.filesystemSnapshot()
 
@@ -146,7 +146,6 @@ struct TopologyEventPipelineIntegrationTests {
 
             await assertEventuallyMain("removed worktree cache should be pruned") {
                 harness.repoCache.worktreeEnrichmentByWorktreeId[removedWorktree.id] == nil
-                    && harness.repoCache.pullRequestCountByWorktreeId[removedWorktree.id] == nil
             }
 
             await assertEventuallyMain("pane should become orphaned for removed worktree") {

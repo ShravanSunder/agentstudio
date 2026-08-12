@@ -191,7 +191,7 @@ package struct PaneDisplayDerived {
         return "detached HEAD"
     }
 
-    func accentColorHex(for paneId: UUID) -> String? {
+    package func accentColorHex(for paneId: UUID) -> String? {
         let workspacePane = atom(\.workspacePane)
         let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
         let repoCache = atom(\.repoCache)

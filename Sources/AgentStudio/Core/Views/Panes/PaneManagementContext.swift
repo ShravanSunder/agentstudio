@@ -70,20 +70,28 @@ package struct PaneManagementContext: Equatable {
 
         let statusChips: WorkspaceStatusChipsModel?
         if let worktreeId = pane?.worktreeId {
-            let worktreeFacts = repoCache.worktreeFacts(for: worktreeId)
+            let worktreeEnrichment = repoCache.worktreeEnrichment(for: worktreeId)
+            let pullRequestFacts = pullRequestFacts(
+                for: worktreeEnrichment,
+                repoCache: repoCache
+            )
             let branchStatus = GitBranchStatus.status(
-                enrichment: worktreeFacts?.enrichment,
-                pullRequestCount: worktreeFacts?.pullRequestCount
+                enrichment: worktreeEnrichment,
+                pullRequestFacts: pullRequestFacts
             )
             statusChips = WorkspaceStatusChipsModel(
                 branchStatus: branchStatus,
                 notificationCount: notificationCountForWorktree(worktreeId)
             )
         } else if let resolvedWorktreeId = resolvedContext?.worktree.id {
-            let worktreeFacts = repoCache.worktreeFacts(for: resolvedWorktreeId)
+            let worktreeEnrichment = repoCache.worktreeEnrichment(for: resolvedWorktreeId)
+            let pullRequestFacts = pullRequestFacts(
+                for: worktreeEnrichment,
+                repoCache: repoCache
+            )
             let branchStatus = GitBranchStatus.status(
-                enrichment: worktreeFacts?.enrichment,
-                pullRequestCount: worktreeFacts?.pullRequestCount
+                enrichment: worktreeEnrichment,
+                pullRequestFacts: pullRequestFacts
             )
             statusChips = WorkspaceStatusChipsModel(
                 branchStatus: branchStatus,
@@ -106,6 +114,16 @@ package struct PaneManagementContext: Equatable {
             targetPath: resolvedTargetPath,
             showsIdentityBlock: showsIdentityBlock
         )
+    }
+
+    private static func pullRequestFacts(
+        for enrichment: WorktreeEnrichment?,
+        repoCache: RepoCacheAtom
+    ) -> PullRequestFacts? {
+        enrichment.flatMap { enrichment in
+            RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
+                .flatMap(repoCache.pullRequestFacts(for:))
+        }
     }
 
     private static func projectIdentityRows(

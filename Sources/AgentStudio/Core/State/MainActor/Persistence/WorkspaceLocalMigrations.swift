@@ -63,13 +63,16 @@ package enum WorkspaceLocalMigrations {
             try database.execute(sql: "DROP TABLE local_window_sidebar_expanded_group")
             try database.execute(
                 sql: """
-                    CREATE TABLE local_window_sidebar_collapsed_group (
-                        window_id TEXT NOT NULL REFERENCES local_window_state(window_id) ON DELETE CASCADE,
-                        group_key TEXT NOT NULL,
-                        PRIMARY KEY (window_id, group_key)
-                    )
+                        CREATE TABLE local_window_sidebar_collapsed_group (
+                            window_id TEXT NOT NULL REFERENCES local_window_state(window_id) ON DELETE CASCADE,
+                            group_key TEXT NOT NULL,
+                            PRIMARY KEY (window_id, group_key)
+                        )
                     """
             )
+        }
+        migrator.registerMigration("004_remove_persisted_pull_request_counts") { database in
+            try database.execute(sql: "DROP TABLE IF EXISTS cache_pull_request_count")
         }
         return migrator
     }

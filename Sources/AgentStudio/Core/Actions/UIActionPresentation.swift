@@ -196,7 +196,7 @@ package enum LocalActionSpec {
                 label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system(.globe))
         case .openPullRequest:
             return ActionSpec(
-                label: "Open PR", helpText: "Open PR in Browser", icon: .system(.arrowUpRightSquare))
+                label: "Open PR", helpText: "Open PR in Browser", icon: .octicon(.gitPullRequest))
         case .arrangements:
             return ActionSpec(
                 label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))

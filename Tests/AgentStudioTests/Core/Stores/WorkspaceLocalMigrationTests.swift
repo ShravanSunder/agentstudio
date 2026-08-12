@@ -43,7 +43,6 @@ struct WorkspaceLocalMigrationTests {
             "cache_metadata",
             "cache_repo_enrichment",
             "cache_worktree_enrichment",
-            "cache_pull_request_count",
         ]
 
         #expect(tableNames == expectedTableNames)
@@ -69,8 +68,34 @@ struct WorkspaceLocalMigrationTests {
                     "001_create_application_local_schema",
                     "002_replace_recent_targets_with_entity_recency",
                     "003_invert_sidebar_group_memory",
+                    "004_remove_persisted_pull_request_counts",
                 ]
         )
+    }
+
+    @Test("pull request cache hard cut drops legacy persisted counts")
+    func pullRequestCacheHardCutDropsLegacyPersistedCounts() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "003_invert_sidebar_group_memory"
+        )
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: """
+                    INSERT INTO cache_pull_request_count(worktree_id, repo_id, count, updated_at)
+                    VALUES (?, ?, 3, 1)
+                    """,
+                arguments: [UUIDv7.generate().uuidString, UUIDv7.generate().uuidString]
+            )
+        }
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let legacyTableExists = try databaseQueue.read { database in
+            try database.tableExists("cache_pull_request_count")
+        }
+        #expect(!legacyTableExists)
     }
 
     @Test("sidebar group hard cut resets legacy expanded rows and stores collapsed groups")
