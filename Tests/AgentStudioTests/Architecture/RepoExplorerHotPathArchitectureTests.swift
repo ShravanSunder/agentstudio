@@ -61,6 +61,20 @@ struct RepoExplorerHotPathArchitectureTests {
                 "let request = projectionRequest\n        let requestBuildDuration"
             )
         )
+        let requestCapture = try #require(source.range(of: "let request = projectionRequest"))
+        let captureTelemetry = try #require(
+            source.range(
+                of: "stage: \"capture_rebuild\"",
+                range: requestCapture.upperBound..<source.endIndex
+            )
+        )
+        let requestEquality = try #require(
+            source.range(
+                of: "Self.projectionRequestKey(for: cachedProjectionRequest) == requestKey",
+                range: captureTelemetry.upperBound..<source.endIndex
+            )
+        )
+        #expect(captureTelemetry.lowerBound < requestEquality.lowerBound)
         #expect(
             source.contains(
                 """

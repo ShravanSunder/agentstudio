@@ -8,6 +8,7 @@ COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
 WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,atoms,app.startup,terminal.startup}"
+KEY_MUTATION_TRACE_TAGS="performance,app.startup"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
 REQUIRED_METRIC_READBACK_ATTEMPTS=45
@@ -829,7 +830,7 @@ run_repo_explorer_key_mutation_phase() {
   TRACE_MARKER="$TRACE_MARKER_K"
   env \
     AGENTSTUDIO_TRACE_FLUSH=immediate \
-    AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
+    AGENTSTUDIO_TRACE_TAGS="$KEY_MUTATION_TRACE_TAGS" \
     AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
     AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-key-mutation-proof \
     AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
@@ -1053,7 +1054,7 @@ run_repo_explorer_key_mutation_phase
 run_repo_explorer_interaction_phase
 
 : >"$KEYED_WAKE_VALUES_FILE"
-for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane unrendered_attendance relevant missing_declared_key; do
+for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane observed_tab_title unrendered_attendance relevant missing_declared_key; do
   for stage in capture_rebuild membership_path affected_row whole_surface atom_slot eager_admission projection_worker mainactor_apply final_projection; do
     printf '%s=%s\n' \
       "keyed_wake_${key_class}_${stage}" \
@@ -1547,7 +1548,7 @@ fi
   echo "marker_w=$TRACE_MARKER_W"
   echo "marker_k=$TRACE_MARKER_K"
   echo "marker_i=$TRACE_MARKER_I"
-  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,unrendered_attendance,unread_facet_change,missing_key_insertion"
+  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,observed_tab_title_informational,unrendered_attendance,unread_facet_change,missing_key_insertion"
   echo "interaction_phase=command_bar_open,command_bar_close,tab_move_program_instrument_gap,cmd_r_program_instrument_gap,divider_program_instrument_gap"
   echo "divider_frame=program_instrument_gap"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then

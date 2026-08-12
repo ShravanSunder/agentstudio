@@ -9,12 +9,15 @@ package final class AtomPerformanceTelemetry {
     private var repoExplorerKeyClass: String?
     private var repoExplorerFacet: String?
     private var repoExplorerRowRelation: String?
+    private var repoExplorerStageSequence: [String: UInt64] = [:]
 
     private init() {}
 
     package func configure(traceRuntime: AgentStudioTraceRuntime?) {
         self.traceRuntime = traceRuntime
-        if let traceRuntime, traceRuntime.isEnabled(.atoms) {
+        if let traceRuntime,
+            traceRuntime.isEnabled(.atoms) || traceRuntime.isEnabled(.performance)
+        {
             self.eventQueue = AgentStudioTraceEventQueue(traceRuntime: traceRuntime)
         } else {
             self.eventQueue = nil
@@ -25,6 +28,7 @@ package final class AtomPerformanceTelemetry {
         eventQueue?.cancel()
         traceRuntime = nil
         eventQueue = nil
+        repoExplorerStageSequence = [:]
     }
 
     func drainForTests() async throws {
@@ -48,10 +52,15 @@ package final class AtomPerformanceTelemetry {
         repoExplorerKeyClass != nil
     }
 
+    package func repoExplorerKeyedWakeSequence(for stage: String) -> UInt64 {
+        repoExplorerStageSequence[stage, default: 0]
+    }
+
     package func recordRepoExplorerKeyedWake(stage: String, outcome: String) {
-        guard let traceRuntime, traceRuntime.isEnabled(.atoms), let eventQueue,
+        guard let traceRuntime, traceRuntime.isEnabled(.performance), let eventQueue,
             let repoExplorerKeyClass
         else { return }
+        repoExplorerStageSequence[stage, default: 0] &+= 1
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.repo_explorer.stage": .string(stage),
             "agentstudio.performance.repo_explorer.key_class": .string(repoExplorerKeyClass),
@@ -64,7 +73,7 @@ package final class AtomPerformanceTelemetry {
             attributes["agentstudio.performance.repo_explorer.row_relation"] = .string(repoExplorerRowRelation)
         }
         eventQueue.record(
-            tag: .atoms,
+            tag: .performance,
             body: AgentStudioPerformanceTraceRecorder.Event.repoExplorerKeyedWake.rawValue,
             eventTimeUnixNano: traceRuntime.timestampUnixNano(),
             attributes: attributes

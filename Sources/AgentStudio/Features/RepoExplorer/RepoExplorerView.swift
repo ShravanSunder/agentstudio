@@ -719,6 +719,12 @@ package struct RepoExplorerView: View {
         let requestBuildStart = clock.now
         let request = projectionRequest
         let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        if !force {
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: "capture_rebuild",
+                outcome: "admitted"
+            )
+        }
         refreshProjection(
             request: request,
             requestBuildDuration: requestBuildDuration,
@@ -758,10 +764,6 @@ package struct RepoExplorerView: View {
                 previous: cachedProjectionResult
             ) {
                 AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
-                    stage: "capture_rebuild",
-                    outcome: "admitted"
-                )
-                AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
                     stage: "affected_row",
                     outcome: "changed"
                 )
@@ -772,10 +774,6 @@ package struct RepoExplorerView: View {
         }
 
         if !force {
-            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
-                stage: "capture_rebuild",
-                outcome: "admitted"
-            )
             let captureScope =
                 cachedProjectionRequest.map {
                     request.hasMembershipChange(from: $0) ? "membership_path" : "whole_surface"
