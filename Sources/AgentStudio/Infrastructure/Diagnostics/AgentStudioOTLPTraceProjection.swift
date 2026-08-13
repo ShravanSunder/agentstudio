@@ -129,6 +129,8 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind",
         "agentstudio.performance.startup.source",
+        "agentstudio.performance.startup.deferral.gate",
+        "agentstudio.performance.startup.deferral.outcome",
         "agentstudio.performance.repo_explorer.facet",
         "agentstudio.performance.repo_explorer.key_class",
         "agentstudio.performance.repo_explorer.outcome",
@@ -837,8 +839,6 @@ package enum AgentStudioOTLPTraceProjection {
     }
 }
 
-// MARK: - Value Validation
-
 extension AgentStudioOTLPTraceProjection {
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
         "agentstudio.release_channel",
@@ -935,6 +935,10 @@ extension AgentStudioOTLPTraceProjection {
                 .contains(value)
         case "agentstudio.performance.startup.source":
             return ["presented", "occluded_fallback"].contains(value)
+        case "agentstudio.performance.startup.deferral.gate":
+            return ["first_interactive_frame", "terminal_activation_release"].contains(value)
+        case "agentstudio.performance.startup.deferral.outcome":
+            return ["completed", "cancelled", "fallback_timeout"].contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",

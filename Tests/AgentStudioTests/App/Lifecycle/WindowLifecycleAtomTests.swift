@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
 @MainActor
@@ -221,5 +222,37 @@ struct WindowLifecycleAtomTests {
         #expect(await firstWaiter.value)
         #expect(await secondWaiter.value)
         await atom.waitUntilFirstInteractiveFramePublished()
+    }
+
+    @Test("first-frame deferral returns timeout when its injected deadline fires")
+    func firstFrameDeferralReturnsTimeout() async {
+        let timeout = AsyncStream<Void>.makeStream()
+        let atom = WindowLifecycleAtom(
+            deferralDelay: AsyncDelay { _ in
+                var iterator = timeout.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
+        let waiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+        }
+        await Task.yield()
+
+        timeout.continuation.yield()
+
+        #expect(await waiter.value == .fallbackTimeout)
+    }
+
+    @Test("first-frame deferral returns cancelled when its caller is cancelled")
+    func firstFrameDeferralReturnsCancelled() async {
+        let atom = WindowLifecycleAtom()
+        let waiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+        }
+        await Task.yield()
+
+        waiter.cancel()
+
+        #expect(await waiter.value == .cancelled)
     }
 }

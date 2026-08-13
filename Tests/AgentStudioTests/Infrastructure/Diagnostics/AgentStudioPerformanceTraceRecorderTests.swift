@@ -5,6 +5,34 @@ import Testing
 
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
+    @Test("startup deferral records bounded gate and outcome")
+    func startupDeferralRecordsBoundedOutcome() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "startup-deferral",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 912,
+            timeUnixNano: { 120 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordStartupDeferral(
+            gate: "first_interactive_frame",
+            outcome: .fallbackTimeout
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.startup.deferral\""))
+        #expect(contents.contains("\"agentstudio.performance.startup.deferral.gate\":\"first_interactive_frame\""))
+        #expect(contents.contains("\"agentstudio.performance.startup.deferral.outcome\":\"fallback_timeout\""))
+    }
+
     @Test("startup usable records launch and layout phase durations without identity")
     func startupUsableRecordsSafeDurations() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()

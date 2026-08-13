@@ -5,6 +5,34 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceTraceProjectionTests {
+    @Test("startup deferral keeps only bounded gate and outcome values")
+    func startupDeferralKeepsBoundedValues() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 119,
+                severityText: .info,
+                body: "performance.startup.deferral",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: [:],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.performance.startup.deferral.gate": .string("terminal_activation_release"),
+                    "agentstudio.performance.startup.deferral.outcome": .string("cancelled"),
+                    "agentstudio.performance.startup.deferral.detail": .string("private"),
+                ]
+            ))
+
+        #expect(
+            projection.attributes["agentstudio.performance.startup.deferral.gate"]
+                == .string("terminal_activation_release"))
+        #expect(
+            projection.attributes["agentstudio.performance.startup.deferral.outcome"]
+                == .string("cancelled"))
+        #expect(projection.attributes["agentstudio.performance.startup.deferral.detail"] == nil)
+    }
+
     @Test("startup usable keeps only bounded duration fields")
     func startupUsableKeepsSafeDurations() {
         let projection = AgentStudioOTLPTraceProjection.project(
