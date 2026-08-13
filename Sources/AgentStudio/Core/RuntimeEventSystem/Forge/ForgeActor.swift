@@ -17,6 +17,7 @@ package actor ForgeActor {
         var backoffUntil: Duration?
         var activeRequestId: UInt64?
         var pendingFollowUp = false
+        var pendingFollowUpRequiresRefresh = false
         var consecutiveFailureCount = 0
         var lastPublishedFactsByBranch: [String: PullRequestFacts]?
     }
@@ -28,6 +29,15 @@ package actor ForgeActor {
         let generation: UInt64
         let demandedBranches: Set<String>
         let correlationId: UUID?
+
+        var signature: ProviderRequestSignature {
+            ProviderRequestSignature(origin: origin, demandedBranches: demandedBranches)
+        }
+    }
+
+    private struct ProviderRequestSignature: Equatable, Sendable {
+        let origin: String
+        let demandedBranches: Set<String>
     }
 
     private enum RefreshTrigger {
@@ -39,6 +49,13 @@ package actor ForgeActor {
             switch self {
             case .automatic: false
             case .manual, .followUp: true
+            }
+        }
+
+        var requiresFollowUpRefresh: Bool {
+            switch self {
+            case .manual: true
+            case .automatic, .followUp: false
             }
         }
     }
@@ -166,6 +183,7 @@ package actor ForgeActor {
         state.backoffUntil = nil
         state.activeRequestId = nil
         state.pendingFollowUp = false
+        state.pendingFollowUpRequiresRefresh = false
         state.consecutiveFailureCount = 0
         state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
@@ -210,6 +228,7 @@ package actor ForgeActor {
         for repoId in previouslyDemandedRepoIds.subtracting(currentlyDemandedRepoIds) {
             if var state = refreshStateByRepoId[repoId] {
                 state.pendingFollowUp = false
+                state.pendingFollowUpRequiresRefresh = false
                 refreshStateByRepoId[repoId] = state
             }
         }
@@ -346,6 +365,7 @@ package actor ForgeActor {
         state.backoffUntil = nil
         state.activeRequestId = nil
         state.pendingFollowUp = false
+        state.pendingFollowUpRequiresRefresh = false
         state.consecutiveFailureCount = 0
         state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
@@ -380,6 +400,7 @@ package actor ForgeActor {
         guard !demandedBranches.isEmpty else {
             if var state = refreshStateByRepoId[repoId] {
                 state.pendingFollowUp = false
+                state.pendingFollowUpRequiresRefresh = false
                 refreshStateByRepoId[repoId] = state
             }
             return
@@ -388,6 +409,8 @@ package actor ForgeActor {
 
         if state.activeRequestId != nil {
             state.pendingFollowUp = true
+            state.pendingFollowUpRequiresRefresh =
+                state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
             refreshStateByRepoId[repoId] = state
             return
         }
@@ -413,6 +436,7 @@ package actor ForgeActor {
         state.activeRequestId = request.id
         state.lastAttemptAt = now
         state.pendingFollowUp = false
+        state.pendingFollowUpRequiresRefresh = false
         refreshStateByRepoId[repoId] = state
 
         let statusProvider = self.statusProvider
@@ -499,13 +523,23 @@ package actor ForgeActor {
             currentState.activeRequestId == nil
         else { return }
         if currentState.pendingFollowUp {
+            let pendingFollowUpRequiresRefresh = currentState.pendingFollowUpRequiresRefresh
             currentState.pendingFollowUp = false
+            currentState.pendingFollowUpRequiresRefresh = false
             refreshStateByRepoId[request.repoId] = currentState
-            requestRefreshIfDemanded(
-                repoId: request.repoId,
-                trigger: .followUp,
-                correlationId: nil
-            )
+            let currentSignature = currentState.origin.map {
+                ProviderRequestSignature(
+                    origin: $0,
+                    demandedBranches: demandedBranches(repoId: request.repoId)
+                )
+            }
+            if pendingFollowUpRequiresRefresh || currentSignature != request.signature {
+                requestRefreshIfDemanded(
+                    repoId: request.repoId,
+                    trigger: .followUp,
+                    correlationId: nil
+                )
+            }
         }
         rescheduleDeadline()
     }
@@ -574,6 +608,7 @@ package actor ForgeActor {
         if var state = refreshStateByRepoId[repoId] {
             state.activeRequestId = nil
             state.pendingFollowUp = false
+            state.pendingFollowUpRequiresRefresh = false
             refreshStateByRepoId[repoId] = state
         }
     }
