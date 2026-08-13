@@ -526,12 +526,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             AppCommandDispatcher.shared.handler = self
         }
 
+        syncPaneViewRegistrySlots()
         syncTabContentHosts()
         updateVisibleTabHost()
 
-        // Observe store for AppKit-level concerns (empty state visibility, focus management)
+        // Observe AppKit concerns at their narrowest owning fact sets.
         updateEmptyState()
-        observeForAppKitState()
+        observeForTabSelectionState()
+        observeForEmptyState()
+        observeForPaneInboxMaintenance()
         observeForManagementLayerState()
 
         // App-owned global shortcuts route through the centralized command pipeline.
@@ -638,21 +641,45 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     // MARK: - Store Observation (AppKit-Level Concerns)
 
-    /// Observe store for AppKit-level state: empty state visibility and focus management.
-    /// SwiftUI rendering is handled by per-tab SingleTabContent hosts — this method
-    /// only handles things that live outside the SwiftUI tree (host visibility, firstResponder).
-    private func observeForAppKitState() {
+    /// Observe only tab membership plus the active tab's keyed selection facts.
+    /// SwiftUI owns pane rendering; this bridge owns AppKit host visibility and focus.
+    private func observeForTabSelectionState() {
         withObservationTracking {
-            _ = self.store.tabLayoutAtom.tabs
-            _ = self.store.tabLayoutAtom.activeTabId
-            _ = self.store.repositoryTopologyAtom.repos
-            _ = atom(\.welcome).isChoosingFolder
-            _ = atom(\.welcome).folderScanState
-            _ = atom(\.applicationEntityRecency).recentEntities
+            _ = self.store.tabShellAtom.orderedTabIds
+            if let activeTabId = self.store.tabShellAtom.activeTabId {
+                _ = self.store.tabLayoutAtom.tab(activeTabId)
+            }
         } onChange: {
             Task { @MainActor [weak self] in
-                self?.handleAppKitStateChange()
-                self?.observeForAppKitState()
+                self?.handleTabSelectionStateChange()
+                self?.observeForTabSelectionState()
+            }
+        }
+    }
+
+    private func observeForEmptyState() {
+        withObservationTracking {
+            let hasTabs = !self.store.tabShellAtom.orderedTabIds.isEmpty
+            if !hasTabs {
+                _ = self.emptyStateModel
+            }
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.rebuildEmptyStateView()
+                self?.updateEmptyState()
+                self?.observeForEmptyState()
+            }
+        }
+    }
+
+    private func observeForPaneInboxMaintenance() {
+        withObservationTracking {
+            _ = self.store.paneAtom.graphAtom.paneIDs
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.syncPaneViewRegistrySlots()
+                self?.prunePaneInboxPresentationState()
+                self?.observeForPaneInboxMaintenance()
             }
         }
     }
@@ -668,12 +695,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func handleAppKitStateChange() {
-        syncTabContentHosts()
+    private func handleTabSelectionStateChange() {
+        syncTabContentHosts(orderedTabIds: store.tabShellAtom.orderedTabIds)
         updateVisibleTabHost()
-        rebuildEmptyStateView()
         updateEmptyState()
-        prunePaneInboxPresentationState()
 
         managementNavigationScope = normalizedWorkspaceNavigationFocusScope()
 
@@ -1185,6 +1210,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Tab Content Hosts
 
     private func buildTabContentHost(for tabId: UUID) -> PersistentTabHostView {
+        if let tab = store.tabLayoutAtom.tab(tabId) {
+            for paneId in tab.allPaneIds {
+                viewRegistry.ensureSlot(for: paneId)
+            }
+        }
         let inboxAtom = inboxAtom
         let contentView = SingleTabContent(
             tabId: tabId,
@@ -1397,16 +1427,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func syncTabContentHosts() {
-        for paneId in store.paneAtom.graphAtom.paneIDs {
-            viewRegistry.ensureSlot(for: paneId)
-        }
-
-        let liveTabIds = Set(store.tabLayoutAtom.tabs.map(\.id))
+    private func syncTabContentHosts(
+        orderedTabIds: [UUID]? = nil
+    ) {
+        let orderedTabIds = orderedTabIds ?? store.tabShellAtom.orderedTabIds
+        let liveTabIds = Set(orderedTabIds)
         guard liveTabIds != Set(tabContentHosts.keys) else { return }
 
-        for tab in store.tabLayoutAtom.tabs where tabContentHosts[tab.id] == nil {
-            let host = buildTabContentHost(for: tab.id)
+        for tabId in orderedTabIds where tabContentHosts[tabId] == nil {
+            let host = buildTabContentHost(for: tabId)
             terminalContainer.addSubview(host)
             NSLayoutConstraint.activate([
                 host.topAnchor.constraint(equalTo: terminalContainer.topAnchor),
@@ -1414,12 +1443,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 host.trailingAnchor.constraint(equalTo: terminalContainer.trailingAnchor),
                 host.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor),
             ])
-            tabContentHosts[tab.id] = host
+            tabContentHosts[tabId] = host
         }
 
         for (tabId, host) in tabContentHosts where !liveTabIds.contains(tabId) {
             host.removeFromSuperview()
             tabContentHosts.removeValue(forKey: tabId)
+        }
+    }
+
+    private func syncPaneViewRegistrySlots() {
+        for paneId in store.paneAtom.graphAtom.paneIDs {
+            viewRegistry.ensureSlot(for: paneId)
         }
     }
 

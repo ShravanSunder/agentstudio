@@ -168,10 +168,13 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         #expect(repoItem?.title == "single-root-repo")
         #expect(repoItem?.hasChildren == true)
 
-        guard case .navigateRepo(let level) = repoItem?.action else {
+        guard case .navigateRepo(let repositoryID) = repoItem?.action else {
             Issue.record("Expected repo root row to navigate")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         #expect(level.title == "single-root-repo")
         #expect(level.scopeLabel == "Repository")
         #expect(
@@ -196,10 +199,13 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
 
         let repoItem = try #require(items.first { $0.id == "repo-\(repo.id.uuidString)" })
         #expect(repoItem.keywords.contains("client-alpha"))
-        guard case .navigateRepo(let level) = repoItem.action else {
+        guard case .navigateRepo(let repositoryID) = repoItem.action else {
             Issue.record("Expected repo item to navigate")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         let worktreeItem = try #require(level.items.first { $0.id == "repo-wt-\(main.id.uuidString)" })
         #expect(worktreeItem.keywords.contains("client-alpha"))
     }
@@ -338,10 +344,13 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         #expect(repoItem?.subtitle == "● Tab 1 · 1 pane")
         #expect(repoItem?.group == "Repos")
         #expect(!items.contains { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" })
-        guard case .navigateRepo(let level) = repoItem?.action else {
+        guard case .navigateRepo(let repositoryID) = repoItem?.action else {
             Issue.record("Expected everything-scope repo item to navigate to repo level")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         #expect(level.items.contains { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" })
     }
 
@@ -487,10 +496,13 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
         #expect(item != nil)
         #expect(item?.worktreeOpenState == nil)
         #expect(item?.hasChildren == true)
-        guard case .navigateRepo(let level) = item?.action else {
+        guard case .navigateRepo(let repositoryID) = item?.action else {
             Issue.record("Expected repo item to navigate")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
         #expect(worktreeItem?.subtitle == "main worktree")
         #expect(worktreeItem?.hasChildren == true)
@@ -522,10 +534,13 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             Issue.record("Expected repo item")
             return
         }
-        guard case .navigateRepo(let level) = item.action else {
+        guard case .navigateRepo(let repositoryID) = item.action else {
             Issue.record("Expected repo item to navigate")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
         #expect(worktreeItem?.subtitle?.contains("Tab 1") == true)
     }
@@ -570,10 +585,13 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
             Issue.record("Expected repo item")
             return
         }
-        guard case .navigateRepo(let level) = item.action else {
+        guard case .navigateRepo(let repositoryID) = item.action else {
             Issue.record("Expected repo item to navigate")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         let worktreeItem = level.items.first { $0.id == "repo-wt-\(storedWorktree.id.uuidString)" }
         #expect(worktreeItem?.subtitle?.contains("2 panes") == true)
     }

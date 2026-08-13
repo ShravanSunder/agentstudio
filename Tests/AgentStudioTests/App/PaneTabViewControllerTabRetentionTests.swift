@@ -96,6 +96,26 @@ struct PaneTabViewControllerTabRetentionTests {
         contentView.addSubview(host)
     }
 
+    @Test("registering a tab host seeds its pane slots before SwiftUI can render")
+    func registeringTabHostSeedsPaneSlotsBeforeRender() {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let pane = harness.store.createPane(
+            launchDirectory: harness.tempDir,
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "New tab")
+        harness.store.appendTab(tab)
+
+        harness.controller.viewWillLayout()
+
+        #expect(harness.viewRegistry.slotPaneIdsForTesting.contains(pane.id))
+    }
+
     @Test
     func inactivePersistentTab_allowsMissingHostUntilSelected() throws {
         let harness = makeHarness()

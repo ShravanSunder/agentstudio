@@ -9,14 +9,20 @@ struct AppPoliciesGitRefreshTests {
     func defaultPolicyCapturesRefreshConstants() {
         let policy = AppPolicies.GitRefresh.defaultPolicy
 
-        #expect(policy.activeCadence == .seconds(15))
+        #expect(policy.activePaneCadence == .seconds(15))
+        #expect(policy.visibleSidebarCadence == .seconds(60))
+        #expect(policy.openPaneCadence == .seconds(180))
         #expect(policy.backgroundCadence == .seconds(240))
         #expect(
             policy.backgroundCadence
-                == Self.scaled(policy.activeCadence, by: policy.backgroundStripeCount)
+                == Self.scaled(policy.activePaneCadence, by: policy.backgroundStripeCount)
         )
         #expect(policy.maxConcurrentStatusComputes == 4)
-        #expect(policy.oldestStaleReservedSlots == 1)
+        #expect(policy.activePaneMaxConcurrent == 1)
+        #expect(policy.visibleSidebarMaxConcurrent == 2)
+        #expect(policy.openPaneMaxConcurrent == 1)
+        #expect(policy.backgroundMaxConcurrent == 1)
+        #expect(policy.visibleSidebarStripeSize == 8)
         #expect(policy.suppressedWorktreeTombstoneLimit == 1024)
         #expect(policy.maxNilStatusRetries == 1)
         #expect(policy.nilStatusRetryDelay > .zero)
@@ -26,6 +32,7 @@ struct AppPoliciesGitRefreshTests {
         #expect(AppPolicies.GitRefresh.filesystemDebounceWindow == .milliseconds(500))
         #expect(AppPolicies.GitRefresh.filesystemMaxFlushLatency == .seconds(10))
         #expect(AppPolicies.GitRefresh.filesystemDerivedCoalescingWindow == .milliseconds(500))
+        #expect(AppPolicies.GitRefresh.visibilityChangeCoalescingWindow == .milliseconds(200))
         #expect(
             RepoScanner.AgentStudioGitRepositoryDiscoveryProvider.defaultTimeout
                 == AppPolicies.GitRefresh.defaultDiscoveryReadTimeout

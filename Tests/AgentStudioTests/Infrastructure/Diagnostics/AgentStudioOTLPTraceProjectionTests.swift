@@ -52,6 +52,32 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func commandBarCacheProjectionKeepsBoundedOutcomeAndInvalidationReason() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 91,
+            severityText: .info,
+            body: "performance.commandbar.cache",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.commandbar.cache_outcome": .string("miss"),
+                "agentstudio.performance.commandbar.invalidation_reason": .string("topology_observation"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.commandbar.cache_outcome"] == .string("miss"))
+        #expect(
+            projection.attributes["agentstudio.performance.commandbar.invalidation_reason"]
+                == .string("topology_observation")
+        )
+    }
+
+    @Test
     func outlineApplyProxyProjectionKeepsOutcomeAndRowCountForMetrics() throws {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 125,

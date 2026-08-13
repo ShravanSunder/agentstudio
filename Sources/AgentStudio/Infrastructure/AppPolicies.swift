@@ -138,12 +138,20 @@ package enum AppPolicies {
         package static let filesystemDebounceWindow: Duration = .milliseconds(500)
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
+        package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
 
         package struct Policy: Equatable, Sendable {
-            package let activeCadence: Duration
+            package let activePaneCadence: Duration
+            package let visibleSidebarCadence: Duration
+            package let openPaneCadence: Duration
+            package let backgroundCadence: Duration
             package let backgroundStripeCount: Int
             package let maxConcurrentStatusComputes: Int
-            package let oldestStaleReservedSlots: Int
+            package let activePaneMaxConcurrent: Int
+            package let visibleSidebarMaxConcurrent: Int
+            package let openPaneMaxConcurrent: Int
+            package let backgroundMaxConcurrent: Int
+            package let visibleSidebarStripeSize: Int
             package let suppressedWorktreeTombstoneLimit: Int
             package let maxNilStatusRetries: Int
             package let nilStatusRetryDelay: Duration
@@ -170,10 +178,17 @@ package enum AppPolicies {
             package let unchangedStatusCadenceMultipliers: [Int]
 
             package init(
-                activeCadence: Duration = .seconds(15),
+                activePaneCadence: Duration = .seconds(15),
+                visibleSidebarCadence: Duration = .seconds(60),
+                openPaneCadence: Duration = .seconds(180),
+                backgroundCadence: Duration = .seconds(240),
                 backgroundStripeCount: Int = 16,
                 maxConcurrentStatusComputes: Int = 4,
-                oldestStaleReservedSlots: Int = 1,
+                activePaneMaxConcurrent: Int = 1,
+                visibleSidebarMaxConcurrent: Int = 2,
+                openPaneMaxConcurrent: Int = 1,
+                backgroundMaxConcurrent: Int = 1,
+                visibleSidebarStripeSize: Int = 8,
                 suppressedWorktreeTombstoneLimit: Int = 1024,
                 maxNilStatusRetries: Int = 1,
                 nilStatusRetryDelay: Duration = .seconds(5),
@@ -185,9 +200,17 @@ package enum AppPolicies {
                 maxScopedStatusPathspecCount: Int = 128,
                 unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
             ) {
+                precondition(activePaneCadence > .zero)
+                precondition(visibleSidebarCadence >= activePaneCadence)
+                precondition(openPaneCadence >= visibleSidebarCadence)
+                precondition(backgroundCadence >= openPaneCadence)
                 precondition(backgroundStripeCount > 0)
                 precondition(maxConcurrentStatusComputes > 0)
-                precondition(oldestStaleReservedSlots >= 0)
+                precondition(activePaneMaxConcurrent > 0)
+                precondition(visibleSidebarMaxConcurrent > 0)
+                precondition(openPaneMaxConcurrent > 0)
+                precondition(backgroundMaxConcurrent > 0)
+                precondition(visibleSidebarStripeSize > 0)
                 precondition(suppressedWorktreeTombstoneLimit > 0)
                 precondition(maxNilStatusRetries >= 0)
                 precondition(statusFailureBackoffBaseDelay > .zero)
@@ -203,10 +226,17 @@ package enum AppPolicies {
                     )
                 )
 
-                self.activeCadence = activeCadence
+                self.activePaneCadence = activePaneCadence
+                self.visibleSidebarCadence = visibleSidebarCadence
+                self.openPaneCadence = openPaneCadence
+                self.backgroundCadence = backgroundCadence
                 self.backgroundStripeCount = backgroundStripeCount
                 self.maxConcurrentStatusComputes = maxConcurrentStatusComputes
-                self.oldestStaleReservedSlots = oldestStaleReservedSlots
+                self.activePaneMaxConcurrent = activePaneMaxConcurrent
+                self.visibleSidebarMaxConcurrent = visibleSidebarMaxConcurrent
+                self.openPaneMaxConcurrent = openPaneMaxConcurrent
+                self.backgroundMaxConcurrent = backgroundMaxConcurrent
+                self.visibleSidebarStripeSize = visibleSidebarStripeSize
                 self.suppressedWorktreeTombstoneLimit = suppressedWorktreeTombstoneLimit
                 self.maxNilStatusRetries = maxNilStatusRetries
                 self.nilStatusRetryDelay = nilStatusRetryDelay
@@ -245,10 +275,6 @@ package enum AppPolicies {
                     )
             }
 
-            package var backgroundCadence: Duration {
-                Self.scaled(activeCadence, by: backgroundStripeCount)
-            }
-
             package func backgroundStripe(for worktreeId: UUID) -> Int {
                 Int(Self.stableHash(for: worktreeId) % UInt64(backgroundStripeCount))
             }
@@ -263,12 +289,38 @@ package enum AppPolicies {
                 return UInt64(unchangedStatusCadenceMultipliers[index])
             }
 
+            package var activeCadence: Duration {
+                activePaneCadence
+            }
+
+            package func cadenceTickInterval(
+                for cadence: Duration,
+                unchangedResultCount: Int
+            ) -> UInt64 {
+                let baseTicks = Self.tickCount(for: cadence, baseCadence: activePaneCadence)
+                return baseTicks * cadenceTickInterval(forUnchangedResultCount: unchangedResultCount)
+            }
+
+            package func isCadenceDue(_ cadence: Duration, tick: UInt64) -> Bool {
+                tick.isMultiple(of: Self.tickCount(for: cadence, baseCadence: activePaneCadence))
+            }
+
             private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {
                 var scaledDuration = Duration.zero
                 for _ in 0..<multiplier {
                     scaledDuration += duration
                 }
                 return scaledDuration
+            }
+
+            private static func tickCount(for cadence: Duration, baseCadence: Duration) -> UInt64 {
+                var elapsed = Duration.zero
+                var tickCount: UInt64 = 0
+                while elapsed < cadence {
+                    elapsed += baseCadence
+                    tickCount &+= 1
+                }
+                return max(1, tickCount)
             }
 
             private static func jitterDelay(maxDelay: Duration, worktreeId: UUID) -> Duration {
@@ -305,8 +357,15 @@ package enum AppPolicies {
         package static let bufferedFineBatchCapacity: Int = 64
     }
 
+    package enum FilesystemSourceSync {
+        /// Maximum number of worktree keys admitted to one sequential source-write batch.
+        /// A full reconciliation retains every key and yields between batches.
+        package static let maximumWorktreeKeysPerBatch: Int = 32
+    }
+
     package enum ForgeRefresh {
         package static let defaultPollingInterval: Duration = .seconds(45)
+        package static let pendingFollowUpDelay: Duration = .seconds(1)
         package static let failureBackoffBaseDelay: Duration = .seconds(5)
         package static let failureBackoffMultiplier: Int = 2
         package static let failureBackoffMaxDelay: Duration = .seconds(60)

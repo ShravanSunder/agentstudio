@@ -405,8 +405,20 @@ package final class CommandBarPanelController {
             recordRecentCommandIfNeeded(command)
             dismiss(measureNonExecutingClose: false)
             dispatcher.dispatch(command, target: target, targetType: targetType)
-        case .navigate(let level), .navigateRepo(let level):
+        case .navigate(let level):
             state.pushLevel(level)
+        case .navigateRepo(let repositoryID):
+            guard
+                let repository = store.repositoryTopologyAtom.repo(repositoryID),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repositoryID)
+            else { return }
+            state.pushLevel(
+                CommandBarDataSource.buildRepoLevel(
+                    repo: repository,
+                    store: store,
+                    dispatcher: dispatcher
+                )
+            )
         case .custom(let closure):
             state.recordRecent(itemId: item.id)
             dismiss(measureNonExecutingClose: false)

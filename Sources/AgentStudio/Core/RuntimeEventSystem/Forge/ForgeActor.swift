@@ -17,6 +17,8 @@ package actor ForgeActor {
         var backoffUntil: Duration?
         var activeRequestId: UInt64?
         var pendingFollowUp = false
+        var pendingFollowUpRequiresRefresh = false
+        var pendingFollowUpEligibleAt: Duration?
         var consecutiveFailureCount = 0
         var lastPublishedFactsByBranch: [String: PullRequestFacts]?
     }
@@ -28,6 +30,15 @@ package actor ForgeActor {
         let generation: UInt64
         let demandedBranches: Set<String>
         let correlationId: UUID?
+
+        var signature: ProviderRequestSignature {
+            ProviderRequestSignature(origin: origin, demandedBranches: demandedBranches)
+        }
+    }
+
+    private struct ProviderRequestSignature: Equatable, Sendable {
+        let origin: String
+        let demandedBranches: Set<String>
     }
 
     private enum RefreshTrigger {
@@ -41,6 +52,13 @@ package actor ForgeActor {
             case .manual, .followUp: true
             }
         }
+
+        var requiresFollowUpRefresh: Bool {
+            switch self {
+            case .manual: true
+            case .automatic, .followUp: false
+            }
+        }
     }
 
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ForgeActor")
@@ -52,6 +70,7 @@ package actor ForgeActor {
     private let monotonicNow: @Sendable () -> Duration
     private let delay: AsyncDelay
     private let subscriptionBufferLimit: Int
+    private let performanceTraceRecorder: (any ForgePerformanceRecording)?
 
     private var subscriptionTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
@@ -73,7 +92,8 @@ package actor ForgeActor {
             .seconds(ProcessInfo.processInfo.systemUptime)
         },
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
-        subscriptionBufferLimit: Int = 256
+        subscriptionBufferLimit: Int = 256,
+        performanceTraceRecorder: (any ForgePerformanceRecording)? = nil
     ) {
         runtimeBus = bus
         self.statusProvider = statusProvider
@@ -82,6 +102,7 @@ package actor ForgeActor {
         self.monotonicNow = monotonicNow
         delay = sleepClock.map(AsyncDelay.clock) ?? .taskSleep
         self.subscriptionBufferLimit = subscriptionBufferLimit
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
     isolated deinit {
@@ -166,6 +187,8 @@ package actor ForgeActor {
         state.backoffUntil = nil
         state.activeRequestId = nil
         state.pendingFollowUp = false
+        state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
         state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
@@ -210,6 +233,8 @@ package actor ForgeActor {
         for repoId in previouslyDemandedRepoIds.subtracting(currentlyDemandedRepoIds) {
             if var state = refreshStateByRepoId[repoId] {
                 state.pendingFollowUp = false
+                state.pendingFollowUpRequiresRefresh = false
+                state.pendingFollowUpEligibleAt = nil
                 refreshStateByRepoId[repoId] = state
             }
         }
@@ -346,6 +371,8 @@ package actor ForgeActor {
         state.backoffUntil = nil
         state.activeRequestId = nil
         state.pendingFollowUp = false
+        state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpEligibleAt = nil
         state.consecutiveFailureCount = 0
         state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
@@ -380,6 +407,8 @@ package actor ForgeActor {
         guard !demandedBranches.isEmpty else {
             if var state = refreshStateByRepoId[repoId] {
                 state.pendingFollowUp = false
+                state.pendingFollowUpRequiresRefresh = false
+                state.pendingFollowUpEligibleAt = nil
                 refreshStateByRepoId[repoId] = state
             }
             return
@@ -388,6 +417,8 @@ package actor ForgeActor {
 
         if state.activeRequestId != nil {
             state.pendingFollowUp = true
+            state.pendingFollowUpRequiresRefresh =
+                state.pendingFollowUpRequiresRefresh || trigger.requiresFollowUpRefresh
             refreshStateByRepoId[repoId] = state
             return
         }
@@ -397,6 +428,10 @@ package actor ForgeActor {
             now < nextEligibleAt
         {
             state.pendingFollowUp = true
+            state.pendingFollowUpEligibleAt = max(
+                state.pendingFollowUpEligibleAt ?? .zero,
+                nextEligibleAt
+            )
             refreshStateByRepoId[repoId] = state
             return
         }
@@ -413,7 +448,12 @@ package actor ForgeActor {
         state.activeRequestId = request.id
         state.lastAttemptAt = now
         state.pendingFollowUp = false
+        state.pendingFollowUpRequiresRefresh = false
+        state.pendingFollowUpEligibleAt = nil
         refreshStateByRepoId[repoId] = state
+        if case .followUp = trigger {
+            recordFollowUpOutcome("admitted")
+        }
 
         let statusProvider = self.statusProvider
         providerTasksByRepoId[repoId] = Task { [weak self, statusProvider] in
@@ -499,13 +539,29 @@ package actor ForgeActor {
             currentState.activeRequestId == nil
         else { return }
         if currentState.pendingFollowUp {
-            currentState.pendingFollowUp = false
-            refreshStateByRepoId[request.repoId] = currentState
-            requestRefreshIfDemanded(
-                repoId: request.repoId,
-                trigger: .followUp,
-                correlationId: nil
-            )
+            let pendingFollowUpRequiresRefresh = currentState.pendingFollowUpRequiresRefresh
+            let currentSignature = currentState.origin.map {
+                ProviderRequestSignature(
+                    origin: $0,
+                    demandedBranches: demandedBranches(repoId: request.repoId)
+                )
+            }
+            if pendingFollowUpRequiresRefresh || currentSignature != request.signature {
+                currentState.pendingFollowUp = false
+                currentState.pendingFollowUpRequiresRefresh = false
+                currentState.pendingFollowUpEligibleAt = nil
+                refreshStateByRepoId[request.repoId] = currentState
+                requestRefreshIfDemanded(
+                    repoId: request.repoId,
+                    trigger: .followUp,
+                    correlationId: nil
+                )
+            } else {
+                currentState.pendingFollowUpEligibleAt =
+                    completionTime + AppPolicies.ForgeRefresh.pendingFollowUpDelay
+                refreshStateByRepoId[request.repoId] = currentState
+                recordFollowUpOutcome("deferred")
+            }
         }
         rescheduleDeadline()
     }
@@ -543,7 +599,8 @@ package actor ForgeActor {
                 state.origin != nil,
                 state.activeRequestId == nil
             else { return nil }
-            return nextEligibleRefreshAt(state: state, bypassFreshness: false)
+            return state.pendingFollowUpEligibleAt
+                ?? nextEligibleRefreshAt(state: state, bypassFreshness: false)
         }
         guard let earliestDeadline = deadlines.min() else { return }
         let waitDuration = max(.zero, earliestDeadline - now)
@@ -564,7 +621,14 @@ package actor ForgeActor {
         deadlineTask = nil
         let repoIds = demandedRepoIds()
         for repoId in repoIds {
-            requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+            if let state = refreshStateByRepoId[repoId],
+                let pendingFollowUpEligibleAt = state.pendingFollowUpEligibleAt,
+                pendingFollowUpEligibleAt <= monotonicNow()
+            {
+                requestRefreshIfDemanded(repoId: repoId, trigger: .followUp, correlationId: nil)
+            } else {
+                requestRefreshIfDemanded(repoId: repoId, trigger: .automatic, correlationId: nil)
+            }
         }
         rescheduleDeadline()
     }
@@ -574,8 +638,20 @@ package actor ForgeActor {
         if var state = refreshStateByRepoId[repoId] {
             state.activeRequestId = nil
             state.pendingFollowUp = false
+            state.pendingFollowUpRequiresRefresh = false
+            state.pendingFollowUpEligibleAt = nil
             refreshStateByRepoId[repoId] = state
         }
+    }
+
+    private func recordFollowUpOutcome(_ outcome: String) {
+        performanceTraceRecorder?.record(
+            .forgeRefresh,
+            attributes: [
+                "agentstudio.performance.forge.stage": .string("follow_up"),
+                "agentstudio.performance.forge.outcome": .string(outcome),
+            ]
+        )
     }
 
     private func demandedRepoIds() -> Set<UUID> {

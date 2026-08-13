@@ -427,6 +427,28 @@ struct CommandBarPanelControllerTests {
         }
     }
 
+    @Test("repository root activation materializes only the selected repository menu")
+    func repositoryRootActivationMaterializesSelectedRepositoryMenu() {
+        let store = WorkspaceStore()
+        let selectedRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selected-repository"))
+        _ = store.addRepo(at: URL(filePath: "/tmp/command-bar-unselected-repository"))
+        let dispatcher = FakeAppCommandDispatcher()
+        let controller = makeController(store: store, dispatcher: dispatcher)
+        controller.state.show(defaultScope: .repos)
+
+        let rootItem = CommandBarDataSource.repoRootItem(
+            repo: selectedRepository,
+            store: store,
+            dispatcher: dispatcher
+        )
+        #expect(dispatcher.bridgeTargetLookupCount == 0)
+        controller.executeItem(rootItem)
+
+        #expect(controller.state.currentLevel?.id == "level-repo-\(selectedRepository.id.uuidString)")
+        #expect(dispatcher.bridgeTargetLookupCount > 0)
+        #expect(Set(dispatcher.bridgeTargetLookupWorktreeIds) == Set(selectedRepository.worktrees.map(\.id)))
+    }
+
     @Test("recent repository activation re-resolves a replacement with the same stable key")
     func recentRepositoryActivationReResolvesLiveIdentity() async throws {
         try await withAsyncTestCoreAtoms { _ in

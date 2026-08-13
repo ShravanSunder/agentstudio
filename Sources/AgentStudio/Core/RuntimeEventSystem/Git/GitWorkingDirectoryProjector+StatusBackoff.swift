@@ -110,6 +110,7 @@ extension GitWorkingDirectoryProjector {
         capacityRetryWorktreeIds.insert(worktreeId)
         capacityRetryTasks.removeValue(forKey: worktreeId)?.cancel()
         coalesceCapacityRetryChangeset(changeset)
+        refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .retry
 
         let delay = self.delay
         let retryDelay = refreshPolicy.capacityRetryDelay(for: worktreeId)

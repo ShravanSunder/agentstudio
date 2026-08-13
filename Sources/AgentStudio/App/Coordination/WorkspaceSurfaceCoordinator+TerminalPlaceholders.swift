@@ -94,7 +94,7 @@ extension WorkspaceSurfaceCoordinator {
 
     func activeTabHasMissingVisibleView(_ activeTab: Tab) -> Bool {
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.paneAtom.graphAtom.paneIDs.map { PaneId(existingUUID: $0) },
+            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }

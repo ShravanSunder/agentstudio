@@ -29,8 +29,17 @@ private struct FilesystemSourceSyncWriteMetrics {
     let activityWriteCount: Int
     let activePaneWriteCount: Int
     let sidebarVisibleWriteCount: Int
-    let topologyGeneration: UInt64
+    let topologyGeneration: UInt64?
     let filesystemSourceDuration: Duration
+    let admittedWorktreeCount: Int
+}
+
+private struct FilesystemSourceSyncWriteBatch {
+    let unregisterWorktreeIds: [UUID]
+    let registerWorktrees: [FilesystemSourceSyncDiff.Registration]
+    let activityUpdates: [FilesystemSourceSyncDiff.ActivityUpdate]
+    let admittedWorktreeCount: Int
+    let isFinal: Bool
 }
 
 private struct FilesystemProjectionAffectedKeys {
@@ -429,7 +438,6 @@ extension WorkspaceSurfaceCoordinator {
         guard !Task.isCancelled else { return }
 
         let clock = ContinuousClock()
-        let totalStart = clock.now
         let requestGeneration = filesystemSyncRequestGeneration
         let topologyEntries = filesystemProjectionTopologyEntries()
         let paneEntries = filesystemProjectionPaneEntries()
@@ -458,15 +466,34 @@ extension WorkspaceSurfaceCoordinator {
             return
         }
 
-        guard let writeMetrics = await applyFilesystemSourceWrites(syncDiff, clock: clock) else { return }
+        let writeBatches = filesystemSourceWriteBatches(for: syncDiff)
+        var writeMetricsByBatch: [FilesystemSourceSyncWriteMetrics] = []
+        for (batchIndex, writeBatch) in writeBatches.enumerated() {
+            guard
+                let writeMetrics = await applyFilesystemSourceWrites(
+                    writeBatch,
+                    syncDiff: syncDiff,
+                    clock: clock
+                )
+            else { return }
+            writeMetricsByBatch.append(writeMetrics)
+            if batchIndex < writeBatches.index(before: writeBatches.endIndex) {
+                await Task.yield()
+                guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return }
+            }
+        }
 
         guard syncDiff.requestGeneration == filesystemSyncRequestGeneration else {
             filesystemSyncRequested = true
             return
         }
+        guard let topologyGeneration = writeMetricsByBatch.last?.topologyGeneration else {
+            filesystemSyncRequested = true
+            return
+        }
         let didCommitIndexSnapshot = await filesystemProjectionIndex.commitSourceSync(
             requestGeneration: syncDiff.requestGeneration,
-            topologyGeneration: writeMetrics.topologyGeneration
+            topologyGeneration: topologyGeneration
         )
         guard didCommitIndexSnapshot else {
             filesystemSyncRequested = true
@@ -478,44 +505,78 @@ extension WorkspaceSurfaceCoordinator {
         filesystemActivityByWorktreeId = syncDiff.activityByWorktreeId
         filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
         filesystemLastSidebarVisibleWorktreeIds = syncDiff.sidebarVisibleWorktreeIds
-        filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
+        filesystemAppliedTopologyGeneration = topologyGeneration
         nextFilesystemProjectionSequenceByPaneId = nextFilesystemProjectionSequenceByPaneId.filter { paneId, _ in
             syncDiff.validPaneIds.contains(paneId)
         }
         let applyDuration = applyStart.duration(to: clock.now)
-        performanceTraceRecorder?.recordDuration(
-            .coordinatorWrite,
-            duration: totalStart.duration(to: clock.now),
-            attributes: [
-                "agentstudio.performance.coordinator.phase": .string("source_sync"),
-                "agentstudio.performance.coordinator.registered.count": .int(writeMetrics.registeredCount),
-                "agentstudio.performance.coordinator.unregistered.count": .int(writeMetrics.unregisteredCount),
-                "agentstudio.performance.coordinator.activity_write.count": .int(writeMetrics.activityWriteCount),
-                "agentstudio.performance.coordinator.active_pane_write.count": .int(
-                    writeMetrics.activePaneWriteCount
-                ),
-                "agentstudio.performance.coordinator.sidebar_visible_write.count": .int(
-                    writeMetrics.sidebarVisibleWriteCount
-                ),
-                "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(
-                    AgentStudioPerformanceTraceRecorder.milliseconds(from: writeMetrics.filesystemSourceDuration)
-                ),
-                "agentstudio.performance.coordinator.index_elapsed_ms": .double(
-                    AgentStudioPerformanceTraceRecorder.milliseconds(from: indexDuration)
-                ),
-                "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms": .double(
-                    AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)
-                ),
-                "agentstudio.performance.coordinator.total_elapsed_ms": .double(
-                    AgentStudioPerformanceTraceRecorder.milliseconds(from: totalStart.duration(to: clock.now))
-                ),
-                "agentstudio.performance.coordinator.worktree.count": .int(syncDiff.contextsByWorktreeId.count),
-            ]
+        recordFilesystemSourceSyncWriteMetrics(
+            writeMetricsByBatch,
+            syncDiff: syncDiff,
+            indexDuration: indexDuration,
+            applyDuration: applyDuration
         )
     }
 
+    private func recordFilesystemSourceSyncWriteMetrics(
+        _ writeMetricsByBatch: [FilesystemSourceSyncWriteMetrics],
+        syncDiff: FilesystemSourceSyncDiff,
+        indexDuration: Duration,
+        applyDuration: Duration
+    ) {
+        for (batchIndex, writeMetrics) in writeMetricsByBatch.enumerated() {
+            let batchIndexDuration = batchIndex == writeMetricsByBatch.startIndex ? indexDuration : .zero
+            let batchApplyDuration =
+                batchIndex == writeMetricsByBatch.index(before: writeMetricsByBatch.endIndex)
+                ? applyDuration
+                : .zero
+            let batchTotalDuration = batchIndexDuration + writeMetrics.filesystemSourceDuration + batchApplyDuration
+            performanceTraceRecorder?.recordDuration(
+                .coordinatorWrite,
+                duration: batchTotalDuration,
+                attributes: [
+                    "agentstudio.performance.coordinator.phase": .string("source_sync"),
+                    "agentstudio.performance.coordinator.registered.count": .int(writeMetrics.registeredCount),
+                    "agentstudio.performance.coordinator.unregistered.count": .int(writeMetrics.unregisteredCount),
+                    "agentstudio.performance.coordinator.activity_write.count": .int(
+                        writeMetrics.activityWriteCount
+                    ),
+                    "agentstudio.performance.coordinator.active_pane_write.count": .int(
+                        writeMetrics.activePaneWriteCount
+                    ),
+                    "agentstudio.performance.coordinator.sidebar_visible_write.count": .int(
+                        writeMetrics.sidebarVisibleWriteCount
+                    ),
+                    "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(
+                            from: writeMetrics.filesystemSourceDuration
+                        )
+                    ),
+                    "agentstudio.performance.coordinator.index_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: batchIndexDuration)
+                    ),
+                    "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: batchApplyDuration)
+                    ),
+                    "agentstudio.performance.coordinator.total_elapsed_ms": .double(
+                        AgentStudioPerformanceTraceRecorder.milliseconds(from: batchTotalDuration)
+                    ),
+                    "agentstudio.performance.coordinator.worktree.count": .int(syncDiff.contextsByWorktreeId.count),
+                    "agentstudio.performance.coordinator.source_sync.batch_index": .int(batchIndex),
+                    "agentstudio.performance.coordinator.source_sync.batch_count": .int(
+                        writeMetricsByBatch.count
+                    ),
+                    "agentstudio.performance.coordinator.source_sync.admitted_worktree.count": .int(
+                        writeMetrics.admittedWorktreeCount
+                    ),
+                ]
+            )
+        }
+    }
+
     private func applyFilesystemSourceWrites(
-        _ syncDiff: FilesystemSourceSyncDiff,
+        _ writeBatch: FilesystemSourceSyncWriteBatch,
+        syncDiff: FilesystemSourceSyncDiff,
         clock: ContinuousClock
     ) async -> FilesystemSourceSyncWriteMetrics? {
         let sourceStart = clock.now
@@ -525,7 +586,7 @@ extension WorkspaceSurfaceCoordinator {
         var activePaneWriteCount = 0
         var sidebarVisibleWriteCount = 0
 
-        for worktreeId in syncDiff.unregisterWorktreeIds {
+        for worktreeId in writeBatch.unregisterWorktreeIds {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.unregister(worktreeId: worktreeId)
             recordAppliedFilesystemSourceUnregister(worktreeId: worktreeId)
@@ -533,7 +594,7 @@ extension WorkspaceSurfaceCoordinator {
             unregisteredCount += 1
         }
 
-        for registration in syncDiff.registerWorktrees {
+        for registration in writeBatch.registerWorktrees {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             if filesystemRegisteredContextsByWorktreeId[registration.worktreeId] != nil {
                 await filesystemSource.unregister(worktreeId: registration.worktreeId)
@@ -554,7 +615,7 @@ extension WorkspaceSurfaceCoordinator {
             registeredCount += 1
         }
 
-        for activityUpdate in syncDiff.activityUpdates {
+        for activityUpdate in writeBatch.activityUpdates {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.setActivity(
                 worktreeId: activityUpdate.worktreeId,
@@ -565,7 +626,7 @@ extension WorkspaceSurfaceCoordinator {
             activityWriteCount += 1
         }
 
-        if syncDiff.shouldUpdateActivePaneWorktree {
+        if writeBatch.isFinal, syncDiff.shouldUpdateActivePaneWorktree {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.setActivePaneWorktree(worktreeId: syncDiff.activePaneWorktreeId)
             filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
@@ -573,24 +634,27 @@ extension WorkspaceSurfaceCoordinator {
             activePaneWriteCount = 1
         }
 
-        if syncDiff.shouldUpdateSidebarVisibleWorktrees {
+        if writeBatch.isFinal, syncDiff.shouldUpdateSidebarVisibleWorktrees {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             await filesystemSource.setSidebarVisibleWorktrees(syncDiff.sidebarVisibleWorktreeIds)
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
             sidebarVisibleWriteCount = 1
         }
 
-        guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
-        filesystemTopologyAssertionGeneration &+= 1
-        let topologyGeneration = filesystemTopologyAssertionGeneration
-        await filesystemSource.assertTopology(
-            FilesystemTopologyAssertion(
-                generation: topologyGeneration,
-                contextsByWorktreeId: syncDiff.contextsByWorktreeId
+        var topologyGeneration: UInt64?
+        if writeBatch.isFinal {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            filesystemTopologyAssertionGeneration &+= 1
+            topologyGeneration = filesystemTopologyAssertionGeneration
+            await filesystemSource.assertTopology(
+                FilesystemTopologyAssertion(
+                    generation: filesystemTopologyAssertionGeneration,
+                    contextsByWorktreeId: syncDiff.contextsByWorktreeId
+                )
             )
-        )
-        recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
-        guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            recordAppliedFilesystemTopologyAssertion(syncDiff.contextsByWorktreeId)
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+        }
 
         return FilesystemSourceSyncWriteMetrics(
             unregisteredCount: unregisteredCount,
@@ -599,8 +663,46 @@ extension WorkspaceSurfaceCoordinator {
             activePaneWriteCount: activePaneWriteCount,
             sidebarVisibleWriteCount: sidebarVisibleWriteCount,
             topologyGeneration: topologyGeneration,
-            filesystemSourceDuration: sourceStart.duration(to: clock.now)
+            filesystemSourceDuration: sourceStart.duration(to: clock.now),
+            admittedWorktreeCount: writeBatch.admittedWorktreeCount
         )
+    }
+
+    private func filesystemSourceWriteBatches(
+        for syncDiff: FilesystemSourceSyncDiff
+    ) -> [FilesystemSourceSyncWriteBatch] {
+        var orderedWorktreeIds: [UUID] = []
+        var admittedWorktreeIds: Set<UUID> = []
+        func admit(_ worktreeId: UUID) {
+            guard admittedWorktreeIds.insert(worktreeId).inserted else { return }
+            orderedWorktreeIds.append(worktreeId)
+        }
+
+        syncDiff.unregisterWorktreeIds.forEach(admit)
+        syncDiff.registerWorktrees.map(\.worktreeId).forEach(admit)
+        syncDiff.activityUpdates.map(\.worktreeId).forEach(admit)
+
+        let maximumBatchSize = AppPolicies.FilesystemSourceSync.maximumWorktreeKeysPerBatch
+        precondition(maximumBatchSize > 0)
+        let worktreeIdBatches = stride(from: 0, to: orderedWorktreeIds.count, by: maximumBatchSize).map {
+            Array(orderedWorktreeIds[$0..<min($0 + maximumBatchSize, orderedWorktreeIds.count)])
+        }
+        let admittedBatches = worktreeIdBatches.isEmpty ? [[]] : worktreeIdBatches
+
+        return admittedBatches.enumerated().map { batchIndex, worktreeIds in
+            let worktreeIdSet = Set(worktreeIds)
+            return FilesystemSourceSyncWriteBatch(
+                unregisterWorktreeIds: syncDiff.unregisterWorktreeIds.filter(worktreeIdSet.contains),
+                registerWorktrees: syncDiff.registerWorktrees.filter {
+                    worktreeIdSet.contains($0.worktreeId)
+                },
+                activityUpdates: syncDiff.activityUpdates.filter {
+                    worktreeIdSet.contains($0.worktreeId)
+                },
+                admittedWorktreeCount: worktreeIds.count,
+                isFinal: batchIndex == admittedBatches.index(before: admittedBatches.endIndex)
+            )
+        }
     }
 
     private func recordAppliedFilesystemSourceUnregister(worktreeId: UUID) {

@@ -13,7 +13,6 @@ package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let scope: AgentStudioTraceRecord.Scope
     package let attributes: [String: AgentStudioTraceValue]
 }
-
 package enum AgentStudioOTLPTraceProjection {
     package static func project(_ record: AgentStudioTraceRecord) -> AgentStudioOTLPProjectedLogRecord {
         let safeResource = safeResource(record.resource)
@@ -34,7 +33,6 @@ package enum AgentStudioOTLPTraceProjection {
             attributes: attributes
         )
     }
-
     private static let allowedResourceKeys: Set<String> = [
         "agentstudio.build.config",
         "agentstudio.release_channel",
@@ -138,10 +136,8 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.row_relation",
         "agentstudio.performance.repo_explorer.stage",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome",
-        "agentstudio.inbox.claim.lane",
-        "agentstudio.inbox.claim.semantic",
-        "agentstudio.inbox.decision",
-        "agentstudio.inbox.kind",
+        "agentstudio.inbox.claim.lane", "agentstudio.inbox.claim.semantic",
+        "agentstudio.inbox.decision", "agentstudio.inbox.kind",
         "agentstudio.inbox.reason",
         "agentstudio.pane.kind",
         "agentstudio.preferences.global.status",
@@ -256,7 +252,8 @@ package enum AgentStudioOTLPTraceProjection {
         "dev.branch.name",
         "terminal.activity.close_reason",
         "terminal.activity.source",
-    ]).union(BridgeProductStreamProjectionKeys.stringKeys)
+    ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
+        .union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.tree_path_count_bucket",
@@ -442,6 +439,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.logical_running.count",
         "agentstudio.performance.git.pending.count",
         "agentstudio.performance.git.registered.count",
+        "agentstudio.performance.git.request.sequence",
         "agentstudio.performance.git.retry_pending.count",
         "agentstudio.performance.git.running.count",
         "agentstudio.performance.git.snapshot_dedup.count",
@@ -481,8 +479,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.command_resolution.count",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
-        "agentstudio.performance.sidebar.group.count",
-        "agentstudio.performance.sidebar.input.count",
+        "agentstudio.performance.sidebar.group.count", "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",
         "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms",
         "agentstudio.performance.sidebar.query_character.count",
@@ -905,6 +902,9 @@ extension AgentStudioOTLPTraceProjection {
     private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
         if let allowedValues = BridgeTelemetryWireSchema.allowedStringValues(for: key) {
             return allowedValues.contains(value)
+        }
+        if let isAllowed = AgentStudioOTLPAttributionProjectionKeys.isAllowedValue(key: key, value: value) {
+            return isAllowed
         }
         switch key {
         case "agentstudio.performance.sidebar.surface":

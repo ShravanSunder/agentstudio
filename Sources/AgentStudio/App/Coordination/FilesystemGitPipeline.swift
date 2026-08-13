@@ -53,7 +53,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         self.forgeActor = ForgeActor(
             bus: bus,
             statusProvider: forgeStatusProvider,
-            providerName: "github"
+            providerName: "github",
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 

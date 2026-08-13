@@ -18,11 +18,9 @@ extension CommandBarDataSource {
 
                 let repositoryItem = repoRootItem(
                     repo: repository,
-                    store: store,
                     presenceByWorktreeId: presenceByWorktreeID,
                     group: Group.repositoriesAndWorktrees,
-                    groupPriority: Priority.repositoriesAndWorktrees,
-                    dispatcher: dispatcher
+                    groupPriority: Priority.repositoriesAndWorktrees
                 )
                 .projected(
                     group: Group.repositoriesAndWorktrees,

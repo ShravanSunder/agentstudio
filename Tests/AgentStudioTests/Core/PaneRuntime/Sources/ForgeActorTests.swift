@@ -360,6 +360,80 @@ struct ForgeActorTests {
         await fixture.stopObserving()
     }
 
+    @Test("identical snapshot and branch events do not repeat a completed provider request")
+    func identicalSnapshotAndBranchEventsDoNotRepeatCompletedProviderRequest() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/acme-forge-paired-events")
+        let branch = "feature/paired-events"
+        let origin = "git@github.com:acme/studio.git"
+        await fixture.actor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath, branch: nil)
+        await fixture.actor.setOrigin(repo: repoId, remote: origin)
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.callCount == 0)
+        _ = await fixture.bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .snapshotChanged(
+                            snapshot: GitWorkingTreeSnapshot(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                rootPath: rootPath,
+                                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                                branch: branch
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )
+            )
+        )
+        _ = await fixture.bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .branchChanged(
+                            worktreeId: worktreeId,
+                            repoId: repoId,
+                            from: branch,
+                            to: branch
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )
+            )
+        )
+        #expect(await fixture.provider.waitForCallCount(1))
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+        let pullRequestURL = URL(string: "https://github.com/acme/studio/pull/100")!
+        await fixture.provider.resolve(
+            callAt: 0,
+            with: .complete([
+                ForgePullRequest(headRefName: branch, url: pullRequestURL)
+            ])
+        )
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: branch,
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: pullRequestURL)
+            )
+        )
+        #expect(await fixture.provider.origins == [origin])
+        #expect(await fixture.provider.callCount == 1)
+        await fixture.provider.resolveIfPresent(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
     @Test("fresh demand waits for the single three-minute deadline")
     func freshDemandWaitsForDeadline() async {
         let fixture = await ForgeActorFixture.make()
@@ -511,8 +585,7 @@ struct ForgeActorFixture {
     let clock: TestPushClock
     let monotonicNow: ManualForgeMonotonicNow
     let observationTask: Task<Void, Never>
-
-    static func make() async -> Self {
+    static func make(performanceTraceRecorder: (any ForgePerformanceRecording)? = nil) async -> Self {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = GatedForgeStatusProvider()
         let events = ObservedForgeEvents()
@@ -523,7 +596,8 @@ struct ForgeActorFixture {
             statusProvider: provider,
             providerName: "stub",
             monotonicNow: { monotonicNow.value },
-            sleepClock: clock
+            sleepClock: clock,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observationTask = Task {
@@ -565,7 +639,6 @@ struct ForgeActorFixture {
         await observationTask.value
     }
 }
-
 final class ManualForgeMonotonicNow: @unchecked Sendable {
     private let lock = NSLock()
     private var elapsed = Duration.zero
@@ -586,6 +659,7 @@ actor GatedForgeStatusProvider: ForgeStatusProvider {
     private var calls: [PendingCall] = []
 
     var callCount: Int { calls.count }
+    var origins: [String] { calls.map(\.origin) }
 
     func pullRequests(origin: String) async -> ForgePullRequestQueryOutcome {
         await withCheckedContinuation { continuation in
@@ -598,6 +672,11 @@ actor GatedForgeStatusProvider: ForgeStatusProvider {
             Issue.record("No Forge provider call at index \(index); recorded \(calls.count)")
             return
         }
+        calls[index].continuation.resume(returning: outcome)
+    }
+
+    func resolveIfPresent(callAt index: Int, with outcome: ForgePullRequestQueryOutcome) {
+        guard calls.indices.contains(index) else { return }
         calls[index].continuation.resume(returning: outcome)
     }
 

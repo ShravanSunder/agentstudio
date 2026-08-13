@@ -63,8 +63,8 @@ package enum CommandBarAction {
     case dispatchTargeted(AppCommand, target: UUID, targetType: SearchItemType)
     /// Drill into a sub-level (nested navigation)
     case navigate(CommandBarLevel)
-    /// Drill into a repository sub-level.
-    case navigateRepo(CommandBarLevel)
+    /// Resolve and drill into a repository sub-level only when the row is accepted.
+    case navigateRepo(repositoryID: UUID)
     /// Arbitrary action (e.g., open URL, show dialog)
     case custom(@Sendable () -> Void)
     /// Resolve worktree behavior at selection time based on presence and modifier keys.
