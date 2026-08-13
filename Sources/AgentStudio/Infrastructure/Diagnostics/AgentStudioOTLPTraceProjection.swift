@@ -793,6 +793,11 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 
+}
+
+// MARK: - Value Validation
+
+extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(
         key: String,
         value: AgentStudioTraceValue
@@ -820,11 +825,7 @@ package enum AgentStudioOTLPTraceProjection {
             return nil
         }
     }
-}
 
-// MARK: - Value Validation
-
-extension AgentStudioOTLPTraceProjection {
     private static func safeResource(_ resource: [String: String]) -> [String: String] {
         var projected: [String: String] = [:]
         for (key, value) in resource where allowedSafeResourceKeys.contains(key) && isSafeResourceValue(value) {
