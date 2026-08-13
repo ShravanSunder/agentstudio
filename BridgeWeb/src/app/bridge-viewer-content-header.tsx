@@ -25,7 +25,7 @@ export function BridgeViewerContentHeader(props: {
 			data-bridge-viewer-content-topbar="true"
 			data-testid="bridge-viewer-content-topbar"
 		>
-			<div className="flex min-w-0 items-baseline gap-2">
+			<div className="flex min-w-0 items-center gap-2">
 				<span
 					aria-label={viewerModeLabel(props.mode)}
 					className="shrink-0 text-[var(--bridge-text-primary)]"

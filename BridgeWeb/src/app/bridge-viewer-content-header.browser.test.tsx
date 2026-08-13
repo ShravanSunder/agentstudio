@@ -35,6 +35,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		const modeIcon = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-content-mode-icon"]'),
 		);
+		const modeIconBounds = modeIcon.getBoundingClientRect();
 		const topbarBoxWithStatus = topbar.getBoundingClientRect();
 		const titleBoxWithStatus = title.getBoundingClientRect();
 		const controlsBoxWithStatus = controls.getBoundingClientRect();
@@ -49,6 +50,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		expect(modeIcon.getAttribute('title')).toBe('Files');
 		expect(modeIcon.textContent).toBe('');
 		expect(modeIcon.querySelector('svg')).not.toBeNull();
+		expect(verticalCenter(modeIconBounds)).toBe(verticalCenter(titleBoxWithStatus));
 		expect(Math.round(topbarBoxWithStatus.height)).toBe(36);
 		expect(statusBox.right).toBeLessThanOrEqual(controlsBoxWithStatus.left);
 
@@ -206,4 +208,8 @@ function requireHTMLElement(element: Element | null): HTMLElement {
 		throw new Error('Expected HTMLElement');
 	}
 	return element;
+}
+
+function verticalCenter(bounds: DOMRect): number {
+	return Math.round(bounds.top + bounds.height / 2);
 }
