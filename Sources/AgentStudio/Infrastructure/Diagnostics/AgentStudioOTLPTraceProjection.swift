@@ -860,11 +860,9 @@ extension AgentStudioOTLPTraceProjection {
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
     }
-
     private static func isAllowedBooleanKey(_ key: String) -> Bool {
         allowedBooleanAttributeKeys.contains(key)
     }
-
     private static func isIdentifierKey(_ key: String) -> Bool {
         let normalizedKey = key.lowercased()
         return normalizedKey.hasSuffix(".id")
@@ -935,6 +933,8 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome":
+            return ["equal", "changed"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.phase":
             return ["input", "host_hit_test"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.hit_view_class":
