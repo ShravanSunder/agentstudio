@@ -18,7 +18,10 @@ import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/br
 import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
-import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
+import {
+	BridgeReviewComparisonBranchSelector,
+	type BridgeReviewComparisonBranchBasis,
+} from './bridge-review-comparison-branch-selector.js';
 import { BridgeReviewComparisonIcon } from './bridge-review-comparison-icon.js';
 import {
 	bridgeReviewComparisonTargetLabel,
@@ -52,6 +55,8 @@ export function BridgeReviewComparisonControl(
 	const isActive = props.isActive ?? true;
 	const disabled = props.disabled ?? false;
 	const [commitOID, setCommitOID] = useState('');
+	const [comparisonBasis, setComparisonBasis] =
+		useState<BridgeReviewComparisonBranchBasis>('commonCommit');
 	const [open, setOpen] = useState(false);
 	const [selectionMode, setSelectionMode] = useState<'branch' | 'commit'>('branch');
 	const [validationMessage, setValidationMessage] = useState<string | null>(null);
@@ -244,6 +249,8 @@ export function BridgeReviewComparisonControl(
 					{selectionMode === 'branch' ? (
 						<BridgeReviewComparisonBranchSelector
 							activeTarget={activeTarget}
+							comparisonBasis={comparisonBasis}
+							onComparisonBasisChange={setComparisonBasis}
 							onSelectTarget={(target): void => {
 								props.onApplyTarget(target);
 								cancelTargetQueryAndClose();

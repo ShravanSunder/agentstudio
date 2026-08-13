@@ -175,6 +175,15 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		});
 		expect(applyTarget).not.toHaveBeenCalled();
 
+		// Act: changing target kinds must not discard the user's branch basis.
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Commit', exact: true }).click();
+			await rendered.getByRole('button', { name: 'Branch', exact: true }).click();
+		});
+		await expect
+			.element(rendered.getByRole('button', { name: 'Branch Tip', exact: true }))
+			.toHaveAttribute('aria-pressed', 'true');
+
 		// Act: the chosen basis is applied with the selected branch.
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('comparison-branch-origin-main').click();
@@ -455,6 +464,8 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 			<div onKeyDown={parentKeyDown}>
 				<BridgeReviewComparisonBranchSelector
 					activeTarget={null}
+					comparisonBasis="commonCommit"
+					onComparisonBasisChange={vi.fn()}
 					onRetry={vi.fn()}
 					onSelectTarget={vi.fn()}
 					searchInputRef={createRef<HTMLInputElement>()}

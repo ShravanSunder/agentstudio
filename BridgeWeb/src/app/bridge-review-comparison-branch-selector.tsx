@@ -31,17 +31,17 @@ type ReviewComparisonPresentation = NonNullable<
 >;
 type ReviewComparisonTarget = NonNullable<ReviewComparisonPresentation['activeTarget']>;
 type ReviewComparisonBranchTarget = BridgeProductReviewComparisonBranchTarget;
+export type BridgeReviewComparisonBranchBasis = 'branchTip' | 'commonCommit';
 
 export function BridgeReviewComparisonBranchSelector(props: {
 	readonly activeTarget: ReviewComparisonTarget | null;
+	readonly comparisonBasis: BridgeReviewComparisonBranchBasis;
+	readonly onComparisonBasisChange: (basis: BridgeReviewComparisonBranchBasis) => void;
 	readonly onSelectTarget: (target: BridgeWorkerReviewComparisonUpdateCommand['target']) => void;
 	readonly onRetry: () => void;
 	readonly searchInputRef: RefObject<HTMLInputElement | null>;
 	readonly targetQueryState: BridgeReviewComparisonTargetsQueryState;
 }): ReactElement {
-	const [comparisonBasis, setComparisonBasis] = useState<'branchTip' | 'commonCommit'>(
-		'commonCommit',
-	);
 	const [search, setSearch] = useState('');
 	const targetCatalog =
 		props.targetQueryState.status === 'ready' || props.targetQueryState.status === 'empty'
@@ -72,13 +72,13 @@ export function BridgeReviewComparisonBranchSelector(props: {
 					role="group"
 					size="sm"
 					spacing={0}
-					value={[comparisonBasis]}
+					value={[props.comparisonBasis]}
 					variant="outline"
 				>
 					<ToggleGroupItem
 						className="w-full"
 						onPressedChange={(pressed): void => {
-							if (pressed) setComparisonBasis('commonCommit');
+							if (pressed) props.onComparisonBasisChange('commonCommit');
 						}}
 						value="commonCommit"
 					>
@@ -87,7 +87,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 					<ToggleGroupItem
 						className="w-full"
 						onPressedChange={(pressed): void => {
-							if (pressed) setComparisonBasis('branchTip');
+							if (pressed) props.onComparisonBasisChange('branchTip');
 						}}
 						value="branchTip"
 					>
@@ -105,7 +105,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				onInputValueChange={setSearch}
 				onValueChange={(branch): void => {
 					if (branch !== null) {
-						props.onSelectTarget(comparisonTargetForBranch(branch, comparisonBasis));
+						props.onSelectTarget(comparisonTargetForBranch(branch, props.comparisonBasis));
 					}
 				}}
 				open={true}
