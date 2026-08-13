@@ -230,7 +230,7 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
                 self = .pending(candidate, lastCommitted: nil)
                 return true
             case .pending(let pending, let lastCommitted):
-                guard candidate != pending, candidate != lastCommitted else { return false }
+                guard candidate != pending else { return false }
                 self = .pending(candidate, lastCommitted: lastCommitted)
                 return true
             case .committed(let committed):
@@ -497,7 +497,13 @@ final class TerminalLocalActionAccumulator: @unchecked Sendable {
     ) -> TerminalLocalActionBatch? {
         lock.withLock {
             guard var state = statesBySurfaceID[surfaceID] else { return nil }
-            guard case .scheduled = state.phase(for: lane), state.pending(for: lane).hasWork else {
+            guard case .scheduled = state.phase(for: lane) else { return nil }
+            guard state.pending(for: lane).hasWork else {
+                state.setPhase(.idle, for: lane)
+                if lane == .title {
+                    cancelScheduledTitleDrain(surfaceID)
+                }
+                statesBySurfaceID[surfaceID] = state
                 return nil
             }
             state.setPhase(.draining, for: lane)

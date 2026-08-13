@@ -118,6 +118,45 @@ extension TerminalLocalActionAccumulatorTests {
         #expect(recorder.requestCount == 1)
     }
 
+    @Test("a pending title can return to the currently published title")
+    func pendingTitleCanReturnToCurrentlyPublishedTitle() throws {
+        let recorder = PublicationDrainRequestRecorder()
+        let accumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: recorder.record,
+            scheduleFollowUpDrain: recorder.record
+        )
+        let surfaceID = UUIDv7.generate()
+        var publishedTitles: [String] = []
+
+        func publishNextTitle() throws {
+            let batch = try #require(accumulator.beginDrain(for: surfaceID, lane: .title))
+            let projection = try #require(batch.titleMetadata)
+            guard case .titleChanged(let title) = projection.runtimeTitle else {
+                Issue.record("Expected a title projection")
+                return
+            }
+            publishedTitles.append(title)
+            accumulator.acknowledgeSuccessfulTitlePublication(projection, for: surfaceID)
+        }
+
+        #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .scheduled)
+        try publishNextTitle()
+        #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .idle)
+
+        #expect(accumulator.offer(.titleChanged("B"), for: surfaceID) == .scheduled)
+        let pendingB = try #require(accumulator.beginDrain(for: surfaceID, lane: .title))
+        #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .coalesced)
+
+        let pendingBProjection = try #require(pendingB.titleMetadata)
+        publishedTitles.append("B")
+        accumulator.acknowledgeSuccessfulTitlePublication(pendingBProjection, for: surfaceID)
+        #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .followUpScheduled)
+        try publishNextTitle()
+        #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .idle)
+
+        #expect(publishedTitles == ["A", "B", "A"])
+    }
+
     @Test("CWD publication admission retries failure and suppresses only committed equality")
     func cwdPublicationAdmissionRetriesFailureAndSuppressesCommittedEquality() {
         let accumulator = TerminalLocalActionAccumulator { _, _ in }
@@ -131,6 +170,116 @@ extension TerminalLocalActionAccumulatorTests {
         #expect(accumulator.admitCWDPublication("/tmp/other", for: surfaceID) == .scheduled)
         accumulator.removeSurface(surfaceID)
         #expect(accumulator.admitCWDPublication("/tmp/project", for: surfaceID) == .scheduled)
+    }
+}
+
+extension TerminalLocalActionDrainSchedulerTests {
+    @Test("an A/B/A title replacement leaves the lane available for a later title")
+    func titleReplacementLeavesLaneAvailableForLaterTitle() async throws {
+        let executor = PublicationSchedulerExecutor()
+        let clock = PublicationNanosecondClock(initialValue: 7)
+        let publishedTitles = PublishedTitleRecorder()
+        let accumulatorReference = TerminalAccumulatorReference()
+        let scheduler = TerminalLocalActionDrainScheduler(
+            drain: { surfaceID, lane in
+                let accumulator = accumulatorReference.accumulator!
+                guard let batch = accumulator.beginDrain(for: surfaceID, lane: lane),
+                    let projection = batch.titleMetadata
+                else { return }
+                guard case .titleChanged(let title) = projection.runtimeTitle else {
+                    Issue.record("Expected a title projection")
+                    return
+                }
+                await publishedTitles.record(title)
+                accumulator.acknowledgeSuccessfulTitlePublication(projection, for: surfaceID)
+                _ = accumulator.finishDrain(for: surfaceID, lane: lane)
+            },
+            scheduleTitleDeadline: executor.recordTitleDeadline,
+            enqueueMainActorDrain: executor.recordMainActorAdmission
+        )
+        let accumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: scheduler.schedule,
+            scheduleFollowUpDrain: scheduler.scheduleFollowUp,
+            cancelScheduledTitleDrain: scheduler.cancelTitle,
+            nowNanoseconds: clock.now
+        )
+        accumulatorReference.accumulator = accumulator
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .scheduled)
+        try executor.claimTitleDeadline()
+        try await executor.runMainActorAdmission()
+
+        clock.set(17)
+        #expect(accumulator.offer(.titleChanged("B"), for: surfaceID) == .scheduled)
+        #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .coalesced)
+        try executor.claimTitleDeadline()
+        try await executor.runMainActorAdmission()
+
+        clock.set(27)
+        #expect(accumulator.offer(.titleChanged("B2"), for: surfaceID) == .scheduled)
+        try executor.claimTitleDeadline()
+        try await executor.runMainActorAdmission()
+
+        #expect(await publishedTitles.values == ["A", "A", "B2"])
+        #expect(scheduler.pendingDrainClaimCount == 0)
+    }
+}
+
+private actor PublishedTitleRecorder {
+    private(set) var values: [String] = []
+
+    func record(_ title: String) {
+        values.append(title)
+    }
+}
+
+private final class TerminalAccumulatorReference: @unchecked Sendable {
+    var accumulator: TerminalLocalActionAccumulator!
+}
+
+private final class PublicationNanosecondClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64
+
+    init(initialValue: UInt64) {
+        value = initialValue
+    }
+
+    func now() -> UInt64 {
+        lock.withLock { value }
+    }
+
+    func set(_ newValue: UInt64) {
+        lock.withLock { value = newValue }
+    }
+}
+
+private final class PublicationSchedulerExecutor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var titleDeadlines: [DispatchWorkItem] = []
+    private var mainActorAdmissions: [TerminalMainActorDrainOperation] = []
+
+    func recordTitleDeadline(_: UInt64, _ workItem: DispatchWorkItem) {
+        lock.withLock { titleDeadlines.append(workItem) }
+    }
+
+    func recordMainActorAdmission(_ operation: @escaping TerminalMainActorDrainOperation) {
+        lock.withLock { mainActorAdmissions.append(operation) }
+    }
+
+    func claimTitleDeadline() throws {
+        let workItem = try #require(
+            lock.withLock { titleDeadlines.isEmpty ? nil : titleDeadlines.removeFirst() }
+        )
+        workItem.perform()
+    }
+
+    func runMainActorAdmission() async throws {
+        let operation = try #require(
+            lock.withLock { mainActorAdmissions.isEmpty ? nil : mainActorAdmissions.removeFirst() }
+        )
+        await operation()
     }
 }
 
