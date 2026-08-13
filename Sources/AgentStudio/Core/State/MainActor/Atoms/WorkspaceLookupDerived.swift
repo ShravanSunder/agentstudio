@@ -62,7 +62,8 @@ package struct WorkspaceLookupDerived {
     package func paneLocationsByWorktreeId(
         repositoryTopology: RepositoryTopologyAtom,
         workspacePane: WorkspacePaneAtom,
-        workspaceTab: WorkspaceTabLayoutDerived
+        workspaceTab: WorkspaceTabLayoutDerived,
+        declaredWorktreeIDs: Set<UUID>? = nil
     ) -> [UUID: [WorkspacePaneLocation]] {
         let paneGraph = workspacePane.graphAtom
         let tabs = workspaceTab.tabs
@@ -75,7 +76,12 @@ package struct WorkspaceLookupDerived {
                 guard let paneFacts = paneGraph.paneStructuralFacts(paneId), paneFacts.residency == .active else {
                     continue
                 }
-                guard let worktreeId = repositoryTopology.repoAndWorktree(containing: paneFacts.cwd)?.worktree.id else {
+                guard
+                    let worktreeId = repositoryTopology.repoAndWorktree(
+                        containing: paneFacts.cwd,
+                        declaredWorktreeIDs: declaredWorktreeIDs
+                    )?.worktree.id
+                else {
                     continue
                 }
 
@@ -101,7 +107,10 @@ package struct WorkspaceLookupDerived {
                 continue
             }
             guard !seenPaneIds.contains(paneID),
-                let worktreeId = repositoryTopology.repoAndWorktree(containing: paneFacts.cwd)?.worktree.id
+                let worktreeId = repositoryTopology.repoAndWorktree(
+                    containing: paneFacts.cwd,
+                    declaredWorktreeIDs: declaredWorktreeIDs
+                )?.worktree.id
             else {
                 continue
             }
@@ -121,5 +130,17 @@ package struct WorkspaceLookupDerived {
                 return lhs.paneId.uuidString < rhs.paneId.uuidString
             }
         }
+    }
+}
+
+extension RepositoryTopologyAtom {
+    fileprivate func repoAndWorktree(
+        containing cwd: URL?,
+        declaredWorktreeIDs: Set<UUID>?
+    ) -> (repo: Repo, worktree: Worktree)? {
+        guard let declaredWorktreeIDs else {
+            return repoAndWorktree(containing: cwd)
+        }
+        return repoAndWorktree(containing: cwd, among: declaredWorktreeIDs)
     }
 }

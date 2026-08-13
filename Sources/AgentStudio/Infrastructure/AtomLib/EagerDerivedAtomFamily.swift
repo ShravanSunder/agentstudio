@@ -15,6 +15,8 @@ package final class EagerDerivedAtomFamily<
     }
 
     private let requestIdentity: @Sendable (Request) -> RequestIdentity
+    private let telemetryLabel: String?
+    private let recordsRepoExplorerKeyedWake: Bool
     private let isValueEqual: @Sendable (Value, Value) -> Bool
     private let project: @Sendable (Request) throws(CancellationError) -> Value
     private let onProjectionCompletion: @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void
@@ -24,12 +26,16 @@ package final class EagerDerivedAtomFamily<
     private var hasStopped = false
 
     package init(
+        telemetryLabel: String? = nil,
+        recordsRepoExplorerKeyedWake: Bool = false,
         requestIdentity: @escaping @Sendable (Request) -> RequestIdentity,
         isValueEqual: @escaping @Sendable (Value, Value) -> Bool,
         project: @escaping @Sendable (Request) throws(CancellationError) -> Value,
         onProjectionCompletion:
             @escaping @MainActor @Sendable (Key, Atom.ProjectionCompletion) -> Void = { _, _ in }
     ) {
+        self.telemetryLabel = telemetryLabel
+        self.recordsRepoExplorerKeyedWake = recordsRepoExplorerKeyedWake
         self.requestIdentity = requestIdentity
         self.isValueEqual = isValueEqual
         self.project = project
@@ -71,6 +77,18 @@ package final class EagerDerivedAtomFamily<
 
     package func admit(_ request: Request, for key: Key) {
         guard !hasStopped, let atom = materialize(for: key) else { return }
+        if recordsRepoExplorerKeyedWake {
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: "eager_admission",
+                outcome: "admitted"
+            )
+        }
+        if let telemetryLabel {
+            AtomPerformanceTelemetry.shared.recordEagerDerivedFamily(
+                label: telemetryLabel,
+                operation: "admit"
+            )
+        }
         let identity = requestIdentity(request)
         let preservesReadiness =
             slotByKey[key]?.admittedIdentity == identity
@@ -115,6 +133,19 @@ package final class EagerDerivedAtomFamily<
         for key: Key,
         slotID: UInt64
     ) {
+        if recordsRepoExplorerKeyedWake {
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: "projection_worker",
+                outcome: Self.telemetryOutcome(for: completion)
+            )
+        }
+        if let telemetryLabel {
+            AtomPerformanceTelemetry.shared.recordEagerDerivedFamily(
+                label: telemetryLabel,
+                operation: "completion",
+                outcome: Self.telemetryOutcome(for: completion)
+            )
+        }
         defer {
             if let stoppedAtom = stoppedInFlightAtomBySlotID[slotID],
                 !stoppedAtom.hasUnsettledProjectionTasks
@@ -139,6 +170,19 @@ package final class EagerDerivedAtomFamily<
         }
         slot.readyIdentity = completedIdentity
         slotByKey[key] = slot
+    }
+
+    private static func telemetryOutcome(for completion: Atom.ProjectionCompletion) -> String {
+        switch completion {
+        case .published:
+            "published"
+        case .equal:
+            "equal"
+        case .superseded:
+            "superseded"
+        case .cancelled:
+            "cancelled"
+        }
     }
 
     private func stopAndRetainInFlightAtomIfNeeded(_ slot: Slot) {

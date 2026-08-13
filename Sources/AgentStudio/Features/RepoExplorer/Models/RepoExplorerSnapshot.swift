@@ -63,7 +63,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     let sortOrder: RepoExplorerSortOrder
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
-    let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
+    let bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]]
 
     init(
         repos: [RepoPresentationItem],
@@ -80,14 +80,6 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.sortOrder = sortOrder
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
-        var bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution] = [:]
-        for worktree in repos.flatMap(\.worktrees)
-        where bridgeCommandResolutionByWorktreeId[worktree.id] == nil {
-            bridgeCommandResolutionByWorktreeId[worktree.id] = BridgePaneCommandResolver.resolve(
-                worktreeId: worktree.id,
-                candidates: bridgePaneCommandCandidatesByWorktreeId[worktree.id, default: []]
-            )
-        }
-        self.bridgeCommandResolutionByWorktreeId = bridgeCommandResolutionByWorktreeId
+        self.bridgePaneCommandCandidatesByWorktreeId = bridgePaneCommandCandidatesByWorktreeId
     }
 }

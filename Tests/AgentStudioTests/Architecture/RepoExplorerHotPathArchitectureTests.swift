@@ -35,7 +35,7 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         #expect(source.contains("RepoExplorerRowIndex"))
-        #expect(source.contains("RepoExplorerProjectionWorker()"))
+        #expect(source.contains("RepoExplorerProjectionAdapter()"))
         #expect(!source.contains("private var sidebarProjection: SidebarProjection"))
         #expect(!source.contains("private var sidebarRowIndex: RepoExplorerRowIndex"))
         #expect(!source.contains("private func resolvedWorktreeContext("))
@@ -53,6 +53,28 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(!source.contains(".onChange(of: projectionRequestKey)"))
         #expect(source.contains("withObservationTracking"))
         #expect(source.contains("private func observeProjectionInputs("))
+        #expect(source.contains("let inputRevision = withObservationTracking"))
+        #expect(source.contains("projectionInputRevision"))
+        #expect(!source.contains("let request = withObservationTracking"))
+        #expect(
+            source.contains(
+                "let request = projectionRequest\n        let requestBuildDuration"
+            )
+        )
+        let requestCapture = try #require(source.range(of: "let request = projectionRequest"))
+        let captureTelemetry = try #require(
+            source.range(
+                of: "stage: \"capture_rebuild\"",
+                range: requestCapture.upperBound..<source.endIndex
+            )
+        )
+        let requestEquality = try #require(
+            source.range(
+                of: "Self.projectionRequestKey(for: cachedProjectionRequest) == requestKey",
+                range: captureTelemetry.upperBound..<source.endIndex
+            )
+        )
+        #expect(captureTelemetry.lowerBound < requestEquality.lowerBound)
         #expect(
             source.contains(
                 """

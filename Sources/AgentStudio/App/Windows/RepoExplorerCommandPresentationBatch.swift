@@ -46,8 +46,9 @@ final class RepoExplorerCommandPresentationBatch {
         guard self.observationID == observationID else { return }
         let nextGeneration = snapshot.generation &+ 1
         let requests = withObservationTracking {
-            observeApprovedCapabilityFacts()
-            return commandPresentationRequests()
+            let visibleWorktreeIDs = visibleWorktrees.visibleWorktreeIds
+            observeApprovedCapabilityFacts(visibleWorktreeIDs: visibleWorktreeIDs)
+            return commandPresentationRequests(visibleWorktreeIDs: visibleWorktreeIDs)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refresh(observationID: observationID)
@@ -62,6 +63,17 @@ final class RepoExplorerCommandPresentationBatch {
                 previous: snapshot.results,
                 next: nextSnapshot.results
             )
+            if affectedItemCount == 1 {
+                AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                    stage: "command_affected_row",
+                    outcome: "changed"
+                )
+            } else {
+                AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                    stage: "command_whole_surface",
+                    outcome: "changed"
+                )
+            }
             snapshot = nextSnapshot
             performanceTraceRecorder?.record(
                 .repoExplorerCommandPresentation,
@@ -83,38 +95,51 @@ final class RepoExplorerCommandPresentationBatch {
         }
     }
 
-    private func observeApprovedCapabilityFacts() {
-        _ = store.tabLayoutAtom.tabs
+    private func observeApprovedCapabilityFacts(visibleWorktreeIDs: Set<UUID>) {
         _ = store.tabLayoutAtom.activeTabId
-        _ = store.panePresentationAtom.zoomPresentationsByTabId
         _ = atom(\.managementLayer).isActive
-        _ = store.repositoryTopologyAtom.repos
-        for paneID in store.paneAtom.graphAtom.paneIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
-            let structuralFacts = store.paneAtom.graphAtom.paneStructuralFacts(paneID)
-            if structuralFacts?.ownedDrawerID != nil {
-                _ = store.paneAtom.isDrawerExpanded(for: paneID)
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let locationsByWorktreeID = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            repositoryTopology: store.repositoryTopologyAtom,
+            workspacePane: store.paneAtom,
+            workspaceTab: workspaceTab,
+            declaredWorktreeIDs: visibleWorktreeIDs
+        )
+        for locations in locationsByWorktreeID.values {
+            for location in locations {
+                _ = store.tabLayoutAtom.tab(location.tabId)
+                _ = store.panePresentationAtom.zoomPresentation(forTab: location.tabId)
+                let structuralFacts = store.paneAtom.graphAtom.paneStructuralFacts(location.paneId)
+                if structuralFacts?.ownedDrawerID != nil {
+                    _ = store.paneAtom.isDrawerExpanded(for: location.paneId)
+                }
             }
         }
     }
 
-    private func commandPresentationRequests() -> Set<RepoExplorerCommandPresentationRequest> {
+    private func commandPresentationRequests(
+        visibleWorktreeIDs: Set<UUID>
+    ) -> Set<RepoExplorerCommandPresentationRequest> {
         let nextSortOrder = repoExplorerPrefs.sortOrder.toggled
         var requests = RepoExplorerToolbarCommandPresentation.requests(
             nextSortOrder: nextSortOrder
         )
 
-        let visibleWorktreeIDs = visibleWorktrees.visibleWorktreeIds
-        for repo in store.repositoryTopologyAtom.repos {
-            for worktree in repo.worktrees where visibleWorktreeIDs.contains(worktree.id) {
-                requests.formUnion(
-                    RepoExplorerWorktreeCommandPresentation.requests(
-                        worktreeId: worktree.id,
-                        repoId: repo.id,
-                        isFavorite: repo.isFavorite,
-                        showsFavoriteControl: worktree.isMainWorktree
-                    )
+        for worktreeID in visibleWorktreeIDs {
+            guard let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
+                let repo = store.repositoryTopologyAtom.repo(worktree.repoId)
+            else { continue }
+            requests.formUnion(
+                RepoExplorerWorktreeCommandPresentation.requests(
+                    worktreeId: worktree.id,
+                    repoId: repo.id,
+                    isFavorite: repo.isFavorite,
+                    showsFavoriteControl: worktree.isMainWorktree
                 )
-            }
+            )
         }
         return requests
     }

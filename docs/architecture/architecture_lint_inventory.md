@@ -49,18 +49,22 @@ under R19 is a review-visible severity change recorded in this inventory.
 | Numeric timing and performance-threshold constants live in `AppPolicies`. | `agentstudio_performance_constants_in_app_policies` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
 | `nonisolated async` declarations that make syntactically blocking file reads use `@concurrent`. | `agentstudio_nonisolated_async_blocking_io_requires_concurrent` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
 
-The four performance guards are intentionally lexical and report-only in slice
-1. They recognize only the call, declaration, and literal shapes named above;
-they do not infer collection bounds, types, executor hops, or I/O behavior.
+The four performance guards are intentionally lexical and report-only. They
+recognize only the call, declaration, and literal shapes named above; they do
+not infer collection bounds, types, executor hops, or I/O behavior.
 Exceptions belong in the centralized `ArchitectureAllowlists`, with paired
 Good/Bad fixtures. R19 promotion changes the rule severity from `report` to a
 blocking channel and updates this inventory in the same reviewed change.
 
 Slice 3 checked `agentstudio_performance_constants_in_app_policies`, but its
 current production/test scan still reports pre-existing findings outside the
-slice-3 trigger owners, so R19 forbids promotion. The keyed-observation,
-MainActor collection-work, and nonisolated blocking-I/O rules likewise remain
-report-only because slice 3 did not own or clean those lexical surfaces.
+slice-3 trigger owners, so R19 forbids its promotion. Slice 4's production scan
+found no keyed-observation diagnostics, but the full lint surface found one
+pre-existing diagnostic outside slice-4 ownership at
+`Tests/AgentStudioTests/Features/CommandBar/CommandBarResultSessionTests.swift:264`.
+The keyed-observation rule therefore also remains report-only. MainActor
+collection-work and nonisolated blocking-I/O remain report-only because neither
+slice owned and cleaned those lexical surfaces.
 
 The Terminal publication guard is deliberately lexical. In AgentStudio's
 Terminal source, it recognizes switches whose subject is

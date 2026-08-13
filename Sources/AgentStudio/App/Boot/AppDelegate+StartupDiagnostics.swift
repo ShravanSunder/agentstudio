@@ -9,19 +9,50 @@ import Foundation
     @MainActor
     struct SidebarPerformanceProofFixture {
         let paneId: UUID
+        let arrangementPaneId: UUID
         let tabId: UUID
+        let arrangementId: UUID
+        let repositoryId: UUID
+        let worktreeId: UUID
 
         static func prepare(
             store: WorkspaceStore,
+            repositoryRoot: URL,
             openTerminal: () -> Pane?
         ) -> Self? {
+            let fixtureRepository = store.mutationCoordinator.addRepo(at: repositoryRoot)
             guard
+                let fixtureWorktree = fixtureRepository.worktrees.first,
                 let pane = openTerminal(),
                 pane.metadata.contentType == .terminal,
-                let tabId = store.tabLayoutAtom.tabID(containingPane: pane.id)
+                let tabId = store.tabLayoutAtom.tabID(containingPane: pane.id),
+                let arrangementId = store.tabLayoutAtom.tab(tabId)?.activeArrangementId
+            else { return nil }
+            let arrangementPane = store.paneAtom.createPane(
+                title: "Arrangement Fixture",
+                provider: .zmx,
+                lifetime: .temporary,
+                zmxSessionID: .generateUUIDv7()
+            )
+            guard
+                store.tabLayoutAtom.insertPane(
+                    arrangementPane.id,
+                    inTab: tabId,
+                    at: pane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
             else { return nil }
             store.tabLayoutAtom.renameTab(tabId, name: "Tab")
-            return Self(paneId: pane.id, tabId: tabId)
+            return Self(
+                paneId: pane.id,
+                arrangementPaneId: arrangementPane.id,
+                tabId: tabId,
+                arrangementId: arrangementId,
+                repositoryId: fixtureRepository.id,
+                worktreeId: fixtureWorktree.id
+            )
         }
     }
 #endif
@@ -87,6 +118,10 @@ extension AppDelegate {
                     await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
                 case .sidebarPerformanceProof:
                     await self.runSidebarPerformanceProofDiagnostic(action: action)
+                case .repoExplorerKeyMutationProof:
+                    await self.runRepoExplorerKeyMutationProofDiagnostic(action: action)
+                case .repoExplorerInteractionProof:
+                    await self.runRepoExplorerInteractionProofDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
@@ -335,7 +370,7 @@ extension AppDelegate {
         private func runSidebarPerformanceProofDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
-            guard let fixture = await prepareSidebarPerformanceProofFixture(action: action) else {
+            guard await prepareSidebarPerformanceProofFixture(action: action) != nil else {
                 return
             }
 
@@ -421,6 +456,7 @@ extension AppDelegate {
             guard
                 let fixture = SidebarPerformanceProofFixture.prepare(
                     store: store,
+                    repositoryRoot: FileManager.default.homeDirectoryForCurrentUser,
                     openTerminal: {
                         workspaceSurfaceCoordinator.openFloatingTerminal(
                             launchDirectory: FileManager.default.homeDirectoryForCurrentUser,

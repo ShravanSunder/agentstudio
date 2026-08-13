@@ -76,7 +76,7 @@ struct RepoExplorerViewInjectionTests {
     private func makeRepoExplorerView(
         store: WorkspaceStore = WorkspaceStore(startsObserving: false),
         repoExplorerPrefs: RepoExplorerSidebarPrefsAtom,
-        bridgeAttendanceSnapshot: @escaping @MainActor () -> [UUID: UInt64] = { [:] },
+        bridgeAttendanceSnapshot: @escaping BridgeAttendanceSnapshot = { _ in nil },
         onSetSortOrder: @escaping (RepoExplorerSortOrder) -> Void = { _ in }
     ) -> RepoExplorerView {
         RepoExplorerView(

@@ -467,6 +467,43 @@ struct AtomFamilyObservationTests {
         #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":1"))
     }
 
+    @Test("Repo Explorer keyed wakes use performance telemetry without enabling the atom firehose")
+    func repoExplorerKeyedWakesUsePerformanceTelemetryWithoutAtomTelemetry() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("repo-explorer-keyed-wake-telemetry-\(UUID().uuidString)", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "repo-explorer-keyed-wake-telemetry",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 920,
+            timeUnixNano: { 780 }
+        )
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
+        defer {
+            AtomPerformanceTelemetry.shared.resetForTests()
+            try? FileManager.default.removeItem(at: traceDirectory)
+        }
+
+        AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(
+            keyClass: "rendered_repo_favorite",
+            rowRelation: "affected_row"
+        )
+        AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+            stage: "capture_rebuild",
+            outcome: "relevant_key"
+        )
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = (try? String(contentsOf: outputFileURL, encoding: .utf8)) ?? ""
+        #expect(contents.contains("\"body\":\"performance.repo_explorer.keyed_wake\""))
+        #expect(contents.contains("\"agentstudio.trace.tag\":\"performance\""))
+        #expect(!contents.contains("\"body\":\"performance.atom."))
+    }
+
     @Test
     func atomFamiliesEmitControlledLabelsWithoutKeysOrValues() async throws {
         let traceDirectory = FileManager.default.temporaryDirectory

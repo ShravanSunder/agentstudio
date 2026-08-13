@@ -153,6 +153,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case paneViewRestore = "performance.pane_view.restore"
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
         case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
+        case repoExplorerKeyedWake = "performance.repo_explorer.keyed_wake"
         case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"

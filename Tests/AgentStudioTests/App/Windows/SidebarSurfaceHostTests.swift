@@ -8,6 +8,11 @@ import Testing
 @MainActor
 @Suite("SidebarSurfaceHost", .serialized)
 struct SidebarSurfaceHostTests {
+    @Test("surface switches publish mounted cached content before delta admission")
+    func surfaceSwitchUsesCachedPublication() {
+        #expect(SidebarSurfaceHost.surfaceSwitchPublicationMode == .cachedThenDelta)
+    }
+
     @Test("surface switch timing completes only for the pending surface and sequence")
     func surfaceSwitchTimingMatchesPendingProjection() {
         let clock = ContinuousClock()

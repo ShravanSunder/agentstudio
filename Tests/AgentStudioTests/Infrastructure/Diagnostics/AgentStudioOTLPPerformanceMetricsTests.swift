@@ -6,6 +6,32 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
+    @Test("Repo Explorer keyed-wake contract becomes bounded metric dimensions")
+    func repoExplorerKeyedWakeBecomesBoundedMetricDimensions() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.repo_explorer.keyed_wake",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repo_explorer.stage": .string("affected_row"),
+                "agentstudio.performance.repo_explorer.key_class": .string("relevant"),
+                "agentstudio.performance.repo_explorer.outcome": .string("changed"),
+                "agentstudio.performance.repo_explorer.facet": .string("zoom"),
+                "agentstudio.performance.repo_explorer.row_relation": .string("owning"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.map(\.name) == ["event", "stage", "key_class", "outcome", "facet", "row_relation"])
+    }
+
     @Test("interaction kind becomes a metric dimension")
     func interactionKindBecomesMetricDimension() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
@@ -362,6 +388,37 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                     dimensions: expectedDimensions,
                     value: 2
                 ),
+            ])
+    }
+
+    @Test
+    func eagerDerivedFamilyRecordProjectsControlledLaneDimensions() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 457,
+            severityText: .info,
+            body: "performance.atom.derived",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.atom.kind": .string("eager_derived_family"),
+                "agentstudio.performance.atom.label": .string("repo_explorer_projection"),
+                "agentstudio.performance.atom.operation": .string("completion"),
+                "agentstudio.performance.atom.outcome": .string("published"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions == [
+                AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.atom.derived"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "atom_kind", value: "eager_derived_family"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "atom_label", value: "repo_explorer_projection"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "atom_operation", value: "completion"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: "published"),
             ])
     }
 

@@ -44,6 +44,15 @@ package final class InboxNotificationAtom {
     )
     @ObservationIgnored private let attentionProjectionRevision = AtomRevision()
     @ObservationIgnored private var attentionLaneSnapshotByPaneId: [UUID: InboxNotificationClaimLane] = [:]
+    @ObservationIgnored private let unreadCountByWorktreeId = AtomFamily<UUID, Int>(
+        telemetryLabel: "inbox_notification_worktree_unread_count",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let rollUpAlertCountByWorktreeId = AtomFamily<UUID, Int>(
+        telemetryLabel: "inbox_notification_worktree_rollup_count",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private var worktreeFacetIds: Set<UUID> = []
 
     package init() {}
 
@@ -52,7 +61,7 @@ package final class InboxNotificationAtom {
     }
 
     package func unreadCount(forWorktreeId worktreeId: UUID) -> Int {
-        unreadCount { $0.worktreeId == worktreeId }
+        unreadCountByWorktreeId.value(for: worktreeId) ?? 0
     }
 
     func unreadCount(forTabId tabId: UUID) -> Int {
@@ -73,7 +82,7 @@ package final class InboxNotificationAtom {
     }
 
     package func rollUpAlertCount(forWorktreeId worktreeId: UUID) -> Int {
-        rollUpAlertCount { $0.worktreeId == worktreeId }
+        rollUpAlertCountByWorktreeId.value(for: worktreeId) ?? 0
     }
 
     package func rollUpAlertCount(forTabId tabId: UUID) -> Int {
@@ -383,6 +392,35 @@ package final class InboxNotificationAtom {
         let nextAttentionFactSnapshot = InboxAttentionFactSnapshot(notifications: notifications)
         attentionFactSnapshot = nextAttentionFactSnapshot
         recalculateAttentionLaneProjection(snapshot: nextAttentionFactSnapshot)
+        recalculateWorktreeRowFacets()
+    }
+
+    private func recalculateWorktreeRowFacets() {
+        let groupedNotifications = Dictionary(
+            grouping: notifications.compactMap { notification in
+                notification.worktreeId.map { ($0, notification) }
+            }, by: \.0)
+        let nextWorktreeIds = Set(groupedNotifications.keys)
+        let mutation = AtomMutationContext(aggregateRevision: attentionProjectionRevision)
+        for removedWorktreeId in worktreeFacetIds.subtracting(nextWorktreeIds) {
+            unreadCountByWorktreeId.removeValue(for: removedWorktreeId, mutation: mutation)
+            rollUpAlertCountByWorktreeId.removeValue(for: removedWorktreeId, mutation: mutation)
+        }
+        for (worktreeId, entries) in groupedNotifications {
+            let worktreeNotifications = entries.map(\.1)
+            unreadCountByWorktreeId.setValue(
+                worktreeNotifications.count(where: { !$0.isRead }),
+                for: worktreeId,
+                mutation: mutation
+            )
+            rollUpAlertCountByWorktreeId.setValue(
+                worktreeNotifications.count(where: \.contributesToRollUpAlert),
+                for: worktreeId,
+                mutation: mutation
+            )
+        }
+        worktreeFacetIds = nextWorktreeIds
+        mutation.commit()
     }
 
     private func recalculateAttentionLaneProjection(snapshot: InboxAttentionFactSnapshot) {

@@ -212,6 +212,36 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
     }
 
+    @Test("Repo Explorer mutation diagnostic opens the sidebar idempotently")
+    func repoExplorerMutationDiagnosticOpensSidebarIdempotently() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let diagnosticURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+RepoExplorerKeyMutationStartupDiagnostics.swift")
+        let diagnosticSource = try String(contentsOf: diagnosticURL, encoding: .utf8)
+
+        #expect(
+            diagnosticSource.contains(
+                "atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)"))
+        #expect(diagnosticSource.contains("mainWindowController?.expandSidebar()"))
+        #expect(!diagnosticSource.contains("AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)"))
+        #expect(
+            diagnosticSource.contains(
+                "await waitForRepoExplorerProjectionReadiness(fixture: fixture)"))
+        let readinessIndex = try #require(
+            diagnosticSource.range(
+                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+            )?.lowerBound)
+        let mutationIndex = try #require(
+            diagnosticSource.range(of: "self.runRenderedRepoFavoriteMutations()")?.lowerBound)
+        #expect(readinessIndex < mutationIndex)
+        #expect(
+            !diagnosticSource.contains(
+                "atomStore.core.sidebarVisibleWorktreesRuntime.visibleWorktreeIds"))
+        #expect(diagnosticSource.contains("repositoryTopologyAtom.repositoryIdsInOrder"))
+        #expect(diagnosticSource.contains("repositoryTopologyAtom.worktreeIdsInOrder"))
+        #expect(diagnosticSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
+    }
+
     private func assertCommandBarRepoFilterEmitsTerminalCompletion(
         _ startupDiagnosticsSource: String
     ) throws {

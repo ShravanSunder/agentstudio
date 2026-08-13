@@ -1,5 +1,7 @@
 import Foundation
 
+// This exhaustive allowlist is intentionally centralized so every OTLP field
+// is audited through one projection boundary.
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
@@ -48,9 +50,7 @@ package enum AgentStudioOTLPTraceProjection {
         "service.name",
         "service.version",
     ]
-
     private static let allowedSafeResourceKeys: Set<String> = allowedResourceKeys
-
     private static let allowedStringAttributeKeys: Set<String> = Set([
         "agent.proof.marker",
         "agent.proof.launch",
@@ -129,6 +129,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.repo_explorer.facet",
+        "agentstudio.performance.repo_explorer.key_class",
+        "agentstudio.performance.repo_explorer.outcome",
+        "agentstudio.performance.repo_explorer.row_relation",
+        "agentstudio.performance.repo_explorer.stage",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome",
         "agentstudio.inbox.claim.lane",
         "agentstudio.inbox.claim.semantic",
@@ -141,6 +146,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.atom.kind",
         "agentstudio.performance.atom.label",
         "agentstudio.performance.atom.operation",
+        "agentstudio.performance.atom.outcome",
         "agentstudio.performance.git.backoff.reason",
         "agentstudio.performance.git.status_scope",
         "agentstudio.performance.git.status_unavailable.reason",
@@ -174,6 +180,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.runtime.event",
         "agentstudio.sqlite.database",
         "agentstudio.startup_diagnostic.action",
+        "agentstudio.startup_diagnostic.repo_explorer_key_mutation.phase",
         "agentstudio.startup_diagnostic.bridge.file_view.expected_bootstrap.protocol",
         "agentstudio.startup_diagnostic.bridge.file_view.bootstrap.protocol",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_frame_kind",
@@ -248,14 +255,12 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.source",
     ]).union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
-
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.tree_path_count_bucket",
         "agentstudio.bridge.worker.payload_class",
         "agentstudio.performance.tabbar.context_menu.hit_view_class",
         "agentstudio.performance.tabbar.context_menu.phase",
     ]
-
     private static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.sqlite.result_code",
         "agentstudio.bridge.batch.sample_count",
@@ -658,6 +663,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.fixture.repo.count",
         "agentstudio.startup_diagnostic.fixture.sidebar_surface.count",
         "agentstudio.startup_diagnostic.fixture.worktree.count",
+        "agentstudio.startup_diagnostic.repo_explorer_key_mutation.count",
         "agentstudio.terminal.startup.failure.creation_retry.count",
         "agentstudio.tcc.probe.sequence",
         "agentstudio.tcc.tccdb.path_row.count",
@@ -672,7 +678,6 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.threshold_rows",
     ]).union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
-
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
         "agentstudio.bridge.cache_hit",
@@ -782,7 +787,6 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_pinned_to_bottom",
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
-
     private static func projectedResource(_ safeResource: [String: String]) -> [String: String] {
         safeResource.filter { key, _ in
             allowedResourceKeys.contains(key)
@@ -804,7 +808,6 @@ package enum AgentStudioOTLPTraceProjection {
         }
         return projected
     }
-
 }
 
 // MARK: - Value Validation
@@ -817,7 +820,6 @@ extension AgentStudioOTLPTraceProjection {
         guard !isIdentifierKey(key), !isErrorKey(key) else {
             return nil
         }
-
         switch value {
         case .string(let stringValue):
             guard
@@ -856,7 +858,6 @@ extension AgentStudioOTLPTraceProjection {
         "dev.branch.name",
         "service.version",
     ]
-
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
     }
@@ -881,7 +882,6 @@ extension AgentStudioOTLPTraceProjection {
             || normalizedKey.contains("output")
             || normalizedKey.contains("text")
     }
-
     private static func safeBody(_ body: String) -> String {
         isSafeEventName(body) ? body : "agentstudio.trace.record"
     }

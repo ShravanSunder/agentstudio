@@ -38,9 +38,9 @@ private final class BridgeAttendanceSnapshotReadRecorder {
         self.ordinalByPaneId = ordinalByPaneId
     }
 
-    func readSnapshot() -> [UUID: UInt64] {
+    func readOrdinal(for paneId: UUID) -> UInt64? {
         readCount += 1
-        return ordinalByPaneId
+        return ordinalByPaneId[paneId]
     }
 }
 
@@ -283,7 +283,7 @@ struct RepoExplorerViewProjectionHelperTests {
             store: WorkspaceStore(startsObserving: false),
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            bridgeAttendanceSnapshot: { [:] },
+            bridgeAttendanceSnapshot: { _ in nil },
             commandDispatcher: dispatcher,
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
@@ -300,7 +300,7 @@ struct RepoExplorerViewProjectionHelperTests {
     }
 
     @Test("Bridge attendance snapshot is read once and deterministically populates pane candidates")
-    func bridgeAttendanceSnapshotIsReadOncePerProjection() throws {
+    func bridgeAttendanceReadsOnlyDeclaredPaneKeys() throws {
         // Arrange
         let store = WorkspaceStore(startsObserving: false)
         let firstPane = store.createPane()
@@ -317,7 +317,7 @@ struct RepoExplorerViewProjectionHelperTests {
             store: store,
             octiconLoader: makeRepoExplorerTestOcticonLoader(),
             repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            bridgeAttendanceSnapshot: snapshotRecorder.readSnapshot,
+            bridgeAttendanceSnapshot: snapshotRecorder.readOrdinal,
             commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
             onSetSortOrder: { _ in },
             onRefocusActivePane: {},
@@ -351,7 +351,7 @@ struct RepoExplorerViewProjectionHelperTests {
 
         // Assert
         let candidates = try #require(candidatesByWorktreeId[worktreeId])
-        #expect(snapshotRecorder.readCount == 1)
+        #expect(snapshotRecorder.readCount == 2)
         #expect(candidates.map(\.paneId) == [firstPane.id, secondPane.id])
         #expect(candidates.map(\.attendanceOrdinal) == [7, 19])
     }
@@ -376,7 +376,7 @@ struct RepoExplorerViewProjectionHelperTests {
                 store: store,
                 octiconLoader: makeRepoExplorerTestOcticonLoader(),
                 repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-                bridgeAttendanceSnapshot: { [:] },
+                bridgeAttendanceSnapshot: { _ in nil },
                 commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
                 onSetSortOrder: { _ in },
                 onRefocusActivePane: {},
@@ -402,6 +402,59 @@ struct RepoExplorerViewProjectionHelperTests {
             #expect(invalidationRecorder.invalidationCount == 0)
 
             store.paneAtom.setResidency(.backgrounded, for: pane.id)
+
+            #expect(invalidationRecorder.invalidationCount == 1)
+        }
+    }
+
+    @Test("sidebar projection capture ignores unrelated topology metadata and observes rendered metadata")
+    func sidebarProjectionCaptureIgnoresUnrelatedTopologyMetadataMutation() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let renderedRepo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-rendered"))
+            let renderedWorktree = try #require(renderedRepo.worktrees.first)
+            let unrelatedRepo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-unrelated"))
+            let pane = store.createPane(
+                launchDirectory: renderedWorktree.path,
+                facets: PaneContextFacets(cwd: renderedWorktree.path)
+            )
+            store.appendTab(Tab(paneId: pane.id))
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                bridgeAttendanceSnapshot: { _ in nil },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let renderedRepos = [RepoPresentationItem(repo: renderedRepo)]
+            let invalidationRecorder = RepoProjectionInvalidationRecorder()
+
+            withObservationTracking {
+                _ = view.makeSidebarSnapshot(
+                    repos: renderedRepos,
+                    repoEnrichmentByRepoId: [:],
+                    groupingMode: .repo,
+                    sortOrder: .ascending,
+                    query: ""
+                )
+            } onChange: {
+                invalidationRecorder.record()
+            }
+
+            store.mutationCoordinator.setRepoFavorite(unrelatedRepo.id, isFavorite: true)
+
+            #expect(invalidationRecorder.invalidationCount == 0)
+
+            store.mutationCoordinator.setRepoFavorite(renderedRepo.id, isFavorite: true)
 
             #expect(invalidationRecorder.invalidationCount == 1)
         }

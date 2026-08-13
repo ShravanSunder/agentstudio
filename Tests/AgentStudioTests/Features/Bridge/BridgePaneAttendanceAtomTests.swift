@@ -1,12 +1,47 @@
 import AgentStudioCore
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioBridge
 
+private final class BridgeAttendanceInvalidationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCount = 0
+
+    var invalidationCount: Int { lock.withLock { storedCount } }
+
+    func record() {
+        lock.withLock { storedCount += 1 }
+    }
+}
+
 @MainActor
 @Suite("Bridge pane attendance atom")
 struct BridgePaneAttendanceAtomTests {
+    @Test("observing one pane ignores another pane and wakes for the declared pane")
+    func keyedPaneObservationIsIsolated() async {
+        let attendance = BridgePaneAttendanceAtom()
+        let declaredPaneId = UUID()
+        let unrelatedPaneId = UUID()
+        let invalidationCounter = BridgeAttendanceInvalidationCounter()
+
+        withObservationTracking {
+            _ = attendance.ordinal(for: declaredPaneId)
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        _ = attendance.record(.paneFocus, for: unrelatedPaneId)
+        await Task.yield()
+        #expect(invalidationCounter.invalidationCount == 0)
+
+        _ = attendance.record(.paneFocus, for: declaredPaneId)
+        await Task.yield()
+        #expect(invalidationCounter.invalidationCount == 1)
+        #expect(attendance.ordinal(for: declaredPaneId) != nil)
+    }
+
     @Test("every successful attendance record advances the workspace-wide ordinal")
     func successfulAttendanceRecordsAreStrictlyIncreasing() {
         // Arrange

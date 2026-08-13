@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioCore
+
 @MainActor
 @Suite("ForgeActor")
 struct ForgeActorTests {

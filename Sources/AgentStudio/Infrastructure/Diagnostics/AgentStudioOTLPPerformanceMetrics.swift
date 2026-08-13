@@ -284,6 +284,8 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         }
         appendTerminalAccumulatorApplyOutcomeDimension(record: record, dimensions: &dimensions)
         appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
+        appendAtomDimensions(record: record, dimensions: &dimensions)
+        appendRepoExplorerKeyedWakeDimensions(record: record, dimensions: &dimensions)
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimensions(record: record, dimensions: &dimensions)
         }
@@ -320,6 +322,58 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         return dimensions
+    }
+
+    private static func appendRepoExplorerKeyedWakeDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.repo_explorer.keyed_wake" else { return }
+        for (name, attributeKey) in [
+            ("stage", "agentstudio.performance.repo_explorer.stage"),
+            ("key_class", "agentstudio.performance.repo_explorer.key_class"),
+            ("outcome", "agentstudio.performance.repo_explorer.outcome"),
+            ("facet", "agentstudio.performance.repo_explorer.facet"),
+            ("row_relation", "agentstudio.performance.repo_explorer.row_relation"),
+        ] {
+            appendSafeStringDimension(
+                name: name,
+                attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+    }
+
+    private static func appendAtomDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.atom.derived",
+            record.attributes["agentstudio.performance.atom.kind"] == .string("eager_derived_family")
+        else { return }
+        appendSafeStringDimension(
+            name: "atom_kind",
+            attributeKey: "agentstudio.performance.atom.kind",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendSafeStringDimension(
+            name: "atom_label",
+            attributeKey: "agentstudio.performance.atom.label",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendSafeStringDimension(
+            name: "atom_operation",
+            attributeKey: "agentstudio.performance.atom.operation",
+            record: record,
+            dimensions: &dimensions
+        )
+        guard case .string(let outcome) = record.attributes["agentstudio.performance.atom.outcome"],
+            ["published", "equal", "superseded", "cancelled"].contains(outcome)
+        else { return }
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome))
     }
 
     private static func appendTerminalAccumulatorApplyOutcomeDimension(

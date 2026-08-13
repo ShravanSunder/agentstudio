@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import AgentStudio
@@ -7,13 +8,66 @@ import Testing
 @testable import AgentStudioTestSupport
 
 struct AgentStudioStartupDiagnosticActionTests {
+    @Test("repo explorer key mutation fixture waits for launch restore before topology readiness")
+    func repoExplorerKeyMutationFixtureWaitsForLaunchRestoreBeforeTopologyReadiness() throws {
+        let source = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/App/Boot/AppDelegate+RepoExplorerKeyMutationStartupDiagnostics.swift",
+            encoding: .utf8
+        )
+
+        let restoreBounds = try #require(source.range(of: "startupDiagnosticLaunchRestoreBounds()"))
+        let finishRestore = try #require(
+            source.range(of: "finishLaunchRestore(", range: restoreBounds.upperBound..<source.endIndex))
+        let prepareFixture = try #require(
+            source.range(
+                of: "SidebarPerformanceProofFixture.prepare(", range: finishRestore.upperBound..<source.endIndex)
+        )
+        let waitForMembership = try #require(
+            source.range(
+                of: "settleRepoExplorerProjection(fixture: fixture, action: action)",
+                range: prepareFixture.upperBound..<source.endIndex)
+        )
+
+        #expect(restoreBounds.lowerBound < finishRestore.lowerBound)
+        #expect(finishRestore.lowerBound < prepareFixture.lowerBound)
+        #expect(prepareFixture.lowerBound < waitForMembership.lowerBound)
+    }
+
+    @Test("repo explorer key mutation diagnostic settles fixture and each observed mutation")
+    func repoExplorerKeyMutationDiagnosticSettlesFixtureAndEachObservedMutation() throws {
+        let source = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/App/Boot/AppDelegate+RepoExplorerKeyMutationStartupDiagnostics.swift",
+            encoding: .utf8
+        )
+
+        let fixtureSettlementCall = try #require(
+            source.range(
+                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+            )
+        )
+        let firstPhase = try #require(
+            source.range(
+                of: "phase: \"rendered_repo_favorite\"",
+                range: fixtureSettlementCall.upperBound..<source.endIndex
+            )
+        )
+
+        #expect(fixtureSettlementCall.lowerBound < firstPhase.lowerBound)
+        #expect(source.contains("waitForRepoExplorerKeyedWakeStage(\"mainactor_apply\""))
+        #expect(source.components(separatedBy: "\"capture_rebuild\"").count >= 7)
+        #expect(source.components(separatedBy: "\"membership_path\"").count >= 5)
+    }
+
     @MainActor
-    @Test("sidebar performance fixture creates a terminal and resets its owning tab title")
-    func sidebarPerformanceFixtureCreatesTerminalWithPlaceholderTabTitle() throws {
+    @Test("sidebar performance fixture installs canonical repository membership and resets its owning tab title")
+    func sidebarPerformanceFixtureInstallsCanonicalRepositoryMembershipAndPlaceholderTabTitle() throws {
         try withTestCoreAtoms { _ in
             let store = WorkspaceStore()
+            let repositoryRoot = URL(fileURLWithPath: "/tmp/sidebar-performance-fixture")
 
-            let fixture = SidebarPerformanceProofFixture.prepare(store: store) {
+            let fixture = SidebarPerformanceProofFixture.prepare(store: store, repositoryRoot: repositoryRoot) {
                 let pane = store.createPane(title: "Runtime title")
                 store.appendTab(Tab(paneId: pane.id, name: "Runtime title"))
                 return pane
@@ -21,7 +75,18 @@ struct AgentStudioStartupDiagnosticActionTests {
 
             let preparedFixture = try #require(fixture)
             #expect(store.pane(preparedFixture.paneId)?.metadata.contentType == .terminal)
+            #expect(store.pane(preparedFixture.arrangementPaneId)?.metadata.contentType == .terminal)
+            #expect(
+                store.tabLayoutAtom.tab(preparedFixture.tabId)?.activePaneIds
+                    == [preparedFixture.paneId, preparedFixture.arrangementPaneId]
+            )
             #expect(store.tabLayoutAtom.tab(preparedFixture.tabId)?.name == "Tab")
+            #expect(
+                store.tabLayoutAtom.tab(preparedFixture.tabId)?.activeArrangementId
+                    == preparedFixture.arrangementId
+            )
+            #expect(store.repositoryTopologyAtom.repositoryIdsInOrder.contains(preparedFixture.repositoryId))
+            #expect(store.repositoryTopologyAtom.worktreeIdsInOrder.contains(preparedFixture.worktreeId))
         }
     }
 
@@ -31,7 +96,10 @@ struct AgentStudioStartupDiagnosticActionTests {
         withTestCoreAtoms { _ in
             let store = WorkspaceStore()
 
-            let fixture = SidebarPerformanceProofFixture.prepare(store: store) { nil }
+            let fixture = SidebarPerformanceProofFixture.prepare(
+                store: store,
+                repositoryRoot: URL(fileURLWithPath: "/tmp/sidebar-performance-fixture")
+            ) { nil }
 
             #expect(fixture == nil)
             #expect(store.tabLayoutAtom.tabs.isEmpty)

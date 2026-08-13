@@ -6,6 +6,10 @@ import Foundation
 import Observation
 import SwiftUI
 
+// The view remains one cohesive SwiftUI surface; its projection lifecycle and
+// render helpers share private state that is not a reusable module boundary.
+// swiftlint:disable file_length type_body_length
+
 enum RepoExplorerOutlineApplyOutcome: String, Equatable, Sendable {
     case equal
     case changed
@@ -17,7 +21,7 @@ struct RepoExplorerOutlineApplyMeasurement: Equatable, Sendable {
     let outcome: RepoExplorerOutlineApplyOutcome
 }
 package typealias BridgeAttendanceSnapshot =
-    @MainActor () -> [UUID: UInt64]
+    @MainActor (UUID) -> UInt64?
 
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
@@ -102,19 +106,18 @@ package struct RepoExplorerView: View {
     @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
-
     @State private var debounceTask: Task<Void, Never>?
-    @State private var projectionWorker = RepoExplorerProjectionWorker()
-    @State private var projectionTask: Task<Void, Never>?
+    @State private var projectionAdapter = RepoExplorerProjectionAdapter()
     @State private var projectionGeneration = 0
     @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
     @State private var projectionObservationID: UUID?
-
     private static let filterDebounceMilliseconds = 25
 
     private var sidebarRepos: [RepoPresentationItem] {
-        store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:))
+        store.repositoryTopologyAtom.repositoryIdsInOrder.compactMap { repositoryID in
+            store.repositoryTopologyAtom.repo(repositoryID).map(RepoPresentationItem.init(repo:))
+        }
     }
 
     private var sidebarSnapshot: RepoExplorerSnapshot {
@@ -163,6 +166,49 @@ package struct RepoExplorerView: View {
         )
     }
 
+    /// Reads only the keyed observation slots that can change the projection.
+    /// The comparatively expensive immutable request is assembled after an
+    /// observed slot has admitted a rebuild.
+    private var projectionInputRevision: Int {
+        let repositoryIDs = store.repositoryTopologyAtom.repositoryIdsInOrder
+        var observedSlotCount = repositoryIDs.count
+        for repositoryID in repositoryIDs {
+            guard let repository = store.repositoryTopologyAtom.repo(repositoryID) else { continue }
+            for worktree in repository.worktrees {
+                let enrichment = repoCache.worktreeEnrichment(for: worktree.id)
+                if let enrichment,
+                    let branchKey = RepoBranchKey(repoId: enrichment.repoId, branch: enrichment.branch)
+                {
+                    _ = repoCache.pullRequestFacts(for: branchKey)
+                }
+                observedSlotCount += 1
+            }
+        }
+
+        _ = repoExplorerPrefs.groupingMode
+        _ = repoExplorerPrefs.sortOrder
+        _ = sidebarCache.collapsedGroups
+
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let paneGraph = store.paneAtom.graphAtom
+        for tab in workspaceTab.tabs {
+            _ = store.tabLayoutAtom.tab(tab.id)
+            for paneID in tab.allPaneIds {
+                _ = paneGraph.paneStructuralFacts(paneID)
+                _ = bridgeAttendanceSnapshot(paneID)
+                observedSlotCount += 1
+            }
+        }
+        for paneID in paneGraph.paneIDs {
+            _ = paneGraph.paneStructuralFacts(paneID)
+            observedSlotCount += 1
+        }
+        return observedSlotCount
+    }
+
     private var sidebarWorktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] {
         Self.worktreeEnrichmentSnapshot(
             for: sidebarRepos.flatMap(\.worktrees).map(\.id),
@@ -197,8 +243,7 @@ package struct RepoExplorerView: View {
         }
         .onDisappear {
             debounceTask?.cancel()
-            projectionTask?.cancel()
-            projectionTask = nil
+            projectionAdapter.stop()
             projectionObservationID = nil
             updateSidebarVisibleWorktrees([])
             RepoExplorerFocusPublisher.publish(
@@ -255,6 +300,10 @@ package struct RepoExplorerView: View {
                 request: request,
                 requestBuildDuration: requestBuildStart.duration(to: clock.now)
             )
+        }
+        .onChange(of: projectionAdapter.publishedResult) { _, result in
+            guard let result else { return }
+            applyProjectionResult(result)
         }
         .onChange(of: focusedField) { _, newValue in
             RepoExplorerFocusPublisher.publish(
@@ -430,7 +479,8 @@ package struct RepoExplorerView: View {
                                 resolvedWorktreeContext.worktree.id
                             ] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
-                            bridgeCommandResolution: cachedProjectionResult.snapshot
+                            bridgeCommandResolution:
+                                cachedProjectionResult
                                 .bridgeCommandResolutionByWorktreeId[
                                     resolvedWorktreeContext.worktree.id
                                 ] ?? .create,
@@ -665,10 +715,8 @@ package struct RepoExplorerView: View {
     ) {
         guard projectionObservationID == observationID else { return }
 
-        let clock = ContinuousClock()
-        let requestBuildStart = clock.now
-        let request = withObservationTracking {
-            projectionRequest
+        let inputRevision = withObservationTracking {
+            projectionInputRevision
         } onChange: {
             Task { @MainActor in
                 await Task.yield()
@@ -676,7 +724,17 @@ package struct RepoExplorerView: View {
                 observeProjectionInputs(observationID: observationID)
             }
         }
+        _ = inputRevision
+        let clock = ContinuousClock()
+        let requestBuildStart = clock.now
+        let request = projectionRequest
         let requestBuildDuration = requestBuildStart.duration(to: clock.now)
+        if !force {
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: "capture_rebuild",
+                outcome: "admitted"
+            )
+        }
         refreshProjection(
             request: request,
             requestBuildDuration: requestBuildDuration,
@@ -698,7 +756,48 @@ package struct RepoExplorerView: View {
             return
         }
 
-        if projectionTask != nil, let cancelledRequest = cachedProjectionRequest {
+        if !force, let previousRequest = cachedProjectionRequest,
+            let scopedChange = request.scopedChange(from: previousRequest)
+        {
+            projectionGeneration += 1
+            let generatedRequest = RepoExplorerProjectionRequest(
+                generation: projectionGeneration,
+                snapshot: request.snapshot,
+                collapsedGroupIds: request.collapsedGroupIds,
+                isFiltering: request.isFiltering,
+                trigger: .dataRefresh,
+                worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
+                pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
+            )
+            if let scopedResult = RepoExplorerProjectionWorker.applyScopedChange(
+                scopedChange,
+                request: generatedRequest,
+                previous: cachedProjectionResult
+            ) {
+                AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                    stage: "affected_row",
+                    outcome: "changed"
+                )
+                cachedProjectionRequest = generatedRequest
+                applyProjectionResult(scopedResult)
+                return
+            }
+        }
+
+        if !force {
+            let captureScope =
+                cachedProjectionRequest.map {
+                    request.hasMembershipChange(from: $0) ? "membership_path" : "whole_surface"
+                } ?? "whole_surface"
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: captureScope,
+                outcome: "admitted"
+            )
+        }
+
+        if projectionAdapter.materializedProjection?.hasUnsettledProjectionTasks == true,
+            let cancelledRequest = cachedProjectionRequest
+        {
             performanceTraceRecorder?.record(
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
@@ -739,33 +838,12 @@ package struct RepoExplorerView: View {
             )
         )
         cachedProjectionRequest = generatedRequest
-        projectionTask?.cancel()
-        let worker = projectionWorker
-        projectionTask = Task { @MainActor in
-            guard !Task.isCancelled else { return }
-            do {
-                let result = try await worker.project(generatedRequest)
-                guard !Task.isCancelled else { return }
-                applyProjectionResult(result)
-            } catch is CancellationError {
-                clearProjectionTaskIfCurrent(generation: generatedRequest.generation)
-            } catch {
-                failProjectionIfCurrent(generation: generatedRequest.generation)
-            }
-        }
+        projectionAdapter.admit(generatedRequest)
     }
 
-    private func clearProjectionTaskIfCurrent(generation: Int) {
-        guard generation == projectionGeneration else { return }
-        projectionTask = nil
-    }
-
-    private func failProjectionIfCurrent(generation: Int) {
-        guard generation == projectionGeneration else { return }
-        cachedProjectionRequest = nil
-        projectionTask = nil
-    }
-
+    // Projection validation, telemetry, and the single state publication form
+    // one ordered commit path; splitting them would obscure that ordering.
+    // swiftlint:disable:next function_body_length
     private func applyProjectionResult(_ result: RepoExplorerProjectionResult) {
         guard
             result.generation == projectionGeneration,
@@ -773,6 +851,10 @@ package struct RepoExplorerView: View {
             result.collapsedGroupIds == cachedProjectionRequest?.collapsedGroupIds,
             result.isFiltering == cachedProjectionRequest?.isFiltering
         else {
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: "mainactor_apply",
+                outcome: "superseded"
+            )
             performanceTraceRecorder?.record(
                 .sidebarProjection,
                 attributes: sidebarProjectionTraceAttributes(
@@ -788,6 +870,18 @@ package struct RepoExplorerView: View {
                 )
             )
             return
+        }
+
+        AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+            stage: "mainactor_apply",
+            outcome: "published"
+        )
+        if AtomPerformanceTelemetry.shared.isRepoExplorerKeyedWakeContextActive {
+            let referenceProjection = RepoExplorerProjection.project(result.snapshot)
+            AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+                stage: "final_projection",
+                outcome: referenceProjection == result.projection ? "reference_equal" : "reference_different"
+            )
         }
 
         performanceTraceRecorder?.recordDuration(
@@ -836,7 +930,6 @@ package struct RepoExplorerView: View {
             nextRowIDs: nextRowIDs,
             apply: { cachedProjectionResult = result }
         )
-        projectionTask = nil
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
             duration: outlineApplyMeasurement.duration,

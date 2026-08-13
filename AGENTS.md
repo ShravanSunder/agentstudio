@@ -480,7 +480,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
 | `WorkspaceWindowMemoryAtom` | window-keyed sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |
 | `RepositoryTopologyAtom` | application-global repos, worktrees, watched paths, availability, and stable-key indexes; `WorkspaceStore` references this shared owner but does not make the entities workspace-owned | `Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift` |
-| `WorkspacePaneGraphAtom` | core pane graph: pane identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer identity, drawer membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
+| `WorkspacePaneGraphAtom` | core pane graph with paired keyed canonical `PaneGraphState` and `PaneStructuralFacts` families, one accepted commit revision, pane identity/content/residency/metadata, and drawer identity/membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
 | `WorkspaceDrawerCursorAtom` | local drawer expansion cursor keyed by drawer id | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` |
 | `WorkspacePaneAtom` | compatibility mutation facade over pane graph + drawer cursor | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspacePaneDerived` | UI read model composing rich `Pane` values from pane graph, drawer cursor, topology, and cache facts | `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` |
@@ -826,7 +826,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceIdentityAtom` | `Core/State/MainActor/Atoms/` | Workspace id, name, and creation timestamp |
 | `WorkspaceWindowMemoryAtom` | `Core/State/MainActor/Atoms/` | Window-keyed sidebar width and window frame memory |
 | `RepositoryTopologyAtom` | `Core/State/MainActor/Atoms/` | Application-global repos, worktrees, watched paths, availability, and stable-key indexes |
-| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Core pane graph: identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer membership |
+| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Paired keyed canonical pane state and structural facts with one accepted commit revision; identity, content, residency, durable metadata, and drawer membership |
 | `WorkspaceDrawerCursorAtom` | `Core/State/MainActor/Atoms/` | Local drawer expansion cursor |
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Compatibility mutation facade over pane graph + drawer cursor |
 | `WorkspacePaneDerived` | `Core/State/MainActor/Atoms/` | Rich pane read model composed from graph, cursor, topology, and cache facts |

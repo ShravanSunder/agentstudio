@@ -111,8 +111,8 @@ struct RepoExplorerCommandPresentationBatchTests {
         )
     }
 
-    @Test("capability generation follows structural owners while title-only mutation stays quiet")
-    func capabilityGenerationTracksStructuralChangesButNotTitles() async throws {
+    @Test("capability recompute preserves presentation for structural facts outside the visible worktree set")
+    func capabilityRecomputePreservesPresentationForUnrelatedStructuralFacts() async throws {
         try await withIsolatedCommandDispatcher(
             configure: {
                 AppCommandDispatcher.shared.handler = nil
@@ -171,64 +171,63 @@ struct RepoExplorerCommandPresentationBatchTests {
                         sourcePaneId: pane.id,
                         viewerPresentation: .unavailable
                     )
-                    await eventually("zoom capability generation") {
-                        batch.snapshot.generation > managementGeneration
-                    }
-                    let zoomGeneration = batch.snapshot.generation
+                    for _ in 0..<20 { await Task.yield() }
+                    #expect(batch.snapshot.generation == managementGeneration)
 
                     let secondPane = store.createPane()
                     store.appendTab(Tab(paneId: secondPane.id))
-                    await eventually("tab capability generation") {
-                        batch.snapshot.generation > zoomGeneration
+                    await eventually("active tab capability generation") {
+                        batch.snapshot.generation > managementGeneration
                     }
-                    let tabGeneration = batch.snapshot.generation
+                    let activeTabGeneration = batch.snapshot.generation
+                    let presentationBeforeUnrelatedRepo = batch.snapshot.results
 
                     _ = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
                             path: "repo-command-batch-\(UUIDv7.generate().uuidString)"
                         )
                     )
-                    await eventually("topology capability generation") {
-                        batch.snapshot.generation > tabGeneration
+                    // A path-index rebuild is uncertain for any pane CWD, so recomputation is
+                    // required even when equality suppresses a visible presentation change.
+                    await eventually("path index capability recompute") {
+                        batch.snapshot.generation > activeTabGeneration
                     }
+                    #expect(batch.snapshot.results == presentationBeforeUnrelatedRepo)
                 }
             }
         )
     }
 
-    @Test("drawer expansion and collapse advance capability generation")
-    func drawerVisibilityAdvancesCapabilityGeneration() async {
-        installTestAtomRegistryIfNeeded()
+    @Test("drawer changes outside the visible worktree set stay quiet")
+    func unrelatedDrawerVisibilityStaysQuiet() async {
+        await withAsyncTestCoreAtoms { _ in
+            let store = WorkspaceStore()
+            let pane = store.createPane()
+            store.appendTab(Tab(paneId: pane.id))
+            let batch = RepoExplorerCommandPresentationBatch(
+                store: store,
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
+                dispatcher: .shared
+            )
+            batch.start()
+            defer { batch.stop() }
 
-        let store = WorkspaceStore()
-        let pane = store.createPane()
-        store.appendTab(Tab(paneId: pane.id))
-        let batch = RepoExplorerCommandPresentationBatch(
-            store: store,
-            repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
-            visibleWorktrees: SidebarVisibleWorktreesRuntimeAtom(),
-            dispatcher: .shared
-        )
-        batch.start()
-        defer { batch.stop() }
+            await eventually("initial drawer capability generation") {
+                batch.snapshot.generation > 0
+            }
+            let collapsedGeneration = batch.snapshot.generation
+            #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
 
-        await eventually("initial drawer capability generation") {
-            batch.snapshot.generation > 0
+            store.toggleDrawer(for: pane.id)
+            for _ in 0..<20 { await Task.yield() }
+            #expect(batch.snapshot.generation == collapsedGeneration)
+            #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == true)
+
+            store.toggleDrawer(for: pane.id)
+            for _ in 0..<20 { await Task.yield() }
+            #expect(batch.snapshot.generation == collapsedGeneration)
+            #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
         }
-        let collapsedGeneration = batch.snapshot.generation
-        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
-
-        store.toggleDrawer(for: pane.id)
-        await eventually("drawer expansion capability generation") {
-            batch.snapshot.generation > collapsedGeneration
-        }
-        let expandedGeneration = batch.snapshot.generation
-        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == true)
-
-        store.toggleDrawer(for: pane.id)
-        await eventually("drawer collapse capability generation") {
-            batch.snapshot.generation > expandedGeneration
-        }
-        #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
     }
 }
