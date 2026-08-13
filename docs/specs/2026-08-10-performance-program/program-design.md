@@ -303,10 +303,11 @@ telemetry.
 
 ### Current wake path
 
-The merged eager foundation has one generic materialization owner:
-`EagerDerivedAtom` cancels predecessors, projects in `Task.detached`, and
-accepts completion only when generation, request identity, and revocation
-epoch still match
+The merged eager foundation has one generic materialization owner. It uses the
+documented narrow `Task.detached` exception for cancellation-resistant
+projection work: `admit` cancels the retained task, `stop` revokes it, and the
+actor-isolated completion path accepts results only when generation, request
+identity, and revocation epoch still match
 (`origin/main:Sources/AgentStudio/Infrastructure/AtomLib/EagerDerivedAtom.swift:54-108,148-183`).
 `EagerDerivedAtomFamily` owns per-key readiness and lifecycle
 (`origin/main:Sources/AgentStudio/Infrastructure/AtomLib/EagerDerivedAtomFamily.swift:43-150`).

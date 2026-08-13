@@ -19,7 +19,7 @@ struct MainActorUnboundedCollectionWorkRule: ArchitectureRule {
 
 private final class MainActorCollectionWorkVisitor: SyntaxVisitor {
     private(set) var positions: [AbsolutePosition] = []
-    private var mainActorTypeDepth = 0
+    private var mainActorScopeDepth = 0
 
     override init(viewMode: SyntaxTreeViewMode = .sourceAccurate) {
         super.init(viewMode: viewMode)
@@ -27,32 +27,58 @@ private final class MainActorCollectionWorkVisitor: SyntaxVisitor {
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
         if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
-            mainActorTypeDepth += 1
+            mainActorScopeDepth += 1
         }
         return .visitChildren
     }
 
     override func visitPost(_ node: StructDeclSyntax) {
         if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
-            mainActorTypeDepth -= 1
+            mainActorScopeDepth -= 1
         }
     }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
-            mainActorTypeDepth += 1
+            mainActorScopeDepth += 1
         }
         return .visitChildren
     }
 
     override func visitPost(_ node: ClassDeclSyntax) {
         if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
-            mainActorTypeDepth -= 1
+            mainActorScopeDepth -= 1
+        }
+    }
+
+    override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
+            mainActorScopeDepth += 1
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: ExtensionDeclSyntax) {
+        if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
+            mainActorScopeDepth -= 1
+        }
+    }
+
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
+        if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
+            mainActorScopeDepth += 1
+        }
+        return .visitChildren
+    }
+
+    override func visitPost(_ node: FunctionDeclSyntax) {
+        if node.attributes.contains(where: { $0.trimmedDescription == "@MainActor" }) {
+            mainActorScopeDepth -= 1
         }
     }
 
     override func visitPost(_ node: FunctionCallExprSyntax) {
-        guard mainActorTypeDepth > 0,
+        guard mainActorScopeDepth > 0,
             let member = node.calledExpression.as(MemberAccessExprSyntax.self),
             ArchitectureAllowlists.unboundedCollectionCallNames.contains(member.declName.baseName.text)
         else { return }
