@@ -18,7 +18,11 @@ import {
 	type BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
-import { createBridgeWorkerComparisonTargetsQueryRunner } from './bridge-comm-worker-review-comparison-target-query.js';
+import {
+	bridgeWorkerComparisonTargetsContentOpen,
+	createBridgeWorkerComparisonTargetsQueryRunner,
+	settleBridgeWorkerComparisonTargetsControlRequest,
+} from './bridge-comm-worker-review-comparison-target-query.js';
 import { createBridgeCommWorkerReviewDemandScheduling } from './bridge-comm-worker-review-demand-scheduling.js';
 import {
 	admitBridgeCommWorkerReviewDisplayPatches,
@@ -52,9 +56,7 @@ import {
 	recordBridgeCommWorkerTaskTelemetry,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
-import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
 import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
 import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	createWorkerContentPreparationPump,
@@ -135,15 +137,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		(productTransport === undefined
 			? undefined
 			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
-	const openComparisonTargetsContent:
-		| ((
-				descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
-				abortSignal: AbortSignal,
-		  ) => BridgeProductContentStream<'review.comparisonTargets'>)
-		| undefined =
-		productTransport === undefined
-			? undefined
-			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal);
+	const openComparisonTargetsContent = bridgeWorkerComparisonTargetsContentOpen(productTransport);
 	const productControlTimeoutMilliseconds = props.productControlTimeoutMilliseconds ?? 5000;
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
@@ -158,6 +152,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}),
 		isCurrentWorkAdmission: (generation): boolean =>
 			panePresentationAuthority.isCurrentWorkAdmission(generation),
+		onSettled: (requestId): void => {
+			activeComparisonTargetsProductControlRequestId =
+				settleBridgeWorkerComparisonTargetsControlRequest(
+					activeComparisonTargetsProductControlRequestId,
+					requestId,
+				);
+		},
 		openContent: openComparisonTargetsContent,
 		publish: (event): void => port.postMessage(event),
 	});

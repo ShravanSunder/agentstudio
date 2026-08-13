@@ -82,6 +82,10 @@ if ! rg -q 'COMPARISON_INTENT_PROCESS_B_EXACT_PAYLOAD_SHAPE=true' "$process_b_lo
   echo "comparison-intent restart: process B did not prove the exact persisted payload shape" >&2
   exit 1
 fi
+if ! rg -q 'COMPARISON_INTENT_PROCESS_B_RESTORED_BASIS=branchTip' "$process_b_log"; then
+  echo "comparison-intent restart: process B did not restore the branch-tip comparison basis" >&2
+  exit 1
+fi
 
 echo "comparison-intent restart receipt"
 echo "  isolated root: $restart_root"
@@ -94,6 +98,6 @@ echo "  process A flush: persisted"
 echo "  process B invocation PID: $process_b_invocation_pid"
 echo "  process B Swift test PID: $process_b_test_pid"
 echo "  process B exit: normal ($process_b_exit_code)"
-echo "  process B restore: exact pane UUID and symbolic contribution target"
-echo "  persisted payload: exact target-only shape"
+echo "  process B restore: exact pane UUID, symbolic branch target, and branch-tip basis"
+echo "  persisted payload: exact target-only shape with basis"
 echo "  calculated target/HEAD/base/snapshot origin persisted: false"

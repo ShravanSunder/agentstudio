@@ -11,8 +11,12 @@ import {
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { BridgeProductBoundedAsyncQueue } from './bridge-product-async-queue.js';
+import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
 import type { BridgeProductSubscriptionEvent } from './bridge-product-subscription-contracts.js';
-import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
+import type {
+	BridgeProductContentStream,
+	BridgeProductSubscription,
+} from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
 	BridgeProductTransportSession,
@@ -23,6 +27,62 @@ import type {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker updating panel chrome', () => {
+	test('preserves a settled comparison-target query when native foreground is lost', async () => {
+		// Arrange — retaining the completed request id makes foreground loss publish a false failure.
+		const fileEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(16);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(16);
+		const presentation = createPanePresentationTestTransport({
+			fileEvents,
+			reviewEvents,
+			supportsComparisonTargetContent: true,
+		});
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
+			productTransport: presentation.productTransport,
+			sendProductControl: async (command): Promise<unknown> =>
+				command.method === 'review.comparisonTargets.query'
+					? { descriptor: comparisonTargetsDescriptor() }
+					: null,
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+		presentation.publish({
+			nativeActivity: 'foreground',
+			presentationRevision: 1,
+			refreshingLanes: [],
+		});
+		dispatch.message(
+			encodeBridgeWorkerReviewComparisonTargetsQueryCommand({
+				epoch: 1,
+				requestId: 'comparison-targets-settled-before-foreground-loss',
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Act
+		presentation.publish({
+			nativeActivity: 'loadedHidden',
+			presentationRevision: 2,
+			refreshingLanes: [],
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		// Assert
+		const queryEvents = postedMessages
+			.map(({ message }) => message)
+			.filter(
+				(message) =>
+					message.kind === 'reviewComparisonTargetsQuery' &&
+					message.requestId === 'comparison-targets-settled-before-foreground-loss',
+			);
+		expect(queryEvents).toEqual([expect.objectContaining({ status: 'empty' })]);
+	});
+
 	test('settles the current comparison-target query when native foreground is lost', async () => {
 		// Arrange
 		const fileEvents = new BridgeProductBoundedAsyncQueue<
@@ -329,6 +389,7 @@ function createPanePresentationTestTransport(props: {
 	readonly reviewEvents: BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'review.metadata'>
 	>;
+	readonly supportsComparisonTargetContent?: boolean;
 }): {
 	readonly productTransport: BridgeProductTransportSession;
 	readonly fileSubscriptionCount: () => number;
@@ -375,8 +436,14 @@ function createPanePresentationTestTransport(props: {
 			if (method === 'review.publication.applied') return null as never;
 			throw new Error(`Unexpected updating-chrome product call ${method}.`);
 		},
-		openContent: (): never => {
-			throw new Error('Updating chrome test must not open content.');
+		openContent: (descriptor): never => {
+			if (
+				props.supportsComparisonTargetContent === true &&
+				descriptor.contentKind === 'review.comparisonTargets'
+			) {
+				return comparisonTargetsContentStream(descriptor) as never;
+			}
+			throw new Error(`Unexpected updating-chrome content open ${descriptor.contentKind}.`);
 		},
 		setPanePresentationFrameSink: (sink): void => {
 			panePresentationSink = sink;
@@ -412,6 +479,48 @@ function createPanePresentationTestTransport(props: {
 		},
 	};
 }
+
+function comparisonTargetsDescriptor(): BridgeProductReviewComparisonTargetsContentDescriptor {
+	return {
+		capturedAtUnixMilliseconds: 1_700_000_000_000,
+		contentKind: 'review.comparisonTargets',
+		cutoffUnixMilliseconds: 1_697_408_000_000,
+		declaredByteLength: 190,
+		descriptorId: 'comparison-targets-updating-chrome',
+		encoding: 'utf-8',
+		expectedSha256: 'a'.repeat(64),
+		maximumBytes: 190,
+	};
+}
+
+function comparisonTargetsContentStream(
+	descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
+): BridgeProductContentStream<'review.comparisonTargets'> {
+	return {
+		contentKind: 'review.comparisonTargets',
+		contentRequestId: 'comparison-targets-updating-chrome-content',
+		frames: emptyComparisonTargetFrames(),
+		terminal: Promise.resolve({
+			bytes: new TextEncoder().encode(
+				JSON.stringify({
+					branches: [],
+					capturedAtUnixMilliseconds: descriptor.capturedAtUnixMilliseconds,
+					cutoffUnixMilliseconds: descriptor.cutoffUnixMilliseconds,
+					currentTarget: null,
+					defaultTarget: null,
+					isTruncated: false,
+				}),
+			).buffer,
+			contentKind: 'review.comparisonTargets',
+			descriptorId: descriptor.descriptorId,
+			endOfSource: true,
+			kind: 'complete',
+			observedSha256: descriptor.expectedSha256,
+		}),
+	};
+}
+
+async function* emptyComparisonTargetFrames(): AsyncIterable<never> {}
 
 function activeViewerModeUpdateCommand(mode: 'file' | 'review', sequence: number): unknown {
 	return encodeBridgeWorkerActiveViewerModeUpdateCommand({

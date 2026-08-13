@@ -181,7 +181,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
         displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity
     ) {
         guard let reviewComparison,
-            reviewComparison.attempt == .pending(reviewGeneration: reviewGeneration)
+            case .pending(let pendingGeneration) = reviewComparison.attempt,
+            pendingGeneration <= reviewGeneration
         else { return }
         self.reviewComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: reviewComparison.activeTarget,
@@ -198,7 +199,7 @@ final class BridgePaneRefreshAdmissionCoordinator {
     ) {
         guard let reviewComparison else { return }
         if case .pending(let pendingGeneration) = reviewComparison.attempt {
-            guard pendingGeneration == reviewGeneration else { return }
+            guard pendingGeneration <= reviewGeneration else { return }
             settleReviewComparisonAttempt(
                 reviewGeneration: reviewGeneration,
                 displayedSnapshotIdentity: displayedSnapshotIdentity

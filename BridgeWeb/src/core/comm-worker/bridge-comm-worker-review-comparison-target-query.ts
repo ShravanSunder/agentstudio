@@ -2,6 +2,7 @@ import { bridgeProductReviewComparisonTargetsQueryResultSchema } from './bridge-
 import type { BridgeProductReviewComparisonTargetsContentDescriptor } from './bridge-product-content-contracts.js';
 import { bridgeProductReviewComparisonTargetCatalogSchema } from './bridge-product-review-comparison-contracts.js';
 import type { BridgeProductContentStream } from './bridge-product-transport-contract.js';
+import type { BridgeProductTransportSession } from './bridge-product-transport.js';
 import {
 	bridgeWorkerReviewComparisonTargetsQueryEventSchema,
 	type BridgeWorkerReviewComparisonTargetsQueryEvent,
@@ -20,12 +21,28 @@ export interface BridgeWorkerComparisonTargetsQueryRunner {
 	readonly run: (requestId: string, result: unknown) => Promise<void>;
 }
 
+export function settleBridgeWorkerComparisonTargetsControlRequest(
+	activeRequestId: string | null,
+	settledRequestId: string,
+): string | null {
+	return activeRequestId === settledRequestId ? null : activeRequestId;
+}
+
+export function bridgeWorkerComparisonTargetsContentOpen(
+	productTransport: BridgeProductTransportSession | undefined,
+): ComparisonTargetsContentOpen | undefined {
+	return productTransport === undefined
+		? undefined
+		: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal);
+}
+
 export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 	readonly getWorkAdmission: () => {
 		readonly generation: number;
 		readonly signal: AbortSignal;
 	};
 	readonly isCurrentWorkAdmission: (generation: number) => boolean;
+	readonly onSettled?: (requestId: string) => void;
 	readonly openContent: ComparisonTargetsContentOpen | undefined;
 	readonly publish: (event: BridgeWorkerReviewComparisonTargetsQueryEvent) => void;
 }): BridgeWorkerComparisonTargetsQueryRunner {
@@ -117,6 +134,7 @@ export function createBridgeWorkerComparisonTargetsQueryRunner(props: {
 			} finally {
 				workAdmission.signal.removeEventListener('abort', abortForWorkLoss);
 				if (active?.requestId === requestId) active = null;
+				props.onSettled?.(requestId);
 			}
 		},
 	};
