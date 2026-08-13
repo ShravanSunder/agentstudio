@@ -52,6 +52,47 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
+    func outlineApplyProxyProjectionKeepsOutcomeAndRowCountForMetrics() throws {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 125,
+            severityText: .info,
+            body: "performance.repo_explorer.outline_apply_proxy",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(3),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string("changed"),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count": .int(42),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: projection))
+
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome"
+            ] == .string("changed")
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count"
+            ] == .int(42)
+        )
+        #expect(metricEvent.dimensionTuples.contains { $0 == ("outcome", "changed") })
+        #expect(
+            metricEvent.samples.contains {
+                $0.label == "agentstudio_performance_repo_explorer_outline_apply_proxy_row_count"
+                    && $0.value == 42
+            }
+        )
+    }
+
+    @Test
     func startupProjectionKeepsControlledFieldsAndDropsProcessIdentity() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 100,

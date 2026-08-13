@@ -66,6 +66,7 @@ package final class CommandBarPanelController {
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
+    private let animatePanelDismissal: Bool
     private let resultSession: CommandBarResultSession
     private var activationGenerationGate = CommandBarActivationGenerationGate()
     private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
@@ -103,7 +104,8 @@ package final class CommandBarPanelController {
         notificationInboxCommands: InboxNotificationCommands? = nil,
         commandBarSurface: CommandBarSurfaceAtom,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
+        animatePanelDismissal: Bool = true
     ) {
         self.store = store
         self.octiconLoader = octiconLoader
@@ -119,6 +121,7 @@ package final class CommandBarPanelController {
             ?? performanceTraceRecorder.map {
                 AgentStudioInteractionPerformanceProbe(recorder: $0)
             }
+        self.animatePanelDismissal = animatePanelDismissal
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
@@ -207,6 +210,9 @@ package final class CommandBarPanelController {
     private func dismiss(measureNonExecutingClose: Bool) {
         guard state.isVisible else { return }
 
+        if let acknowledgement = pendingOpenAcknowledgement {
+            interactionProbe?.cancelInteraction(correlationId: acknowledgement.correlationId)
+        }
         pendingOpenAcknowledgement = nil
         let closeCorrelationId: UUID? =
             if measureNonExecutingClose {
@@ -221,9 +227,9 @@ package final class CommandBarPanelController {
         activationGenerationGate.invalidate()
         state.dismiss()
         commandBarSurface.dismiss(workspaceWindowId: workspaceWindowId)
-        dismissPanel()
-        if let closeCorrelationId {
-            interactionProbe?.settleInteraction(correlationId: closeCorrelationId)
+        dismissPanel { [weak self] in
+            guard let self, let closeCorrelationId else { return }
+            self.interactionProbe?.settleInteraction(correlationId: closeCorrelationId)
         }
         workspaceWindowId = nil
     }
@@ -706,26 +712,38 @@ package final class CommandBarPanelController {
         }
     }
 
-    private func dismissPanel() {
-        guard let panel else { return }
+    private func dismissPanel(completion: @escaping @MainActor () -> Void) {
+        guard let panel else {
+            completion()
+            return
+        }
 
         // Animate out — capture panel locally to avoid actor-isolation issues in completion
         let panelToRemove = panel
         self.panel = nil
 
-        NSAnimationContext.runAnimationGroup(
-            { context in
-                context.duration = 0.08
-                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panelToRemove.animator().alphaValue = 0
-            },
-            completionHandler: {
-                Task { @MainActor in
-                    panelToRemove.parent?.removeChildWindow(panelToRemove)
-                    panelToRemove.orderOut(nil)
-                    controllerLogger.debug("Command bar panel dismissed")
-                }
-            })
+        let finishDismissal: @MainActor () -> Void = {
+            panelToRemove.parent?.removeChildWindow(panelToRemove)
+            panelToRemove.orderOut(nil)
+            controllerLogger.debug("Command bar panel dismissed")
+            completion()
+        }
+
+        if !animatePanelDismissal || !panelToRemove.isVisible || parentWindow?.isVisible != true {
+            finishDismissal()
+        } else {
+            NSAnimationContext.runAnimationGroup(
+                { context in
+                    context.duration = 0.08
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    panelToRemove.animator().alphaValue = 0
+                },
+                completionHandler: {
+                    Task { @MainActor in
+                        finishDismissal()
+                    }
+                })
+        }
 
         // Remove backdrop
         hideBackdrop()
