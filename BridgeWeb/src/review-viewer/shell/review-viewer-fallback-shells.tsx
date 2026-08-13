@@ -213,7 +213,7 @@ function BridgeReviewFallbackFrame(props: {
 					>
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
-							eyebrow="Review"
+							mode="review"
 							statusText={null}
 							title={props.title}
 						/>

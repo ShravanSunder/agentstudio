@@ -15,7 +15,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		const rendered = await render(
 			<BridgeViewerContentHeader
 				controls={<button data-testid="header-proof-control">Control</button>}
-				eyebrow="Files"
+				mode="file"
 				statusText="Updating files…"
 				title="src/app.ts"
 			/>,
@@ -32,6 +32,9 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		const status = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-content-status"]'),
 		);
+		const modeIcon = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-mode-icon"]'),
+		);
 		const topbarBoxWithStatus = topbar.getBoundingClientRect();
 		const titleBoxWithStatus = title.getBoundingClientRect();
 		const controlsBoxWithStatus = controls.getBoundingClientRect();
@@ -42,6 +45,10 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		expect(status.getAttribute('role')).toBe('status');
 		expect(status.getAttribute('aria-live')).toBe('polite');
 		expect(status.getAttribute('aria-atomic')).toBe('true');
+		expect(modeIcon.getAttribute('aria-label')).toBe('Files');
+		expect(modeIcon.getAttribute('title')).toBe('Files');
+		expect(modeIcon.textContent).toBe('');
+		expect(modeIcon.querySelector('svg')).not.toBeNull();
 		expect(Math.round(topbarBoxWithStatus.height)).toBe(36);
 		expect(statusBox.right).toBeLessThanOrEqual(controlsBoxWithStatus.left);
 
@@ -49,7 +56,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		await rendered.rerender(
 			<BridgeViewerContentHeader
 				controls={<button data-testid="header-proof-control">Control</button>}
-				eyebrow="Files"
+				mode="file"
 				statusText={null}
 				title="src/app.ts"
 			/>,
@@ -77,7 +84,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		await render(
 			<BridgeViewerContentHeader
 				controls={<BridgeViewerContextSwitcher mode="file" onModeChange={modeChanges} />}
-				eyebrow="Files"
+				mode="file"
 				statusText={null}
 				title="src/app.ts"
 			/>,

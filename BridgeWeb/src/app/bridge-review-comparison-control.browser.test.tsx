@@ -44,7 +44,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		const content = rendered.getByTestId('bridge-review-comparison-content');
 		await expect.element(content).toBeVisible();
-		await expect.element(rendered.getByText('Branch: master')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('master');
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
@@ -98,7 +100,9 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		});
 
 		// Assert
-		await expect.element(rendered.getByText('Branch: origin/main')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('origin/main');
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');
@@ -292,14 +296,16 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: feature/new-target · Updating');
+			.toHaveTextContent('feature/new-target · Updating');
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-content'))
 			.not.toHaveTextContent(
 				'Showing the previous comparison while the requested target is prepared.',
 			);
-		await expect.element(rendered.getByText('Branch: master')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('master');
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('aaaaaaaaaaaa');
@@ -375,7 +381,7 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: origin/main');
+			.toHaveTextContent('origin/main');
 		await expect.element(rendered.getByText('Compare Worktree')).toBeVisible();
 		await expect
 			.element(rendered.getByRole('button', { name: 'Branch', exact: true }))
@@ -643,8 +649,14 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		});
 
 		// Assert
+		const failureAlert = rendered.getByRole('alert');
+		await expect.element(failureAlert).toHaveTextContent('Branch query failed.');
+		expect(failureAlert.element().querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+		expect(rendered.getByRole('combobox', { name: 'Search branches' }).query()).toBeNull();
+		expect(rendered.getByTestId('bridge-review-comparison-catalog-explanation').query()).toBeNull();
 		const retryButton = rendered.getByRole('button', { name: 'Retry' });
 		expect(retryButton.element().getAttribute('data-slot')).toBe('button');
+		expect(retryButton.element().querySelector('svg[aria-hidden="true"]')).not.toBeNull();
 		await retryButton.click();
 		expect(queryTargets).toHaveBeenCalledTimes(2);
 	});
@@ -792,12 +804,14 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert — closed chrome names the requested target while popup details retain the package visible now.
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: feature/new-target · Updating');
+			.toHaveTextContent('feature/new-target · Updating');
 		await act(async (): Promise<void> => {
 			await rendered.getByTestId('bridge-review-comparison-trigger').click();
 		});
 		await expect.element(rendered.getByText('Updating comparison')).toBeVisible();
-		await expect.element(rendered.getByText('Branch: master')).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('master');
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('aaaaaaaaaaaa');
@@ -814,8 +828,10 @@ describe('BridgeReviewComparisonControl Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: feature/new-target');
-		await expect.element(rendered.getByText('Branch: feature/new-target')).toBeVisible();
+			.toHaveTextContent('feature/new-target');
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('feature/new-target');
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
 			.toHaveTextContent('bbbbbbbbbbbb');

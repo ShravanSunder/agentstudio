@@ -19,6 +19,7 @@ import type { BridgeWorkerReviewComparisonUpdateCommand } from '../core/comm-wor
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
+import { BridgeReviewComparisonIcon } from './bridge-review-comparison-icon.js';
 import {
 	bridgeReviewComparisonTargetLabel,
 	type BridgeReviewComparisonTarget,
@@ -77,6 +78,7 @@ export function BridgeReviewComparisonControl(
 		activeInput?.focus();
 	}, [open, selectionMode]);
 	const label = closedComparisonLabel(props);
+	const visibleLabel = closedComparisonVisibleLabel(props);
 	const narrowComparisonLabel = narrowComparisonLabelForPackage(props.displayedReviewPackage);
 	const activeTarget = props.comparisonPresentation?.activeTarget ?? null;
 	const displayedContribution = displayedContributionForComparison(props);
@@ -115,7 +117,7 @@ export function BridgeReviewComparisonControl(
 				className={comparisonTriggerClassName}
 				data-testid="bridge-review-comparison-trigger"
 			>
-				<span>{label}</span>
+				<span>{visibleLabel}</span>
 				<span className="sr-only" id={descriptionId}>
 					{sharedHistoryDescription}
 				</span>
@@ -142,8 +144,10 @@ export function BridgeReviewComparisonControl(
 				className={comparisonTriggerClassName}
 				data-testid="bridge-review-comparison-trigger"
 				disabled={disabled}
+				title={label}
 			>
-				<span>{label}</span>
+				<BridgeReviewComparisonIcon kind="trigger" />
+				<span>{visibleLabel}</span>
 				<ChevronDownIcon aria-hidden="true" className="size-3 shrink-0" />
 			</PopoverTrigger>
 			<span className="sr-only" id={descriptionId}>
@@ -198,7 +202,10 @@ export function BridgeReviewComparisonControl(
 						className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
 						orientation="horizontal"
 					>
-						<FieldTitle className="text-muted-foreground">Compare with</FieldTitle>
+						<FieldTitle className="text-muted-foreground">
+							<BridgeReviewComparisonIcon kind="target-kind" />
+							<span>Compare with</span>
+						</FieldTitle>
 						<ToggleGroup
 							aria-label="Comparison target kind"
 							className="grid w-full grid-cols-2"
@@ -296,7 +303,8 @@ function ComparisonCurrentState(props: {
 				<h2 className="text-xs/relaxed font-medium uppercase text-foreground">
 					Current comparison
 				</h2>
-				<p className="flex min-w-0 items-baseline gap-1.5 text-xs/relaxed text-foreground">
+				<p className="flex min-w-0 items-center gap-1.5 text-xs/relaxed text-foreground">
+					<BridgeReviewComparisonIcon kind="effective-commit" />
 					<span className="shrink-0">Commit:</span>
 					<ComparisonRevision
 						testId="bridge-review-comparison-effective-revision"
@@ -318,10 +326,11 @@ function ComparisonCurrentState(props: {
 			<h2 className="text-xs/relaxed font-medium uppercase text-foreground">Current comparison</h2>
 			<div className="flex flex-col gap-1.5">
 				<p
-					className="flex min-w-0 items-baseline gap-1.5 text-xs/relaxed text-foreground"
+					className="flex min-w-0 items-center gap-1.5 text-xs/relaxed text-foreground"
 					data-testid="bridge-review-comparison-current-target"
 				>
-					<span className="truncate">Branch: {targetLabel}</span>
+					<BridgeReviewComparisonIcon kind="current-branch" />
+					<span className="truncate">{targetLabel}</span>
 					{isDefault ? (
 						<span className="flex shrink-0 items-baseline gap-1 text-xs/relaxed text-muted-foreground">
 							<span aria-hidden="true">·</span>
@@ -333,7 +342,7 @@ function ComparisonCurrentState(props: {
 					className="flex min-w-0 items-center gap-2 text-xs/relaxed text-foreground"
 					data-testid="bridge-review-comparison-current-basis"
 				>
-					<span className="shrink-0">Comparing from:</span>
+					<BridgeReviewComparisonIcon kind="effective-commit" />
 					<span
 						className="flex min-w-0 items-baseline gap-1"
 						data-testid="bridge-review-comparison-effective-basis"
@@ -573,6 +582,13 @@ function closedComparisonLabel(props: BridgeReviewComparisonControlProps): strin
 		return 'Choose target';
 	}
 	return `Compare to: ${comparisonTargetLabel(activeTarget)}`;
+}
+
+function closedComparisonVisibleLabel(props: BridgeReviewComparisonControlProps): string {
+	const accessibleLabel = closedComparisonLabel(props);
+	return accessibleLabel.startsWith('Compare to: ')
+		? accessibleLabel.slice('Compare to: '.length)
+		: accessibleLabel;
 }
 
 function targetMatchesRepositoryDefault(

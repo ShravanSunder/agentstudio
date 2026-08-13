@@ -12,7 +12,7 @@ import { cn } from './class-name.js';
 
 export function BridgeViewerContentHeader(props: {
 	readonly controls?: ReactNode;
-	readonly eyebrow: string;
+	readonly mode: 'file' | 'review';
 	readonly statusText: string | null;
 	readonly title: string;
 }): ReactElement {
@@ -26,8 +26,13 @@ export function BridgeViewerContentHeader(props: {
 			data-testid="bridge-viewer-content-topbar"
 		>
 			<div className="flex min-w-0 items-baseline gap-2">
-				<span className="shrink-0 text-[11px] font-medium text-[var(--bridge-text-primary)]">
-					{props.eyebrow}
+				<span
+					aria-label={viewerModeLabel(props.mode)}
+					className="shrink-0 text-[var(--bridge-text-primary)]"
+					data-testid="bridge-viewer-content-mode-icon"
+					title={viewerModeLabel(props.mode)}
+				>
+					{viewerModeIcon(props.mode)}
 				</span>
 				<span
 					className="min-w-0 truncate text-[11px] text-[var(--bridge-text-secondary)]"
@@ -57,6 +62,34 @@ export function BridgeViewerContentHeader(props: {
 			)}
 		</header>
 	);
+}
+
+function viewerModeIcon(mode: 'file' | 'review'): ReactElement {
+	switch (mode) {
+		case 'file':
+			return <FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />;
+		case 'review':
+			return (
+				<ListChecksIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+			);
+		default:
+			return assertNeverViewerMode(mode);
+	}
+}
+
+function viewerModeLabel(mode: 'file' | 'review'): string {
+	switch (mode) {
+		case 'file':
+			return 'Files';
+		case 'review':
+			return 'Review';
+		default:
+			return assertNeverViewerMode(mode);
+	}
+}
+
+function assertNeverViewerMode(mode: never): never {
+	throw new Error(`Unhandled Bridge viewer mode: ${JSON.stringify(mode)}`);
 }
 
 export function BridgeViewerContextSwitcher(props: {

@@ -126,7 +126,7 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
-							eyebrow="Files"
+							mode="file"
 							statusText={statusText}
 							title={props.contentHeaderTitle}
 						/>

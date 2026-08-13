@@ -345,7 +345,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 					>
 						<BridgeViewerContentHeader
 							controls={props.viewerHeaderControls}
-							eyebrow="Review"
+							mode="review"
 							statusText={statusText}
 							title={contentHeaderTitle}
 						/>

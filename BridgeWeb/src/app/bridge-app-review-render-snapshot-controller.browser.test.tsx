@@ -154,7 +154,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: master');
+			.toHaveTextContent('master');
 	});
 
 	test('settles a rejected comparison-target query instead of leaving the picker loading', async () => {

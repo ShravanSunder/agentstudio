@@ -64,10 +64,9 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 			.element(rendered.getByRole('heading', { name: 'Current comparison' }))
 			.toBeVisible();
 		await expect
-			.element(rendered.getByText('Branch: origin/journey-integration', { exact: true }))
-			.toBeVisible();
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('origin/journey-integration');
 		await expect.element(rendered.getByText('Default', { exact: true })).toBeVisible();
-		await expect.element(rendered.getByText('Comparing from:', { exact: true })).toBeVisible();
 		await expect.element(rendered.getByText('Common commit @', { exact: true })).toBeVisible();
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-effective-revision'))
@@ -106,7 +105,23 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		expect(popupText).not.toContain('Latest commit shared with');
 		expect(popupText).not.toContain('Comparison refreshed');
 		expect(popupText).not.toContain('Base branch');
+		expect(popupText).not.toContain('Branch:');
+		expect(popupText).not.toContain('Comparing from:');
 		expect(popupText).not.toContain('origin/journey-integration @');
+		const gitConceptIcons = [
+			'current-branch',
+			'effective-commit',
+			'target-kind',
+			'branch-basis',
+		].map((concept) => rendered.getByTestId(`bridge-review-comparison-${concept}-icon`).element());
+		expect(gitConceptIcons.every((icon) => icon instanceof SVGElement)).toBe(true);
+		expect(gitConceptIcons.every((icon) => icon.getAttribute('aria-hidden') === 'true')).toBe(true);
+		expect(gitConceptIcons.every((icon) => icon.getAttribute('width') === '14')).toBe(true);
+		expect(new Set(gitConceptIcons.map((icon) => icon.getBoundingClientRect().width)).size).toBe(1);
+		const triggerIcon = rendered.getByTestId('bridge-review-comparison-trigger-icon').element();
+		expect(triggerIcon).toBeInstanceOf(SVGElement);
+		expect(triggerIcon.getAttribute('aria-hidden')).toBe('true');
+		expect(triggerIcon.getBoundingClientRect().width).toBeGreaterThan(0);
 	});
 
 	test('selects branch basis before applying the selected branch', async () => {
@@ -174,7 +189,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		});
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: journey-stack-base');
+			.toHaveTextContent('journey-stack-base');
 		expect(
 			(
 				rendered.getByTestId('bridge-review-comparison-current-state').element().textContent ?? ''
@@ -286,7 +301,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		await expect
 			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
-			.toHaveTextContent('Compare to: release/next · Unavailable');
+			.toHaveTextContent('release/next · Unavailable');
 		await expect.element(rendered.getByText('Comparison unavailable')).toBeVisible();
 		await expect
 			.element(
@@ -295,7 +310,9 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 				),
 			)
 			.toBeVisible();
-		await expect.element(rendered.getByText('Branch: master', { exact: true })).toBeVisible();
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-current-target'))
+			.toHaveTextContent('master');
 	});
 
 	test('focuses branch search when the comparison popover opens', async () => {
@@ -387,10 +404,13 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const compareWithHeading = rendered.getByText('Compare with', { exact: true });
 		await expect.element(compareWithHeading).toBeVisible();
 		const targetKindSelector = rendered.getByRole('group', { name: 'Comparison target kind' });
-		const branchBasisHeading = rendered.getByText('Compare branches from', { exact: true });
+		const branchBasisHeading = rendered.getByText('Using', { exact: true });
 		const branchBasisSelector = rendered.getByRole('group', { name: 'Branch comparison basis' });
 		await expect
-			.element(rendered.getByRole('button', { name: 'Common commit', exact: true }))
+			.element(rendered.getByRole('button', { name: 'Common', exact: true }))
+			.toBeVisible();
+		await expect
+			.element(rendered.getByRole('button', { name: 'Branch Tip', exact: true }))
 			.toBeVisible();
 		const targetKindLayout = compareWithHeading.element().parentElement;
 		const branchBasisLayout = branchBasisHeading.element().parentElement;
@@ -484,7 +504,11 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const trigger = rendered.getByTestId('bridge-review-comparison-trigger').element();
-		const label = rendered.getByText(`Compare to: ${targetBranchName}`, { exact: true }).element();
+		const label = rendered.getByText(targetBranchName, { exact: true }).element();
+		expect(trigger.getAttribute('aria-label')).toBe(`Compare to: ${targetBranchName}`);
+		expect(rendered.getByTestId('bridge-review-comparison-trigger-icon').element()).toBeInstanceOf(
+			SVGElement,
+		);
 		expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
 		expect(trigger.scrollWidth).toBeLessThanOrEqual(trigger.clientWidth);
 	});

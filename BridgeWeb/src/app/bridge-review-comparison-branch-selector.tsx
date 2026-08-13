@@ -1,7 +1,9 @@
 import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { RotateCcwIcon, TriangleAlertIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactElement, type RefObject } from 'react';
 
+import { Alert } from '../components/ui/alert.js';
 import { Button } from '../components/ui/button.js';
 import {
 	Combobox,
@@ -22,6 +24,7 @@ import type {
 	BridgeWorkerReviewComparisonUpdateCommand,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeReviewComparisonTargetsQueryState } from './bridge-app-review-render-snapshot-controller.js';
+import { BridgeReviewComparisonIcon } from './bridge-review-comparison-icon.js';
 
 type ReviewComparisonPresentation = NonNullable<
 	BridgeWorkerPanelChromePatchPayload['reviewComparison']
@@ -59,7 +62,10 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
 				orientation="horizontal"
 			>
-				<FieldTitle className="text-muted-foreground">Compare branches from</FieldTitle>
+				<FieldTitle className="text-muted-foreground">
+					<BridgeReviewComparisonIcon kind="branch-basis" />
+					<span>Using</span>
+				</FieldTitle>
 				<ToggleGroup
 					aria-label="Branch comparison basis"
 					className="grid w-full grid-cols-2"
@@ -76,7 +82,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 						}}
 						value="commonCommit"
 					>
-						Common commit
+						Common
 					</ToggleGroupItem>
 					<ToggleGroupItem
 						className="w-full"
@@ -85,7 +91,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 						}}
 						value="branchTip"
 					>
-						Branch tip
+						Branch Tip
 					</ToggleGroupItem>
 				</ToggleGroup>
 			</Field>
@@ -110,56 +116,69 @@ export function BridgeReviewComparisonBranchSelector(props: {
 					className="col-span-2 overflow-hidden rounded-md border border-input bg-input/20 transition-colors focus-within:border-ring"
 					data-testid="bridge-review-comparison-branch-selector"
 				>
-					<ComboboxInput
-						aria-label="Search branches"
-						className="rounded-none border-x-0 border-t-0 border-b border-border bg-transparent"
-						placeholder="Search branches…"
-						ref={props.searchInputRef}
-						showTrigger={false}
-					/>
-					{props.targetQueryState.status === 'loading' ? (
-						<BranchOptionsSkeleton />
-					) : (
-						<VirtualizedBranchOptions
-							highlightedBranch={highlightedBranch}
-							onFilteredItemCountChange={setFilteredBranchCount}
-							selectedBranch={selectedBranch}
-							targetCatalog={targetCatalog}
-						/>
-					)}
-					{targetCatalog === null ? null : (
-						<p
-							className="border-t border-border px-2 py-2 text-xs/relaxed text-muted-foreground"
-							data-testid="bridge-review-comparison-catalog-explanation"
-						>
-							Showing branches from the last 30 days.
-						</p>
-					)}
-					{props.targetQueryState.status === 'empty' ||
-					(props.targetQueryState.status === 'ready' && filteredBranchCount === 0) ? (
-						<ComboboxEmpty className="flex">
-							{props.targetQueryState.status === 'empty'
-								? props.targetQueryState.message
-								: 'No matching branches.'}
-						</ComboboxEmpty>
-					) : null}
 					{props.targetQueryState.status === 'failed' ? (
-						<ComboboxEmpty className="flex">
-							<span>{props.targetQueryState.message}</span>
-							<Button
-								className="mt-2"
-								onClick={props.onRetry}
-								size="sm"
-								type="button"
-								variant="link"
-							>
-								Retry
-							</Button>
-						</ComboboxEmpty>
-					) : null}
+						<BranchOptionsFailure
+							message={props.targetQueryState.message}
+							onRetry={props.onRetry}
+						/>
+					) : (
+						<>
+							<ComboboxInput
+								aria-label="Search branches"
+								className="rounded-none border-x-0 border-t-0 border-b border-border bg-transparent"
+								placeholder="Search branches…"
+								ref={props.searchInputRef}
+								showTrigger={false}
+							/>
+							{props.targetQueryState.status === 'loading' ? (
+								<BranchOptionsSkeleton />
+							) : (
+								<VirtualizedBranchOptions
+									highlightedBranch={highlightedBranch}
+									onFilteredItemCountChange={setFilteredBranchCount}
+									selectedBranch={selectedBranch}
+									targetCatalog={targetCatalog}
+								/>
+							)}
+							{targetCatalog === null ? null : (
+								<p
+									className="border-t border-border px-2 py-2 text-xs/relaxed text-muted-foreground"
+									data-testid="bridge-review-comparison-catalog-explanation"
+								>
+									Showing branches from the last 30 days.
+								</p>
+							)}
+							{props.targetQueryState.status === 'empty' ||
+							(props.targetQueryState.status === 'ready' && filteredBranchCount === 0) ? (
+								<ComboboxEmpty className="flex">
+									{props.targetQueryState.status === 'empty'
+										? props.targetQueryState.message
+										: 'No matching branches.'}
+								</ComboboxEmpty>
+							) : null}
+						</>
+					)}
 				</div>
 			</Combobox>
 		</div>
+	);
+}
+
+function BranchOptionsFailure(props: {
+	readonly message: string;
+	readonly onRetry: () => void;
+}): ReactElement {
+	return (
+		<Alert className="flex flex-col items-center gap-2 rounded-none border-0 bg-transparent px-3 py-4 text-muted-foreground">
+			<div className="flex items-center gap-1.5">
+				<TriangleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
+				<span>{props.message}</span>
+			</div>
+			<Button onClick={props.onRetry} size="sm" type="button" variant="outline">
+				<RotateCcwIcon aria-hidden="true" data-icon="inline-start" />
+				Retry
+			</Button>
+		</Alert>
 	);
 }
 

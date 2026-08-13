@@ -17,6 +17,9 @@ importers:
       '@pierre/trees':
         specifier: 1.0.0-beta.4
         version: 1.0.0-beta.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@primer/octicons-react':
+        specifier: ^19.33.0
+        version: 19.33.0(react@19.2.7)
       '@shikijs/core':
         specifier: ^4.2.0
         version: 4.2.0
@@ -1006,6 +1009,12 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+
+  '@primer/octicons-react@19.33.0':
+    resolution: {integrity: sha512-7VL8WuLXXZvUV/DP895ESFXPl/FJq816amCT3KZcmpQgxM1uv6lJGCcsEFpLX3K6SE+3qcmsftPpxn3ctr06+g==}
+    engines: {node: '>=8'}
+    peerDependencies:
+      react: '>=16.3'
 
   '@quansync/fs@1.0.0':
     resolution: {integrity: sha512-4TJ3DFtlf1L5LDMaM6CanJ/0lckGNtJcMjQ1NAV6zDmA0tEHKZtxNKin8EgPaVX1YzljbxckyT2tJrpQKAtngQ==}
@@ -4043,6 +4052,10 @@ snapshots:
       react-dom: 19.2.7(react@19.2.7)
 
   '@polka/url@1.0.0-next.29': {}
+
+  '@primer/octicons-react@19.33.0(react@19.2.7)':
+    dependencies:
+      react: 19.2.7
 
   '@quansync/fs@1.0.0':
     dependencies:
