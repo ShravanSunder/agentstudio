@@ -260,6 +260,15 @@ from datetime import datetime
 import json
 import sys
 
+
+def parse_victoria_timestamp(value):
+    timestamp_without_utc_suffix = value.removesuffix("Z")
+    if "." in timestamp_without_utc_suffix:
+        whole_seconds, fractional_seconds = timestamp_without_utc_suffix.rsplit(".", 1)
+        timestamp_without_utc_suffix = f"{whole_seconds}.{fractional_seconds.ljust(6, '0')}"
+    return datetime.fromisoformat(f"{timestamp_without_utc_suffix}+00:00")
+
+
 usable_raw, surfaces_raw, expected_raw, launch_time_raw = sys.argv[1:]
 usable_values = []
 usable_sources = []
@@ -276,7 +285,7 @@ for line in surfaces_raw.splitlines():
     try:
         value = json.loads(line).get("_time")
         if isinstance(value, str):
-            surface_times.append(datetime.fromisoformat(value.replace("Z", "+00:00")))
+            surface_times.append(parse_victoria_timestamp(value))
     except (json.JSONDecodeError, ValueError):
         pass
 expected = int(expected_raw)
