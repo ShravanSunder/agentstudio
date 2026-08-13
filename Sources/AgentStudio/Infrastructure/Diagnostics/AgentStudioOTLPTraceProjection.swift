@@ -870,11 +870,9 @@ extension AgentStudioOTLPTraceProjection {
             || normalizedKey.hasSuffix("_id")
             || normalizedKey.contains("_id.")
     }
-
     private static func isErrorKey(_ key: String) -> Bool {
         key.lowercased().contains("error")
     }
-
     private static func isPayloadKey(_ key: String) -> Bool {
         let normalizedKey = key.lowercased()
         return normalizedKey.contains("path")
@@ -935,6 +933,8 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome":
+            return ["equal", "changed"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.phase":
             return ["input", "host_hit_test"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.hit_view_class":
