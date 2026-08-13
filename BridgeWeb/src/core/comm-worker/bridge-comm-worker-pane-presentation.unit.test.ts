@@ -197,18 +197,29 @@ describe('Bridge comm worker pane presentation authority', () => {
 		).toThrow('Bridge Review comparison revision was reused with changed state.');
 	});
 
-	test('rejects pane presentation frames older than committed Review comparison metadata', () => {
+	test('applies newer native state while preserving newer committed Review comparison metadata', () => {
 		// Arrange
 		const authority = new BridgeCommWorkerPanePresentationAuthority();
 		authority.apply(makePanePresentationFrame(1, 'foreground', ['review']));
-		authority.reconcileReviewComparison(3, null);
-		const committedSnapshot = authority.snapshot;
+		const committedComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/next' },
+			attempt: { reviewGeneration: 3, status: 'settled' },
+			displayedSnapshot: { status: 'none' },
+			repositoryDefaultTarget: null,
+		} as const;
+		authority.reconcileReviewComparison(3, committedComparison);
 
-		// Act / Assert
-		expect(() => authority.apply(makePanePresentationFrame(2, 'loadedHidden'))).toThrow(
-			'Bridge pane presentation revision is stale.',
-		);
-		expect(authority.snapshot).toEqual(committedSnapshot);
+		// Act
+		const application = authority.apply(makePanePresentationFrame(2, 'loadedHidden', ['file']));
+
+		// Assert
+		expect(application.disposition).toBe('applied');
+		expect(authority.snapshot).toMatchObject({
+			nativeActivity: 'loadedHidden',
+			presentationRevision: 3,
+			refreshingLanes: ['file'],
+			reviewComparison: committedComparison,
+		});
 	});
 
 	test('owns an immutable copy of the repository default target', () => {

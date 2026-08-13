@@ -229,6 +229,51 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         )
     }
 
+    @Test("successor failure clears pending attempt while stale failure does not")
+    func successorFailureClearsPendingAttemptWhileStaleFailureDoesNot() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+
+        // Act
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 7,
+            failureKind: "stale_failure",
+            retryable: true
+        )
+
+        // Assert
+        #expect(coordinator.productPresentationSnapshot.reviewComparison?.attempt == .pending(reviewGeneration: 8))
+
+        // Act
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 9,
+            failureKind: "successor_failure",
+            retryable: true
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison?.attempt
+                == .unavailable(failureKind: "successor_failure", retryable: true)
+        )
+    }
+
     @Test("loaded-hidden invalidation storms accumulate in one pane-wide dirty fact")
     func loadedHiddenInvalidationStormAccumulatesOneDirtyFact() throws {
         // Arrange

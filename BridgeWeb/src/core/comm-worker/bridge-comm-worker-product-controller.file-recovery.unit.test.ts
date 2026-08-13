@@ -25,6 +25,33 @@ const currentFileSourceConfiguration = {
 } as const;
 
 describe('Bridge comm worker File metadata recovery', () => {
+	test('retries File source discovery after a transient rejection', async () => {
+		// Arrange
+		let discoveryCount = 0;
+		const events = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.metadata'>
+		>(8);
+		const controller = new BridgeCommWorkerProductController({
+			callCurrentFileSource: async () => {
+				discoveryCount += 1;
+				if (discoveryCount === 1) throw new Error('transient source discovery failure');
+				return { source: currentFileSourceConfiguration, status: 'available' };
+			},
+			onFileMetadataEvent: (): void => {},
+			productTransport: fileEpochTransport(),
+			subscribeFile: () => fileSubscription('file-subscription-after-retry', events),
+		});
+
+		// Act
+		await expect(controller.ensureFileSource()).rejects.toThrow(
+			'transient source discovery failure',
+		);
+		await controller.ensureFileSource();
+
+		// Assert
+		expect(discoveryCount).toBe(2);
+	});
+
 	test('a later ensure opens a replacement subscription after the active File stream fails', async () => {
 		// Arrange — removing the terminal-subscription cache reset makes this test fail.
 		const firstEvents = new BridgeProductBoundedAsyncQueue<

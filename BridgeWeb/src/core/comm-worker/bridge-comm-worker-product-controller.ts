@@ -111,8 +111,16 @@ export class BridgeCommWorkerProductController {
 	}
 
 	ensureFileSource(): Promise<void> {
-		this.#fileSourceEnsure ??= this.#discoverAndOpenFileSource();
-		return this.#fileSourceEnsure;
+		if (this.#fileSourceEnsure !== null) return this.#fileSourceEnsure;
+		const discoveryAttempt = this.#discoverAndOpenFileSource();
+		const memoizedAttempt = discoveryAttempt.catch((error: unknown): never => {
+			if (this.#fileSourceEnsure === memoizedAttempt) {
+				this.#fileSourceEnsure = null;
+			}
+			throw error;
+		});
+		this.#fileSourceEnsure = memoizedAttempt;
+		return memoizedAttempt;
 	}
 
 	ensureReviewMetadata(): void {

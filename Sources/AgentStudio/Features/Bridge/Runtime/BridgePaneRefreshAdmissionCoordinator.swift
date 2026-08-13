@@ -223,7 +223,8 @@ final class BridgePaneRefreshAdmissionCoordinator {
         retryable: Bool
     ) {
         guard let reviewComparison,
-            reviewComparison.attempt == .pending(reviewGeneration: reviewGeneration)
+            case .pending(let pendingGeneration) = reviewComparison.attempt,
+            pendingGeneration <= reviewGeneration
         else { return }
         self.reviewComparison = BridgePaneReviewComparisonPresentation(
             activeTarget: reviewComparison.activeTarget,

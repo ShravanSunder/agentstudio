@@ -51,7 +51,7 @@ export class BridgeCommWorkerPanePresentationAuthority {
 	}
 
 	apply(frame: BridgeProductPanePresentationFrame): BridgeCommWorkerPanePresentationApplyResult {
-		if (frame.presentationRevision < this.snapshot.presentationRevision) {
+		if (frame.presentationRevision < this.#presentationRevision) {
 			throw new Error('Bridge pane presentation revision is stale.');
 		}
 		if (frame.presentationRevision === this.#presentationRevision) {
