@@ -19,6 +19,7 @@ extension GitWorkingDirectoryProjector {
                 && !suppressedWorktreeIds.contains(worktreeId)
                 && !quarantinedWorktreeIds.contains(worktreeId)
                 && !capacityRetryWorktreeIds.contains(worktreeId)
+                && isDemandEligible(worktreeId: worktreeId)
         }
         guard !eligibleWorktreeIds.isEmpty else { return }
 
@@ -94,5 +95,16 @@ extension GitWorkingDirectoryProjector {
             return 2
         }
         return 3
+    }
+
+    func isDemandEligible(worktreeId: UUID) -> Bool {
+        // A changeset without registered topology is an explicit direct request
+        // (used by callers that do not own registration); registered runtime
+        // worktrees require one of the product demand facts below.
+        registeredContext(for: worktreeId) == nil
+            || immediateRefreshWorktreeIds.contains(worktreeId)
+            || activePaneWorktreeId == worktreeId
+            || sidebarVisibleWorktreeIds.contains(worktreeId)
+            || activeWorktreeIds.contains(worktreeId)
     }
 }

@@ -37,7 +37,7 @@ package actor GitWorkingDirectoryProjector {
     var worktreeTasks: [UUID: Task<Void, Never>] = [:]
     private var worktreeTaskGenerationByWorktreeId: [UUID: UInt64] = [:]
     private var nextWorktreeTaskGeneration: UInt64 = 0
-    private var immediateRefreshWorktreeIds: Set<UUID> = []
+    var immediateRefreshWorktreeIds: Set<UUID> = []
     private var coalescingWorktreeIds: Set<UUID> = []
     private var nilStatusRetryTasks: [UUID: Task<Void, Never>] = [:]
     var pendingByWorktreeId: [UUID: FileChangeset] = [:]
@@ -70,7 +70,8 @@ package actor GitWorkingDirectoryProjector {
     /// until an event-driven re-arm clears the mark
     /// (see `GitWorkingDirectoryProjector+PathQuarantine`).
     var quarantinedWorktreeIds: Set<UUID> = []
-    private var quiescentWorktreeIds: Set<UUID> = []
+    private var unchangedStatusResultCountByWorktreeId: [UUID: Int] = [:]
+    private var lastPeriodicAdmissionTickByWorktreeId: [UUID: UInt64] = [:]
     private var periodicRefreshTick: UInt64 = 0
     var nextEnvelopeSequence: UInt64 = 0
     var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
@@ -196,7 +197,8 @@ package actor GitWorkingDirectoryProjector {
         openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
         deferredStatusBackoffChangesetByWorktreeId.removeAll(keepingCapacity: false)
         quarantinedWorktreeIds.removeAll(keepingCapacity: false)
-        quiescentWorktreeIds.removeAll(keepingCapacity: false)
+        unchangedStatusResultCountByWorktreeId.removeAll(keepingCapacity: false)
+        lastPeriodicAdmissionTickByWorktreeId.removeAll(keepingCapacity: false)
         pendingByWorktreeId.removeAll(keepingCapacity: false)
         immediateRefreshWorktreeIds.removeAll(keepingCapacity: false)
         coalescingWorktreeIds.removeAll(keepingCapacity: false)
@@ -261,11 +263,14 @@ package actor GitWorkingDirectoryProjector {
             }
             guard admitFileChangeAfterQuarantine(worktreeId: worktreeId, rootPath: changeset.rootPath) else { return }
             repoIdByWorktreeId[worktreeId] = changeset.repoId
-            quiescentWorktreeIds.remove(worktreeId)
+            resetAdaptiveCadence(worktreeId: worktreeId)
             guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
             guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
             if !immediateRefreshWorktreeIds.contains(worktreeId) {
-                pendingByWorktreeId[worktreeId] = changeset
+                pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
+                    pendingByWorktreeId[worktreeId],
+                    with: changeset
+                )
             }
             admitPendingWorktrees()
         case .pane:
@@ -325,6 +330,23 @@ package actor GitWorkingDirectoryProjector {
 
     package func refreshRegisteredWorktreesImmediately() {
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
+        }
+    }
+
+    package func refreshRegisteredWorktreesIntersecting(_ watchedPaths: [URL]) {
+        let canonicalWatchedPaths = watchedPaths.map { watchedPath in
+            FilesystemRootOwnership.canonicalRootPath(for: watchedPath)
+        }
+        for (worktreeId, rootPath) in rootPathByWorktreeId.sorted(by: { lhs, rhs in
+            lhs.key.uuidString < rhs.key.uuidString
+        }) {
+            let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
+            guard
+                canonicalWatchedPaths.contains(where: { watchedPath in
+                    Self.pathsIntersect(canonicalRootPath, watchedPath)
+                })
+            else { continue }
             enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
         }
     }
@@ -393,7 +415,7 @@ package actor GitWorkingDirectoryProjector {
             clearCapacityRetryState(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
             clearQuarantineState(worktreeId: worktreeId)
-            quiescentWorktreeIds.remove(worktreeId)
+            resetAdaptiveCadence(worktreeId: worktreeId)
             worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
             worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
             immediateRefreshWorktreeIds.remove(worktreeId)
@@ -435,7 +457,7 @@ package actor GitWorkingDirectoryProjector {
         clearCapacityRetryState(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
         clearQuarantineState(worktreeId: worktreeId)
-        quiescentWorktreeIds.remove(worktreeId)
+        resetAdaptiveCadence(worktreeId: worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
             lastKnownOriginByRepoId.removeValue(forKey: repoId)
@@ -489,7 +511,10 @@ package actor GitWorkingDirectoryProjector {
         immediateRefreshWorktreeIds.insert(worktreeId)
         guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
         guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
-        pendingByWorktreeId[worktreeId] = changeset
+        pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
+            pendingByWorktreeId[worktreeId],
+            with: changeset
+        )
         if coalescingWorktreeIds.contains(worktreeId) {
             worktreeTasks[worktreeId]?.cancel()
         }
@@ -535,7 +560,7 @@ package actor GitWorkingDirectoryProjector {
                 guard !Task.isCancelled else { return }
                 if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
                     recordLogicalDebtSnapshotIfChanged()
-                    nextChangeset = newer
+                    nextChangeset = Self.mergeChangesets(nextChangeset, with: newer)
                     _ = immediateRefreshWorktreeIds.remove(worktreeId)
                 }
             }
@@ -594,7 +619,7 @@ package actor GitWorkingDirectoryProjector {
         let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
         if previousSnapshot != nextSnapshot {
             lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
-            quiescentWorktreeIds.remove(changeset.worktreeId)
+            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
@@ -610,11 +635,10 @@ package actor GitWorkingDirectoryProjector {
                     "agentstudio.performance.git.snapshot_dedup.count": .int(1),
                 ]
             )
-            // Backstop tick suppression: mark the worktree quiescent so its next
-            // periodic re-enqueue is skipped, but only when no newer refresh is
-            // already queued (i.e. no file-change arrived since this compute).
+            // Lengthen only when no newer refresh is already queued (i.e. no
+            // file-change arrived since this compute).
             if pendingByWorktreeId[changeset.worktreeId] == nil {
-                quiescentWorktreeIds.insert(changeset.worktreeId)
+                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
             }
         }
 
@@ -749,10 +773,11 @@ package actor GitWorkingDirectoryProjector {
         guard !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
         guard isCurrent(changeset) else { return }
-        if pendingByWorktreeId[changeset.worktreeId] == nil {
-            pendingByWorktreeId[changeset.worktreeId] = changeset
-            admitPendingWorktrees()
-        }
+        pendingByWorktreeId[changeset.worktreeId] = Self.mergeChangesets(
+            pendingByWorktreeId[changeset.worktreeId],
+            with: changeset
+        )
+        admitPendingWorktrees()
         recordLogicalDebtSnapshotIfChanged()
     }
 
@@ -822,6 +847,7 @@ package actor GitWorkingDirectoryProjector {
             guard !quarantinedWorktreeIds.contains(worktreeId) else { continue }
             guard !openStatusBackoffWorktreeIds.contains(worktreeId) else { continue }
             guard pendingByWorktreeId[worktreeId] == nil else { continue }
+            guard isDemandEligible(worktreeId: worktreeId) else { continue }
             guard isPeriodicRefreshDue(worktreeId: worktreeId) else { continue }
             guard let repoId = repoIdByWorktreeId[worktreeId] else { continue }
             guard let rootPath = rootPathByWorktreeId[worktreeId] else { continue }
@@ -840,6 +866,7 @@ package actor GitWorkingDirectoryProjector {
                 timestamp: envelopeClock.now,
                 batchSeq: nextBatchSeq
             )
+            lastPeriodicAdmissionTickByWorktreeId[worktreeId] = periodicRefreshTick
             enqueuedWorktreeIds.append(worktreeId)
         }
         recordPeriodicRefreshTickTelemetry(
@@ -853,12 +880,21 @@ package actor GitWorkingDirectoryProjector {
 
     private func isPeriodicRefreshDue(worktreeId: UUID) -> Bool {
         if activePaneWorktreeId == worktreeId || sidebarVisibleWorktreeIds.contains(worktreeId) {
-            // The active worktree used to backstop-refresh every tick. Skip the
-            // tick while it is quiescent (its last compute found no change and no
-            // file-change has arrived since); a real change re-arms the tick.
-            return !quiescentWorktreeIds.contains(worktreeId)
+            guard let lastAdmissionTick = lastPeriodicAdmissionTickByWorktreeId[worktreeId] else {
+                return true
+            }
+            let unchangedResultCount = unchangedStatusResultCountByWorktreeId[worktreeId] ?? 0
+            let interval = refreshPolicy.cadenceTickInterval(
+                forUnchangedResultCount: unchangedResultCount
+            )
+            return periodicRefreshTick >= lastAdmissionTick + interval
         }
         return refreshPolicy.isBackgroundWorktreeDue(worktreeId, tick: periodicRefreshTick)
+    }
+
+    private func resetAdaptiveCadence(worktreeId: UUID) {
+        unchangedStatusResultCountByWorktreeId.removeValue(forKey: worktreeId)
+        lastPeriodicAdmissionTickByWorktreeId.removeValue(forKey: worktreeId)
     }
 
 }

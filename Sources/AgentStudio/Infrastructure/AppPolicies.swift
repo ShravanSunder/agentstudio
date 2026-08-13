@@ -160,6 +160,10 @@ package enum AppPolicies {
             /// projector falls back to a full-worktree status, since a very large
             /// pathspec set approaches full-tree walk cost anyway.
             package let maxScopedStatusPathspecCount: Int
+            /// Periodic cadence multipliers indexed by consecutive unchanged
+            /// results. The default reaches 4x after two equal outcomes, reducing
+            /// admissions by 75% while retaining a bounded refresh backstop.
+            package let unchangedStatusCadenceMultipliers: [Int]
 
             package init(
                 activeCadence: Duration = .seconds(15),
@@ -174,7 +178,8 @@ package enum AppPolicies {
                 statusFailureBackoffMaxDelay: Duration = .seconds(60),
                 capacityRetryBaseDelay: Duration = .milliseconds(500),
                 capacityRetryJitterMaxDelay: Duration = .milliseconds(100),
-                maxScopedStatusPathspecCount: Int = 128
+                maxScopedStatusPathspecCount: Int = 128,
+                unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
             ) {
                 precondition(backgroundStripeCount > 0)
                 precondition(maxConcurrentStatusComputes > 0)
@@ -187,6 +192,12 @@ package enum AppPolicies {
                 precondition(capacityRetryBaseDelay > .zero)
                 precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
+                precondition(unchangedStatusCadenceMultipliers.first == 1)
+                precondition(
+                    unchangedStatusCadenceMultipliers.elementsEqual(
+                        unchangedStatusCadenceMultipliers.sorted()
+                    )
+                )
 
                 self.activeCadence = activeCadence
                 self.backgroundStripeCount = backgroundStripeCount
@@ -201,6 +212,7 @@ package enum AppPolicies {
                 self.capacityRetryBaseDelay = capacityRetryBaseDelay
                 self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
+                self.unchangedStatusCadenceMultipliers = unchangedStatusCadenceMultipliers
             }
 
             /// Exponential per-worktree backoff for status computes that time out
@@ -242,6 +254,11 @@ package enum AppPolicies {
                 return backgroundStripe(for: worktreeId) == currentStripe
             }
 
+            package func cadenceTickInterval(forUnchangedResultCount count: Int) -> UInt64 {
+                let index = min(max(count, 0), unchangedStatusCadenceMultipliers.count - 1)
+                return UInt64(unchangedStatusCadenceMultipliers[index])
+            }
+
             private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {
                 var scaledDuration = Duration.zero
                 for _ in 0..<multiplier {
@@ -277,6 +294,35 @@ package enum AppPolicies {
 
                 return hash
             }
+        }
+    }
+
+    package enum FilesystemIngress {
+        package static let bufferedFineBatchCapacity: Int = 64
+    }
+
+    package enum ForgeRefresh {
+        package static let defaultPollingInterval: Duration = .seconds(45)
+        package static let failureBackoffBaseDelay: Duration = .seconds(5)
+        package static let failureBackoffMultiplier: Int = 2
+        package static let failureBackoffMaxDelay: Duration = .seconds(60)
+
+        package static func failureBackoffDelay(forConsecutiveFailureCount failureCount: Int) -> Duration {
+            guard failureCount > 1 else {
+                return min(failureBackoffBaseDelay, failureBackoffMaxDelay)
+            }
+            var backoffDelay = failureBackoffBaseDelay
+            for _ in 1..<failureCount {
+                var scaledDelay = Duration.zero
+                for _ in 0..<failureBackoffMultiplier {
+                    scaledDelay += backoffDelay
+                }
+                backoffDelay = scaledDelay
+                if backoffDelay >= failureBackoffMaxDelay {
+                    return failureBackoffMaxDelay
+                }
+            }
+            return min(backoffDelay, failureBackoffMaxDelay)
         }
     }
 

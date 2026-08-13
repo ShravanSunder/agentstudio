@@ -195,7 +195,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **User problem:** Agents edit 50 files in 2 seconds. The workspace needs to know "agent produced a changeset" without drowning in per-file events (JTBD 5, JTBD 6, P6).
 
-**Decision:** `FilesystemActor` emits filesystem facts (`.filesChanged`) and watched-folder topology facts (`.repoDiscovered`, `.repoRemoved`) alongside worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Add Folder uses a direct watched-folder command to trigger the actor and receive a scan summary, but topology facts still flow through the bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
+**Decision:** `DarwinFSEventStreamClient` feeds a bounded fine-batch ingress into `FilesystemActor`, which emits filesystem facts (`.filesChanged`) and watched-folder topology facts (`.repoDiscovered`, `.repoRemoved`) alongside worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). When fine ingress overflows, the client records per-worktree coarse refresh debt; `FilesystemActor` consumes that debt as root-scoped affected evidence, never as an empty/no-change batch. A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Add Folder uses a direct watched-folder command to trigger the actor and receive a scan summary, but topology facts still flow through the bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
 
 **Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline contract is in [Workspace Data Architecture](workspace_data_architecture.md).
 
@@ -2926,7 +2926,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 **Risk:** Agent writes 500 files → FSEvents fires 500+ raw events → local git projection thrashes.
 
-**Mitigation:** Worktree-scoped debounce (500ms settle window) + deduped path set + 256-path chunking + max latency cap (2 seconds). `GitWorkingDirectoryProjector` coalesces by `worktreeId` (latest wins), so one noisy burst converges to bounded recompute work. Multiple worktrees remain independent.
+**Mitigation:** `DarwinFSEventStreamClient` retains a bounded number of fine batches and converts overflow into one coarse affected-worktree debt rather than dropping scope. `FilesystemActor` adds worktree-scoped debounce, a deduped path set, bounded chunking, and a max-latency flush. `GitWorkingDirectoryProjector` losslessly unions affected paths across pending and retry states, gates compute by current demand, and admits through bounded per-worktree slots. One noisy burst therefore converges to bounded work without treating evicted paths as no change; multiple worktrees remain independent.
 
 ### 4. Replay buffer memory growth
 
@@ -3172,7 +3172,7 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **PaneRuntimeEventChannel** | `Core/RuntimeEventSystem/Runtime/` | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
 | **FilesystemProjectionIndex** | `App/Coordination/` | C16 off-main indexing, canonicalization, and per-pane CWD-subtree filtering; returns typed intents to `WorkspaceSurfaceCoordinator` for sequencing and publication |
 | **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
-| **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
+| **DarwinFSEventStreamClient + FilesystemActor** | `Core/RuntimeEventSystem/Filesystem/` | Implemented system-level FSEvents ingress and actor-owned filtering, bounded batching, coarse overflow debt, and `FilesystemEvent` publication |
 | **WorkspaceSurfaceCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core

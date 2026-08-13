@@ -20,7 +20,7 @@ extension GitWorkingDirectoryProjector {
             deferredStatusBackoffChangesetByWorktreeId[worktreeId] = changeset
             return
         }
-        deferredStatusBackoffChangesetByWorktreeId[worktreeId] = Self.newerChangeset(existing, changeset)
+        deferredStatusBackoffChangesetByWorktreeId[worktreeId] = Self.mergeChangesets(existing, with: changeset)
     }
 
     /// Opens (or advances) the per-worktree circuit breaker after a status
@@ -91,10 +91,11 @@ extension GitWorkingDirectoryProjector {
             return
         }
         guard isCurrent(deferredChangeset) else { return }
-        if pendingByWorktreeId[worktreeId] == nil {
-            pendingByWorktreeId[worktreeId] = deferredChangeset
-            admitPendingWorktrees()
-        }
+        pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
+            pendingByWorktreeId[worktreeId],
+            with: deferredChangeset
+        )
+        admitPendingWorktrees()
     }
 
     func deferChangesetIfCapacityRetryPending(_ changeset: FileChangeset) -> Bool {
@@ -158,7 +159,7 @@ extension GitWorkingDirectoryProjector {
             pendingByWorktreeId[worktreeId] = changeset
             return
         }
-        pendingByWorktreeId[worktreeId] = Self.newerChangeset(existing, changeset)
+        pendingByWorktreeId[worktreeId] = Self.mergeChangesets(existing, with: changeset)
     }
 
     /// Closes the breaker after a successful compute, clearing the failure count
@@ -203,13 +204,28 @@ extension GitWorkingDirectoryProjector {
         performanceTraceRecorder.record(.gitBackoff, attributes: attributes)
     }
 
-    nonisolated private static func newerChangeset(
-        _ lhs: FileChangeset,
-        _ rhs: FileChangeset
+    nonisolated static func mergeChangesets(
+        _ existing: FileChangeset?,
+        with incoming: FileChangeset
     ) -> FileChangeset {
-        if lhs.timestamp != rhs.timestamp {
-            return lhs.timestamp > rhs.timestamp ? lhs : rhs
+        guard let existing else { return incoming }
+        let freshest: FileChangeset
+        if existing.timestamp != incoming.timestamp {
+            freshest = existing.timestamp > incoming.timestamp ? existing : incoming
+        } else {
+            freshest = existing.batchSeq >= incoming.batchSeq ? existing : incoming
         }
-        return lhs.batchSeq >= rhs.batchSeq ? lhs : rhs
+        return FileChangeset(
+            worktreeId: freshest.worktreeId,
+            repoId: freshest.repoId,
+            rootPath: freshest.rootPath,
+            paths: normalizedPathspecs(existing.paths + incoming.paths),
+            containsGitInternalChanges: existing.containsGitInternalChanges || incoming.containsGitInternalChanges,
+            suppressedIgnoredPathCount: existing.suppressedIgnoredPathCount + incoming.suppressedIgnoredPathCount,
+            suppressedGitInternalPathCount: existing.suppressedGitInternalPathCount
+                + incoming.suppressedGitInternalPathCount,
+            timestamp: freshest.timestamp,
+            batchSeq: freshest.batchSeq
+        )
     }
 }

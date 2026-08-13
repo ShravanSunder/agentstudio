@@ -5,6 +5,54 @@ import Testing
 
 @Suite("DarwinFSEventStreamClient")
 struct DarwinFSEventStreamClientTests {
+    @Test("filesystem ingress does not retain more fine batches than its configured capacity")
+    func ingressRetainsAtMostConfiguredFineBatchCapacity() async throws {
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 2)
+        let worktreeId = UUID()
+        ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: ["first"]))
+        ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: ["second"]))
+        ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: ["third"]))
+        ingressBuffer.finish()
+
+        var retainedBatches: [FSEventBatch] = []
+        for await batch in ingressBuffer.events() {
+            retainedBatches.append(batch)
+        }
+
+        #expect(retainedBatches.count <= 2)
+        #expect(ingressBuffer.consumeCoarseRefreshDebt() == [worktreeId])
+    }
+
+    @Test("overflow debt coalesces per affected worktree and stays isolated")
+    func overflowDebtCoalescesPerAffectedWorktree() {
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)
+        let retainedWorktreeId = UUID()
+        let overflowedWorktreeId = UUID()
+        let otherOverflowedWorktreeId = UUID()
+
+        ingressBuffer.yield(FSEventBatch(worktreeId: retainedWorktreeId, paths: ["retained"]))
+        ingressBuffer.yield(FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["first"]))
+        ingressBuffer.yield(FSEventBatch(worktreeId: overflowedWorktreeId, paths: ["second"]))
+        ingressBuffer.yield(FSEventBatch(worktreeId: otherOverflowedWorktreeId, paths: ["other"]))
+
+        #expect(
+            ingressBuffer.consumeCoarseRefreshDebt()
+                == [overflowedWorktreeId, otherOverflowedWorktreeId]
+        )
+        #expect(ingressBuffer.consumeCoarseRefreshDebt().isEmpty)
+        ingressBuffer.finish()
+    }
+
+    @Test("shutdown terminates ingress without minting new overflow debt")
+    func shutdownTerminatesIngressWithoutNewDebt() {
+        let ingressBuffer = DarwinFSEventIngressBuffer(capacity: 1)
+        ingressBuffer.finish()
+
+        ingressBuffer.yield(FSEventBatch(worktreeId: UUID(), paths: ["post-shutdown"]))
+
+        #expect(ingressBuffer.consumeCoarseRefreshDebt().isEmpty)
+    }
+
     @Test("conforms to FSEventStreamClient protocol")
     func conformsToProtocol() {
         let client: any FSEventStreamClient = DarwinFSEventStreamClient()
@@ -40,5 +88,4 @@ struct DarwinFSEventStreamClientTests {
         )
         client.unregister(worktreeId: UUID())
     }
-
 }

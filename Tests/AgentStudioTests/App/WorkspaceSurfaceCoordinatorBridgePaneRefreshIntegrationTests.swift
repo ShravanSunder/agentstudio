@@ -104,8 +104,8 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("raw worktree invalidation is recorded once when derived projection becomes stale")
-        func rawWorktreeInvalidationIsRecordedOnceWhenDerivedProjectionBecomesStale() async throws {
+        @Test("stale pane projection retains Bridge product invalidation")
+        func stalePaneProjectionRetainsBridgeProductInvalidation() async throws {
             // Arrange
             let projectionIndex = RefreshGateableFilesystemProjectionIndex()
             let setup = try makeWorkspaceRefreshTestSetup(projectionIndex: projectionIndex)
@@ -117,6 +117,8 @@ extension WebKitSerializedTests {
                 controller: controller,
                 because: "raw invalidation must remain pending while the pane is hidden"
             )
+            let baselineSnapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+            let baselineDirtyFact = try #require(baselineSnapshot.dirtyFact)
             let changeset = FileChangeset(
                 worktreeId: setup.worktree.id,
                 repoId: setup.repoId,
@@ -135,24 +137,78 @@ extension WebKitSerializedTests {
             )
             await projectionIndex.pauseNextProjection()
 
-            // Act — suspend the derived projection, advance its pane generation, then let the
-            // stale projection finish. The exact raw repo/worktree event remains authoritative.
+            // Act — suspend the index projection, advance its pane generation, then let the
+            // stale projection finish.
             let projectionTask = Task { @MainActor in
                 await harness.coordinator.handleFilesystemEnvelopeIfNeeded(envelope)
             }
             await projectionIndex.waitForPausedProjection()
+            let pausedSnapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+            #expect(pausedSnapshot.dirtyFact?.fileChangeset == nil)
+            #expect(pausedSnapshot.dirtyFact?.generation == baselineDirtyFact.generation)
             harness.coordinator.upsertPaneFilesystemProjectionContext(for: setup.bridgePane)
             await projectionIndex.resumePausedProjection()
             #expect(await projectionTask.value)
 
-            // Assert — one raw record survives even though the derived projection is discarded.
-            // The additive suppressed count detects accidental double routing.
+            // Assert — pane projection staleness cannot discard the independent product invalidation fact.
             let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
-            let dirtyFact = snapshot.dirtyFact
-            #expect(dirtyFact?.filePaths == ["Sources/App/StaleProjection.swift"])
-            #expect(dirtyFact?.latestBatchSequence == 81)
-            #expect(dirtyFact?.fileChangeset?.suppressedIgnoredPathCount == 1)
-            #expect(snapshot.refreshPassCount == 0)
+            let dirtyFact = try #require(snapshot.dirtyFact)
+            let retainedChangeset = try #require(dirtyFact.fileChangeset)
+            #expect(dirtyFact.generation == baselineDirtyFact.generation)
+            #expect(retainedChangeset.paths == ["Sources/App/StaleProjection.swift"])
+            #expect(retainedChangeset.batchSeq == 81)
+            #expect(retainedChangeset.suppressedIgnoredPathCount == 1)
+            #expect(dirtyFact.latestFileStatus == nil)
+            #expect(dirtyFact.latestBatchSequence == changeset.batchSeq)
+            #expect(dirtyFact.requiresReviewRefresh)
+            #expect(snapshot.refreshPassCount == baselineSnapshot.refreshPassCount)
+
+            await harness.finish()
+        }
+
+        @Test("filesystem changes outside the pane CWD do not invalidate Bridge product state")
+        func filesystemChangesOutsidePaneCWDDoNotInvalidateBridgeProductState() async throws {
+            // Arrange
+            let setup = try makeWorkspaceRefreshTestSetup(bridgeCwdRelativePath: "Sources/FeatureA")
+            let harness = setup.harness
+            let controller = setup.controller
+            harness.appLifecycleStore.setActive(false)
+            await expectControllerRefreshActivity(
+                .loadedHidden,
+                controller: controller,
+                because: "an unrelated filesystem event must leave the hidden pane idle"
+            )
+            let baselineSnapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+            let baselineDirtyFact = try #require(baselineSnapshot.dirtyFact)
+
+            // Act
+            let unrelatedChangeset = FileChangeset(
+                worktreeId: setup.worktree.id,
+                repoId: setup.repoId,
+                rootPath: setup.worktree.path,
+                paths: ["Sources/FeatureB/Unrelated.swift"],
+                timestamp: .now,
+                batchSeq: 91
+            )
+            #expect(
+                await harness.coordinator.handleFilesystemEnvelopeIfNeeded(
+                    RuntimeEnvelopeHarness.filesystemEnvelope(
+                        event: .filesChanged(changeset: unrelatedChangeset),
+                        repoId: setup.repoId,
+                        worktreeId: setup.worktree.id
+                    )
+                )
+            )
+
+            // Assert
+            let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
+            let dirtyFact = try #require(snapshot.dirtyFact)
+            #expect(dirtyFact.generation == baselineDirtyFact.generation)
+            #expect(dirtyFact.fileChangeset == nil)
+            #expect(dirtyFact.latestFileStatus == nil)
+            #expect(dirtyFact.latestBatchSequence == baselineDirtyFact.latestBatchSequence)
+            #expect(dirtyFact.requiresReviewRefresh == baselineDirtyFact.requiresReviewRefresh)
+            #expect(snapshot.refreshPassCount == baselineSnapshot.refreshPassCount)
 
             await harness.finish()
         }
@@ -316,6 +372,7 @@ private struct WorkspaceRefreshTestSetup {
 @MainActor
 private func makeWorkspaceRefreshTestSetup(
     projectionIndex: (any WorkspaceFilesystemProjectionIndexing)? = nil,
+    bridgeCwdRelativePath: String? = nil,
     baseline: WorkspaceBaseline = .ref(name: "HEAD~1"),
     addCrossWorktreeEventSource: Bool = false
 ) throws -> WorkspaceRefreshTestSetup {
@@ -328,6 +385,7 @@ private func makeWorkspaceRefreshTestSetup(
     let worktree = try #require(
         harness.store.repo(repo.id)?.worktrees.first(where: { $0.isMainWorktree })
     )
+    let bridgeCwd = bridgeCwdRelativePath.map { worktree.path.appending(path: $0) } ?? worktree.path
     let eventWorktree: Worktree
     if addCrossWorktreeEventSource {
         eventWorktree = Worktree(
@@ -359,7 +417,7 @@ private func makeWorkspaceRefreshTestSetup(
                 repoName: repo.name,
                 worktreeId: worktree.id,
                 worktreeName: worktree.name,
-                cwd: worktree.path
+                cwd: bridgeCwd
             )
         )
     )

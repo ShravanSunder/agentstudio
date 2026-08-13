@@ -340,7 +340,18 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | **Runs** | `git status`, `git branch`, `git remote get-url`, `git worktree list` via `@concurrent nonisolated` helpers |
 | **Produces** | `GitWorkingDirectoryEvent` envelopes on EventBus |
 | **Carries forward** | `correlationId` from source `.filesChanged` event |
+| **Admission** | Demand-gated to visible, active-pane, active-in-app, or explicit requests; bounded slots reserve capacity for the active pane and oldest stale demanded work |
+| **Pending work** | Unions affected paths across ordinary pending, immediate, capacity-retry, and circuit-breaker debt while retaining the freshest ordering context |
+| **Cadence and recovery** | Equal results lengthen the `AppPolicies` cadence; changed results restore prompt cadence; capacity contention uses a short retry, status timeouts use per-worktree exponential backoff, and dead roots are quarantined |
+| **Status scope** | Uses pathspec-scoped status for bounded changed-path sets and conservatively widens to a full status for git-internal, rename-unsafe, or over-cap changes |
 | **Does not** | Access network, scan filesystem for repos, mutate canonical store |
+
+Watched-folder refresh preserves that admission boundary. `FilesystemGitPipeline`
+maps the supplied watched paths to intersecting registered worktree roots and
+requests immediate status only for that affected set. The explicit user
+refresh-all entry point remains fleet-wide. Runtime demand and retry state are
+not persisted; deferred work settles when demand returns or an explicit request
+admits it.
 
 #### ForgeActor
 
@@ -352,6 +363,9 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | **Runs** | `gh pr list`, GitHub REST API via `@concurrent nonisolated` helpers |
 | **Self-driven** | Polling timer (30-60s) as fallback |
 | **Command-plane** | `refresh(repo:)` after git push |
+| **Admission** | One provider call per repo at a time; overlapping triggers coalesce into one follow-up with the freshest correlation context |
+| **Recovery** | Per-repo failure backoff is policy-derived and cancelled on unregister/shutdown |
+| **Publication** | Successful count maps publish only when they differ from the last successfully published map |
 | **Produces** | `ForgeEvent` envelopes on EventBus |
 | **Does not** | Scan filesystem, run git commands, discover repos, mutate canonical store |
 

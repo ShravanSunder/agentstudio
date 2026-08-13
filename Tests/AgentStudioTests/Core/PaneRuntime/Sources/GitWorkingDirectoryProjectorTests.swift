@@ -666,6 +666,69 @@ struct GitWorkingDirectoryProjectorTests {
         await actor.shutdown()
     }
 
+    @Test("coalescing preserves affected paths from the pending batch it replaces")
+    func coalescingPreservesAffectedPathsFromReplacedPendingBatch() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let recorder = PathspecRecorder()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .milliseconds(500),
+            sleepClock: clock
+        )
+
+        await actor.start()
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/coalescing-path-union-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 1 })
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: ["a.txt"]
+            )
+        )
+        await clock.waitForPendingSleepCount()
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 3,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 2,
+                paths: ["b.txt"]
+            )
+        )
+        #expect(await waitUntil { await actor.pendingByWorktreeId[worktreeId]?.batchSeq == 2 })
+
+        clock.advance(by: .milliseconds(500))
+        #expect(await waitUntil { await recorder.callCount == 2 })
+        #expect(await recorder.lastPathspecs == ["a.txt", "b.txt"])
+
+        await actor.shutdown()
+    }
+
     @Test("startup registration bypasses filesystem-derived coalescing")
     func startupRegistrationBypassesFilesystemDerivedCoalescing() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -1185,6 +1248,8 @@ struct GitWorkingDirectoryProjectorTests {
 
         let firstStripeWorktreeId = worktreeId(forBackgroundStripe: 0, policy: policy)
         let secondStripeWorktreeId = worktreeId(forBackgroundStripe: 1, policy: policy)
+        await actor.setActivity(worktreeId: firstStripeWorktreeId, isActiveInApp: true)
+        await actor.setActivity(worktreeId: secondStripeWorktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -1269,6 +1334,7 @@ struct GitWorkingDirectoryProjectorTests {
         await actor.start()
 
         let worktreeId = UUID()
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -1881,6 +1947,7 @@ struct GitWorkingDirectoryProjectorTests {
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
 
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -1998,6 +2065,7 @@ struct GitWorkingDirectoryProjectorTests {
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
 
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2121,6 +2189,7 @@ struct GitWorkingDirectoryProjectorTests {
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
 
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2552,11 +2621,11 @@ struct GitWorkingDirectoryProjectorTests {
                 await Task.yield()
             }
         }
-        #expect(await calls.value() == 2)
+        #expect(await calls.value() == 3)
 
         // A real file-change re-arms the worktree; the next refresh runs.
         await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
-        #expect(await waitUntil { await calls.value() == 3 })
+        #expect(await waitUntil { await calls.value() == 4 })
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -2647,6 +2716,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/scoped-pathspec-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         // Registration warms the cache with a full status (pathspecs nil).
         await bus.post(
             makeEnvelope(
@@ -2707,6 +2777,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/fold-clean-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2757,6 +2828,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/fold-new-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2806,6 +2878,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/fold-staged-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2882,6 +2955,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/git-internal-full-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2936,6 +3010,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/cap-full-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -2996,6 +3071,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/rename-guard-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -3083,6 +3159,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/scoped-timeout-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
@@ -3205,6 +3282,7 @@ struct GitWorkingDirectoryProjectorTests {
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: NSTemporaryDirectory())
             .appending(path: "quarantine-rearm-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         defer { try? FileManager.default.removeItem(at: rootPath) }
 
         // Path missing at registration: the worktree is quarantined, no compute.
@@ -3307,6 +3385,7 @@ struct GitWorkingDirectoryProjectorTests {
 
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/ambiguous-\(rootLabel)-\(UUID().uuidString)")
+        await actor.setActivity(worktreeId: worktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,

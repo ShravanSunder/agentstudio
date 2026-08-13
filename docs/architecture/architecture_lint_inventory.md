@@ -56,6 +56,12 @@ Exceptions belong in the centralized `ArchitectureAllowlists`, with paired
 Good/Bad fixtures. R19 promotion changes the rule severity from `report` to a
 blocking channel and updates this inventory in the same reviewed change.
 
+Slice 3 checked `agentstudio_performance_constants_in_app_policies`, but its
+current production/test scan still reports pre-existing findings outside the
+slice-3 trigger owners, so R19 forbids promotion. The keyed-observation,
+MainActor collection-work, and nonisolated blocking-I/O rules likewise remain
+report-only because slice 3 did not own or clean those lexical surfaces.
+
 The Terminal publication guard is deliberately lexical. In AgentStudio's
 Terminal source, it recognizes switches whose subject is
 `GhosttyActionDisposition.classify(...)`; the exact classifier call must be the

@@ -17,6 +17,8 @@ package actor ForgeActor {
         var backoffUntil: Duration?
         var activeRequestId: UInt64?
         var pendingFollowUp = false
+        var consecutiveFailureCount = 0
+        var lastPublishedFactsByBranch: [String: PullRequestFacts]?
     }
 
     private struct ProviderRequest: Sendable {
@@ -164,6 +166,8 @@ package actor ForgeActor {
         state.backoffUntil = nil
         state.activeRequestId = nil
         state.pendingFollowUp = false
+        state.consecutiveFailureCount = 0
+        state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
 
         if replacedExistingOrigin {
@@ -240,12 +244,6 @@ package actor ForgeActor {
         if let activeDeadlineTask { await activeDeadlineTask.value }
         for task in activeProviderTasks { await task.value }
 
-        deadlineTask?.cancel()
-        for task in providerTasksByRepoId.values {
-            task.cancel()
-        }
-        deadlineTask = nil
-        providerTasksByRepoId.removeAll(keepingCapacity: false)
         membershipByWorktreeId.removeAll(keepingCapacity: false)
         demandedWorktreeIds.removeAll(keepingCapacity: false)
         refreshStateByRepoId.removeAll(keepingCapacity: false)
@@ -348,6 +346,8 @@ package actor ForgeActor {
         state.backoffUntil = nil
         state.activeRequestId = nil
         state.pendingFollowUp = false
+        state.consecutiveFailureCount = 0
+        state.lastPublishedFactsByBranch = nil
         refreshStateByRepoId[repoId] = state
         await emitForgeEvent(
             repoId: repoId,
@@ -440,22 +440,26 @@ package actor ForgeActor {
         providerTasksByRepoId.removeValue(forKey: request.repoId)
         state.activeRequestId = nil
         let completionTime = monotonicNow()
-        let event: ForgeEvent
+        var event: ForgeEvent?
 
         switch outcome {
         case .complete(let pullRequests):
             state.lastSuccessfulRefreshAt = completionTime
             state.backoffUntil = nil
+            state.consecutiveFailureCount = 0
             let stillRepresentedRequestedBranches = request.demandedBranches.intersection(
                 representedBranches(repoId: request.repoId)
             )
-            event = .pullRequestsChanged(
-                repoId: request.repoId,
-                factsByBranch: ForgePullRequestFactsProjector.project(
-                    pullRequests: pullRequests,
-                    demandedBranches: stillRepresentedRequestedBranches
-                )
+            let factsByBranch = ForgePullRequestFactsProjector.project(
+                pullRequests: pullRequests,
+                demandedBranches: stillRepresentedRequestedBranches
             )
+            let factsChanged = state.lastPublishedFactsByBranch != factsByBranch
+            state.lastPublishedFactsByBranch = factsByBranch
+            event =
+                factsChanged
+                ? .pullRequestsChanged(repoId: request.repoId, factsByBranch: factsByBranch)
+                : nil
         case .truncated:
             state.backoffUntil = minimumRetryAt(state: state, completionTime: completionTime)
             event = .refreshFailed(
@@ -472,16 +476,23 @@ package actor ForgeActor {
             )
             event = .rateLimited(repoId: request.repoId, retryAfterSeconds: retryAfterSeconds)
         case .failed(let message):
-            state.backoffUntil = minimumRetryAt(state: state, completionTime: completionTime)
+            state.consecutiveFailureCount += 1
+            state.backoffUntil =
+                completionTime
+                + AppPolicies.ForgeRefresh.failureBackoffDelay(
+                    forConsecutiveFailureCount: state.consecutiveFailureCount
+                )
             event = .refreshFailed(repoId: request.repoId, error: message)
         }
 
         refreshStateByRepoId[request.repoId] = state
-        await emitForgeEvent(
-            repoId: request.repoId,
-            correlationId: request.correlationId,
-            event: event
-        )
+        if let event {
+            await emitForgeEvent(
+                repoId: request.repoId,
+                correlationId: request.correlationId,
+                event: event
+            )
+        }
 
         guard var currentState = refreshStateByRepoId[request.repoId],
             currentState.generation == request.generation,

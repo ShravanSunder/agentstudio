@@ -4,6 +4,9 @@ import Foundation
 
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary
+    func refreshRegisteredWorktreesAndWatchedFolders(
+        _ watchedPaths: [WatchedPath]
+    ) async -> WatchedFolderRefreshSummary
 }
 
 /// Composition root for app-wide filesystem facts + derived local git facts.
@@ -121,6 +124,18 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
+        let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
+        if watchedPaths.isEmpty {
+            await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        } else {
+            await gitWorkingDirectoryProjector.refreshRegisteredWorktreesIntersecting(watchedPaths.map(\.path))
+        }
+        return summary
+    }
+
+    func refreshRegisteredWorktreesAndWatchedFolders(
+        _ watchedPaths: [WatchedPath]
+    ) async -> WatchedFolderRefreshSummary {
         let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
         await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
         return summary

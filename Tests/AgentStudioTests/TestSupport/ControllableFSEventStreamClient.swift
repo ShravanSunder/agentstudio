@@ -9,6 +9,7 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
     private var unregisteredIds: [UUID] = []
     private var continuation: AsyncStream<FSEventBatch>.Continuation?
     private var stream: AsyncStream<FSEventBatch>?
+    private var coarseRefreshDebt = Set<UUID>()
 
     package init() {
         let (stream, continuation) = AsyncStream<FSEventBatch>.makeStream(
@@ -28,6 +29,17 @@ package final class ControllableFSEventStreamClient: FSEventStreamClient, @unche
 
     package func events() -> AsyncStream<FSEventBatch> {
         lock.withLock { stream! }
+    }
+
+    package func consumeCoarseRefreshDebt() -> Set<UUID> {
+        lock.withLock {
+            defer { coarseRefreshDebt.removeAll(keepingCapacity: true) }
+            return coarseRefreshDebt
+        }
+    }
+
+    package func sendCoarseRefreshDebt(worktreeId: UUID) {
+        lock.withLock { coarseRefreshDebt.insert(worktreeId) }
     }
 
     package func register(worktreeId: UUID, repoId: UUID, rootPath: URL) {

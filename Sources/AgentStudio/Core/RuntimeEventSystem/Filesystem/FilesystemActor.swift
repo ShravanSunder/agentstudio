@@ -337,8 +337,25 @@ package actor FilesystemActor {
                 } else {
                     await self.enqueueRawPaths(worktreeId: batch.worktreeId, paths: batch.paths)
                 }
+                await self.consumeCoarseRefreshDebt()
             }
         }
+    }
+
+    private func consumeCoarseRefreshDebt() async {
+        for worktreeId in fseventStreamClient.consumeCoarseRefreshDebt() {
+            if isWatchedFolderBatch(worktreeId) {
+                await handleCoarseWatchedFolderFSEvent(worktreeId: worktreeId)
+                continue
+            }
+            guard pendingChangesByWorktreeId[worktreeId] != nil else { continue }
+            var pendingChanges = pendingChangesByWorktreeId[worktreeId] ?? PendingWorktreeChanges()
+            pendingChanges.projectedPaths.insert(".")
+            pendingChanges.recordPendingChange(at: schedulingClock.now())
+            pendingChangesByWorktreeId[worktreeId] = pendingChanges
+            scheduleDrainIfNeeded()
+        }
+        await recordLogicalDebtSnapshotIfChanged()
     }
 
     private func scheduleDrainIfNeeded() {
