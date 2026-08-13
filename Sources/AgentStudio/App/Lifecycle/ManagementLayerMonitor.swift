@@ -28,7 +28,7 @@ final class ManagementLayerMonitor {
 
     private var keyboardMonitor: Any?
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
-    private var pendingCommandRefreshCorrelationIds: Set<UUID> = []
+    private var pendingCommandRefreshCorrelationId: UUID?
 
     init(
         startKeyboardMonitoring: Bool = true,
@@ -62,13 +62,14 @@ final class ManagementLayerMonitor {
     }
 
     func prepareCommandRefreshSettlement(correlationId: UUID) {
-        pendingCommandRefreshCorrelationIds.insert(correlationId)
+        pendingCommandRefreshCorrelationId = correlationId
         withObservationTracking {
             _ = managementLayer.isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 await Task.yield()
-                guard self?.pendingCommandRefreshCorrelationIds.remove(correlationId) != nil else { return }
+                guard self?.pendingCommandRefreshCorrelationId == correlationId else { return }
+                self?.pendingCommandRefreshCorrelationId = nil
                 self?.interactionProbe?.settleInteraction(correlationId: correlationId)
             }
         }

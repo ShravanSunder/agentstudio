@@ -38,36 +38,6 @@ struct ManagementLayerMonitorTests {
         }
     }
 
-    @Test("management layer publication settles overlapping command refreshes")
-    func managementLayerPublicationSettlesOverlappingCommandRefreshes() async {
-        await withAsyncTestCoreAtoms { _ in
-            let clock = ManagementLayerProbeClock(nowNanoseconds: 2_000_000)
-            let recorder = ManagementLayerProbeRecorder()
-            let probe = AgentStudioInteractionPerformanceProbe(
-                nowNanoseconds: clock.now,
-                recordDuration: recorder.record
-            )
-            let monitor = ManagementLayerMonitor(
-                startKeyboardMonitoring: false,
-                interactionProbe: probe
-            )
-            let firstCorrelationId = UUIDv7.generate()
-            let secondCorrelationId = UUIDv7.generate()
-
-            probe.beginInteraction(.commandRefresh, correlationId: firstCorrelationId)
-            monitor.prepareCommandRefreshSettlement(correlationId: firstCorrelationId)
-            probe.beginInteraction(.commandRefresh, correlationId: secondCorrelationId)
-            monitor.prepareCommandRefreshSettlement(correlationId: secondCorrelationId)
-            clock.nowNanoseconds = 5_000_000
-            monitor.toggle()
-
-            await eventually("overlapping command refresh settlements are published") {
-                recorder.records.count == 2
-            }
-            #expect(recorder.records.allSatisfy { $0.0 == .commandRefresh })
-        }
-    }
-
     private func makeMonitor() -> ManagementLayerMonitor {
         ManagementLayerMonitor(startKeyboardMonitoring: false)
     }
