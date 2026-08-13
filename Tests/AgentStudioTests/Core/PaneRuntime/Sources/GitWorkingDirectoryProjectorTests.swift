@@ -1372,6 +1372,7 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(statusAttributes["agentstudio.performance.git.demand_class"] == .string("open_pane"))
         #expect(statusAttributes["agentstudio.performance.git.trigger_source"] == .string("registration"))
         #expect(statusAttributes["agentstudio.performance.git.cadence_tier"] == .string("open_pane"))
+        #expect(statusAttributes["agentstudio.performance.git.admission_to_status.elapsed_ms"] != nil)
         #expect(
             statusAttributes["agentstudio.performance.git.request.sequence"]
                 == admissionAttributes["agentstudio.performance.git.request.sequence"]

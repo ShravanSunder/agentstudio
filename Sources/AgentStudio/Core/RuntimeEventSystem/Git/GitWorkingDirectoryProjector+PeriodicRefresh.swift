@@ -1,6 +1,97 @@
+import AgentStudioInfrastructure
 import Foundation
 
 extension GitWorkingDirectoryProjector {
+    func scheduleCoalescedVisibilityAdmission() {
+        if visibilityAdmissionTask != nil {
+            recordVisibilityAdmissionTelemetry(
+                worktreeIds: pendingVisibilityDeltaWorktreeIds,
+                outcome: .superseded
+            )
+        }
+        visibilityAdmissionTask?.cancel()
+        pendingVisibilityDeltaWorktreeIds =
+            sidebarVisibleWorktreeIds
+            .subtracting(lastProcessedSidebarVisibleWorktreeIds)
+
+        let delay = self.delay
+        let coalescingWindow = AppPolicies.GitRefresh.visibilityChangeCoalescingWindow
+        visibilityAdmissionTask = Task { [weak self, delay, coalescingWindow] in
+            do {
+                try await delay.wait(coalescingWindow)
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.warning(
+                    "Unexpected visibility-admission sleep failure: \(String(describing: error), privacy: .public)"
+                )
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.applyCoalescedVisibilityAdmission()
+        }
+    }
+
+    private func applyCoalescedVisibilityAdmission() {
+        visibilityAdmissionTask = nil
+        let newlyVisibleWorktreeIds =
+            sidebarVisibleWorktreeIds
+            .subtracting(lastProcessedSidebarVisibleWorktreeIds)
+        lastProcessedSidebarVisibleWorktreeIds = sidebarVisibleWorktreeIds
+        pendingVisibilityDeltaWorktreeIds.removeAll(keepingCapacity: false)
+
+        let uncoveredWorktreeIds = newlyVisibleWorktreeIds.filter { worktreeId in
+            registeredContext(for: worktreeId) != nil
+                && lastStatusEntriesByWorktreeId[worktreeId] == nil
+                && pendingByWorktreeId[worktreeId] != nil
+                && worktreeTasks[worktreeId] == nil
+        }
+        let runningVisibleCount = worktreeTasks.keys.filter {
+            demandTier(for: $0) == .visibleSidebar
+        }.count
+        let globalAvailableSlotCount = max(
+            0,
+            refreshPolicy.maxConcurrentStatusComputes - worktreeTasks.count
+        )
+        let visibleAvailableSlotCount = max(
+            0,
+            refreshPolicy.visibleSidebarMaxConcurrent - runningVisibleCount
+        )
+        let promptAdmissionCount = min(
+            uncoveredWorktreeIds.count,
+            globalAvailableSlotCount,
+            visibleAvailableSlotCount
+        )
+        let promptlyAdmittedWorktreeIds = Set(
+            uncoveredWorktreeIds
+                .sorted(by: { $0.uuidString < $1.uuidString })
+                .prefix(promptAdmissionCount)
+        )
+        for worktreeId in promptlyAdmittedWorktreeIds {
+            tierEligibleWorktreeIds.insert(worktreeId)
+            refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .visibilityChange
+        }
+
+        let tierDeferredWorktreeIds =
+            newlyVisibleWorktreeIds
+            .subtracting(promptlyAdmittedWorktreeIds)
+        recordVisibilityAdmissionTelemetry(
+            worktreeIds: promptlyAdmittedWorktreeIds,
+            outcome: .admittedUncovered
+        )
+        recordVisibilityAdmissionTelemetry(
+            worktreeIds: tierDeferredWorktreeIds,
+            outcome: .tierDeferred
+        )
+        if !promptlyAdmittedWorktreeIds.isEmpty {
+            recordVisibilityAdmissionTelemetry(
+                worktreeIds: promptlyAdmittedWorktreeIds,
+                outcome: .batched
+            )
+            admitPendingWorktrees()
+        }
+    }
+
     func startPeriodicRefreshLoopIfNeeded() {
         guard let periodicRefreshInterval, periodicRefreshInterval > .zero else { return }
         guard periodicRefreshTask == nil else { return }

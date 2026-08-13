@@ -87,6 +87,7 @@ extension GitWorkingDirectoryProjector {
         for worktreeId in admittedWorktreeIds {
             refreshAttribution.nextRequestSequence &+= 1
             refreshAttribution.requestSequenceByWorktreeId[worktreeId] = refreshAttribution.nextRequestSequence
+            admissionStartedAtByWorktreeId[worktreeId] = envelopeClock.now
             let isExplicit = explicitRefreshWorktreeIds.contains(worktreeId)
             let admittedTier = demandTier(for: worktreeId)
             refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] =

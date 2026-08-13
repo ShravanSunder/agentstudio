@@ -41,7 +41,11 @@ package actor GitWorkingDirectoryProjector {
     var explicitRefreshWorktreeIds: Set<UUID> = []
     var tierEligibleWorktreeIds: Set<UUID> = []
     var admittedDemandTierByWorktreeId: [UUID: GitDemandTier] = [:]
+    var admissionStartedAtByWorktreeId: [UUID: ContinuousClock.Instant] = [:]
     var visibleSidebarStripeCursor: Int = 0
+    var visibilityAdmissionTask: Task<Void, Never>?
+    var lastProcessedSidebarVisibleWorktreeIds: Set<UUID> = []
+    var pendingVisibilityDeltaWorktreeIds: Set<UUID> = []
     var coalescingWorktreeIds: Set<UUID> = []
     private var nilStatusRetryTasks: [UUID: Task<Void, Never>] = [:]
     var pendingByWorktreeId: [UUID: FileChangeset] = [:]
@@ -121,6 +125,7 @@ package actor GitWorkingDirectoryProjector {
     isolated deinit {
         subscriptionTask?.cancel()
         periodicRefreshTask?.cancel()
+        visibilityAdmissionTask?.cancel()
         for task in worktreeTasks.values {
             task.cancel()
         }
@@ -167,6 +172,9 @@ package actor GitWorkingDirectoryProjector {
         let periodicRefresh = periodicRefreshTask
         periodicRefreshTask?.cancel()
         periodicRefreshTask = nil
+        let visibilityAdmission = visibilityAdmissionTask
+        visibilityAdmissionTask?.cancel()
+        visibilityAdmissionTask = nil
 
         var tasksToAwait: [Task<Void, Never>] = []
         for task in worktreeTasks.values {
@@ -181,6 +189,9 @@ package actor GitWorkingDirectoryProjector {
         }
         if let periodicRefresh {
             await periodicRefresh.value
+        }
+        if let visibilityAdmission {
+            await visibilityAdmission.value
         }
         for task in tasksToAwait {
             await task.value
@@ -209,7 +220,10 @@ package actor GitWorkingDirectoryProjector {
         explicitRefreshWorktreeIds.removeAll(keepingCapacity: false)
         tierEligibleWorktreeIds.removeAll(keepingCapacity: false)
         admittedDemandTierByWorktreeId.removeAll(keepingCapacity: false)
+        admissionStartedAtByWorktreeId.removeAll(keepingCapacity: false)
         visibleSidebarStripeCursor = 0
+        lastProcessedSidebarVisibleWorktreeIds.removeAll(keepingCapacity: false)
+        pendingVisibilityDeltaWorktreeIds.removeAll(keepingCapacity: false)
         coalescingWorktreeIds.removeAll(keepingCapacity: false)
         suppressedWorktreeIds.removeAll(keepingCapacity: false)
         suppressedWorktreeOrder.removeAll(keepingCapacity: false)
@@ -344,17 +358,14 @@ package actor GitWorkingDirectoryProjector {
     }
 
     package func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
-        let newlyVisibleWorktreeIds = worktreeIds.subtracting(sidebarVisibleWorktreeIds)
+        guard worktreeIds != sidebarVisibleWorktreeIds else { return }
         let noLongerVisibleWorktreeIds = sidebarVisibleWorktreeIds.subtracting(worktreeIds)
         sidebarVisibleWorktreeIds = worktreeIds
         for worktreeId in noLongerVisibleWorktreeIds
         where activePaneWorktreeId != worktreeId && !activeWorktreeIds.contains(worktreeId) {
             tierEligibleWorktreeIds.remove(worktreeId)
         }
-        grantNextVisibleSidebarStripe(candidates: newlyVisibleWorktreeIds)
-        for worktreeId in newlyVisibleWorktreeIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId, triggerSource: .visibilityChange)
-        }
+        scheduleCoalescedVisibilityAdmission()
     }
 
     package func refreshRegisteredWorktreesImmediately() {
@@ -483,9 +494,12 @@ package actor GitWorkingDirectoryProjector {
         explicitRefreshWorktreeIds.remove(worktreeId)
         tierEligibleWorktreeIds.remove(worktreeId)
         admittedDemandTierByWorktreeId.removeValue(forKey: worktreeId)
+        admissionStartedAtByWorktreeId.removeValue(forKey: worktreeId)
         coalescingWorktreeIds.remove(worktreeId)
         activeWorktreeIds.remove(worktreeId)
         sidebarVisibleWorktreeIds.remove(worktreeId)
+        lastProcessedSidebarVisibleWorktreeIds.remove(worktreeId)
+        pendingVisibilityDeltaWorktreeIds.remove(worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
@@ -599,16 +613,19 @@ package actor GitWorkingDirectoryProjector {
             )
             return
         }
+        let statusCompletion = envelopeClock.now
         performanceTraceRecorder?.recordDuration(
             .gitStatusComputed,
             duration: computeStart.duration(to: envelopeClock.now),
-            attributes: gitStatusTraceAttributes(
+            attributes: gitStatusCompletionTraceAttributes(
                 for: changeset,
                 unavailable: nil,
                 scope: resolved.scope,
-                pathspecCount: resolved.pathspecCount
+                pathspecCount: resolved.pathspecCount,
+                statusCompletion: statusCompletion
             )
         )
+        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
@@ -722,16 +739,19 @@ package actor GitWorkingDirectoryProjector {
         guard isCurrent(changeset) else { return }
         guard case .unavailable(let unavailable) = statusResult else { return }
 
+        let statusCompletion = envelopeClock.now
         performanceTraceRecorder?.recordDuration(
             .gitStatusUnavailable,
             duration: computeStart.duration(to: envelopeClock.now),
-            attributes: gitStatusTraceAttributes(
+            attributes: gitStatusCompletionTraceAttributes(
                 for: changeset,
                 unavailable: unavailable,
                 scope: scope,
-                pathspecCount: pathspecCount
+                pathspecCount: pathspecCount,
+                statusCompletion: statusCompletion
             )
         )
+        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         switch unavailable.reason {
         case .timeout:
             openOrAdvanceStatusBackoff(for: changeset, reason: unavailable.reason)

@@ -131,6 +131,7 @@ package enum AppPolicies {
         package static let filesystemDebounceWindow: Duration = .milliseconds(500)
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
+        package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
 
         package struct Policy: Equatable, Sendable {
             package let activePaneCadence: Duration
