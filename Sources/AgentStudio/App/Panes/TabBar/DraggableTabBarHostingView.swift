@@ -8,8 +8,8 @@ import UniformTypeIdentifiers
 // MARK: - Draggable Tab Bar Container
 
 /// Container view that wraps NSHostingView and handles drag-to-reorder for tabs.
-/// Uses NSPanGestureRecognizer to detect drags while letting SwiftUI handle all other
-/// interactions (clicks, close buttons, right-clicks, hover).
+/// Uses NSPanGestureRecognizer for tab drags, AppKit for secondary-click menus and
+/// empty-strip window dragging, and SwiftUI for visual and primary-click interactions.
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private static let paneDragHoverDwellDuration: TimeInterval = 0.1
     private static let doubleClickActionDefaultsKey = "AppleActionOnDoubleClick"
@@ -24,6 +24,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     var performWindowDrag: ((NSEvent) -> Void)?
     var performWindowZoom: (() -> Void)?
     var performWindowMiniaturize: (() -> Void)?
+    var currentEventProvider: () -> NSEvent? = { NSApp.currentEvent }
+    var contextMenuRequestHandler: ((_ tabId: UUID, _ event: NSEvent) -> Bool)?
     /// Called when a tab is clicked (mouse down + up without drag) during management layer.
     /// The pan gesture recognizer consumes mouse events, preventing SwiftUI's
     /// onTapGesture from firing. This callback forwards the click as a selection.
@@ -49,14 +51,23 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private var dwellState = DragDwellState.idle
 
     private var managementLayerObservation: Task<Void, Never>?
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private var rightMouseDownMonitor: Any?
 
     isolated deinit {
         managementLayerObservation?.cancel()
+        if let rightMouseDownMonitor {
+            NSEvent.removeMonitor(rightMouseDownMonitor)
+        }
     }
 
     // MARK: - Initialization
 
-    init(rootView: CustomTabBar) {
+    init(
+        rootView: CustomTabBar,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) {
+        self.performanceTraceRecorder = performanceTraceRecorder
         super.init(frame: .zero)
 
         hostingView = NSHostingView(rootView: rootView)
@@ -84,6 +95,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         panGesture.isEnabled = atom(\.managementLayer).isActive
         addGestureRecognizer(panGesture)
         observeManagementLayer()
+        installRightMouseDownMonitor()
     }
 
     required init?(coder: NSCoder) {
@@ -118,6 +130,61 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             }
             resetPaneDragDwell()
         }
+    }
+
+    private func installRightMouseDownMonitor() {
+        rightMouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+            self?.processRightMouseDown(event) ?? event
+        }
+    }
+
+    func processRightMouseDown(_ event: NSEvent) -> NSEvent? {
+        recordRightMouseDownAdmission(event)
+        guard let window, event.windowNumber == window.windowNumber else { return event }
+        let location = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(location), let tabId = tabAtPoint(location) else { return event }
+        guard contextMenuRequestHandler?(tabId, event) == true else { return event }
+        return nil
+    }
+
+    private func recordRightMouseDownAdmission(_ event: NSEvent) {
+        guard let window, event.windowNumber == window.windowNumber else { return }
+        let location = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(location) else { return }
+
+        performanceTraceRecorder?.record(
+            .tabBarContextMenu,
+            attributes: [
+                "agentstudio.performance.tabbar.context_menu.phase": .string("input"),
+                "agentstudio.performance.tabbar.context_menu.tab_hit": .bool(
+                    tabAtPoint(location) != nil
+                ),
+            ]
+        )
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        guard currentEventProvider()?.type == .rightMouseDown else { return hitView }
+        performanceTraceRecorder?.record(
+            .tabBarContextMenu,
+            attributes: [
+                "agentstudio.performance.tabbar.context_menu.phase": .string("host_hit_test"),
+                "agentstudio.performance.tabbar.context_menu.host_hit": .bool(hitView != nil),
+                "agentstudio.performance.tabbar.context_menu.hit_view_class": .string(
+                    contextMenuHitViewLabel(hitView)
+                ),
+                "agentstudio.performance.tabbar.context_menu.static_menu_available": .bool(
+                    hitView?.menu != nil
+                ),
+            ]
+        )
+        return hitView
+    }
+
+    private func contextMenuHitViewLabel(_ hitView: NSView?) -> String {
+        guard let hitView else { return "none" }
+        return hitView === hostingView || hitView.isDescendant(of: hostingView) ? "swiftui" : "appkit"
     }
 
     // MARK: - Setup

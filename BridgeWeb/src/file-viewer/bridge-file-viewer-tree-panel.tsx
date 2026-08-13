@@ -1,5 +1,5 @@
 import { FileTree } from '@pierre/trees/react';
-import type { ReactElement, Ref } from 'react';
+import type { ReactElement, ReactNode, Ref } from 'react';
 
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
@@ -56,6 +56,7 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly treeRowByPath: {
 		readonly get: (path: string) => BridgeFileViewerDisplayTreeRow | undefined;
 	};
+	readonly viewerContextSwitcher?: ReactNode;
 }
 
 const bridgeFileViewerTreeRowHeightPixels = 24;
@@ -117,17 +118,23 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					className: 'min-w-0 gap-2',
 					leading: (
 						<>
-							<span className="sr-only" data-testid="worktree-file-filter-count">
-								{visibleCountLabel}
-							</span>
-							<span className="sr-only" data-testid="worktree-file-provenance">
-								{sourceLabel}
+							{props.viewerContextSwitcher}
+							<span
+								aria-live="polite"
+								className="sr-only"
+								data-testid="worktree-file-status"
+								role="status"
+							>
+								<span className="sr-only" data-testid="worktree-file-filter-count">
+									{visibleCountLabel}
+								</span>
+								<span className="sr-only" data-testid="worktree-file-provenance">
+									{sourceLabel}
+								</span>
 							</span>
 						</>
 					),
-					leadingAriaLive: 'polite',
 					leadingClassName: 'flex-1',
-					leadingRole: 'status',
 					leadingTestId: 'bridge-file-viewer-rail-toolbar-leading',
 					testId: 'bridge-file-viewer-rail-toolbar',
 					trailing: (

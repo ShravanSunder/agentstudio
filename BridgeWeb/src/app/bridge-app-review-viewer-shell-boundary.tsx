@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 
 import {
+	BridgeReviewComparisonInitialShell,
 	BridgeReviewEmptyShell,
 	BridgeReviewMetadataFailedShell,
 	BridgeReviewMetadataLoadingShell,
@@ -9,6 +10,8 @@ import {
 	BridgeReviewProjectionPendingShell,
 } from '../review-viewer/shell/review-viewer-fallback-shells.js';
 import type { ReviewViewerShellProps } from '../review-viewer/shell/review-viewer-shell.js';
+import type { BridgeReviewComparisonPaneState } from './bridge-review-comparison-pane-state.js';
+import type { BridgeReviewComparisonTarget } from './bridge-review-comparison-target.js';
 
 const LazyReviewViewerShell = lazy(async () => {
 	const reviewViewerShellModule = await import('../review-viewer/shell/review-viewer-shell.js');
@@ -23,20 +26,33 @@ export type BridgeReviewViewerPresentationState =
 	| { readonly status: 'projectionFailed' }
 	| {
 			readonly presentationKey: string;
-			readonly shellProps: Omit<ReviewViewerShellProps, 'isActive' | 'viewerHeaderControls'>;
+			readonly shellProps: Omit<
+				ReviewViewerShellProps,
+				'isActive' | 'viewerContextSwitcher' | 'viewerHeaderControls'
+			>;
 			readonly status: 'ready';
 	  };
 
 export interface BridgeReviewViewerShellBoundaryProps {
+	readonly comparisonPaneState: BridgeReviewComparisonPaneState;
 	readonly isActive: boolean;
+	readonly onRetryComparison: (target: BridgeReviewComparisonTarget) => void;
 	readonly presentationState: BridgeReviewViewerPresentationState;
+	readonly viewerContextSwitcher: ReactNode;
 	readonly viewerHeaderControls: ReactNode;
 }
 
 export function BridgeReviewViewerShellBoundary(
 	props: BridgeReviewViewerShellBoundaryProps,
 ): ReactElement {
-	const { isActive, presentationState, viewerHeaderControls } = props;
+	const {
+		comparisonPaneState,
+		isActive,
+		onRetryComparison,
+		presentationState,
+		viewerContextSwitcher,
+		viewerHeaderControls,
+	} = props;
 	const [hasActivatedReadyPresentation, setHasActivatedReadyPresentation] = useState(false);
 	useEffect((): void => {
 		if (presentationState.status !== 'ready') {
@@ -48,15 +64,35 @@ export function BridgeReviewViewerShellBoundary(
 		}
 	}, [isActive, presentationState]);
 
+	if (
+		comparisonPaneState.kind === 'loadingInitial' ||
+		comparisonPaneState.kind === 'failedInitial'
+	) {
+		return (
+			<BridgeReviewComparisonInitialShell
+				comparisonPaneState={comparisonPaneState}
+				isActive={isActive}
+				onRetryComparison={onRetryComparison}
+				viewerContextSwitcher={viewerContextSwitcher}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
+	}
+
 	switch (presentationState.status) {
 		case 'empty':
 			return (
-				<BridgeReviewEmptyShell isActive={isActive} viewerHeaderControls={viewerHeaderControls} />
+				<BridgeReviewEmptyShell
+					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
+					viewerHeaderControls={viewerHeaderControls}
+				/>
 			);
 		case 'metadataLoading':
 			return (
 				<BridgeReviewMetadataLoadingShell
 					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
 					viewerHeaderControls={viewerHeaderControls}
 				/>
 			);
@@ -65,6 +101,7 @@ export function BridgeReviewViewerShellBoundary(
 				<BridgeReviewMetadataFailedShell
 					error={presentationState.error}
 					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
 					viewerHeaderControls={viewerHeaderControls}
 				/>
 			);
@@ -72,6 +109,7 @@ export function BridgeReviewViewerShellBoundary(
 			return (
 				<BridgeReviewProjectionPendingShell
 					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
 					viewerHeaderControls={viewerHeaderControls}
 				/>
 			);
@@ -79,6 +117,7 @@ export function BridgeReviewViewerShellBoundary(
 			return (
 				<BridgeReviewProjectionFailedShell
 					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
 					viewerHeaderControls={viewerHeaderControls}
 				/>
 			);
@@ -92,6 +131,7 @@ export function BridgeReviewViewerShellBoundary(
 		return (
 			<BridgeReviewProjectionPendingShell
 				isActive={isActive}
+				viewerContextSwitcher={viewerContextSwitcher}
 				viewerHeaderControls={viewerHeaderControls}
 			/>
 		);
@@ -102,6 +142,7 @@ export function BridgeReviewViewerShellBoundary(
 			fallback={
 				<BridgeReviewProjectionPendingShell
 					isActive={isActive}
+					viewerContextSwitcher={viewerContextSwitcher}
 					viewerHeaderControls={viewerHeaderControls}
 				/>
 			}
@@ -109,6 +150,7 @@ export function BridgeReviewViewerShellBoundary(
 			<LazyReviewViewerShell
 				{...presentationState.shellProps}
 				isActive={isActive}
+				viewerContextSwitcher={viewerContextSwitcher}
 				viewerHeaderControls={viewerHeaderControls}
 			/>
 		</Suspense>

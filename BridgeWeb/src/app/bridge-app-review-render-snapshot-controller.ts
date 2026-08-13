@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import {
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerReviewComparisonUpdateCommand,
+	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
+	encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
@@ -17,9 +20,11 @@ import {
 	type BridgeMainReviewSourceDisplaySlice,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerPanelChromePatchPayload,
+	BridgeWorkerReviewComparisonUpdateCommand,
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewProjectionUpdateCommand,
 	BridgeWorkerServerToMainMessage,
@@ -31,6 +36,7 @@ import {
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { recordBridgeSelectionLifecycleSnapshot } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 
 const BRIDGE_REVIEW_INTAKE_READY_MAX_ATTEMPTS = 3;
 
@@ -46,6 +52,7 @@ interface BridgeReviewIntakeReadyAttempt {
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
 	readonly reviewClient: BridgePaneSurfaceClient;
+	readonly telemetryRecorderRef?: { readonly current: BridgeTelemetryRecorder };
 }
 
 export interface BridgeReviewDirectDisplayStore extends Pick<
@@ -64,6 +71,7 @@ export interface BridgeReviewDirectDisplayStore extends Pick<
 
 export interface BridgeReviewRenderSnapshotController {
 	readonly catalogSnapshot: BridgeMainReviewCatalogSnapshot;
+	readonly comparisonTargetsQueryState: BridgeReviewComparisonTargetsQueryState;
 	readonly clearSelectedReviewItemId: () => void;
 	readonly commitSelectedReviewItemId: (itemId: string) => void;
 	readonly displayStore: BridgeReviewDirectDisplayStore;
@@ -84,8 +92,31 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly updateReviewDisplayProjection: (
 		query: BridgeWorkerReviewProjectionUpdateCommand['query'],
 	) => void;
+	readonly updateReviewComparisonTarget: (
+		target: BridgeWorkerReviewComparisonUpdateCommand['target'],
+	) => void;
+	readonly queryReviewComparisonTargets: () => void;
+	readonly cancelReviewComparisonTargetsQuery: () => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 }
+
+export type BridgeReviewComparisonTargetsQueryState =
+	| { readonly status: 'idle' | 'loading'; readonly catalog: null; readonly message: null }
+	| {
+			readonly status: 'ready';
+			readonly catalog: BridgeProductReviewComparisonTargetCatalog;
+			readonly message: null;
+	  }
+	| {
+			readonly status: 'failed';
+			readonly catalog: null;
+			readonly message: string;
+	  }
+	| {
+			readonly status: 'empty';
+			readonly catalog: BridgeProductReviewComparisonTargetCatalog;
+			readonly message: string;
+	  };
 
 export function useBridgeReviewRenderSnapshotController(
 	props: UseBridgeReviewRenderSnapshotControllerProps,
@@ -139,6 +170,12 @@ export function useBridgeReviewRenderSnapshotController(
 			? ({ state: 'loading' } as const)
 			: (rawSelectedContentAvailability ?? null);
 	const [codeViewRenderedItemIds, setCodeViewRenderedItemIds] = useState<readonly string[]>([]);
+	const [comparisonTargetsQueryState, setComparisonTargetsQueryState] =
+		useState<BridgeReviewComparisonTargetsQueryState>({
+			catalog: null,
+			message: null,
+			status: 'idle',
+		});
 	const visibleCodeViewItems = useVisibleReviewCodeViewItems({
 		displayStore,
 		itemIds: codeViewRenderedItemIds,
@@ -151,6 +188,7 @@ export function useBridgeReviewRenderSnapshotController(
 	const hoveredReviewItemIdRef = useRef<string | null>(null);
 	const reviewIntakeReadyAttemptRef = useRef<BridgeReviewIntakeReadyAttempt | null>(null);
 	const latestReviewSelectRequestIdRef = useRef<string | null>(null);
+	const latestComparisonTargetsQueryRequestIdRef = useRef<string | null>(null);
 	const markFileViewedFailureCallbacksRef = useRef<Map<string, () => void>>(new Map());
 	const settleWorkerRequests = useCallback((): void => {
 		const lifecycleSnapshot = props.reviewClient.lifecycle.getSnapshot();
@@ -174,11 +212,47 @@ export function useBridgeReviewRenderSnapshotController(
 	useEffect((): (() => void) => {
 		const failureCallbacksByRequestId = markFileViewedFailureCallbacksRef.current;
 		const unsubscribeMessages = props.reviewClient.subscribeMessages((message): void => {
+			if (
+				message.kind === 'health' &&
+				message.status === 'degraded' &&
+				message.requestId === latestComparisonTargetsQueryRequestIdRef.current
+			) {
+				latestComparisonTargetsQueryRequestIdRef.current = null;
+				setComparisonTargetsQueryState({
+					catalog: null,
+					message: 'Comparison targets are unavailable.',
+					status: 'failed',
+				});
+				return;
+			}
+			if (message.kind === 'reviewComparisonTargetsQuery') {
+				if (message.requestId !== latestComparisonTargetsQueryRequestIdRef.current) return;
+				setComparisonTargetsQueryState(
+					message.status === 'ready' && message.catalog !== null
+						? { catalog: message.catalog, message: null, status: 'ready' }
+						: message.status === 'empty' && message.catalog !== null
+							? {
+									catalog: message.catalog,
+									message:
+										message.message ?? 'No branch choices are available from the last 30 days.',
+									status: 'empty',
+								}
+							: {
+									catalog: null,
+									message: message.message ?? 'Comparison targets are unavailable.',
+									status: 'failed',
+								},
+				);
+				return;
+			}
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages: [message],
 				pierreCourier,
 				renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
 				renderSnapshotStore: displayStore,
+				...(props.telemetryRecorderRef === undefined
+					? {}
+					: { telemetryRecorder: props.telemetryRecorderRef.current }),
 			});
 		});
 		const unsubscribeLifecycle = props.reviewClient.lifecycle.subscribe(settleWorkerRequests);
@@ -186,8 +260,18 @@ export function useBridgeReviewRenderSnapshotController(
 			unsubscribeMessages();
 			unsubscribeLifecycle();
 			failureCallbacksByRequestId.clear();
+			latestComparisonTargetsQueryRequestIdRef.current = null;
 		};
-	}, [displayStore, pierreCourier, props.reviewClient, settleWorkerRequests]);
+	}, [
+		displayStore,
+		pierreCourier,
+		props.reviewClient,
+		props.telemetryRecorderRef,
+		settleWorkerRequests,
+	]);
+	useEffect((): void => {
+		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
+	}, [props.reviewClient]);
 	useEffect((): void => {
 		beginBridgeReviewIntakeReadyDelivery({
 			attemptRef: reviewIntakeReadyAttemptRef,
@@ -252,6 +336,62 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewClient],
 	);
+	const updateReviewComparisonTarget = useCallback(
+		(target: BridgeWorkerReviewComparisonUpdateCommand['target']): void => {
+			props.reviewClient.send(
+				encodeBridgeWorkerReviewComparisonUpdateCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-client-owned',
+					target,
+				}),
+			);
+		},
+		[props.reviewClient],
+	);
+	const queryReviewComparisonTargets = useCallback((): void => {
+		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'loading' });
+		try {
+			const requestId = props.reviewClient.send(
+				encodeBridgeWorkerReviewComparisonTargetsQueryCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-client-owned',
+				}),
+			);
+			latestComparisonTargetsQueryRequestIdRef.current = requestId;
+			if (props.reviewClient.lifecycle.getSnapshot().requestsById[requestId]?.state === 'failed') {
+				latestComparisonTargetsQueryRequestIdRef.current = null;
+				setComparisonTargetsQueryState({
+					catalog: null,
+					message: 'Comparison targets are unavailable.',
+					status: 'failed',
+				});
+			}
+		} catch {
+			latestComparisonTargetsQueryRequestIdRef.current = null;
+			setComparisonTargetsQueryState({
+				catalog: null,
+				message: 'Comparison targets are unavailable.',
+				status: 'failed',
+			});
+		}
+	}, [props.reviewClient]);
+	const cancelReviewComparisonTargetsQuery = useCallback((): void => {
+		const queryRequestId = latestComparisonTargetsQueryRequestIdRef.current;
+		latestComparisonTargetsQueryRequestIdRef.current = null;
+		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
+		if (queryRequestId === null) return;
+		try {
+			props.reviewClient.send(
+				encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					queryRequestId,
+					requestId: 'review-client-owned',
+				}),
+			);
+		} catch {
+			// The picker is already locally cancelled; worker delivery is best effort.
+		}
+	}, [props.reviewClient]);
 	useEffect((): void => {
 		const lastVisibleIndex = Math.max(0, workerViewportItemIds.length - 1);
 		displayStore.setLocalViewport({
@@ -307,6 +447,7 @@ export function useBridgeReviewRenderSnapshotController(
 	);
 	return {
 		catalogSnapshot,
+		comparisonTargetsQueryState,
 		clearSelectedReviewItemId,
 		commitSelectedReviewItemId,
 		displayStore,
@@ -319,8 +460,11 @@ export function useBridgeReviewRenderSnapshotController(
 		selectedContentAvailability,
 		selectedItemId,
 		selectedReviewItem: selectedReviewItem ?? null,
+		queryReviewComparisonTargets,
+		cancelReviewComparisonTargetsQuery,
 		setReviewCodeViewVisibleItemIds,
 		setReviewTreeVisibleItemIds,
+		updateReviewComparisonTarget,
 		updateReviewDisplayProjection,
 		visibleCodeViewItems,
 	};
@@ -413,6 +557,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
 	>;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 }): void {
 	for (const message of props.messages) {
 		switch (message.kind) {
@@ -424,17 +569,27 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				props.renderSnapshotStore.applyReviewDisplayPatchEvent(message);
 				break;
 			case 'reviewRenderPatch': {
-				if (!bridgeReviewPublicationMatchesDisplayEpoch(props.renderSnapshotStore, message)) {
-					break;
-				}
+				const publicationMatchesDisplay = bridgeReviewPublicationMatchesDisplayEpoch(
+					props.renderSnapshotStore,
+					message,
+				);
 				const currentMemberPatches = message.patches.filter(
 					(patch): boolean =>
 						patch.slice === 'panelChrome' ||
-						patch.operation === 'reset' ||
-						props.renderSnapshotStore.reviewCatalogContainsItem(patch.itemId),
+						(publicationMatchesDisplay &&
+							(patch.operation === 'reset' ||
+								props.renderSnapshotStore.reviewCatalogContainsItem(patch.itemId))),
 				);
 				if (currentMemberPatches.length > 0) {
 					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: currentMemberPatches });
+					for (const patch of currentMemberPatches) {
+						if (patch.slice !== 'panelChrome') continue;
+						recordAppliedReviewPanelChrome({
+							message,
+							patch,
+							telemetryRecorder: props.telemetryRecorder,
+						});
+					}
 				}
 				break;
 			}
@@ -443,6 +598,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			case 'health':
 			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':
+			case 'reviewComparisonTargetsQuery':
 				break;
 			case 'reviewPierreRenderJob':
 				if (
@@ -488,6 +644,55 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				assertNeverBridgeWorkerServerMessage(message);
 		}
 	}
+}
+
+function recordAppliedReviewPanelChrome(props: {
+	readonly message: Extract<
+		BridgeWorkerServerToMainMessage,
+		{ readonly kind: 'reviewRenderPatch' }
+	>;
+	readonly patch: Extract<
+		Extract<
+			BridgeWorkerServerToMainMessage,
+			{ readonly kind: 'reviewRenderPatch' }
+		>['patches'][number],
+		{ readonly slice: 'panelChrome' }
+	>;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+}): void {
+	const attempt =
+		props.patch.operation === 'upsert' ? props.patch.payload.reviewComparison?.attempt : null;
+	props.telemetryRecorder?.record({
+		scope: 'web',
+		name: 'performance.bridge.web.pane_presentation',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.comparison.attempt.status':
+				attempt === null || attempt === undefined
+					? 'absent'
+					: attempt.status === 'selectionRequired'
+						? 'selection_required'
+						: attempt.status,
+			'agentstudio.bridge.panel.operation': props.patch.operation,
+			'agentstudio.bridge.phase': 'panel_chrome_applied',
+			'agentstudio.bridge.plane': 'control',
+			'agentstudio.bridge.presentation.disposition': 'applied',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.slice': 'review_metadata',
+			'agentstudio.bridge.transport': 'local',
+			'agentstudio.bridge.viewer': 'review',
+		},
+		numericAttributes: {
+			'agentstudio.bridge.presentation.publication_sequence': props.message.publicationSequence,
+			'agentstudio.bridge.worker.derivation_epoch': props.message.workerDerivationEpoch,
+			...(attempt?.status === 'pending' || attempt?.status === 'settled'
+				? { 'agentstudio.bridge.review.generation': attempt.reviewGeneration }
+				: {}),
+		},
+		booleanAttributes: {},
+	});
 }
 
 function bridgeReviewPublicationMatchesDisplayEpoch(

@@ -749,7 +749,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						onNavigationSourceChange={reportFileNavigationSource}
 						requiresNavigationSourceDiscovery={requiresFileNavigationSourceDiscovery}
 						telemetryRecorder={telemetryRecorder}
-						viewerHeaderControls={
+						viewerContextSwitcher={
 							<BridgeViewerContextSwitcher
 								mode={activeViewerMode}
 								onModeChange={activateViewerMode}
@@ -778,7 +778,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						onNavigationSourceChange={reportReviewNavigationSource}
 						reviewClient={paneRuntimeHost.reviewClient}
 						telemetryRecorderRef={telemetryRecorderRef}
-						viewerHeaderControls={
+						viewerContextSwitcher={
 							<BridgeViewerContextSwitcher
 								mode={activeViewerMode}
 								onModeChange={activateViewerMode}

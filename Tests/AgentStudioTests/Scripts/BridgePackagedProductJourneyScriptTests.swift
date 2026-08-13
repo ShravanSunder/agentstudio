@@ -23,6 +23,8 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.stdout.contains("257 initial Review diffs"))
         #expect(result.stdout.contains("bridge-product-paint-correlation"))
         #expect(result.stdout.contains("preserves the fixture and app for verification"))
+        #expect(result.stdout.contains("explicit symbolic comparison target"))
+        #expect(result.stdout.contains("same-tree target and shared-base movement"))
     }
 
     @Test("verifier dry-run declares artifact IPC Victoria and visual proof owners")
@@ -44,8 +46,74 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.stdout.contains("Review early/middle/final traversal"))
         #expect(result.stdout.contains("two independent panes"))
         #expect(result.stdout.contains("Victoria marker and proof token"))
-        #expect(result.stdout.contains("PID-targeted Peekaboo"))
+        #expect(result.stdout.contains("Computer Use UI selection before verification"))
         #expect(result.stdout.contains("no frame_not_live skip"))
+        #expect(result.stdout.contains("exact package origin and core.sqlite symbolic intent"))
+        #expect(result.stdout.contains("automatic Git-ref invalidation without bridge.diff.refresh"))
+        #expect(result.stdout.contains("does not embed desktop automation"))
+        #expect(result.stdout.contains("raw one-row comparison geometry"))
+    }
+
+    @Test("runner and verifier bind symbolic intent to automatic history movement proof")
+    func packagedJourneyBindsSymbolicIntentToAutomaticHistoryMovementProof() throws {
+        let runnerSource = try String(
+            contentsOfFile: "scripts/run-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+        let verifierSource = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(runnerSource.contains("AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME"))
+        #expect(runnerSource.contains("refs/remotes/origin/HEAD"))
+        #expect(runnerSource.contains("refs/heads/$comparison_target_name"))
+        #expect(verifierSource.contains("SELECT payload_json FROM pane_content_payload WHERE pane_id = ?"))
+        let commonCommitBranchLiteral =
+            #"{"basis": "commonCommit", "kind": "branch", "name": comparison_target_name}"#
+        #expect(verifierSource.components(separatedBy: commonCommitBranchLiteral).count == 3)
+        #expect(verifierSource.contains(#"origin.get("baseRole") == "commonCommit""#))
+        #expect(verifierSource.contains(#"origin.get("baseOID") == base_oid"#))
+        #expect(!verifierSource.contains("contributionBaseOID"))
+        #expect(
+            verifierSource.contains(
+                #"payload["state"]["source"]["workspace"]["comparisonTarget"]"#
+            )
+        )
+        #expect(verifierSource.contains("def move_comparison_history():"))
+        #expect(verifierSource.contains(#"subprocess.run([git_bin, "-C", fixture_root, "update-ref""#))
+
+        let movementRange = try #require(
+            verifierSource.range(
+                of: "target_before, reviewed_before, target_after, reviewed_after = move_comparison_history()"
+            )
+        )
+        let automaticWaitRange = try #require(
+            verifierSource.range(
+                of: #"wait_for("automatic contribution refresh"#,
+                range: movementRange.upperBound..<verifierSource.endIndex
+            )
+        )
+        let automaticSequence = verifierSource[movementRange.lowerBound..<automaticWaitRange.upperBound]
+        #expect(automaticSequence.contains(#"session.request("bridge.diff.refresh""#) == false)
+    }
+
+    @Test("verifier consumes Computer Use selection without embedding desktop automation")
+    func verifierConsumesComputerUseSelectionWithoutEmbeddingDesktopAutomation() throws {
+        let source = try String(
+            contentsOfFile: "scripts/verify-bridge-packaged-product-journey.sh",
+            encoding: .utf8
+        )
+
+        #expect(!source.localizedCaseInsensitiveContains("peekaboo"))
+        #expect(source.contains("Computer Use must select the comparison target before verification"))
+        #expect(source.contains("persisted symbolic comparison target selected through the UI"))
+        #expect(source.contains("comparisonTriggerLabel"))
+        #expect(source.contains(#"f"Compare to: {comparison_target_name}""#))
+        #expect(!source.contains(#"f"Compare: {comparison_target_name}""#))
+        #expect(source.contains("contentTopbarFrame"))
+        #expect(source.contains("contentTopbarControlsFrame"))
+        #expect(source.contains("comparisonTriggerFrame"))
     }
 
     @Test("verifier hard-cuts Files and Review filter requests to complete candidates")
@@ -127,6 +195,7 @@ struct BridgePackagedProductJourneyScriptTests {
         let initialReadyWait = "initial_package = wait_for("
         let initialGenerationCapture =
             #"generation_before = initial_package.get("reviewGeneration")"#
+        let initialPageReadyWait = "initial_review_page = wait_for("
         let refreshRequest =
             #"session.request("bridge.diff.refresh", {"handle": review_handle})"#
         let postRefreshReadyWait = "package = wait_for("
@@ -135,6 +204,7 @@ struct BridgePackagedProductJourneyScriptTests {
 
         let initialReadyWaitRange = source.range(of: initialReadyWait)
         let initialGenerationCaptureRange = source.range(of: initialGenerationCapture)
+        let initialPageReadyWaitRange = source.range(of: initialPageReadyWait)
         let refreshRequestRange = source.range(of: refreshRequest)
 
         #expect(
@@ -153,8 +223,21 @@ struct BridgePackagedProductJourneyScriptTests {
             #expect(initialReadinessBlock.contains(#"value.get("status") == "ready""#))
         }
 
-        if let initialGenerationCaptureRange, let refreshRequestRange {
-            #expect(initialGenerationCaptureRange.upperBound < refreshRequestRange.lowerBound)
+        if let initialGenerationCaptureRange, let initialPageReadyWaitRange,
+            let refreshRequestRange
+        {
+            #expect(initialGenerationCaptureRange.upperBound < initialPageReadyWaitRange.lowerBound)
+            #expect(initialPageReadyWaitRange.upperBound < refreshRequestRange.lowerBound)
+            let initialPageReadinessBlock = source[
+                initialPageReadyWaitRange.lowerBound..<refreshRequestRange.lowerBound
+            ]
+            #expect(
+                initialPageReadinessBlock.contains(
+                    #"value.get("summary", {}).get("reviewMetadataGeneration") == generation_before"#
+                )
+            )
+        } else {
+            Issue.record("verifier must wait for the initial Review page generation before refresh")
         }
 
         if let refreshRequestRange,
@@ -422,6 +505,9 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(source.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         #expect(source.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(source.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+        #expect(source.contains(#"AGENTSTUDIO_OBSERVABILITY_APP=//p"#))
+        #expect(source.contains(#"/usr/bin/open -a "$launched_app_path""#))
+        #expect(source.contains("packaged_candidate_activation_failed"))
         #expect(!source.contains("kill "))
         #expect(!source.contains("killall"))
         #expect(!source.contains("pkill"))

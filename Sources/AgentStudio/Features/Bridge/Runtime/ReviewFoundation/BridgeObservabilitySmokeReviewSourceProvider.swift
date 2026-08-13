@@ -9,6 +9,39 @@ import Foundation
 
         package init() {}
 
+        package func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+            BridgeReviewComparisonDefaultTargetIdentity(
+                remoteName: "origin",
+                branchName: "main"
+            )
+        }
+
+        package func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+            -> BridgeContributionComparisonCapture
+        {
+            let baseEndpoint = BridgeSourceEndpoint(
+                endpointId: request.baseEndpoint.endpointId,
+                kind: .gitRef,
+                repoId: request.baseEndpoint.repoId,
+                worktreeId: request.baseEndpoint.worktreeId,
+                label: request.baseEndpoint.label,
+                createdAtUnixMilliseconds: request.baseEndpoint.createdAtUnixMilliseconds,
+                contentSetHash: "bridge-observability-smoke-base",
+                providerIdentity: "bridge-observability-smoke-base"
+            )
+            return BridgeContributionComparisonCapture(
+                resolvedTargetOID: "bridge-observability-smoke-target",
+                reviewedHeadOID: "bridge-observability-smoke-head",
+                baseRole: .commonCommit,
+                baseOID: "bridge-observability-smoke-base",
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: baseEndpoint,
+                    headEndpoint: request.headEndpoint,
+                    changedFiles: [Self.changedFile]
+                )
+            )
+        }
+
         private static let baseContent = """
             struct BridgeObservabilitySmoke {
                 let value = 1

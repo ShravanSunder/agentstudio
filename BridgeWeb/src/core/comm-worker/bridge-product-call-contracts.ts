@@ -1,13 +1,17 @@
 import { z } from 'zod';
 
+import { bridgeProductReviewComparisonTargetsContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
 	type BridgeProductAssert,
 	bridgeProductIdentifierSchema,
 	type BridgeProductRegistryValue,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
+
+export { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 
 export const bridgeProductFileSourceCurrentRequestSchema = z.object({}).strict();
 export const bridgeProductFileSourceCurrentResultSchema = z.discriminatedUnion('status', [
@@ -40,6 +44,17 @@ export const bridgeProductReviewPublicationAppliedRequestSchema = z
 	.object({ publicationId: bridgeProductReviewPublicationIdSchema })
 	.strict();
 export const bridgeProductReviewPublicationAppliedResultSchema = z.null();
+
+export const bridgeProductReviewComparisonUpdateRequestSchema = z
+	.object({ target: bridgeProductReviewComparisonTargetSchema })
+	.strict();
+export const bridgeProductReviewComparisonUpdateResultSchema = z.null();
+export const bridgeProductReviewComparisonTargetsQueryRequestSchema = z.object({}).strict();
+export const bridgeProductReviewComparisonTargetsQueryResultSchema = z
+	.object({
+		descriptor: bridgeProductReviewComparisonTargetsContentDescriptorSchema,
+	})
+	.strict();
 
 const bridgeProductActiveViewerSourceBaseSchema = z
 	.object({
@@ -97,6 +112,16 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductActiveViewerModeUpdateResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.comparison.update': {
+		readonly request: z.infer<typeof bridgeProductReviewComparisonUpdateRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductReviewComparisonUpdateResultSchema>;
+		readonly surface: 'review';
+	};
+	readonly 'review.comparisonTargets.query': {
+		readonly request: z.infer<typeof bridgeProductReviewComparisonTargetsQueryRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductReviewComparisonTargetsQueryResultSchema>;
+		readonly surface: 'review';
+	};
 };
 
 export type BridgeProductCallKind = keyof BridgeProductCallRegistry;
@@ -109,6 +134,8 @@ const bridgeProductSurfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
+	'review.comparison.update': 'review',
+	'review.comparisonTargets.query': 'review',
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
@@ -139,6 +166,18 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.activeViewerMode.update'),
 			request: bridgeProductReviewActiveViewerModeUpdateRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.comparison.update'),
+			request: bridgeProductReviewComparisonUpdateRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.comparisonTargets.query'),
+			request: bridgeProductReviewComparisonTargetsQueryRequestSchema,
 		})
 		.strict(),
 	z
@@ -178,6 +217,18 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.activeViewerMode.update'),
 			result: bridgeProductActiveViewerModeUpdateResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.comparison.update'),
+			result: bridgeProductReviewComparisonUpdateResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.comparisonTargets.query'),
+			result: bridgeProductReviewComparisonTargetsQueryResultSchema,
 		})
 		.strict(),
 	z

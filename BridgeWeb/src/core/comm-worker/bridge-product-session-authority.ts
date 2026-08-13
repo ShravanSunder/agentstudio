@@ -439,6 +439,7 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 			return call.result;
 		case 'file.activeViewerMode.update':
 		case 'review.activeViewerMode.update':
+		case 'review.comparison.update':
 		case 'review.intake.ready':
 		case 'review.markFileViewed':
 		case 'review.publication.applied':
@@ -446,6 +447,11 @@ function bridgeProductCallResultForMethod<TCallKind extends BridgeProductCallKin
 				throw new Error('Bridge product null-result call returned a non-null result.');
 			}
 			return null;
+		case 'review.comparisonTargets.query':
+			if (call.method !== 'review.comparisonTargets.query') {
+				throw new Error('Bridge product comparison-target query returned a cross-wired result.');
+			}
+			return call.result;
 		default:
 			return assertNeverBridgeProductCallKind(method);
 	}

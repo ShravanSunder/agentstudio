@@ -250,14 +250,19 @@ extension BridgeProductSession {
                             continuation.resume(returning: true)
                         case .rejected:
                             continuation.resume(returning: false)
-                        case .wait:
-                            guard producerObservationPacingWaitersByLease[lease] == nil else {
-                                _ = producerRegistry.cancelProducerObservationPacing(
-                                    for: lease,
-                                    waiterToken: waiterToken
-                                )
-                                continuation.resume(returning: false)
-                                return false
+                        case .wait(let supersededWaiterToken):
+                            if let supersededWaiterToken {
+                                guard
+                                    let supersededWaiter = producerObservationPacingWaitersByLease[
+                                        lease
+                                    ], supersededWaiter.token == supersededWaiterToken
+                                else {
+                                    preconditionFailure(
+                                        "Bridge producer superseded pacing waiter identity diverged"
+                                    )
+                                }
+                                producerObservationPacingWaitersByLease.removeValue(forKey: lease)
+                                supersededWaiter.continuation.resume(returning: false)
                             }
                             producerObservationPacingWaitersByLease[lease] = .init(
                                 continuation: continuation,

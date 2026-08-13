@@ -22,6 +22,14 @@ export interface BridgeViewerButtonProps {
 	readonly onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
 }
 
+export const bridgeViewerButtonClassName = cn(
+	bridgeViewerChromeButtonClassName,
+	'gap-1 px-1.5',
+	'text-[var(--bridge-text-secondary)] transition-colors',
+	'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+	'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+);
+
 export function BridgeViewerButton(props: BridgeViewerButtonProps): ReactElement {
 	return (
 		<Button
@@ -29,11 +37,7 @@ export function BridgeViewerButton(props: BridgeViewerButtonProps): ReactElement
 			aria-label={props.ariaLabel}
 			aria-pressed={props.ariaPressed}
 			className={cn(
-				bridgeViewerChromeButtonClassName,
-				'gap-1 px-1.5',
-				'text-[var(--bridge-text-secondary)] transition-colors',
-				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-				'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+				bridgeViewerButtonClassName,
 				props.ariaPressed === true &&
 					'border-transparent bg-[var(--bridge-header-control-active-bg)] text-[var(--bridge-text-primary)]',
 				props.className,

@@ -15,9 +15,10 @@ describe('Bridge comm worker pane presentation authority', () => {
 		expect(authority.admitsWork).toBe(false);
 		expect(authority.workSignal.aborted).toBe(true);
 		expect(snapshot).toEqual({
-			activityRevision: 0,
+			presentationRevision: 0,
 			nativeActivity: 'dormant',
 			refreshingLanes: [],
+			reviewComparison: null,
 			workAdmissionGeneration: 0,
 		});
 		expect(authority.isCurrentWorkAdmission(0)).toBe(false);
@@ -128,27 +129,139 @@ describe('Bridge comm worker pane presentation authority', () => {
 		expect(authority.admitsWork).toBe(false);
 		expect(authority.workSignal.aborted).toBe(true);
 		expect(authority.snapshot).toEqual({
-			activityRevision: 2,
+			presentationRevision: 2,
 			nativeActivity: 'loadedHidden',
 			refreshingLanes: ['file'],
+			reviewComparison: null,
 			workAdmissionGeneration: 0,
 		});
+	});
+
+	test('projects exact stale predecessor identity while a successor comparison is pending', () => {
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		const reviewComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'ref', name: 'release-candidate' },
+			attempt: { reviewGeneration: 9, status: 'pending' },
+			displayedSnapshot: {
+				packageId: 'package-predecessor',
+				reviewGeneration: 8,
+				revision: 4,
+				status: 'stale',
+			},
+			repositoryDefaultTarget: null,
+		} as const;
+
+		authority.apply(makePanePresentationFrame(1, 'foreground', ['review'], reviewComparison));
+
+		expect(authority.snapshot.reviewComparison).toEqual(reviewComparison);
+		expect(() =>
+			authority.apply(
+				makePanePresentationFrame(1, 'foreground', ['review'], {
+					...reviewComparison,
+					displayedSnapshot: { ...reviewComparison.displayedSnapshot, status: 'current' },
+				}),
+			),
+		).toThrow('Bridge pane presentation revision was reused with changed state.');
+	});
+
+	test('reconciles committed Review comparisons without overwriting a newer pending attempt', () => {
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		const pendingComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/next' },
+			attempt: { reviewGeneration: 3, status: 'pending' },
+			displayedSnapshot: {
+				packageId: 'package-2',
+				reviewGeneration: 2,
+				revision: 4,
+				status: 'stale',
+			},
+			repositoryDefaultTarget: null,
+		} as const;
+		const settledComparison = {
+			...pendingComparison,
+			attempt: { reviewGeneration: 2, status: 'settled' },
+			displayedSnapshot: { ...pendingComparison.displayedSnapshot, status: 'current' },
+		} as const;
+		authority.apply(makePanePresentationFrame(3, 'foreground', ['review'], pendingComparison));
+
+		expect(authority.reconcileReviewComparison(2, settledComparison)).toBe('stale');
+		expect(authority.snapshot.reviewComparison).toEqual(pendingComparison);
+		expect(authority.reconcileReviewComparison(4, settledComparison)).toBe('applied');
+		expect(authority.snapshot.reviewComparison).toEqual(settledComparison);
+		expect(authority.reconcileReviewComparison(4, settledComparison)).toBe('idempotentReplay');
+		expect(() =>
+			authority.reconcileReviewComparison(4, {
+				...settledComparison,
+				activeTarget: { ...settledComparison.activeTarget, name: 'changed' },
+			}),
+		).toThrow('Bridge Review comparison revision was reused with changed state.');
+	});
+
+	test('applies newer native state while preserving newer committed Review comparison metadata', () => {
+		// Arrange
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		authority.apply(makePanePresentationFrame(1, 'foreground', ['review']));
+		const committedComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/next' },
+			attempt: { reviewGeneration: 3, status: 'settled' },
+			displayedSnapshot: { status: 'none' },
+			repositoryDefaultTarget: null,
+		} as const;
+		authority.reconcileReviewComparison(3, committedComparison);
+
+		// Act
+		const application = authority.apply(makePanePresentationFrame(2, 'loadedHidden', ['file']));
+
+		// Assert
+		expect(application.disposition).toBe('applied');
+		expect(authority.snapshot).toMatchObject({
+			nativeActivity: 'loadedHidden',
+			presentationRevision: 3,
+			refreshingLanes: ['file'],
+			reviewComparison: committedComparison,
+		});
+	});
+
+	test('owns an immutable copy of the repository default target', () => {
+		// Arrange
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		const reviewComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'main' },
+			attempt: { reviewGeneration: 9, status: 'settled' },
+			displayedSnapshot: { status: 'none' },
+			repositoryDefaultTarget: { branchName: 'main', remoteName: 'origin' },
+		} satisfies NonNullable<BridgeProductPanePresentationFrame['reviewComparison']>;
+
+		// Act
+		authority.apply(makePanePresentationFrame(1, 'foreground', ['review'], reviewComparison));
+		reviewComparison.repositoryDefaultTarget.branchName = 'changed';
+
+		// Assert
+		expect(authority.snapshot.reviewComparison?.repositoryDefaultTarget).toEqual({
+			branchName: 'main',
+			remoteName: 'origin',
+		});
+		expect(Object.isFrozen(authority.snapshot.reviewComparison?.repositoryDefaultTarget)).toBe(
+			true,
+		);
 	});
 });
 
 function makePanePresentationFrame(
-	activityRevision: number,
+	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 	refreshingLanes: BridgeProductPanePresentationFrame['refreshingLanes'] = [],
+	reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'] = null,
 ): BridgeProductPanePresentationFrame {
 	return {
-		activityRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-pane-presentation-unit-test',
 		nativeActivity,
 		paneSessionId: 'pane-session-pane-presentation-unit-test',
+		presentationRevision,
 		refreshingLanes,
-		streamSequence: activityRevision,
+		reviewComparison,
+		streamSequence: presentationRevision,
 		wireVersion: 2,
 		workerInstanceId: 'worker-instance-pane-presentation-unit-test',
 	};

@@ -25,7 +25,9 @@ extension WebKitSerializedTests {
                 paneId: paneId,
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: reviewFixture.sourceProvider,
@@ -178,7 +180,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .fileViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "Sources", baseline: .unstaged
+                    )
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
@@ -243,7 +247,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "Sources", baseline: .unstaged
+                    )
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
@@ -312,7 +318,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "Sources", baseline: .unstaged
+                    )
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
@@ -413,7 +421,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "Sources", baseline: .unstaged
+                    )
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground,
@@ -566,7 +576,9 @@ extension WebKitSerializedTests {
                 paneId: paneId,
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(

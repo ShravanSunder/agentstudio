@@ -375,7 +375,7 @@ private actor ActivityMetadataReviewSource: BridgePaneProductReviewMetadataProdu
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductReviewMetadataPublicationOutcome {
