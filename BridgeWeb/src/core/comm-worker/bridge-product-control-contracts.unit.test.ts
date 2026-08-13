@@ -8,6 +8,12 @@ describe('Bridge product-control contracts', () => {
 			[
 				{ method: 'review.markFileViewed', params: { fileId: 'item-1' } },
 				{
+					method: 'review.comparison.update',
+					params: {
+						target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
+					},
+				},
+				{
 					method: 'bridge.activeViewerMode.update',
 					params: {
 						activeSource: {
@@ -30,7 +36,7 @@ describe('Bridge product-control contracts', () => {
 					},
 				},
 			].map((command) => bridgeProductControlCommandSchema.parse(command)),
-		).toHaveLength(3);
+		).toHaveLength(4);
 	});
 
 	test('rejects JSON-RPC envelopes and commands outside product control', () => {

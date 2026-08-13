@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTerminal
 import Foundation
 
@@ -9,7 +10,13 @@ struct WorkspacePreparedContentMountSettlement: Equatable, Sendable {
 }
 
 struct TerminalPlaceholderPublication: Equatable, Sendable {
+    enum Disposition: Equatable, Sendable {
+        case published
+        case joinedExistingPublication
+    }
+
     let paneIDs: [PaneId]
+    let disposition: Disposition
 }
 
 /// Joins the independently scheduled terminal and nonterminal startup lanes for
@@ -28,6 +35,7 @@ final class WorkspacePreparedContentMountCoordinator {
     private let terminalActivationReleaseGate: TerminalActivationReleaseGate
     private let nonterminalOwner: NonterminalContentMountOwner
     private var lifecycle = Lifecycle.idle
+    private var didPublishTerminalPlaceholders = false
     private var waiters: [CheckedContinuation<WorkspacePreparedContentMountSettlement, Never>] = []
     private var deferredVisibilityIntentPaneIDs: Set<PaneId> = []
     private var deferredVisibilityIntentOrder: [PaneId] = []
@@ -79,6 +87,10 @@ final class WorkspacePreparedContentMountCoordinator {
         await terminalActivationReleaseGate.release()
     }
 
+    func terminalActivationDeferralOutcome() async -> StartupDeferralOutcome? {
+        await terminalScheduler.recordedActivationDeferralOutcome()
+    }
+
     func mount() async -> WorkspacePreparedContentMountSettlement {
         switch lifecycle {
         case .settled(let settlement):
@@ -115,6 +127,13 @@ final class WorkspacePreparedContentMountCoordinator {
     func publishTerminalPlaceholders(
         using publish: (TerminalActivationDescriptor) -> Void
     ) -> TerminalPlaceholderPublication {
+        let descriptors = cohort.terminalActivationInput.entries
+        guard !didPublishTerminalPlaceholders else {
+            return TerminalPlaceholderPublication(
+                paneIDs: descriptors.map(\.paneID),
+                disposition: .joinedExistingPublication
+            )
+        }
         precondition(
             {
                 if case .idle = lifecycle { return true }
@@ -122,11 +141,14 @@ final class WorkspacePreparedContentMountCoordinator {
             }(),
             "terminal placeholders must publish before prepared content mounting"
         )
-        let descriptors = cohort.terminalActivationInput.entries
+        didPublishTerminalPlaceholders = true
         for descriptor in descriptors {
             publish(descriptor)
         }
-        return TerminalPlaceholderPublication(paneIDs: descriptors.map(\.paneID))
+        return TerminalPlaceholderPublication(
+            paneIDs: descriptors.map(\.paneID),
+            disposition: .published
+        )
     }
 
     func promoteTerminal(

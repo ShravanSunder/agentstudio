@@ -5,6 +5,34 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceTraceProjectionTests {
+    @Test("startup deferral keeps only bounded gate and outcome values")
+    func startupDeferralKeepsBoundedValues() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 119,
+                severityText: .info,
+                body: "performance.startup.deferral",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: [:],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.performance.startup.deferral.gate": .string("terminal_activation_release"),
+                    "agentstudio.performance.startup.deferral.outcome": .string("cancelled"),
+                    "agentstudio.performance.startup.deferral.detail": .string("private"),
+                ]
+            ))
+
+        #expect(
+            projection.attributes["agentstudio.performance.startup.deferral.gate"]
+                == .string("terminal_activation_release"))
+        #expect(
+            projection.attributes["agentstudio.performance.startup.deferral.outcome"]
+                == .string("cancelled"))
+        #expect(projection.attributes["agentstudio.performance.startup.deferral.detail"] == nil)
+    }
+
     @Test("startup usable keeps only bounded duration fields")
     func startupUsableKeepsSafeDurations() {
         let projection = AgentStudioOTLPTraceProjection.project(
@@ -221,6 +249,67 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(projection.attributes["agentstudio.performance.tabbar.notification.body"] == nil)
         #expect(
             invalidOutcomeProjection.attributes["agentstudio.performance.tabbar.terminal.outcome"] == nil
+        )
+    }
+
+    @Test
+    func tabBarContextMenuProjectionKeepsOnlyLowCardinalityInputFacts() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 604,
+            severityText: .info,
+            body: "performance.tabbar.context_menu",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.tabbar.context_menu.phase": .string("input"),
+                "agentstudio.performance.tabbar.context_menu.host_hit": .bool(true),
+                "agentstudio.performance.tabbar.context_menu.tab_hit": .bool(true),
+                "agentstudio.performance.tabbar.context_menu.hit_view_class": .string("swiftui"),
+                "agentstudio.performance.tabbar.context_menu.static_menu_available": .bool(false),
+                "agentstudio.performance.tabbar.context_menu.tab_id": .string(
+                    "01987654-3210-7abc-8def-0123456789ab"
+                ),
+            ]
+        )
+        let rawClassRecord = AgentStudioTraceRecord(
+            timeUnixNano: 605,
+            severityText: .info,
+            body: "performance.tabbar.context_menu",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.tabbar.context_menu.hit_view_class": .string(
+                    "SwiftUI._NSHostingView"
+                )
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let rawClassProjection = AgentStudioOTLPTraceProjection.project(rawClassRecord)
+
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.context_menu.phase"]
+                == .string("input")
+        )
+        #expect(projection.attributes["agentstudio.performance.tabbar.context_menu.host_hit"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.tabbar.context_menu.tab_hit"] == .bool(true))
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.context_menu.hit_view_class"]
+                == .string("swiftui")
+        )
+        #expect(
+            projection.attributes["agentstudio.performance.tabbar.context_menu.static_menu_available"]
+                == .bool(false)
+        )
+        #expect(projection.attributes["agentstudio.performance.tabbar.context_menu.tab_id"] == nil)
+        #expect(
+            rawClassProjection.attributes["agentstudio.performance.tabbar.context_menu.hit_view_class"] == nil
         )
     }
 

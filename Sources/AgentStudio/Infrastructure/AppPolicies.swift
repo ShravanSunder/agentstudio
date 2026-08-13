@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum StartupDeferral {
+        package static let maximumWait: Duration = .seconds(10)
+    }
+
     package enum CommandBar {
         package static let maximumHistoryCount: Int = 8
     }
@@ -44,6 +48,9 @@ package enum AppPolicies {
     }
 
     package enum Bridge {
+        package static let reviewComparisonTargetRecencyWindow: Duration = .seconds(30 * 24 * 60 * 60)
+        package static let reviewComparisonTargetMaximumRows: Int = 2000
+        package static let reviewComparisonTargetMaximumEncodedBytes: Int = 1 * 1024 * 1024
         /// Retention cap for one content body: a single item must never evict
         /// the whole byte cache, and larger bodies render as oversized.
         package static let contentMaxBytesPerItem: Int = 16 * 1024 * 1024
@@ -491,4 +498,10 @@ package enum AppPolicies {
         /// produce a child smaller than this are forbidden.
         package static let splitMinimumPaneSize: CGFloat = 10
     }
+}
+
+package enum StartupDeferralOutcome: String, Equatable, Sendable {
+    case completed
+    case cancelled
+    case fallbackTimeout = "fallback_timeout"
 }

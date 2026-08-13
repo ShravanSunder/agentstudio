@@ -9,6 +9,7 @@ import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worke
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
 import { buildBridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { BridgeFileViewerSurfaceClientProvider } from '../file-viewer/bridge-file-viewer-render-snapshot-controller.js';
 import { createBridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
@@ -81,7 +82,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		const harness = makeReviewSurfaceHarness();
 		const onActiveSourceChange = vi.fn();
 		const telemetryRecorderRef = { current: createBridgeTelemetryRecorder(null) };
-		const viewerHeaderControls = <div />;
+		const viewerContextSwitcher = <div />;
 		const rendered = await render(
 			<BridgeReviewViewerMode
 				isActive={false}
@@ -90,7 +91,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
-				viewerHeaderControls={viewerHeaderControls}
+				viewerContextSwitcher={viewerContextSwitcher}
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
@@ -117,7 +118,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					onNavigationSourceChange={vi.fn()}
 					reviewClient={harness.reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
-					viewerHeaderControls={viewerHeaderControls}
+					viewerContextSwitcher={viewerContextSwitcher}
 				/>,
 			);
 			await Promise.resolve();
@@ -127,6 +128,180 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		expect(
 			harness.sentCommands.filter((command) => command.command === 'reviewIntakeReady'),
 		).toHaveLength(1);
+	});
+
+	test('shows the active symbolic target in the closed Review comparison control', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			harness.publish(reviewComparisonPanelChromeEvent());
+			await Promise.resolve();
+		});
+
+		// Assert
+		await expect
+			.element(rendered.getByTestId('bridge-review-comparison-trigger'))
+			.toHaveTextContent('master');
+	});
+
+	test('settles a rejected comparison-target query instead of leaving the picker loading', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+		});
+		const queryRequest = Object.entries(harness.lifecycleStore.getSnapshot().requestsById).find(
+			([, request]) => request.command === 'reviewComparisonTargetsQuery',
+		);
+		if (queryRequest === undefined) throw new Error('Expected a comparison-target query request.');
+		await act(async (): Promise<void> => {
+			harness.publish({
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				message: 'Bridge comm worker failed to forward review.comparisonTargets.query.',
+				requestId: queryRequest[0],
+				status: 'degraded',
+				transferDescriptors: [],
+				wireVersion: 1,
+			});
+		});
+
+		// Assert
+		await expect.element(rendered.getByText('Comparison targets are unavailable.')).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Retry' })).toBeVisible();
+	});
+
+	test('keeps comparison meaning accessible while closed at the shared 24px control scale', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		await render(
+			<BridgeReviewViewerMode
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div data-testid="review-viewer-context-switcher" />}
+			/>,
+		);
+
+		// Act
+		await act(async (): Promise<void> => {
+			harness.publish(reviewComparisonPanelChromeEvent());
+			await Promise.resolve();
+		});
+
+		// Assert
+		const trigger = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-comparison-trigger"]'),
+		);
+		const topbar = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-topbar"]'),
+		);
+		const controls = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-topbar-controls"]'),
+		);
+		const viewSettingsTrigger = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-view-settings-trigger"]'),
+		);
+		const contextSwitcher = requireHTMLElement(
+			document.querySelector('[data-testid="review-viewer-context-switcher"]'),
+		);
+		const reviewType = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-mode-segmented-control"]'),
+		);
+		const descriptionId = trigger.getAttribute('aria-describedby');
+		const topbarBox = topbar.getBoundingClientRect();
+		const controlsBox = controls.getBoundingClientRect();
+		const triggerBox = trigger.getBoundingClientRect();
+		const viewSettingsBox = viewSettingsTrigger.getBoundingClientRect();
+		expect(Math.round(topbarBox.height)).toBe(36);
+		expect(Math.round(triggerBox.height)).toBe(24);
+		expect(Math.round(viewSettingsBox.height)).toBe(24);
+		expect(trigger.compareDocumentPosition(reviewType)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(reviewType.compareDocumentPosition(viewSettingsTrigger)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING,
+		);
+		expect(controls.contains(reviewType)).toBe(true);
+		expect(controls.contains(contextSwitcher)).toBe(false);
+		expect(
+			contextSwitcher.closest('[data-testid="bridge-review-rail-toolbar-leading"]'),
+		).not.toBeNull();
+		expect(triggerBox.right).toBeLessThanOrEqual(viewSettingsBox.left);
+		expect(triggerBox.top).toBeGreaterThanOrEqual(topbarBox.top);
+		expect(triggerBox.bottom).toBeLessThanOrEqual(topbarBox.bottom);
+		expect(controlsBox.right).toBeLessThanOrEqual(topbarBox.right);
+		expect(trigger.getAttribute('aria-label')).toBe('Compare to: master');
+		expect(descriptionId).not.toBeNull();
+		expect(document.getElementById(descriptionId ?? '')?.textContent).toContain(
+			'Changes only on master are excluded',
+		);
+		expect(document.querySelector('[data-testid="bridge-review-comparison-content"]')).toBeNull();
+	});
+
+	test('applies an exact commit through the Review product command', async () => {
+		// Arrange
+		const harness = makeReviewSurfaceHarness();
+		const exactCommitOID = 'c'.repeat(40);
+		const rendered = await render(
+			<BridgeReviewViewerMode
+				isActive
+				isNavigationCommandStillEligible={bridgeReviewNavigationCommandIsAlwaysEligible}
+				onActiveSourceChange={vi.fn()}
+				onNavigationSourceChange={vi.fn()}
+				reviewClient={harness.reviewClient}
+				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
+				viewerContextSwitcher={<div />}
+			/>,
+		);
+		await act(async (): Promise<void> => {
+			harness.publish(reviewComparisonPanelChromeEvent());
+			await Promise.resolve();
+		});
+
+		// Act
+		await act(async (): Promise<void> => {
+			await rendered.getByTestId('bridge-review-comparison-trigger').click();
+			await rendered.getByRole('button', { name: 'Commit', exact: true }).click();
+			await rendered.getByRole('textbox', { name: 'Commit hash' }).fill(exactCommitOID);
+			await rendered.getByRole('button', { name: 'Compare to this commit' }).click();
+			await Promise.resolve();
+		});
+
+		// Assert
+		expect(harness.sentCommands).toContainEqual(
+			expect.objectContaining({
+				command: 'reviewComparisonUpdate',
+				target: { kind: 'commit', oid: exactCommitOID },
+			}),
+		);
 	});
 
 	test('shows loaded Review chrome and explicit empty states for a ready zero-item source', async () => {
@@ -140,7 +315,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-empty-shell')).toBeVisible();
@@ -155,10 +330,12 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					{
 						operation: 'upsert',
 						payload: {
+							...bridgeWorkerReviewSourceContext('review-package-browser-test'),
 							metadataSourceId: 'review-source-browser-test',
 							metadataWindowIdentity: 'review-window-empty',
 							packageId: 'review-package-browser-test',
 							reviewGeneration: 1,
+							revision: 1,
 							status: 'ready',
 							summary: {
 								additions: 0,
@@ -326,7 +503,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={harness.reviewClient}
 				telemetryRecorderRef={{ current: createBridgeTelemetryRecorder(null) }}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 		);
 		await expect.element(rendered.getByTestId('bridge-review-fallback-frame')).toBeInTheDocument();
@@ -429,7 +606,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 				onNavigationSourceChange={vi.fn()}
 				reviewClient={reviewClient}
 				telemetryRecorderRef={telemetryRecorderRef}
-				viewerHeaderControls={<div />}
+				viewerContextSwitcher={<div />}
 			/>,
 			{ container: renderContainer },
 		);
@@ -543,7 +720,7 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 					onNavigationSourceChange={vi.fn()}
 					reviewClient={reviewClient}
 					telemetryRecorderRef={telemetryRecorderRef}
-					viewerHeaderControls={<div />}
+					viewerContextSwitcher={<div />}
 				/>,
 			);
 			await settleRenderedReviewFrame();
@@ -565,6 +742,39 @@ describe('useBridgeReviewRenderSnapshotController Browser Mode', () => {
 		renderFulfillmentCoordinator.dispose();
 	});
 });
+
+function reviewComparisonPanelChromeEvent(): Extract<
+	BridgeWorkerServerToMainMessage,
+	{ readonly kind: 'reviewRenderPatch' }
+> {
+	return {
+		direction: 'serverWorkerToMain',
+		kind: 'reviewRenderPatch',
+		patches: [
+			{
+				operation: 'upsert',
+				payload: {
+					reviewComparison: {
+						activeTarget: {
+							basis: 'commonCommit',
+							branchName: 'master',
+							kind: 'localDefaultBranch',
+						},
+						attempt: { reviewGeneration: 1, status: 'settled' },
+						displayedSnapshot: { status: 'none' },
+						repositoryDefaultTarget: null,
+					},
+				},
+				slice: 'panelChrome',
+			},
+		],
+		publicationSequence: 1,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: 1,
+		workerDerivationEpoch: 1,
+	};
+}
 
 function reviewContentReadyEvents(): readonly BridgeWorkerServerToMainMessage[] {
 	const job = buildBridgeWorkerPierreRenderJob({

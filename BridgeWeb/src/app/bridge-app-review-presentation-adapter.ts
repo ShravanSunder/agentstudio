@@ -36,8 +36,17 @@ type BridgeReviewSourceUpsertDisplaySlice = Exclude<
 
 type BridgePresentableReviewSourceDisplaySlice = Omit<
 	BridgeReviewSourceUpsertDisplaySlice,
-	'status' | 'summary' | 'totalItemCount' | 'totalTreeRowCount'
+	| 'baseEndpoint'
+	| 'headEndpoint'
+	| 'query'
+	| 'status'
+	| 'summary'
+	| 'totalItemCount'
+	| 'totalTreeRowCount'
 > & {
+	readonly baseEndpoint: NonNullable<BridgeReviewSourceUpsertDisplaySlice['baseEndpoint']>;
+	readonly headEndpoint: NonNullable<BridgeReviewSourceUpsertDisplaySlice['headEndpoint']>;
+	readonly query: NonNullable<BridgeReviewSourceUpsertDisplaySlice['query']>;
 	readonly status: 'ready' | 'stale';
 	readonly summary: NonNullable<BridgeReviewSourceUpsertDisplaySlice['summary']>;
 	readonly totalItemCount: number;
@@ -152,7 +161,7 @@ function rebuildBridgeReviewPresentationLedger(props: {
 		presentationKey,
 		reviewGeneration: props.reviewSourceSlice.reviewGeneration,
 		reviewSourceSlice: props.reviewSourceSlice,
-		revision: props.catalogSnapshot.revision,
+		revision: props.reviewSourceSlice.revision,
 	});
 	const projection = presentationProjectionForDisplay({
 		orderedDisplayItems,
@@ -259,7 +268,7 @@ function applyBridgeReviewPresentationChanges(props: {
 			itemProjectionUpdates.itemsById,
 		),
 		orderedItemIds,
-		revision: props.catalogSnapshot.revision,
+		revision: props.reviewSourceSlice.revision,
 		summary: props.reviewSourceSlice.summary,
 	};
 	const projection: BridgeReviewProjectionResult = {
@@ -714,44 +723,54 @@ function presentationPackageForDisplay(props: {
 	readonly reviewSourceSlice: BridgePresentableReviewSourceDisplaySlice;
 	readonly revision: number;
 }): BridgeReviewPackage {
-	const baseEndpointId = `${props.presentationKey}:base`;
-	const headEndpointId = `${props.presentationKey}:head`;
-	const filterState = emptyPresentationFilterState();
+	const query = presentationQueryForDisplay(props.reviewSourceSlice.query);
 	return {
-		baseEndpoint: presentationEndpoint(baseEndpointId, 'Base'),
-		filterState,
+		baseEndpoint: props.reviewSourceSlice.baseEndpoint,
+		comparisonOrigin: props.reviewSourceSlice.comparisonOrigin,
+		filterState: query.viewFilter,
 		generatedAtUnixMilliseconds: 0,
 		groups: [],
-		headEndpoint: presentationEndpoint(headEndpointId, 'Head'),
+		headEndpoint: props.reviewSourceSlice.headEndpoint,
 		itemsById: props.itemsById,
 		orderedItemIds: [...props.orderedItemIds],
-		packageId: props.presentationKey,
-		query: {
-			baseEndpointId,
-			comparisonSemantics: 'notApplicable',
-			fileTarget: null,
-			grouping: { kind: 'folder', label: 'Folders' },
-			headEndpointId,
-			pathScope: [],
-			provenanceFilter: {
-				agentSessionIds: [],
-				createdAfterUnixMilliseconds: null,
-				createdBeforeUnixMilliseconds: null,
-				operationIds: [],
-				paneIds: [],
-				promptIds: [],
-				sourceKinds: [],
-			},
-			queryId: `${props.presentationKey}:query`,
-			queryKind: 'compare',
-			repoId: 'presentation-only',
-			viewFilter: filterState,
-			worktreeId: 'presentation-only',
-		},
+		packageId: props.reviewSourceSlice.packageId,
+		query,
 		reviewGeneration: props.reviewGeneration,
+		reviewedSubjectLabel: props.reviewSourceSlice.reviewedSubjectLabel,
 		revision: props.revision,
 		schemaVersion: 1,
 		summary: props.reviewSourceSlice.summary,
+	};
+}
+
+function presentationQueryForDisplay(
+	query: BridgePresentableReviewSourceDisplaySlice['query'],
+): BridgeReviewPackage['query'] {
+	const viewFilter: BridgeReviewPackage['filterState'] = {
+		changeKinds: [...query.viewFilter.changeKinds],
+		excludedExtensions: [...query.viewFilter.excludedExtensions],
+		excludedFileClasses: [...query.viewFilter.excludedFileClasses],
+		excludedPathGlobs: [...query.viewFilter.excludedPathGlobs],
+		includedExtensions: [...query.viewFilter.includedExtensions],
+		includedFileClasses: [...query.viewFilter.includedFileClasses],
+		includedPathGlobs: [...query.viewFilter.includedPathGlobs],
+		reviewStates: [...query.viewFilter.reviewStates],
+		showBinaryFiles: query.viewFilter.showBinaryFiles,
+		showHiddenFiles: query.viewFilter.showHiddenFiles,
+		showLargeFiles: query.viewFilter.showLargeFiles,
+	};
+	return {
+		...query,
+		pathScope: [...query.pathScope],
+		provenanceFilter: {
+			...query.provenanceFilter,
+			agentSessionIds: [...query.provenanceFilter.agentSessionIds],
+			operationIds: [...query.provenanceFilter.operationIds],
+			paneIds: [...query.provenanceFilter.paneIds],
+			promptIds: [...query.provenanceFilter.promptIds],
+			sourceKinds: [...query.provenanceFilter.sourceKinds],
+		},
+		viewFilter,
 	};
 }
 
@@ -761,41 +780,13 @@ function isPresentableReviewSourceDisplaySlice(
 	return (
 		sourceSlice !== null &&
 		(sourceSlice.status === 'ready' || sourceSlice.status === 'stale') &&
+		sourceSlice.baseEndpoint !== null &&
+		sourceSlice.headEndpoint !== null &&
+		sourceSlice.query !== null &&
 		sourceSlice.summary !== null &&
 		sourceSlice.totalItemCount !== null &&
 		sourceSlice.totalTreeRowCount !== null
 	);
-}
-
-function presentationEndpoint(
-	endpointId: string,
-	label: string,
-): BridgeReviewPackage['baseEndpoint'] {
-	return {
-		createdAtUnixMilliseconds: 0,
-		endpointId,
-		kind: 'gitRef',
-		label,
-		providerIdentity: 'worker-display-presentation',
-		repoId: 'presentation-only',
-		worktreeId: 'presentation-only',
-	};
-}
-
-function emptyPresentationFilterState(): BridgeReviewPackage['filterState'] {
-	return {
-		changeKinds: [],
-		excludedExtensions: [],
-		excludedFileClasses: [],
-		excludedPathGlobs: [],
-		includedExtensions: [],
-		includedFileClasses: [],
-		includedPathGlobs: [],
-		reviewStates: [],
-		showBinaryFiles: true,
-		showHiddenFiles: true,
-		showLargeFiles: true,
-	};
 }
 
 function presentationProjectionForDisplay(props: {

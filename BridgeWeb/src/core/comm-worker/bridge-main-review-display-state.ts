@@ -21,9 +21,11 @@ export interface MutableBridgeMainReviewDisplayState {
 
 export type MutableBridgeMainRenderSnapshot = Omit<
 	BridgeMainRenderSnapshot,
-	keyof BridgeMainReviewDisplayState
+	keyof BridgeMainReviewDisplayState | 'panelChromeSlice'
 > &
-	MutableBridgeMainReviewDisplayState;
+	MutableBridgeMainReviewDisplayState & {
+		panelChromeSlice: BridgeMainRenderSnapshot['panelChromeSlice'];
+	};
 import type {
 	BridgeWorkerReviewDisplayItem,
 	BridgeWorkerReviewDisplayPatch,
@@ -41,6 +43,7 @@ export function emptyBridgeMainReviewCatalogSnapshot(): BridgeMainReviewCatalogS
 }
 
 export interface BridgeMainReviewDisplayPatchEffect {
+	readonly comparisonChanged: boolean;
 	readonly itemIds: ReadonlySet<string>;
 	readonly itemOrderMutations: readonly BridgeMainReviewCatalogOrderMutation[];
 	readonly previousItemsById: ReadonlyMap<string, BridgeWorkerReviewDisplayItem>;
@@ -64,6 +67,7 @@ export function applyReviewDisplayPatchEventInPlace(props: {
 	const treeRowIds = new Set<string>();
 	const treeRowOrderMutations: BridgeMainReviewCatalogOrderMutation[] = [];
 	let reset = false;
+	let comparisonChanged = false;
 	let sourceChanged = false;
 	if (
 		mutableState.reviewDisplayFreshness !== null &&
@@ -89,6 +93,13 @@ export function applyReviewDisplayPatchEventInPlace(props: {
 	}
 	for (const patch of props.event.patches) {
 		switch (patch.slice) {
+			case 'reviewComparison':
+				mutableState.panelChromeSlice = {
+					...mutableState.panelChromeSlice,
+					reviewComparison: patch.payload,
+				};
+				comparisonChanged = true;
+				break;
 			case 'reviewSource':
 				mutableState.reviewSourceSlice = patch.payload;
 				sourceChanged = true;
@@ -131,6 +142,7 @@ export function applyReviewDisplayPatchEventInPlace(props: {
 		sequence: props.event.sequence,
 	};
 	return {
+		comparisonChanged,
 		itemIds,
 		itemOrderMutations,
 		previousItemsById,

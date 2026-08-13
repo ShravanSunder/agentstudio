@@ -87,15 +87,25 @@ struct TerminalActivationSchedulerDiagnostics: Equatable, Sendable {
 }
 
 package protocol TerminalActivationReleaseSignal: Sendable {
-    func waitUntilReleased() async
+    func waitUntilReleased() async -> StartupDeferralOutcome
 }
 
 package actor TerminalActivationReleaseGate: TerminalActivationReleaseSignal {
-    private var isReleased: Bool
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private struct Waiter {
+        let continuation: CheckedContinuation<StartupDeferralOutcome, Never>
+        let timeoutTask: Task<Void, Never>
+    }
 
-    package init(isReleased: Bool) {
+    private var isReleased: Bool
+    private let deferralDelay: AsyncDelay
+    private var waiters: [UUID: Waiter] = [:]
+
+    package init(
+        isReleased: Bool,
+        deferralDelay: AsyncDelay = .taskSleep
+    ) {
         self.isReleased = isReleased
+        self.deferralDelay = deferralDelay
     }
 
     package func hold() {
@@ -106,18 +116,46 @@ package actor TerminalActivationReleaseGate: TerminalActivationReleaseSignal {
     package func release() {
         guard !isReleased else { return }
         isReleased = true
-        let releasedWaiters = waiters
-        waiters.removeAll()
-        for waiter in releasedWaiters {
-            waiter.resume()
+        let waiterIDs = Array(waiters.keys)
+        for waiterID in waiterIDs {
+            resolveWaiter(waiterID, outcome: .completed)
         }
     }
 
-    package func waitUntilReleased() async {
-        guard !isReleased else { return }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+    package func waitUntilReleased() async -> StartupDeferralOutcome {
+        guard !isReleased else { return .completed }
+        let waiterID = UUIDv7.generate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: .cancelled)
+                    return
+                }
+                let delay = deferralDelay
+                let timeoutTask = Task { [weak self] in
+                    do {
+                        try await delay.wait(AppPolicies.StartupDeferral.maximumWait)
+                    } catch {
+                        return
+                    }
+                    await self?.resolveWaiter(waiterID, outcome: .fallbackTimeout)
+                }
+                waiters[waiterID] = Waiter(
+                    continuation: continuation,
+                    timeoutTask: timeoutTask
+                )
+            }
+        } onCancel: {
+            Task { [weak self] in
+                await self?.resolveWaiter(waiterID, outcome: .cancelled)
+            }
         }
+    }
+
+    private func resolveWaiter(_ waiterID: UUID, outcome: StartupDeferralOutcome) {
+        guard let waiter = waiters.removeValue(forKey: waiterID) else { return }
+        waiter.timeoutTask.cancel()
+        waiter.continuation.resume(returning: outcome)
     }
 }
 

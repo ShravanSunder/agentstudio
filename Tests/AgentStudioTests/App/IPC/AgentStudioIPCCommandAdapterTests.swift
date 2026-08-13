@@ -434,7 +434,7 @@ struct AgentStudioIPCCommandAdapterTests {
                     panelKind: .fileViewer,
                     source: .workspace(
                         rootPath: "/tmp/agentstudio-ipc-bridge-reload",
-                        baseline: .headMinusOne
+                        baseline: .ref(name: "HEAD~1")
                     )
                 )
             ),

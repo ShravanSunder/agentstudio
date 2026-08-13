@@ -33,7 +33,7 @@ func makeBridgeReviewQuery(
         worktreeId: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
         baseEndpointId: baseEndpointId,
         headEndpointId: headEndpointId,
-        comparisonSemantics: .checkpointDelta,
+        comparisonSemantics: options.comparisonSemantics,
         pathScope: options.pathScope,
         fileTarget: options.fileTarget,
         viewFilter: filter,
@@ -44,15 +44,18 @@ func makeBridgeReviewQuery(
 
 struct BridgeReviewQueryTestOptions {
     let queryKind: BridgeReviewQuery.Kind
+    let comparisonSemantics: BridgeReviewQuery.ComparisonSemantics
     let fileTarget: String?
     let pathScope: [String]
 
     init(
         queryKind: BridgeReviewQuery.Kind = .compare,
+        comparisonSemantics: BridgeReviewQuery.ComparisonSemantics = .checkpointDelta,
         fileTarget: String? = nil,
         pathScope: [String] = []
     ) {
         self.queryKind = queryKind
+        self.comparisonSemantics = comparisonSemantics
         self.fileTarget = fileTarget
         self.pathScope = pathScope
     }

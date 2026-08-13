@@ -30,6 +30,40 @@ type ReviewWindowEvent = Extract<
 >;
 
 describe('Bridge comm worker Review metadata applicator', () => {
+	test('retains the terminal comparison commit while reconstructing the display publication', () => {
+		// Arrange
+		const publications: Parameters<
+			NonNullable<
+				ConstructorParameters<
+					typeof BridgeCommWorkerReviewMetadataApplicator
+				>[0]['publishDisplayPatches']
+			>
+		>[0][] = [];
+		const applicator = new BridgeCommWorkerReviewMetadataApplicator({
+			applyRuntimeSource: (): void => {},
+			currentWorkerDerivationEpoch: (): number => 1,
+			publishDisplayPatches: (publication): void => {
+				publications.push(publication);
+			},
+		});
+
+		// Act
+		applicator.apply(reviewSnapshotEvent(), 1);
+
+		// Assert
+		expect(publications).toHaveLength(1);
+		expect(publications[0]?.comparisonCommit).toEqual({
+			presentationRevision: 11,
+			reviewComparison: null,
+		});
+		expect(publications[0]?.patches.map(({ slice }) => slice)).toEqual([
+			'reviewSource',
+			'reviewComparison',
+			'reviewItem',
+			'reviewTree',
+		]);
+	});
+
 	test('drops a stale worker derivation before it can mutate the projection', () => {
 		// Arrange
 		const applications: BridgeCommWorkerReviewMetadataApplication[] = [];
@@ -199,8 +233,10 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					{ itemIds: ['item-1'], operationKind: 'removeItems' },
 					{ deleteCount: 1, operationKind: 'spliceTreeRows', rows: [], startIndex: 1 },
 				],
+				presentationRevision: 12,
 				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 12,
+				reviewComparison: null,
 				toRevision: 12,
 			},
 			10,
@@ -306,8 +342,10 @@ describe('Bridge comm worker Review metadata applicator', () => {
 						startIndex: 0,
 					},
 				],
+				presentationRevision: 12,
 				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 12,
+				reviewComparison: null,
 				toRevision: 12,
 			},
 			14,
@@ -343,8 +381,10 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					{ itemIds: ['item-1'], operationKind: 'removeItems' },
 					{ deleteCount: 1, operationKind: 'spliceTreeRows', rows: [], startIndex: 0 },
 				],
+				presentationRevision: 12,
 				publicationId: '00000000-0000-7000-8000-000000000012',
 				revision: 12,
+				reviewComparison: null,
 				toRevision: 12,
 			},
 			14,
@@ -415,8 +455,10 @@ describe('Bridge comm worker Review metadata applicator', () => {
 					eventKind: 'review.delta',
 					fromRevision: 10,
 					operations: [],
+					presentationRevision: 12,
 					publicationId: '00000000-0000-7000-8000-000000000012',
 					revision: 12,
+					reviewComparison: null,
 					toRevision: 12,
 				},
 				15,
@@ -608,7 +650,9 @@ function reviewSnapshotEvent(): ReviewSnapshotEvent {
 		extentFacts: [],
 		itemMetadata: [reviewItemMetadata],
 		itemWindow: { finalWindow: true, itemCount: 1, startIndex: 0, totalItemCount: 1 },
+		presentationRevision: 11,
 		revision: 11,
+		reviewComparison: null,
 		treeRows: [reviewTreeRow],
 		treeWindow: { finalWindow: true, rowCount: 1, startIndex: 0, totalRowCount: 1 },
 	};

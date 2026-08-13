@@ -15,6 +15,8 @@ extension BridgeTelemetryWireSchema {
             scrollTargetContractMatches(contract)
         case "performance.bridge.pierre.virtualized_range":
             virtualizedRangeContractMatches(contract)
+        case "performance.bridge.web.pane_presentation":
+            panePresentationContractMatches(contract)
         case "performance.bridge.shiki.highlight":
             shikiHighlightContractMatches(contract)
         case "performance.bridge.worker.task":
@@ -134,6 +136,171 @@ extension BridgeTelemetryWireSchema {
             || commWorkerMessageHandlerContractMatches(contract)
             || commWorkerContentPreparationContractMatches(contract)
             || commWorkerStoreActionContractMatches(contract)
+    }
+
+    private static func panePresentationContractMatches(_ contract: EventContract) -> Bool {
+        let commonKeys = PanePresentationContractKeys(
+            stringKeys: [
+                "agentstudio.bridge.comparison.attempt.status",
+                "agentstudio.bridge.presentation.disposition",
+                "agentstudio.bridge.result",
+            ],
+            numericKeys: ["agentstudio.bridge.presentation.revision"],
+            booleanKeys: ["agentstudio.bridge.refreshing.review"]
+        )
+        return panePresentationApplyContractMatches(contract, commonKeys: commonKeys)
+            || panePresentationPublicationContractMatches(contract, commonKeys: commonKeys)
+            || panePresentationApplicationContractMatches(contract, commonKeys: commonKeys)
+            || comparisonPaneRenderedContractMatches(contract)
+    }
+
+    private static func panePresentationApplyContractMatches(
+        _ contract: EventContract,
+        commonKeys: PanePresentationContractKeys
+    ) -> Bool {
+        let applyExpectation = EventExpectation(
+            phase: "pane_presentation_applied",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "worker",
+            attributeKeys: .init(
+                additionalStringKeys: commonKeys.stringKeys,
+                numericKeys: commonKeys.numericKeys,
+                booleanKeys: commonKeys.booleanKeys
+            )
+        )
+        let applyWithGenerationExpectation = EventExpectation(
+            phase: "pane_presentation_applied",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "worker",
+            attributeKeys: .init(
+                additionalStringKeys: commonKeys.stringKeys,
+                numericKeys: commonKeys.numericKeys.union([
+                    "agentstudio.bridge.review.generation"
+                ]),
+                booleanKeys: commonKeys.booleanKeys
+            )
+        )
+        return contract.matches(applyExpectation)
+            || contract.matches(applyWithGenerationExpectation)
+    }
+
+    private static func panePresentationPublicationContractMatches(
+        _ contract: EventContract,
+        commonKeys: PanePresentationContractKeys
+    ) -> Bool {
+        let publicationStringKeys = commonKeys.stringKeys.union([
+            "agentstudio.bridge.panel.operation",
+            "agentstudio.bridge.viewer",
+        ])
+        let publicationNumericKeys = commonKeys.numericKeys.union([
+            "agentstudio.bridge.presentation.publication_sequence",
+            "agentstudio.bridge.worker.derivation_epoch",
+        ])
+        let publicationExpectation = EventExpectation(
+            phase: "panel_chrome_published",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "worker",
+            attributeKeys: .init(
+                additionalStringKeys: publicationStringKeys,
+                numericKeys: publicationNumericKeys,
+                booleanKeys: commonKeys.booleanKeys
+            )
+        )
+        let publicationWithGenerationExpectation = EventExpectation(
+            phase: "panel_chrome_published",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "worker",
+            attributeKeys: .init(
+                additionalStringKeys: publicationStringKeys,
+                numericKeys: publicationNumericKeys.union([
+                    "agentstudio.bridge.review.generation"
+                ]),
+                booleanKeys: commonKeys.booleanKeys
+            )
+        )
+        return contract.matches(publicationExpectation)
+            || contract.matches(publicationWithGenerationExpectation)
+    }
+
+    private static func panePresentationApplicationContractMatches(
+        _ contract: EventContract,
+        commonKeys: PanePresentationContractKeys
+    ) -> Bool {
+        let applicationStringKeys = commonKeys.stringKeys.union([
+            "agentstudio.bridge.panel.operation",
+            "agentstudio.bridge.viewer",
+        ])
+        let applicationNumericKeys = commonKeys.numericKeys.union([
+            "agentstudio.bridge.presentation.publication_sequence",
+            "agentstudio.bridge.worker.derivation_epoch",
+        ]).subtracting([
+            "agentstudio.bridge.presentation.revision"
+        ])
+        let applicationExpectation = EventExpectation(
+            phase: "panel_chrome_applied",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "local",
+            attributeKeys: .init(
+                additionalStringKeys: applicationStringKeys,
+                numericKeys: applicationNumericKeys,
+                booleanKeys: []
+            )
+        )
+        let applicationWithGenerationExpectation = EventExpectation(
+            phase: "panel_chrome_applied",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "local",
+            attributeKeys: .init(
+                additionalStringKeys: applicationStringKeys,
+                numericKeys: applicationNumericKeys.union([
+                    "agentstudio.bridge.review.generation"
+                ]),
+                booleanKeys: []
+            )
+        )
+        return contract.matches(applicationExpectation)
+            || contract.matches(applicationWithGenerationExpectation)
+    }
+
+    private static func comparisonPaneRenderedContractMatches(_ contract: EventContract) -> Bool {
+        let renderedExpectation = EventExpectation(
+            phase: "comparison_pane_rendered",
+            plane: .control,
+            priority: .hot,
+            slice: .reviewMetadata,
+            transport: "local",
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.comparison.attempt.status",
+                    "agentstudio.bridge.comparison.package_match",
+                    "agentstudio.bridge.comparison.pane_state",
+                    "agentstudio.bridge.presentation.disposition",
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.viewer",
+                ],
+                numericKeys: [],
+                booleanKeys: []
+            )
+        )
+        return contract.matches(renderedExpectation)
+    }
+
+    private struct PanePresentationContractKeys {
+        let stringKeys: Set<String>
+        let numericKeys: Set<String>
+        let booleanKeys: Set<String>
     }
 
     private static func legacyWorkerTaskContractMatches(_ contract: EventContract) -> Bool {

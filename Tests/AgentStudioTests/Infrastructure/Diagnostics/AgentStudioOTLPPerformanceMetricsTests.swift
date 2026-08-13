@@ -88,6 +88,74 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func panePresentationMetricsExposeBoundedTransitionOutcome() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.bridge.swift.pane_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.comparison.attempt.status": .string("settled"),
+                "agentstudio.bridge.phase": .string("pane_presentation_enqueued"),
+                "agentstudio.bridge.plane": .string("control"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.result_reason": .string("none"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
+                "agentstudio.bridge.transport": .string("swift"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions == [
+                .init(name: "event", value: "performance.bridge.swift.pane_presentation"),
+                .init(name: "phase", value: "pane_presentation_enqueued"),
+                .init(name: "plane", value: "control"),
+                .init(name: "priority", value: "hot"),
+                .init(name: "slice", value: "review_metadata"),
+                .init(name: "comparison_status", value: "settled"),
+                .init(name: "result", value: "success"),
+                .init(name: "result_reason", value: "none"),
+            ]
+        )
+    }
+
+    @Test
+    func renderedPanePresentationMetricsExposeMismatchAndPaneState() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 124,
+            severityText: .info,
+            body: "performance.bridge.web.pane_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.comparison.attempt.status": .string("settled"),
+                "agentstudio.bridge.comparison.package_match": .string("review_generation_mismatch"),
+                "agentstudio.bridge.comparison.pane_state": .string("loading_previous"),
+                "agentstudio.bridge.phase": .string("comparison_pane_rendered"),
+                "agentstudio.bridge.plane": .string("control"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.dimensions.contains(.init(name: "package_match", value: "review_generation_mismatch")))
+        #expect(metricEvent.dimensions.contains(.init(name: "pane_state", value: "loading_previous")))
+    }
+
+    @Test
     func repoAndTabAffectedWorkProjectsOnlyApprovedAggregateCounters() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 123,

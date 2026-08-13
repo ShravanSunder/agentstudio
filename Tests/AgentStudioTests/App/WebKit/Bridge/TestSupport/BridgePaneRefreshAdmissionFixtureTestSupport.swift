@@ -179,7 +179,9 @@ func makeRefreshAdmissionIntegrationFixture(
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/bridge-refresh-admission", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/bridge-refresh-admission",
+                baseline: .staged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(

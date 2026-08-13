@@ -118,6 +118,8 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
     public let reviewGeneration: Int?
     public let revision: Int?
     public let summary: IPCBridgeReviewPackageSummary?
+    public let comparisonOrigin: IPCBridgeReviewComparisonOrigin?
+    public let reviewedSubjectLabel: String?
     public let items: [IPCBridgeReviewItemSummary]
 
     public init(
@@ -129,6 +131,8 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
         reviewGeneration: Int?,
         revision: Int?,
         summary: IPCBridgeReviewPackageSummary?,
+        comparisonOrigin: IPCBridgeReviewComparisonOrigin? = nil,
+        reviewedSubjectLabel: String? = nil,
         items: [IPCBridgeReviewItemSummary] = []
     ) {
         self.paneId = paneId
@@ -139,6 +143,8 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
         self.reviewGeneration = reviewGeneration
         self.revision = revision
         self.summary = summary
+        self.comparisonOrigin = comparisonOrigin
+        self.reviewedSubjectLabel = reviewedSubjectLabel
         self.items = items
     }
 }
@@ -197,6 +203,14 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
     public let reviewMetadataTreeRowCount: Int?
     public let reviewSelectedItemId: String?
     public let reviewCodeTextLength: Int?
+    public let comparisonTriggerLabel: String?
+    public let comparisonTriggerDescription: String?
+    public let comparisonTriggerState: String?
+    public let comparisonTargetRevision: String?
+    public let comparisonSharedStartRevision: String?
+    public let contentTopbarFrame: IPCBridgeDOMRect?
+    public let contentTopbarControlsFrame: IPCBridgeDOMRect?
+    public let comparisonTriggerFrame: IPCBridgeDOMRect?
     public let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
     public let visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe?
     public let frameJankProbe: IPCBridgeFrameJankProbe?
@@ -230,6 +244,14 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         reviewMetadataTreeRowCount: Int? = nil,
         reviewSelectedItemId: String? = nil,
         reviewCodeTextLength: Int? = nil,
+        comparisonTriggerLabel: String? = nil,
+        comparisonTriggerDescription: String? = nil,
+        comparisonTriggerState: String? = nil,
+        comparisonTargetRevision: String? = nil,
+        comparisonSharedStartRevision: String? = nil,
+        contentTopbarFrame: IPCBridgeDOMRect? = nil,
+        contentTopbarControlsFrame: IPCBridgeDOMRect? = nil,
+        comparisonTriggerFrame: IPCBridgeDOMRect? = nil,
         visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe? = nil,
         visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe? = nil,
         frameJankProbe: IPCBridgeFrameJankProbe? = nil
@@ -262,9 +284,31 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         self.reviewMetadataTreeRowCount = reviewMetadataTreeRowCount
         self.reviewSelectedItemId = reviewSelectedItemId
         self.reviewCodeTextLength = reviewCodeTextLength
+        self.comparisonTriggerLabel = comparisonTriggerLabel
+        self.comparisonTriggerDescription = comparisonTriggerDescription
+        self.comparisonTriggerState = comparisonTriggerState
+        self.comparisonTargetRevision = comparisonTargetRevision
+        self.comparisonSharedStartRevision = comparisonSharedStartRevision
+        self.contentTopbarFrame = contentTopbarFrame
+        self.contentTopbarControlsFrame = contentTopbarControlsFrame
+        self.comparisonTriggerFrame = comparisonTriggerFrame
         self.visibleHydrationStateProbe = visibleHydrationStateProbe
         self.visibleHydrationDiscardProbe = visibleHydrationDiscardProbe
         self.frameJankProbe = frameJankProbe
+    }
+}
+
+public struct IPCBridgeDOMRect: Codable, Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
     }
 }
 

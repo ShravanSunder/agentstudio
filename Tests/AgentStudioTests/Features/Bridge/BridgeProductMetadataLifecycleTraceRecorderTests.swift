@@ -222,6 +222,39 @@ struct BridgeProductMetadataLifecycleTraceRecorderTests {
             #expect(sample.stringAttributes["agentstudio.bridge.protocol"] == "review")
         }
     }
+
+    @Test("Pane presentation lifecycle exports comparison state and bounded correlation")
+    func panePresentationLifecycleExportsComparisonStateAndBoundedCorrelation() async throws {
+        // Arrange
+        let sink = BridgeProductMetadataLifecycleTraceSink()
+        let recorder = BridgeProductMetadataLifecycleTraceRecorder(recorder: sink)
+
+        // Act
+        await recorder.record(
+            BridgePanePresentationTraceEvent(
+                stage: .enqueued,
+                result: .success,
+                resultReason: .noReason,
+                presentationRevision: 17,
+                comparisonAttempt: .settled,
+                reviewGeneration: 4,
+                refreshingReview: false,
+                hasActiveStream: true
+            )
+        )
+
+        // Assert
+        let sample = try #require(await sink.recordedSamples().only)
+        #expect(sample.name == "performance.bridge.swift.pane_presentation")
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "pane_presentation_enqueued")
+        #expect(sample.stringAttributes["agentstudio.bridge.result"] == "success")
+        #expect(sample.stringAttributes["agentstudio.bridge.result_reason"] == "none")
+        #expect(sample.stringAttributes["agentstudio.bridge.comparison.attempt.status"] == "settled")
+        #expect(sample.numericAttributes["agentstudio.bridge.presentation.revision"] == 17)
+        #expect(sample.numericAttributes["agentstudio.bridge.review.generation"] == 4)
+        #expect(sample.booleanAttributes["agentstudio.bridge.refreshing.review"] == false)
+        #expect(sample.booleanAttributes["agentstudio.bridge.presentation.has_active_stream"] == true)
+    }
 }
 
 private actor BridgeProductMetadataLifecycleTraceSink: BridgePerformanceTraceRecording {

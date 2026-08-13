@@ -28,6 +28,7 @@ import {
 	type BridgeWorkerRenderDispositionReceipt,
 } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import { applyBridgeWorkerMessagesToMainRenderSnapshotStore } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app Review render snapshot fulfillment admission', () => {
@@ -361,9 +362,11 @@ function makeReviewDisplayPatchEvent(props: {
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext(`review-package-epoch-${props.epoch}`),
 					metadataSourceId: `review-source-epoch-${props.epoch}`,
 					metadataWindowIdentity: `review-window-epoch-${props.epoch}`,
 					packageId: `review-package-epoch-${props.epoch}`,
+					revision: props.epoch,
 					reviewGeneration: props.epoch,
 					status: 'ready',
 					summary: {

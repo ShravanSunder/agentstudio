@@ -3,15 +3,16 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import {
-	bridgeViewerChromeButtonClassName,
 	bridgeViewerChromeHeaderClassName,
 	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeSegmentButtonClassName,
+	bridgeViewerChromeSegmentedControlClassName,
 } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
 export function BridgeViewerContentHeader(props: {
 	readonly controls?: ReactNode;
-	readonly eyebrow: string;
+	readonly mode: 'file' | 'review';
 	readonly statusText: string | null;
 	readonly title: string;
 }): ReactElement {
@@ -24,9 +25,14 @@ export function BridgeViewerContentHeader(props: {
 			data-bridge-viewer-content-topbar="true"
 			data-testid="bridge-viewer-content-topbar"
 		>
-			<div className="flex min-w-0 items-baseline gap-2">
-				<span className="shrink-0 text-[11px] font-medium text-[var(--bridge-text-primary)]">
-					{props.eyebrow}
+			<div className="flex min-w-0 items-center gap-2">
+				<span
+					aria-label={viewerModeLabel(props.mode)}
+					className="shrink-0 text-[var(--bridge-text-primary)]"
+					data-testid="bridge-viewer-content-mode-icon"
+					title={viewerModeLabel(props.mode)}
+				>
+					{viewerModeIcon(props.mode)}
 				</span>
 				<span
 					className="min-w-0 truncate text-[11px] text-[var(--bridge-text-secondary)]"
@@ -58,6 +64,34 @@ export function BridgeViewerContentHeader(props: {
 	);
 }
 
+function viewerModeIcon(mode: 'file' | 'review'): ReactElement {
+	switch (mode) {
+		case 'file':
+			return <FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />;
+		case 'review':
+			return (
+				<ListChecksIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+			);
+		default:
+			return assertNeverViewerMode(mode);
+	}
+}
+
+function viewerModeLabel(mode: 'file' | 'review'): string {
+	switch (mode) {
+		case 'file':
+			return 'Files';
+		case 'review':
+			return 'Review';
+		default:
+			return assertNeverViewerMode(mode);
+	}
+}
+
+function assertNeverViewerMode(mode: never): never {
+	throw new Error(`Unhandled Bridge viewer mode: ${JSON.stringify(mode)}`);
+}
+
 export function BridgeViewerContextSwitcher(props: {
 	readonly mode: 'file' | 'review';
 	readonly onModeChange: (mode: 'file' | 'review') => void;
@@ -65,22 +99,31 @@ export function BridgeViewerContextSwitcher(props: {
 	return (
 		<ToggleGroup
 			aria-label="Bridge viewer context"
+			className={cn(bridgeViewerChromeSegmentedControlClassName, 'grid grid-cols-2')}
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
+			onValueChange={(modes): void => {
+				const nextMode = modes[0];
+				switch (nextMode) {
+					case 'file':
+					case 'review':
+						if (nextMode !== props.mode) props.onModeChange(nextMode);
+						return;
+					case undefined:
+						return;
+					default:
+						return;
+				}
+			}}
 			role="group"
 			size="sm"
+			value={[props.mode]}
 		>
-			<BridgeViewerContextButton
-				isSelected={props.mode === 'file'}
-				label="Files"
-				mode="file"
-				onModeChange={props.onModeChange}
-			/>
+			<BridgeViewerContextButton isSelected={props.mode === 'file'} label="Files" mode="file" />
 			<BridgeViewerContextButton
 				isSelected={props.mode === 'review'}
 				label="Review"
 				mode="review"
-				onModeChange={props.onModeChange}
 			/>
 		</ToggleGroup>
 	);
@@ -90,26 +133,21 @@ function BridgeViewerContextButton(props: {
 	readonly isSelected: boolean;
 	readonly label: string;
 	readonly mode: 'file' | 'review';
-	readonly onModeChange: (mode: 'file' | 'review') => void;
 }): ReactElement {
 	return (
 		<ToggleGroupItem
 			aria-label={props.label}
 			className={cn(
-				bridgeViewerChromeButtonClassName,
+				bridgeViewerChromeSegmentButtonClassName,
+				'w-full',
 				props.isSelected ? 'shadow-none' : undefined,
 			)}
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}
 			data-bridge-viewer-context-target={props.mode}
 			data-testid={`bridge-viewer-context-${props.mode}`}
-			onClick={(): void => {
-				if (!props.isSelected) {
-					props.onModeChange(props.mode);
-				}
-			}}
-			pressed={props.isSelected}
 			size="sm"
 			title={props.label}
+			value={props.mode}
 		>
 			{props.mode === 'file' ? (
 				<FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />

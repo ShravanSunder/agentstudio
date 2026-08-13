@@ -165,8 +165,10 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
         case startupUsable = "performance.startup.usable"
+        case startupDeferral = "performance.startup.deferral"
         case tabBarCurrent = "performance.tabbar.current"
         case tabBarCapture = "performance.tabbar.capture"
+        case tabBarContextMenu = "performance.tabbar.context_menu"
         case tabBarPublication = "performance.tabbar.publication"
         case tabBarRefresh = "performance.tabbar.refresh"
         case tabBarTerminal = "performance.tabbar.terminal"
@@ -299,6 +301,19 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
                     Self.milliseconds(from: layoutSettleToUsable)
                 ),
                 "agentstudio.performance.startup.source": .string(source),
+            ]
+        )
+    }
+
+    package func recordStartupDeferral(
+        gate: String,
+        outcome: StartupDeferralOutcome
+    ) {
+        record(
+            .startupDeferral,
+            attributes: [
+                "agentstudio.performance.startup.deferral.gate": .string(gate),
+                "agentstudio.performance.startup.deferral.outcome": .string(outcome.rawValue),
             ]
         )
     }

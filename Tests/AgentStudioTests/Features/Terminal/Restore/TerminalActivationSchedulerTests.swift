@@ -563,8 +563,8 @@ private actor ControlledTerminalActivationReleaseSignal: TerminalActivationRelea
     private var isSchedulerWaiting = false
     private var isReleased = false
 
-    func waitUntilReleased() async {
-        guard !isReleased else { return }
+    func waitUntilReleased() async -> StartupDeferralOutcome {
+        guard !isReleased else { return .completed }
         isSchedulerWaiting = true
         let startedContinuations = waitStartedContinuations
         waitStartedContinuations.removeAll()
@@ -574,6 +574,7 @@ private actor ControlledTerminalActivationReleaseSignal: TerminalActivationRelea
         await withCheckedContinuation { continuation in
             releaseContinuation = continuation
         }
+        return .completed
     }
 
     func waitUntilSchedulerIsWaiting() async {

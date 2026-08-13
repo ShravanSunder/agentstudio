@@ -46,6 +46,8 @@ struct SidebarPerformanceWorkloadScriptTests {
         #expect(source.contains("performance.sidebar.projection"))
         #expect(source.contains("eager_family_admission_count"))
         #expect(source.contains("assert_keyed_wake_contract"))
+        #expect(source.contains("keyed_wake_outcome_count final_projection reference_different"))
+        #expect(source.contains("final_projection reference_different expected 0"))
         #expect(source.contains("rendered_repo_favorite affected_row"))
         #expect(source.contains("rendered_repo_favorite capture_rebuild \"$WORKLOAD_CYCLES\""))
         #expect(source.contains("rendered_worktree_fact affected_row"))

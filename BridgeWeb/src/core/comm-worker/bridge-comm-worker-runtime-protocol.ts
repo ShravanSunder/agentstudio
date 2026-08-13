@@ -18,7 +18,18 @@ import {
 	type BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
+import {
+	bridgeWorkerComparisonTargetsContentOpen,
+	createBridgeWorkerComparisonTargetsQueryRunner,
+	settleBridgeWorkerComparisonTargetsControlRequest,
+} from './bridge-comm-worker-review-comparison-target-query.js';
 import { createBridgeCommWorkerReviewDemandScheduling } from './bridge-comm-worker-review-demand-scheduling.js';
+import {
+	admitBridgeCommWorkerReviewDisplayPatches,
+	bridgeCommWorkerReviewComparisonMatchesSource,
+	bridgeCommWorkerReviewDisplayPatchEvent,
+	type BridgeCommWorkerReviewSourceIdentity,
+} from './bridge-comm-worker-review-display-projection.js';
 import { BridgeCommWorkerReviewMetadataApplicator } from './bridge-comm-worker-review-metadata-applicator.js';
 import { BridgeCommWorkerReviewQueryProjection } from './bridge-comm-worker-review-query-projection.js';
 import {
@@ -35,10 +46,13 @@ import {
 } from './bridge-comm-worker-runtime-health.js';
 import {
 	bridgeProductMetadataStreamHealthDiagnostic,
+	createBridgeWorkerRuntimeSequenceCounter,
 	readBridgeCommWorkerRuntimeNowMilliseconds,
 	scheduleDefaultBridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-support.js';
 import {
+	bridgeCommWorkerComparisonTelemetryFacts,
+	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
@@ -53,7 +67,6 @@ import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerFileRenderPatchEventSchema,
 	bridgeWorkerMainToServerMessageSchema,
-	bridgeWorkerReviewDisplayPatchEventSchema,
 	bridgeWorkerReviewRenderPatchEventSchema,
 	type BridgeWorkerReviewDisplayPatch,
 } from './bridge-worker-contracts.js';
@@ -92,7 +105,6 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
 }
 
-const bridgeCommWorkerProductControlTimeoutMilliseconds = 5000;
 export type BridgeCommWorkerProductControlSender = (
 	command: BridgeProductControlCommand,
 ) => Promise<unknown>;
@@ -125,13 +137,31 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		(productTransport === undefined
 			? undefined
 			: (descriptor, abortSignal) => productTransport.openContent(descriptor, abortSignal));
-	const productControlTimeoutMilliseconds =
-		props.productControlTimeoutMilliseconds ?? bridgeCommWorkerProductControlTimeoutMilliseconds;
+	const openComparisonTargetsContent = bridgeWorkerComparisonTargetsContentOpen(productTransport);
+	const productControlTimeoutMilliseconds = props.productControlTimeoutMilliseconds ?? 5000;
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
 	let cancelReviewRenderFulfillmentWake: (() => void) | null = null;
+	let activeComparisonTargetsProductControlRequestId: string | null = null;
 	const panePresentationAuthority = new BridgeCommWorkerPanePresentationAuthority();
+	const comparisonTargetsQueryRunner = createBridgeWorkerComparisonTargetsQueryRunner({
+		getWorkAdmission: () => ({
+			generation: panePresentationAuthority.snapshot.workAdmissionGeneration,
+			signal: panePresentationAuthority.workSignal,
+		}),
+		isCurrentWorkAdmission: (generation): boolean =>
+			panePresentationAuthority.isCurrentWorkAdmission(generation),
+		onSettled: (requestId): void => {
+			activeComparisonTargetsProductControlRequestId =
+				settleBridgeWorkerComparisonTargetsControlRequest(
+					activeComparisonTargetsProductControlRequestId,
+					requestId,
+				);
+		},
+		openContent: openComparisonTargetsContent,
+		publish: (event): void => port.postMessage(event),
+	});
 	let fileViewRuntimeSource: BridgeCommWorkerFileViewRuntimeSource = {
 		contentItems: [],
 		contentRequests: [],
@@ -167,6 +197,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	let activeFileWorkerDerivationEpoch: number | null = null;
 	let activeReviewWorkerDerivationEpoch: number | null = null;
 	let activeViewerMode: 'file' | 'review' | null = null;
+	let activeReviewSourceIdentity: BridgeCommWorkerReviewSourceIdentity | null = null;
+	let publishedReviewComparison: BridgeCommWorkerPanePresentationSnapshot['reviewComparison'] =
+		null;
 	const publishedUpdatingChromeIdentityBySurface = new Map<'file' | 'review', string>();
 	const publishUpdatingChromeForSurface = (
 		surface: 'file' | 'review',
@@ -180,22 +213,45 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			presentation.nativeActivity === 'foreground' &&
 			activeViewerMode === surface &&
 			presentation.refreshingLanes.includes(refreshingLane);
-		const publicationIdentity = `${workerDerivationEpoch}:${isUpdating ? 'updating' : 'idle'}`;
+		const shouldWithholdReviewComparison =
+			surface === 'review' &&
+			!bridgeCommWorkerReviewComparisonMatchesSource(
+				presentation.reviewComparison,
+				activeReviewSourceIdentity,
+			);
+		const projectedReviewComparison =
+			surface === 'review'
+				? shouldWithholdReviewComparison
+					? publishedReviewComparison
+					: presentation.reviewComparison
+				: null;
+		const publicationIdentity = JSON.stringify([
+			workerDerivationEpoch,
+			isUpdating ? 'updating' : 'idle',
+			projectedReviewComparison,
+		]);
 		if (publishedUpdatingChromeIdentityBySurface.get(surface) === publicationIdentity) return;
-		const patch = isUpdating
-			? {
-					operation: 'upsert' as const,
-					payload: {
-						isLoading: true,
-						message: surface === 'file' ? 'Updating files…' : 'Updating review…',
-					},
-					slice: 'panelChrome' as const,
-				}
-			: { operation: 'reset' as const, slice: 'panelChrome' as const };
+		const patch =
+			isUpdating || projectedReviewComparison !== null
+				? {
+						operation: 'upsert' as const,
+						payload: {
+							...(isUpdating
+								? {
+										isLoading: true,
+										message: surface === 'file' ? 'Updating files…' : 'Updating review…',
+									}
+								: {}),
+							...(surface === 'review' ? { reviewComparison: projectedReviewComparison } : {}),
+						},
+						slice: 'panelChrome' as const,
+					}
+				: { operation: 'reset' as const, slice: 'panelChrome' as const };
+		const publicationSequence = createSequence();
 		const commonEvent = {
 			direction: 'serverWorkerToMain' as const,
 			patches: [patch],
-			publicationSequence: createSequence(),
+			publicationSequence,
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			workerDerivationEpoch,
@@ -214,6 +270,19 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}),
 		);
 		publishedUpdatingChromeIdentityBySurface.set(surface, publicationIdentity);
+		if (surface === 'review') publishedReviewComparison = projectedReviewComparison;
+		recordBridgeCommWorkerPanePresentationTelemetry({
+			...bridgeCommWorkerComparisonTelemetryFacts(presentation),
+			disposition: 'published',
+			panelOperation: patch.operation,
+			phase: 'panel_chrome_published',
+			presentationRevision: presentation.presentationRevision,
+			publicationSequence,
+			refreshingReview: presentation.refreshingLanes.includes('review'),
+			surface,
+			telemetryClient: props.telemetryClient,
+			workerDerivationEpoch,
+		});
 	};
 	const publishUpdatingChrome = (): void => {
 		const presentation = panePresentationAuthority.snapshot;
@@ -230,30 +299,55 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		readonly workerDerivationEpoch: number;
 	}): void => {
 		const nextProjectionRevision = reviewDisplayProjectionRevision + 1;
-		const message = bridgeWorkerReviewDisplayPatchEventSchema.parse({
-			direction: 'serverWorkerToMain',
-			epoch: publication.workerDerivationEpoch,
-			kind: 'reviewDisplayPatch',
-			patches: publication.patches,
-			projectionRevision: nextProjectionRevision,
-			sequence: createSequence(),
-			surface: 'review',
-			transferDescriptors: [],
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		});
-		port.postMessage(message);
+		port.postMessage(
+			bridgeCommWorkerReviewDisplayPatchEvent({
+				patches: publication.patches,
+				projectionRevision: nextProjectionRevision,
+				sequence: createSequence(),
+				workerDerivationEpoch: publication.workerDerivationEpoch,
+			}),
+		);
 		reviewDisplayProjectionRevision = nextProjectionRevision;
 	};
 	const publishReviewDisplayPatches = (publication: {
+		readonly comparisonCommit?:
+			| Parameters<typeof admitBridgeCommWorkerReviewDisplayPatches>[0]['comparisonCommit']
+			| undefined;
 		readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 		readonly workerDerivationEpoch: number;
 	}): void => {
-		const projectedPatches = reviewQueryProjection.applyDisplayPatches(publication.patches);
+		const admittedPublication = admitBridgeCommWorkerReviewDisplayPatches({
+			...(publication.comparisonCommit === undefined
+				? {}
+				: { comparisonCommit: publication.comparisonCommit }),
+			panePresentationAuthority,
+			patches: publication.patches,
+		});
+		const projectedPatches = reviewQueryProjection.applyDisplayPatches(admittedPublication.patches);
 		if (projectedPatches.length === 0) return;
 		postReviewDisplayPatches({
 			patches: projectedPatches,
 			workerDerivationEpoch: publication.workerDerivationEpoch,
 		});
+		if (admittedPublication.sourceIdentity !== null) {
+			activeReviewSourceIdentity = admittedPublication.sourceIdentity;
+		}
+		if (admittedPublication.reviewComparison !== undefined) {
+			publishedReviewComparison = admittedPublication.reviewComparison;
+			const presentation = panePresentationAuthority.snapshot;
+			const isUpdatingReview =
+				presentation.nativeActivity === 'foreground' &&
+				activeViewerMode === 'review' &&
+				presentation.refreshingLanes.includes('review');
+			publishedUpdatingChromeIdentityBySurface.set(
+				'review',
+				JSON.stringify([
+					publication.workerDerivationEpoch,
+					isUpdatingReview ? 'updating' : 'idle',
+					admittedPublication.reviewComparison,
+				]),
+			);
+		}
 	};
 	const fileQueryProjection = new BridgeCommWorkerFileQueryProjection();
 	let updateFileMetadataDemand: ((demand: BridgeCommWorkerFileMetadataDemand) => void) | null =
@@ -467,8 +561,27 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			port.postMessage(bridgeWorkerNativeSurfaceSelectionRequestFromMetadataFrame(frame));
 		});
 		productTransport.setPanePresentationFrameSink?.((frame): void => {
+			const wasRefreshingFile = panePresentationAuthority.snapshot.refreshingLanes.includes('file');
 			const application = panePresentationAuthority.apply(frame);
+			recordBridgeCommWorkerPanePresentationTelemetry({
+				...bridgeCommWorkerComparisonTelemetryFacts(application.snapshot),
+				disposition:
+					application.disposition === 'idempotentReplay' ? 'idempotent_replay' : 'applied',
+				phase: 'pane_presentation_applied',
+				presentationRevision: application.snapshot.presentationRevision,
+				refreshingReview: application.snapshot.refreshingLanes.includes('review'),
+				telemetryClient: props.telemetryClient,
+			});
+			const fileRefreshSettled =
+				wasRefreshingFile &&
+				application.snapshot.nativeActivity === 'foreground' &&
+				!application.snapshot.refreshingLanes.includes('file');
 			if (application.leftForeground) {
+				if (activeComparisonTargetsProductControlRequestId !== null) {
+					comparisonTargetsQueryRunner.fail(activeComparisonTargetsProductControlRequestId);
+				}
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = null;
 				abortAllFileContentPreparations();
 				reviewDemandScheduling.suspend();
 			}
@@ -477,6 +590,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				if (activeViewerMode === 'file') {
 					resumeLatestSelectedFileViewContentReadyPreparation();
 				}
+			}
+			if (fileRefreshSettled) {
+				void productController?.ensureFileSource().catch((): void => {});
 			}
 			publishUpdatingChrome();
 		});
@@ -582,8 +698,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			onReviewMetadataEvent: (event, workerDerivationEpoch) => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
+				const receipt = reviewMetadataApplicator.apply(event, workerDerivationEpoch);
 				publishUpdatingChrome();
-				return reviewMetadataApplicator.apply(event, workerDerivationEpoch);
+				return receipt;
 			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
@@ -627,7 +744,6 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				installedProductController.sendProductControl(command);
 		}
 	}
-
 	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
 		const parsedMessage = bridgeWorkerMainToServerMessageSchema.safeParse(event.data);
 		if (!parsedMessage.success) {
@@ -642,6 +758,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			handlerStartedAtMilliseconds -
 			(parsedMessage.data.issuedAtMilliseconds ?? handlerStartedAtMilliseconds);
 		const messages = handler.handleMessage(parsedMessage.data);
+		if (parsedMessage.data.command === 'reviewComparisonTargetsQueryCancel') {
+			if (activeComparisonTargetsProductControlRequestId === parsedMessage.data.queryRequestId) {
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = null;
+			}
+		}
 		if (
 			parsedMessage.data.command === 'activeViewerModeUpdate' &&
 			bridgeWorkerRuntimeMessagesContainReadyRequest({
@@ -651,6 +773,10 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			activeViewerMode !== parsedMessage.data.update.mode
 		) {
 			activeViewerMode = parsedMessage.data.update.mode;
+			if (activeViewerMode !== 'review') {
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = null;
+			}
 			if (activeViewerMode === 'file') {
 				reviewDemandScheduling.suspend();
 				resumeLatestSelectedFileViewContentReadyPreparation();
@@ -714,12 +840,28 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		for (const message of immediateMessages) {
 			port.postMessage(message);
 		}
+		if (
+			productControlCommand?.command.method === 'review.comparisonTargets.query' &&
+			!shouldSendProductControl
+		) {
+			comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
+		}
 		if (productControlCommand !== null && shouldSendProductControl) {
+			if (productControlCommand.command.method === 'review.comparisonTargets.query') {
+				comparisonTargetsQueryRunner.abort();
+				activeComparisonTargetsProductControlRequestId = productControlCommand.requestId;
+			}
 			void sendBridgeCommWorkerActionWithTimeout({
 				send: (): Promise<unknown> => sendProductControl(productControlCommand.command),
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			})
-				.then((): void => {
+				.then((actionResult: unknown): void => {
+					if (
+						productControlCommand.command.method === 'review.comparisonTargets.query' &&
+						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
+					) {
+						void comparisonTargetsQueryRunner.run(productControlCommand.requestId, actionResult);
+					}
 					for (const message of messages) {
 						if (
 							bridgeWorkerRuntimeMessageIsReadyRequest({
@@ -732,6 +874,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}
 				})
 				.catch((_error: unknown): void => {
+					if (
+						productControlCommand.command.method === 'review.comparisonTargets.query' &&
+						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
+					) {
+						comparisonTargetsQueryRunner.abort();
+						comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
+						activeComparisonTargetsProductControlRequestId = null;
+					}
 					port.postMessage(
 						buildBridgeWorkerRuntimeCommandFailedHealthEvent({
 							requestId: productControlCommand.requestId,
@@ -845,13 +995,4 @@ function sendBridgeCommWorkerActionWithTimeout(props: {
 			},
 		);
 	});
-}
-
-function createBridgeWorkerRuntimeSequenceCounter(): () => number {
-	let nextSequence = 1;
-	return (): number => {
-		const sequence = nextSequence;
-		nextSequence += 1;
-		return sequence;
-	};
 }

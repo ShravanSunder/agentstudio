@@ -260,6 +260,88 @@ extension WebKitSerializedTests.BridgePaneControllerIPCProjectionTests {
         }
     }
 
+    @Test("IPC render state projects comparison control facts and raw one-row geometry")
+    func ipcRenderState_projectsComparisonControlFactsAndRawOneRowGeometry() async throws {
+        let controller = makeIPCRenderStateForegroundController()
+        defer { controller.teardown() }
+
+        try await WebPageTestHarness.withManagedPage(controller.page) { page in
+            _ = try await page.callJavaScript(
+                """
+                document.body.innerHTML = `
+                  <header data-testid="bridge-viewer-content-topbar">
+                    <div data-testid="bridge-viewer-content-topbar-controls">
+                      <button
+                        aria-describedby="comparison-description"
+                        aria-label="Compare to: stack-base"
+                        data-state="open"
+                        data-testid="bridge-review-comparison-trigger"
+                      >Compare to: stack-base</button>
+                    </div>
+                  </header>
+                  <span id="comparison-description">Changes only on stack-base are excluded.</span>
+                  <section data-testid="bridge-review-comparison-content">
+                    <span
+                      data-testid="bridge-review-comparison-target-revision"
+                      title="1111111111111111111111111111111111111111"
+                    ></span>
+                    <span
+                      data-testid="bridge-review-comparison-shared-start-revision"
+                      title="2222222222222222222222222222222222222222"
+                    ></span>
+                  </section>
+                `;
+                const topbar = document.querySelector('[data-testid="bridge-viewer-content-topbar"]');
+                const controls = document.querySelector('[data-testid="bridge-viewer-content-topbar-controls"]');
+                const trigger = document.querySelector('[data-testid="bridge-review-comparison-trigger"]');
+                topbar.getBoundingClientRect = () => ({ x: 10, y: 20, width: 900, height: 36 });
+                controls.getBoundingClientRect = () => ({ x: 600, y: 26, width: 300, height: 24 });
+                trigger.getBoundingClientRect = () => ({ x: 650, y: 26, width: 180, height: 24 });
+                """
+            )
+
+            let result = try await controller.renderStateForIPC()
+            let encodedResult = try JSONEncoder().encode(result.summary)
+            let summary = try #require(
+                JSONSerialization.jsonObject(with: encodedResult) as? [String: Any]
+            )
+            let topbarFrame = try #require(summary["contentTopbarFrame"] as? [String: Any])
+            let controlsFrame = try #require(
+                summary["contentTopbarControlsFrame"] as? [String: Any]
+            )
+            let triggerFrame = try #require(
+                summary["comparisonTriggerFrame"] as? [String: Any]
+            )
+
+            #expect(summary["comparisonTriggerLabel"] as? String == "Compare to: stack-base")
+            #expect(
+                summary["comparisonTriggerDescription"] as? String
+                    == "Changes only on stack-base are excluded."
+            )
+            #expect(summary["comparisonTriggerState"] as? String == "open")
+            #expect(
+                summary["comparisonTargetRevision"] as? String
+                    == "1111111111111111111111111111111111111111"
+            )
+            #expect(
+                summary["comparisonSharedStartRevision"] as? String
+                    == "2222222222222222222222222222222222222222"
+            )
+            #expect(topbarFrame["x"] as? Double == 10)
+            #expect(topbarFrame["y"] as? Double == 20)
+            #expect(topbarFrame["width"] as? Double == 900)
+            #expect(topbarFrame["height"] as? Double == 36)
+            #expect(controlsFrame["x"] as? Double == 600)
+            #expect(controlsFrame["y"] as? Double == 26)
+            #expect(controlsFrame["width"] as? Double == 300)
+            #expect(controlsFrame["height"] as? Double == 24)
+            #expect(triggerFrame["x"] as? Double == 650)
+            #expect(triggerFrame["y"] as? Double == 26)
+            #expect(triggerFrame["width"] as? Double == 180)
+            #expect(triggerFrame["height"] as? Double == 24)
+        }
+    }
+
     @Test("IPC render state rejects invalid and absent Review DOM facts")
     func ipcRenderState_rejectsInvalidAndAbsentReviewDOMFacts() async throws {
         let controller = BridgePaneController(

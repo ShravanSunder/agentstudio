@@ -42,6 +42,7 @@ package actor TerminalActivationScheduler {
     private var maximumSimultaneousAdmissions = 0
     private var workerCount = 0
     private var yieldCount = 0
+    private var activationDeferralOutcome: StartupDeferralOutcome?
 
     package init(
         cohort: TerminalActivationCohort,
@@ -85,7 +86,7 @@ package actor TerminalActivationScheduler {
             lifecycle = .activating
         }
 
-        await releaseSignal.waitUntilReleased()
+        activationDeferralOutcome = await releaseSignal.waitUntilReleased()
 
         var initialAdmissions: [TerminalActivationAdmission] = []
         let maximumWorkerCount = min(
@@ -114,6 +115,10 @@ package actor TerminalActivationScheduler {
             waiter.resume(returning: settlement)
         }
         return settlement
+    }
+
+    package func recordedActivationDeferralOutcome() -> StartupDeferralOutcome? {
+        activationDeferralOutcome
     }
 
     func memberState(for paneID: PaneId) -> TerminalActivationMemberState? {

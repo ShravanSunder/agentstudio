@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
@@ -16,14 +20,17 @@ const productFileSessionTestTimeoutMilliseconds = 15_000;
 
 describe('Bridge verifier product File session', () => {
 	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
+	let bridgeDevelopmentServerDataRootPath: string | null = null;
 	let viteServer: ViteDevServer | null = null;
 	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 
 	afterEach(async (): Promise<void> => {
 		const ownedViteServer = viteServer;
 		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
+		const ownedBridgeDevelopmentServerDataRootPath = bridgeDevelopmentServerDataRootPath;
 		viteServer = null;
 		bridgeDevelopmentServer = null;
+		bridgeDevelopmentServerDataRootPath = null;
 		try {
 			await runAllOwnedCleanupOperations({
 				operations: [
@@ -37,6 +44,17 @@ describe('Bridge verifier product File session', () => {
 						name: 'integration Swift development backend',
 						run: async (): Promise<void> => {
 							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+					{
+						name: 'integration Swift development backend data root',
+						run: async (): Promise<void> => {
+							if (ownedBridgeDevelopmentServerDataRootPath !== null) {
+								await rm(ownedBridgeDevelopmentServerDataRootPath, {
+									force: true,
+									recursive: true,
+								});
+							}
 						},
 					},
 				],
@@ -54,8 +72,13 @@ describe('Bridge verifier product File session', () => {
 		'proves source, tree, descriptor, content, cancellation, and stream closure through the typed carrier',
 		async () => {
 			// Arrange
+			bridgeDevelopmentServerDataRootPath = await mkdtemp(
+				join(tmpdir(), 'bridge-product-file-development-server-'),
+			);
 			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
-				baseRef: 'HEAD',
+				dataRootPath: bridgeDevelopmentServerDataRootPath,
+				initialTarget: 'HEAD',
+				paneId: randomUUID(),
 				repoRootPath,
 				worktreeRoot: repoRootPath,
 			});

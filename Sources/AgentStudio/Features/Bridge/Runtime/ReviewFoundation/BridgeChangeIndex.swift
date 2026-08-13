@@ -184,7 +184,9 @@ extension BridgeReviewPackage {
             summary: summary,
             filterState: filterState,
             generatedAtUnixMilliseconds: generatedAtUnixMilliseconds,
-            changesetCluster: changesetCluster
+            changesetCluster: changesetCluster,
+            comparisonOrigin: comparisonOrigin,
+            reviewedSubjectLabel: reviewedSubjectLabel
         )
     }
 
@@ -203,7 +205,9 @@ extension BridgeReviewPackage {
             summary: summary,
             filterState: filterState,
             generatedAtUnixMilliseconds: generatedAtUnixMilliseconds,
-            changesetCluster: changesetCluster
+            changesetCluster: changesetCluster,
+            comparisonOrigin: comparisonOrigin,
+            reviewedSubjectLabel: reviewedSubjectLabel
         )
     }
 }

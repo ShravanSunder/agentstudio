@@ -45,6 +45,80 @@ struct WorkspacePreparedContentMountCoordinatorTests {
         #expect(terminalPort.admissions.isEmpty)
     }
 
+    @Test("re-entrant restore joins one terminal placeholder publication")
+    func reentrantRestoreJoinsOneTerminalPlaceholderPublication() async throws {
+        // Arrange
+        let generation = try makePreparedContentCoordinatorGeneration()
+        let descriptor = makePreparedContentCoordinatorTerminalDescriptor()
+        let cohort = WorkspacePreparedContentMountCohort(
+            generation: generation,
+            terminalActivationInput: TerminalActivationInput(entries: [descriptor]),
+            nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+        )
+        let registry = ViewRegistry()
+        registry.beginInitialRestore()
+        let coordinator = WorkspacePreparedContentMountCoordinator(
+            cohort: cohort,
+            viewRegistry: registry,
+            terminalAdmissionPort: RecordingPreparedContentTerminalPort(),
+            nonterminalAdmissionPort: RecordingPreparedContentNonterminalPort()
+        )
+        var publishedPaneIDs: [PaneId] = []
+
+        // Act
+        let firstPublication = coordinator.publishTerminalPlaceholders { descriptor in
+            publishedPaneIDs.append(descriptor.paneID)
+        }
+        await coordinator.holdTerminalActivationUntilReleased()
+        let mountTask = Task { @MainActor in
+            await coordinator.mount()
+        }
+        await Task.yield()
+        let reentrantPublication = coordinator.publishTerminalPlaceholders { descriptor in
+            publishedPaneIDs.append(descriptor.paneID)
+        }
+        await coordinator.releaseTerminalActivation()
+        _ = await mountTask.value
+
+        // Assert
+        #expect(firstPublication.disposition == .published)
+        #expect(reentrantPublication.disposition == .joinedExistingPublication)
+        #expect(publishedPaneIDs == [descriptor.paneID])
+    }
+
+    @Test("terminal activation deferral returns timeout when its injected deadline fires")
+    func terminalActivationDeferralReturnsTimeout() async {
+        let timeout = AsyncStream<Void>.makeStream()
+        let gate = TerminalActivationReleaseGate(
+            isReleased: false,
+            deferralDelay: AsyncDelay { _ in
+                var iterator = timeout.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
+        let waiter = Task {
+            await gate.waitUntilReleased()
+        }
+        await Task.yield()
+
+        timeout.continuation.yield()
+
+        #expect(await waiter.value == .fallbackTimeout)
+    }
+
+    @Test("terminal activation deferral returns cancelled when its caller is cancelled")
+    func terminalActivationDeferralReturnsCancelled() async {
+        let gate = TerminalActivationReleaseGate(isReleased: false)
+        let waiter = Task {
+            await gate.waitUntilReleased()
+        }
+        await Task.yield()
+
+        waiter.cancel()
+
+        #expect(await waiter.value == .cancelled)
+    }
+
     @Test("empty accepted cohort settles both lanes and completes initial restore")
     func emptyCohortCompletesInitialRestore() async throws {
         // Arrange

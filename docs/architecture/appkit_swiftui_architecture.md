@@ -90,9 +90,12 @@ NSWindow (.fullSizeContentView, transparent titlebar)
   item. It owns no click or drag policy.
 - `DraggableTabBarHostingView` bridges AppKit events to the SwiftUI tab surface.
   It owns pill-frame hit testing, management-mode tab dragging, and native
-  window dragging from empty strip space.
+  window dragging from empty strip space. It also owns secondary-click
+  admission and requests the clicked tab's native `NSMenu` from the controller.
 - `CustomTabBar` renders the tab pills and toolbar-local controls. SwiftUI owns
-  ordinary tab selection, hover, close buttons, and context menus.
+  ordinary tab selection, hover, close buttons, layout, and paint. It does not
+  own tab context-menu presentation because that path is unreliable inside the
+  native-toolbar-hosted scrolling subtree.
 
 ### Geometry And Hit Testing
 
@@ -478,9 +481,10 @@ class DraggableHostingView: NSView, NSDraggingSource {
 ```
 
 **Why this works:**
-- SwiftUI receives all clicks, hovers, right-clicks normally
+- SwiftUI receives primary clicks and hovers normally
 - Pan gesture only fires after sufficient movement
-- No event ownership conflicts
+- AppKit separately admits secondary clicks for native tab menus and empty-strip
+  primary clicks for native window dragging
 
 ### Avoid: hitTest Override
 
@@ -488,6 +492,12 @@ Overriding `hitTest` to claim events creates problems:
 - Breaks SwiftUI's event handling (close buttons, context menus)
 - Risk of infinite loops if events are forwarded back to subviews
 - Requires reimplementing click handling manually
+
+`DraggableTabBarHostingView` is a narrow exception for diagnostics only: its
+`hitTest` override returns the unchanged AppKit result and records bounded facts
+when the current event is a secondary click. The local secondary-click monitor,
+not `hitTest`, owns menu admission. It resolves the existing pill frames and
+consumes the event only after `TabContextMenuPresenter` accepts presentation.
 
 ### Reference Implementation
 

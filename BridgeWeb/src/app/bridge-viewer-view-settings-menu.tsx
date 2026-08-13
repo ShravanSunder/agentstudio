@@ -1,5 +1,5 @@
 import { RotateCcwIcon, SettingsIcon } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 
 import {
 	DropdownMenu,
@@ -28,6 +28,7 @@ import type {
 import { cn } from './class-name.js';
 
 interface BridgeFilesViewSettingsMenuProps {
+	readonly disabled?: boolean;
 	readonly defaultSettings: Readonly<BridgeFilesViewSettings>;
 	readonly onChange: (settings: BridgeFilesViewSettings) => void;
 	readonly onOpenChange: (open: boolean) => void;
@@ -37,6 +38,7 @@ interface BridgeFilesViewSettingsMenuProps {
 }
 
 interface BridgeReviewViewSettingsMenuProps {
+	readonly disabled?: boolean;
 	readonly defaultSettings: Readonly<BridgeReviewViewSettings>;
 	readonly onChange: (settings: BridgeReviewViewSettings) => void;
 	readonly onOpenChange: (open: boolean) => void;
@@ -52,8 +54,12 @@ export type BridgeViewerViewSettingsMenuProps =
 export function BridgeViewerViewSettingsMenu(
 	props: BridgeViewerViewSettingsMenuProps,
 ): ReactElement {
+	const { disabled, onOpenChange, open } = props;
 	const testPrefix = `bridge-${props.surface}-view-settings`;
 	const settingsChanged = !bridgeViewerViewSettingsAreEqual(props);
+	useEffect((): void => {
+		if (disabled === true && open) onOpenChange(false);
+	}, [disabled, onOpenChange, open]);
 	const updateLineNumbers = (lineNumbers: boolean): void => {
 		if (props.surface === 'file') props.onChange({ ...props.settings, lineNumbers });
 		else props.onChange({ ...props.settings, lineNumbers });
@@ -72,6 +78,7 @@ export function BridgeViewerViewSettingsMenu(
 				aria-label="View settings"
 				className={bridgeViewerMenuTriggerClassName}
 				data-testid={`${testPrefix}-trigger`}
+				disabled={props.disabled}
 				title="View settings"
 			>
 				<SettingsIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />

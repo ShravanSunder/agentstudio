@@ -42,13 +42,21 @@ package final class WindowLifecycleAtom {
     /// App-owned usable-frame proxy. This is not a Ghostty renderer-present fact.
     package private(set) var didPublishFirstInteractiveFrame = false
     package private(set) var firstInteractiveFrameSource: FirstInteractiveFrameSource?
-    private var firstInteractiveFrameWaiters: [CheckedContinuation<Void, Never>] = []
+    private struct FirstInteractiveFrameWaiter {
+        let continuation: CheckedContinuation<StartupDeferralOutcome, Never>
+        let timeoutTask: Task<Void, Never>
+    }
+
+    private let deferralDelay: AsyncDelay
+    private var firstInteractiveFrameWaiters: [UUID: FirstInteractiveFrameWaiter] = [:]
 
     package var isReadyForLaunchRestore: Bool {
         isLaunchLayoutSettled && !terminalContainerBounds.isEmpty
     }
 
-    package init() {}
+    package init(deferralDelay: AsyncDelay = .taskSleep) {
+        self.deferralDelay = deferralDelay
+    }
 
     /// True only when a registered workspace window is currently key.
     /// `false` intentionally conflates "no key window", "foreign key window",
@@ -163,18 +171,49 @@ package final class WindowLifecycleAtom {
         guard !didPublishFirstInteractiveFrame else { return false }
         didPublishFirstInteractiveFrame = true
         firstInteractiveFrameSource = source
-        let waiters = firstInteractiveFrameWaiters
-        firstInteractiveFrameWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
+        let waiterIDs = Array(firstInteractiveFrameWaiters.keys)
+        for waiterID in waiterIDs {
+            resolveFirstInteractiveFrameWaiter(waiterID, outcome: .completed)
         }
         return true
     }
 
-    package func waitUntilFirstInteractiveFramePublished() async {
-        guard !didPublishFirstInteractiveFrame else { return }
-        await withCheckedContinuation { continuation in
-            firstInteractiveFrameWaiters.append(continuation)
+    package func waitUntilFirstInteractiveFramePublished() async -> StartupDeferralOutcome {
+        guard !didPublishFirstInteractiveFrame else { return .completed }
+        let waiterID = UUIDv7.generate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: .cancelled)
+                    return
+                }
+                let delay = deferralDelay
+                let timeoutTask = Task { @MainActor [weak self] in
+                    do {
+                        try await delay.wait(AppPolicies.StartupDeferral.maximumWait)
+                    } catch {
+                        return
+                    }
+                    self?.resolveFirstInteractiveFrameWaiter(waiterID, outcome: .fallbackTimeout)
+                }
+                firstInteractiveFrameWaiters[waiterID] = FirstInteractiveFrameWaiter(
+                    continuation: continuation,
+                    timeoutTask: timeoutTask
+                )
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resolveFirstInteractiveFrameWaiter(waiterID, outcome: .cancelled)
+            }
         }
+    }
+
+    private func resolveFirstInteractiveFrameWaiter(
+        _ waiterID: UUID,
+        outcome: StartupDeferralOutcome
+    ) {
+        guard let waiter = firstInteractiveFrameWaiters.removeValue(forKey: waiterID) else { return }
+        waiter.timeoutTask.cancel()
+        waiter.continuation.resume(returning: outcome)
     }
 }
