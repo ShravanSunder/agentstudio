@@ -349,6 +349,12 @@ package enum AppPolicies {
         package static let bufferedFineBatchCapacity: Int = 64
     }
 
+    package enum FilesystemSourceSync {
+        /// Maximum number of worktree keys admitted to one sequential source-write batch.
+        /// A full reconciliation retains every key and yields between batches.
+        package static let maximumWorktreeKeysPerBatch: Int = 32
+    }
+
     package enum ForgeRefresh {
         package static let defaultPollingInterval: Duration = .seconds(45)
         package static let failureBackoffBaseDelay: Duration = .seconds(5)

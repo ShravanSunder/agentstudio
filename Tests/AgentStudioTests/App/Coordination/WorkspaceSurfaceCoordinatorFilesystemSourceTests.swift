@@ -12,8 +12,85 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
+    private let expectedSourceSyncBatchSize = AppPolicies.FilesystemSourceSync.maximumWorktreeKeysPerBatch
+
     init() {
         installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("bulk source sync stages every registration in bounded stable batches")
+    func bulkSourceSyncStagesEveryRegistrationInBoundedStableBatches() async throws {
+        let harness = makeHarness()
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-source-sync-batches-\(UUIDv7.generate().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: harness.tempDir)
+            try? FileManager.default.removeItem(at: traceDirectory)
+        }
+
+        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "bulk-source-sync-repo"))
+        let mainWorktree = try #require(harness.store.repo(repo.id)?.worktrees.first { $0.isMainWorktree })
+        let discoveredWorktrees = (1..<105).map { index in
+            Worktree(
+                repoId: repo.id,
+                name: "feature-\(index)",
+                path: repo.repoPath.appending(path: "feature-\(index)")
+            )
+        }
+        harness.store.reconcileDiscoveredWorktrees(
+            repo.id,
+            worktrees: [mainWorktree] + discoveredWorktrees
+        )
+        let expectedWorktrees = try #require(harness.store.repo(repo.id)?.worktrees)
+        let expectedWorktreeIds = expectedWorktrees.map(\.id).sorted { $0.uuidString < $1.uuidString }
+
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "source-sync-batches",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 946,
+            timeUnixNano: { 946 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let source = OrderedRecordingFilesystemSource()
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: harness.store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: harness.store),
+            surfaceManager: MockFilesystemCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: harness.bus,
+            filesystemSource: source,
+            filesystemProjectionIndex: FilesystemProjectionIndex(),
+            windowLifecycleStore: WindowLifecycleAtom(),
+            bridgePaneAttendance: BridgePaneAttendanceAtom(),
+            performanceTraceRecorder: recorder
+        )
+        defer { Task { await coordinator.shutdown() } }
+
+        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
+        try await recorder.drain()
+
+        let operations = await source.operations()
+        #expect(operations.compactMap(\.registeredWorktreeId) == expectedWorktreeIds)
+        let activityWorktreeIds = operations.compactMap { operation -> UUID? in
+            guard case .activity(let worktreeId, isActiveInApp: false) = operation else { return nil }
+            return worktreeId
+        }
+        #expect(activityWorktreeIds == expectedWorktreeIds)
+        let sourceSnapshot = await source.snapshot()
+        #expect(Set(sourceSnapshot.registeredRoots.keys) == Set(expectedWorktreeIds))
+        #expect(sourceSnapshot.activityByWorktreeId.count == expectedWorktreeIds.count)
+        #expect(sourceSnapshot.activityByWorktreeId.values.allSatisfy { !$0 })
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let registrationCounts = try sourceSyncRegistrationCounts(from: outputFileURL)
+        #expect(registrationCounts == [32, 32, 32, 9])
+        #expect(registrationCounts.allSatisfy { $0 <= expectedSourceSyncBatchSize })
+        #expect(registrationCounts.reduce(0, +) == expectedWorktreeIds.count)
     }
 
     @Test("filesystem source writes preserve serial operation order")
@@ -535,5 +612,20 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom()
         )
+    }
+
+    private func sourceSyncRegistrationCounts(from traceFileURL: URL) throws -> [Int] {
+        let contents = try String(contentsOf: traceFileURL, encoding: .utf8)
+        return try contents.split(separator: "\n").compactMap { line in
+            let data = Data(line.utf8)
+            let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            guard record["body"] as? String == "performance.coordinator.write",
+                let attributes = record["attributes"] as? [String: Any],
+                attributes["agentstudio.performance.coordinator.phase"] as? String == "source_sync"
+            else {
+                return nil
+            }
+            return (attributes["agentstudio.performance.coordinator.registered.count"] as? NSNumber)?.intValue
+        }
     }
 }
