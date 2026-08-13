@@ -60,7 +60,8 @@ struct CommandBarPanelControllerTests {
         store: WorkspaceStore = WorkspaceStore(),
         dispatcher: any AppCommandDispatching = FakeAppCommandDispatcher(),
         commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom(),
-        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
+        animatePanelDismissal: Bool = true
     ) -> CommandBarPanelController {
         UserDefaults.standard.removeObject(forKey: "CommandBarRecentItemIds")
         UserDefaults.standard.removeObject(forKey: "CommandBarRecentCommands")
@@ -71,7 +72,8 @@ struct CommandBarPanelControllerTests {
             dispatcher: dispatcher,
             quickOpenDirectoryHandler: { _, _ in },
             commandBarSurface: commandBarSurface,
-            interactionProbe: interactionProbe
+            interactionProbe: interactionProbe,
+            animatePanelDismissal: animatePanelDismissal
         )
     }
 
@@ -134,7 +136,8 @@ struct CommandBarPanelControllerTests {
             interactionProbe: AgentStudioInteractionPerformanceProbe(
                 nowNanoseconds: clock.now,
                 recordDuration: recorder.record
-            )
+            ),
+            animatePanelDismissal: false
         )
 
         controller.show(parentWindow: window)
@@ -143,6 +146,9 @@ struct CommandBarPanelControllerTests {
         }
         clock.nowNanoseconds = 2_000_000
         controller.dismiss()
+        await eventually("command bar close should settle") {
+            recorder.records.count == 2
+        }
         #expect(recorder.records.map(\.kind) == [.commandBarOpen, .commandBarClose])
 
         controller.show(parentWindow: window)

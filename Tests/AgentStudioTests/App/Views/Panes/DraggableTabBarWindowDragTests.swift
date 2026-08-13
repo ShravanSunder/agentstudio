@@ -269,7 +269,7 @@ struct DraggableTabBarWindowDragTests {
             rootView: tabBar,
             performanceTraceRecorder: performanceTraceRecorder
         )
-        hostingView.configure(adapter: adapter) { _, _ in }
+        hostingView.configure(adapter: adapter) { _, _, _ in }
         let boundsHeight: CGFloat = AppStyles.Shell.TabBar.height
         let bounds = NSRect(x: 0, y: 0, width: 400, height: boundsHeight)
         hostingView.frame = bounds

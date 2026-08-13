@@ -129,6 +129,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome",
         "agentstudio.inbox.claim.lane",
         "agentstudio.inbox.claim.semantic",
         "agentstudio.inbox.decision",
@@ -469,6 +470,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.affected_item.count",
         "agentstudio.performance.repo_explorer.capability_snapshot.count",
         "agentstudio.performance.repo_explorer.command_resolution.count",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
         "agentstudio.performance.sidebar.group.count",
         "agentstudio.performance.sidebar.input.count",
@@ -858,11 +860,9 @@ extension AgentStudioOTLPTraceProjection {
     private static func isAllowedNumericKey(_ key: String) -> Bool {
         allowedNumericAttributeKeys.contains(key)
     }
-
     private static func isAllowedBooleanKey(_ key: String) -> Bool {
         allowedBooleanAttributeKeys.contains(key)
     }
-
     private static func isIdentifierKey(_ key: String) -> Bool {
         let normalizedKey = key.lowercased()
         return normalizedKey.hasSuffix(".id")
