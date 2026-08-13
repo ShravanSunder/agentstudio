@@ -53,6 +53,68 @@ export interface BridgeCommWorkerTelemetryRecorder {
 	readonly record: (sample: BridgeTelemetrySample) => void;
 }
 
+type BridgeCommWorkerComparisonAttemptStatus =
+	| 'absent'
+	| 'pending'
+	| 'selection_required'
+	| 'settled'
+	| 'unavailable';
+
+export interface RecordBridgeCommWorkerPanePresentationTelemetryProps {
+	readonly comparisonAttemptStatus: BridgeCommWorkerComparisonAttemptStatus;
+	readonly disposition: 'applied' | 'idempotent_replay' | 'published';
+	readonly panelOperation?: 'reset' | 'upsert';
+	readonly phase: 'pane_presentation_applied' | 'panel_chrome_published';
+	readonly presentationRevision: number;
+	readonly publicationSequence?: number;
+	readonly refreshingReview: boolean;
+	readonly reviewGeneration?: number | undefined;
+	readonly surface?: 'file' | 'review';
+	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder | undefined;
+	readonly workerDerivationEpoch?: number;
+}
+
+export function recordBridgeCommWorkerPanePresentationTelemetry(
+	props: RecordBridgeCommWorkerPanePresentationTelemetryProps,
+): void {
+	props.telemetryClient?.record({
+		scope: 'web',
+		name: 'performance.bridge.web.pane_presentation',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.comparison.attempt.status': props.comparisonAttemptStatus,
+			'agentstudio.bridge.phase': props.phase,
+			'agentstudio.bridge.plane': 'control',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.presentation.disposition': props.disposition,
+			'agentstudio.bridge.result':
+				props.disposition === 'idempotent_replay' ? 'unchanged' : 'success',
+			'agentstudio.bridge.slice': 'review_metadata',
+			'agentstudio.bridge.transport': 'worker',
+			...(props.panelOperation === undefined
+				? {}
+				: { 'agentstudio.bridge.panel.operation': props.panelOperation }),
+			...(props.surface === undefined ? {} : { 'agentstudio.bridge.viewer': props.surface }),
+		},
+		numericAttributes: {
+			'agentstudio.bridge.presentation.revision': props.presentationRevision,
+			...(props.publicationSequence === undefined
+				? {}
+				: { 'agentstudio.bridge.presentation.publication_sequence': props.publicationSequence }),
+			...(props.reviewGeneration === undefined
+				? {}
+				: { 'agentstudio.bridge.review.generation': props.reviewGeneration }),
+			...(props.workerDerivationEpoch === undefined
+				? {}
+				: { 'agentstudio.bridge.worker.derivation_epoch': props.workerDerivationEpoch }),
+		},
+		booleanAttributes: {
+			'agentstudio.bridge.refreshing.review': props.refreshingReview,
+		},
+	});
+}
+
 export type BridgeCommWorkerSelectedContentDropReason =
 	| 'stale_after_fetch'
 	| 'stale_before_fetch'

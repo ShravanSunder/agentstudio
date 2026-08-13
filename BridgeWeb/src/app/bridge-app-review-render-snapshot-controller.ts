@@ -36,6 +36,7 @@ import {
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRpcLifecycleSnapshot } from '../core/comm-worker/bridge-worker-rpc-lifecycle-store.js';
 import { recordBridgeSelectionLifecycleSnapshot } from '../foundation/diagnostics/bridge-review-selection-diagnostic.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 
 const BRIDGE_REVIEW_INTAKE_READY_MAX_ATTEMPTS = 3;
 
@@ -51,6 +52,7 @@ interface BridgeReviewIntakeReadyAttempt {
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly pierreCourier: BridgeWorkerPierreCourier;
 	readonly reviewClient: BridgePaneSurfaceClient;
+	readonly telemetryRecorderRef?: { readonly current: BridgeTelemetryRecorder };
 }
 
 export interface BridgeReviewDirectDisplayStore extends Pick<
@@ -248,6 +250,9 @@ export function useBridgeReviewRenderSnapshotController(
 				pierreCourier,
 				renderFulfillmentCoordinator: props.reviewClient.renderFulfillmentCoordinator,
 				renderSnapshotStore: displayStore,
+				...(props.telemetryRecorderRef === undefined
+					? {}
+					: { telemetryRecorder: props.telemetryRecorderRef.current }),
 			});
 		});
 		const unsubscribeLifecycle = props.reviewClient.lifecycle.subscribe(settleWorkerRequests);
@@ -257,7 +262,13 @@ export function useBridgeReviewRenderSnapshotController(
 			failureCallbacksByRequestId.clear();
 			latestComparisonTargetsQueryRequestIdRef.current = null;
 		};
-	}, [displayStore, pierreCourier, props.reviewClient, settleWorkerRequests]);
+	}, [
+		displayStore,
+		pierreCourier,
+		props.reviewClient,
+		props.telemetryRecorderRef,
+		settleWorkerRequests,
+	]);
 	useEffect((): void => {
 		setComparisonTargetsQueryState({ catalog: null, message: null, status: 'idle' });
 	}, [props.reviewClient]);
@@ -546,6 +557,7 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 		'acceptPublication' | 'bindPublicationItem' | 'markPublicationQueued' | 'rejectPublication'
 	>;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 }): void {
 	for (const message of props.messages) {
 		switch (message.kind) {
@@ -570,6 +582,14 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				);
 				if (currentMemberPatches.length > 0) {
 					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: currentMemberPatches });
+					for (const patch of currentMemberPatches) {
+						if (patch.slice !== 'panelChrome') continue;
+						recordAppliedReviewPanelChrome({
+							message,
+							patch,
+							telemetryRecorder: props.telemetryRecorder,
+						});
+					}
 				}
 				break;
 			}
@@ -624,6 +644,55 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				assertNeverBridgeWorkerServerMessage(message);
 		}
 	}
+}
+
+function recordAppliedReviewPanelChrome(props: {
+	readonly message: Extract<
+		BridgeWorkerServerToMainMessage,
+		{ readonly kind: 'reviewRenderPatch' }
+	>;
+	readonly patch: Extract<
+		Extract<
+			BridgeWorkerServerToMainMessage,
+			{ readonly kind: 'reviewRenderPatch' }
+		>['patches'][number],
+		{ readonly slice: 'panelChrome' }
+	>;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+}): void {
+	const attempt =
+		props.patch.operation === 'upsert' ? props.patch.payload.reviewComparison?.attempt : null;
+	props.telemetryRecorder?.record({
+		scope: 'web',
+		name: 'performance.bridge.web.pane_presentation',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.comparison.attempt.status':
+				attempt === null || attempt === undefined
+					? 'absent'
+					: attempt.status === 'selectionRequired'
+						? 'selection_required'
+						: attempt.status,
+			'agentstudio.bridge.panel.operation': props.patch.operation,
+			'agentstudio.bridge.phase': 'panel_chrome_applied',
+			'agentstudio.bridge.plane': 'control',
+			'agentstudio.bridge.presentation.disposition': 'applied',
+			'agentstudio.bridge.priority': 'hot',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.slice': 'review_metadata',
+			'agentstudio.bridge.transport': 'local',
+			'agentstudio.bridge.viewer': 'review',
+		},
+		numericAttributes: {
+			'agentstudio.bridge.presentation.publication_sequence': props.message.publicationSequence,
+			'agentstudio.bridge.worker.derivation_epoch': props.message.workerDerivationEpoch,
+			...(attempt?.status === 'pending' || attempt?.status === 'settled'
+				? { 'agentstudio.bridge.review.generation': attempt.reviewGeneration }
+				: {}),
+		},
+		booleanAttributes: {},
+	});
 }
 
 function bridgeReviewPublicationMatchesDisplayEpoch(

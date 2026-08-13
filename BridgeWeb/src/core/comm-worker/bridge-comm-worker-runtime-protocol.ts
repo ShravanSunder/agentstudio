@@ -40,6 +40,7 @@ import {
 	scheduleDefaultBridgeCommWorkerPreparationDrain,
 } from './bridge-comm-worker-runtime-support.js';
 import {
+	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
 	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
@@ -99,6 +100,22 @@ const bridgeCommWorkerProductControlTimeoutMilliseconds = 5000;
 export type BridgeCommWorkerProductControlSender = (
 	command: BridgeProductControlCommand,
 ) => Promise<unknown>;
+
+function comparisonAttemptStatus(
+	presentation: BridgeCommWorkerPanePresentationSnapshot,
+): 'absent' | 'pending' | 'selection_required' | 'settled' | 'unavailable' {
+	const status = presentation.reviewComparison?.attempt.status;
+	if (status === undefined) return 'absent';
+	return status === 'selectionRequired' ? 'selection_required' : status;
+}
+
+function comparisonReviewGeneration(
+	presentation: BridgeCommWorkerPanePresentationSnapshot,
+): number | undefined {
+	const attempt = presentation.reviewComparison?.attempt;
+	if (attempt?.status !== 'pending' && attempt?.status !== 'settled') return undefined;
+	return attempt.reviewGeneration;
+}
 
 export function registerBridgeCommWorkerRuntimePortProtocol(
 	port: BridgeCommWorkerPort,
@@ -226,10 +243,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 						slice: 'panelChrome' as const,
 					}
 				: { operation: 'reset' as const, slice: 'panelChrome' as const };
+		const publicationSequence = createSequence();
 		const commonEvent = {
 			direction: 'serverWorkerToMain' as const,
 			patches: [patch],
-			publicationSequence: createSequence(),
+			publicationSequence,
 			transferDescriptors: [],
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			workerDerivationEpoch,
@@ -248,6 +266,21 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 					}),
 		);
 		publishedUpdatingChromeIdentityBySurface.set(surface, publicationIdentity);
+		recordBridgeCommWorkerPanePresentationTelemetry({
+			comparisonAttemptStatus: comparisonAttemptStatus(presentation),
+			disposition: 'published',
+			panelOperation: patch.operation,
+			phase: 'panel_chrome_published',
+			presentationRevision: presentation.presentationRevision,
+			publicationSequence,
+			refreshingReview: presentation.refreshingLanes.includes('review'),
+			surface,
+			telemetryClient: props.telemetryClient,
+			workerDerivationEpoch,
+			...(comparisonReviewGeneration(presentation) === undefined
+				? {}
+				: { reviewGeneration: comparisonReviewGeneration(presentation) }),
+		});
 	};
 	const publishUpdatingChrome = (): void => {
 		const presentation = panePresentationAuthority.snapshot;
@@ -503,6 +536,18 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		productTransport.setPanePresentationFrameSink?.((frame): void => {
 			const wasRefreshingFile = panePresentationAuthority.snapshot.refreshingLanes.includes('file');
 			const application = panePresentationAuthority.apply(frame);
+			recordBridgeCommWorkerPanePresentationTelemetry({
+				comparisonAttemptStatus: comparisonAttemptStatus(application.snapshot),
+				disposition:
+					application.disposition === 'idempotentReplay' ? 'idempotent_replay' : 'applied',
+				phase: 'pane_presentation_applied',
+				presentationRevision: application.snapshot.presentationRevision,
+				refreshingReview: application.snapshot.refreshingLanes.includes('review'),
+				telemetryClient: props.telemetryClient,
+				...(comparisonReviewGeneration(application.snapshot) === undefined
+					? {}
+					: { reviewGeneration: comparisonReviewGeneration(application.snapshot) }),
+			});
 			const fileRefreshSettled =
 				wasRefreshingFile &&
 				application.snapshot.nativeActivity === 'foreground' &&

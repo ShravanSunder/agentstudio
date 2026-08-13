@@ -383,17 +383,27 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     func publishPanePresentation(
-        _ snapshot: BridgePaneProductPresentationSnapshot
+        _ snapshot: BridgePaneProductPresentationSnapshot,
+        traceContext: BridgeTraceContext? = nil
     ) async {
         if let latestPanePresentation {
-            guard snapshot.presentationRevision > latestPanePresentation.presentationRevision else { return }
+            guard snapshot.presentationRevision > latestPanePresentation.presentationRevision else {
+                await recordPanePresentation(
+                    snapshot,
+                    stage: .notEnqueued,
+                    result: .skipped,
+                    resultReason: .deduplicated,
+                    traceContext: traceContext
+                )
+                return
+            }
         }
         latestPanePresentation = snapshot
-        await enqueueLatestPanePresentationIfPossible()
+        await enqueueLatestPanePresentationIfPossible(traceContext: traceContext)
     }
 
     func replayPanePresentation() async {
-        await enqueueLatestPanePresentationIfPossible()
+        await enqueueLatestPanePresentationIfPossible(traceContext: nil)
     }
 
     func publishPaneSurfaceSelectionRequest(
@@ -450,29 +460,96 @@ actor BridgePaneProductMetadataCoordinator {
         }
     }
 
-    private func enqueueLatestPanePresentationIfPossible() async {
-        guard let activeStream, let snapshot = latestPanePresentation else { return }
-        _ = try? await activeStream.session.enqueueProducerFrame(
-            for: activeStream.lease,
-            productAdmission: activeStream.productAdmission,
-            build: { streamSequence in
-                try .metadata(
-                    .panePresentation(
-                        stream: activeStream.correlation,
-                        streamSequence: streamSequence,
-                        snapshot: snapshot
+    private func enqueueLatestPanePresentationIfPossible(
+        traceContext: BridgeTraceContext?
+    ) async {
+        guard let snapshot = latestPanePresentation else { return }
+        guard let activeStream else {
+            await recordPanePresentation(
+                snapshot,
+                stage: .notEnqueued,
+                result: .skipped,
+                resultReason: .noActiveStream,
+                traceContext: traceContext
+            )
+            return
+        }
+        do {
+            let enqueueResult = try await activeStream.session.enqueueProducerFrame(
+                for: activeStream.lease,
+                productAdmission: activeStream.productAdmission,
+                build: { streamSequence in
+                    try .metadata(
+                        .panePresentation(
+                            stream: activeStream.correlation,
+                            streamSequence: streamSequence,
+                            snapshot: snapshot
+                        )
                     )
+                },
+                overflowReset: { streamSequence in
+                    try .metadata(
+                        .panePresentation(
+                            stream: activeStream.correlation,
+                            streamSequence: streamSequence,
+                            snapshot: snapshot
+                        )
+                    )
+                }
+            )
+            switch enqueueResult {
+            case .enqueued:
+                await recordPanePresentation(
+                    snapshot,
+                    stage: .enqueued,
+                    result: .success,
+                    resultReason: .noReason,
+                    traceContext: traceContext
                 )
-            },
-            overflowReset: { streamSequence in
-                try .metadata(
-                    .panePresentation(
-                        stream: activeStream.correlation,
-                        streamSequence: streamSequence,
-                        snapshot: snapshot
-                    )
+            case .queueReset:
+                await recordPanePresentation(
+                    snapshot,
+                    stage: .enqueued,
+                    result: .success,
+                    resultReason: .producerQueueReset,
+                    traceContext: traceContext
+                )
+            case .rejected:
+                await recordPanePresentation(
+                    snapshot,
+                    stage: .notEnqueued,
+                    result: .failure,
+                    resultReason: .producerRejected,
+                    traceContext: traceContext
                 )
             }
+        } catch {
+            await recordPanePresentation(
+                snapshot,
+                stage: .notEnqueued,
+                result: .failure,
+                resultReason: .unexpected,
+                traceContext: traceContext
+            )
+        }
+    }
+
+    private func recordPanePresentation(
+        _ snapshot: BridgePaneProductPresentationSnapshot,
+        stage: BridgePanePresentationTraceEvent.Stage,
+        result: BridgePanePresentationTraceEvent.Result,
+        resultReason: BridgePanePresentationTraceEvent.ResultReason,
+        traceContext: BridgeTraceContext?
+    ) async {
+        await lifecycleTraceRecorder?.record(
+            BridgePanePresentationTraceEvent(
+                snapshot: snapshot,
+                stage: stage,
+                result: result,
+                resultReason: resultReason,
+                hasActiveStream: activeStream != nil,
+                traceContext: traceContext
+            )
         )
     }
 

@@ -7,7 +7,10 @@ import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-fram
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import {
+	recordBridgeFrameJankTelemetrySample,
+	recordBridgeReviewComparisonPaneTelemetrySample,
+} from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import { BridgeReviewProjectionMenu } from '../review-viewer/chrome/bridge-review-projection-menu.js';
 import {
 	bridgeCodeViewOptions,
@@ -39,6 +42,7 @@ import {
 } from './bridge-app-review-viewer-shell-boundary.js';
 import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 import {
+	bridgeReviewComparisonPackageMatch,
 	bridgeReviewComparisonPaneIsLoading,
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
@@ -104,6 +108,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
 		reviewClient,
+		telemetryRecorderRef,
 	});
 	const catalogSnapshot = controller.catalogSnapshot;
 	const comparisonTargetsQueryState = controller.comparisonTargetsQueryState;
@@ -295,10 +300,36 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			}),
 		[catalogSnapshot, displayStore, reviewSourceSlice],
 	);
+	const displayedReviewPackage = presentationSnapshot?.reviewPackage ?? null;
+	const comparisonPresentation = panelChromeSlice.reviewComparison;
 	const comparisonPaneState = bridgeReviewComparisonPaneState({
-		comparisonPresentation: panelChromeSlice.reviewComparison,
-		displayedReviewPackage: presentationSnapshot?.reviewPackage ?? null,
+		comparisonPresentation,
+		displayedReviewPackage,
 	});
+	const comparisonPackageMatch =
+		comparisonPresentation === null || comparisonPresentation === undefined
+			? 'snapshot_not_current'
+			: bridgeReviewComparisonPackageMatch({
+					displayedReviewPackage,
+					displayedSnapshot: comparisonPresentation.displayedSnapshot,
+				});
+	const comparisonAttemptTelemetryStatus =
+		bridgeReviewComparisonAttemptTelemetryStatus(comparisonPresentation);
+	const comparisonPaneTelemetryState =
+		bridgeReviewComparisonPaneTelemetryState(comparisonPaneState);
+	useEffect((): void => {
+		recordBridgeReviewComparisonPaneTelemetrySample({
+			attemptStatus: comparisonAttemptTelemetryStatus,
+			packageMatch: comparisonPackageMatch,
+			paneState: comparisonPaneTelemetryState,
+			telemetryRecorder: telemetryRecorderRef.current,
+		});
+	}, [
+		comparisonAttemptTelemetryStatus,
+		comparisonPackageMatch,
+		comparisonPaneTelemetryState,
+		telemetryRecorderRef,
+	]);
 	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
 	const contentHeaderControls = (
 		<>
@@ -454,6 +485,37 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			viewerHeaderControls={contentHeaderControls}
 		/>
 	);
+}
+
+function bridgeReviewComparisonAttemptTelemetryStatus(
+	presentation: BridgeReviewRenderSnapshotController['panelChromeSlice']['reviewComparison'],
+): 'absent' | 'pending' | 'selection_required' | 'settled' | 'unavailable' {
+	const status = presentation?.attempt.status;
+	if (status === undefined) return 'absent';
+	return status === 'selectionRequired' ? 'selection_required' : status;
+}
+
+function bridgeReviewComparisonPaneTelemetryState(
+	state: ReturnType<typeof bridgeReviewComparisonPaneState>,
+): 'failed_initial' | 'failed_previous' | 'loading_initial' | 'loading_previous' | 'settled' {
+	switch (state.kind) {
+		case 'failedInitial':
+			return 'failed_initial';
+		case 'failedPrevious':
+			return 'failed_previous';
+		case 'loadingInitial':
+			return 'loading_initial';
+		case 'loadingPrevious':
+			return 'loading_previous';
+		case 'settled':
+			return 'settled';
+		default:
+			return assertNeverBridgeReviewComparisonPaneTelemetryState(state);
+	}
+}
+
+function assertNeverBridgeReviewComparisonPaneTelemetryState(state: never): never {
+	throw new Error(`Unexpected Review comparison pane telemetry state: ${JSON.stringify(state)}`);
 }
 
 function reviewPresentationState(props: {

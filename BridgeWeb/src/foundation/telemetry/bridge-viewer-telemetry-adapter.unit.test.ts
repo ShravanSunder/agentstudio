@@ -12,6 +12,7 @@ import {
 	recordBridgeSelectedContentDroppedTelemetrySample,
 	recordBridgeSelectedContentPaintedTelemetrySample,
 	recordBridgeReviewSelectionCommitTelemetrySample,
+	recordBridgeReviewComparisonPaneTelemetrySample,
 	recordBridgeTreeAnchorRestoreTelemetrySample,
 	recordBridgeTreeClickToRowHighlightTelemetrySample,
 	recordBridgeTreeHoverToRenderTelemetrySample,
@@ -27,6 +28,29 @@ afterEach(() => {
 });
 
 describe('bridge viewer telemetry adapter flushing', () => {
+	test('records the rendered comparison state and scrub-safe package mismatch reason', () => {
+		const recorder = makeCapturingRecorder();
+
+		recordBridgeReviewComparisonPaneTelemetrySample({
+			attemptStatus: 'settled',
+			packageMatch: 'revision_mismatch',
+			paneState: 'loading_previous',
+			telemetryRecorder: recorder,
+		});
+
+		expect(recorder.samples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.web.pane_presentation',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.comparison.attempt.status': 'settled',
+					'agentstudio.bridge.comparison.package_match': 'revision_mismatch',
+					'agentstudio.bridge.comparison.pane_state': 'loading_previous',
+					'agentstudio.bridge.phase': 'comparison_pane_rendered',
+				}),
+			}),
+		);
+	});
+
 	test('records one scrub-safe local Review selection commit and flushes once', () => {
 		const recorder = makeCapturingRecorder();
 

@@ -55,11 +55,13 @@ extension BridgePaneController {
         }
     }
 
-    func scheduleProductPresentationPublication() -> Task<Void, Never>? {
+    func scheduleProductPresentationPublication(
+        traceContext: BridgeTraceContext? = nil
+    ) -> Task<Void, Never>? {
         guard let productSchemeProvider else { return nil }
         let snapshot = refreshAdmissionCoordinator.productPresentationSnapshot
         return scheduleProductPresentationTransition {
-            await productSchemeProvider.publishPanePresentation(snapshot)
+            await productSchemeProvider.publishPanePresentation(snapshot, traceContext: traceContext)
         }
     }
 

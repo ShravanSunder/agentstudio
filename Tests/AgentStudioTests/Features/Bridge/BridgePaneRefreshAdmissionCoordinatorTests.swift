@@ -76,6 +76,42 @@ struct BridgePaneRefreshAdmissionCoordinatorTests {
         #expect(settled.reviewComparison?.displayedSnapshot == .current(successor))
     }
 
+    @Test("committed refresh advances the displayed comparison snapshot without a pending target attempt")
+    func committedRefreshAdvancesDisplayedComparisonSnapshotWithoutPendingTargetAttempt() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let refreshed = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-8",
+            reviewGeneration: 8,
+            revision: 12
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        let initialRevision = coordinator.productPresentationSnapshot.presentationRevision
+
+        // Act
+        coordinator.recordCommittedReviewComparisonSnapshot(
+            reviewGeneration: 8,
+            displayedSnapshotIdentity: refreshed
+        )
+
+        // Assert
+        let presentation = coordinator.productPresentationSnapshot
+        #expect(presentation.presentationRevision == initialRevision + 1)
+        #expect(presentation.reviewComparison?.attempt == .settled(reviewGeneration: 7))
+        #expect(presentation.reviewComparison?.displayedSnapshot == .current(refreshed))
+    }
+
     @Test("comparison transitions retain the published repository default target")
     func comparisonTransitionsRetainPublishedRepositoryDefaultTarget() throws {
         let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(

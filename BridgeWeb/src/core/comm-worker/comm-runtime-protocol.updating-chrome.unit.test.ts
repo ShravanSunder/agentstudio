@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	encodeBridgeWorkerActiveViewerModeUpdateCommand,
 	encodeBridgeWorkerReviewComparisonTargetsQueryCommand,
@@ -123,6 +124,7 @@ describe('Bridge comm worker updating panel chrome', () => {
 
 	test('publishes updating state only for the native-foreground active surface', async () => {
 		// Arrange
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 		const fileEvents = new BridgeProductBoundedAsyncQueue<
 			BridgeProductSubscriptionEvent<'file.metadata'>
 		>(16);
@@ -136,6 +138,11 @@ describe('Bridge comm worker updating panel chrome', () => {
 			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 400 },
 			productTransport: presentation.productTransport,
 			sendProductControl: async (): Promise<void> => {},
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
 		});
 		await flushBridgeWorkerRuntimeContinuations();
 		fileEvents.push({ eventKind: 'file.sourceAccepted', source: fileSource });
@@ -161,6 +168,29 @@ describe('Bridge comm worker updating panel chrome', () => {
 				surface: 'review',
 			},
 		]);
+		expect(telemetrySamples).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: 'performance.bridge.web.pane_presentation',
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.comparison.attempt.status': 'absent',
+						'agentstudio.bridge.phase': 'pane_presentation_applied',
+						'agentstudio.bridge.result': 'success',
+					}),
+					numericAttributes: expect.objectContaining({
+						'agentstudio.bridge.presentation.revision': 1,
+					}),
+				}),
+				expect.objectContaining({
+					name: 'performance.bridge.web.pane_presentation',
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.panel.operation': 'upsert',
+						'agentstudio.bridge.phase': 'panel_chrome_published',
+						'agentstudio.bridge.viewer': 'review',
+					}),
+				}),
+			]),
+		);
 
 		// Act
 		const publicationCountBeforeReplay = panelChromePublications(postedMessages).length;

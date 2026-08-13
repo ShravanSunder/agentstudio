@@ -25,6 +25,14 @@ export type BridgeReviewComparisonPaneState =
 			readonly retryTarget: BridgeReviewComparisonTarget | null;
 	  };
 
+export type BridgeReviewComparisonPackageMatch =
+	| 'matched'
+	| 'snapshot_not_current'
+	| 'package_absent'
+	| 'package_id_mismatch'
+	| 'review_generation_mismatch'
+	| 'revision_mismatch';
+
 export function bridgeReviewComparisonPaneState(props: {
 	readonly comparisonPresentation: BridgeWorkerPanelChromePatchPayload['reviewComparison'];
 	readonly displayedReviewPackage: BridgeReviewPackage | null;
@@ -40,10 +48,11 @@ export function bridgeReviewComparisonPaneState(props: {
 	const displayedTargetLabel = displayedComparisonTargetLabel(props.displayedReviewPackage);
 	const hasDisplayedComparison =
 		comparisonPresentation.displayedSnapshot.status !== 'none' && displayedTargetLabel !== null;
-	const displayedPackageIsCurrent = displayedPackageMatchesSnapshot({
-		displayedReviewPackage: props.displayedReviewPackage,
-		displayedSnapshot: comparisonPresentation.displayedSnapshot,
-	});
+	const displayedPackageIsCurrent =
+		bridgeReviewComparisonPackageMatch({
+			displayedReviewPackage: props.displayedReviewPackage,
+			displayedSnapshot: comparisonPresentation.displayedSnapshot,
+		}) === 'matched';
 
 	switch (comparisonPresentation.attempt.status) {
 		case 'selectionRequired':
@@ -102,21 +111,23 @@ function displayedComparisonTargetLabel(reviewPackage: BridgeReviewPackage | nul
 		: null;
 }
 
-function displayedPackageMatchesSnapshot(props: {
+export function bridgeReviewComparisonPackageMatch(props: {
 	readonly displayedReviewPackage: BridgeReviewPackage | null;
 	readonly displayedSnapshot: NonNullable<
 		BridgeWorkerPanelChromePatchPayload['reviewComparison']
 	>['displayedSnapshot'];
-}): boolean {
+}): BridgeReviewComparisonPackageMatch {
 	const displayedReviewPackage = props.displayedReviewPackage;
 	const displayedSnapshot = props.displayedSnapshot;
-	return (
-		displayedReviewPackage !== null &&
-		displayedSnapshot.status === 'current' &&
-		displayedSnapshot.packageId === displayedReviewPackage.packageId &&
-		displayedSnapshot.reviewGeneration === displayedReviewPackage.reviewGeneration &&
-		displayedSnapshot.revision === displayedReviewPackage.revision
-	);
+	if (displayedSnapshot.status !== 'current') return 'snapshot_not_current';
+	if (displayedReviewPackage === null) return 'package_absent';
+	if (displayedSnapshot.packageId !== displayedReviewPackage.packageId)
+		return 'package_id_mismatch';
+	if (displayedSnapshot.reviewGeneration !== displayedReviewPackage.reviewGeneration) {
+		return 'review_generation_mismatch';
+	}
+	if (displayedSnapshot.revision !== displayedReviewPackage.revision) return 'revision_mismatch';
+	return 'matched';
 }
 
 function assertNeverComparisonAttempt(attempt: never): never {

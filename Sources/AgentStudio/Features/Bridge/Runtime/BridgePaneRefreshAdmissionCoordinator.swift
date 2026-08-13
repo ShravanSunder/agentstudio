@@ -192,6 +192,30 @@ final class BridgePaneRefreshAdmissionCoordinator {
         presentationRevision += 1
     }
 
+    func recordCommittedReviewComparisonSnapshot(
+        reviewGeneration: Int,
+        displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity
+    ) {
+        guard let reviewComparison else { return }
+        if case .pending(let pendingGeneration) = reviewComparison.attempt {
+            guard pendingGeneration == reviewGeneration else { return }
+            settleReviewComparisonAttempt(
+                reviewGeneration: reviewGeneration,
+                displayedSnapshotIdentity: displayedSnapshotIdentity
+            )
+            return
+        }
+        let nextComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: reviewComparison.activeTarget,
+            attempt: reviewComparison.attempt,
+            displayedSnapshot: .current(displayedSnapshotIdentity),
+            repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
+        )
+        guard nextComparison != reviewComparison else { return }
+        self.reviewComparison = nextComparison
+        presentationRevision += 1
+    }
+
     func failReviewComparisonAttempt(
         reviewGeneration: Int,
         failureKind: String,

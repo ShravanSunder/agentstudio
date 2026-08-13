@@ -259,9 +259,10 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func publishPanePresentation(
-        _ snapshot: BridgePaneProductPresentationSnapshot
+        _ snapshot: BridgePaneProductPresentationSnapshot,
+        traceContext: BridgeTraceContext? = nil
     ) async {
-        await metadataCoordinator.publishPanePresentation(snapshot)
+        await metadataCoordinator.publishPanePresentation(snapshot, traceContext: traceContext)
     }
 
     func publishPaneSurfaceSelectionRequest(

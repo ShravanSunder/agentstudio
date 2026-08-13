@@ -480,6 +480,19 @@
       ],
       "lastAcceptedRequestSequence": 6,
       "lastAcceptedStreamSequence": 6
+    },
+    {
+      "kind": "product.call",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-comparison-targets-query-1",
+      "requestSequence": 9,
+      "call": {
+        "method": "review.comparisonTargets.query",
+        "request": {}
+      }
     }
   ],
   "controlResponses": [
@@ -581,6 +594,29 @@
       "retryAfterMilliseconds": 0,
       "retryable": true,
       "safeMessage": "Worker session must resynchronize."
+    },
+    {
+      "kind": "call.completed",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerInstanceId": "worker-instance-1",
+      "requestId": "request-comparison-targets-query-1",
+      "requestSequence": 9,
+      "call": {
+        "method": "review.comparisonTargets.query",
+        "result": {
+          "descriptor": {
+            "capturedAtUnixMilliseconds": 2000,
+            "contentKind": "review.comparisonTargets",
+            "cutoffUnixMilliseconds": 1000,
+            "declaredByteLength": 7,
+            "descriptorId": "comparison-targets-descriptor-1",
+            "encoding": "utf-8",
+            "expectedSha256": "b4515e15c59bb425429f6a53644cb0c6b5696ceedfb5230e73ace9ee7cbae33e",
+            "maximumBytes": 7
+          }
+        }
+      }
     }
   ],
   "metadataStreamRequests": [
@@ -628,7 +664,27 @@
       "streamSequence": 1,
       "presentationRevision": 1,
       "nativeActivity": "foreground",
-      "reviewComparison": null,
+      "reviewComparison": {
+        "activeTarget": {
+          "basis": "commonCommit",
+          "kind": "branch",
+          "name": "feature/review"
+        },
+        "attempt": {
+          "reviewGeneration": 8,
+          "status": "pending"
+        },
+        "displayedSnapshot": {
+          "packageId": "package-predecessor",
+          "reviewGeneration": 7,
+          "revision": 3,
+          "status": "stale"
+        },
+        "repositoryDefaultTarget": {
+          "branchName": "main",
+          "remoteName": "origin"
+        }
+      },
       "refreshingLanes": [
         "file",
         "review"
@@ -980,6 +1036,26 @@
           "maximumLines": 10000,
           "startByte": 0
         }
+      }
+    },
+    {
+      "kind": "content.open",
+      "wireVersion": 2,
+      "paneSessionId": "pane-session-1",
+      "workerDerivationEpoch": 7,
+      "workerInstanceId": "worker-instance-1",
+      "contentRequestId": "comparison-targets-content-request-1",
+      "leaseId": "comparison-targets-lease-1",
+      "contentKind": "review.comparisonTargets",
+      "descriptor": {
+        "capturedAtUnixMilliseconds": 2000,
+        "contentKind": "review.comparisonTargets",
+        "cutoffUnixMilliseconds": 1000,
+        "declaredByteLength": 7,
+        "descriptorId": "comparison-targets-descriptor-1",
+        "encoding": "utf-8",
+        "expectedSha256": "b4515e15c59bb425429f6a53644cb0c6b5696ceedfb5230e73ace9ee7cbae33e",
+        "maximumBytes": 7
       }
     }
   ],

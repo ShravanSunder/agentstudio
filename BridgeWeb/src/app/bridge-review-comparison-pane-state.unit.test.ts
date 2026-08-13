@@ -3,7 +3,10 @@ import { describe, expect, test } from 'vitest';
 import type { BridgeWorkerPanelChromePatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import { bridgeReviewComparisonPaneState } from './bridge-review-comparison-pane-state.js';
+import {
+	bridgeReviewComparisonPackageMatch,
+	bridgeReviewComparisonPaneState,
+} from './bridge-review-comparison-pane-state.js';
 
 describe('bridgeReviewComparisonPaneState', () => {
 	test('distinguishes a pending replacement from an initial comparison load', () => {
@@ -117,6 +120,29 @@ describe('bridgeReviewComparisonPaneState', () => {
 				displayedReviewPackage: null,
 			}),
 		).toEqual({ kind: 'loadingInitial', requestedTargetLabel: 'feature/new-target' });
+	});
+
+	test('classifies the exact displayed-package mismatch without exporting package identity', () => {
+		const currentPackage = comparisonPackage('package-next', 'feature/new-target', 1);
+		const displayedSnapshot = {
+			packageId: 'package-next',
+			reviewGeneration: 1,
+			revision: 2,
+			status: 'current' as const,
+		};
+
+		expect(
+			bridgeReviewComparisonPackageMatch({
+				displayedReviewPackage: currentPackage,
+				displayedSnapshot,
+			}),
+		).toBe('revision_mismatch');
+		expect(
+			bridgeReviewComparisonPackageMatch({
+				displayedReviewPackage: null,
+				displayedSnapshot,
+			}),
+		).toBe('package_absent');
 	});
 });
 
