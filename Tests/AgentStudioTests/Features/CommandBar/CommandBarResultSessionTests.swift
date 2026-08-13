@@ -79,10 +79,11 @@ struct CommandBarResultSessionTests {
         let state = CommandBarState()
         state.show(prefix: "#")
 
+        let dispatcher = FakeAppCommandDispatcher()
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: FakeAppCommandDispatcher()
+            dispatcher: dispatcher
         )
 
         _ = session.snapshot(state: state)
@@ -201,10 +202,11 @@ struct CommandBarResultSessionTests {
         let selectedRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selection-selected"))
         let state = CommandBarState()
         state.show(prefix: "#")
+        let dispatcher = FakeAppCommandDispatcher()
         let session = CommandBarResultSession(
             store: store,
             repoCache: RepoCacheAtom(),
-            dispatcher: FakeAppCommandDispatcher()
+            dispatcher: dispatcher
         )
 
         let emptySnapshot = session.snapshot(state: state)
@@ -287,6 +289,42 @@ struct CommandBarResultSessionTests {
 
         #expect(session.rootItemSnapshotBuildCount == 2)
         #expect(snapshot.allItems.contains { $0.id == "repo-\(repo.id.uuidString)" })
+    }
+
+    @Test("# root rebuild touches only the changed repository artifact at fleet scale")
+    func rootItemSnapshotRebuildsOnlyChangedRepositoryArtifactAtFleetScale() throws {
+        let store = WorkspaceStore()
+        let repositories = (0..<121).map { repositoryIndex in
+            store.addRepo(
+                at: URL(filePath: "/tmp/command-bar-incremental-\(repositoryIndex)")
+            )
+        }
+        let state = CommandBarState()
+        state.show(prefix: "#")
+        let dispatcher = FakeAppCommandDispatcher()
+        let session = CommandBarResultSession(
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: dispatcher
+        )
+
+        _ = session.snapshot(state: state)
+        let initialRepositoryArtifactBuildCount = session.repoScopeItemBuildCount
+        let changedRepository = repositories[60]
+        try store.mutationCoordinator.setRepoTags(
+            ["changed-key"],
+            repositoryID: changedRepository.id
+        )
+        let updatedSnapshot = session.snapshot(state: state)
+
+        #expect(initialRepositoryArtifactBuildCount == 121)
+        #expect(dispatcher.bridgeTargetLookupCount == 0)
+        #expect(session.repoScopeItemBuildCount == initialRepositoryArtifactBuildCount + 1)
+        #expect(
+            updatedSnapshot.allItems
+                .first { $0.id == "repo-\(changedRepository.id.uuidString)" }?
+                .keywords.contains("changed-key") == true
+        )
     }
 
     @Test("# root item invalidation publishes an observable session change")

@@ -15,14 +15,14 @@ struct PaneTabManagementHotPathTests {
 
         let appKitObservation = try #require(
             source.architectureSlice(
-                from: "private func observeForAppKitState()",
+                from: "private func observeForTabSelectionState()",
                 to: "private func observeForManagementLayerState()"
             )
         )
         let managementObservation = try #require(
             source.architectureSlice(
                 from: "private func observeForManagementLayerState()",
-                to: "private func handleAppKitStateChange()"
+                to: "private func handleTabSelectionStateChange()"
             )
         )
         let managementHandler = try #require(

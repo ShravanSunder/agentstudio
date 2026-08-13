@@ -9,6 +9,8 @@ final class FakeAppCommandDispatcher: AppCommandDispatching {
     var dispatchedCommands: [AppCommand] = []
     var targetedDispatches: [(command: AppCommand, target: UUID, targetType: SearchItemType)] = []
     var bridgeTargetsByWorktreeId: [UUID: BridgePaneCommandTarget] = [:]
+    var bridgeTargetLookupCount = 0
+    var bridgeTargetLookupWorktreeIds: [UUID] = []
     var movePaneDispatches: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
 
     func dispatch(_ command: AppCommand) {
@@ -28,7 +30,9 @@ final class FakeAppCommandDispatcher: AppCommandDispatching {
     }
 
     func bridgePaneCommandTarget(worktreeId: UUID) -> BridgePaneCommandTarget? {
-        bridgeTargetsByWorktreeId[worktreeId]
+        bridgeTargetLookupCount += 1
+        bridgeTargetLookupWorktreeIds.append(worktreeId)
+        return bridgeTargetsByWorktreeId[worktreeId]
     }
 
     func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {

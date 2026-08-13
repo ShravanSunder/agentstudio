@@ -24,6 +24,7 @@ final class CommandBarResultSession {
     @ObservationIgnored private let dispatcher: any AppCommandDispatching
     @ObservationIgnored private let notificationInboxCommands: InboxNotificationCommands?
     @ObservationIgnored private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    @ObservationIgnored private let repoScopeItemCache = CommandBarRepoScopeItemCache()
     @ObservationIgnored private var cachedRootItemSnapshot: CachedRootItemSnapshot?
     @ObservationIgnored private var lastDisplayedItemIDs: [String] = []
     @ObservationIgnored private var isRootItemSnapshotInvalidated = false
@@ -34,6 +35,9 @@ final class CommandBarResultSession {
     private(set) var rootItemSnapshotBuildCount = 0
     @ObservationIgnored
     private(set) var rootItemSnapshotCacheHitCount = 0
+
+    @ObservationIgnored
+    var repoScopeItemBuildCount: Int { repoScopeItemCache.buildCount }
 
     init(
         store: WorkspaceStore,
@@ -142,6 +146,11 @@ final class CommandBarResultSession {
         }
 
         let invalidationReason = rootItemSnapshotInvalidationReason(for: identity)
+        if invalidationReason != "topology_observation"
+            && invalidationReason != "query_meaningful_transition"
+        {
+            repoScopeItemCache.removeAll()
+        }
 
         let snapshot = trackedRootItemSnapshot(
             scope: state.activeScope,
@@ -198,7 +207,8 @@ final class CommandBarResultSession {
                     focusedPane: focusedPane,
                     commandContext: commandContext,
                     notificationInboxCommands: notificationInboxCommands,
-                    performanceTraceRecorder: performanceTraceRecorder
+                    performanceTraceRecorder: performanceTraceRecorder,
+                    repoScopeItemCache: repoScopeItemCache
                 )
             )
         } onChange: { [weak self] in

@@ -918,10 +918,13 @@ struct CommandBarDataSourceTests {
             let repoItem = items.first
             #expect(repoItem?.title == repo.name)
             #expect(repoItem?.hasChildren == true)
-            guard case .navigateRepo(let level) = repoItem?.action else {
+            guard case .navigateRepo(let repositoryID) = repoItem?.action else {
                 Issue.record("Expected repo row to drill into repo level")
                 return
             }
+            #expect(repositoryID == repo.id)
+            let level = CommandBarDataSource.buildRepoLevel(
+                repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
             let mainItem = level.items.first { $0.id.hasPrefix("repo-wt-") }
             #expect(mainItem?.title == "main")
             #expect(mainItem?.icon == .system(.starFill))
@@ -959,10 +962,13 @@ struct CommandBarDataSourceTests {
         #expect(items.first?.hasChildren == true)
         #expect(groups.count == 1)
         #expect(groups.first?.name == "Repositories")
-        guard case .navigateRepo(let level) = items.first?.action else {
+        guard case .navigateRepo(let repositoryID) = items.first?.action else {
             Issue.record("Expected repo row to drill into repo level")
             return
         }
+        #expect(repositoryID == repo.id)
+        let level = CommandBarDataSource.buildRepoLevel(
+            repo: store.repo(repo.id) ?? repo, store: store, dispatcher: dispatcher)
         #expect(level.items.filter { $0.id.hasPrefix("repo-wt-") }.count == 2)
     }
 
