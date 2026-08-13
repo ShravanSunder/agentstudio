@@ -96,6 +96,42 @@ struct CommandBarResultSessionTests {
         #expect(session.rootItemSnapshotCacheHitCount == 1)
     }
 
+    @Test("reopening after one repository changes preserves unrelated repository artifacts")
+    func reopeningAfterRepositoryChangeKeepsUnrelatedArtifacts() {
+        let store = WorkspaceStore()
+        let changedRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-cache-changed"))
+        _ = store.addRepo(at: URL(filePath: "/tmp/command-bar-cache-unchanged"))
+        let state = CommandBarState()
+        state.show(prefix: "#")
+        let session = CommandBarResultSession(
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: FakeAppCommandDispatcher()
+        )
+
+        _ = session.snapshot(state: state)
+        #expect(session.repoScopeItemBuildCount == 2)
+
+        store.reconcileDiscoveredWorktrees(
+            changedRepository.id,
+            worktrees: [
+                makeWorktree(
+                    repoId: changedRepository.id,
+                    name: "feature-cache-identity",
+                    path: "/tmp/command-bar-cache-changed/feature",
+                    isMainWorktree: false
+                )
+            ]
+        )
+        _ = session.snapshot(state: state)
+        #expect(session.repoScopeItemBuildCount == 3)
+
+        state.show(prefix: "#")
+        _ = session.snapshot(state: state)
+
+        #expect(session.repoScopeItemBuildCount == 3)
+    }
+
     @Test("root item cache records hits and bounded miss reasons")
     func rootItemCacheRecordsHitsAndBoundedMissReasons() async throws {
         let traceDirectory = FileManager.default.temporaryDirectory

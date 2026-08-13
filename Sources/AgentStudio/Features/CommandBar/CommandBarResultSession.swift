@@ -146,12 +146,6 @@ final class CommandBarResultSession {
         }
 
         let invalidationReason = rootItemSnapshotInvalidationReason(for: identity)
-        if invalidationReason != "topology_observation"
-            && invalidationReason != "query_meaningful_transition"
-        {
-            repoScopeItemCache.removeAll()
-        }
-
         let snapshot = trackedRootItemSnapshot(
             scope: state.activeScope,
             queryState: queryState,

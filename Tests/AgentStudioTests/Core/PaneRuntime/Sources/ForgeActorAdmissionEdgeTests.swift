@@ -199,6 +199,54 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.stopObserving()
     }
 
+    @Test("same-scope upstream facts during a request retain a deadline follow-up")
+    func sameScopeUpstreamFactsRetainDeadlineFollowUp() async {
+        let performanceRecorder = ForgePerformanceRecorderSpy()
+        let fixture = await ForgeActorFixture.make(performanceTraceRecorder: performanceRecorder)
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/acme-forge-pending-intent")
+        let branch = "feature/pending-intent"
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, branch)])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+
+        _ = await fixture.bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .snapshotChanged(
+                            snapshot: GitWorkingTreeSnapshot(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                rootPath: rootPath,
+                                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                                branch: branch
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )
+            )
+        )
+        await fixture.provider.resolve(callAt: 0, with: .complete([]))
+        await fixture.clock.waitForPendingSleepCount(atLeast: 1)
+        #expect(await fixture.provider.callCount == 1)
+
+        #expect(performanceRecorder.outcomes == ["deferred"])
+
+        fixture.advance(by: AppPolicies.ForgeRefresh.pendingFollowUpDelay)
+        #expect(await fixture.provider.waitForCallCount(2))
+        #expect(performanceRecorder.outcomes == ["deferred", "admitted"])
+
+        await fixture.provider.resolve(callAt: 1, with: .complete([]))
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
     @Test("path-only discovery updates only matching known membership and removal is inert")
     func pathOnlyDiscoveryMatchesKnownMembership() async {
         let fixture = await ForgeActorFixture.make()
@@ -345,5 +393,22 @@ struct ForgeActorAdmissionEdgeTests {
         #expect(await fixture.events.waitForRepositoryInvalidationCount(repoId: repoId, expectedCount: 2))
         await fixture.actor.shutdown()
         await fixture.stopObserving()
+    }
+}
+
+private final class ForgePerformanceRecorderSpy: ForgePerformanceRecording, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedOutcomes: [String] = []
+
+    var outcomes: [String] { lock.withLock { recordedOutcomes } }
+
+    func record(
+        _ event: AgentStudioPerformanceTraceRecorder.Event,
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue]
+    ) {
+        guard event == .forgeRefresh,
+            case .string(let outcome) = attributes()["agentstudio.performance.forge.outcome"]
+        else { return }
+        lock.withLock { recordedOutcomes.append(outcome) }
     }
 }

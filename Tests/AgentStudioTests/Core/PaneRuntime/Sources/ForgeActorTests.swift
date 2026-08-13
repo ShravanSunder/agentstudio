@@ -585,8 +585,7 @@ struct ForgeActorFixture {
     let clock: TestPushClock
     let monotonicNow: ManualForgeMonotonicNow
     let observationTask: Task<Void, Never>
-
-    static func make() async -> Self {
+    static func make(performanceTraceRecorder: (any ForgePerformanceRecording)? = nil) async -> Self {
         let bus = EventBus<RuntimeEnvelope>()
         let provider = GatedForgeStatusProvider()
         let events = ObservedForgeEvents()
@@ -597,7 +596,8 @@ struct ForgeActorFixture {
             statusProvider: provider,
             providerName: "stub",
             monotonicNow: { monotonicNow.value },
-            sleepClock: clock
+            sleepClock: clock,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observationTask = Task {
@@ -639,7 +639,6 @@ struct ForgeActorFixture {
         await observationTask.value
     }
 }
-
 final class ManualForgeMonotonicNow: @unchecked Sendable {
     private let lock = NSLock()
     private var elapsed = Duration.zero

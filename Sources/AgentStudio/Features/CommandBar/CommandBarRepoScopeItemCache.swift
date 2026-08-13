@@ -6,6 +6,8 @@ final class CommandBarRepoScopeItemCache {
     private struct ArtifactIdentity: Equatable {
         let repository: Repo
         let worktreePresence: [WorktreePresence]
+        let group: String
+        let groupPriority: Int
     }
 
     private struct CachedArtifact {
@@ -15,10 +17,6 @@ final class CommandBarRepoScopeItemCache {
 
     private var artifactsByRepositoryID: [UUID: CachedArtifact] = [:]
     private(set) var buildCount = 0
-
-    func removeAll() {
-        artifactsByRepositoryID.removeAll(keepingCapacity: true)
-    }
 
     func items(
         store: WorkspaceStore,
@@ -49,7 +47,9 @@ final class CommandBarRepoScopeItemCache {
                                 worktree: worktree,
                                 repo: repository
                             )
-                    }
+                    },
+                    group: group,
+                    groupPriority: groupPriority
                 )
                 if let cachedArtifact = artifactsByRepositoryID[repository.id],
                     cachedArtifact.identity == identity

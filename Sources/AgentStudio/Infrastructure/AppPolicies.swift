@@ -365,6 +365,7 @@ package enum AppPolicies {
 
     package enum ForgeRefresh {
         package static let defaultPollingInterval: Duration = .seconds(45)
+        package static let pendingFollowUpDelay: Duration = .seconds(1)
         package static let failureBackoffBaseDelay: Duration = .seconds(5)
         package static let failureBackoffMultiplier: Int = 2
         package static let failureBackoffMaxDelay: Duration = .seconds(60)

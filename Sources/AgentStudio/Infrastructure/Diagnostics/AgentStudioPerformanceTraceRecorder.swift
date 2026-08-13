@@ -136,6 +136,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
+        case forgeRefresh = "performance.forge.refresh"
         case gitAdmission = "performance.git.admission"
         case gitBackoff = "performance.git.backoff"
         case gitEventPosted = "performance.git.event_posted"
