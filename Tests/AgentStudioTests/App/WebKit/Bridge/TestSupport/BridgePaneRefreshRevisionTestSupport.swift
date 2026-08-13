@@ -49,7 +49,9 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/worktree",
+                baseline: .unstaged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(

@@ -8,7 +8,9 @@ presentation owners.
 
 Start with [Bridge Viewer Architecture](bridge_viewer_architecture.md). The
 native side is documented in [Bridge Native Runtime
-Architecture](bridge_native_runtime_architecture.md).
+Architecture](bridge_native_runtime_architecture.md). Route and payload
+placement is defined by [Bridge Product Transport
+Architecture](bridge_product_transport_architecture.md).
 
 ## Runtime Topology
 
@@ -57,6 +59,11 @@ Large content and prepared render payloads do not belong in React state or
 Zustand. The worker owns byte-oriented preparation and transfers bounded display
 artifacts to the main thread. React subscribes to keyed snapshots so one item
 change does not rebuild the entire package.
+
+Finite datasets requested by application controls also stay out of continuously
+pushed pane metadata. The worker initiates a typed query, opens the returned
+content descriptor, validates and materializes that application response, and
+exposes request-local loading/ready/error state to the owning control.
 
 ## Metadata Intake
 

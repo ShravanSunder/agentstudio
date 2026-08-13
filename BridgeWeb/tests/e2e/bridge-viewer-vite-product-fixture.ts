@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHTTPServer } from 'node:http';
 import { createServer as createTCPServer } from 'node:net';
@@ -24,12 +24,15 @@ const maximumServerLogTailCharacters = 8_192;
 export interface BridgeViewerViteProductFixtureOracle {
 	readonly baseRef: string;
 	readonly changedPaths: readonly string[];
+	readonly comparisonTargetName: string;
+	readonly dataRootPath: string;
 	readonly expectedReviewItemIds: readonly string[];
 	readonly fileContent: BridgeViewerViteProductContentOracle;
 	readonly fileTreeDeepPath: string;
 	readonly largeFileLineCount: number;
 	readonly largeFilePath: string;
 	readonly largeFileSha256: string;
+	readonly paneId: string;
 	readonly reviewFiles: readonly BridgeViewerViteProductReviewFileOracle[];
 	readonly worktreeRoot: string;
 }
@@ -58,6 +61,8 @@ export interface BridgeViewerViteProductReviewRoleOracle {
 }
 
 export interface BridgeViewerOwnedViteProductServer {
+	readonly backendPid: number;
+	readonly diagnostics: () => string;
 	readonly origin: string;
 	readonly pid: number;
 	readonly stop: () => Promise<BridgeViewerOwnedViteProductServerCleanup>;
@@ -90,11 +95,15 @@ export interface BridgeViewerOwnedViteShutdownDependencies {
 }
 
 export async function createBridgeViewerViteProductFixture(): Promise<{
+	readonly advanceComparisonTarget: () => Promise<string>;
 	readonly dispose: () => Promise<void>;
 	readonly mutateLargeFile: () => Promise<BridgeViewerViteProductContentOracle>;
 	readonly oracle: BridgeViewerViteProductFixtureOracle;
 }> {
 	const worktreeRoot = await mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-e2e-'));
+	let dataRootPath: string | null = null;
+	const comparisonTargetName = 'bridge-vite-comparison-target';
+	const paneId = randomUUID();
 	const largeFilePath = 'zz-large-complete-file.txt';
 	const reviewChangedFileCount = 100;
 	const firstMarker = 'BRIDGE_VITE_PRODUCT_FIRST_BYTE_MARKER';
@@ -121,6 +130,7 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 			`tree-only/section-${String(Math.floor(fileIndex / 20) + 1).padStart(2, '0')}/entry-${String(fileIndex + 1).padStart(3, '0')}.txt`,
 	);
 	try {
+		dataRootPath = await mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-data-'));
 		await writeFixtureFiles({
 			fileTreeOnlyPaths,
 			largeFileContent,
@@ -149,6 +159,11 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 			worktreeRoot,
 		});
 		const baseRef = (await runFixtureGit(worktreeRoot, ['rev-parse', 'HEAD'])).trim();
+		await runFixtureGit(worktreeRoot, [
+			'update-ref',
+			`refs/heads/${comparisonTargetName}`,
+			baseRef,
+		]);
 		const changedPaths = (
 			await runFixtureGit(worktreeRoot, ['diff', '--name-only', '--no-renames', baseRef, '--'])
 		)
@@ -186,8 +201,44 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 			middleMarker,
 		});
 		return {
+			advanceComparisonTarget: async (): Promise<string> => {
+				const targetCommitOID = (
+					await runFixtureGit(worktreeRoot, [
+						'commit-tree',
+						`${baseRef}^{tree}`,
+						'-p',
+						baseRef,
+						'-m',
+						'advance comparison target',
+					])
+				).trim();
+				await runFixtureGit(worktreeRoot, [
+					'update-ref',
+					`refs/heads/${comparisonTargetName}`,
+					targetCommitOID,
+					baseRef,
+				]);
+				return targetCommitOID;
+			},
 			dispose: async (): Promise<void> => {
-				await rm(worktreeRoot, { force: true, recursive: true });
+				await runAllOwnedCleanupOperations({
+					operations: [
+						{
+							name: 'Vite product fixture worktree',
+							run: async (): Promise<void> => {
+								await rm(worktreeRoot, { force: true, recursive: true });
+							},
+						},
+						{
+							name: 'Vite product fixture data root',
+							run: async (): Promise<void> => {
+								if (dataRootPath !== null) {
+									await rm(dataRootPath, { force: true, recursive: true });
+								}
+							},
+						},
+					],
+				});
 			},
 			mutateLargeFile: async (): Promise<BridgeViewerViteProductContentOracle> => {
 				const mutatedFirstMarker = 'BRIDGE_VITE_PRODUCT_MUTATED_FIRST_BYTE_MARKER';
@@ -214,18 +265,39 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 			oracle: {
 				baseRef,
 				changedPaths,
+				comparisonTargetName,
+				dataRootPath,
 				expectedReviewItemIds: reviewFiles.map(({ itemId }): string => itemId),
 				fileContent,
 				fileTreeDeepPath: fileTreeOnlyPaths.at(-1) ?? '',
 				largeFileLineCount: largeFileLines.length,
 				largeFilePath,
 				largeFileSha256: sha256(largeFileContent),
+				paneId,
 				reviewFiles,
 				worktreeRoot,
 			},
 		};
 	} catch (error: unknown) {
-		await rm(worktreeRoot, { force: true, recursive: true });
+		await runAllOwnedCleanupOperations({
+			operations: [
+				{
+					name: 'Vite product fixture worktree',
+					run: async (): Promise<void> => {
+						await rm(worktreeRoot, { force: true, recursive: true });
+					},
+				},
+				{
+					name: 'Vite product fixture data root',
+					run: async (): Promise<void> => {
+						if (dataRootPath !== null) {
+							await rm(dataRootPath, { force: true, recursive: true });
+						}
+					},
+				},
+			],
+			primaryError: error,
+		});
 		throw error;
 	}
 }
@@ -236,7 +308,9 @@ export async function startBridgeViewerOwnedViteProductServer(
 	const port = await reserveLoopbackPort();
 	const telemetryReceiver = await startBridgeViewerOwnedTelemetryReceiver();
 	const bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
-		baseRef: oracle.baseRef,
+		dataRootPath: oracle.dataRootPath,
+		initialTarget: 'HEAD',
+		paneId: oracle.paneId,
 		repoRootPath,
 		worktreeRoot: oracle.worktreeRoot,
 	}).catch(async (error: unknown): Promise<never> => {
@@ -321,6 +395,14 @@ export async function startBridgeViewerOwnedViteProductServer(
 	}
 	const origin = `http://127.0.0.1:${port}`;
 	return {
+		backendPid: bridgeDevelopmentServer.pid,
+		diagnostics: (): string =>
+			JSON.stringify({
+				backendStderr: bridgeDevelopmentServer.stderrTail(),
+				backendStdout: bridgeDevelopmentServer.stdoutTail(),
+				viteStderr: stderrTail,
+				viteStdout: stdoutTail,
+			}),
 		origin,
 		pid: child.pid ?? 0,
 		stop: async (): Promise<BridgeViewerOwnedViteProductServerCleanup> => {

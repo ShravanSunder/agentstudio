@@ -51,12 +51,12 @@ actor CoordinatorTrackingReviewMetadataSource: BridgePaneProductReviewMetadataPr
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         let outcome = try await source.deliver(
-            package: package,
+            publication: publication,
             reservation: reservation,
             productAdmission: productAdmission
         )
@@ -147,7 +147,7 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -168,7 +168,7 @@ actor CoordinatorSupersededDeliveryReviewMetadataSource:
             throw CoordinatorReviewPublicationTestError.missingSink
         }
         let enqueueResult = try await emit(
-            coordinatorReviewMetadataEvent(for: package),
+            coordinatorReviewMetadataEvent(for: publication.package),
             productAdmission
         )
         guard case .enqueued(let frame) = enqueueResult else {
@@ -240,7 +240,7 @@ actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataP
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -256,7 +256,7 @@ actor CoordinatorRepairingReviewMetadataSource: BridgePaneProductReviewMetadataP
             throw CoordinatorReviewPublicationTestError.missingSink
         }
         let enqueueResult = try await emit(
-            coordinatorReviewMetadataEvent(for: package),
+            coordinatorReviewMetadataEvent(for: publication.package),
             productAdmission
         )
         guard case .enqueued(let frame) = enqueueResult else {
@@ -319,7 +319,7 @@ actor CoordinatorEarlyFinalFramesSource:
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -327,11 +327,11 @@ actor CoordinatorEarlyFinalFramesSource:
             throw CoordinatorReviewPublicationTestError.missingSink
         }
         let firstResult = try await emit(
-            coordinatorReviewMetadataEvent(for: package),
+            coordinatorReviewMetadataEvent(for: publication.package),
             productAdmission
         )
         let secondResult = try await emit(
-            coordinatorReviewMetadataEvent(for: package),
+            coordinatorReviewMetadataEvent(for: publication.package),
             productAdmission
         )
         guard case .enqueued(let firstFrame) = firstResult,
@@ -401,7 +401,9 @@ func coordinatorCommittedReviewPublication(
         publicationId: UUID(uuidString: "11111111-1111-7111-8111-111111111111")!,
         package: package,
         delta: nil,
-        contentHandles: []
+        contentHandles: [],
+        comparisonPresentationRevision: 1,
+        reviewComparison: nil
     )
 }
 

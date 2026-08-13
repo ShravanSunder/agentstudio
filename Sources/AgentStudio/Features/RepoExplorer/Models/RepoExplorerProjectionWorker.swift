@@ -305,14 +305,22 @@ actor RepoExplorerProjectionWorker {
         func replacingRepo(in repo: RepoPresentationItem) -> RepoPresentationItem {
             repo.id == repoId ? changedRepo : repo
         }
-        let updatedGroups = previousContent.resolvedGroups.map { group in
-            RepoPresentationGroup(
-                id: group.id,
-                repoTitle: group.repoTitle,
-                organizationName: group.organizationName,
-                repos: group.repos.map { replacingRepo(in: $0) }
-            )
-        }
+        let updatedGroups = previousContent.resolvedGroups
+            .map { group in
+                RepoPresentationGroup(
+                    id: group.id,
+                    repoTitle: group.repoTitle,
+                    organizationName: group.organizationName,
+                    repos: group.repos.map { replacingRepo(in: $0) }
+                )
+            }
+            .sorted { lhs, rhs in
+                RepoExplorerProjection.repoGroupPrecedes(
+                    lhs,
+                    rhs,
+                    sortOrder: request.snapshot.sortOrder
+                )
+            }
         let favoriteGroups = updatedGroups.filter { !$0.repos.isEmpty && $0.repos.allSatisfy(\.isFavorite) }
         let regularGroups = updatedGroups.filter { $0.repos.contains { !$0.isFavorite } }
         let updatedLoadingRepos = previousContent.loadingRepos.map { replacingRepo(in: $0) }

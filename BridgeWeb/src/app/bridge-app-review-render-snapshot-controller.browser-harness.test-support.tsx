@@ -12,6 +12,7 @@ import type {
 	BridgeWorkerReviewDisplayPatchEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import type { BridgeWorkerRpcCommandInput } from '../core/comm-worker/bridge-worker-rpc-client.js';
 import {
 	createBridgeWorkerRpcLifecycleStore,
@@ -257,10 +258,12 @@ export function reviewDisplayEvent(props: {
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext('review-browser-harness-package'),
 					metadataSourceId: 'review-browser-harness-source',
 					metadataWindowIdentity: `review-window-${props.projectionRevision}`,
 					packageId: 'review-browser-harness-package',
 					reviewGeneration: 1,
+					revision: props.projectionRevision,
 					status: 'ready',
 					summary: {
 						additions: 1,

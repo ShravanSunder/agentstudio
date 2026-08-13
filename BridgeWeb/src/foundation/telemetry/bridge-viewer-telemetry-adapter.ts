@@ -190,6 +190,24 @@ export interface BridgeReviewSelectionCommitTelemetrySampleProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 }
 
+export interface BridgeReviewComparisonPaneTelemetrySampleProps {
+	readonly attemptStatus: 'absent' | 'pending' | 'selection_required' | 'settled' | 'unavailable';
+	readonly packageMatch:
+		| 'matched'
+		| 'snapshot_not_current'
+		| 'package_absent'
+		| 'package_id_mismatch'
+		| 'review_generation_mismatch'
+		| 'revision_mismatch';
+	readonly paneState:
+		| 'failed_initial'
+		| 'failed_previous'
+		| 'loading_initial'
+		| 'loading_previous'
+		| 'settled';
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+}
+
 export interface BridgeReviewContentDemandTelemetrySampleProps {
 	readonly activeIntentCount: number;
 	readonly deferredCount: number;
@@ -806,6 +824,34 @@ export function recordBridgeReviewSelectionCommitTelemetrySample(
 			booleanAttributes: {},
 		});
 		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeReviewComparisonPaneTelemetrySample(
+	props: BridgeReviewComparisonPaneTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.pane_presentation',
+			durationMilliseconds: null,
+			traceContext: null,
+			stringAttributes: {
+				'agentstudio.bridge.comparison.attempt.status': props.attemptStatus,
+				'agentstudio.bridge.comparison.package_match': props.packageMatch,
+				'agentstudio.bridge.comparison.pane_state': props.paneState,
+				'agentstudio.bridge.phase': 'comparison_pane_rendered',
+				'agentstudio.bridge.plane': 'control',
+				'agentstudio.bridge.presentation.disposition': 'rendered',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.slice': 'review_metadata',
+				'agentstudio.bridge.transport': 'local',
+				'agentstudio.bridge.viewer': 'review',
+			},
+			numericAttributes: {},
+			booleanAttributes: {},
+		});
 	});
 }
 

@@ -16,6 +16,7 @@ import {
 	type BridgeProductContentRequestFor,
 	type BridgeProductContentTerminal,
 	type BridgeProductFileContentIdentity,
+	type BridgeProductReviewComparisonTargetsContentIdentity,
 	type BridgeProductReviewContentIdentity,
 } from './bridge-product-content-contracts.js';
 import {
@@ -406,7 +407,11 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	) {
 		throw new Error('Bridge product content acceptance does not match its issued request.');
 	}
-	if (header.maximumBytes !== header.identity.window.maximumBytes) {
+	const identityMaximumBytes =
+		header.identity.contentKind === 'review.comparisonTargets'
+			? header.identity.maximumBytes
+			: header.identity.window.maximumBytes;
+	if (header.maximumBytes !== identityMaximumBytes) {
 		throw new Error('Bridge product content accepted maximum does not match its identity.');
 	}
 	if (header.declaredByteLength !== null && header.declaredByteLength > header.maximumBytes) {
@@ -428,8 +433,14 @@ function concatenateBridgeProductContentBytes(
 }
 
 function bridgeProductContentIdentitiesEqual(
-	left: BridgeProductFileContentIdentity | BridgeProductReviewContentIdentity,
-	right: BridgeProductFileContentIdentity | BridgeProductReviewContentIdentity,
+	left:
+		| BridgeProductFileContentIdentity
+		| BridgeProductReviewContentIdentity
+		| BridgeProductReviewComparisonTargetsContentIdentity,
+	right:
+		| BridgeProductFileContentIdentity
+		| BridgeProductReviewContentIdentity
+		| BridgeProductReviewComparisonTargetsContentIdentity,
 ): boolean {
 	if (left.contentKind !== right.contentKind) return false;
 	switch (left.contentKind) {
@@ -467,6 +478,14 @@ function bridgeProductContentIdentitiesEqual(
 				left.window.kind === right.window.kind &&
 				left.window.maximumBytes === right.window.maximumBytes &&
 				left.window.startByte === right.window.startByte
+			);
+		case 'review.comparisonTargets':
+			if (right.contentKind !== 'review.comparisonTargets') return false;
+			return (
+				left.capturedAtUnixMilliseconds === right.capturedAtUnixMilliseconds &&
+				left.cutoffUnixMilliseconds === right.cutoffUnixMilliseconds &&
+				left.descriptorId === right.descriptorId &&
+				left.maximumBytes === right.maximumBytes
 			);
 	}
 	throw new Error('Unsupported Bridge product content identity.');

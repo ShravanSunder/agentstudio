@@ -747,7 +747,7 @@ private actor AvailabilityThrowingReviewMetadataSource:
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -785,7 +785,7 @@ private actor AvailabilitySuspendedFailingReviewMetadataSource:
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -950,7 +950,7 @@ private func availabilityCommittedPublication(
         publicationId: UUID(uuidString: "11111111-1111-7111-8111-111111111111")!,
         package: package,
         delta: nil,
-        contentHandles: []
+        contentHandles: [], comparisonPresentationRevision: 1, reviewComparison: nil
     )
 }
 

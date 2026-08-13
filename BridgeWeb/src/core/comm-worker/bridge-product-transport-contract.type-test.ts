@@ -141,6 +141,8 @@ const surfaceByCallKind = {
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
+	'review.comparison.update': 'review',
+	'review.comparisonTargets.query': 'review',
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
@@ -156,6 +158,7 @@ const surfaceBySubscriptionKind = {
 const surfaceByContentKind = {
 	'file.content': 'file',
 	'review.content': 'review',
+	'review.comparisonTargets': 'review',
 } as const satisfies {
 	readonly [TContentKind in BridgeProductContentKind]: BridgeProductContentRegistry[TContentKind]['surface'];
 };
@@ -163,6 +166,12 @@ const surfaceByContentKind = {
 const reviewCallSurface: 'review' = bridgeProductSurfaceForCallKind('review.markFileViewed');
 const reviewIntakeReadyCallSurface: 'review' =
 	bridgeProductSurfaceForCallKind('review.intake.ready');
+const reviewComparisonUpdateCallSurface: 'review' = bridgeProductSurfaceForCallKind(
+	'review.comparison.update',
+);
+const reviewComparisonTargetsQueryCallSurface: 'review' = bridgeProductSurfaceForCallKind(
+	'review.comparisonTargets.query',
+);
 const reviewPublicationAppliedCallSurface: 'review' = bridgeProductSurfaceForCallKind(
 	'review.publication.applied',
 );
@@ -178,6 +187,9 @@ const reviewSubscriptionSurface: 'review' =
 const fileSubscriptionSurface: 'file' = bridgeProductSurfaceForSubscriptionKind('file.metadata');
 const fileContentSurface: 'file' = bridgeProductSurfaceForContentKind('file.content');
 const reviewContentSurface: 'review' = bridgeProductSurfaceForContentKind('review.content');
+const reviewComparisonTargetsContentSurface: 'review' = bridgeProductSurfaceForContentKind(
+	'review.comparisonTargets',
+);
 const allMappedSurfaces: readonly BridgeProductSurface[] = [
 	...Object.values(surfaceByCallKind),
 	...Object.values(surfaceBySubscriptionKind),
@@ -185,6 +197,8 @@ const allMappedSurfaces: readonly BridgeProductSurface[] = [
 ];
 void reviewCallSurface;
 void reviewIntakeReadyCallSurface;
+void reviewComparisonUpdateCallSurface;
+void reviewComparisonTargetsQueryCallSurface;
 void reviewPublicationAppliedCallSurface;
 void reviewActiveModeCallSurface;
 void fileActiveModeCallSurface;
@@ -193,6 +207,7 @@ void reviewSubscriptionSurface;
 void fileSubscriptionSurface;
 void fileContentSurface;
 void reviewContentSurface;
+void reviewComparisonTargetsContentSurface;
 void allMappedSurfaces;
 
 // @ts-expect-error A closed call mapper cannot infer a surface from a string prefix.
@@ -217,6 +232,11 @@ const intakeReadyResult: Promise<null> = productTransport.call('review.intake.re
 	streamId: 'review-stream-1',
 });
 void intakeReadyResult;
+const reviewComparisonUpdateResult: Promise<null> = productTransport.call(
+	'review.comparison.update',
+	{ target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' } },
+);
+void reviewComparisonUpdateResult;
 const reviewPublicationAppliedResult: Promise<null> = productTransport.call(
 	'review.publication.applied',
 	{ publicationId: '00000000-0000-7000-8000-000000000017' },

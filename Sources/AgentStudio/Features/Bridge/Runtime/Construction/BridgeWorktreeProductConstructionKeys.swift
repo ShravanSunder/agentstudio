@@ -210,6 +210,25 @@ struct BridgeReviewCheckpointSemanticsKey: Hashable, Sendable {
     let batchSequenceBounds: ClosedRange<UInt64>
 }
 
+struct BridgePreparedReviewFileIdentityKey: Hashable, Sendable {
+    let fileId: String
+    let path: String
+    let oldPath: String?
+    let changeKind: String
+    let language: String?
+    let fileExtension: String?
+    let sizeBytes: Int
+    let oldContentHash: String?
+    let newContentHash: String?
+    let contentHashAlgorithm: String
+    let oldMode: Int32?
+    let newMode: Int32?
+    let additions: Int
+    let deletions: Int
+    let isBinary: Bool
+    let mimeType: String
+}
+
 struct BridgeReviewConstructionKey: Hashable, Sendable {
     let owner: BridgeWorktreeProductOwnerKey
     let queryKind: BridgeReviewQueryKindKey
@@ -222,6 +241,7 @@ struct BridgeReviewConstructionKey: Hashable, Sendable {
     let viewFilter: BridgeReviewViewFilterKey
     let grouping: BridgeReviewGroupingKey
     let provenance: BridgeReviewProvenanceFilterKey
+    let preparedFileIdentities: [BridgePreparedReviewFileIdentityKey]?
     let checkpoint: BridgeReviewCheckpointSemanticsKey?
 
     init(
@@ -236,6 +256,7 @@ struct BridgeReviewConstructionKey: Hashable, Sendable {
         viewFilter: BridgeReviewViewFilterKey,
         grouping: BridgeReviewGroupingKey,
         provenance: BridgeReviewProvenanceFilterKey,
+        preparedFileIdentities: [BridgePreparedReviewFileIdentityKey]? = nil,
         checkpoint: BridgeReviewCheckpointSemanticsKey?
     ) {
         self.owner = owner
@@ -249,6 +270,7 @@ struct BridgeReviewConstructionKey: Hashable, Sendable {
         self.viewFilter = viewFilter
         self.grouping = grouping
         self.provenance = provenance
+        self.preparedFileIdentities = preparedFileIdentities?.sorted { $0.fileId < $1.fileId }
         self.checkpoint = checkpoint
     }
 }

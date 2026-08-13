@@ -92,13 +92,14 @@ struct BridgeProductSessionContractTests {
             guard case .panePresentation(let presentation) = frame else { return nil }
             return presentation
         }
-        #expect(panePresentations.map(\.activityRevision) == [1, 2, 3, 4])
+        #expect(panePresentations.map(\.presentationRevision) == [1, 2, 3, 4])
         #expect(
             panePresentations.map(\.nativeActivity)
                 == [.foreground, .loadedHidden, .dormant, .closed]
         )
         #expect(panePresentations.map(\.refreshingLanes) == [[.file, .review], [], [], []])
-        #expect(contentRequests.map(\.kind) == ["content.open"])
+        #expect(contentRequests.map(\.kind) == ["content.open", "content.open"])
+        #expect(contentRequests.map(\.surface) == [.file, .review])
         #expect(
             Set(contentHeaders.map(\.kind)) == [
                 "content.accepted",
@@ -174,11 +175,11 @@ struct BridgeProductSessionContractTests {
             }
         }
 
-        let contentRequest = try #require(
-            fixtureArray(named: "contentRequests", in: corpus).first
-        )
-        #expect(contentRequest["contentKind"] as? String == "file.content")
-        verifySurfaceScopedEpochContract(BridgeProductContentRequest.self, object: contentRequest)
+        let contentRequests = try fixtureArray(named: "contentRequests", in: corpus)
+        for contentRequest in contentRequests {
+            #expect(expectedSurfaceForControlRequest(contentRequest) != nil)
+            verifySurfaceScopedEpochContract(BridgeProductContentRequest.self, object: contentRequest)
+        }
     }
 
     @Test("Review intake readiness requires strict nullable identifiers and a null result")
@@ -823,7 +824,7 @@ extension BridgeProductSessionContractTests {
                 let method = call["method"] as? String
             else { return nil }
             switch method {
-            case "review.markFileViewed": return "review"
+            case "review.comparisonTargets.query", "review.markFileViewed": return "review"
             default: return nil
             }
         case "subscription.open":
@@ -840,6 +841,7 @@ extension BridgeProductSessionContractTests {
         case "content.open":
             switch object["contentKind"] as? String {
             case "file.content": return "file"
+            case "review.comparisonTargets": return "review"
             default: return nil
             }
         default:

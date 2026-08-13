@@ -10,6 +10,7 @@ import {
 	type BridgeWorkerReviewDisplayItem,
 	type BridgeWorkerReviewDisplayPatchEvent,
 } from './bridge-worker-contracts.js';
+import { bridgeWorkerReviewSourceContext } from './bridge-worker-review-display.test-support.js';
 
 describe('Bridge main render snapshot store', () => {
 	test('uses useSyncExternalStore and accepts only local intent plus worker patch writes', () => {
@@ -508,7 +509,10 @@ describe('Bridge main render snapshot store', () => {
 			sequence: 5,
 		});
 		expect(acceptedSnapshot.reviewSourceSlice).toMatchObject({
+			baseEndpoint: { endpointId: 'package-1-base' },
+			headEndpoint: { endpointId: 'package-1-head' },
 			metadataWindowIdentity: 'metadata-window-package-1-r11',
+			query: { queryId: 'package-1-query' },
 			status: 'loading',
 		});
 		expect(acceptedSnapshot.reviewItemIdsByIndex).toEqual(['item-1']);
@@ -872,10 +876,12 @@ function makeReviewDisplayPatchEvent(): BridgeWorkerReviewDisplayPatchEvent {
 			{
 				operation: 'upsert',
 				payload: {
+					...bridgeWorkerReviewSourceContext('package-1'),
 					metadataSourceId: 'review-source-package-1',
 					metadataWindowIdentity: 'metadata-window-package-1-r11',
 					packageId: 'package-1',
 					reviewGeneration: 1,
+					revision: 11,
 					status: 'loading',
 					summary: null,
 					totalItemCount: 1,

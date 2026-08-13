@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
+import { bridgeWorkerReviewSourceContext } from '../core/comm-worker/bridge-worker-review-display.test-support.js';
 import {
 	applyBridgeAppNavigationCommand,
 	bridgeAppRememberedNavigationTargetIsEligible,
@@ -26,10 +27,12 @@ describe('BridgeApp navigation admission', () => {
 	test('admits the accepted Review tuple while its child projection is still loading', () => {
 		expect(
 			bridgeAppReviewNavigationSourceForDisplaySlice({
+				...bridgeWorkerReviewSourceContext(reviewSource.packageId),
 				metadataSourceId: reviewSource.metadataSourceId,
 				metadataWindowIdentity: 'review-window-loading',
 				packageId: reviewSource.packageId,
 				reviewGeneration: reviewSource.generation,
+				revision: 1,
 				status: 'loading',
 				summary: null,
 				totalItemCount: null,

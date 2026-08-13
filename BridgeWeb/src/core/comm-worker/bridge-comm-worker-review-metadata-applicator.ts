@@ -28,6 +28,7 @@ import {
 } from './bridge-comm-worker-review-runtime-source-mapper.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import type { BridgeCommWorkerReviewRowMutation } from './bridge-comm-worker-store.js';
+import type { BridgeProductReviewComparisonPresentation } from './bridge-product-review-comparison-presentation-contracts.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
 import type {
 	BridgeWorkerReviewDisplayPatch,
@@ -94,6 +95,11 @@ export interface BridgeCommWorkerReviewRuntimeApplicationTransaction {
 	readonly runPostCommitEffects: () => void;
 }
 
+export interface BridgeCommWorkerReviewComparisonCommit {
+	readonly presentationRevision: number;
+	readonly reviewComparison: BridgeProductReviewComparisonPresentation | null;
+}
+
 export class BridgeCommWorkerReviewMetadataApplicator {
 	readonly #applyRuntimeSource: (
 		application: BridgeCommWorkerReviewMetadataApplication,
@@ -101,6 +107,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 	readonly #currentWorkerDerivationEpoch: () => number;
 	readonly #publishDisplayPatches:
 		| ((publication: {
+				readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
 				readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 				readonly workerDerivationEpoch: number;
 		  }) => void)
@@ -129,6 +136,7 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		) => BridgeCommWorkerReviewRuntimeApplicationTransaction | void;
 		readonly currentWorkerDerivationEpoch: () => number;
 		readonly publishDisplayPatches?: (publication: {
+			readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
 			readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
 			readonly workerDerivationEpoch: number;
 		}) => void;
@@ -775,6 +783,17 @@ export class BridgeCommWorkerReviewMetadataApplicator {
 		const runtimeApplication = runtimeApplicationResult ?? undefined;
 		try {
 			this.#publishDisplayPatches?.({
+				...(!('presentationRevision' in props.event) ||
+				props.event.presentationRevision === undefined ||
+				!('reviewComparison' in props.event) ||
+				props.event.reviewComparison === undefined
+					? {}
+					: {
+							comparisonCommit: {
+								presentationRevision: props.event.presentationRevision,
+								reviewComparison: props.event.reviewComparison,
+							},
+						}),
 				patches: displayPatches,
 				workerDerivationEpoch: props.workerDerivationEpoch,
 			});

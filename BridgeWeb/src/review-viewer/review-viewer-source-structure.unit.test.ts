@@ -72,7 +72,7 @@ describe('Review viewer S1a recovery source structure', () => {
 		expect(violations).toEqual([]);
 	});
 
-	test('keeps the recovered shell boundary presentation-only and lazily mounted', () => {
+	test('keeps the recovered shell presentation boundary lazily mounted', () => {
 		const boundarySource = readOptionalSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
 
 		expect(boundarySource).toContain('BridgeReviewViewerPresentationState');

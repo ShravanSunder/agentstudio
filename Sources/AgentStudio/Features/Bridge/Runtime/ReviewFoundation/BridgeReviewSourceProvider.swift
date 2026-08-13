@@ -7,6 +7,12 @@ import Foundation
 /// deltas are Bridge concepts. A backend may be called directly only when its
 /// public DTOs exactly match these contracts; otherwise use one thin mapper.
 package protocol BridgeReviewSourceProvider: Sendable {
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity?
+    func captureReviewComparisonTargets(
+        _ request: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult
@@ -53,6 +59,14 @@ protocol BridgeSharedReviewConstructionSourceProvider: BridgeReviewSourceProvide
 {}
 
 extension BridgeReviewSourceProvider {
+    package func captureReviewComparisonTargets(
+        _: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        throw BridgeProviderFailure.providerFailed(
+            message: "Review comparison target capture is unavailable"
+        )
+    }
+
     package func streamContent(
         _ request: BridgeContentStreamRequest,
         chunkByteCount: Int,

@@ -49,7 +49,9 @@ func makeRefreshRevisionFixture() -> RefreshRevisionFixture {
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/worktree",
+                baseline: .staged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -297,7 +299,9 @@ func makeRefreshAdmissionIntegrationFixture(
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/bridge-refresh-admission", baseline: .headMinusOne)
+            source: .workspace(
+                rootPath: "/tmp/bridge-refresh-admission",
+                baseline: .staged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -658,7 +662,7 @@ private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReview
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -666,7 +670,7 @@ private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReview
             throw RefreshAdmissionInjectedReviewMetadataFailure.delivery
         }
         return try await source.deliver(
-            package: package,
+            publication: publication,
             reservation: reservation,
             productAdmission: productAdmission
         )

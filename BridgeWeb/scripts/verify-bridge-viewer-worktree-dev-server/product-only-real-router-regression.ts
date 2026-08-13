@@ -1,7 +1,8 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -85,6 +86,10 @@ interface ChildProcessExit {
 export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<void> {
 	const createdAtUnixMilliseconds = Date.now();
 	const source = await readSourceFreshnessProof();
+	const bridgeDevelopmentServerDataRootPath = await mkdtemp(
+		join(tmpdir(), 'bridge-product-only-development-server-'),
+	);
+	const bridgeDevelopmentServerPaneId = randomUUID();
 	let cleanup: BridgeViewerViteServerCleanupProof = {
 		exitCode: null,
 		exitSignal: null,
@@ -108,7 +113,9 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 			worktreeRoot: repoRootPath,
 		});
 		bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
-			baseRef: reviewBase,
+			dataRootPath: bridgeDevelopmentServerDataRootPath,
+			initialTarget: reviewBase,
+			paneId: bridgeDevelopmentServerPaneId,
 			repoRootPath,
 			worktreeRoot: repoRootPath,
 		});
@@ -141,6 +148,15 @@ export async function runSelfHostedBridgeViewerProductOnlyRegression(): Promise<
 						run: async (): Promise<void> => {
 							cleanupResults.backend =
 								bridgeDevelopmentServer === null ? null : await bridgeDevelopmentServer.stop();
+						},
+					},
+					{
+						name: 'Swift development backend data root',
+						run: async (): Promise<void> => {
+							await rm(bridgeDevelopmentServerDataRootPath, {
+								force: true,
+								recursive: true,
+							});
 						},
 					},
 				],

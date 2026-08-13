@@ -16,7 +16,8 @@ struct BridgeReviewSourceProviderFactoryTests {
 
         // Act
         let location = BridgeReviewSourceProviderFactory.repositoryLocation(
-            source: .workspace(rootPath: sourceRoot.path, baseline: .unstaged),
+            source: .workspace(
+                rootPath: sourceRoot.path, baseline: .unstaged),
             launchDirectory: launchDirectory,
             currentWorkingDirectory: currentWorkingDirectory
         )

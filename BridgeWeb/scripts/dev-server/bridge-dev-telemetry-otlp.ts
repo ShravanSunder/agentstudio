@@ -91,6 +91,9 @@ const elapsedHistogramBounds = [
 ] as const satisfies readonly number[];
 
 const bridgeDevStringAttributeKeys = new Set<string>([
+	'agentstudio.bridge.comparison.attempt.status',
+	'agentstudio.bridge.comparison.package_match',
+	'agentstudio.bridge.comparison.pane_state',
 	'agentstudio.bridge.content.correlation_mode',
 	'agentstudio.bridge.content.interest',
 	'agentstudio.bridge.content.priority',
@@ -112,7 +115,9 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.language_class',
 	'agentstudio.bridge.markdown.fallback_reason',
 	'agentstudio.bridge.phase',
+	'agentstudio.bridge.panel.operation',
 	'agentstudio.bridge.plane',
+	'agentstudio.bridge.presentation.disposition',
 	'agentstudio.bridge.priority',
 	'agentstudio.bridge.protocol',
 	'agentstudio.bridge.projection.kind',
@@ -136,6 +141,31 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 
 const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySet<string>>([
 	[
+		'agentstudio.bridge.comparison.attempt.status',
+		new Set(['absent', 'pending', 'selection_required', 'settled', 'unavailable']),
+	],
+	[
+		'agentstudio.bridge.comparison.package_match',
+		new Set([
+			'matched',
+			'snapshot_not_current',
+			'package_absent',
+			'package_id_mismatch',
+			'review_generation_mismatch',
+			'revision_mismatch',
+		]),
+	],
+	[
+		'agentstudio.bridge.comparison.pane_state',
+		new Set([
+			'failed_initial',
+			'failed_previous',
+			'loading_initial',
+			'loading_previous',
+			'settled',
+		]),
+	],
+	[
 		'agentstudio.bridge.demand.disposition',
 		new Set([
 			'active-preloaded',
@@ -152,6 +182,11 @@ const bridgeDevRestrictedStringAttributeValuesByKey = new Map<string, ReadonlySe
 	],
 	['agentstudio.bridge.frame_jank.kind', new Set(['dropped_frame', 'long_task'])],
 	['agentstudio.bridge.input.source', new Set(['keyboard', 'mouse', 'programmatic'])],
+	['agentstudio.bridge.panel.operation', new Set(['reset', 'upsert'])],
+	[
+		'agentstudio.bridge.presentation.disposition',
+		new Set(['applied', 'idempotent_replay', 'published', 'rendered']),
+	],
 	['agentstudio.bridge.viewer.ttfi_variant', new Set(['cold', 'warm'])],
 ]);
 
@@ -176,7 +211,10 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.frame_jank.long_task.total_ms',
 	'agentstudio.bridge.markdown.input_bytes',
 	'agentstudio.bridge.markdown.output_bytes',
+	'agentstudio.bridge.presentation.publication_sequence',
+	'agentstudio.bridge.presentation.revision',
 	'agentstudio.bridge.interaction.sequence',
+	'agentstudio.bridge.review.generation',
 	'agentstudio.bridge.review.item_count',
 	'agentstudio.bridge.scroll.frame_gap.max_ms',
 	'agentstudio.bridge.scroll.frame_gap.over_16ms.count',
@@ -195,6 +233,7 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.worker.handler_duration_ms',
 	'agentstudio.bridge.worker.patch_count',
 	'agentstudio.bridge.worker.queue_wait_ms',
+	'agentstudio.bridge.worker.derivation_epoch',
 	'agentstudio.bridge.worker.source_epoch',
 	'agentstudio.bridge.worker.touched_key_count',
 	'agentstudio.bridge.worktree.content_height_delta_px',
@@ -209,6 +248,7 @@ const bridgeDevBooleanAttributeKeys = new Set<string>([
 	'agentstudio.bridge.already_selected',
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
+	'agentstudio.bridge.refreshing.review',
 	'agentstudio.bridge.scroll.active',
 	'agentstudio.bridge.selected',
 	'agentstudio.bridge.viewer.active',

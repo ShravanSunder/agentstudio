@@ -27,6 +27,17 @@ enum BridgePaneProductMetadataCoordinatorTestError: Error {
     case invalidFileSubscriptionLifecycle
 }
 
+func reviewCommittedPresentationSnapshot(
+    _: BridgeReviewPackage
+) -> BridgePaneProductPresentationSnapshot {
+    BridgePaneProductPresentationSnapshot(
+        nativeActivity: .foreground,
+        presentationRevision: 1,
+        refreshingLanes: [],
+        reviewComparison: nil
+    )
+}
+
 func coordinatorFileSubscriptionLifecycle() throws -> (
     opened: BridgeProductSubscriptionSnapshot,
     updated: BridgeProductSubscriptionSnapshot,
@@ -126,13 +137,13 @@ actor CoordinatorReviewMetadataSource: BridgePaneProductReviewMetadataProducing 
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        guard reservation.packageId == package.packageId,
-            reservation.reviewGeneration == package.reviewGeneration,
-            reservation.revision == package.revision,
+        guard reservation.packageId == publication.package.packageId,
+            reservation.reviewGeneration == publication.package.reviewGeneration,
+            reservation.revision == publication.package.revision,
             (productAdmission.withValidAdmission { true }) == true
         else { throw CoordinatorReviewMetadataSourceError.unavailable }
         return .deferred(retained: activeSubscriptionIds.count)

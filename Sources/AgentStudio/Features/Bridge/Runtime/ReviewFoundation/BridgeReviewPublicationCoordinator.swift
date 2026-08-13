@@ -115,6 +115,8 @@ struct BridgeReviewCommittedPublication: Equatable, Sendable {
     let package: BridgeReviewPackage
     let delta: BridgeReviewDelta?
     let contentHandles: [BridgeContentHandle]
+    let comparisonPresentationRevision: Int
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
 }
 
 struct BridgeReviewContentAuthorityLease: Equatable, Sendable {
@@ -192,6 +194,7 @@ final class BridgeReviewPublicationCoordinator {
         let publicationId: UUID
         let preparedPublication: BridgeReviewPreparedPublication
         let productAdmission: BridgeProductAdmissionContext
+        let committedPublication: BridgeReviewCommittedPublication?
     }
 
     private struct PendingPublication {
@@ -257,7 +260,8 @@ final class BridgeReviewPublicationCoordinator {
                 publication: Publication(
                     publicationId: token.publicationId,
                     preparedPublication: preparedPublication,
-                    productAdmission: productAdmission
+                    productAdmission: productAdmission,
+                    committedPublication: nil
                 ),
                 predecessorPublicationId: activePublication?.publicationId
             )
@@ -295,6 +299,7 @@ final class BridgeReviewPublicationCoordinator {
     func commit(
         _ token: BridgeReviewPublicationToken,
         productAdmission: BridgeProductAdmissionContext,
+        captureCommittedPresentation: (BridgeReviewPackage) -> BridgePaneProductPresentationSnapshot,
         presentCommitted: (BridgeReviewCommittedPublication) -> Void
     ) -> BridgeReviewPublicationCommitResult {
         guard !isClosed else { return .closed }
@@ -322,7 +327,19 @@ final class BridgeReviewPublicationCoordinator {
             self.pendingPublication = nil
             beginRetiringAuthority(previousActive)
 
-            let committedPublication = Self.committed(pendingPublication.publication)
+            let presentation = captureCommittedPresentation(
+                pendingPublication.publication.preparedPublication.package
+            )
+            let committedPublication = Self.committed(
+                pendingPublication.publication,
+                presentation: presentation
+            )
+            activePublication = Publication(
+                publicationId: pendingPublication.publication.publicationId,
+                preparedPublication: pendingPublication.publication.preparedPublication,
+                productAdmission: pendingPublication.publication.productAdmission,
+                committedPublication: committedPublication
+            )
             presentCommitted(committedPublication)
             guard !isClosed else { return .closed }
             return .committed(committedPublication)
@@ -459,7 +476,7 @@ final class BridgeReviewPublicationCoordinator {
             else {
                 return
             }
-            replayPublication = Self.committed(activePublication)
+            replayPublication = activePublication.committedPublication
         }
         return replayPublication
     }
@@ -657,12 +674,17 @@ final class BridgeReviewPublicationCoordinator {
         }
     }
 
-    private static func committed(_ publication: Publication) -> BridgeReviewCommittedPublication {
+    private static func committed(
+        _ publication: Publication,
+        presentation: BridgePaneProductPresentationSnapshot
+    ) -> BridgeReviewCommittedPublication {
         BridgeReviewCommittedPublication(
             publicationId: publication.publicationId,
             package: publication.preparedPublication.package,
             delta: publication.preparedPublication.delta,
-            contentHandles: publication.preparedPublication.contentHandles
+            contentHandles: publication.preparedPublication.contentHandles,
+            comparisonPresentationRevision: presentation.presentationRevision,
+            reviewComparison: presentation.reviewComparison
         )
     }
 

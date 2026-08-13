@@ -10,6 +10,7 @@ import WebKit
 
 struct BridgeProductWebKitTwoPanePositionSnapshot: Decodable, Equatable, Sendable {
     let activeMode: String?
+    let comparisonStatusText: String?
     let fileCodeScrollTop: Double
     let fileRenderedPath: String?
     let fileSelectedPath: String?
@@ -62,6 +63,23 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
         self.base = base
     }
 
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        try await base.resolveReviewDefaultTarget()
+    }
+
+    func captureReviewComparisonTargets(
+        _ request: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        try await base.captureReviewComparisonTargets(request)
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        await recordAndBlockComparisonIfArmed()
+        return try await base.captureContributionComparison(request)
+    }
+
     func armNextComparison() {
         isNextComparisonArmed = true
     }
@@ -87,6 +105,11 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws
         -> BridgeEndpointComparison
     {
+        await recordAndBlockComparisonIfArmed()
+        return try await base.compareEndpoints(request)
+    }
+
+    private func recordAndBlockComparisonIfArmed() async {
         comparisonCount += 1
         if isNextComparisonArmed {
             isNextComparisonArmed = false
@@ -95,7 +118,6 @@ private actor BridgeProductWebKitGatedReviewSourceProvider: BridgeReviewSourcePr
                 releaseContinuations.append(continuation)
             }
         }
-        return try await base.compareEndpoints(request)
     }
 
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
@@ -292,6 +314,17 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
     }
 
     private static func exerciseJourney(
+        _ input: JourneyInput
+    ) async throws -> BridgeProductWebKitTwoPaneJourneyProof {
+        do {
+            return try await exercisePreparedJourney(input)
+        } catch {
+            await input.paneOneReviewProvider.releaseBlockedComparisons()
+            throw error
+        }
+    }
+
+    private static func exercisePreparedJourney(
         _ input: JourneyInput
     ) async throws -> BridgeProductWebKitTwoPaneJourneyProof {
         let preparation = try await prepareJourney(input)
@@ -734,6 +767,7 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
             const activeHost = document.querySelector('[data-bridge-viewer-mode-active="true"]');
             return JSON.stringify({
               activeMode: activeHost?.getAttribute('data-bridge-viewer-mode-host') ?? null,
+              comparisonStatusText: reviewHost?.querySelector('[data-testid="bridge-review-comparison-status-banner"]')?.textContent ?? null,
               fileCodeScrollTop: fileCodeScroll?.scrollTop ?? 0,
               fileRenderedPath: fileCanvas?.getAttribute('data-worktree-rendered-file-path') ?? null,
               fileSelectedPath: fileShell?.getAttribute('data-selected-display-path') ?? null,

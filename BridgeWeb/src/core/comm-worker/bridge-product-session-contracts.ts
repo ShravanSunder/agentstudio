@@ -28,6 +28,7 @@ import {
 	bridgeProductSha256Schema,
 	bridgeProductSurfaceSchema,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
 	bridgeProductFileMetadataInterestDeltaSchema,
@@ -40,6 +41,8 @@ import {
 	bridgeProductSubscriptionOpenSchema,
 	bridgeProductSurfaceForSubscriptionKind,
 } from './bridge-product-subscription-contracts.js';
+
+export { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 
 const bridgeProductControlIdentityShape = {
 	paneSessionId: bridgeProductIdentifierSchema,
@@ -439,9 +442,9 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 	z
 		.object({
 			...bridgeProductMetadataFrameIdentityShape,
-			activityRevision: bridgeProductPositiveSequenceSchema,
 			kind: z.literal('pane.presentation'),
 			nativeActivity: z.enum(['foreground', 'loadedHidden', 'dormant', 'closed']),
+			presentationRevision: bridgeProductPositiveSequenceSchema,
 			refreshingLanes: z
 				.array(z.enum(['file', 'review']))
 				.max(2)
@@ -456,6 +459,7 @@ const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', 
 					},
 					{ message: 'Bridge pane refreshing lanes must be unique and canonical.' },
 				),
+			reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable(),
 			streamSequence: bridgeProductPositiveSequenceSchema,
 		})
 		.strict(),

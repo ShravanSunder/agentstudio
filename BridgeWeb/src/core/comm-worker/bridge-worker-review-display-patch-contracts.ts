@@ -5,10 +5,14 @@ import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT,
+	bridgeProductReviewComparisonOriginSchema,
 	bridgeProductReviewExtentFactSchema,
 	bridgeProductReviewItemMetadataSchema,
+	bridgeProductReviewQuerySchema,
+	bridgeProductReviewSourceEndpointSchema,
 	bridgeProductReviewTreeRowSchema,
 } from './bridge-product-review-metadata-contracts.js';
 import {
@@ -67,10 +71,16 @@ const bridgeWorkerReviewDisplayItemSchema = z
 
 const bridgeWorkerReviewSourceDisplayPayloadSchema = z
 	.object({
+		baseEndpoint: bridgeProductReviewSourceEndpointSchema.nullable(),
+		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.nullable(),
+		headEndpoint: bridgeProductReviewSourceEndpointSchema.nullable(),
 		metadataWindowIdentity: bridgeWorkerReviewSemanticIdentitySchema,
 		metadataSourceId: bridgeProductIdentifierSchema,
 		packageId: bridgeProductIdentifierSchema,
+		query: bridgeProductReviewQuerySchema.nullable(),
 		reviewGeneration: bridgeProductNonnegativeSequenceSchema,
+		reviewedSubjectLabel: z.string().min(1).nullable(),
+		revision: bridgeProductNonnegativeSequenceSchema,
 		status: z.enum(['loading', 'ready', 'stale']),
 		summary: bridgeProductReviewPackageSummarySchema.nullable(),
 		totalItemCount: bridgeProductNonnegativeSequenceSchema.nullable(),
@@ -80,7 +90,10 @@ const bridgeWorkerReviewSourceDisplayPayloadSchema = z
 	.superRefine((payload, context): void => {
 		if (
 			payload.status === 'ready' &&
-			(payload.summary === null ||
+			(payload.baseEndpoint === null ||
+				payload.headEndpoint === null ||
+				payload.query === null ||
+				payload.summary === null ||
 				payload.totalItemCount === null ||
 				payload.totalTreeRowCount === null)
 		) {
@@ -216,7 +229,16 @@ const bridgeWorkerReviewTreeDisplayPatchSchema = z.discriminatedUnion('operation
 		.strict(),
 ]);
 
+const bridgeWorkerReviewComparisonDisplayPatchSchema = z
+	.object({
+		operation: z.literal('replace'),
+		payload: bridgeProductReviewComparisonPresentationSchema.nullable(),
+		slice: z.literal('reviewComparison'),
+	})
+	.strict();
+
 export const bridgeWorkerReviewDisplayPatchSchema = z.discriminatedUnion('slice', [
+	bridgeWorkerReviewComparisonDisplayPatchSchema,
 	bridgeWorkerReviewSourceDisplayPatchSchema,
 	bridgeWorkerReviewItemDisplayPatchSchema,
 	bridgeWorkerReviewTreeDisplayPatchSchema,

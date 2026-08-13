@@ -348,7 +348,7 @@ struct CoordinationPlaneArchitectureTests {
         let sidebarSurfaceHostSource = try String(contentsOf: sidebarSurfaceHostPath, encoding: .utf8)
 
         #expect(appDelegateRoutingSource.contains("func refreshWorktrees()"))
-        #expect(appDelegateRoutingSource.contains("refreshWatchedFolders"))
+        #expect(appDelegateRoutingSource.contains("refreshRegisteredWorktreesAndWatchedFolders"))
         #expect(!sidebarSource.contains("onRefreshWorktrees"))
         #expect(!sidebarSource.contains("func refreshWorktrees()"))
         #expect(!sidebarSurfaceHostSource.contains("onRefreshWorktrees"))

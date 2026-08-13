@@ -111,8 +111,16 @@ export class BridgeCommWorkerProductController {
 	}
 
 	ensureFileSource(): Promise<void> {
-		this.#fileSourceEnsure ??= this.#discoverAndOpenFileSource();
-		return this.#fileSourceEnsure;
+		if (this.#fileSourceEnsure !== null) return this.#fileSourceEnsure;
+		const discoveryAttempt = this.#discoverAndOpenFileSource();
+		const memoizedAttempt = discoveryAttempt.catch((error: unknown): never => {
+			if (this.#fileSourceEnsure === memoizedAttempt) {
+				this.#fileSourceEnsure = null;
+			}
+			throw error;
+		});
+		this.#fileSourceEnsure = memoizedAttempt;
+		return memoizedAttempt;
 	}
 
 	ensureReviewMetadata(): void {
@@ -140,6 +148,12 @@ export class BridgeCommWorkerProductController {
 				return await this.#productTransport.call('review.markFileViewed', {
 					itemId: command.params.fileId,
 				});
+			case 'review.comparison.update':
+				return await this.#productTransport.call('review.comparison.update', {
+					target: command.params.target,
+				});
+			case 'review.comparisonTargets.query':
+				return await this.#productTransport.call('review.comparisonTargets.query', {});
 			case 'bridge.activeViewerMode.update':
 				return await this.#sendActiveViewerModeUpdate(command);
 			case 'bridge.intakeReady':
@@ -414,18 +428,28 @@ export class BridgeCommWorkerProductController {
 				}
 			}
 		} catch (error) {
-			if (subscription === this.#fileSubscription) {
-				this.#fileSubscription = null;
+			if (this.#retireFailedFileMetadataSubscription(subscription)) {
 				this.#onFileMetadataFailure(error, workerDerivationEpoch);
 				throw error;
 			}
 		}
-		if (subscription === this.#fileSubscription) {
+		if (this.#retireFailedFileMetadataSubscription(subscription)) {
 			const error = new Error('Bridge File metadata subscription ended unexpectedly.');
-			this.#fileSubscription = null;
 			this.#onFileMetadataFailure(error, workerDerivationEpoch);
 			throw error;
 		}
+	}
+
+	#retireFailedFileMetadataSubscription(subscription: FileMetadataSubscription): boolean {
+		if (subscription !== this.#fileSubscription) return false;
+		this.#fileSubscription = null;
+		this.#fileSource = null;
+		this.#fileSourceEnsure = null;
+		this.#fileDesiredInterestSignature = null;
+		this.#hasPublishedFileMetadataInterests = false;
+		this.#fileInterestUpdate = Promise.resolve();
+		this.#fileInterestUpdateFailed = false;
+		return true;
 	}
 
 	#scheduleFileMetadataInterestPublication(): void {

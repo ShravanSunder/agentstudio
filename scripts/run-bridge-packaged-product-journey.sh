@@ -48,6 +48,8 @@ if [ "$dry_run" = true ]; then
   echo "dry-run contract: creates a private disposable hierarchical Git fixture outside the repo"
   echo "dry-run contract: starts with 257 initial Review diffs across the hierarchical fixture"
   echo "dry-run contract: starts the bridge-product-paint-correlation diagnostic with one-shot IPC escrow"
+  echo "dry-run contract: seeds a designated default and an explicit symbolic comparison target"
+  echo "dry-run contract: prepares same-tree target and shared-base movement without changing fixture bytes"
   echo "dry-run contract: preserves the fixture and app for verification"
   exit 0
 fi
@@ -136,6 +138,9 @@ fixture_file_count=0
 review_diff_count=0
 fixture_digest=""
 baseline_commit=""
+reviewed_branch_name=journey-reviewed
+default_branch_name=journey-integration
+comparison_target_name=journey-stack-base
 tracked_relative_path=tracked.txt
 tracked_sha256=""
 tracked_byte_count=0
@@ -166,6 +171,9 @@ write_receipt() {
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT "$review_diff_count"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_DIGEST "$fixture_digest"
     write_state_value BASELINE_COMMIT "$baseline_commit"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_REVIEWED_BRANCH_NAME "$reviewed_branch_name"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_DEFAULT_BRANCH_NAME "$default_branch_name"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME "$comparison_target_name"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_PATH "$tracked_relative_path"
     write_state_value TRACKED_CANARY bridge-product-paint-canary
     write_state_value TRACKED_SHA256 "$tracked_sha256"
@@ -199,6 +207,7 @@ trap 'record_unexpected_failure "$?" "$LINENO"' ERR
 write_receipt "$journey_status" "$journey_reason"
 
 "$GIT_BIN" -C "$fixture_root" init -q
+"$GIT_BIN" -C "$fixture_root" symbolic-ref HEAD "refs/heads/$reviewed_branch_name"
 "$GIT_BIN" -C "$fixture_root" config user.name "AgentStudio Packaged Journey"
 "$GIT_BIN" -C "$fixture_root" config user.email "agentstudio-packaged-journey@invalid.local"
 "$GIT_BIN" -C "$fixture_root" config commit.gpgsign false
@@ -228,6 +237,13 @@ final_baseline_sha256="$(sha256_for_file "$fixture_root/$final_relative_path")"
 "$GIT_BIN" -C "$fixture_root" add -- .
 "$GIT_BIN" -C "$fixture_root" commit -q -m "fixture: establish packaged journey baseline"
 baseline_commit="$($GIT_BIN -C "$fixture_root" rev-parse HEAD)"
+"$GIT_BIN" -C "$fixture_root" update-ref "refs/heads/$default_branch_name" "$baseline_commit"
+"$GIT_BIN" -C "$fixture_root" update-ref \
+  "refs/remotes/origin/$default_branch_name" "$baseline_commit"
+"$GIT_BIN" -C "$fixture_root" symbolic-ref \
+  refs/remotes/origin/HEAD "refs/remotes/origin/$default_branch_name"
+"$GIT_BIN" -C "$fixture_root" update-ref \
+  "refs/heads/$comparison_target_name" "$baseline_commit"
 
 printf 'bridge-product-paint-canary\npackaged-journey-selected-source\n' \
   >"$fixture_root/$tracked_relative_path"
@@ -277,6 +293,26 @@ if ! AGENTSTUDIO_DEBUG_DIRECT_FALLBACK=0 \
   journey_reason=standard_debug_observability_runner_failed
   write_receipt "$journey_status" "$journey_reason"
   echo "packaged product journey launch failed; preserved fixture: $fixture_root" >&2
+  exit 1
+fi
+
+launched_app_path="$(
+  decode_state_value "$(
+    sed -n 's/^AGENTSTUDIO_OBSERVABILITY_APP=//p' "$OBSERVABILITY_STATE_FILE" | tail -1
+  )"
+)"
+if [ -z "$launched_app_path" ] || [ ! -d "$launched_app_path" ]; then
+  journey_status=launch_failed
+  journey_reason=packaged_candidate_activation_failed
+  write_receipt "$journey_status" "$journey_reason"
+  echo "packaged product journey candidate app is unavailable; preserved fixture: $fixture_root" >&2
+  exit 1
+fi
+if ! /usr/bin/open -a "$launched_app_path"; then
+  journey_status=launch_failed
+  journey_reason=packaged_candidate_activation_failed
+  write_receipt "$journey_status" "$journey_reason"
+  echo "packaged product journey candidate activation failed; preserved fixture: $fixture_root" >&2
   exit 1
 fi
 

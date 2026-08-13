@@ -24,20 +24,30 @@ extension WebKitSerializedTests {
                 path: "Sources/App/View.swift",
                 sizeBytes: 100
             )
+            let comparison = BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: [changedFile]
+            )
             let provider = BridgeReviewSourceProviderFake(
-                comparison: BridgeEndpointComparison(
-                    baseEndpoint: baseEndpoint,
-                    headEndpoint: headEndpoint,
-                    changedFiles: [changedFile]
-                ),
-                contentByHandleId: [:]
+                comparison: comparison,
+                contentByHandleId: [:],
+                contributionCapture: BridgeContributionComparisonCapture(
+                    resolvedTargetOID: "resolved-head-minus-one",
+                    reviewedHeadOID: "reviewed-head",
+                    baseRole: .commonCommit,
+                    baseOID: "base-head-minus-one",
+                    comparison: comparison
+                )
             )
             let recorder = BridgeTelemetryRecorderSpy()
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 reviewSourceProvider: provider,
@@ -96,7 +106,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .ref(name: "HEAD~1"))
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy(isDebugBuild: false),

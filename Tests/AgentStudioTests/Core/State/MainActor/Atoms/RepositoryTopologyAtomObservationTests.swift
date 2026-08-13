@@ -152,4 +152,25 @@ struct RepositoryTopologyAtomObservationTests {
         #expect(snapshot.worktree(worktree.id) == atom.worktree(worktree.id))
     }
 
+    @Test("scoped path lookup invalidates when availability rebuilds the path index")
+    func scopedPathLookupInvalidatesWhenPathIndexRegenerates() throws {
+        let atom = RepositoryTopologyAtom()
+        let coordinator = makeTopologyMutationCoordinator(atom: atom)
+        let repository = coordinator.addRepo(
+            at: URL(fileURLWithPath: "/tmp/agentstudio-topology-scoped-path-index")
+        )
+        let worktree = try #require(repository.worktrees.single)
+        let invalidation = RepositoryTopologyKeyedObservationFlag()
+
+        withObservationTracking {
+            _ = atom.repoAndWorktree(containing: worktree.path, among: [worktree.id])
+        } onChange: {
+            invalidation.didFire = true
+        }
+
+        coordinator.markRepoUnavailable(repository.id)
+
+        #expect(invalidation.didFire)
+    }
+
 }

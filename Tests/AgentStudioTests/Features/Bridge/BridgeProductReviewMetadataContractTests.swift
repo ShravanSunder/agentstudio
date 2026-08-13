@@ -36,6 +36,8 @@ struct BridgeProductReviewMetadataContractTests {
                 "operationKind": "invalidateContentSources",
             ],
         ]
+        delta["presentationRevision"] = 19
+        delta["reviewComparison"] = reviewComparisonPresentationObject()
         delta["summary"] = reviewSummaryObject()
         delta["toRevision"] = 11
 
@@ -176,6 +178,55 @@ struct BridgeProductReviewMetadataContractTests {
         #expect(throws: (any Error).self) { try decodeReviewMetadataEvent(window) }
     }
 
+    @Test("carries comparison commit fields only on terminal Review barriers")
+    func enforcesReviewComparisonCommitBarrier() throws {
+        var terminalSnapshot = reviewSnapshotObject()
+        terminalSnapshot["reviewComparison"] = NSNull()
+        guard case .snapshot(let decodedTerminal) = try decodeReviewMetadataEvent(terminalSnapshot) else {
+            Issue.record("Expected terminal Review snapshot")
+            return
+        }
+        #expect(decodedTerminal.presentationRevision == 19)
+        #expect(decodedTerminal.reviewComparison == nil)
+
+        for missingKey in ["presentationRevision", "reviewComparison"] {
+            var invalidTerminal = reviewSnapshotObject()
+            invalidTerminal.removeValue(forKey: missingKey)
+            #expect(throws: (any Error).self) {
+                try decodeReviewMetadataEvent(invalidTerminal)
+            }
+        }
+
+        var nonterminalSnapshot = reviewSnapshotObject()
+        var itemWindow = try #require(nonterminalSnapshot["itemWindow"] as? [String: Any])
+        itemWindow["finalWindow"] = false
+        itemWindow["totalItemCount"] = 2
+        nonterminalSnapshot["itemWindow"] = itemWindow
+        nonterminalSnapshot.removeValue(forKey: "presentationRevision")
+        nonterminalSnapshot.removeValue(forKey: "reviewComparison")
+        _ = try decodeReviewMetadataEvent(nonterminalSnapshot)
+
+        for commitKey in ["presentationRevision", "reviewComparison"] {
+            var invalidNonterminal = nonterminalSnapshot
+            if commitKey == "presentationRevision" {
+                invalidNonterminal[commitKey] = 19
+            } else {
+                invalidNonterminal[commitKey] = reviewComparisonPresentationObject()
+            }
+            #expect(throws: (any Error).self) {
+                try decodeReviewMetadataEvent(invalidNonterminal)
+            }
+        }
+
+        for missingKey in ["presentationRevision", "reviewComparison"] {
+            var invalidDelta = reviewDeltaObject()
+            invalidDelta.removeValue(forKey: missingKey)
+            #expect(throws: (any Error).self) {
+                try decodeReviewMetadataEvent(invalidDelta)
+            }
+        }
+    }
+
     @Test("enforces content-source identity, delta lineage, and unique item ordering")
     func enforcesReviewIdentityAndDeltaInvariants() throws {
         for mismatch in [
@@ -289,6 +340,8 @@ private func reviewSnapshotObject() -> [String: Any] {
         "totalItemCount": 1,
     ]
     snapshot["query"] = reviewQueryObject()
+    snapshot["presentationRevision"] = 19
+    snapshot["reviewComparison"] = reviewComparisonPresentationObject()
     snapshot["summary"] = reviewSummaryObject()
     snapshot["treeRows"] = [reviewTreeRowObject()]
     snapshot["treeWindow"] = [
@@ -314,9 +367,25 @@ private func reviewDeltaObject(
     delta["contentSources"] = [reviewContentSourceObject()]
     delta["fromRevision"] = 10
     delta["operations"] = operations
+    delta["presentationRevision"] = 19
+    delta["reviewComparison"] = reviewComparisonPresentationObject()
     delta["summary"] = reviewSummaryObject()
     delta["toRevision"] = 11
     return delta
+}
+
+private func reviewComparisonPresentationObject() -> [String: Any] {
+    [
+        "activeTarget": ["basis": "commonCommit", "kind": "branch", "name": "origin/main"],
+        "attempt": ["reviewGeneration": 7, "status": "settled"],
+        "displayedSnapshot": [
+            "packageId": "review-package-1",
+            "reviewGeneration": 7,
+            "revision": 11,
+            "status": "current",
+        ],
+        "repositoryDefaultTarget": NSNull(),
+    ]
 }
 
 private func reviewEndpointObject(

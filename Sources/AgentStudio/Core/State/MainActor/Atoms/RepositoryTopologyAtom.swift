@@ -225,6 +225,7 @@ package final class RepositoryTopologyAtom {
         containing cwd: URL?,
         among worktreeIDs: Set<UUID>
     ) -> (repo: Repo, worktree: Worktree)? {
+        _ = worktreePathIndexGeneration
         guard let cwd else { return nil }
         let normalizedCWD = cwd.standardizedFileURL.path
 

@@ -3,12 +3,207 @@ import Foundation
 enum BridgeProductContentKind: String, Codable, Equatable, Sendable {
     case fileContent = "file.content"
     case reviewContent = "review.content"
+    case reviewComparisonTargets = "review.comparisonTargets"
 
     var surface: BridgeProductSurface {
         switch self {
         case .fileContent: .file
         case .reviewContent: .review
+        case .reviewComparisonTargets: .review
         }
+    }
+}
+
+// swiftlint:disable:next type_name
+struct BridgeProductReviewComparisonTargetsContentDescriptor: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case capturedAtUnixMilliseconds
+        case contentKind
+        case cutoffUnixMilliseconds
+        case declaredByteLength
+        case descriptorId
+        case encoding
+        case expectedSha256
+        case maximumBytes
+    }
+
+    let capturedAtUnixMilliseconds: Int64
+    let cutoffUnixMilliseconds: Int64
+    let declaredByteLength: Int
+    let descriptorId: String
+    let expectedSha256: String
+    let maximumBytes: Int
+
+    init(
+        capturedAtUnixMilliseconds: Int64,
+        cutoffUnixMilliseconds: Int64,
+        declaredByteLength: Int,
+        descriptorId: String,
+        expectedSha256: String,
+        maximumBytes: Int
+    ) throws {
+        self.capturedAtUnixMilliseconds = capturedAtUnixMilliseconds
+        self.cutoffUnixMilliseconds = cutoffUnixMilliseconds
+        self.declaredByteLength = declaredByteLength
+        self.descriptorId = descriptorId
+        self.expectedSha256 = expectedSha256
+        self.maximumBytes = maximumBytes
+        try Self.validate(
+            capturedAtUnixMilliseconds: capturedAtUnixMilliseconds,
+            cutoffUnixMilliseconds: cutoffUnixMilliseconds,
+            declaredByteLength: declaredByteLength,
+            descriptorId: descriptorId,
+            expectedSha256: expectedSha256,
+            maximumBytes: maximumBytes,
+            codingPath: []
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review comparison targets content descriptor"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.capturedAtUnixMilliseconds = try container.decode(Int64.self, forKey: .capturedAtUnixMilliseconds)
+        self.cutoffUnixMilliseconds = try container.decode(Int64.self, forKey: .cutoffUnixMilliseconds)
+        self.declaredByteLength = try container.decode(Int.self, forKey: .declaredByteLength)
+        self.descriptorId = try container.decode(String.self, forKey: .descriptorId)
+        guard try container.decode(String.self, forKey: .encoding) == "utf-8" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review comparison targets content must be UTF-8",
+                codingPath: decoder.codingPath
+            )
+        }
+        self.expectedSha256 = try container.decode(String.self, forKey: .expectedSha256)
+        self.maximumBytes = try container.decode(Int.self, forKey: .maximumBytes)
+        try Self.validate(
+            capturedAtUnixMilliseconds: capturedAtUnixMilliseconds,
+            cutoffUnixMilliseconds: cutoffUnixMilliseconds,
+            declaredByteLength: declaredByteLength,
+            descriptorId: descriptorId,
+            expectedSha256: expectedSha256,
+            maximumBytes: maximumBytes,
+            codingPath: decoder.codingPath
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(capturedAtUnixMilliseconds, forKey: .capturedAtUnixMilliseconds)
+        try container.encode("review.comparisonTargets", forKey: .contentKind)
+        try container.encode(cutoffUnixMilliseconds, forKey: .cutoffUnixMilliseconds)
+        try container.encode(declaredByteLength, forKey: .declaredByteLength)
+        try container.encode(descriptorId, forKey: .descriptorId)
+        try container.encode("utf-8", forKey: .encoding)
+        try container.encode(expectedSha256, forKey: .expectedSha256)
+        try container.encode(maximumBytes, forKey: .maximumBytes)
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private static func validate(
+        capturedAtUnixMilliseconds: Int64,
+        cutoffUnixMilliseconds: Int64,
+        declaredByteLength: Int,
+        descriptorId: String,
+        expectedSha256: String,
+        maximumBytes: Int,
+        codingPath: [any CodingKey]
+    ) throws {
+        guard capturedAtUnixMilliseconds >= 0, cutoffUnixMilliseconds >= 0 else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review comparison targets capture times must be nonnegative",
+                codingPath: codingPath
+            )
+        }
+        try BridgeProductContractDecoding.validateNonnegative(
+            declaredByteLength,
+            name: "declaredByteLength",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            declaredByteLength,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
+            name: "declaredByteLength",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateIdentifier(descriptorId, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateSHA256(expectedSha256, codingPath: codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            maximumBytes,
+            name: "maximumBytes",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateMaximum(
+            maximumBytes,
+            maximum: BridgeProductWireContract.maximumContentStreamBytes,
+            name: "maximumBytes",
+            codingPath: codingPath
+        )
+        guard declaredByteLength == maximumBytes else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review comparison targets declared length must equal maximum",
+                codingPath: codingPath
+            )
+        }
+    }
+}
+
+// swiftlint:disable:next type_name
+struct BridgeProductReviewComparisonTargetsContentIdentity: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case capturedAtUnixMilliseconds
+        case contentKind
+        case cutoffUnixMilliseconds
+        case descriptorId
+        case maximumBytes
+    }
+
+    let capturedAtUnixMilliseconds: Int64
+    let cutoffUnixMilliseconds: Int64
+    let descriptorId: String
+    let maximumBytes: Int
+
+    init(descriptor: BridgeProductReviewComparisonTargetsContentDescriptor) {
+        self.capturedAtUnixMilliseconds = descriptor.capturedAtUnixMilliseconds
+        self.cutoffUnixMilliseconds = descriptor.cutoffUnixMilliseconds
+        self.descriptorId = descriptor.descriptorId
+        self.maximumBytes = descriptor.maximumBytes
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review comparison targets content identity"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.capturedAtUnixMilliseconds = try container.decode(Int64.self, forKey: .capturedAtUnixMilliseconds)
+        self.cutoffUnixMilliseconds = try container.decode(Int64.self, forKey: .cutoffUnixMilliseconds)
+        self.descriptorId = try container.decode(String.self, forKey: .descriptorId)
+        self.maximumBytes = try container.decode(Int.self, forKey: .maximumBytes)
+        guard try container.decode(String.self, forKey: .contentKind) == "review.comparisonTargets" else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Invalid Review comparison targets content identity kind",
+                codingPath: decoder.codingPath
+            )
+        }
+        try BridgeProductContractDecoding.validateIdentifier(descriptorId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            maximumBytes,
+            name: "maximumBytes",
+            codingPath: decoder.codingPath
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(capturedAtUnixMilliseconds, forKey: .capturedAtUnixMilliseconds)
+        try container.encode("review.comparisonTargets", forKey: .contentKind)
+        try container.encode(cutoffUnixMilliseconds, forKey: .cutoffUnixMilliseconds)
+        try container.encode(descriptorId, forKey: .descriptorId)
+        try container.encode(maximumBytes, forKey: .maximumBytes)
     }
 }
 
@@ -266,6 +461,7 @@ struct BridgeProductFileContentIdentity: Codable, Equatable, Sendable {
 enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
     case fileContent(BridgeProductFileContentIdentity)
     case reviewContent(BridgeProductReviewContentIdentity)
+    case reviewComparisonTargets(BridgeProductReviewComparisonTargetsContentIdentity)
 
     private enum CodingKeys: String, CodingKey {
         case contentKind
@@ -275,6 +471,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         switch self {
         case .fileContent: .fileContent
         case .reviewContent: .reviewContent
+        case .reviewComparisonTargets: .reviewComparisonTargets
         }
     }
 
@@ -284,6 +481,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         switch self {
         case .fileContent(let identity): identity.descriptorId
         case .reviewContent(let identity): identity.descriptorId
+        case .reviewComparisonTargets(let identity): identity.descriptorId
         }
     }
 
@@ -291,6 +489,7 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         switch self {
         case .fileContent(let identity): identity.window.maximumBytes
         case .reviewContent(let identity): identity.window.maximumBytes
+        case .reviewComparisonTargets(let identity): identity.maximumBytes
         }
     }
 
@@ -301,6 +500,10 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
             self = .fileContent(try BridgeProductFileContentIdentity(from: decoder))
         case .reviewContent:
             self = .reviewContent(try BridgeProductReviewContentIdentity(from: decoder))
+        case .reviewComparisonTargets:
+            self = .reviewComparisonTargets(
+                try BridgeProductReviewComparisonTargetsContentIdentity(from: decoder)
+            )
         }
     }
 
@@ -309,6 +512,8 @@ enum BridgeProductContentIdentity: Codable, Equatable, Sendable {
         case .fileContent(let identity):
             try identity.encode(to: encoder)
         case .reviewContent(let identity):
+            try identity.encode(to: encoder)
+        case .reviewComparisonTargets(let identity):
             try identity.encode(to: encoder)
         }
     }
@@ -423,6 +628,7 @@ struct BridgeProductFileContentRequest: Codable, Equatable, Sendable {
 enum BridgeProductContentRequest: Codable, Equatable, Sendable {
     case fileContent(BridgeProductFileContentRequest)
     case reviewContent(BridgeProductReviewContentRequest)
+    case reviewComparisonTargets(BridgeProductReviewComparisonTargetsContentRequest)
 
     private enum CodingKeys: String, CodingKey {
         case contentKind
@@ -434,6 +640,7 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
         switch self {
         case .fileContent: .file
         case .reviewContent: .review
+        case .reviewComparisonTargets: .review
         }
     }
 
@@ -441,6 +648,7 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
         switch self {
         case .fileContent(let request): request.admission
         case .reviewContent(let request): request.admission
+        case .reviewComparisonTargets(let request): request.admission
         }
     }
 
@@ -451,6 +659,10 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
             self = .fileContent(try BridgeProductFileContentRequest(from: decoder))
         case .reviewContent:
             self = .reviewContent(try BridgeProductReviewContentRequest(from: decoder))
+        case .reviewComparisonTargets:
+            self = .reviewComparisonTargets(
+                try BridgeProductReviewComparisonTargetsContentRequest(from: decoder)
+            )
         }
     }
 
@@ -459,6 +671,8 @@ enum BridgeProductContentRequest: Codable, Equatable, Sendable {
         case .fileContent(let request):
             try request.encode(to: encoder)
         case .reviewContent(let request):
+            try request.encode(to: encoder)
+        case .reviewComparisonTargets(let request):
             try request.encode(to: encoder)
         }
     }

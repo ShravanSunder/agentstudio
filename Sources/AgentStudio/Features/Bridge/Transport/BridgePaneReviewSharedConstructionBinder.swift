@@ -177,7 +177,33 @@ struct BridgePaneReviewSharedConstructionBinder: Sendable {
                 label: request.query.grouping.label
             ),
             provenance: provenanceKey(request.query.provenanceFilter),
+            preparedFileIdentities: request.preparedComparison?.changedFiles.map(
+                preparedFileIdentityKey
+            ),
             checkpoint: nil
+        )
+    }
+
+    private func preparedFileIdentityKey(
+        _ changedFile: BridgeEndpointChangedFile
+    ) -> BridgePreparedReviewFileIdentityKey {
+        BridgePreparedReviewFileIdentityKey(
+            fileId: changedFile.fileId,
+            path: changedFile.path,
+            oldPath: changedFile.oldPath,
+            changeKind: changedFile.changeKind.rawValue,
+            language: changedFile.language,
+            fileExtension: changedFile.fileExtension,
+            sizeBytes: changedFile.sizeBytes,
+            oldContentHash: changedFile.oldContentHash,
+            newContentHash: changedFile.newContentHash,
+            contentHashAlgorithm: changedFile.contentHashAlgorithm,
+            oldMode: changedFile.oldMode,
+            newMode: changedFile.newMode,
+            additions: changedFile.additions,
+            deletions: changedFile.deletions,
+            isBinary: changedFile.isBinary,
+            mimeType: changedFile.mimeType
         )
     }
 

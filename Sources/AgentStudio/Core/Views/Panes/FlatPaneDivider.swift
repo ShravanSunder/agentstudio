@@ -32,6 +32,14 @@ package struct DividerFrameMeasurementState {
         self.pendingCorrelationId = nil
         interactionProbe?.settleInteraction(correlationId: pendingCorrelationId)
     }
+
+    package mutating func gestureDidEnd(
+        using interactionProbe: AgentStudioInteractionPerformanceProbe?
+    ) {
+        guard let pendingCorrelationId else { return }
+        self.pendingCorrelationId = nil
+        interactionProbe?.cancelInteraction(correlationId: pendingCorrelationId)
+    }
 }
 
 package struct FlatPaneDivider: View {
@@ -136,7 +144,6 @@ package struct FlatPaneDivider: View {
                                     isSplitResizing = true
                                 }
 
-                                frameMeasurement.admitSample(using: interactionProbe)
                                 let localRatio = Self.computeResizeRatio(
                                     initialLeftWidth: initialLeftWidth,
                                     initialRightWidth: initialRightWidth,
@@ -151,8 +158,10 @@ package struct FlatPaneDivider: View {
                                     )
                                 else { return }
                                 actionDispatcher.dispatch(command)
+                                frameMeasurement.admitSample(using: interactionProbe)
                             }
                             .onEnded { _ in
+                                frameMeasurement.gestureDidEnd(using: interactionProbe)
                                 hasStartedResize = false
                                 isSplitResizing = false
                             }

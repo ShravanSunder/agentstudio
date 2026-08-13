@@ -239,7 +239,7 @@ extension WorkspaceSurfaceCoordinator {
         repo: Repo,
         worktree: Worktree,
         cwd: URL,
-        panelKind: BridgePanelKind
+        panelKind _: BridgePanelKind
     ) -> (metadata: PaneMetadata, source: BridgePaneSource?) {
         let metadata = PaneMetadata(
             contentType: .diff,
@@ -253,28 +253,12 @@ extension WorkspaceSurfaceCoordinator {
                 cwd: cwd
             )
         )
-        let baseline: WorkspaceBaseline =
-            switch panelKind {
-            case .diffViewer:
-                defaultBridgeReviewBaseline(for: repo)
-            case .fileViewer:
-                .localDefaultBranch(branchName: "main")
-            }
         return (
             metadata,
-            .workspace(rootPath: worktree.path.path, baseline: baseline)
+            .workspace(
+                rootPath: worktree.path.path,
+                baseline: nil
+            )
         )
-    }
-
-    func defaultBridgeReviewBaseline(for repo: Repo) -> WorkspaceBaseline {
-        guard let mainWorktree = repo.worktrees.first(where: \.isMainWorktree),
-            let cachedBranch = atom(\.repoCache).worktreeEnrichment(for: mainWorktree.id)?.branch
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !cachedBranch.isEmpty,
-            cachedBranch != "detached HEAD"
-        else {
-            return .ref(name: "HEAD")
-        }
-        return .localDefaultBranch(branchName: cachedBranch)
     }
 }
