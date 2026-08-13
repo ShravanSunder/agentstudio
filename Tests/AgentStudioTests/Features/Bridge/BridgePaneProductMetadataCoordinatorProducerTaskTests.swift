@@ -77,6 +77,10 @@ struct BridgeMetadataCoordinatorProducerTaskTests {
                 $0.stage == .producerFailed && $0.failureReason == .cancellation
             }
         )
+        #expect(
+            await source.cancelledSubscriptionIds
+                == [try producerTaskFileSubscriptionSnapshot().subscriptionId]
+        )
         await harness.session.settleControlProviderDispatch(token: token)
         #expect(await pump.cancel())
     }
@@ -443,7 +447,7 @@ private actor CoordinatorDrainControlledReviewMetadataSource:
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -530,7 +534,7 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -635,6 +639,7 @@ private actor CoordinatorCancellationErrorFileSource:
     BridgePaneProductFileMetadataProducing
 {
     private(set) var didAttemptOpen = false
+    private(set) var cancelledSubscriptionIds: [String] = []
 
     func currentSource() -> BridgeProductFileSourceCurrentResult {
         .unavailable(.noFileSourceAuthority)
@@ -657,7 +662,9 @@ private actor CoordinatorCancellationErrorFileSource:
         emit _: @escaping BridgePaneProductFileMetadataEventSink
     ) async throws {}
 
-    func cancel(subscriptionId _: String) {}
+    func cancel(subscriptionId: String) {
+        cancelledSubscriptionIds.append(subscriptionId)
+    }
 
     func publish(
         status _: GitWorkingTreeStatus,

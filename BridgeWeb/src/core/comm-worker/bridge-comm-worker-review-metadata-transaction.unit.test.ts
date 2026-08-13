@@ -6,6 +6,7 @@ import {
 	candidateIdentity,
 	makeApplicatorHarness,
 	reviewDelta,
+	reviewComparisonOrigin,
 	reviewIdentity,
 	reviewInvalidated,
 	reviewMetadataTransport,
@@ -95,6 +96,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(candidatePublications).toHaveLength(1);
 		expect(candidatePublications[0]?.patches).toEqual([
 			expect.objectContaining({ operation: 'upsert', slice: 'reviewSource' }),
+			expect.objectContaining({ operation: 'replace', slice: 'reviewComparison' }),
 			expect.objectContaining({
 				operation: 'batch',
 				payload: expect.objectContaining({ reset: true, startIndex: 0 }),
@@ -106,6 +108,14 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 				slice: 'reviewTree',
 			}),
 		]);
+		expect(candidatePublications[0]?.patches[0]).toMatchObject({
+			operation: 'upsert',
+			payload: {
+				comparisonOrigin: reviewComparisonOrigin,
+				reviewedSubjectLabel: 'feature/review-comments',
+			},
+			slice: 'reviewSource',
+		});
 	});
 
 	test('ignores delayed older accepted snapshots after a newer generation commits', () => {
@@ -434,7 +444,13 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 
 		expect(() =>
 			harness.applicator.apply(
-				reviewSnapshot(candidateIdentity, 'item-b-changed', 0, 1, true),
+				{
+					...reviewSnapshot(candidateIdentity, 'item-b', 0, 1, true),
+					comparisonOrigin: {
+						...reviewComparisonOrigin,
+						resolvedTargetOID: 'changed-target-oid',
+					},
+				},
 				workerDerivationEpoch,
 			),
 		).toThrow(/changed payload/iu);

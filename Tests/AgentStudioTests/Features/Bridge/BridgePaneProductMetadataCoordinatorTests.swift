@@ -807,6 +807,115 @@ struct BridgePaneProductMetadataCoordinatorTests {
     }
 }
 
+@Suite("Bridge pane presentation telemetry")
+struct BridgePanePresentationCoordinatorTests {
+    @Test("pane presentation records when no metadata stream can receive it")
+    func panePresentationRecordsMissingMetadataStream() async throws {
+        // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let traceRecorder = CoordinatorPanePresentationTraceRecorder()
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
+            lifecycleTraceRecorder: traceRecorder
+        )
+        let presentation = coordinatorPanePresentation(
+            presentationRevision: 17,
+            attempt: .pending(reviewGeneration: 4)
+        )
+
+        // Act
+        await coordinator.publishPanePresentation(presentation)
+
+        // Assert
+        let events = await traceRecorder.presentationEvents
+        #expect(events.count == 1)
+        let event = try #require(events.first)
+        #expect(event.stage == .notEnqueued)
+        #expect(event.result == .skipped)
+        #expect(event.resultReason == .noActiveStream)
+        #expect(event.presentationRevision == 17)
+        #expect(event.comparisonAttempt == .pending)
+        #expect(event.reviewGeneration == 4)
+        #expect(event.refreshingReview == true)
+        #expect(event.hasActiveStream == false)
+    }
+
+    @Test("pane presentation records successful metadata-stream enqueue")
+    func panePresentationRecordsSuccessfulMetadataStreamEnqueue() async throws {
+        // Arrange
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let lease = try await harness.admitMetadataFrames(through: 0)
+        let traceRecorder = CoordinatorPanePresentationTraceRecorder()
+        let coordinator = BridgePaneProductMetadataCoordinator(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            refreshWorkAdmissionSource: refreshWorkAdmission.source,
+            lifecycleTraceRecorder: traceRecorder
+        )
+        await coordinator.install(
+            request: try coordinatorMetadataStreamRequest(),
+            lease: lease,
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+        let presentation = coordinatorPanePresentation(
+            presentationRevision: 18,
+            attempt: .settled(reviewGeneration: 5)
+        )
+
+        // Act
+        await coordinator.publishPanePresentation(presentation)
+
+        // Assert
+        let events = await traceRecorder.presentationEvents
+        #expect(events.count == 1)
+        let event = try #require(events.first)
+        #expect(event.stage == .enqueued)
+        #expect(event.result == .success)
+        #expect(event.resultReason == .noReason)
+        #expect(event.presentationRevision == 18)
+        #expect(event.comparisonAttempt == .settled)
+        #expect(event.reviewGeneration == 5)
+        #expect(event.refreshingReview == true)
+        #expect(event.hasActiveStream == true)
+        await coordinator.uninstall(lease: lease)
+    }
+}
+
+private actor CoordinatorPanePresentationTraceRecorder:
+    BridgeProductMetadataLifecycleTraceRecording
+{
+    private(set) var presentationEvents: [BridgePanePresentationTraceEvent] = []
+
+    func record(_: BridgeProductMetadataLifecycleTraceEvent) {}
+
+    func record(_: BridgeProductReviewMetadataPublicationTraceEvent) {}
+
+    func record(_ event: BridgePanePresentationTraceEvent) {
+        presentationEvents.append(event)
+    }
+}
+
+private func coordinatorPanePresentation(
+    presentationRevision: Int,
+    attempt: BridgePaneReviewComparisonAttempt
+) -> BridgePaneProductPresentationSnapshot {
+    BridgePaneProductPresentationSnapshot(
+        nativeActivity: .foreground,
+        presentationRevision: presentationRevision,
+        refreshingLanes: [.review],
+        reviewComparison: BridgePaneReviewComparisonPresentation(
+            activeTarget: .branch(name: "comparison-target"),
+            attempt: attempt,
+            displayedSnapshot: .absent,
+            repositoryDefaultTarget: nil
+        )
+    )
+}
+
 private func coordinatorReviewUpdateRequest(
     emptyInterestSha256: String,
     updateId: String

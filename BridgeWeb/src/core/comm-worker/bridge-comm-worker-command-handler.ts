@@ -65,7 +65,6 @@ import {
 export type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 
 export type { BridgeCommWorkerFileViewRuntimeSource } from './bridge-comm-worker-file-view-runtime-source.js';
-
 export type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-product-controller.js';
 
 export type {
@@ -482,6 +481,9 @@ function handleBridgeWorkerCommand(
 		case 'markFileViewed':
 		case 'metadataInterestUpdate':
 		case 'reviewIntakeReady':
+		case 'reviewComparisonUpdate':
+		case 'reviewComparisonTargetsQuery':
+		case 'reviewComparisonTargetsQueryCancel':
 		case 'activeViewerModeUpdate':
 			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
 		case 'mode':

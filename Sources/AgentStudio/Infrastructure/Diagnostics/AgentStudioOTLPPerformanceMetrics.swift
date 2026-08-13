@@ -322,6 +322,23 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 dimensions: &dimensions
             )
         }
+        if record.body.hasSuffix(".pane_presentation") {
+            let panePresentationDimensions = [
+                ("comparison_status", "agentstudio.bridge.comparison.attempt.status"),
+                ("package_match", "agentstudio.bridge.comparison.package_match"),
+                ("pane_state", "agentstudio.bridge.comparison.pane_state"),
+                ("result", "agentstudio.bridge.result"),
+                ("result_reason", "agentstudio.bridge.result_reason"),
+            ]
+            for (name, attributeKey) in panePresentationDimensions {
+                appendBridgeDimension(
+                    name: name,
+                    attributeKey: attributeKey,
+                    record: record,
+                    dimensions: &dimensions
+                )
+            }
+        }
     }
 
     private static func measurement(

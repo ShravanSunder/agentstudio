@@ -253,6 +253,40 @@ describe('Bridge worker RPC client', () => {
 		reviewClient.dispose();
 	});
 
+	test('routes Review comparison updates only through the Review surface client', async () => {
+		const { createBridgeWorkerRpcClient } = await loadBridgeWorkerRpcClientModule();
+		const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+		const dispatch = vi.fn<(message: BridgeWorkerMainToServerMessage) => void>();
+		const fileClient = createBridgeWorkerRpcClient({
+			dispatch,
+			lifecycleStore,
+			requestIdFactory: (): string => 'file-comparison-1',
+			surface: 'fileView',
+		});
+		const reviewClient = createBridgeWorkerRpcClient({
+			dispatch,
+			lifecycleStore,
+			requestIdFactory: (): string => 'review-comparison-1',
+			surface: 'review',
+		});
+		const comparisonUpdate = {
+			command: 'reviewComparisonUpdate',
+			epoch: 11,
+			target: { basis: 'commonCommit', kind: 'ref', name: 'release-candidate' },
+		} as const satisfies BridgeWorkerRpcCommandInput;
+
+		expect(() => fileClient.send(comparisonUpdate)).toThrow(/does not belong to fileView/u);
+		expect(reviewClient.send(comparisonUpdate)).toBe('review-comparison-1');
+		expect(dispatch).toHaveBeenCalledOnce();
+		expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+			command: 'reviewComparisonUpdate',
+			requestId: 'review-comparison-1',
+			target: { basis: 'commonCommit', kind: 'ref', name: 'release-candidate' },
+		});
+		fileClient.dispose();
+		reviewClient.dispose();
+	});
+
 	test('settles Review projection lifecycle from the worker acknowledgement', async () => {
 		// Arrange
 		vi.useFakeTimers();

@@ -85,6 +85,83 @@ struct BridgeTelemetryEventValidatorTests {
     }
 
     @Test
+    func validatorAcceptsPanePresentationHandoffSamples() {
+        let validator = BridgeTelemetryEventValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let applied = sampleWithWebAttributes(
+            WebSampleProps(
+                name: "performance.bridge.web.pane_presentation",
+                phase: "pane_presentation_applied",
+                plane: "control",
+                priority: "hot",
+                slice: "review_metadata",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.comparison.attempt.status": "settled",
+                    "agentstudio.bridge.presentation.disposition": "applied",
+                    "agentstudio.bridge.result": "success",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.presentation.revision": 18,
+                    "agentstudio.bridge.review.generation": 5,
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.refreshing.review": false
+                ]
+            )
+        )
+        let published = sampleWithWebAttributes(
+            WebSampleProps(
+                name: "performance.bridge.web.pane_presentation",
+                phase: "panel_chrome_published",
+                plane: "control",
+                priority: "hot",
+                slice: "review_metadata",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.comparison.attempt.status": "settled",
+                    "agentstudio.bridge.panel.operation": "upsert",
+                    "agentstudio.bridge.presentation.disposition": "published",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.viewer": "review",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.presentation.publication_sequence": 22,
+                    "agentstudio.bridge.presentation.revision": 18,
+                    "agentstudio.bridge.review.generation": 5,
+                    "agentstudio.bridge.worker.derivation_epoch": 7,
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.refreshing.review": false
+                ]
+            )
+        )
+        let rendered = sampleWithWebAttributes(
+            WebSampleProps(
+                name: "performance.bridge.web.pane_presentation",
+                phase: "comparison_pane_rendered",
+                plane: "control",
+                priority: "hot",
+                slice: "review_metadata",
+                transport: "local",
+                extraStrings: [
+                    "agentstudio.bridge.comparison.attempt.status": "settled",
+                    "agentstudio.bridge.comparison.package_match": "revision_mismatch",
+                    "agentstudio.bridge.comparison.pane_state": "loading_previous",
+                    "agentstudio.bridge.presentation.disposition": "rendered",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.viewer": "review",
+                ]
+            )
+        )
+
+        #expect(validator.validate(applied) == .accepted)
+        #expect(validator.validate(published) == .accepted)
+        #expect(validator.validate(rendered) == .accepted)
+    }
+
+    @Test
     func validatorRejectsReviewPackageDataOverPushTransport() {
         let validator = BridgeTelemetryEventValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])

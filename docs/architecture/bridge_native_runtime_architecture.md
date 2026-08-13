@@ -8,7 +8,9 @@ pane-local control.
 
 Start with [Bridge Viewer Architecture](bridge_viewer_architecture.md) for the
 outer model. Continue with [Bridge Web Runtime
-Architecture](bridge_web_runtime_architecture.md) at the worker boundary.
+Architecture](bridge_web_runtime_architecture.md) at the worker boundary. The
+route-level contract is [Bridge Product Transport
+Architecture](bridge_product_transport_architecture.md).
 
 ## Ownership Map
 
@@ -163,18 +165,24 @@ limited to Vite development and fixture construction.
 
 ## Product Transport
 
-The native/web product transport has three logical paths:
+The native/web product transport has three physical routes:
 
 | Path | Direction | Purpose |
 | --- | --- | --- |
-| Control | Web to Swift | Open/update/cancel subscriptions, resync, product calls, active surface |
-| Metadata frames | Swift to worker | Transactional File tree and Review package/catalog state |
-| Content frames | Swift to worker | On-demand, bounded bodies referenced by authorized metadata |
+| Command | Web to Swift | Typed calls/mutations, subscription changes, demand updates, and query initiation |
+| Metadata stream | Swift to worker | Compact pushed state, lifecycle, File/Review metadata, invalidations, and notifications |
+| Content | Swift to worker | Finite requested application data referenced by an authorized descriptor |
 
 The session capability is pane-scoped. Request admission validates capability,
 route, body budget, sequence, stream/session state, and revocation. Metadata
 and content frames are acknowledged so native producers can apply backpressure
 and release resources.
+
+Application queries compose the existing command and content routes: a typed
+call returns a descriptor, then `content.open` returns the actual result. Native
+query owners may retain only request-scoped immutable data behind that
+descriptor. A selectable catalog or other finite requested dataset does not
+belong in pane presentation or a File/Review metadata subscription.
 
 ## Activity, Suspension, And Resume
 

@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudioBridge
+@testable import AgentStudioCore
 
 @Suite("Bridge development product host")
 struct BridgeDevelopmentProductHostTests {
@@ -117,7 +118,9 @@ struct BridgeDevelopmentProductHostTests {
             ),
             package: makeReviewPackage(itemCount: 1),
             delta: nil,
-            contentHandles: []
+            contentHandles: [],
+            comparisonPresentationRevision: 1,
+            reviewComparison: nil
         )
 
         // Act
@@ -314,9 +317,9 @@ struct BridgeDevelopmentProductHostTests {
         // Act / Assert
         await #expect(throws: BridgeDevelopmentProductHostError.invalidWorktree) {
             _ = try await BridgeDevelopmentProductHost(
-                source: BridgeDevelopmentProductSource(
-                    worktreeRoot: sourceURL,
-                    reviewBase: "HEAD"
+                source: makeDevelopmentProductSource(worktreeRoot: sourceURL),
+                contributionTargetCommit: developmentContributionTargetCommit(
+                    worktreeRoot: sourceURL
                 )
             )
         }
@@ -342,9 +345,9 @@ struct BridgeDevelopmentProductHostTests {
         )
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
@@ -378,9 +381,9 @@ struct BridgeDevelopmentProductHostTests {
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
@@ -422,9 +425,9 @@ struct BridgeDevelopmentProductHostTests {
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
@@ -461,9 +464,9 @@ struct BridgeDevelopmentProductHostTests {
         defer { FilesystemTestGitRepo.destroy(repositoryURL) }
         try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
         let host = try await BridgeDevelopmentProductHost(
-            source: BridgeDevelopmentProductSource(
-                worktreeRoot: repositoryURL,
-                reviewBase: "HEAD"
+            source: makeDevelopmentProductSource(worktreeRoot: repositoryURL),
+            contributionTargetCommit: developmentContributionTargetCommit(
+                worktreeRoot: repositoryURL
             ),
             makeReviewProvider: { _, _ in BridgeObservabilitySmokeReviewSourceProvider() }
         )
@@ -529,6 +532,43 @@ struct BridgeDevelopmentProductHostTests {
             #expect(accepted.correlation.paneSessionId == delivery.bootstrap.paneSessionId)
             #expect(accepted.correlation.workerInstanceId == delivery.bootstrap.workerInstanceId)
         }
+    }
+}
+
+func makeDevelopmentProductSource(
+    worktreeRoot: URL,
+    target: WorkspaceReviewContributionTarget = .ref(name: "HEAD")
+) -> BridgeDevelopmentProductSource {
+    let canonicalWorktreeRoot = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
+    return BridgeDevelopmentProductSource(
+        paneID: UUIDv7.generate(),
+        paneState: BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(
+                rootPath: canonicalWorktreeRoot.path,
+                baseline: WorkspaceBaseline(contributionTarget: target)
+            )
+        ),
+        repoID: UUIDv7.generate(),
+        reviewedSubjectLabel: worktreeRoot.lastPathComponent,
+        worktreeID: UUIDv7.generate(),
+        worktreeRoot: canonicalWorktreeRoot
+    )
+}
+
+func developmentContributionTargetCommit(
+    worktreeRoot: URL
+) -> @MainActor @Sendable (WorkspaceReviewContributionTarget) -> BridgePaneStateMutationResult {
+    { target in
+        .unchanged(
+            BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(
+                    rootPath: worktreeRoot.path,
+                    baseline: WorkspaceBaseline(contributionTarget: target)
+                )
+            )
+        )
     }
 }
 
