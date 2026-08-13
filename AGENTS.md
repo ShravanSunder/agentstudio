@@ -296,6 +296,15 @@ high-volume lanes such as atoms must be selected with
 performance workload proof excludes `atoms` by default and should enable it only
 for a dedicated atom telemetry proof run.
 
+### Performance Lane Directive
+
+- Classify a lane as `often` at about 10 or more events/minute, or `heavy` at 1 ms MainActor / 50 ms off-main.
+- Every `often` or `heavy` lane names an admission policy before work crosses its owner boundary.
+- Apply equality suppression before MainActor publication and use keyed reads on hot observation paths.
+- Move heavy derivation off MainActor while preserving the existing owner and published end state.
+- Put timing, cadence, and threshold constants in `AppPolicies`.
+- Ship marker-scoped probes with new performance lanes; measurement is part of the lane contract.
+
 Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
 `OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
 is treated as a collector base URL; AgentStudio sends logs to `/v1/logs` and

@@ -239,7 +239,7 @@ extension AppDelegate {
             )
             preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
         }
-        managementLayerMonitor = ManagementLayerMonitor()
+        configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.core.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
@@ -250,6 +250,15 @@ extension AppDelegate {
         RestoreTrace.log(
             "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.graphAtom.paneIDs.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
+    }
+
+    private func configureInteractionPerformanceProbeOwners() {
+        let interactionProbe = AgentStudioInteractionPerformanceProbe(recorder: performanceTraceRecorder)
+        managementLayerMonitor = ManagementLayerMonitor(interactionProbe: interactionProbe)
+        AppCommandDispatcher.shared.interactionProbe = interactionProbe
+        AppCommandDispatcher.shared.onCommandRefreshAccepted = { [weak managementLayerMonitor] correlationId in
+            managementLayerMonitor?.prepareCommandRefreshSettlement(correlationId: correlationId)
+        }
     }
 
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {

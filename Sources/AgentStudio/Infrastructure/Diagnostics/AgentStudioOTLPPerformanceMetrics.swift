@@ -231,6 +231,29 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         var dimensions = [
             AgentStudioOTLPPerformanceMetricDimension(name: "event", value: record.body)
         ]
+        if record.body == "performance.interaction.latency",
+            case .string(let interactionKind) = record.attributes[
+                "agentstudio.performance.interaction.kind"
+            ],
+            isSafeDimensionValue(interactionKind)
+        {
+            dimensions.append(
+                AgentStudioOTLPPerformanceMetricDimension(
+                    name: "interaction_kind",
+                    value: interactionKind
+                )
+            )
+        }
+        if record.body == "performance.repo_explorer.outline_apply_proxy",
+            case .string(let outcome) = record.attributes[
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome"
+            ],
+            ["equal", "changed"].contains(outcome)
+        {
+            dimensions.append(
+                AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome)
+            )
+        }
         if record.body == "performance.git.status_unavailable",
             case .string(let reason) = record.attributes["agentstudio.performance.git.status_unavailable.reason"],
             isSafeDimensionValue(reason)

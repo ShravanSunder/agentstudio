@@ -693,6 +693,10 @@ run = "/bin/bash scripts/verify-sidebar-performance-workload.sh --sidebar-proof"
 description = "Run one marker-scoped terminal-title and pane-observation proof"
 run = "/bin/bash scripts/verify-title-pane-performance-workload.sh --proof"
 
+[tasks."perf:report"]
+description = "Compare completed marker-scoped AgentStudio performance windows"
+run = "/bin/bash scripts/perf-report.sh"
+
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"
 run = "/bin/bash \"$HOME/dev/ai-tools/observability/observability-stack\" up"

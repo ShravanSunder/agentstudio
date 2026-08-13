@@ -5,6 +5,30 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceTraceProjectionTests {
+    @Test("interaction latency keeps controlled kind and scrubs correlation id")
+    func interactionLatencyKeepsKindAndScrubsCorrelationId() {
+        let projection = AgentStudioOTLPTraceProjection.project(
+            AgentStudioTraceRecord(
+                timeUnixNano: 123,
+                severityText: .info,
+                body: "performance.interaction.latency",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: [:],
+                scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.performance.elapsed_ms": .double(4.5),
+                    "agentstudio.performance.interaction.kind": .string("tab_move"),
+                    "agentstudio.performance.interaction.correlation_id": .string(UUIDv7.generate().uuidString),
+                ]
+            ))
+
+        #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(4.5))
+        #expect(projection.attributes["agentstudio.performance.interaction.kind"] == .string("tab_move"))
+        #expect(projection.attributes["agentstudio.performance.interaction.correlation_id"] == nil)
+    }
+
     @Test
     func performanceProjectionKeepsSafeNumericFieldsAndDropsUnsafeContext() {
         let worktreeID = UUID(uuidString: "6DE2BC87-AD1F-4271-96DD-7922D58612D5")!

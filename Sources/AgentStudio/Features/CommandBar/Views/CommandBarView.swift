@@ -13,6 +13,8 @@ struct CommandBarView: View {
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
     let onShowActions: @MainActor @Sendable (CommandBarItem) -> Void
+    let onInitialResultsPublished: @MainActor @Sendable () -> Void
+    let onInputFocusAcknowledged: @MainActor @Sendable () -> Void
 
     var body: some View {
         let resultSnapshot = resultSession.snapshot(state: state)
@@ -71,6 +73,8 @@ struct CommandBarView: View {
             )
         }
         .frame(maxWidth: .infinity)
+        .onAppear(perform: onInitialResultsPublished)
+        .environment(\.commandBarInputFocusAcknowledgement, onInputFocusAcknowledged)
     }
 
     // MARK: - Actions

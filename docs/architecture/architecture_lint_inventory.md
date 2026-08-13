@@ -13,6 +13,12 @@ Architecture lint now has two layers:
 The local architecture tool is not a SwiftLint plugin. It runs alongside stock
 SwiftLint through `mise run lint` and CI.
 
+Architecture diagnostics have three severity channels. `error` and `warning`
+findings print and make the architecture-lint command exit non-zero. `report`
+findings print through the same output path without affecting the exit code.
+Performance-program guard rules begin as `report`; promoting one to blocking
+under R19 is a review-visible severity change recorded in this inventory.
+
 ## SwiftSyntax Architecture Rules
 
 | Contract | Rule ID | Severity | Source |
@@ -38,6 +44,17 @@ SwiftLint through `mise run lint` and CI.
 | Dense action controls use typed tooltip sources instead of raw `.help("...")`, AppKit `toolTip = "..."`, or custom hover strings. Shared components consume resolved render values only. | `agentstudio_toolbar_tooltip_source` | error | `docs/architecture/commands_and_shortcuts.md#tooltips-help-text-and-compact-control-copy` |
 | Production EventBus subscriptions and wait helpers name an explicit semantic subscriber policy; wrappers cannot hide a default or zero-argument policy. | `agentstudio_eventbus_subscriber_policy_required` | error | `Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventBus.swift` |
 | Terminal-local `GhosttyActionDisposition` branches contract locally and cannot reach the shared exact semantic publication edge. | `agentstudio_terminal_local_disposition_publication` | error | [Pane Runtime Contract 7](pane_runtime_architecture.md#contract-7-typed-ghostty-source-admission-and-contraction) |
+| Observation-capture closures use keyed reads instead of named whole-snapshot calls. | `agentstudio_observation_capture_keyed_reads` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
+| `@MainActor` types do not perform named collection-wide sort, reduce, grouping, or hash calls without an allowlisted owner. | `agentstudio_mainactor_unbounded_collection_work` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
+| Numeric timing and performance-threshold constants live in `AppPolicies`. | `agentstudio_performance_constants_in_app_policies` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
+| `nonisolated async` declarations that make syntactically blocking file reads use `@concurrent`. | `agentstudio_nonisolated_async_blocking_io_requires_concurrent` | report | `docs/specs/2026-08-10-performance-program/program-design.md#report-only-lint-severity-channel-r4` |
+
+The four performance guards are intentionally lexical and report-only in slice
+1. They recognize only the call, declaration, and literal shapes named above;
+they do not infer collection bounds, types, executor hops, or I/O behavior.
+Exceptions belong in the centralized `ArchitectureAllowlists`, with paired
+Good/Bad fixtures. R19 promotion changes the rule severity from `report` to a
+blocking channel and updates this inventory in the same reviewed change.
 
 The Terminal publication guard is deliberately lexical. In AgentStudio's
 Terminal source, it recognizes switches whose subject is

@@ -57,5 +57,9 @@ enum ArchitectureRuleRegistry {
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
         TerminalLocalDispositionPublicationRule(),
+        ObservationCaptureKeyedReadsRule(),
+        MainActorUnboundedCollectionWorkRule(),
+        PerformanceConstantsInAppPoliciesRule(),
+        NonisolatedAsyncBlockingIORule(),
     ]
 }

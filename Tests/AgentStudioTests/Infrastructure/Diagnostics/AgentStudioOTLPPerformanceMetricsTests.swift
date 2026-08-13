@@ -6,6 +6,36 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
+    @Test("interaction kind becomes a metric dimension")
+    func interactionKindBecomesMetricDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.interaction.latency",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(7.5),
+                "agentstudio.performance.interaction.kind": .string("cmd_r"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions == [
+                AgentStudioOTLPPerformanceMetricDimension(
+                    name: "event",
+                    value: "performance.interaction.latency"
+                ),
+                AgentStudioOTLPPerformanceMetricDimension(name: "interaction_kind", value: "cmd_r"),
+            ])
+        #expect(metricEvent.elapsedMilliseconds == 7.5)
+    }
+
     @Test
     func panePresentationMetricsExposeBoundedTransitionOutcome() throws {
         let record = AgentStudioOTLPProjectedLogRecord(

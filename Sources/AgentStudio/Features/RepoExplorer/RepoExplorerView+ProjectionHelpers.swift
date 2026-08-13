@@ -12,6 +12,24 @@ struct RepoExplorerProjectionRequestKey: Equatable {
 }
 
 extension RepoExplorerView {
+    static func measureOutlineApplyProxy(
+        previousRowIDs: [String],
+        nextRowIDs: [String],
+        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        apply: () -> Void
+    ) -> RepoExplorerOutlineApplyMeasurement {
+        let startedAtNanoseconds = nowNanoseconds()
+        apply()
+        let completedAtNanoseconds = nowNanoseconds()
+        return RepoExplorerOutlineApplyMeasurement(
+            duration: .nanoseconds(
+                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
+            ),
+            rowCount: nextRowIDs.count,
+            outcome: previousRowIDs == nextRowIDs ? .equal : .changed
+        )
+    }
+
     static func worktreeEnrichmentSnapshot(
         for worktreeIds: [UUID],
         repoCache: RepoCacheAtom

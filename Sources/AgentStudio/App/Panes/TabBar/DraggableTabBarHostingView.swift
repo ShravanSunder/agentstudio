@@ -18,7 +18,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private var hostingView: NSHostingView<CustomTabBar>!
     weak var tabBarAdapter: TabBarAdapter?
-    var onReorder: ((_ fromId: UUID, _ toIndex: Int) -> Void)?
+    var onReorder: ((_ fromId: UUID, _ toIndex: Int, _ correlationId: UUID) -> Void)?
     /// Injection seams for window-drag handling on clicks that land outside any
     /// tab pill. Default to the real AppKit calls; tests substitute closures.
     var performWindowDrag: ((NSEvent) -> Void)?
@@ -189,7 +189,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     // MARK: - Setup
 
-    func configure(adapter: TabBarAdapter, onReorder: @escaping (UUID, Int) -> Void) {
+    func configure(adapter: TabBarAdapter, onReorder: @escaping (UUID, Int, UUID) -> Void) {
         self.tabBarAdapter = adapter
         self.onReorder = onReorder
     }
@@ -542,7 +542,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             let targetIndex = tabBarAdapter?.dropTargetIndex,
             atom(\.managementLayer).isActive
         {
-            onReorder?(tabId, targetIndex)
+            onReorder?(tabId, targetIndex, UUIDv7.generate())
             return true
         }
 

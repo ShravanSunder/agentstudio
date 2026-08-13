@@ -12,6 +12,32 @@ struct RepoExplorerViewTests {
         installTestCoreAtomsIfNeeded()
     }
 
+    @Test("outline apply proxy spans invocation to return and classifies row identity")
+    func outlineApplyProxySpansInvocationToReturnAndClassifiesRowIdentity() {
+        var clockValues: [UInt64] = [1_000_000, 4_000_000, 8_000_000, 10_000_000]
+        var applyCount = 0
+
+        let changed = RepoExplorerView.measureOutlineApplyProxy(
+            previousRowIDs: ["repo:a"],
+            nextRowIDs: ["repo:b"],
+            nowNanoseconds: { clockValues.removeFirst() },
+            apply: { applyCount += 1 }
+        )
+        let equal = RepoExplorerView.measureOutlineApplyProxy(
+            previousRowIDs: ["repo:b"],
+            nextRowIDs: ["repo:b"],
+            nowNanoseconds: { clockValues.removeFirst() },
+            apply: { applyCount += 1 }
+        )
+
+        #expect(applyCount == 2)
+        #expect(changed.duration == .milliseconds(3))
+        #expect(changed.rowCount == 1)
+        #expect(changed.outcome == .changed)
+        #expect(equal.duration == .milliseconds(2))
+        #expect(equal.outcome == .equal)
+    }
+
     @Test("pull request chip distinguishes not-fetched, confirmed zero, and positive facts")
     func pullRequestChipPresentationDistinguishesFactStates() {
         let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
