@@ -509,12 +509,6 @@ struct PaneTabViewControllerTabRetentionTests {
 
 @MainActor
 private final class MockPersistentTabSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.finish()
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

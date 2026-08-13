@@ -108,7 +108,8 @@ package final class TerminalActivityRouter {
 
         let stream = await bus.subscribe(
             policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
-            subscriberName: "TerminalActivityRouter"
+            subscriberName: "TerminalActivityRouter",
+            factInterest: .matching([.paneTerminal])
         )
         busTask = Task { @MainActor [weak self] in
             for await envelope in stream {

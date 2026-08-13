@@ -7,6 +7,49 @@ import Testing
 
 @Suite("Terminal local action accumulator")
 struct TerminalLocalActionAccumulatorTests {
+    @Test("failed title apply stays pending without self-rescheduling")
+    func failedTitleApplyStaysPendingWithoutSelfRescheduling() throws {
+        let recorder = DrainRequestRecorder()
+        let accumulator = TerminalLocalActionAccumulator(
+            scheduleDrain: recorder.record,
+            scheduleFollowUpDrain: recorder.record
+        )
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.titleChanged("unavailable"), for: surfaceID) == .scheduled)
+        var drainAttemptCount = 0
+        for _ in 0..<3 {
+            guard let failedBatch = accumulator.beginDrain(for: surfaceID, lane: .title) else { break }
+            drainAttemptCount += 1
+            accumulator.restoreUnacknowledgedPublications(from: failedBatch)
+            #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .idle)
+        }
+
+        #expect(drainAttemptCount == 1)
+        #expect(recorder.requests.count == 1)
+        #expect(accumulator.hasPendingActions(for: surfaceID))
+    }
+
+    @Test("committed equal title does not create a second scheduler claim")
+    func committedEqualTitleDoesNotCreateSecondSchedulerClaim() throws {
+        let recorder = DrainRequestRecorder()
+        let accumulator = TerminalLocalActionAccumulator(scheduleDrain: recorder.record)
+        let surfaceID = UUIDv7.generate()
+
+        #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .scheduled)
+        let appliedBatch = try #require(accumulator.beginDrain(for: surfaceID, lane: .title))
+        accumulator.acknowledgeSuccessfulTitlePublication(
+            try #require(appliedBatch.titleMetadata),
+            for: surfaceID
+        )
+        #expect(accumulator.finishDrain(for: surfaceID, lane: .title) == .idle)
+
+        #expect(accumulator.offer(.titleChanged("A"), for: surfaceID) == .equalSuppressed)
+        #expect(recorder.requests.count == 1)
+        #expect(accumulator.offer(.titleChanged("B"), for: surfaceID) == .scheduled)
+        #expect(recorder.requests.count == 2)
+    }
+
     @Test("first title admission fixes one absolute one-second deadline through replacement")
     func firstTitleAdmissionFixesAbsoluteDeadlineThroughReplacement() throws {
         let recorder = DrainRequestRecorder()

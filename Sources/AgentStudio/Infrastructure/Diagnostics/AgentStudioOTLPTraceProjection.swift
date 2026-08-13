@@ -156,6 +156,8 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.tabbar.context_menu.phase",
         "agentstudio.performance.tabbar.terminal.outcome",
         "agentstudio.performance.terminal.accumulator.drain.class",
+        "agentstudio.performance.terminal.accumulator.apply.outcome",
+        "agentstudio.performance.terminal.publication.kind",
         "agentstudio.performance.terminal.geometry.reason",
         "agentstudio.performance.terminal.surface.source",
         "agentstudio.persistence.backend",
@@ -501,6 +503,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.terminal.activity_aggregate.count",
         "agentstudio.performance.terminal.activity_projection.round_trip_ms",
         "agentstudio.performance.terminal.equal_write_suppressed.count",
+        "agentstudio.performance.terminal.equal_suppressed.count",
         "agentstudio.performance.terminal.geometry.visible_terminal.count",
         "agentstudio.performance.terminal.surface.cell_height_px",
         "agentstudio.performance.terminal.surface.cell_width_px",
@@ -785,7 +788,6 @@ package enum AgentStudioOTLPTraceProjection {
             allowedResourceKeys.contains(key)
         }
     }
-
     private static func projectedAttributes(
         _ attributes: [String: AgentStudioTraceValue],
         resource: [String: String]
@@ -835,7 +837,6 @@ extension AgentStudioOTLPTraceProjection {
             return nil
         }
     }
-
     private static func safeResource(_ resource: [String: String]) -> [String: String] {
         var projected: [String: String] = [:]
         for (key, value) in resource where allowedSafeResourceKeys.contains(key) && isSafeResourceValue(value) {
@@ -843,7 +844,6 @@ extension AgentStudioOTLPTraceProjection {
         }
         return projected
     }
-
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
         "agentstudio.release_channel",
         "agentstudio.runtime_flavor",
@@ -870,11 +870,9 @@ extension AgentStudioOTLPTraceProjection {
             || normalizedKey.hasSuffix("_id")
             || normalizedKey.contains("_id.")
     }
-
     private static func isErrorKey(_ key: String) -> Bool {
         key.lowercased().contains("error")
     }
-
     private static func isPayloadKey(_ key: String) -> Bool {
         let normalizedKey = key.lowercased()
         return normalizedKey.contains("path")
@@ -930,6 +928,8 @@ extension AgentStudioOTLPTraceProjection {
             .contains(value)
         case "agentstudio.performance.tabbar.terminal.outcome":
             return ["published", "equal", "superseded", "cancelled"].contains(value)
+        case "agentstudio.performance.terminal.accumulator.apply.outcome":
+            return ["equal", "changed"].contains(value)
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)

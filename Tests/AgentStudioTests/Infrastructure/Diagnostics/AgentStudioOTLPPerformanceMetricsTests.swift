@@ -405,7 +405,13 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     func runtimePressureAggregateDeltasAreCountersWhileRetainedValuesStayGauges() throws {
         let factory = RecordingMetricsFactory()
         let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
-        let dimensions = [
+        let changedDimensions = [
+            ("outcome", "changed"),
+            ("drain_class", "title_deadline"),
+            ("event", "performance.terminal.accumulator_drain"),
+        ]
+        let equalDimensions = [
+            ("outcome", "equal"),
             ("drain_class", "title_deadline"),
             ("event", "performance.terminal.accumulator_drain"),
         ]
@@ -414,6 +420,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(3),
                 "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
+                "agentstudio.performance.terminal.accumulator.apply.outcome": .string("changed"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
@@ -425,6 +432,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(1),
                 "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
+                "agentstudio.performance.terminal.accumulator.apply.outcome": .string("equal"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
@@ -439,6 +447,11 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(
             metricEvent.dimensions.contains(
                 AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "title_deadline")
+            )
+        )
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: "changed")
             )
         )
         #expect(
@@ -458,28 +471,61 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(
             factory.counter(
                 label: "agentstudio_performance_terminal_accumulator_offered_count",
-                dimensions: dimensions
-            )?.totalValue == 15)
+                dimensions: changedDimensions
+            )?.totalValue == 10)
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_offered_count",
+                dimensions: equalDimensions
+            )?.totalValue == 5)
         #expect(
             factory.counter(
                 label: "agentstudio_performance_terminal_accumulator_replaced_count",
-                dimensions: dimensions
-            )?.totalValue == 11)
+                dimensions: changedDimensions
+            )?.totalValue == 8)
         #expect(
             factory.recorder(
                 label: "agentstudio_performance_terminal_accumulator_retained_entry_count",
-                dimensions: dimensions
-            )?.values == [4, 2])
+                dimensions: changedDimensions
+            )?.values == [4])
         #expect(
             factory.recorder(
                 label: "agentstudio_performance_terminal_accumulator_retained_size_bytes",
-                dimensions: dimensions
-            )?.values == [256, 128])
+                dimensions: equalDimensions
+            )?.values == [128])
         #expect(
             factory.recorder(
                 label: AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel,
-                dimensions: dimensions
-            )?.values == [3, 1])
+                dimensions: changedDimensions
+            )?.values == [3])
+    }
+
+    @Test
+    func terminalEqualSuppressionProjectsAsCounterWithPublicationKind() throws {
+        let record = Self.projectedPerformanceRecord(
+            body: "performance.terminal.equal_suppressed",
+            attributes: [
+                "agentstudio.performance.terminal.publication.kind": .string("title"),
+                "agentstudio.performance.terminal.equal_suppressed.count": .int(1),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "publication_kind", value: "title")
+            )
+        )
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .counter(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_equal_suppressed_count"
+                        && sample.value == 1
+                }
+                return false
+            }
+        )
     }
 
     @Test

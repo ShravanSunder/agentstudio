@@ -317,7 +317,8 @@ struct GhosttyActionRouterTests {
                 payload: .commandFinished(exitCode: 7, duration: 42),
                 surfaceViewObjectID: fixture.surfaceViewObjectID,
                 expectedSurfaceID: fixture.surfaceID,
-                routingLookup: fixture.routingLookup
+                routingLookup: fixture.routingLookup,
+                accumulator: fixture.accumulator
             )
         )
         let laterBatch = try #require(fixture.accumulator.beginDrain(for: fixture.surfaceID, lane: .title))
@@ -357,7 +358,8 @@ struct GhosttyActionRouterTests {
                 payload: .commandFinished(exitCode: 3, duration: 9),
                 surfaceViewObjectID: fixture.surfaceViewObjectID,
                 expectedSurfaceID: fixture.surfaceID,
-                routingLookup: fixture.routingLookup
+                routingLookup: fixture.routingLookup,
+                accumulator: fixture.accumulator
             )
         )
 
@@ -379,6 +381,76 @@ struct GhosttyActionRouterTests {
 
         let replay = await fixture.runtime.eventsSince(seq: 0)
         #expect(terminalEventNames(from: replay.events) == ["command:3", "title:later"])
+    }
+
+    @Test("exact CWD publication suppresses committed equality before MainActor admission")
+    func exactCWDPublicationSuppressesCommittedEqualityBeforeMainActorAdmission() async throws {
+        let fixture = ExactBarrierFixture()
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(fixture.runtimeRegistry)
+        defer { Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry) }
+
+        let firstAdmission = Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+            .cwdChanged("/tmp/project"),
+            surfaceID: fixture.surfaceID,
+            accumulator: fixture.accumulator
+        )
+        guard case .routeExactFactOrControl(let precedingTitle) = firstAdmission else {
+            Issue.record("Expected first CWD to enter exact routing")
+            return
+        }
+        #expect(
+            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+                precedingTitle: precedingTitle,
+                actionTag: UInt32(GHOSTTY_ACTION_PWD.rawValue),
+                payload: .cwdChanged("/tmp/project"),
+                surfaceViewObjectID: fixture.surfaceViewObjectID,
+                expectedSurfaceID: fixture.surfaceID,
+                routingLookup: fixture.routingLookup,
+                accumulator: fixture.accumulator
+            )
+        )
+
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .cwdChanged("/tmp/./project"),
+                surfaceID: fixture.surfaceID,
+                accumulator: fixture.accumulator
+            ) == .handledLocally
+        )
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .titleChanged("before-cwd"),
+                surfaceID: fixture.surfaceID,
+                accumulator: fixture.accumulator
+            ) == .handledLocally
+        )
+        let changedAdmission = Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+            .cwdChanged("/tmp/other"),
+            surfaceID: fixture.surfaceID,
+            accumulator: fixture.accumulator
+        )
+        guard case .routeExactFactOrControl(let changedPrecedingTitle) = changedAdmission else {
+            Issue.record("Expected changed CWD to enter exact routing")
+            return
+        }
+        #expect(
+            Ghostty.ActionRouter.routeExactFactOrControlOnMainActor(
+                precedingTitle: changedPrecedingTitle,
+                actionTag: UInt32(GHOSTTY_ACTION_PWD.rawValue),
+                payload: .cwdChanged("/tmp/other"),
+                surfaceViewObjectID: fixture.surfaceViewObjectID,
+                expectedSurfaceID: fixture.surfaceID,
+                routingLookup: fixture.routingLookup,
+                accumulator: fixture.accumulator
+            )
+        )
+
+        let replay = await fixture.runtime.eventsSince(seq: 0)
+        #expect(
+            terminalEventNames(from: replay.events)
+                == ["cwd:/tmp/project", "title:before-cwd", "cwd:/tmp/other"]
+        )
     }
 
     @Test("deferred exact routing rejects a replacement surface at the same view address")
@@ -807,6 +879,8 @@ struct GhosttyActionRouterTests {
                 return "title:\(title)"
             case .terminal(.commandFinished(let exitCode, _)):
                 return "command:\(exitCode)"
+            case .terminal(.cwdChanged(let cwdPath)):
+                return "cwd:\(cwdPath)"
             default:
                 return nil
             }

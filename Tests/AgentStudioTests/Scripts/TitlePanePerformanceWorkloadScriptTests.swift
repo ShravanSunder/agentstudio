@@ -38,6 +38,10 @@ struct TitlePanePerformanceWorkloadScriptTests {
 
         #expect(syntax.exitCode == 0, Comment(rawValue: syntax.stderr))
         #expect(source.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=sidebar-performance-proof"))
+        #expect(
+            source.contains(
+                "WORKLOAD_TRACE_TAGS=\"${AGENTSTUDIO_TRACE_TAGS:-performance,atoms,app.startup,terminal.startup}\""))
+        #expect(source.contains("AGENTSTUDIO_TRACE_TAGS=\"$WORKLOAD_TRACE_TAGS\""))
         #expect(source.contains("AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"))
         for method in [
             "auth.login", "terminal.send", "terminal.wait", "pane.split", "pane.list", "pane.snapshot", "pane.close",
@@ -76,6 +80,34 @@ struct TitlePanePerformanceWorkloadScriptTests {
         #expect(!source.contains("pkill"))
         #expect(!source.contains("AGENTSTUDIO_PERF_ALLOW_JSONL_PROOF"))
         #expect(miseConfig.contains("[tasks.verify-title-pane-performance-workload]"))
+    }
+
+    @Test("resets only the resolved worktree debug root before workload launch")
+    func resetsOnlyResolvedWorktreeDebugRoot() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+
+        #expect(source.contains("run-debug-observability.sh\" --print-identity"))
+        #expect(source.contains("case \"$RESET_DATA_DIR\" in"))
+        #expect(source.contains("\"$HOME/.agentstudio-db/\"*"))
+        #expect(source.contains("run-debug-observability.sh\" --preflight-idle"))
+        #expect(source.contains("reset_disposable_debug_root"))
+        let resetCall = source.range(of: "reset_disposable_debug_root", options: .backwards)
+        let launchCall = source.range(of: "env \\", options: .backwards)
+        #expect(resetCall?.lowerBound ?? source.endIndex < launchCall?.lowerBound ?? source.startIndex)
+        #expect(!source.contains("$HOME/.agentstudio\""))
+    }
+
+    @Test("selects and verifies only zmx processes containing the exact resolved data root")
+    func selectsOnlyExactRootZmxProcesses() throws {
+        let source = try String(contentsOfFile: scriptPath, encoding: .utf8)
+
+        #expect(source.contains("os.path.basename(command_parts[0]) != \"zmx\""))
+        #expect(source.contains("if data_dir not in command:"))
+        #expect(source.contains("kill -0 \"$zmx_pid\""))
+        #expect(source.contains("kill -KILL \"$zmx_pid\""))
+        #expect(source.contains("refusing to remove debug data root while zmx remains live"))
+        #expect(source.contains("/bin/rm -rf -- \"$RESET_DATA_DIR\""))
+        #expect(!source.contains("/Applications"))
     }
 
     @Test("accepts complete deadline overlap exact barrier and scrub proof")
@@ -175,6 +207,52 @@ struct TitlePanePerformanceWorkloadScriptTests {
         #expect(result.stderr.contains("sensitive terminal content survived OTLP projection"))
     }
 
+    @Test("rejects invalid equal-title stimulus below ten admitted offers")
+    func rejectsInvalidEqualTitleStimulus() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.scheduledTitleDrainCount = 1
+        fixture.equalTitlePhase.equalSuppressedCount = 8
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("stimulus_invalid"))
+    }
+
+    @Test("rejects suppression and drain ratios against admitted equal offers")
+    func rejectsEqualTitleAdmissionRatios() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.equalSuppressedCount = 17
+        fixture.equalTitlePhase.scheduledTitleDrainCount = 3
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("equal-title phase suppressed less than 90% of admitted equal offers"))
+        #expect(result.stderr.contains("equal-title phase drained more than 10% of admitted equal offers"))
+    }
+
+    @Test("accepts distinct-title canonical mutations during equal-title phase")
+    func acceptsDistinctTitleCanonicalMutations() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.canonicalAcceptedMutationDelta = 4
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 0, Comment(rawValue: result.stderr))
+    }
+
+    @Test("rejects canonical mutations beyond driver sends")
+    func rejectsUnboundedEqualPhaseCanonicalMutations() async throws {
+        var fixture = TerminalTitleCadenceFixture.complete
+        fixture.equalTitlePhase.canonicalAcceptedMutationDelta = 21
+
+        let result = try await runVerifier(fixture: fixture)
+
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("equal-title phase canonical mutations exceeded driver sends"))
+    }
+
     @Test("rejects non-proportional pane and command work")
     func rejectsNonProportionalPaneAndCommandWork() async throws {
         var fixture = TerminalTitleCadenceFixture.complete
@@ -249,6 +327,7 @@ private struct TerminalTitleCadenceFixture: Codable {
     var titleDeadlineMetricMilliseconds: Double?
     var ipc: TerminalTitleCadenceIPCProof
     var pane: TitlePaneObservationProof
+    var equalTitlePhase: EqualTitlePhaseProof
     var renderedOTLP: String
     var sensitiveValues: [String]
 
@@ -299,9 +378,22 @@ private struct TerminalTitleCadenceFixture: Codable {
             capabilityRepoCapabilitySnapshotCount: 1,
             capabilityTabBarAffectedItemCount: 0
         ),
+        equalTitlePhase: EqualTitlePhaseProof(
+            offerCount: 20,
+            scheduledTitleDrainCount: 1,
+            equalSuppressedCount: 17,
+            canonicalAcceptedMutationDelta: 0
+        ),
         renderedOTLP: "performance.terminal.accumulator_drain controlled fields only",
         sensitiveValues: ["cadence-private-title", "printf-private-payload"]
     )
+}
+
+private struct EqualTitlePhaseProof: Codable {
+    var offerCount: Int
+    var scheduledTitleDrainCount: Int
+    var equalSuppressedCount: Int
+    var canonicalAcceptedMutationDelta: Int
 }
 
 private struct TitlePaneObservationProof: Codable {

@@ -27,15 +27,17 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
         }
         let runtime = makePerformanceTraceRuntime(traceDirectory: traceDirectory)
         let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        let paneEventBus = makeTestPaneRuntimeEventBus()
         let store = WorkspaceStore()
-        let surfaceManager = TopologyTraceSurfaceManager()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
-            surfaceManager: surfaceManager,
+            surfaceManager: MockPaneTabCommandSurfaceManager(
+                createSurfaceResult: .failure(.ghosttyNotInitialized)
+            ),
             runtimeRegistry: RuntimeRegistry(),
-            paneEventBus: EventBus<RuntimeEnvelope>(),
+            paneEventBus: paneEventBus,
             filesystemSource: TopologyTraceRecordingFilesystemSource(),
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
@@ -55,21 +57,44 @@ struct WorkspaceSurfaceCoordinatorTopologyTraceTests {
         store.setActiveTab(tabs[0].id)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
-        let repeatedCoordinatorCWD = URL(
+        let firstCoordinatorCWD = URL(
             filePath: worktree.path.appending(path: "Sources").path,
             directoryHint: .isDirectory
         )
-        let sentinelCoordinatorCWD = URL(
+        let secondCoordinatorCWD = URL(
             filePath: worktree.path.appending(path: "Tests").path,
             directoryHint: .isDirectory
         )
         let tracedPaneID = try #require(tabs[0].activePaneId)
-        for _ in 0..<64 {
-            surfaceManager.sendCWDChange(paneId: tracedPaneID, cwd: repeatedCoordinatorCWD)
+        _ = await paneEventBus.post(
+            makeRuntimeEnvelope(
+                source: .pane(PaneId(existingUUID: tracedPaneID)),
+                paneKind: .terminal,
+                seq: 1,
+                commandId: nil,
+                correlationId: nil,
+                timestamp: ContinuousClock().now,
+                epoch: 0,
+                event: .terminal(.cwdChanged(firstCoordinatorCWD.path))
+            )
+        )
+        await eventually("coordinator should consume the first runtime CWD fact") {
+            store.pane(tracedPaneID)?.metadata.cwd == firstCoordinatorCWD
         }
-        surfaceManager.sendCWDChange(paneId: tracedPaneID, cwd: sentinelCoordinatorCWD)
-        await eventually("coordinator should consume the sentinel CWD change") {
-            store.pane(tracedPaneID)?.metadata.cwd == sentinelCoordinatorCWD
+        _ = await paneEventBus.post(
+            makeRuntimeEnvelope(
+                source: .pane(PaneId(existingUUID: tracedPaneID)),
+                paneKind: .terminal,
+                seq: 2,
+                commandId: nil,
+                correlationId: nil,
+                timestamp: ContinuousClock().now,
+                epoch: 0,
+                event: .terminal(.cwdChanged(secondCoordinatorCWD.path))
+            )
+        )
+        await eventually("coordinator should consume the second runtime CWD fact") {
+            store.pane(tracedPaneID)?.metadata.cwd == secondCoordinatorCWD
         }
 
         for tab in tabs {
@@ -175,52 +200,4 @@ private actor TopologyTraceRecordingFilesystemSource: WorkspaceFilesystemSourceM
         activePaneWorktreeId = worktreeId
     }
 
-}
-
-private final class TopologyTraceSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdContinuation: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.Continuation
-    let surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        let stream = AsyncStream.makeStream(of: SurfaceManager.SurfaceCWDChangeEvent.self)
-        self.surfaceCWDChanges = stream.stream
-        self.cwdContinuation = stream.continuation
-    }
-
-    func sendCWDChange(paneId: UUID, cwd: URL) {
-        cwdContinuation.yield(
-            SurfaceManager.SurfaceCWDChangeEvent(surfaceId: UUID(), paneId: paneId, cwd: cwd)
-        )
-    }
-
-    func syncFocus(activeSurfaceId _: UUID?) {}
-
-    func createSurface(
-        config _: Ghostty.SurfaceConfiguration,
-        metadata _: SurfaceMetadata
-    ) -> Result<ManagedSurface, SurfaceError> {
-        .failure(.operationFailed("mock"))
-    }
-
-    @discardableResult
-    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
-        _ = surfaceId
-        _ = paneId
-        return nil
-    }
-
-    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {
-        _ = surfaceId
-        _ = reason
-    }
-
-    func undoClose() -> ManagedSurface? { nil }
-
-    func requeueUndo(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
-
-    func destroy(_ surfaceId: UUID) {
-        _ = surfaceId
-    }
 }

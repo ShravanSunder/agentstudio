@@ -208,7 +208,22 @@ package final class InboxNotificationRouter {
 
         let stream = await bus.subscribe(
             policy: .criticalUnbounded,
-            subscriberName: "InboxNotificationRouter"
+            subscriberName: "InboxNotificationRouter",
+            factInterest: .matching([
+                .paneLifecycle,
+                .paneTerminal,
+                .paneTerminalActivity,
+                .paneBrowser,
+                .paneDiff,
+                .paneEditor,
+                .paneAgentNotificationRequested,
+                .panePlugin,
+                .paneFilesystemContext,
+                .paneFilesystem,
+                .paneArtifact,
+                .paneSecurity,
+                .paneError,
+            ])
         )
         busTask = Task { @MainActor [weak self] in
             for await envelope in stream {

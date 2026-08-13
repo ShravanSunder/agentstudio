@@ -7,6 +7,96 @@ import Testing
 
 @Suite("EventBus RuntimeEnvelope replay")
 struct EventBusRuntimeEnvelopeTests {
+    @Test("fact interests target single live posts without changing matched order")
+    func factInterestsTargetSingleLivePosts() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let terminal = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "live-terminal",
+            factInterest: .matching([.paneTerminal])
+        )
+        let activity = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "live-activity",
+            factInterest: .matching([.paneTerminalActivity])
+        )
+        let overlapping = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "live-overlap",
+            factInterest: .matching([.paneTerminal, .paneTerminalActivity])
+        )
+        let envelopes = makeTargetingSequence()
+
+        for envelope in envelopes {
+            _ = await bus.post(envelope)
+        }
+
+        #expect(await consumeSequences(terminal, count: 2) == [1, 3])
+        #expect(await consumeSequences(activity, count: 1) == [2])
+        #expect(await consumeSequences(overlapping, count: 3) == [1, 2, 3])
+        assertTargetedDiagnostics(await bus.diagnosticsSnapshot())
+    }
+
+    @Test("fact interests target batch posts without changing matched order")
+    func factInterestsTargetBatchPosts() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let terminal = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "batch-terminal",
+            factInterest: .matching([.paneTerminal])
+        )
+        let activity = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "batch-activity",
+            factInterest: .matching([.paneTerminalActivity])
+        )
+        let overlapping = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "batch-overlap",
+            factInterest: .matching([.paneTerminal, .paneTerminalActivity])
+        )
+
+        _ = await bus.post(contentsOf: makeTargetingSequence())
+
+        #expect(await consumeSequences(terminal, count: 2) == [1, 3])
+        #expect(await consumeSequences(activity, count: 1) == [2])
+        #expect(await consumeSequences(overlapping, count: 3) == [1, 2, 3])
+        assertTargetedDiagnostics(await bus.diagnosticsSnapshot())
+    }
+
+    @Test("fact interests target replay while absent interest remains catch-all")
+    func factInterestsTargetReplay() async {
+        let bus = EventBus<RuntimeEnvelope>(
+            replayConfiguration: .init(
+                capacityPerSource: 8,
+                sourceKey: { envelope in envelope.source.description }
+            )
+        )
+        for envelope in makeTargetingSequence() {
+            _ = await bus.post(envelope)
+        }
+
+        let terminal = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "replay-terminal",
+            factInterest: .matching([.paneTerminal])
+        )
+        let activity = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "replay-activity",
+            factInterest: .matching([.paneTerminalActivity])
+        )
+        let ungated = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "replay-ungated"
+        )
+
+        #expect(await consumeSequences(terminal, count: 2) == [1, 3])
+        #expect(await consumeSequences(activity, count: 1) == [2])
+        #expect(await consumeSequences(ungated, count: 3) == [1, 2, 3])
+        assertTargetedDiagnostics(await bus.diagnosticsSnapshot(), overlapSuffix: "ungated")
+    }
+
     @Test("replay keeps at most 256 envelopes per source")
     func replayBoundPerSource() async {
         let bus = EventBus<RuntimeEnvelope>(
@@ -399,5 +489,52 @@ struct EventBusRuntimeEnvelopeTests {
                 seq: seq
             )
         )
+    }
+
+    private func makeTargetingSequence() -> [RuntimeEnvelope] {
+        let paneId = PaneId.generateUUIDv7()
+        return [
+            makePaneEnvelope(paneId: paneId, seq: 1),
+            .pane(
+                PaneEnvelope.test(
+                    event: .terminalActivity(.agentSettledActivityRevoked),
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    source: .pane(paneId),
+                    seq: 2
+                )
+            ),
+            makePaneEnvelope(paneId: paneId, seq: 3),
+        ]
+    }
+
+    private func consumeSequences(
+        _ subscription: EventBusSubscription<RuntimeEnvelope>,
+        count: Int
+    ) async -> [UInt64] {
+        var iterator = subscription.makeAsyncIterator()
+        var sequences: [UInt64] = []
+        for _ in 0..<count {
+            if let envelope = await iterator.next() {
+                sequences.append(envelope.seq)
+            }
+        }
+        return sequences
+    }
+
+    private func assertTargetedDiagnostics(
+        _ snapshot: EventBusDiagnosticsSnapshot,
+        overlapSuffix: String = "overlap"
+    ) {
+        let yieldedByName = Dictionary(
+            uniqueKeysWithValues: snapshot.activeSubscribers.map { ($0.subscriberName, $0.yieldedCount) }
+        )
+        let terminal = yieldedByName.first { $0.key.hasSuffix("terminal") }?.value
+        let activity = yieldedByName.first { $0.key.hasSuffix("activity") }?.value
+        let overlap = yieldedByName.first { $0.key.hasSuffix(overlapSuffix) }?.value
+        #expect(terminal == 2)
+        #expect(activity == 1)
+        #expect(overlap == 3)
+        #expect(snapshot.activeSubscribers.count == 3)
     }
 }

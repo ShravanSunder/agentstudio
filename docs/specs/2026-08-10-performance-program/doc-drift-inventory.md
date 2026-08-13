@@ -57,6 +57,19 @@ triggers (LUNA-402) · 4 keyed observation/off-main (LUNA-403) · 5 startup
 | D13 | Resolved in slice 1 | `observability_and_traceability.md` now lists the exported controlled atom `label`. |
 | M10 | Resolved in slice 1 | `observability_and_traceability.md` now defines atom dimensions and runtime-delivery pending, debt, live/replay drop, and retired-undelivered metrics. |
 | M11 | Resolved in slice 1 | `pane_runtime_eventbus_design.md` now limits detached work to cancellation-resistant SDK/process ownership with explicit completion/cancellation and no actor-isolated mutable capture. |
+| D1 | Resolved in slice 2 | `workspace_data_architecture.md` names the independent runtime-fact subscribers and the cache coordinator's bounded ownership. |
+| D4 | Resolved in slice 2 | `pane_runtime_architecture.md` opens with the shipped typed admission and runtime model. |
+| D5 | Resolved in slice 2 | `pane_runtime_architecture.md` records zero remaining callback-trampoline dispatches and selector observers. |
+| D6 | Resolved in slice 2 | `pane_runtime_architecture.md` limits EventBus ownership to transport matching, replay, and diagnostics rather than calling it a dumb pipe. |
+| D7 | Resolved in slice 2 | `pane_runtime_architecture.md` documents independent immediate/title drains, title admission slack, and acknowledgement-backed publication state. |
+| D9 | Resolved in slice 2 | `pane_runtime_eventbus_design.md` documents named policy-bearing subscriptions with optional fact-topic interests. |
+| D10 | Resolved in slice 2 | `pane_runtime_eventbus_design.md` labels the shipped adoption and separates remaining deferred capabilities. |
+| D14 | Resolved in slice 2 | `component_architecture.md` removes the retired NotificationCenter command-bar action example. |
+| M4 | Resolved in slice 2 | `pane_runtime_architecture.md` documents TabBarAdapter per-tab observation generations and keyed refresh/publication. |
+| M7 | Resolved in slice 2 | `pane_runtime_architecture.md` documents off-main keyed coalescing with one bounded MainActor batch. |
+| M8 | Resolved in slice 2 | `pane_runtime_eventbus_design.md` documents per-source replay, truncation, drop classes, recovery diagnostics, and delivery debt. |
+| M9 | Resolved in slice 2 | `pane_runtime_architecture.md` documents independent terminal drain lanes and title admission slack. |
+| R19 | Checked in slice 2; no slice-2-owned flip | The four R4 report-only lexical surfaces cover keyed observation reads, MainActor collection-wide work, performance constants, and nonisolated blocking I/O. None covers terminal publication admission, CWD authority, EventBus fact-interest matching, or this documentation cleanup; no rule was broadened. |
 
 ## Exclusions
 

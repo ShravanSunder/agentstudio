@@ -85,10 +85,10 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
     │               actor EventBus<RuntimeEnvelope>               │
     │                    (cooperative pool)                        │
     │                                                             │
-    │   subscribers: [UUID: AsyncStream.Continuation]             │
-    │   subscribe() → independent stream per caller               │
-    │   post() → fan-out to all continuations                     │
-    │   fan-out only — no domain logic, no filtering              │
+    │   subscribers: named stream + policy + fact interest        │
+    │   subscribe(policy:name:interest:) → independent stream     │
+    │   post()/batch/replay → yield only matching fact topics     │
+    │   transport diagnostics only — no domain policy             │
     └─────────────────────────────────────────────────────────────┘
          │                  │                    │
          ▼                  ▼                    ▼
@@ -364,48 +364,29 @@ App shell lifecycle is intentionally separate from this bus. Application active/
 
 ### `actor EventBus<Envelope: Sendable>`
 
-Cooperative pool actor. Fan-out only — no domain logic, no filtering, no transformation. The bus is a dumb pipe with subscriber management.
+Cooperative pool actor. It owns transport-only subscription policy, immutable
+fact-topic matching, per-source replay, and delivery/drop diagnostics. It does
+not own equality, command semantics, eligibility, visibility, or mutable
+product policy.
 
-> **Type parameter:** The bus is generic over `Envelope` and is now instantiated as `EventBus<RuntimeEnvelope>`, where `RuntimeEnvelope` is the 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). The bus itself remains unchanged — only the payload type widened.
+> **Type parameter:** The bus is generic over `Envelope` and is instantiated as `EventBus<RuntimeEnvelope>`, where `RuntimeEnvelope` is the 3-tier discriminated union (`SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`). Fact-topic matching is available when an envelope supplies an `EventBusFactTopic`.
 
-```swift
-/// Central fan-out for pane/system events.
-/// Cooperative pool — NOT @MainActor.
-/// All producers `await bus.post()`, all consumers `for await` from bus.
-actor EventBus<Envelope: Sendable> {
-    private var subscribers: [UUID: AsyncStream<Envelope>.Continuation] = [:]
-
-    /// Register a new subscriber. Returns an independent stream.
-    /// Each subscriber gets its own continuation — no shared iteration.
-    func subscribe() -> AsyncStream<Envelope> {
-        let id = UUID()
-        let (stream, continuation) = AsyncStream<Envelope>.makeStream()
-        continuation.onTermination = { [weak self] _ in
-            Task { await self?.removeSubscriber(id) }
-        }
-        subscribers[id] = continuation
-        return stream
-    }
-
-    /// Fan out an envelope to all active subscribers.
-    func post(_ envelope: Envelope) {
-        for continuation in subscribers.values {
-            continuation.yield(envelope)
-        }
-    }
-
-    private func removeSubscriber(_ id: UUID) {
-        subscribers.removeValue(forKey: id)
-    }
-}
-```
+`subscribe(policy:subscriberName:factInterest:)` returns an
+`EventBusSubscription`. The policy selects critical-unbounded or lossy-newest
+buffering; the stable name keys diagnostics; and the optional
+`FactInterestDescriptor` is a set of immutable `EventBusFactTopic` values.
+Matching happens before every live, batch, and replay yield. Unmatched facts do
+not increment that subscriber's yielded, consumed, pending, or drop counts.
 
 **Why actor, not class with lock:** Swift actors are the standard concurrency primitive. The cooperative pool gives fair scheduling without dedicated thread overhead. `await bus.post()` is the consistent interface for all producers regardless of their isolation context.
 
-**Buffer policy:** `AsyncStream.makeStream()` defaults to unbounded buffering. Under burst conditions (agent dumps 500 lines → 500 events in quick succession), subscriber streams can grow unbounded. Policy per subscriber tier:
-- **Critical subscribers** (NotificationReducer, feature-level inbox promoters, WorkspaceSurfaceCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
-- **Lossy subscribers** (analytics, logging, future plugin sinks): use `.bufferingPolicy(.bufferingNewest(100))` on `makeStream()`. Dropping oldest events under burst is acceptable — these consumers don't need total recall.
-- **The bus itself does not enforce buffer policy** — it yields to every continuation unconditionally. Buffer policy is chosen at `subscribe()` time by the caller, not imposed by the bus. This keeps the bus dumb.
+**Buffer and recovery policy:** each subscriber declares `.criticalUnbounded` or
+`.lossyNewest(limit)`. Replay is bounded per source and reports
+`.possiblyTruncated(sourceLabels:)` when eviction prevents complete catch-up.
+Diagnostics retain yielded/consumed counts, live and replay drops, high-water
+lag, pending delivery debt, and failure classes. Critical pressure/drop and
+truncated replay require consumer recovery; one noisy source cannot consume
+another source's replay capacity.
 
 **onTermination cleanup:** The `Task { await self?.removeSubscriber(id) }` in `onTermination` is intentionally unstructured. `onTermination` is a synchronous `@Sendable` closure — it cannot `await` directly. The unstructured Task is the only way to reach actor-isolated `removeSubscriber`. If the EventBus actor is deallocated before the cleanup Task runs, `self` is nil and the entry is harmless (dead actor's dictionary is already gone). This is an acceptable trade-off for the cleanup ergonomics.
 
@@ -1121,7 +1102,9 @@ CONFIG READ (C9: ExecutionBackend):
 
 ### Bus Enrichment Rule
 
-The bus is a dumb pipe. It never transforms, enriches, or filters payloads. Enrichment happens at the boundary before posting:
+The bus never transforms or enriches payloads. Enrichment happens at the
+boundary before posting; transport-owned fact-topic matching only decides
+which declared subscriber streams receive the already-formed fact:
 
 ```
 BOUNDARIES do enrichment (sequential pipeline):
@@ -1129,8 +1112,8 @@ BOUNDARIES do enrichment (sequential pipeline):
   bus → GitWorkingDirectoryProjector → bus.post(git-derived facts)
   bus → ForgeActor → bus.post(forge-derived facts)
 
-BUS does fan-out only:
-  bus.post(event) → subscriber1, subscriber2, subscriber3
+BUS matches transport interests:
+  bus.post(event) → matching subscriber1, matching subscriber3
 ```
 
 Each boundary actor enriches independently and posts back to the bus. FilesystemActor emits raw filesystem facts (file changes, topology). GitWorkingDirectoryProjector emits git-derived facts (branch, origin). ForgeActor emits forge-derived facts (PR counts, checks). The bus itself never knows what the payload means.
@@ -1226,23 +1209,28 @@ Quantitative latency and jank claims belong to current marker-scoped performance
 proof. This design intentionally does not freeze assumed actor-hop costs,
 subscriber counts, callback rates, or frame-budget percentages.
 
-## Adoption Plan
+## Implemented adoption
 
-Incremental, each step independently shippable:
+The EventBus, production subscriber migration, FilesystemActor, ForgeActor,
+consumer-side coalescing, bounded replay, delivery diagnostics, and fact-topic
+interest matching are shipped. Deferred container and plugin integration remain
+future capability, not prerequisites for the current runtime plane.
 
-1. **Multi-subscriber fan-out on existing runtimes.** Replace single `AsyncStream.Continuation` with array of continuations. Runtime's `subscribe()` returns independent stream per caller. This is a prerequisite for the bus — it proves fan-out semantics work at the runtime level.
+The implementation arrived through these bounded steps:
 
-2. **Introduce `actor EventBus<RuntimeEnvelope>`.** Central merge point. Runtimes and boundary actors post to bus after mutation/enrichment. Reducer and coordinator subscribe from bus instead of per-runtime streams.
+1. **Multi-subscriber fan-out on existing runtimes.** Runtime `subscribe()` returns an independent stream per caller.
 
-3. **Migrate consumers to bus subscriptions.** `NotificationReducer`, `WorkspaceSurfaceCoordinator`, and any future consumers subscribe to the bus. Per-runtime subscriptions become an implementation detail (runtime → bus posting).
+2. **Introduce `actor EventBus<RuntimeEnvelope>`.** Runtimes and boundary actors post after mutation/enrichment; consumers use named policy-bearing subscriptions.
 
-4. **Add `actor FilesystemActor`** when FSEvents watcher ships (LUNA-349). First real boundary actor. Posts enriched envelopes with `source = .system(.builtin(.filesystemWatcher))`.
+3. **Migrate consumers to bus subscriptions.** Production consumers declare exact fact-topic interests; per-runtime subscriptions remain a pane-local detail.
 
-5. **Add `actor ForgeActor`** when forge integration ships. App-wide singleton, keyed by repo. Uses ProcessExecutor (`gh` CLI) or URLSession (direct API) as transport internally. Posts enriched envelopes with `source = .system(.service(.gitForge(provider:)))`.
+4. **Add `actor FilesystemActor`.** The shipped boundary actor posts enriched envelopes with `source = .system(.builtin(.filesystemWatcher))`.
+
+5. **Add `actor ForgeActor`.** The shipped app-wide actor is keyed by repo and posts service-provenance forge facts.
 
 6. **Add `actor ContainerActor`** (per-terminal) when container/agent execution ships. Polls Docker API / devcontainer status.
 
-7. **Migrate heavy per-pane work to `@concurrent`** as it appears. Scrollback search, artifact extraction, log parsing — each gets a `@concurrent nonisolated static func` instead of inline MainActor processing. The D1 processing budget guidance in pane_runtime_architecture.md reflects this pattern.
+7. **Keep heavy per-pane work off MainActor.** Shipped owners use explicit concurrent or actor boundaries; new heavy work follows the D1 processing budget in `pane_runtime_architecture.md`.
 
 8. **Add plugin integration** when plugin system ships. Each plugin is its own actor with injected `PluginContext` for mediated bus access. See [Plugin Integration Model](#plugin-integration-model-deferred).
 

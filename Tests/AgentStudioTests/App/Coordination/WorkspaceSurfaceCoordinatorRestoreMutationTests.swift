@@ -98,14 +98,7 @@ struct WorkspaceSurfaceCoordinatorRestoreMutationTests {
 
 @MainActor
 private final class RestoreMutationSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdChanges = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.finish()
-    }
     private(set) var createSurfaceCallCount = 0
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdChanges
-    }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

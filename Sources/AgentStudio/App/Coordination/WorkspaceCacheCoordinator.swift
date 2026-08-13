@@ -72,7 +72,13 @@ final class WorkspaceCacheCoordinator {
         pendingConsumeStartGeneration = startGeneration
         let subscription = await bus.subscribe(
             policy: .criticalUnbounded,
-            subscriberName: "WorkspaceCacheCoordinator"
+            subscriberName: "WorkspaceCacheCoordinator",
+            factInterest: .matching([
+                .systemTopology,
+                .systemWorkspaceActivity,
+                .worktreeGitWorkingDirectory,
+                .worktreeForge,
+            ])
         )
         guard pendingConsumeStartGeneration == startGeneration else { return }
         pendingConsumeStartGeneration = nil

@@ -40,6 +40,21 @@ final class GhosttyActionTraceQueueStore: @unchecked Sendable {
 }
 
 extension Ghostty.ActionRouter {
+    static func recordTerminalEqualSuppressed(
+        publicationKind: TerminalPerformancePublicationKind
+    ) {
+        actionTraceQueueStore.record(
+            tag: .performance,
+            body: "performance.terminal.equal_suppressed",
+            attributes: [
+                "agentstudio.performance.terminal.publication.kind": .string(
+                    publicationKind.rawValue
+                ),
+                "agentstudio.performance.terminal.equal_suppressed.count": .int(1),
+            ]
+        )
+    }
+
     enum GhosttyTraceSignalClass: String, Sendable {
         case semantic
         case inferred

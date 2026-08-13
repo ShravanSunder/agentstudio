@@ -10,17 +10,6 @@ import Testing
 @testable import AgentStudioTestSupport
 
 final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdStream
-    }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

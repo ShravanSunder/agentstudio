@@ -796,7 +796,6 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
 
 @MainActor
 private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     private(set) var createSurfaceCallCount = 0
@@ -813,12 +812,7 @@ private final class MockWorkspaceSurfaceCoordinatorSurfaceManager: WorkspaceSurf
         self.createSurfaceResult = createSurfaceResult
         self.undoCloseResult = undoCloseResult
         self.onUndoClose = onUndoClose
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
     }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

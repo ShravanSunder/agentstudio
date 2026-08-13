@@ -719,7 +719,10 @@ extension Ghostty {
             let disposition = admitTranslatedActionToTerminalRuntime(
                 event,
                 surfaceID: expectedSurfaceID,
-                accumulator: localActionAccumulator
+                accumulator: localActionAccumulator,
+                equalSuppressionObserver: { publicationKind in
+                    recordTerminalEqualSuppressed(publicationKind: publicationKind)
+                }
             )
             let precedingTitle: TerminalPrecedingTitleBarrier?
             switch disposition {
@@ -764,13 +767,15 @@ extension Ghostty {
                         surfaceView: resolvedSurfaceView
                     )
                 }
+                var didApplyPrecedingTitle = false
                 _ = routeExactFactOrControlOnMainActor(
                     precedingTitle: precedingTitle,
                     actionTag: actionTag,
                     payload: payload,
                     surfaceViewObjectID: surfaceViewObjectId,
                     expectedSurfaceID: expectedSurfaceID,
-                    routingLookup: routingLookup
+                    routingLookup: routingLookup,
+                    precedingTitleApplyObserver: { didApplyPrecedingTitle = $0 }
                 )
                 if let precedingTitle, let resolvedSurfaceView {
                     resolvedSurfaceView.performanceTraceRecorder?.recordTerminalAccumulatorDrain(
@@ -778,7 +783,8 @@ extension Ghostty {
                         queueAge: terminalAccumulatorQueueAge(
                             firstOfferedAtNanoseconds: precedingTitle.firstOfferedAtNanoseconds,
                             currentUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
-                        )
+                        ),
+                        applyOutcome: didApplyPrecedingTitle ? .changed : .equal
                     )
                 }
             }

@@ -139,7 +139,8 @@ package actor GitWorkingDirectoryProjector {
         isShuttingDown = false
         let stream = await runtimeBus.subscribe(
             policy: .lossyNewest(subscriptionBufferLimit),
-            subscriberName: "GitWorkingDirectoryProjector"
+            subscriberName: "GitWorkingDirectoryProjector",
+            factInterest: .matching([.systemTopology, .worktreeFilesystem])
         )
         subscriptionTask = Task { [weak self] in
             for await runtimeEnvelope in stream {

@@ -255,19 +255,9 @@ struct WorkspaceCrossTabMoveTransitionTests {
 
 @MainActor
 private final class CrossTabMoveSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
     var paneIdsBySurfaceId: [UUID: UUID] = [:]
     private(set) var attachedPaneIds: [UUID] = []
     private(set) var detachedPaneIds: [UUID] = []
-
-    init() {
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

@@ -33,8 +33,10 @@ struct AgentStudioPerformanceTraceRecorderTests {
                 retainedEntryCount: 4,
                 retainedSizeBytes: 256
             ),
-            queueAge: .milliseconds(3)
+            queueAge: .milliseconds(3),
+            applyOutcome: .changed
         )
+        recorder.recordTerminalEqualSuppressed(publicationKind: .title)
         recorder.recordTerminalCompactApply(
             TerminalCompactApplyPerformanceSnapshot(
                 equalWriteSuppressedCount: 7,
@@ -68,9 +70,21 @@ struct AgentStudioPerformanceTraceRecorderTests {
         let outputFileURL = try #require(runtime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"body\":\"performance.terminal.accumulator_drain\""))
+        #expect(contents.contains("\"body\":\"performance.terminal.equal_suppressed\""))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.terminal.publication.kind\":\"title\""
+            )
+        )
+        #expect(contents.contains("\"agentstudio.performance.terminal.equal_suppressed.count\":1"))
         #expect(
             contents.contains(
                 "\"agentstudio.performance.terminal.accumulator.drain.class\":\"title_deadline\""
+            )
+        )
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.terminal.accumulator.apply.outcome\":\"changed\""
             )
         )
         #expect(contents.contains("\"body\":\"performance.terminal.compact_apply\""))
