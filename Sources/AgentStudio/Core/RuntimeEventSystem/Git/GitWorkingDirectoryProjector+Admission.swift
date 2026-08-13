@@ -152,4 +152,15 @@ extension GitWorkingDirectoryProjector {
             || activeWorktreeIds.contains(worktreeId)
             || tierEligibleWorktreeIds.contains(worktreeId)
     }
+
+    func isDemandEligible(worktreeId: UUID) -> Bool {
+        // A changeset without registered topology is an explicit direct request
+        // (used by callers that do not own registration); registered runtime
+        // worktrees require one of the product demand facts below.
+        registeredContext(for: worktreeId) == nil
+            || immediateRefreshWorktreeIds.contains(worktreeId)
+            || activePaneWorktreeId == worktreeId
+            || sidebarVisibleWorktreeIds.contains(worktreeId)
+            || activeWorktreeIds.contains(worktreeId)
+    }
 }

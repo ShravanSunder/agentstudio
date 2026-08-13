@@ -47,6 +47,11 @@ private struct FilesystemProjectionAffectedKeys {
     let worktreeIds: Set<UUID>
 }
 
+private struct FilesystemProjectionAffectedKeys {
+    let paneIds: Set<UUID>
+    let worktreeIds: Set<UUID>
+}
+
 @MainActor
 extension WorkspaceSurfaceCoordinator {
     func syncFilesystemRootsAndActivity() {

@@ -1256,6 +1256,8 @@ struct GitWorkingDirectoryProjectorTests {
 
         let firstStripeWorktreeId = worktreeId(forBackgroundStripe: 0, policy: policy)
         let secondStripeWorktreeId = worktreeId(forBackgroundStripe: 1, policy: policy)
+        await actor.setActivity(worktreeId: firstStripeWorktreeId, isActiveInApp: true)
+        await actor.setActivity(worktreeId: secondStripeWorktreeId, isActiveInApp: true)
         await bus.post(
             makeEnvelope(
                 seq: 1,
