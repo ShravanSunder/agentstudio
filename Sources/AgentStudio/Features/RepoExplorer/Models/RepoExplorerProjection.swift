@@ -544,10 +544,18 @@ enum RepoExplorerProjection {
             )
         }
         .sorted { lhs, rhs in
-            let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
-            let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
-            return compare(leftTitle, rightTitle, sortOrder: sortOrder)
+            repoGroupPrecedes(lhs, rhs, sortOrder: sortOrder)
         }
+    }
+
+    static func repoGroupPrecedes(
+        _ lhs: RepoPresentationGroup,
+        _ rhs: RepoPresentationGroup,
+        sortOrder: RepoExplorerSortOrder
+    ) -> Bool {
+        let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
+        let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
+        return compare(leftTitle, rightTitle, sortOrder: sortOrder)
     }
 
     private static func paneRepoGroups(

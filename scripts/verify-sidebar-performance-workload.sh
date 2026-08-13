@@ -943,6 +943,17 @@ keyed_wake_count() {
   printf '%s\n' "${value:-0}"
 }
 
+keyed_wake_outcome_count() {
+  local stage="${1:?missing stage}"
+  local outcome="${2:?missing outcome}"
+  local selector='agent.proof.marker="'"$(metric_label_selector "$TRACE_MARKER_K")"'",event="performance.repo_explorer.keyed_wake",stage="'"$stage"'",outcome="'"$outcome"'"'
+  local response
+  local value
+  response="$(query_victoria_metrics "sum(agentstudio_performance_events_total{$selector})")"
+  value="$(metric_max_value "$response")"
+  printf '%s\n' "${value:-0}"
+}
+
 assert_keyed_wake_contract() {
   local key_class="${1:?missing key class}"
   local stage="${2:?missing stage}"
@@ -1074,6 +1085,12 @@ assert_keyed_wake_contract relevant whole_surface 0
 assert_keyed_wake_contract relevant affected_row "$WORKLOAD_CYCLES"
 assert_keyed_wake_contract relevant capture_rebuild "$WORKLOAD_CYCLES"
 assert_keyed_wake_contract missing_declared_key membership_path "$WORKLOAD_CYCLES"
+
+reference_different_count="$(keyed_wake_outcome_count final_projection reference_different)"
+if [ "$reference_different_count" != "0" ] && [ "$reference_different_count" != "0.0" ]; then
+  echo "final_projection reference_different expected 0, got $reference_different_count" >&2
+  exit 1
+fi
 
 metrics_result="$(wait_for_sidebar_metric_count)"
 metrics_count="$(printf '%s\n' "$metrics_result" | sed -n '1p')"

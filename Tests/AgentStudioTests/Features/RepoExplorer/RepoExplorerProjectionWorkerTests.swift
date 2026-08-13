@@ -37,6 +37,42 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(scoped.rowIndex == reference.rowIndex)
     }
 
+    @Test("successive scoped favorite changes preserve full reference ordering")
+    func successiveScopedFavoriteChangesPreserveReferenceOrdering() throws {
+        let alphaRepo = repo(id: UUID(), name: "alpha")
+        let bravoRepo = repo(id: UUID(), name: "bravo")
+        let charlieRepo = repo(id: UUID(), name: "charlie")
+        let initialRequest = request(repos: [alphaRepo, bravoRepo, charlieRepo])
+        let charlieFavoriteRequest = request(
+            repos: [alphaRepo, bravoRepo, withFavorite(charlieRepo)]
+        )
+        let alphaAndCharlieFavoriteRequest = request(
+            repos: [withFavorite(alphaRepo), bravoRepo, withFavorite(charlieRepo)]
+        )
+        let initialProjection = try RepoExplorerProjectionWorker.project(initialRequest)
+        let charlieFavoriteProjection = try #require(
+            RepoExplorerProjectionWorker.applyScopedChange(
+                .repo(charlieRepo.id),
+                request: charlieFavoriteRequest,
+                previous: initialProjection
+            )
+        )
+
+        let scopedProjection = try #require(
+            RepoExplorerProjectionWorker.applyScopedChange(
+                .repo(alphaRepo.id),
+                request: alphaAndCharlieFavoriteRequest,
+                previous: charlieFavoriteProjection
+            )
+        )
+        let referenceProjection = try RepoExplorerProjectionWorker.project(
+            alphaAndCharlieFavoriteRequest
+        )
+
+        #expect(scopedProjection.projection == referenceProjection.projection)
+        #expect(scopedProjection.rowIndex.entries == referenceProjection.rowIndex.entries)
+    }
+
     @Test("worker projects sidebar model and row index off caller isolation")
     func workerProjectsSidebarModelAndRowIndex() async throws {
         let repoId = UUID()
