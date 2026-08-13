@@ -176,6 +176,17 @@ scripts/run-debug-observability.sh --print-identity
 The state file is `tmp/debug-observability/latest-observability.env`. It is a
 marker/verifier handoff, not proof by itself; `mise run verify-debug-observability`
 must still query VictoriaLogs and validate the live process identity.
+
+- Before any manual verdict, match the window's four-character debug identity to
+  the state-file code and PID; a verdict against another running instance is void.
+- Treat feel as a query trigger: inspect the current marker's VictoriaLogs lanes
+  and per-second timeline before attributing or diagnosing latency.
+- Load-sensitive interaction or MainActor claims require a live heavy-load marker
+  or a derived stress fixture, compared against a recorded stress baseline.
+- Detached launches stay background-only; set `AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1`
+  only for human manual testing, never automated proof. See
+  [Manual and stress verification](docs/architecture/observability_and_traceability.md#manual-and-stress-verification).
+
 The launcher refuses to start a second `Agent Studio Debug <code>` instance
 while one is already running; quit the reported PID before collecting a new
 debug observability proof for the same worktree. On refusal it overwrites
