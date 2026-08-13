@@ -375,6 +375,7 @@ function reviewProductSnapshotFromRuntimeSource(
 			totalItemCount: itemMetadata.length,
 		},
 		packageId,
+		presentationRevision: revision,
 		publicationId,
 		query: {
 			baseEndpointId: 'review-product-test-base',
@@ -409,6 +410,7 @@ function reviewProductSnapshotFromRuntimeSource(
 			worktreeId: 'review-product-test-worktree',
 		},
 		revision,
+		reviewComparison: null,
 		sourceIdentity,
 		summary: {
 			additions: 0,
@@ -504,8 +506,10 @@ function reviewProductDeltaBetweenSnapshots(
 		generation: nextSnapshot.generation,
 		operations,
 		packageId: nextSnapshot.packageId,
+		presentationRevision: nextSnapshot.presentationRevision,
 		publicationId: nextSnapshot.publicationId,
 		revision: nextSnapshot.revision,
+		reviewComparison: nextSnapshot.reviewComparison,
 		sourceIdentity: nextSnapshot.sourceIdentity,
 		summary: nextSnapshot.summary,
 		toRevision: nextSnapshot.revision,

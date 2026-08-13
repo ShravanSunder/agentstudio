@@ -110,6 +110,28 @@ describe('Bridge comm worker Review query projection', () => {
 			'item-large',
 		]);
 	});
+
+	test('does not replay a retained comparison while rebuilding query-controlled slices', () => {
+		// Arrange
+		const projection = new BridgeCommWorkerReviewQueryProjection();
+		projection.applyDisplayPatches([
+			...reviewSnapshotPatches(),
+			{ operation: 'replace', payload: null, slice: 'reviewComparison' },
+		]);
+
+		// Act
+		const sourceOnlyProjection = projection.applyDisplayPatches(reviewSnapshotPatches());
+		const queryProjection = projection.updateQuery({
+			categoryFilter: 'source',
+			gitStatusFilter: 'all',
+			showBinary: false,
+			showLarge: false,
+		});
+
+		// Assert
+		expect(sourceOnlyProjection.some((patch) => patch.slice === 'reviewComparison')).toBe(false);
+		expect(queryProjection.some((patch) => patch.slice === 'reviewComparison')).toBe(false);
+	});
 });
 
 function reviewSnapshotPatches(): readonly BridgeWorkerReviewDisplayPatch[] {

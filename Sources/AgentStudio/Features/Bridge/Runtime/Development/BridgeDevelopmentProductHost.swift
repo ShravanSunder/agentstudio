@@ -452,6 +452,17 @@ package actor BridgeDevelopmentProductHost {
                 case .committed(let committedPublication) = reviewPublicationCoordinator.commit(
                     token,
                     productAdmission: productAdmission,
+                    captureCommittedPresentation: { package in
+                        refreshAdmissionCoordinator.settleReviewComparisonAttempt(
+                            reviewGeneration: package.reviewGeneration.rawValue,
+                            displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                                packageId: package.packageId,
+                                reviewGeneration: package.reviewGeneration.rawValue,
+                                revision: package.revision
+                            )
+                        )
+                        return refreshAdmissionCoordinator.productPresentationSnapshot
+                    },
                     presentCommitted: { _ in }
                 )
             else {
@@ -461,14 +472,6 @@ package actor BridgeDevelopmentProductHost {
                 )
                 return nil
             }
-            refreshAdmissionCoordinator.settleReviewComparisonAttempt(
-                reviewGeneration: committedPublication.package.reviewGeneration.rawValue,
-                displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
-                    packageId: committedPublication.package.packageId,
-                    reviewGeneration: committedPublication.package.reviewGeneration.rawValue,
-                    revision: committedPublication.package.revision
-                )
-            )
             return committedPublication
         }
         guard let committedPublication else {

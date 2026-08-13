@@ -160,6 +160,7 @@ struct BridgePaneReviewSharedConstructionTests {
             case .committed = publicationCoordinator.commit(
                 token,
                 productAdmission: productAdmission.context,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             )
         else {

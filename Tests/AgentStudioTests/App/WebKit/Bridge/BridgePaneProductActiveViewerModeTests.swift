@@ -125,7 +125,7 @@ extension WebKitSerializedTests {
                     foregroundWorkAdmission: foregroundWorkAdmission
                 ) == .committed(delivery: .deferred)
             )
-            try await controller.requestReviewTargetAndPublish(
+            _ = try controller.surfaceSelectionAuthority.retainReviewTarget(
                 source: BridgeProductNavigationReviewSource(
                     generation: initialPackage.reviewGeneration.rawValue,
                     metadataSourceId: initialPackage.query.queryId,
@@ -135,6 +135,7 @@ extension WebKitSerializedTests {
                     reviewItemId: initialPackage.orderedItemIds.first
                 )
             )
+            #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface == .review)
             let successorPackage = productActiveViewerSuccessorReviewPackage(from: initialPackage)
             controller.nextReviewGeneration = successorPackage.reviewGeneration
 
@@ -709,11 +710,11 @@ private actor ProductActiveViewerReviewMetadataRecorder:
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        guard let observation = await controllerBox.observation(deliveredPackage: package) else {
+        guard let observation = await controllerBox.observation(deliveredPackage: publication.package) else {
             throw ProductActiveViewerReviewMetadataRecorderError.controllerUnavailable
         }
         return productAdmission.withValidAdmission {

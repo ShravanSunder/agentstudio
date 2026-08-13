@@ -14,6 +14,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 symbolicTarget: .branch(name: "main"),
                 resolvedTargetOID: "target-oid-1",
                 reviewedHeadOID: "head-oid-1",
+                baseRole: .commonCommit,
                 baseOID: "base-oid-1"
             )
         )
@@ -22,6 +23,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
                 symbolicTarget: .branch(name: "main"),
                 resolvedTargetOID: "target-oid-2",
                 reviewedHeadOID: "head-oid-2",
+                baseRole: .commonCommit,
                 baseOID: "base-oid-2"
             )
         )
@@ -640,7 +642,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         }
         let eventsBeforeDelivery = await collector.events
         _ = try await source.deliver(
-            package: reviewPackage,
+            publication: reviewMetadataCommittedPublication(reviewPackage),
             reservation: reservation,
             productAdmission: productAdmission.context
         )

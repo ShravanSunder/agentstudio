@@ -141,13 +141,39 @@ struct BridgeComparisonTargetContentLifecycleTests {
         _ = await provider.response(for: try queryRequest())
 
         admissionCoordinator.applyActivity(.loadedHidden)
-        let result = try await openContent(
-            provider: provider,
-            request: contentRequest(descriptor: capture.descriptor, suffix: "foreground-loss")
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let request = try contentRequest(
+            descriptor: capture.descriptor,
+            suffix: "foreground-loss"
+        )
+        let registration = await harness.session.registerContentProducer(
+            request: request,
+            productAdmission: harness.productAdmission.context
+        ) { lease in
+            await provider.runContentProducer(
+                request: request,
+                lease: lease,
+                productAdmission: harness.productAdmission.context,
+                session: harness.session
+            )
+        }
+        let lease = try bridgeProductAcceptedLease(registration)
+        let pullResult = await harness.session.pullProducerFrame(
+            for: lease,
+            productAdmission: harness.productAdmission.context
         )
 
-        #expect(result.body.isEmpty)
-        #expect(result.errorMessage == "Content descriptor is not active")
+        switch pullResult {
+        case .cancelled, .rejected(.producerEndedWithoutTerminal), .rejected(.unknownLease):
+            break
+        case .finished, .frame, .rejected:
+            Issue.record("Foreground loss must retire comparison-target content without a frame")
+        }
+        #expect((await harness.session.producerSnapshot()).queuedFrameCount == 0)
+        if (await harness.session.producerSnapshot()).activeProducerCount > 0 {
+            try await harness.closeProducer(lease)
+        }
+        #expect((await harness.session.producerSnapshot()).hasZeroResidue)
     }
 
     @Test("close and drain releases a pending comparison capture")

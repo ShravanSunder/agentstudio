@@ -276,7 +276,10 @@ struct BridgeDevHostSharedConstructionTests {
             let settledPresentation = await host.diagnosticPanePresentation()
 
             // Assert
-            #expect(pendingPresentation.reviewComparison?.repositoryDefaultTarget == nil)
+            #expect(
+                pendingPresentation.reviewComparison?.repositoryDefaultTarget
+                    == initialDefaultTarget
+            )
             #expect(
                 settledPresentation.reviewComparison?.repositoryDefaultTarget
                     == successorDefaultTarget
@@ -419,6 +422,7 @@ private actor BridgeDevelopmentSharedConstructionReviewProvider:
         return BridgeContributionComparisonCapture(
             resolvedTargetOID: String(repeating: "a", count: 40),
             reviewedHeadOID: String(repeating: "b", count: 40),
+            baseRole: .commonCommit,
             baseOID: String(repeating: "a", count: 40),
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,

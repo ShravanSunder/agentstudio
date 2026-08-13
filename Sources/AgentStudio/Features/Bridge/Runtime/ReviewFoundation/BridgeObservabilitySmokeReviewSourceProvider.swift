@@ -32,6 +32,7 @@ import Foundation
             return BridgeContributionComparisonCapture(
                 resolvedTargetOID: "bridge-observability-smoke-target",
                 reviewedHeadOID: "bridge-observability-smoke-head",
+                baseRole: .commonCommit,
                 baseOID: "bridge-observability-smoke-base",
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: baseEndpoint,

@@ -198,6 +198,7 @@ function reviewMetadataSnapshot(
 	const itemMetadata = props.itemMetadata ?? [];
 	return {
 		baseEndpoint: null,
+		comparisonCommit: { status: 'absent' },
 		comparisonOrigin: null,
 		contentSources: props.contentSources ?? [],
 		extentFacts: props.extentFacts ?? [],

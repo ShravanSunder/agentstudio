@@ -442,10 +442,10 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         try await requireBlockedComparison(input.paneOneReviewProvider, expectedCount: 1)
         let paneOneForegroundRefreshPassCount =
             input.paneOne.refreshAdmissionCoordinator.diagnosticSnapshot.refreshPassCount
-        let updatingReviewStatus = try await requireComparisonStatus(
+        let updatingReviewStatus = try await requireStatus(
             input.paneOne.page,
             activeMode: "review",
-            expectedText: "Loading comparison with main…"
+            expectedText: "Updating review…"
         )
         guard await BridgeProductWebKitCarrierTestSupport.activateFileMode(input.paneOne.page) else {
             throw JourneyError.conditionFailed("File mode did not activate during refresh")
@@ -710,26 +710,6 @@ enum BridgeProductWebKitTwoPaneJourneyTestSupport {
         }
         guard found, let observed else {
             throw JourneyError.conditionFailed("active-surface updating chrome was not isolated")
-        }
-        return observed
-    }
-
-    private static func requireComparisonStatus(
-        _ page: WebPage,
-        activeMode: String,
-        expectedText: String
-    ) async throws -> BridgeProductWebKitTwoPanePositionSnapshot {
-        var observed: BridgeProductWebKitTwoPanePositionSnapshot?
-        let found = await BridgeProductWebKitCarrierTestSupport.waitUntil(timeout: .seconds(10)) {
-            observed = try? await positionSnapshot(page)
-            guard let observed else { return false }
-            return observed.activeMode == activeMode
-                && observed.comparisonStatusText == expectedText
-                && observed.fileStatusText == nil
-                && observed.reviewStatusText == nil
-        }
-        guard found, let observed else {
-            throw JourneyError.conditionFailed("comparison loading chrome was not isolated")
         }
         return observed
     }

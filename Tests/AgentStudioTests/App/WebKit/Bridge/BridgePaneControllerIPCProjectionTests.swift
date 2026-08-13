@@ -838,6 +838,9 @@ private func installIPCContentDescriptorPackage(
         case .committed = controller.reviewPublicationCoordinator.commit(
             token,
             productAdmission: productAdmission,
+            captureCommittedPresentation: { _ in
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot
+            },
             presentCommitted: { committedPublication in
                 controller.paneState.diff.setPackageMetadata(committedPublication.package)
             }

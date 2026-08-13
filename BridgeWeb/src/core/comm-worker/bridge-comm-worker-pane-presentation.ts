@@ -14,6 +14,7 @@ export interface BridgeCommWorkerPanePresentationSnapshot {
 }
 
 export type BridgeCommWorkerPanePresentationDisposition = 'applied' | 'idempotentReplay';
+export type BridgeCommWorkerReviewComparisonDisposition = 'applied' | 'idempotentReplay' | 'stale';
 
 export interface BridgeCommWorkerPanePresentationApplyResult {
 	readonly disposition: BridgeCommWorkerPanePresentationDisposition;
@@ -25,6 +26,7 @@ export interface BridgeCommWorkerPanePresentationApplyResult {
 export class BridgeCommWorkerPanePresentationAuthority {
 	#nativeActivity: BridgeCommWorkerNativePaneActivity = 'dormant';
 	#presentationRevision = 0;
+	#reviewComparisonRevision = 0;
 	#refreshingLanes: readonly BridgeCommWorkerRefreshingLane[] = [];
 	#reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'] = null;
 	#workAbortController = abortedBridgeCommWorkerWorkController();
@@ -37,7 +39,7 @@ export class BridgeCommWorkerPanePresentationAuthority {
 	get snapshot(): BridgeCommWorkerPanePresentationSnapshot {
 		return Object.freeze({
 			nativeActivity: this.#nativeActivity,
-			presentationRevision: this.#presentationRevision,
+			presentationRevision: Math.max(this.#presentationRevision, this.#reviewComparisonRevision),
 			refreshingLanes: Object.freeze([...this.#refreshingLanes]),
 			reviewComparison: this.#reviewComparison,
 			workAdmissionGeneration: this.#workAdmissionGeneration,
@@ -49,13 +51,19 @@ export class BridgeCommWorkerPanePresentationAuthority {
 	}
 
 	apply(frame: BridgeProductPanePresentationFrame): BridgeCommWorkerPanePresentationApplyResult {
-		if (frame.presentationRevision < this.#presentationRevision) {
+		if (frame.presentationRevision < this.snapshot.presentationRevision) {
 			throw new Error('Bridge pane presentation revision is stale.');
 		}
 		if (frame.presentationRevision === this.#presentationRevision) {
-			if (!this.#matchesCurrentFrame(frame)) {
+			if (
+				!this.#matchesCurrentFrameActivity(frame) ||
+				(frame.presentationRevision === this.#reviewComparisonRevision &&
+					reviewComparisonSignature(frame.reviewComparison) !==
+						reviewComparisonSignature(this.#reviewComparison))
+			) {
 				throw new Error('Bridge pane presentation revision was reused with changed state.');
 			}
+			this.reconcileReviewComparison(frame.presentationRevision, frame.reviewComparison);
 			return {
 				disposition: 'idempotentReplay',
 				enteredForeground: false,
@@ -76,7 +84,7 @@ export class BridgeCommWorkerPanePresentationAuthority {
 		this.#nativeActivity = frame.nativeActivity;
 		this.#presentationRevision = frame.presentationRevision;
 		this.#refreshingLanes = Object.freeze([...frame.refreshingLanes]);
-		this.#reviewComparison = immutableReviewComparison(frame.reviewComparison);
+		this.reconcileReviewComparison(frame.presentationRevision, frame.reviewComparison);
 
 		return {
 			disposition: 'applied',
@@ -90,13 +98,30 @@ export class BridgeCommWorkerPanePresentationAuthority {
 		return this.admitsWork && generation === this.#workAdmissionGeneration;
 	}
 
-	#matchesCurrentFrame(frame: BridgeProductPanePresentationFrame): boolean {
+	reconcileReviewComparison(
+		presentationRevision: number,
+		reviewComparison: BridgeProductPanePresentationFrame['reviewComparison'],
+	): BridgeCommWorkerReviewComparisonDisposition {
+		if (presentationRevision < this.#reviewComparisonRevision) return 'stale';
+		if (presentationRevision === this.#reviewComparisonRevision) {
+			if (
+				reviewComparisonSignature(reviewComparison) !==
+				reviewComparisonSignature(this.#reviewComparison)
+			) {
+				throw new Error('Bridge Review comparison revision was reused with changed state.');
+			}
+			return 'idempotentReplay';
+		}
+		this.#reviewComparisonRevision = presentationRevision;
+		this.#reviewComparison = immutableReviewComparison(reviewComparison);
+		return 'applied';
+	}
+
+	#matchesCurrentFrameActivity(frame: BridgeProductPanePresentationFrame): boolean {
 		return (
 			frame.nativeActivity === this.#nativeActivity &&
 			frame.refreshingLanes.length === this.#refreshingLanes.length &&
-			frame.refreshingLanes.every((lane, index) => lane === this.#refreshingLanes[index]) &&
-			reviewComparisonSignature(frame.reviewComparison) ===
-				reviewComparisonSignature(this.#reviewComparison)
+			frame.refreshingLanes.every((lane, index) => lane === this.#refreshingLanes[index])
 		);
 	}
 }

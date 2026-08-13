@@ -5,6 +5,7 @@ import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT,
 	bridgeProductReviewComparisonOriginSchema,
@@ -228,7 +229,16 @@ const bridgeWorkerReviewTreeDisplayPatchSchema = z.discriminatedUnion('operation
 		.strict(),
 ]);
 
+const bridgeWorkerReviewComparisonDisplayPatchSchema = z
+	.object({
+		operation: z.literal('replace'),
+		payload: bridgeProductReviewComparisonPresentationSchema.nullable(),
+		slice: z.literal('reviewComparison'),
+	})
+	.strict();
+
 export const bridgeWorkerReviewDisplayPatchSchema = z.discriminatedUnion('slice', [
+	bridgeWorkerReviewComparisonDisplayPatchSchema,
 	bridgeWorkerReviewSourceDisplayPatchSchema,
 	bridgeWorkerReviewItemDisplayPatchSchema,
 	bridgeWorkerReviewTreeDisplayPatchSchema,

@@ -69,8 +69,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 					startIndex: 0,
 				},
 			],
+			presentationRevision: 12,
 			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
+			reviewComparison: null,
 			summary: reviewSummary,
 			toRevision: 12,
 		});
@@ -123,8 +125,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 			eventKind: 'review.delta',
 			fromRevision: 11,
 			operations: [],
+			presentationRevision: 12,
 			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
+			reviewComparison: null,
 			summary: reviewSummary,
 			toRevision: 12,
 		});
@@ -134,8 +138,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 			eventKind: 'review.delta',
 			fromRevision: 12,
 			operations: [],
+			presentationRevision: 13,
 			publicationId: '00000000-0000-7000-8000-000000000013',
 			revision: 13,
+			reviewComparison: null,
 			summary: reviewSummary,
 			toRevision: 13,
 		});
@@ -212,8 +218,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 					operationKind: 'upsertItem',
 				},
 			],
+			presentationRevision: 12,
 			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
+			reviewComparison: null,
 			summary: { ...reviewSummary, filesChanged: totalItemCount, visibleFileCount: totalItemCount },
 			toRevision: 12,
 		});
@@ -329,7 +337,9 @@ function reviewWindow(props: {
 			startIndex: props.itemStartIndex,
 			totalItemCount: 2,
 		},
+		presentationRevision: 11,
 		summary: reviewSummary,
+		reviewComparison: null,
 		treeRows: [reviewTreeRow(props.rowId, props.itemId, path)],
 		treeWindow: {
 			finalWindow: true,
@@ -367,6 +377,7 @@ function reviewMetadataWindowRange(props: {
 			startIndex: props.startIndex,
 			totalItemCount: props.totalItemCount,
 		},
+		...(finalWindow ? { presentationRevision: 11, reviewComparison: null } : {}),
 		summary: {
 			...reviewSummary,
 			filesChanged: props.totalItemCount,

@@ -141,17 +141,15 @@ extension BridgeDevelopmentProductHost {
             productAdmission.withValidAdmission({ true }) == true,
             foregroundWorkAdmission.withValidAdmission({ true }) == true
         else { return false }
-        let didClearCurrentDefault = await MainActor.run {
+        let isCurrentAttempt = await MainActor.run {
             guard
                 refreshAdmissionCoordinator.isReviewComparisonAttemptPending(
                     reviewGeneration: reviewGeneration.rawValue
                 )
             else { return false }
-            refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(nil)
             return true
         }
-        guard didClearCurrentDefault else { return false }
-        await publishCurrentPanePresentation()
+        guard isCurrentAttempt else { return false }
 
         let resolvedDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
         do {
@@ -246,6 +244,17 @@ extension BridgeDevelopmentProductHost {
                 case .committed(let publication) = reviewPublicationCoordinator.commit(
                     stagedToken,
                     productAdmission: productAdmission,
+                    captureCommittedPresentation: { package in
+                        refreshAdmissionCoordinator.settleReviewComparisonAttempt(
+                            reviewGeneration: package.reviewGeneration.rawValue,
+                            displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                                packageId: package.packageId,
+                                reviewGeneration: package.reviewGeneration.rawValue,
+                                revision: package.revision
+                            )
+                        )
+                        return refreshAdmissionCoordinator.productPresentationSnapshot
+                    },
                     presentCommitted: { _ in }
                 )
             else {
@@ -255,14 +264,6 @@ extension BridgeDevelopmentProductHost {
                 )
                 return nil
             }
-            refreshAdmissionCoordinator.settleReviewComparisonAttempt(
-                reviewGeneration: publication.package.reviewGeneration.rawValue,
-                displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
-                    packageId: publication.package.packageId,
-                    reviewGeneration: publication.package.reviewGeneration.rawValue,
-                    revision: publication.package.revision
-                )
-            )
             return publication
         }
         guard let committedPublication else {

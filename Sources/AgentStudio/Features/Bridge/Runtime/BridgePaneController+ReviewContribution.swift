@@ -105,8 +105,6 @@ extension BridgePaneController {
                 foregroundWorkAdmission: foregroundWorkAdmission
             )
         else { return nil }
-        refreshAdmissionCoordinator.publishReviewComparisonDefaultTarget(nil)
-        _ = scheduleProductPresentationPublication()
         let resolvedDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
         do {
             resolvedDefaultTarget = try await reviewSourceProvider.resolveReviewDefaultTarget()

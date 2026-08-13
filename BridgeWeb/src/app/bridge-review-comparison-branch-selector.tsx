@@ -59,7 +59,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
 				orientation="horizontal"
 			>
-				<FieldTitle className="text-muted-foreground">Using</FieldTitle>
+				<FieldTitle className="text-muted-foreground">Compare branches from</FieldTitle>
 				<ToggleGroup
 					aria-label="Branch comparison basis"
 					className="grid w-full grid-cols-2"
@@ -76,7 +76,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 						}}
 						value="commonCommit"
 					>
-						Base commit
+						Common commit
 					</ToggleGroupItem>
 					<ToggleGroupItem
 						className="w-full"
@@ -90,6 +90,7 @@ export function BridgeReviewComparisonBranchSelector(props: {
 				</ToggleGroup>
 			</Field>
 			<Combobox<ReviewComparisonBranchTarget>
+				inline
 				items={targetCatalog?.branches ?? []}
 				inputValue={search}
 				isItemEqualToValue={branchTargetsEqual}

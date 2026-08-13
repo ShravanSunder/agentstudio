@@ -111,7 +111,22 @@ extension BridgePaneController {
                 requiresReviewRefresh: true
             )
         }
+        reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded()
         scheduleWorktreeProductCatchUpIfPossible()
+    }
+
+    private func reserveSuccessorReviewGenerationForActiveCatchUpIfNeeded() {
+        let admissionSnapshot = refreshAdmissionCoordinator.diagnosticSnapshot
+        guard admissionSnapshot.activity == .foreground,
+            admissionSnapshot.activeRefreshPass?.lanes.contains(.review) == true,
+            pendingComparisonReviewGeneration == nil,
+            case .workspace(_, let baseline) = bridgePaneState.source,
+            baseline?.contributionTarget != nil
+        else { return }
+
+        let successorGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = successorGeneration
+        pendingComparisonReviewGeneration = successorGeneration
     }
 
     func scheduleWorktreeProductCatchUpIfPossible() {

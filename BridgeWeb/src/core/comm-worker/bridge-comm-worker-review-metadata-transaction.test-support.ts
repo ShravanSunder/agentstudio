@@ -152,8 +152,10 @@ export function reviewDelta(
 		eventKind: 'review.delta',
 		fromRevision: identity.revision,
 		operations: [],
+		presentationRevision: toRevision,
 		publicationId: reviewPublicationId(toRevision),
 		revision: toRevision,
+		reviewComparison: null,
 		summary: reviewSummary(1),
 		toRevision,
 	};
@@ -206,6 +208,7 @@ function reviewPayload(
 			},
 		],
 		itemWindow: { finalWindow, itemCount: 1, startIndex, totalItemCount },
+		...(finalWindow ? { presentationRevision: identity.revision, reviewComparison: null } : {}),
 		revision: identity.revision,
 		summary: reviewSummary(totalItemCount),
 		treeRows: [{ depth: 0, isDirectory: false, itemId, path, rowId: `row-${itemId}` }],

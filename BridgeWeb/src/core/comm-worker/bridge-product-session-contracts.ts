@@ -3,7 +3,6 @@ import { z } from 'zod';
 import {
 	bridgeProductCallRequestSchema,
 	bridgeProductCallResultSchema,
-	bridgeProductReviewComparisonTargetSchema,
 } from './bridge-product-call-contracts.js';
 import { bridgeProductContentIdentitySchema } from './bridge-product-content-contracts.js';
 import {
@@ -29,6 +28,7 @@ import {
 	bridgeProductSha256Schema,
 	bridgeProductSurfaceSchema,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
 	bridgeProductFileMetadataInterestDeltaSchema,
@@ -41,6 +41,8 @@ import {
 	bridgeProductSubscriptionOpenSchema,
 	bridgeProductSurfaceForSubscriptionKind,
 } from './bridge-product-subscription-contracts.js';
+
+export { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 
 const bridgeProductControlIdentityShape = {
 	paneSessionId: bridgeProductIdentifierSchema,
@@ -427,61 +429,6 @@ const bridgeProductSubscriptionDataFrameSchema = z.discriminatedUnion('subscript
 		})
 		.strict(),
 ]);
-
-const bridgeProductReviewComparisonAttemptSchema = z.discriminatedUnion('status', [
-	z.object({ status: z.literal('selectionRequired') }).strict(),
-	z
-		.object({
-			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
-			status: z.literal('pending'),
-		})
-		.strict(),
-	z
-		.object({
-			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
-			status: z.literal('settled'),
-		})
-		.strict(),
-	z
-		.object({
-			failureKind: z.string().min(1),
-			retryable: z.boolean(),
-			status: z.literal('unavailable'),
-		})
-		.strict(),
-]);
-
-const bridgeProductReviewDisplayedSnapshotSchema = z.discriminatedUnion('status', [
-	z.object({ status: z.literal('none') }).strict(),
-	z
-		.object({
-			packageId: bridgeProductIdentifierSchema,
-			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
-			revision: bridgeProductNonnegativeSequenceSchema,
-			status: z.literal('current'),
-		})
-		.strict(),
-	z
-		.object({
-			packageId: bridgeProductIdentifierSchema,
-			reviewGeneration: bridgeProductNonnegativeSequenceSchema,
-			revision: bridgeProductNonnegativeSequenceSchema,
-			status: z.literal('stale'),
-		})
-		.strict(),
-]);
-
-export const bridgeProductReviewComparisonPresentationSchema = z
-	.object({
-		activeTarget: bridgeProductReviewComparisonTargetSchema.nullable(),
-		attempt: bridgeProductReviewComparisonAttemptSchema,
-		displayedSnapshot: bridgeProductReviewDisplayedSnapshotSchema,
-		repositoryDefaultTarget: z
-			.object({ branchName: z.string().min(1), remoteName: z.string().min(1) })
-			.strict()
-			.nullable(),
-	})
-	.strict();
 
 const bridgeProductMetadataFrameStructuralSchema = z.discriminatedUnion('kind', [
 	z

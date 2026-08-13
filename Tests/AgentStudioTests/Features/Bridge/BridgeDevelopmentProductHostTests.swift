@@ -118,7 +118,9 @@ struct BridgeDevelopmentProductHostTests {
             ),
             package: makeReviewPackage(itemCount: 1),
             delta: nil,
-            contentHandles: []
+            contentHandles: [],
+            comparisonPresentationRevision: 1,
+            reviewComparison: nil
         )
 
         // Act

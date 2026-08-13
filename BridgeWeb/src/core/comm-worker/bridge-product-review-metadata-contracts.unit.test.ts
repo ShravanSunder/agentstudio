@@ -39,6 +39,18 @@ const reviewContentSource = {
 	wholeByteLength: 12,
 } as const;
 
+const reviewComparison = {
+	activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'origin/main' },
+	attempt: { reviewGeneration: 7, status: 'settled' },
+	displayedSnapshot: {
+		packageId: 'review-package-1',
+		reviewGeneration: 7,
+		revision: 11,
+		status: 'current',
+	},
+	repositoryDefaultTarget: null,
+} as const;
+
 describe('Bridge product Review metadata contracts', () => {
 	test('does not import the legacy Review package or resource URL vocabulary', () => {
 		const source = readFileSync(
@@ -129,6 +141,7 @@ describe('Bridge product Review metadata contracts', () => {
 				startIndex: 0,
 				totalItemCount: 1,
 			},
+			presentationRevision: 19,
 			query: {
 				baseEndpointId: 'review-base-endpoint',
 				comparisonSemantics: 'threeDot',
@@ -162,6 +175,7 @@ describe('Bridge product Review metadata contracts', () => {
 				worktreeId: 'worktree-1',
 			},
 			reviewedSubjectLabel: 'feature/review-comments',
+			reviewComparison,
 			summary: {
 				additions: 2,
 				deletions: 1,
@@ -232,6 +246,27 @@ describe('Bridge product Review metadata contracts', () => {
 		]) {
 			expect(() => bridgeProductReviewMetadataEventSchema.parse(invalidWindow)).toThrow(/window/i);
 		}
+		for (const missingCommitKey of ['presentationRevision', 'reviewComparison'] as const) {
+			const invalidTerminal: Partial<typeof snapshot> = { ...snapshot };
+			delete invalidTerminal[missingCommitKey];
+			expect(() => bridgeProductReviewMetadataEventSchema.parse(invalidTerminal)).toThrow(
+				/final display barrier/i,
+			);
+		}
+		const nonterminalSnapshot = {
+			...snapshot,
+			itemWindow: { ...snapshot.itemWindow, finalWindow: false, totalItemCount: 2 },
+		};
+		for (const incompleteCommit of [{ presentationRevision: 19 }, { reviewComparison }]) {
+			expect(() =>
+				bridgeProductReviewMetadataEventSchema.parse({
+					...nonterminalSnapshot,
+					presentationRevision: undefined,
+					reviewComparison: undefined,
+					...incompleteCommit,
+				}),
+			).toThrow(/final display barrier/i);
+		}
 		expect(
 			bridgeProductReviewMetadataEventSchema.parse({
 				contentSources: snapshot.contentSources,
@@ -246,7 +281,9 @@ describe('Bridge product Review metadata contracts', () => {
 					totalItemCount: 4,
 				},
 				packageId: snapshot.packageId,
+				presentationRevision: snapshot.presentationRevision,
 				publicationId: snapshot.publicationId,
+				reviewComparison: snapshot.reviewComparison,
 				revision: snapshot.revision,
 				sourceIdentity: snapshot.sourceIdentity,
 				summary: snapshot.summary,
@@ -273,6 +310,8 @@ describe('Bridge product Review metadata contracts', () => {
 						startIndex: 3,
 					},
 				],
+				presentationRevision: snapshot.presentationRevision,
+				reviewComparison: snapshot.reviewComparison,
 				summary: snapshot.summary,
 				toRevision: 11,
 			}),

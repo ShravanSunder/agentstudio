@@ -7,9 +7,11 @@ import {
 	bridgeProductIdentifierSchema,
 	bridgeProductNonnegativeSequenceSchema,
 	bridgeProductOpaqueReferenceSchema,
+	bridgeProductPositiveSequenceSchema,
 	bridgeProductSafeMessageSchema,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewComparisonOriginSchema } from './bridge-product-review-comparison-contracts.js';
+import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import {
 	bridgeProductReviewContentRoleSchema,
 	bridgeProductReviewFileChangeKindSchema,
@@ -220,6 +222,11 @@ const bridgeProductReviewMetadataIdentityShape = {
 	sourceIdentity: bridgeProductIdentifierSchema,
 } as const;
 
+const bridgeProductReviewPublicationCommitShape = {
+	presentationRevision: bridgeProductPositiveSequenceSchema.optional(),
+	reviewComparison: bridgeProductReviewComparisonPresentationSchema.nullable().optional(),
+} as const;
+
 export const bridgeProductReviewSourceAcceptedEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
@@ -317,6 +324,7 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
+		...bridgeProductReviewPublicationCommitShape,
 		baseEndpoint: bridgeProductReviewSourceEndpointSchema,
 		comparisonOrigin: bridgeProductReviewComparisonOriginSchema.optional(),
 		eventKind: z.literal('review.snapshot'),
@@ -329,6 +337,7 @@ export const bridgeProductReviewMetadataSnapshotEventSchema = z
 	.strict()
 	.superRefine((event, context): void => {
 		validateReviewMetadataWindowPayload(event, context);
+		validateReviewPublicationCommit(event, context);
 		if (event.itemWindow.startIndex !== 0) {
 			context.addIssue({
 				code: 'custom',
@@ -349,6 +358,7 @@ export const bridgeProductReviewMetadataWindowEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
 		...bridgeProductReviewMetadataPayloadShape,
+		...bridgeProductReviewPublicationCommitShape,
 		eventKind: z.literal('review.window'),
 		itemWindow: bridgeProductReviewItemWindowSchema,
 		treeWindow: bridgeProductReviewTreeWindowSchema,
@@ -356,11 +366,13 @@ export const bridgeProductReviewMetadataWindowEventSchema = z
 	.strict()
 	.superRefine((event, context): void => {
 		validateReviewMetadataWindowPayload(event, context);
+		validateReviewPublicationCommit(event, context);
 	});
 
 export const bridgeProductReviewMetadataDeltaEventSchema = z
 	.object({
 		...bridgeProductReviewMetadataIdentityShape,
+		...bridgeProductReviewPublicationCommitShape,
 		contentSources: z
 			.array(bridgeProductReviewContentSourceDescriptorSchema)
 			.max(BRIDGE_PRODUCT_MAXIMUM_REVIEW_METADATA_WINDOW_ENTRY_COUNT)
@@ -381,6 +393,13 @@ export const bridgeProductReviewMetadataDeltaEventSchema = z
 				code: 'custom',
 				message: 'Review metadata delta revision lineage is invalid.',
 				path: ['toRevision'],
+			});
+		}
+		if (event.presentationRevision === undefined || event.reviewComparison === undefined) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Review delta requires its committed comparison presentation.',
+				path: ['reviewComparison'],
 			});
 		}
 	});
@@ -438,6 +457,28 @@ export type BridgeProductReviewMetadataEvent = z.infer<
 export type BridgeProductReviewExtentFact = z.infer<typeof bridgeProductReviewExtentFactSchema>;
 export type BridgeProductReviewItemMetadata = z.infer<typeof bridgeProductReviewItemMetadataSchema>;
 export type BridgeProductReviewTreeRow = z.infer<typeof bridgeProductReviewTreeRowSchema>;
+
+function validateReviewPublicationCommit(
+	event: {
+		readonly itemWindow: { readonly finalWindow: boolean };
+		readonly presentationRevision?: number | undefined;
+		readonly reviewComparison?: unknown;
+		readonly treeWindow: { readonly finalWindow: boolean };
+	},
+	context: z.RefinementCtx,
+): void {
+	const isFinalBarrier = event.itemWindow.finalWindow && event.treeWindow.finalWindow;
+	const hasPresentationRevision = event.presentationRevision !== undefined;
+	const hasReviewComparison = event.reviewComparison !== undefined;
+	const hasCompleteComparisonCommit = hasPresentationRevision && hasReviewComparison;
+	const hasNoComparisonCommit = !hasPresentationRevision && !hasReviewComparison;
+	if (isFinalBarrier ? hasCompleteComparisonCommit : hasNoComparisonCommit) return;
+	context.addIssue({
+		code: 'custom',
+		message: 'Review publication comparison must appear exactly on the final display barrier.',
+		path: ['reviewComparison'],
+	});
+}
 
 function validateOrderedReviewWindow(props: {
 	readonly context: z.RefinementCtx;

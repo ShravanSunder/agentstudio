@@ -55,7 +55,7 @@ protocol BridgePaneProductReviewMetadataProducing: Sendable {
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgeReviewMetadataPublicationReservation
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome
@@ -88,7 +88,7 @@ actor BridgeUnavailablePaneProductReviewMetadataSource: BridgePaneProductReviewM
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -100,8 +100,10 @@ actor BridgeUnavailablePaneProductReviewMetadataSource: BridgePaneProductReviewM
 
 actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProducing {
     fileprivate struct DeliveredPublication: Sendable {
+        let comparisonPresentationRevision: Int
         let package: BridgeReviewPackage
         let publicationId: UUID
+        let reviewComparison: BridgePaneReviewComparisonPresentation?
     }
 
     private enum EmissionOutcome {
@@ -175,7 +177,12 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
     ) async throws -> BridgeReviewMetadataPublicationReservation {
         _ = try Self.events(
             from: nil,
-            to: DeliveredPublication(package: package, publicationId: publicationId)
+            to: DeliveredPublication(
+                comparisonPresentationRevision: 1,
+                package: package,
+                publicationId: publicationId,
+                reviewComparison: nil
+            )
         )
         guard (productAdmission.withValidAdmission { true }) == true else {
             throw CancellationError()
@@ -190,10 +197,11 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
+        let package = publication.package
         guard reservation.packageId == package.packageId,
             reservation.reviewGeneration == package.reviewGeneration,
             reservation.revision == package.revision,
@@ -202,12 +210,11 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let subscriptionIds = contextBySubscriptionId.keys.sorted()
         guard !subscriptionIds.isEmpty else { return .deferred(retained: 0) }
         guard
-            let publication = productAdmission.withValidAdmission({
+            let publishingDeliveryRevision = productAdmission.withValidAdmission({
                 deliveryRevision += 1
                 return deliveryRevision
             })
         else { return .deferred(retained: 0) }
-        let publishingDeliveryRevision = publication
         var emittedEventCount = 0
         var publishedSubscriptionCount = 0
         var supersededSubscriptionCount = 0
@@ -217,8 +224,10 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
             guard let context = contextBySubscriptionId[subscriptionId] else { continue }
             switch try await emitAndCommitIfCurrent(
                 DeliveredPublication(
+                    comparisonPresentationRevision: publication.comparisonPresentationRevision,
                     package: package,
-                    publicationId: reservation.publicationId
+                    publicationId: reservation.publicationId,
+                    reviewComparison: publication.reviewComparison
                 ),
                 context: context,
                 deliveryRevision: publishingDeliveryRevision,
@@ -323,9 +332,8 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         if hasSameSourceIdentity(currentPackage, nextPackage),
             canApplyDelta(from: currentPackage, to: nextPackage),
             let delta = try deltaEvent(
-                from: currentPackage,
-                to: nextPackage,
-                publicationId: nextPublication.publicationId
+                from: currentPublication,
+                to: nextPublication
             )
         {
             return [.delta(delta)]
@@ -399,10 +407,11 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
     }
 
     private static func deltaEvent(
-        from currentPackage: BridgeReviewPackage,
-        to nextPackage: BridgeReviewPackage,
-        publicationId: UUID
+        from currentPublication: DeliveredPublication,
+        to nextPublication: DeliveredPublication
     ) throws -> BridgeProductReviewDeltaEvent? {
+        let currentPackage = currentPublication.package
+        let nextPackage = nextPublication.package
         guard nextPackage.revision > currentPackage.revision else { return nil }
         let currentItems = currentPackage.itemsById
         let nextItems = nextPackage.itemsById
@@ -447,13 +456,17 @@ actor BridgePaneProductReviewMetadataSource: BridgePaneProductReviewMetadataProd
         let event = try BridgeProductReviewDeltaEvent(
             identity: identity(
                 for: DeliveredPublication(
+                    comparisonPresentationRevision: nextPublication.comparisonPresentationRevision,
                     package: nextPackage,
-                    publicationId: publicationId
+                    publicationId: nextPublication.publicationId,
+                    reviewComparison: nextPublication.reviewComparison
                 )
             ),
             contentSources: contentSources,
             fromRevision: currentPackage.revision,
             operations: operations,
+            presentationRevision: nextPublication.comparisonPresentationRevision,
+            reviewComparison: nextPublication.reviewComparison,
             summary: try productSummary(nextPackage.summary),
             toRevision: nextPackage.revision
         )
@@ -547,7 +560,9 @@ private struct ReviewPackageProjection {
     let headEndpoint: BridgeProductReviewSourceEndpointValue
     let identity: BridgeProductReviewMetadataIdentity
     let items: [ReviewProjectedItem]
+    let presentationRevision: Int
     let query: BridgeProductReviewQueryValue
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
     let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
     let treeRows: [BridgeProductReviewTreeRowValue]
@@ -561,7 +576,9 @@ private struct ReviewPackageProjection {
         self.headEndpoint = try productEndpoint(package.headEndpoint)
         self.identity = try BridgePaneProductReviewMetadataSource.identity(for: publication)
         self.items = try reviewItems.map { try ReviewProjectedItem(item: $0, package: package) }
+        self.presentationRevision = publication.comparisonPresentationRevision
         self.query = try productQuery(package.query)
+        self.reviewComparison = publication.reviewComparison
         self.reviewedSubjectLabel = package.reviewedSubjectLabel
         self.summary = try productSummary(package.summary)
         self.treeRows = try productTreeRows(for: reviewItems, loadedBy: .startupWindow)
@@ -588,6 +605,7 @@ private struct ReviewPackageProjection {
             startIndex: treeStartIndex,
             totalRowCount: treeRows.count
         )
+        let isFinalBarrier = itemWindow.finalWindow && treeWindow.finalWindow
         if isSnapshot {
             return .snapshot(
                 try .init(
@@ -599,7 +617,9 @@ private struct ReviewPackageProjection {
                     headEndpoint: headEndpoint,
                     itemMetadata: itemSlice.map(\.metadata),
                     itemWindow: itemWindow,
+                    presentationRevision: isFinalBarrier ? presentationRevision : nil,
                     query: query,
+                    reviewComparison: isFinalBarrier ? reviewComparison : nil,
                     reviewedSubjectLabel: reviewedSubjectLabel,
                     summary: summary,
                     treeRows: treeSlice,
@@ -614,6 +634,8 @@ private struct ReviewPackageProjection {
                 extentFacts: itemSlice.flatMap(\.extentFacts),
                 itemMetadata: itemSlice.map(\.metadata),
                 itemWindow: itemWindow,
+                presentationRevision: isFinalBarrier ? presentationRevision : nil,
+                reviewComparison: isFinalBarrier ? reviewComparison : nil,
                 summary: summary,
                 treeRows: treeSlice,
                 treeWindow: treeWindow

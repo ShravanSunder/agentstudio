@@ -501,16 +501,28 @@ private struct RealGitReviewLoadHarness {
     func nextReviewMetadataEvent(
         for metadataLease: BridgeProductProducerLease
     ) async throws -> BridgeProductReviewMetadataEvent {
-        let frame = try realGitReviewMetadataFrame(
-            from: try #require(
-                await consumeNextBridgeProductProducerFrame(
-                    for: metadataLease,
-                    from: installation.session,
-                    productAdmission: productAdmission
+        while true {
+            let frame = try realGitReviewMetadataFrame(
+                from: try #require(
+                    await consumeNextBridgeProductProducerFrame(
+                        for: metadataLease,
+                        from: installation.session,
+                        productAdmission: productAdmission
+                    )
                 )
             )
-        )
-        return try realGitReviewEvent(from: frame)
+            switch frame {
+            case .subscriptionData(let dataFrame):
+                guard case .reviewMetadata(let event) = dataFrame.data else {
+                    throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
+                }
+                return event
+            case .panePresentation:
+                continue
+            default:
+                throw RealGitReviewMetadataEventError.expectedReviewMetadataEvent
+            }
+        }
     }
 }
 

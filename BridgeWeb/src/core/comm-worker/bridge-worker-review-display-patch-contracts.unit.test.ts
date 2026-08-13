@@ -10,6 +10,29 @@ import {
 import { bridgeWorkerReviewSourceContext } from './bridge-worker-review-display.test-support.js';
 
 describe('Bridge worker Review display patch contracts', () => {
+	test('admits an atomic Review comparison replacement in the Review display transaction', () => {
+		const reviewComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'origin/main' },
+			attempt: { reviewGeneration: 7, status: 'settled' },
+			displayedSnapshot: {
+				packageId: 'package-1',
+				reviewGeneration: 7,
+				revision: 11,
+				status: 'current',
+			},
+			repositoryDefaultTarget: null,
+		} as const;
+		const event = {
+			...REVIEW_DISPLAY_EVENT,
+			patches: [
+				...REVIEW_DISPLAY_EVENT.patches,
+				{ operation: 'replace', payload: reviewComparison, slice: 'reviewComparison' },
+			],
+		};
+
+		expect(bridgeWorkerReviewDisplayPatchEventSchema.parse(event)).toEqual(event);
+	});
+
 	test('admits exact Review source context while rejecting content authority', () => {
 		// Arrange
 		const event = REVIEW_DISPLAY_EVENT;

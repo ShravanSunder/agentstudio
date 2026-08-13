@@ -164,6 +164,53 @@ describe('Bridge comm worker pane presentation authority', () => {
 		).toThrow('Bridge pane presentation revision was reused with changed state.');
 	});
 
+	test('reconciles committed Review comparisons without overwriting a newer pending attempt', () => {
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		const pendingComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/next' },
+			attempt: { reviewGeneration: 3, status: 'pending' },
+			displayedSnapshot: {
+				packageId: 'package-2',
+				reviewGeneration: 2,
+				revision: 4,
+				status: 'stale',
+			},
+			repositoryDefaultTarget: null,
+		} as const;
+		const settledComparison = {
+			...pendingComparison,
+			attempt: { reviewGeneration: 2, status: 'settled' },
+			displayedSnapshot: { ...pendingComparison.displayedSnapshot, status: 'current' },
+		} as const;
+		authority.apply(makePanePresentationFrame(3, 'foreground', ['review'], pendingComparison));
+
+		expect(authority.reconcileReviewComparison(2, settledComparison)).toBe('stale');
+		expect(authority.snapshot.reviewComparison).toEqual(pendingComparison);
+		expect(authority.reconcileReviewComparison(4, settledComparison)).toBe('applied');
+		expect(authority.snapshot.reviewComparison).toEqual(settledComparison);
+		expect(authority.reconcileReviewComparison(4, settledComparison)).toBe('idempotentReplay');
+		expect(() =>
+			authority.reconcileReviewComparison(4, {
+				...settledComparison,
+				activeTarget: { ...settledComparison.activeTarget, name: 'changed' },
+			}),
+		).toThrow('Bridge Review comparison revision was reused with changed state.');
+	});
+
+	test('rejects pane presentation frames older than committed Review comparison metadata', () => {
+		// Arrange
+		const authority = new BridgeCommWorkerPanePresentationAuthority();
+		authority.apply(makePanePresentationFrame(1, 'foreground', ['review']));
+		authority.reconcileReviewComparison(3, null);
+		const committedSnapshot = authority.snapshot;
+
+		// Act / Assert
+		expect(() => authority.apply(makePanePresentationFrame(2, 'loadedHidden'))).toThrow(
+			'Bridge pane presentation revision is stale.',
+		);
+		expect(authority.snapshot).toEqual(committedSnapshot);
+	});
+
 	test('owns an immutable copy of the repository default target', () => {
 		// Arrange
 		const authority = new BridgeCommWorkerPanePresentationAuthority();

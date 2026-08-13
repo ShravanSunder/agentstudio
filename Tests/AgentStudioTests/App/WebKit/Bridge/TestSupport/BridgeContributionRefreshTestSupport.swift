@@ -26,6 +26,7 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
     let initialCapture = BridgeContributionComparisonCapture(
         resolvedTargetOID: "target-oid-1",
         reviewedHeadOID: "head-oid-1",
+        baseRole: .commonCommit,
         baseOID: "base-oid-1",
         comparison: BridgeEndpointComparison(
             baseEndpoint: symbolicBaseEndpoint,
@@ -42,6 +43,7 @@ func makeContributionRefreshFixture() -> ContributionRefreshFixture {
     let successorCapture = BridgeContributionComparisonCapture(
         resolvedTargetOID: "target-oid-2",
         reviewedHeadOID: "head-oid-2",
+        baseRole: .commonCommit,
         baseOID: "base-oid-2",
         comparison: BridgeEndpointComparison(
             baseEndpoint: symbolicBaseEndpoint,
@@ -105,6 +107,7 @@ func assertStaleContributionCaptureCannotCommit(
     let staleCapture = BridgeContributionComparisonCapture(
         resolvedTargetOID: "target-oid-stale",
         reviewedHeadOID: "head-oid-stale",
+        baseRole: .commonCommit,
         baseOID: "base-oid-stale",
         comparison: BridgeEndpointComparison(
             baseEndpoint: fixture.symbolicBaseEndpoint,
@@ -135,22 +138,30 @@ func assertStaleContributionCaptureCannotCommit(
     )
     await staleCaptureGate.waitForStart()
     #expect(fixture.controller.nextReviewGeneration == 3)
+    let presentationBeforeSuccessorReservation =
+        fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot
+    #expect(presentationBeforeSuccessorReservation.reviewComparison?.attempt != .pending(reviewGeneration: 3))
     let replacementCaptureGate = BridgeContributionCaptureGate()
     await fixture.provider.setContributionCaptureGate(replacementCaptureGate)
-    await fixture.controller.handleWorktreeProductInvalidation(
-        .filesChanged(
-            FileChangeset(
-                worktreeId: fixture.worktreeId,
-                repoId: fixture.repoId,
-                rootPath: URL(fileURLWithPath: "/tmp/contribution-refresh"),
-                paths: [],
-                containsGitInternalChanges: true,
-                timestamp: .now,
-                batchSeq: 3
-            )
+    let successorInvalidation = BridgePaneWorktreeProductInvalidation.filesChanged(
+        FileChangeset(
+            worktreeId: fixture.worktreeId,
+            repoId: fixture.repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/contribution-refresh"),
+            paths: [],
+            containsGitInternalChanges: true,
+            timestamp: .now,
+            batchSeq: 3
         )
     )
+    await fixture.controller.handleWorktreeProductInvalidation(successorInvalidation)
+    await fixture.controller.handleWorktreeProductInvalidation(successorInvalidation)
     #expect(fixture.controller.nextReviewGeneration == 4)
+    #expect(fixture.controller.pendingComparisonReviewGeneration == 4)
+    #expect(
+        fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot
+            == presentationBeforeSuccessorReservation
+    )
     await staleCaptureGate.releaseAll()
     await replacementCaptureGate.waitForStart()
 
@@ -169,4 +180,21 @@ func assertStaleContributionCaptureCannotCommit(
     #expect(await fixture.provider.recordedComparisonRequestsCount() == 0)
     await replacementCaptureGate.releaseAll()
     await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
+    let finalPackage = try #require(fixture.controller.paneState.diff.packageMetadata)
+    let finalComparison = try #require(
+        fixture.controller.refreshAdmissionCoordinator.productPresentationSnapshot.reviewComparison
+    )
+    #expect(fixture.controller.pendingComparisonReviewGeneration == nil)
+    #expect(finalPackage.reviewGeneration == 4)
+    #expect(finalComparison.attempt == presentationBeforeSuccessorReservation.reviewComparison?.attempt)
+    #expect(
+        finalComparison.displayedSnapshot
+            == .current(
+                BridgePaneReviewDisplayedSnapshotIdentity(
+                    packageId: finalPackage.packageId,
+                    reviewGeneration: finalPackage.reviewGeneration.rawValue,
+                    revision: finalPackage.revision
+                )
+            )
+    )
 }

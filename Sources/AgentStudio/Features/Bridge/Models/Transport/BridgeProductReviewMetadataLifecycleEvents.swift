@@ -6,6 +6,8 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         case eventKind
         case fromRevision
         case operations
+        case presentationRevision
+        case reviewComparison
         case summary
         case toRevision
     }
@@ -14,6 +16,8 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
     let contentSources: [BridgeProductReviewContentSourceDescriptor]
     let fromRevision: Int
     let operations: [BridgeProductReviewMetadataOperation]
+    let presentationRevision: Int
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
     let summary: BridgeProductReviewPackageSummaryValue
     let toRevision: Int
 
@@ -22,6 +26,8 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         contentSources: [BridgeProductReviewContentSourceDescriptor],
         fromRevision: Int,
         operations: [BridgeProductReviewMetadataOperation],
+        presentationRevision: Int,
+        reviewComparison: BridgePaneReviewComparisonPresentation?,
         summary: BridgeProductReviewPackageSummaryValue,
         toRevision: Int
     ) throws {
@@ -29,6 +35,8 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         self.contentSources = contentSources
         self.fromRevision = fromRevision
         self.operations = operations
+        self.presentationRevision = presentationRevision
+        self.reviewComparison = reviewComparison
         self.summary = summary
         self.toRevision = toRevision
         try validate(codingPath: [])
@@ -54,6 +62,13 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         )
         self.fromRevision = try container.decode(Int.self, forKey: .fromRevision)
         self.operations = try container.decode([BridgeProductReviewMetadataOperation].self, forKey: .operations)
+        self.presentationRevision = try container.decode(Int.self, forKey: .presentationRevision)
+        self.reviewComparison = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgePaneReviewComparisonPresentation.self,
+            forKey: .reviewComparison,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.summary = try container.decode(BridgeProductReviewPackageSummaryValue.self, forKey: .summary)
         self.toRevision = try container.decode(Int.self, forKey: .toRevision)
         try validate(codingPath: decoder.codingPath)
@@ -75,6 +90,11 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         try BridgeProductContractDecoding.validateNonnegative(
             fromRevision,
             name: "fromRevision",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validatePositive(
+            presentationRevision,
+            name: "presentationRevision",
             codingPath: codingPath
         )
         try BridgeProductContractDecoding.validateNonnegative(
@@ -108,6 +128,8 @@ struct BridgeProductReviewDeltaEvent: Codable, Equatable, Sendable {
         try container.encode("review.delta", forKey: .eventKind)
         try container.encode(fromRevision, forKey: .fromRevision)
         try container.encode(operations, forKey: .operations)
+        try container.encode(presentationRevision, forKey: .presentationRevision)
+        try container.encode(reviewComparison, forKey: .reviewComparison)
         try container.encode(summary, forKey: .summary)
         try container.encode(toRevision, forKey: .toRevision)
     }

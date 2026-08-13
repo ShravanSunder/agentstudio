@@ -96,6 +96,7 @@ describe('Bridge comm worker Review metadata transaction staging', () => {
 		expect(candidatePublications).toHaveLength(1);
 		expect(candidatePublications[0]?.patches).toEqual([
 			expect.objectContaining({ operation: 'upsert', slice: 'reviewSource' }),
+			expect.objectContaining({ operation: 'replace', slice: 'reviewComparison' }),
 			expect.objectContaining({
 				operation: 'batch',
 				payload: expect.objectContaining({ reset: true, startIndex: 0 }),

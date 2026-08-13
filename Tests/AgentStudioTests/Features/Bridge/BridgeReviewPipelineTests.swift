@@ -179,6 +179,7 @@ struct BridgeReviewPipelineTests {
                     capture: BridgeContributionComparisonCapture(
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
+                        baseRole: .commonCommit,
                         baseOID: "base-oid",
                         comparison: invalidComparison
                     ),
@@ -212,6 +213,7 @@ struct BridgeReviewPipelineTests {
                 capture: BridgeContributionComparisonCapture(
                     resolvedTargetOID: "target-oid",
                     reviewedHeadOID: "head-oid",
+                    baseRole: .commonCommit,
                     baseOID: "base-oid",
                     comparison: BridgeEndpointComparison(
                         baseEndpoint: makeBridgeEndpoint(endpointId: "other-target", kind: .gitRef),
@@ -262,6 +264,7 @@ struct BridgeReviewPipelineTests {
             capture: BridgeContributionComparisonCapture(
                 resolvedTargetOID: "target-oid",
                 reviewedHeadOID: "head-oid",
+                baseRole: .commonCommit,
                 baseOID: "base-oid",
                 comparison: preparedComparison
             ),
@@ -288,6 +291,7 @@ struct BridgeReviewPipelineTests {
                         symbolicTarget: .branch(name: "integration"),
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
+                        baseRole: .commonCommit,
                         baseOID: "base-oid"
                     )
                 )

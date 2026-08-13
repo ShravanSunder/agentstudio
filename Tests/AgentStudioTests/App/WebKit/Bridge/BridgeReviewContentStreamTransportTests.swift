@@ -19,7 +19,7 @@ extension WebKitSerializedTests {
         @Test("modified review file streams base and head content through direct product authority")
         func modifiedReviewFileStreamsBaseAndHeadContentThroughDirectProductAuthority() async throws {
             // Arrange
-            let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
+            let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-ref-HEAD-1", kind: .gitRef)
             let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
             let baseText = "old source with extra bytes\nlet oldOnly = true\n"
             let headText = "new source\n"
@@ -42,16 +42,24 @@ extension WebKitSerializedTests {
                 role: .head,
                 reviewGeneration: 1
             )
+            let comparison = BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: [changedFile]
+            )
             let provider = BridgeReviewSourceProviderFake(
-                comparison: BridgeEndpointComparison(
-                    baseEndpoint: baseEndpoint,
-                    headEndpoint: headEndpoint,
-                    changedFiles: [changedFile]
-                ),
+                comparison: comparison,
                 contentByHandleId: [
                     expectedBaseHandle.handleId: makeContentResult(handle: expectedBaseHandle, data: baseText),
                     expectedHeadHandle.handleId: makeContentResult(handle: expectedHeadHandle, data: headText),
-                ]
+                ],
+                contributionCapture: BridgeContributionComparisonCapture(
+                    resolvedTargetOID: baseEndpoint.providerIdentity,
+                    reviewedHeadOID: headEndpoint.providerIdentity,
+                    baseRole: .commonCommit,
+                    baseOID: baseEndpoint.providerIdentity,
+                    comparison: comparison
+                )
             )
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),

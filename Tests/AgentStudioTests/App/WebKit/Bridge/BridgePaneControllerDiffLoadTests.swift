@@ -82,6 +82,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                         symbolicTarget: .ref(name: "target"),
                         resolvedTargetOID: "target-oid-1",
                         reviewedHeadOID: "head-oid-1",
+                        baseRole: .commonCommit,
                         baseOID: "base-oid-1"
                     )
                 )
@@ -93,6 +94,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
                         symbolicTarget: .ref(name: "target"),
                         resolvedTargetOID: "target-oid-2",
                         reviewedHeadOID: "head-oid-2",
+                        baseRole: .commonCommit,
                         baseOID: "base-oid-2"
                     )
                 )
@@ -401,6 +403,7 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let contributionCapture = BridgeContributionComparisonCapture(
             resolvedTargetOID: "target-a",
             reviewedHeadOID: "head-a",
+            baseRole: .commonCommit,
             baseOID: "base-a",
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,
@@ -597,7 +600,7 @@ private actor DiffLoadReadyPublicationGate: BridgePaneProductReviewMetadataProdu
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -675,7 +678,7 @@ private actor DiffLoadReviewReservationGate: BridgePaneProductReviewMetadataProd
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {

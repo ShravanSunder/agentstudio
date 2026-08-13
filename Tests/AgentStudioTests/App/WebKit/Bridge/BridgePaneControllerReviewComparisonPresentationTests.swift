@@ -274,7 +274,10 @@ extension WebKitSerializedTests {
 
             // Assert
             #expect(didAdopt)
-            #expect(pendingPresentation.reviewComparison?.repositoryDefaultTarget == nil)
+            #expect(
+                pendingPresentation.reviewComparison?.repositoryDefaultTarget
+                    == initialDefaultTarget
+            )
             #expect(
                 settledPresentation.reviewComparison?.repositoryDefaultTarget
                     == successorDefaultTarget
@@ -300,6 +303,7 @@ extension WebKitSerializedTests {
                 contributionCapture: BridgeContributionComparisonCapture(
                     resolvedTargetOID: "resolved-target-oid",
                     reviewedHeadOID: "reviewed-head-oid",
+                    baseRole: .commonCommit,
                     baseOID: "contribution-base-oid",
                     comparison: comparison
                 ),

@@ -1,4 +1,5 @@
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type { BridgeCommWorkerPanePresentationSnapshot } from './bridge-comm-worker-pane-presentation.js';
 import type { BridgeWorkerContentAvailabilityPatchPayload } from './bridge-worker-contracts.js';
 
 export interface BridgeCommWorkerPerformanceClock {
@@ -72,6 +73,27 @@ export interface RecordBridgeCommWorkerPanePresentationTelemetryProps {
 	readonly surface?: 'file' | 'review';
 	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder | undefined;
 	readonly workerDerivationEpoch?: number;
+}
+
+export function bridgeCommWorkerComparisonTelemetryFacts(
+	presentation: BridgeCommWorkerPanePresentationSnapshot,
+): Pick<
+	RecordBridgeCommWorkerPanePresentationTelemetryProps,
+	'comparisonAttemptStatus' | 'reviewGeneration'
+> {
+	const attempt = presentation.reviewComparison?.attempt;
+	const comparisonAttemptStatus =
+		attempt === undefined
+			? 'absent'
+			: attempt.status === 'selectionRequired'
+				? 'selection_required'
+				: attempt.status;
+	return {
+		comparisonAttemptStatus,
+		...(attempt?.status === 'pending' || attempt?.status === 'settled'
+			? { reviewGeneration: attempt.reviewGeneration }
+			: {}),
+	};
 }
 
 export function recordBridgeCommWorkerPanePresentationTelemetry(

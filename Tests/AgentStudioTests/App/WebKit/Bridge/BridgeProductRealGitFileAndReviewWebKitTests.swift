@@ -339,17 +339,15 @@ extension WebKitSerializedTests {
             #expect(proof.hiddenRefreshPassCountAfterStorm == proof.hiddenRefreshPassCountBeforeStorm)
             #expect(
                 proof.hiddenMetadataSequenceAfterStorm
-                    == proof.hiddenMetadataSequenceBeforeStorm + 1
+                    == proof.hiddenMetadataSequenceBeforeStorm
             )
             #expect(
                 proof.hiddenReviewPublicationCountAfterLateRelease
                     == proof.hiddenReviewPublicationCountBeforeLateRelease
             )
             #expect(proof.paneOneFinalRefreshPassCount == proof.paneOneForegroundRefreshPassCount + 1)
-            #expect(
-                proof.updatingReviewStatus.comparisonStatusText == "Loading comparison with main…"
-            )
-            #expect(proof.updatingReviewStatus.reviewStatusText == nil)
+            #expect(proof.updatingReviewStatus.comparisonStatusText == nil)
+            #expect(proof.updatingReviewStatus.reviewStatusText == "Updating review…")
             #expect(proof.updatingReviewStatus.fileStatusText == nil)
             #expect(proof.updatingFileStatus.fileStatusText == "Updating files…")
             #expect(proof.updatingFileStatus.reviewStatusText == nil)

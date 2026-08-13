@@ -309,6 +309,7 @@ function telemetryReviewSnapshotEvent(
 		],
 		itemWindow: { finalWindow: true, itemCount: 2, startIndex: 0, totalItemCount: 2 },
 		packageId: baseDescriptor.packageId,
+		presentationRevision: 1,
 		publicationId: '00000000-0000-7000-8000-000000000001',
 		query: {
 			baseEndpointId: 'base-endpoint',
@@ -343,6 +344,7 @@ function telemetryReviewSnapshotEvent(
 			worktreeId: 'worktree-1',
 		},
 		revision: 1,
+		reviewComparison: null,
 		sourceIdentity: baseDescriptor.sourceIdentity,
 		summary: {
 			additions: 1,

@@ -72,7 +72,8 @@ export function reviewMetadataSnapshotEventFromCompleteSnapshot(
 		snapshot.revision === null ||
 		snapshot.summary === null ||
 		snapshot.totalItemCount === null ||
-		snapshot.totalTreeRowCount === null
+		snapshot.totalTreeRowCount === null ||
+		snapshot.comparisonCommit.status !== 'committed'
 	) {
 		throw new Error('Bridge Review metadata display replacement requires a complete snapshot.');
 	}
@@ -92,9 +93,11 @@ export function reviewMetadataSnapshotEventFromCompleteSnapshot(
 			totalItemCount: snapshot.totalItemCount,
 		},
 		packageId: snapshot.identity.packageId,
+		presentationRevision: snapshot.comparisonCommit.presentationRevision,
 		publicationId: snapshot.identity.publicationId,
 		query: snapshot.query,
 		revision: snapshot.revision,
+		reviewComparison: snapshot.comparisonCommit.reviewComparison,
 		...(snapshot.reviewedSubjectLabel === null
 			? {}
 			: { reviewedSubjectLabel: snapshot.reviewedSubjectLabel }),

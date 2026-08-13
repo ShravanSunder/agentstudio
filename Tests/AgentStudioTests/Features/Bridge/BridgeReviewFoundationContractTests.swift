@@ -21,6 +21,7 @@ struct BridgeReviewFoundationContractTests {
                         symbolicTarget: .branch(name: "main"),
                         resolvedTargetOID: "target-oid",
                         reviewedHeadOID: "head-oid",
+                        baseRole: .commonCommit,
                         baseOID: "base-oid"
                     )
                 ),

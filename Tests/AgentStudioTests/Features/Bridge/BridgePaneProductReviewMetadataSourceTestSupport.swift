@@ -73,9 +73,26 @@ func deliverReviewPackage(
         productAdmission: productAdmission
     )
     return try await source.deliver(
-        package: package,
+        publication: reviewMetadataCommittedPublication(
+            package,
+            publicationId: publicationId
+        ),
         reservation: reservation,
         productAdmission: productAdmission
+    )
+}
+
+func reviewMetadataCommittedPublication(
+    _ package: BridgeReviewPackage,
+    publicationId: UUID = reviewMetadataTestPublicationId
+) -> BridgeReviewCommittedPublication {
+    BridgeReviewCommittedPublication(
+        publicationId: publicationId,
+        package: package,
+        delta: nil,
+        contentHandles: [],
+        comparisonPresentationRevision: 1,
+        reviewComparison: nil
     )
 }
 

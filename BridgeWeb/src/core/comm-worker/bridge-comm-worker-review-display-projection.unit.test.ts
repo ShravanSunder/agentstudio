@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
-import { bridgeCommWorkerReviewDisplayPatches } from './bridge-comm-worker-review-display-projection.js';
+import { BridgeCommWorkerPanePresentationAuthority } from './bridge-comm-worker-pane-presentation.js';
+import {
+	admitBridgeCommWorkerReviewDisplayPatches,
+	bridgeCommWorkerReviewDisplayPatches,
+} from './bridge-comm-worker-review-display-projection.js';
 import type {
 	BridgeCommWorkerReviewMetadataApplyResult,
 	BridgeCommWorkerReviewMetadataSnapshot,
@@ -21,18 +25,32 @@ describe('Bridge comm worker Review display projection', () => {
 	test('projects the complete Review navigation source while excluding publication identity', () => {
 		// Arrange
 		const item = reviewItemMetadata(0);
+		const reviewComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'origin/main' },
+			attempt: { reviewGeneration: 7, status: 'settled' },
+			displayedSnapshot: {
+				packageId: reviewIdentity.packageId,
+				reviewGeneration: reviewIdentity.generation,
+				revision: 12,
+				status: 'current',
+			},
+			repositoryDefaultTarget: null,
+		} as const;
 		const event: ReviewDeltaEvent = {
 			...reviewIdentity,
 			contentSources: [],
 			eventKind: 'review.delta',
 			fromRevision: 11,
 			operations: [],
+			presentationRevision: 19,
+			reviewComparison,
 			revision: 12,
 			summary: reviewSummary(1),
 			toRevision: 12,
 		};
 		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			comparisonCommit: { status: 'absent' },
 			comparisonOrigin: reviewComparisonOrigin,
 			contentSources: [reviewContentSource(item)],
 			extentFacts: [reviewExtentFact(item)],
@@ -83,6 +101,11 @@ describe('Bridge comm worker Review display projection', () => {
 			reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
 		});
 		expect(sourcePayload).not.toHaveProperty('publicationId');
+		expect(patches).toContainEqual({
+			operation: 'replace',
+			payload: reviewComparison,
+			slice: 'reviewComparison',
+		});
 	});
 
 	test('preserves Review delta operations in canonical source order', () => {
@@ -110,6 +133,7 @@ describe('Bridge comm worker Review display projection', () => {
 		};
 		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			comparisonCommit: { status: 'absent' },
 			comparisonOrigin: null,
 			contentSources: [reviewContentSource(firstItem)],
 			extentFacts: [reviewExtentFact(firstItem)],
@@ -181,6 +205,7 @@ describe('Bridge comm worker Review display projection', () => {
 		};
 		const snapshot: BridgeCommWorkerReviewMetadataSnapshot = {
 			baseEndpoint: reviewEndpoint('base', 'gitRef'),
+			comparisonCommit: { status: 'absent' },
 			comparisonOrigin: null,
 			contentSources: countedContentSources.values,
 			extentFacts: countedExtentFacts.values,
@@ -243,6 +268,80 @@ describe('Bridge comm worker Review display projection', () => {
 		expect(countedExtentFacts.readCount()).toBeLessThanOrEqual(totalItemCount + 1);
 		expect(totalArrayIndexReads).toBeLessThan(totalItemCount * 4);
 		expect(totalArrayIndexReads).toBeLessThan(totalItemCount * touchedItemCount);
+	});
+
+	test('keeps a newer pending comparison while admitting an older Review source', () => {
+		// Arrange
+		const settledComparison = {
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'origin/main' },
+			attempt: { reviewGeneration: reviewIdentity.generation, status: 'settled' },
+			displayedSnapshot: {
+				packageId: reviewIdentity.packageId,
+				reviewGeneration: reviewIdentity.generation,
+				revision: 12,
+				status: 'current',
+			},
+			repositoryDefaultTarget: null,
+		} as const;
+		const pendingComparison = {
+			...settledComparison,
+			activeTarget: { basis: 'commonCommit', kind: 'branch', name: 'feature/next' },
+			attempt: { reviewGeneration: 8, status: 'pending' },
+			displayedSnapshot: { ...settledComparison.displayedSnapshot, status: 'stale' },
+		} as const;
+		const event: ReviewDeltaEvent = {
+			...reviewIdentity,
+			contentSources: [],
+			eventKind: 'review.delta',
+			fromRevision: 11,
+			operations: [],
+			presentationRevision: 2,
+			reviewComparison: settledComparison,
+			revision: 12,
+			summary: reviewSummary(0),
+			toRevision: 12,
+		};
+		const patches = bridgeCommWorkerReviewDisplayPatches({
+			event,
+			projectionResult: {
+				affectedItemIds: [],
+				invalidation: null,
+				projectionRevision: 12,
+				reset: false,
+			},
+			snapshot: emptyReviewSnapshot(12),
+			sourceStatus: 'ready',
+		});
+		const newerAuthority = new BridgeCommWorkerPanePresentationAuthority();
+		newerAuthority.reconcileReviewComparison(3, pendingComparison);
+
+		// Act
+		const staleCommit = admitBridgeCommWorkerReviewDisplayPatches({
+			comparisonCommit: { presentationRevision: 2, reviewComparison: settledComparison },
+			panePresentationAuthority: newerAuthority,
+			patches,
+		});
+		const matchingCommit = admitBridgeCommWorkerReviewDisplayPatches({
+			comparisonCommit: { presentationRevision: 2, reviewComparison: settledComparison },
+			panePresentationAuthority: new BridgeCommWorkerPanePresentationAuthority(),
+			patches,
+		});
+
+		// Assert
+		expect(staleCommit.patches).toContainEqual({
+			operation: 'replace',
+			payload: pendingComparison,
+			slice: 'reviewComparison',
+		});
+		expect(staleCommit.patches.some((patch) => patch.slice === 'reviewSource')).toBe(true);
+		expect(pendingComparison.displayedSnapshot).toMatchObject(staleCommit.sourceIdentity ?? {});
+		expect(staleCommit.reviewComparison).toEqual(pendingComparison);
+		expect(newerAuthority.snapshot.reviewComparison).toEqual(pendingComparison);
+		expect(matchingCommit.patches).toContainEqual({
+			operation: 'replace',
+			payload: settledComparison,
+			slice: 'reviewComparison',
+		});
 	});
 });
 
@@ -408,5 +507,26 @@ function reviewSummary(
 		filesChanged: totalItemCount,
 		hiddenFileCount: 0,
 		visibleFileCount: totalItemCount,
+	};
+}
+
+function emptyReviewSnapshot(revision: number): BridgeCommWorkerReviewMetadataSnapshot {
+	return {
+		baseEndpoint: reviewEndpoint('base', 'gitRef'),
+		comparisonCommit: { status: 'absent' },
+		comparisonOrigin: null,
+		contentSources: [],
+		extentFacts: [],
+		headEndpoint: reviewEndpoint('head', 'workingTree'),
+		identity: reviewIdentity,
+		itemMetadata: [],
+		orderedItemIds: [],
+		query: reviewQuery(),
+		reviewedSubjectLabel: null,
+		revision,
+		summary: reviewSummary(0),
+		totalItemCount: 0,
+		totalTreeRowCount: 0,
+		treeRows: [],
 	};
 }

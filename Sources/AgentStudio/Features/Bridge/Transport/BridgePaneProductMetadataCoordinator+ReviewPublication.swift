@@ -71,7 +71,7 @@ extension BridgePaneProductMetadataCoordinator {
             else { return .deferred }
             do {
                 let outcome = try await reviewMetadataSource.deliver(
-                    package: publication.package,
+                    publication: publication,
                     reservation: reservation,
                     productAdmission: productAdmission
                 )

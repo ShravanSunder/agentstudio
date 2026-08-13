@@ -198,7 +198,7 @@ export function BridgeReviewComparisonControl(
 						className="col-span-2 grid grid-cols-subgrid items-center gap-x-3 px-1"
 						orientation="horizontal"
 					>
-						<FieldTitle className="text-muted-foreground">Comparing with</FieldTitle>
+						<FieldTitle className="text-muted-foreground">Compare with</FieldTitle>
 						<ToggleGroup
 							aria-label="Comparison target kind"
 							className="grid w-full grid-cols-2"

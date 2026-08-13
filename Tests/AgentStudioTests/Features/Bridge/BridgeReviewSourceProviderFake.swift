@@ -93,6 +93,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         return BridgeContributionComparisonCapture(
             resolvedTargetOID: contributionCapture.resolvedTargetOID,
             reviewedHeadOID: contributionCapture.reviewedHeadOID,
+            baseRole: contributionCapture.baseRole,
             baseOID: contributionCapture.baseOID,
             comparison: BridgeEndpointComparison(
                 baseEndpoint: baseEndpoint,

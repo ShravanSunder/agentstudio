@@ -447,7 +447,7 @@ private actor CoordinatorDrainControlledReviewMetadataSource:
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -534,7 +534,7 @@ private actor CoordinatorThrowingReviewMetadataSource: BridgePaneProductReviewMe
     }
 
     func deliver(
-        package _: BridgeReviewPackage,
+        publication _: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission _: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {

@@ -662,7 +662,7 @@ private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReview
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
@@ -670,7 +670,7 @@ private actor RefreshAdmissionGatedReviewMetadataSource: BridgePaneProductReview
             throw RefreshAdmissionInjectedReviewMetadataFailure.delivery
         }
         return try await source.deliver(
-            package: package,
+            publication: publication,
             reservation: reservation,
             productAdmission: productAdmission
         )

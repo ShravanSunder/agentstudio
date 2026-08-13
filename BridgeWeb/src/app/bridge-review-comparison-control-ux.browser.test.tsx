@@ -1,5 +1,5 @@
 import { act } from 'react';
-import type { ReactElement } from 'react';
+import { createRef, type ReactElement } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -8,6 +8,7 @@ import './bridge-app.css';
 import type { BridgeProductReviewComparisonTargetCatalog } from '../core/comm-worker/bridge-product-review-comparison-contracts.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import { BridgeReviewComparisonBranchSelector } from './bridge-review-comparison-branch-selector.js';
 import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
 
 type ReviewComparisonTargetCatalog = BridgeProductReviewComparisonTargetCatalog;
@@ -383,11 +384,14 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		// Assert
 		const title = rendered.getByRole('heading', { name: 'Compare Worktree' });
 		expect(getComputedStyle(title.element()).textTransform).toBe('uppercase');
-		const compareWithHeading = rendered.getByText('Comparing with', { exact: true });
+		const compareWithHeading = rendered.getByText('Compare with', { exact: true });
 		await expect.element(compareWithHeading).toBeVisible();
 		const targetKindSelector = rendered.getByRole('group', { name: 'Comparison target kind' });
-		const branchBasisHeading = rendered.getByText('Using', { exact: true });
+		const branchBasisHeading = rendered.getByText('Compare branches from', { exact: true });
 		const branchBasisSelector = rendered.getByRole('group', { name: 'Branch comparison basis' });
+		await expect
+			.element(rendered.getByRole('button', { name: 'Common commit', exact: true }))
+			.toBeVisible();
 		const targetKindLayout = compareWithHeading.element().parentElement;
 		const branchBasisLayout = branchBasisHeading.element().parentElement;
 		expect(targetKindLayout).not.toBeNull();
@@ -422,6 +426,37 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		);
 		expectToggleGroupTrackToFitItems(targetKindSelector.element());
 		expectToggleGroupTrackToFitItems(branchBasisSelector.element());
+	});
+
+	test('lets one Escape from branch search reach its parent picker', async () => {
+		// Arrange
+		const parentKeyDown = vi.fn();
+		const rendered = await render(
+			<div onKeyDown={parentKeyDown}>
+				<BridgeReviewComparisonBranchSelector
+					activeTarget={null}
+					onRetry={vi.fn()}
+					onSelectTarget={vi.fn()}
+					searchInputRef={createRef<HTMLInputElement>()}
+					targetQueryState={{ catalog: targetCatalog(), message: null, status: 'ready' }}
+				/>
+			</div>,
+		);
+		const branchSearch = rendered.getByRole('combobox', { name: 'Search branches' });
+		branchSearch.element().focus();
+
+		// Act
+		await act(async (): Promise<void> => {
+			branchSearch
+				.element()
+				.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+			await Promise.resolve();
+		});
+
+		// Assert
+		expect(parentKeyDown).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ key: 'Escape' }),
+		);
 	});
 
 	test('uses the neutral popover surface and shared compact toolbar trigger treatment', async () => {

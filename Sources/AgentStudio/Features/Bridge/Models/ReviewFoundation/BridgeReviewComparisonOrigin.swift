@@ -165,7 +165,7 @@ package struct BridgeReviewContributionOrigin: Codable, Equatable, Sendable {
         symbolicTarget: WorkspaceReviewContributionTarget,
         resolvedTargetOID: String,
         reviewedHeadOID: String,
-        baseRole: BridgeReviewComparisonBaseRole = .commonCommit,
+        baseRole: BridgeReviewComparisonBaseRole,
         baseOID: String
     ) {
         self.symbolicTarget = symbolicTarget
@@ -205,7 +205,7 @@ package struct BridgeContributionComparisonCapture: Equatable, Sendable {
     package init(
         resolvedTargetOID: String,
         reviewedHeadOID: String,
-        baseRole: BridgeReviewComparisonBaseRole = .commonCommit,
+        baseRole: BridgeReviewComparisonBaseRole,
         baseOID: String,
         comparison: BridgeEndpointComparison
     ) {

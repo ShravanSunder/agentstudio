@@ -62,12 +62,14 @@ extension BridgePaneController {
             guard expectedReviewGeneration == self.nextReviewGeneration else { return nil }
             return self.reviewPublicationCoordinator.commit(
                 publicationToken,
-                productAdmission: productAdmission
-            ) { committedPublication in
-                self.paneState.diff.setPackageMetadata(committedPublication.package)
-                self.paneState.diff.setPackageDelta(committedPublication.delta)
-                self.paneState.diff.setStatus(.ready)
-            }
+                productAdmission: productAdmission,
+                captureCommittedPresentation: captureCommittedReviewComparisonPresentation,
+                presentCommitted: { committedPublication in
+                    self.paneState.diff.setPackageMetadata(committedPublication.package)
+                    self.paneState.diff.setPackageDelta(committedPublication.delta)
+                    self.paneState.diff.setStatus(.ready)
+                }
+            )
         }.flatMap { $0 }
         guard let commitResult
         else {
@@ -80,7 +82,6 @@ extension BridgePaneController {
         guard case .committed(let committedPublication) = commitResult else {
             return .rejected
         }
-        settleCommittedReviewComparisonPresentation(committedPublication.package, traceContext: traceContext)
         invalidateRetainedReviewTargetIfSourceChanged(to: committedPublication.package)
 
         // Native B is already committed. A closed admission may suppress this
@@ -122,22 +123,22 @@ extension BridgePaneController {
         return .committed(delivery: deliveryDisposition)
     }
 
-    private func settleCommittedReviewComparisonPresentation(
-        _ package: BridgeReviewPackage,
-        traceContext: BridgeTraceContext?
-    ) {
-        guard case .workspace(_, let baseline) = bridgePaneState.source,
+    private func captureCommittedReviewComparisonPresentation(
+        _ package: BridgeReviewPackage
+    ) -> BridgePaneProductPresentationSnapshot {
+        if case .workspace(_, let baseline) = bridgePaneState.source,
             baseline?.contributionTarget != nil
-        else { return }
-        refreshAdmissionCoordinator.recordCommittedReviewComparisonSnapshot(
-            reviewGeneration: package.reviewGeneration.rawValue,
-            displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
-                packageId: package.packageId,
+        {
+            refreshAdmissionCoordinator.recordCommittedReviewComparisonSnapshot(
                 reviewGeneration: package.reviewGeneration.rawValue,
-                revision: package.revision
+                displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                    packageId: package.packageId,
+                    reviewGeneration: package.reviewGeneration.rawValue,
+                    revision: package.revision
+                )
             )
-        )
-        _ = scheduleProductPresentationPublication(traceContext: traceContext)
+        }
+        return refreshAdmissionCoordinator.productPresentationSnapshot
     }
 
     private func invalidateRetainedReviewTargetIfSourceChanged(
