@@ -326,7 +326,7 @@ struct BridgeProductProducerRegistry {
         state.task = nil
         state.producerObservationPacingExpectedSequence = nil
         state.producerObservationPacingWaiterToken = nil
-        state.producerObservedSequenceReplay = nil
+        state.producerObservedSequenceHighWater = nil
         producersByLeaseId[lease.id] = state
     }
 
