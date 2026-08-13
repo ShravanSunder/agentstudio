@@ -134,8 +134,14 @@ final class CommandBarResultSession {
             !isRootItemSnapshotInvalidated
         {
             rootItemSnapshotCacheHitCount += 1
+            performanceTraceRecorder?.record(
+                .commandBarCache,
+                attributes: ["agentstudio.performance.commandbar.cache_outcome": .string("hit")]
+            )
             return cachedRootItemSnapshot.snapshot
         }
+
+        let invalidationReason = rootItemSnapshotInvalidationReason(for: identity)
 
         let snapshot = trackedRootItemSnapshot(
             scope: state.activeScope,
@@ -147,7 +153,26 @@ final class CommandBarResultSession {
         cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
         isRootItemSnapshotInvalidated = false
         rootItemSnapshotBuildCount += 1
+        performanceTraceRecorder?.record(
+            .commandBarCache,
+            attributes: [
+                "agentstudio.performance.commandbar.cache_outcome": .string("miss"),
+                "agentstudio.performance.commandbar.invalidation_reason": .string(invalidationReason),
+            ]
+        )
         return snapshot
+    }
+
+    private func rootItemSnapshotInvalidationReason(
+        for identity: RootItemSnapshotCacheIdentity
+    ) -> String {
+        guard let cachedIdentity = cachedRootItemSnapshot?.identity else { return "open_generation" }
+        if isRootItemSnapshotInvalidated { return "topology_observation" }
+        if cachedIdentity.scope != identity.scope { return "scope_change" }
+        if cachedIdentity.focusedPane != identity.focusedPane { return "focused_pane" }
+        if cachedIdentity.commandContext != identity.commandContext { return "command_context" }
+        if cachedIdentity.rootSessionGeneration != identity.rootSessionGeneration { return "open_generation" }
+        return "query_meaningful_transition"
     }
 
     private func trackedRootItemSnapshot(

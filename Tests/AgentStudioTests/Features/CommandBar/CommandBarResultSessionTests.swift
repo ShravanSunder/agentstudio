@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Observation
@@ -92,6 +93,48 @@ struct CommandBarResultSessionTests {
 
         #expect(session.rootItemSnapshotBuildCount == 2)
         #expect(session.rootItemSnapshotCacheHitCount == 1)
+    }
+
+    @Test("root item cache records hits and bounded miss reasons")
+    func rootItemCacheRecordsHitsAndBoundedMissReasons() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appending(path: "command-bar-cache-\(UUIDv7.generate().uuidString)")
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "command-bar-cache",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 946,
+            timeUnixNano: { 200 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        let state = CommandBarState()
+        state.show(prefix: "#")
+        let session = CommandBarResultSession(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: FakeAppCommandDispatcher(),
+            performanceTraceRecorder: recorder
+        )
+
+        _ = session.snapshot(state: state)
+        _ = session.snapshot(state: state)
+        state.rawInput = "# repo"
+        _ = session.snapshot(state: state)
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.commandbar.cache\""))
+        #expect(contents.contains("\"agentstudio.performance.commandbar.cache_outcome\":\"hit\""))
+        #expect(contents.contains("\"agentstudio.performance.commandbar.invalidation_reason\":\"open_generation\""))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.commandbar.invalidation_reason\":\"query_meaningful_transition\""
+            )
+        )
     }
 
     @Test("whitespace-only root input stays in the empty projection and passes an empty fuzzy query")

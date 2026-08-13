@@ -1360,8 +1360,16 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(tickRecorded)
 
         let statusAttributes = try #require(recorder.recordedAttributes(for: .gitStatusComputed).first)
+        let admissionAttributes = try #require(recorder.recordedAttributes(for: .gitAdmission).first)
         let tickAttributes = try #require(recorder.recordedAttributes(for: .gitTick).first)
         #expect(statusAttributes["agentstudio.worktree.id"] == .string(worktreeId.uuidString))
+        #expect(statusAttributes["agentstudio.performance.git.demand_class"] == .string("explicit"))
+        #expect(statusAttributes["agentstudio.performance.git.trigger_source"] == .string("registration"))
+        #expect(statusAttributes["agentstudio.performance.git.cadence_tier"] == .string("1"))
+        #expect(
+            statusAttributes["agentstudio.performance.git.request.sequence"]
+                == admissionAttributes["agentstudio.performance.git.request.sequence"]
+        )
         #expect(tickAttributes["agentstudio.worktree.id"] == .string(worktreeId.uuidString))
 
         await actor.shutdown()

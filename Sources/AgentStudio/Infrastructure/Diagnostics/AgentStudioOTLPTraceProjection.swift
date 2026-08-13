@@ -1,7 +1,6 @@
 import Foundation
 
-// This exhaustive allowlist is intentionally centralized so every OTLP field
-// is audited through one projection boundary.
+// Every OTLP field is audited through this exhaustive projection allowlist.
 // swiftlint:disable type_body_length
 
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
@@ -250,7 +249,8 @@ package enum AgentStudioOTLPTraceProjection {
         "dev.branch.name",
         "terminal.activity.close_reason",
         "terminal.activity.source",
-    ]).union(BridgeProductStreamProjectionKeys.stringKeys)
+    ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
+        .union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
 
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
@@ -432,6 +432,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.logical_running.count",
         "agentstudio.performance.git.pending.count",
         "agentstudio.performance.git.registered.count",
+        "agentstudio.performance.git.request.sequence",
         "agentstudio.performance.git.retry_pending.count",
         "agentstudio.performance.git.running.count",
         "agentstudio.performance.git.snapshot_dedup.count",
@@ -906,6 +907,9 @@ extension AgentStudioOTLPTraceProjection {
     private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
         if let allowedValues = BridgeTelemetryWireSchema.allowedStringValues(for: key) {
             return allowedValues.contains(value)
+        }
+        if let isAllowed = AgentStudioOTLPAttributionProjectionKeys.isAllowedValue(key: key, value: value) {
+            return isAllowed
         }
         switch key {
         case "agentstudio.performance.sidebar.surface":

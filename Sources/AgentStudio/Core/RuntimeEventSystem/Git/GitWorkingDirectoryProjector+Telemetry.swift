@@ -38,8 +38,35 @@ extension GitWorkingDirectoryProjector {
                     "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
                     "agentstudio.performance.git.running.count": .int(worktreeTasks.count),
                     "agentstudio.performance.git.available_slot.count": .int(availableSlots),
+                    "agentstudio.performance.git.demand_class": .string(
+                        refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] ?? "background"
+                    ),
+                    "agentstudio.performance.git.trigger_source": .string(
+                        (refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] ?? .registration).rawValue
+                    ),
+                    "agentstudio.performance.git.cadence_tier": .string(
+                        refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] ?? "1"
+                    ),
+                    "agentstudio.performance.git.request.sequence": .int(
+                        Int(refreshAttribution.requestSequenceByWorktreeId[worktreeId] ?? 0)
+                    ),
                 ]
             )
         }
+    }
+
+    func demandClass(for worktreeId: UUID) -> String {
+        if activePaneWorktreeId == worktreeId { return "active_pane" }
+        if sidebarVisibleWorktreeIds.contains(worktreeId) { return "visible_sidebar" }
+        if activeWorktreeIds.contains(worktreeId) || immediateRefreshWorktreeIds.contains(worktreeId) {
+            return "explicit"
+        }
+        return "background"
+    }
+
+    func cadenceTier(for worktreeId: UUID) -> String {
+        let unchangedCount = unchangedStatusResultCountByWorktreeId[worktreeId] ?? 0
+        let interval = refreshPolicy.cadenceTickInterval(forUnchangedResultCount: unchangedCount)
+        return String(min(4, max(1, interval)))
     }
 }

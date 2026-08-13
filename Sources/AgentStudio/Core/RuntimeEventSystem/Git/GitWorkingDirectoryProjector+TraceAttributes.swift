@@ -22,6 +22,18 @@ extension GitWorkingDirectoryProjector {
             ),
             "agentstudio.performance.git.status_scope": .string(scope.traceValue),
             "agentstudio.performance.git.pathspec.count": .int(pathspecCount),
+            "agentstudio.performance.git.demand_class": .string(
+                refreshAttribution.admittedDemandClassByWorktreeId[changeset.worktreeId] ?? "background"
+            ),
+            "agentstudio.performance.git.trigger_source": .string(
+                (refreshAttribution.admittedTriggerSourceByWorktreeId[changeset.worktreeId] ?? .registration).rawValue
+            ),
+            "agentstudio.performance.git.cadence_tier": .string(
+                refreshAttribution.admittedCadenceTierByWorktreeId[changeset.worktreeId] ?? "1"
+            ),
+            "agentstudio.performance.git.request.sequence": .int(
+                Int(refreshAttribution.requestSequenceByWorktreeId[changeset.worktreeId] ?? 0)
+            ),
         ]
         if let unavailable {
             attributes["agentstudio.performance.git.status_unavailable.reason"] = .string(unavailable.reason.rawValue)

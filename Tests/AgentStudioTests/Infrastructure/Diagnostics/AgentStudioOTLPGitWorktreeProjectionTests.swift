@@ -23,6 +23,10 @@ struct AgentStudioOTLPGitWorktreeProjectionTests {
             ],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
+                "agentstudio.performance.git.demand_class": .string("active_pane"),
+                "agentstudio.performance.git.trigger_source": .string("filesystem_change"),
+                "agentstudio.performance.git.cadence_tier": .string("2"),
+                "agentstudio.performance.git.request.sequence": .int(42),
                 "agentstudio.performance.git.status_scope": .string("full"),
                 "agentstudio.performance.git.root_path": .string(rawRootPath),
                 "agentstudio.worktree.id": .string(worktreeID.uuidString),
@@ -34,10 +38,39 @@ struct AgentStudioOTLPGitWorktreeProjectionTests {
 
         #expect(projection.resource["dev.worktree.hash"] == "worktree-hash")
         #expect(projection.attributes["dev.worktree.hash"] == .string("worktree-hash"))
+        #expect(projection.attributes["agentstudio.performance.git.demand_class"] == .string("active_pane"))
+        #expect(projection.attributes["agentstudio.performance.git.trigger_source"] == .string("filesystem_change"))
+        #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == .string("2"))
+        #expect(projection.attributes["agentstudio.performance.git.request.sequence"] == .int(42))
         #expect(projection.attributes["agentstudio.worktree.id"] == nil)
         #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
         #expect(!renderedProjection.contains(worktreeID.uuidString))
         #expect(!renderedProjection.contains(rawRootPath))
+    }
+
+    @Test
+    func gitProjectionDropsUnboundedAttributionValues() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 501,
+            severityText: .info,
+            body: "performance.git.admission",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.demand_class": .string("/private/demand"),
+                "agentstudio.performance.git.trigger_source": .string("private-trigger"),
+                "agentstudio.performance.git.cadence_tier": .string("99"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.git.demand_class"] == nil)
+        #expect(projection.attributes["agentstudio.performance.git.trigger_source"] == nil)
+        #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == nil)
     }
 }
 

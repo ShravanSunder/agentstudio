@@ -54,6 +54,12 @@ extension GitWorkingDirectoryProjector {
         }
 
         for worktreeId in admittedWorktreeIds {
+            refreshAttribution.nextRequestSequence &+= 1
+            refreshAttribution.requestSequenceByWorktreeId[worktreeId] = refreshAttribution.nextRequestSequence
+            refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] = demandClass(for: worktreeId)
+            refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] = cadenceTier(for: worktreeId)
+            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] =
+                refreshAttribution.triggerSourceByWorktreeId[worktreeId] ?? .registration
             startDrainTask(worktreeId: worktreeId)
         }
         guard !admittedWorktreeIds.isEmpty else { return }

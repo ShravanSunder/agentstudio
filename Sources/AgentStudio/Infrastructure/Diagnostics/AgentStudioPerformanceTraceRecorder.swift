@@ -132,6 +132,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case bridgeWorktreeProductConstruction = "performance.bridge.worktree_product_construction"
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
+        case commandBarCache = "performance.commandbar.cache"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
