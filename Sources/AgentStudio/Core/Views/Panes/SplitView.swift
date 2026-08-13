@@ -142,27 +142,33 @@ package struct SplitView<L: View, R: View>: View {
                     )
                     onResizeBegin?()
                 }
-                frameMeasurement.admitSample(using: interactionProbe)
                 switch direction {
                 case .horizontal:
                     let new = min(max(minSize, gesture.location.x), size.width - minSize)
                     RestoreTrace.log(
                         "SplitView.dragChanged direction=horizontal location=\(NSStringFromPoint(gesture.location)) size=\(NSStringFromSize(size)) split(before)=\(split) split(after)=\(new / size.width)"
                     )
-                    split = new / size.width
+                    let resizedSplit = new / size.width
+                    guard resizedSplit != split else { return }
+                    split = resizedSplit
+                    frameMeasurement.admitSample(using: interactionProbe)
 
                 case .vertical:
                     let new = min(max(minSize, gesture.location.y), size.height - minSize)
                     RestoreTrace.log(
                         "SplitView.dragChanged direction=vertical location=\(NSStringFromPoint(gesture.location)) size=\(NSStringFromSize(size)) split(before)=\(split) split(after)=\(new / size.height)"
                     )
-                    split = new / size.height
+                    let resizedSplit = new / size.height
+                    guard resizedSplit != split else { return }
+                    split = resizedSplit
+                    frameMeasurement.admitSample(using: interactionProbe)
                 }
             }
             .onEnded { _ in
                 RestoreTrace.log(
                     "SplitView.dragEnd direction=\(String(describing: direction)) split(final)=\(split)"
                 )
+                frameMeasurement.gestureDidEnd(using: interactionProbe)
                 hasStartedResize = false
                 onResizeEnd?()
             }
