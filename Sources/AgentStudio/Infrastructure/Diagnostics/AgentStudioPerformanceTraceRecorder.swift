@@ -164,6 +164,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarToggle = "performance.sidebar.toggle"
         case tabBarCurrent = "performance.tabbar.current"
         case tabBarCapture = "performance.tabbar.capture"
+        case tabBarContextMenu = "performance.tabbar.context_menu"
         case tabBarPublication = "performance.tabbar.publication"
         case tabBarRefresh = "performance.tabbar.refresh"
         case tabBarTerminal = "performance.tabbar.terminal"

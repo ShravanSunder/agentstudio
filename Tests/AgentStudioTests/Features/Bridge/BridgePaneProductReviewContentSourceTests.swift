@@ -441,6 +441,7 @@ private final class ReviewProductContentFixture {
             case .committed = coordinator.commit(
                 token,
                 productAdmission: productAdmission,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             )
         else {

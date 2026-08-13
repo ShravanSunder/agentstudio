@@ -3,6 +3,10 @@ import Foundation
 @testable import AgentStudioBridge
 
 actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
+    private let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    private let comparisonTargetsCapture: BridgeReviewComparisonTargetsCapture?
+    private let comparisonTargetsCaptureGate: BridgeComparisonGate?
+    private var contributionCapture: BridgeContributionComparisonCapture?
     var comparison: BridgeEndpointComparison
     var contentByHandleId: [String: BridgeContentLoadResult]
     var treeDescriptors: [BridgeReviewItemDescriptor]
@@ -15,6 +19,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     private var comparisonRequests: [BridgeEndpointComparisonRequest] = []
     private var treeReadRequests: [BridgeTreeReadRequest] = []
     private var itemDescriptorRequests: [BridgeReviewItemDescriptorRequest] = []
+    private var contributionRequests: [BridgeContributionComparisonRequest] = []
     private var observedCancellationCount = 0
     private var finishedContentLoadCount = 0
     private var finishedContentLoadWaiters: [BridgeContentLoadWaiter] = []
@@ -27,6 +32,10 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     init(
         comparison: BridgeEndpointComparison,
         contentByHandleId: [String: BridgeContentLoadResult],
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil,
+        comparisonTargetsCapture: BridgeReviewComparisonTargetsCapture? = nil,
+        comparisonTargetsCaptureGate: BridgeComparisonGate? = nil,
+        contributionCapture: BridgeContributionComparisonCapture? = nil,
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
         comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure] = [:],
@@ -34,6 +43,10 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparisonGate: BridgeComparisonGate? = nil,
         checksCancellationAfterGate: Bool = false
     ) {
+        self.repositoryDefaultTarget = repositoryDefaultTarget
+        self.comparisonTargetsCapture = comparisonTargetsCapture
+        self.comparisonTargetsCaptureGate = comparisonTargetsCaptureGate
+        self.contributionCapture = contributionCapture
         self.comparison = comparison
         self.contentByHandleId = contentByHandleId
         self.treeDescriptors = treeDescriptors
@@ -42,6 +55,52 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         self.contentLoadGate = contentLoadGate
         self.comparisonGate = comparisonGate
         self.checksCancellationAfterGate = checksCancellationAfterGate
+    }
+
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        repositoryDefaultTarget
+    }
+
+    func captureReviewComparisonTargets(
+        _: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        await comparisonTargetsCaptureGate?.waitUntilReleased()
+        guard let comparisonTargetsCapture else {
+            throw BridgeProviderFailure.providerFailed(
+                message: "Review comparison target capture not configured"
+            )
+        }
+        return comparisonTargetsCapture
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        contributionRequests.append(request)
+        guard let contributionCapture else {
+            throw BridgeProviderFailure.providerFailed(message: "Contribution capture not configured")
+        }
+        let baseEndpoint = BridgeSourceEndpoint(
+            endpointId: request.baseEndpoint.endpointId,
+            kind: .gitRef,
+            repoId: request.baseEndpoint.repoId,
+            worktreeId: request.baseEndpoint.worktreeId,
+            label: request.baseEndpoint.label,
+            createdAtUnixMilliseconds: request.baseEndpoint.createdAtUnixMilliseconds,
+            contentSetHash: contributionCapture.baseOID,
+            providerIdentity: contributionCapture.baseOID
+        )
+        return BridgeContributionComparisonCapture(
+            resolvedTargetOID: contributionCapture.resolvedTargetOID,
+            reviewedHeadOID: contributionCapture.reviewedHeadOID,
+            baseRole: contributionCapture.baseRole,
+            baseOID: contributionCapture.baseOID,
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: request.headEndpoint,
+                changedFiles: contributionCapture.comparison.changedFiles
+            )
+        )
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
@@ -56,8 +115,14 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         let resolvedComparison = comparison
         await comparisonGate?.waitUntilReleased()
         return BridgeEndpointComparison(
-            baseEndpoint: request.baseEndpoint,
-            headEndpoint: request.headEndpoint,
+            baseEndpoint: endpoint(
+                request.baseEndpoint,
+                carryingResolvedIdentityFrom: resolvedComparison.baseEndpoint
+            ),
+            headEndpoint: endpoint(
+                request.headEndpoint,
+                carryingResolvedIdentityFrom: resolvedComparison.headEndpoint
+            ),
             changedFiles: resolvedComparison.changedFiles
         )
     }
@@ -117,8 +182,16 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         comparisonRequests
     }
 
+    func recordedContributionRequests() -> [BridgeContributionComparisonRequest] {
+        contributionRequests
+    }
+
     func setComparison(_ comparison: BridgeEndpointComparison) {
         self.comparison = comparison
+    }
+
+    func setContributionCapture(_ contributionCapture: BridgeContributionComparisonCapture) {
+        self.contributionCapture = contributionCapture
     }
 
     func setComparisonGate(_ comparisonGate: BridgeComparisonGate?) {
@@ -161,6 +234,25 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
             }
         }
         finishedContentLoadWaiters = pendingWaiters
+    }
+
+    private func endpoint(
+        _ requestedEndpoint: BridgeSourceEndpoint,
+        carryingResolvedIdentityFrom configuredEndpoint: BridgeSourceEndpoint
+    ) -> BridgeSourceEndpoint {
+        guard requestedEndpoint.kind == configuredEndpoint.kind,
+            let contentSetHash = configuredEndpoint.contentSetHash
+        else { return requestedEndpoint }
+        return BridgeSourceEndpoint(
+            endpointId: requestedEndpoint.endpointId,
+            kind: requestedEndpoint.kind,
+            repoId: requestedEndpoint.repoId,
+            worktreeId: requestedEndpoint.worktreeId,
+            label: requestedEndpoint.label,
+            createdAtUnixMilliseconds: requestedEndpoint.createdAtUnixMilliseconds,
+            contentSetHash: contentSetHash,
+            providerIdentity: contentSetHash
+        )
     }
 }
 

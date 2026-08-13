@@ -293,7 +293,9 @@ private func makeBridgePane(
         content: .bridgePanel(
             BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: worktree.path.path, baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: worktree.path.path,
+                    baseline: .ref(name: "HEAD~1"))
             )
         ),
         metadata: PaneMetadata(

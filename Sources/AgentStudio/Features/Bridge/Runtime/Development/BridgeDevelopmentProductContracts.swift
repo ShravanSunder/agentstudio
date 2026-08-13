@@ -1,18 +1,35 @@
+import AgentStudioCore
 import Foundation
 
 package struct BridgeDevelopmentProductSource: Equatable, Sendable {
+    package let paneID: UUID
+    package let paneState: BridgePaneState
+    package let repoID: UUID
+    package let reviewedSubjectLabel: String?
+    package let worktreeID: UUID
     package let worktreeRoot: URL
-    package let reviewBase: String
 
-    package init(worktreeRoot: URL, reviewBase: String) {
+    package init(
+        paneID: UUID,
+        paneState: BridgePaneState,
+        repoID: UUID,
+        reviewedSubjectLabel: String?,
+        worktreeID: UUID,
+        worktreeRoot: URL
+    ) {
+        self.paneID = paneID
+        self.paneState = paneState
+        self.repoID = repoID
+        self.reviewedSubjectLabel = reviewedSubjectLabel
+        self.worktreeID = worktreeID
         self.worktreeRoot = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
-        self.reviewBase = reviewBase
     }
 }
 
 package enum BridgeDevelopmentProductHostError: Error, Equatable, Sendable {
     case invalidBootstrapRequest
-    case invalidReviewBase
+    case invalidContributionTarget
+    case invalidPaneSource
     case invalidWorktree
     case replacementNavigationChanged
     case replacementPaneNotFound

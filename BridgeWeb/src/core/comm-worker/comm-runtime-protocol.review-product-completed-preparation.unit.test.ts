@@ -122,10 +122,10 @@ describe('Bridge comm worker completed Review preparation lifecycle', () => {
 		await flushBridgeWorkerRuntimeContinuations();
 		const messageCountBeforeNativeCycle = postedMessages.length;
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(2, 'loadedHidden'),
+			makeReviewPanePresentationFrame(12, 'loadedHidden'),
 		);
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(3, 'foreground'),
+			makeReviewPanePresentationFrame(13, 'foreground'),
 		);
 		await drainBridgeCommWorkerPreparationUntilIdle(
 			scheduledDrains,

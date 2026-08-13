@@ -58,6 +58,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.app.startup.phase",
         "agentstudio.bridge.anchor_restore.phase",
         "agentstudio.bridge.cache.result",
+        "agentstudio.bridge.comparison.attempt.status",
+        "agentstudio.bridge.comparison.package_match",
+        "agentstudio.bridge.comparison.pane_state",
         "agentstudio.bridge.content.correlation_mode",
         "agentstudio.bridge.content.interest",
         "agentstudio.bridge.content.priority",
@@ -83,9 +86,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.native_capacity.product_kind",
         "agentstudio.bridge.native_capacity.worktree_hash",
         "agentstudio.bridge.package_build.reason",
+        "agentstudio.bridge.panel.operation",
         "agentstudio.bridge.phase",
         "agentstudio.bridge.plane",
         "agentstudio.bridge.priority",
+        "agentstudio.bridge.presentation.disposition",
         "agentstudio.bridge.projection.kind",
         "agentstudio.bridge.protocol",
         "agentstudio.bridge.query_class",
@@ -146,6 +151,8 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.surface",
         "agentstudio.performance.sidebar.trigger",
         "agentstudio.performance.sidebar.toggle.intent",
+        "agentstudio.performance.tabbar.context_menu.hit_view_class",
+        "agentstudio.performance.tabbar.context_menu.phase",
         "agentstudio.performance.tabbar.terminal.outcome",
         "agentstudio.performance.terminal.accumulator.drain.class",
         "agentstudio.performance.terminal.accumulator.apply.outcome",
@@ -244,6 +251,8 @@ package enum AgentStudioOTLPTraceProjection {
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.tree_path_count_bucket",
         "agentstudio.bridge.worker.payload_class",
+        "agentstudio.performance.tabbar.context_menu.hit_view_class",
+        "agentstudio.performance.tabbar.context_menu.phase",
     ]
 
     private static let allowedNumericAttributeKeys: Set<String> = Set([
@@ -313,7 +322,10 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.metadata_manifest.emitted_total",
         "agentstudio.bridge.metadata_manifest.expected_total",
         "agentstudio.bridge.metadata_manifest.remaining_total",
+        "agentstudio.bridge.presentation.publication_sequence",
+        "agentstudio.bridge.presentation.revision",
         "agentstudio.bridge.review.item_count",
+        "agentstudio.bridge.review.generation",
         "agentstudio.bridge.review.publication.emitted_events",
         "agentstudio.bridge.review.publication.published_subscriptions",
         "agentstudio.bridge.review.publication.retained",
@@ -358,6 +370,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.worktree_file.tree.window.start_index",
         "agentstudio.bridge.worktree_file.tree.window.count",
         "agentstudio.bridge.worker.handler_duration_ms",
+        "agentstudio.bridge.worker.derivation_epoch",
         "agentstudio.bridge.worker.patch_count",
         "agentstudio.bridge.worker.queue_wait_ms",
         "agentstudio.bridge.worker.source_epoch",
@@ -668,6 +681,8 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.focus",
         "agentstudio.bridge.header_missing",
         "agentstudio.bridge.header_supported",
+        "agentstudio.bridge.presentation.has_active_stream",
+        "agentstudio.bridge.refreshing.review",
         "agentstudio.bridge.row_mounted",
         "agentstudio.bridge.scroll.active",
         "agentstudio.bridge.selected",
@@ -699,6 +714,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.was_empty",
         "agentstudio.performance.sidebar.was_collapsed",
         "agentstudio.performance.tabbar.active_tab.present",
+        "agentstudio.performance.tabbar.context_menu.host_hit",
+        "agentstudio.performance.tabbar.context_menu.static_menu_available",
+        "agentstudio.performance.tabbar.context_menu.tab_hit",
         "agentstudio.performance.terminal.activity_projection.submitted",
         "agentstudio.performance.terminal.surface.dedup_likely",
         "agentstudio.performance.terminal.surface.hidden",
@@ -763,20 +781,11 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
 
-    private static func safeResource(_ resource: [String: String]) -> [String: String] {
-        var projected: [String: String] = [:]
-        for (key, value) in resource where allowedSafeResourceKeys.contains(key) && isSafeResourceValue(value) {
-            projected[key] = value
-        }
-        return projected
-    }
-
     private static func projectedResource(_ safeResource: [String: String]) -> [String: String] {
         safeResource.filter { key, _ in
             allowedResourceKeys.contains(key)
         }
     }
-
     private static func projectedAttributes(
         _ attributes: [String: AgentStudioTraceValue],
         resource: [String: String]
@@ -794,6 +803,11 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 
+}
+
+// MARK: - Value Validation
+
+extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(
         key: String,
         value: AgentStudioTraceValue
@@ -821,11 +835,13 @@ package enum AgentStudioOTLPTraceProjection {
             return nil
         }
     }
-}
-
-// MARK: - Value Validation
-
-extension AgentStudioOTLPTraceProjection {
+    private static func safeResource(_ resource: [String: String]) -> [String: String] {
+        var projected: [String: String] = [:]
+        for (key, value) in resource where allowedSafeResourceKeys.contains(key) && isSafeResourceValue(value) {
+            projected[key] = value
+        }
+        return projected
+    }
     private static let resourceKeysProjectedAsLogAttributes: Set<String> = [
         "agentstudio.release_channel",
         "agentstudio.runtime_flavor",
@@ -919,6 +935,10 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.tabbar.context_menu.phase":
+            return ["input", "host_hit_test"].contains(value)
+        case "agentstudio.performance.tabbar.context_menu.hit_view_class":
+            return ["swiftui", "appkit", "none"].contains(value)
         case "agentstudio.persistence.reason":
             return [
                 "topology_restore_main_role_repaired",

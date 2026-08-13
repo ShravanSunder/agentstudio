@@ -33,6 +33,12 @@ describe('Bridge comm worker product command sender', () => {
 			params: { fileId: 'item-1' },
 		});
 		await controller.sendProductControl({
+			method: 'review.comparison.update',
+			params: {
+				target: { basis: 'commonCommit', kind: 'localDefaultBranch', branchName: 'main' },
+			},
+		});
+		await controller.sendProductControl({
 			method: 'bridge.intakeReady',
 			params: {
 				protocolId: 'review',
@@ -46,6 +52,10 @@ describe('Bridge comm worker product command sender', () => {
 		// Assert
 		expect(calls).toEqual([
 			['review.markFileViewed', { itemId: 'item-1' }],
+			[
+				'review.comparison.update',
+				{ target: { basis: 'commonCommit', kind: 'localDefaultBranch', branchName: 'main' } },
+			],
 			['review.intake.ready', { reason: 'sequence_gap', streamId: 'review-stream' }],
 			[
 				'review.activeViewerMode.update',

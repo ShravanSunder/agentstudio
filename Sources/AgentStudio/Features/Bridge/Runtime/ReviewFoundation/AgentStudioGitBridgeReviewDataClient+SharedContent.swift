@@ -131,6 +131,11 @@ extension AgentStudioGitBridgeReviewDataClient: BridgeSharedReviewConstructionCl
                 source: .shared(backing: backing, identity: identity),
                 reviewGeneration: handle.reviewGeneration
             )
+            // A fresh contribution capture registers live locators before shared
+            // construction acquisition. A reused immutable template does not run
+            // captureSharedContent again, so installing its backing must consume
+            // the now-superseded live locator for this exact handle identity.
+            liveLocatorByIdentity.removeValue(forKey: locatorIdentity)
             if sharedLocatorStackByIdentity[locatorIdentity]?.contains(where: {
                 $0.registrationIdentity == backing.artifactIdentity
             }) != true {

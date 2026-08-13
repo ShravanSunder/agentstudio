@@ -198,6 +198,8 @@ function reviewMetadataSnapshot(
 	const itemMetadata = props.itemMetadata ?? [];
 	return {
 		baseEndpoint: null,
+		comparisonCommit: { status: 'absent' },
+		comparisonOrigin: null,
 		contentSources: props.contentSources ?? [],
 		extentFacts: props.extentFacts ?? [],
 		headEndpoint: null,
@@ -211,6 +213,7 @@ function reviewMetadataSnapshot(
 		orderedItemIds: itemMetadata.map((item) => item.itemId),
 		query: null,
 		revision: 11,
+		reviewedSubjectLabel: null,
 		summary: null,
 		totalItemCount: itemMetadata.length,
 		totalTreeRowCount: props.treeRows?.length ?? 0,

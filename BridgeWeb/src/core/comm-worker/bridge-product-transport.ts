@@ -335,6 +335,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 		this.#metadataReady = ready;
 		const readTask = this.#readMetadataStream(request);
 		void readTask.catch((error: unknown): void => {
+			if (this.#metadataReady === ready) {
+				this.#metadataReady = null;
+			}
 			ready.reject(error);
 			this.#poisonMetadataSession(error);
 		});

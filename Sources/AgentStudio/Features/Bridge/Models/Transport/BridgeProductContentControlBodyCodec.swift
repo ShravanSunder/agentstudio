@@ -144,6 +144,13 @@ struct BridgeProductContentAcceptedControlBody: Codable {
                     codingPath: codingPath
                 )
             }
+        case .reviewComparisonTargets:
+            guard declaredByteLength == maximumBytes else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted comparison-target maximum must equal its declared length",
+                    codingPath: codingPath
+                )
+            }
         }
     }
 }

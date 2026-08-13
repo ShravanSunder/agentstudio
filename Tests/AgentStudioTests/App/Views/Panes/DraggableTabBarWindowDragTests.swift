@@ -66,6 +66,71 @@ struct DraggableTabBarWindowDragTests {
         #expect(!didDrag)
     }
 
+    @Test("a secondary click entering the tab host emits an input trace")
+    func secondaryClickEnteringTabHostEmitsInputTrace() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "tab-context-menu-input-\(UUIDv7.generate().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: traceDirectory) }
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "tab-context-menu-input",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 941,
+            timeUnixNano: { 941 }
+        )
+        let traceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let fixture = makeHostingViewFixture(performanceTraceRecorder: traceRecorder)
+        let event = try makeMouseDownEvent(
+            type: .rightMouseDown,
+            atNSViewPoint: fixture.pointInsidePill,
+            clickCount: 1,
+            windowNumber: fixture.window.windowNumber
+        )
+
+        NSApp.sendEvent(event)
+        fixture.hostingView.currentEventProvider = { event }
+        _ = fixture.hostingView.hitTest(fixture.pointInsidePill)
+        try await traceRecorder.drain()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.tabbar.context_menu\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.phase\":\"input\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.tab_hit\":true"))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.phase\":\"host_hit_test\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.host_hit\":true"))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.tabbar.context_menu.hit_view_class\":\"swiftui\""
+            )
+        )
+    }
+
+    @Test("a secondary click on a tab requests its native context menu and consumes the event")
+    func secondaryClickOnTabRequestsContextMenuAndConsumesEvent() throws {
+        let fixture = makeHostingViewFixture()
+        var requestedTabId: UUID?
+        fixture.hostingView.contextMenuRequestHandler = { tabId, _ in
+            requestedTabId = tabId
+            return true
+        }
+        let event = try makeMouseDownEvent(
+            type: .rightMouseDown,
+            atNSViewPoint: fixture.pointInsidePill,
+            clickCount: 1,
+            windowNumber: fixture.window.windowNumber
+        )
+
+        let forwardedEvent = fixture.hostingView.processRightMouseDown(event)
+
+        #expect(requestedTabId == fixture.tabId)
+        #expect(forwardedEvent == nil)
+    }
+
     @Test("a click in the empty strip starts a window drag")
     func clickInEmptyStripStartsWindowDrag() throws {
         let fixture = makeHostingViewFixture()
@@ -159,13 +224,15 @@ struct DraggableTabBarWindowDragTests {
     private struct HostingViewFixture {
         let hostingView: DraggableTabBarHostingView
         let window: NSWindow
+        let tabId: UUID
         let pointInsidePill: NSPoint
         let pointOutsidePill: NSPoint
     }
 
     /// Builds a `DraggableTabBarHostingView` hosted as the content view of a real,
     /// never-ordered-front borderless window, with one tab-pill frame seeded directly
-    /// via `updateTabFrames` (bypassing SwiftUI layout entirely). `mouseDown` converts
+    /// via `updateTabFrames`. The window performs one layout pass so hit testing reaches
+    /// the hosted SwiftUI subtree. `mouseDown` converts
     /// `event.locationInWindow` through `convert(_:from:)`, which needs a real window
     /// to resolve correctly; a borderless window sized to the view's bounds keeps
     /// window-base coordinates identical to the view's own local coordinates.
@@ -173,7 +240,9 @@ struct DraggableTabBarWindowDragTests {
     /// SwiftUI-space frame stored in `tabFrames` (top-left origin), so the two probe
     /// points below are chosen to land inside and outside the seeded pill frame after
     /// that flip.
-    private func makeHostingViewFixture() -> HostingViewFixture {
+    private func makeHostingViewFixture(
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+    ) -> HostingViewFixture {
         let atoms = makeTestAtomRegistry()
         let store = WorkspaceStore(
             identityAtom: atoms.core.workspaceIdentity,
@@ -186,7 +255,8 @@ struct DraggableTabBarWindowDragTests {
         let adapter = TabBarAdapter(
             store: store,
             repoCache: atoms.core.repoCache,
-            inboxAtom: InboxNotificationAtom()
+            inboxAtom: InboxNotificationAtom(),
+            performanceTraceRecorder: performanceTraceRecorder
         )
         let tabBar = CustomTabBar(
             adapter: adapter,
@@ -195,7 +265,11 @@ struct DraggableTabBarWindowDragTests {
             onCommand: { _, _ in },
             onShowArrangements: { _ in }
         )
-        let hostingView = DraggableTabBarHostingView(rootView: tabBar)
+        let hostingView = DraggableTabBarHostingView(
+            rootView: tabBar,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+        hostingView.configure(adapter: adapter) { _, _, _ in }
         let boundsHeight: CGFloat = AppStyles.Shell.TabBar.height
         let bounds = NSRect(x: 0, y: 0, width: 400, height: boundsHeight)
         hostingView.frame = bounds
@@ -207,26 +281,30 @@ struct DraggableTabBarWindowDragTests {
             defer: false
         )
         window.contentView = hostingView
+        window.contentView?.layoutSubtreeIfNeeded()
 
+        let tabId = UUIDv7.generate()
         let pillFrame = CGRect(x: 20, y: 4, width: 100, height: AppStyles.Shell.TabBar.tabPillHeight)
-        hostingView.updateTabFrames([UUID(): pillFrame])
+        hostingView.updateTabFrames([tabId: pillFrame])
 
         return HostingViewFixture(
             hostingView: hostingView,
             window: window,
+            tabId: tabId,
             pointInsidePill: NSPoint(x: 50, y: boundsHeight - 20),
             pointOutsidePill: NSPoint(x: 300, y: boundsHeight - 20)
         )
     }
 
     private func makeMouseDownEvent(
+        type: NSEvent.EventType = .leftMouseDown,
         atNSViewPoint point: NSPoint,
         clickCount: Int,
         windowNumber: Int
     ) throws -> NSEvent {
         try #require(
             NSEvent.mouseEvent(
-                with: .leftMouseDown,
+                with: type,
                 location: point,
                 modifierFlags: [],
                 timestamp: 1,

@@ -18,8 +18,12 @@ dry-run ok: hard-cuts Files and Review Filter candidates with semantic read-back
 dry-run ok: proves supported Search admission and length boundaries
 dry-run ok: proves the disposable worktree remains read-only
 dry-run ok: binds Victoria marker and proof token
-dry-run ok: leaves the candidate available for PID-targeted Peekaboo
+dry-run ok: waits for Computer Use UI selection before verification
 dry-run ok: requires visible document and live RAF; no frame_not_live skip
+dry-run ok: proves exact package origin and core.sqlite symbolic intent
+dry-run ok: proves automatic Git-ref invalidation without bridge.diff.refresh
+dry-run ok: does not embed desktop automation
+dry-run ok: interprets raw one-row comparison geometry
 DRY_RUN
   exit 0
 fi
@@ -66,6 +70,8 @@ early_path=""
 middle_path=""
 final_path=""
 tracked_path=""
+reviewed_branch_name=""
+comparison_target_name=""
 
 if [ ! -f "$JOURNEY_STATE_FILE" ]; then
   echo "Bridge packaged journey state is missing: $JOURNEY_STATE_FILE" >&2
@@ -86,6 +92,8 @@ while IFS='=' read -r key raw_value; do
     AGENTSTUDIO_BRIDGE_JOURNEY_MIDDLE_PATH) middle_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FINAL_PATH) final_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_PATH) tracked_path="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_REVIEWED_BRANCH_NAME) reviewed_branch_name="$value" ;;
+    AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME) comparison_target_name="$value" ;;
   esac
 done <"$JOURNEY_STATE_FILE"
 
@@ -272,11 +280,17 @@ AGENTSTUDIO_BRIDGE_JOURNEY_PROOF_TOKEN="$state_proof_token" \
   "$early_path" \
   "$middle_path" \
   "$final_path" \
-  "$tracked_path" <<'PY'
+  "$tracked_path" \
+  "$state_data_dir" \
+  "$comparison_target_name" \
+  "$reviewed_branch_name" \
+  "$GIT_BIN" <<'PY'
 import hashlib
 import json
 import os
+import sqlite3
 import socket
+import subprocess
 import sys
 import time
 
@@ -285,6 +299,10 @@ expected_file_count = int(sys.argv[4])
 expected_review_diff_count = int(sys.argv[5])
 sentinel_paths = sys.argv[6:9]
 tracked_path = sys.argv[9]
+data_root = sys.argv[10]
+comparison_target_name = sys.argv[11]
+reviewed_branch_name = sys.argv[12]
+git_bin = sys.argv[13]
 response_timeout = float(os.environ.get("AGENTSTUDIO_BRIDGE_JOURNEY_IPC_TIMEOUT_SECONDS", "20"))
 
 
@@ -379,6 +397,96 @@ def require_filter_control(result, expected_surface):
 
 def canonical(value):
     return os.path.realpath(value)
+
+
+def contribution_origin(package):
+    origin = package.get("comparisonOrigin")
+    if not isinstance(origin, dict) or origin.get("kind") != "contribution":
+        return None
+    return origin
+
+
+def has_exact_origin(package, target_oid, reviewed_oid, base_oid):
+    origin = contribution_origin(package)
+    if origin is None:
+        return False
+    symbolic_target = origin.get("symbolicTarget", {})
+    return (
+        origin.get("baseRole") == "commonCommit"
+        and origin.get("comparedRole") == "capturedWorkingTree"
+        and symbolic_target
+        == {"basis": "commonCommit", "kind": "branch", "name": comparison_target_name}
+        and origin.get("resolvedTargetOID") == target_oid
+        and origin.get("reviewedHeadOID") == reviewed_oid
+        and origin.get("baseOID") == base_oid
+    )
+
+
+def persisted_comparison_target(review_pane_id):
+    core_database_path = os.path.join(data_root, "core.sqlite")
+    if not os.path.isfile(core_database_path):
+        return None
+    try:
+        connection = sqlite3.connect(f"file:{core_database_path}?mode=ro", uri=True)
+        try:
+            row = connection.execute(
+                "SELECT payload_json FROM pane_content_payload WHERE pane_id = ?",
+                (review_pane_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    payload = json.loads(row[0])
+    return payload["state"]["source"]["workspace"]["comparisonTarget"]
+
+
+def git_output(*arguments, input_text=None):
+    completed = subprocess.run(
+        [git_bin, "-C", fixture_root, *arguments],
+        check=False,
+        capture_output=True,
+        input=input_text,
+        text=True,
+    )
+    if completed.returncode != 0:
+        fail(f"Git {' '.join(arguments)} failed: {completed.stderr}")
+    return completed.stdout.strip()
+
+
+def move_comparison_history():
+    reviewed_before = git_output("rev-parse", f"refs/heads/{reviewed_branch_name}")
+    target_before = git_output("rev-parse", f"refs/heads/{comparison_target_name}")
+    tree_oid = git_output("rev-parse", f"{reviewed_before}^{{tree}}")
+    reviewed_after = git_output(
+        "commit-tree", tree_oid, "-p", reviewed_before, input_text="move reviewed HEAD\n"
+    )
+    subprocess.run([git_bin, "-C", fixture_root, "update-ref", f"refs/heads/{reviewed_branch_name}", reviewed_after, reviewed_before], check=True)
+    target_after = git_output(
+        "commit-tree", tree_oid, "-p", reviewed_after, input_text="move comparison target\n"
+    )
+    subprocess.run([git_bin, "-C", fixture_root, "update-ref", f"refs/heads/{comparison_target_name}", target_after, target_before], check=True)
+    return target_before, reviewed_before, target_after, reviewed_after
+
+
+def require_one_row_geometry(render_state):
+    summary = render_state.get("summary", {})
+    topbar = summary.get("contentTopbarFrame")
+    controls = summary.get("contentTopbarControlsFrame")
+    trigger = summary.get("comparisonTriggerFrame")
+    if not all(isinstance(frame, dict) for frame in (topbar, controls, trigger)):
+        fail(f"Review comparison geometry is missing: {summary}")
+    if not 35 <= topbar.get("height", 0) <= 37:
+        fail(f"Review topbar is not the 36px row: {topbar}")
+    for child in (controls, trigger):
+        if (
+            child.get("y", -1) < topbar.get("y", 0)
+            or child.get("y", 0) + child.get("height", 0)
+            > topbar.get("y", 0) + topbar.get("height", 0)
+        ):
+            fail(f"Review comparison control escapes the one-row topbar: {summary}")
 
 
 session = Session(socket_path)
@@ -487,6 +595,9 @@ try:
     def read_package():
         return session.request("bridge.diff.getPackage", {"handle": review_handle})
 
+    def read_review_page():
+        return session.request("bridge.diff.renderState", {"handle": review_handle})
+
     initial_package = wait_for(
         "initial Review package",
         read_package,
@@ -497,6 +608,16 @@ try:
     generation_before = initial_package.get("reviewGeneration")
     if not isinstance(generation_before, int):
         fail("Initial Review package has no generation")
+    initial_review_page = wait_for(
+        "initial Review page metadata",
+        read_review_page,
+        lambda value: value.get("diagnostics", {}).get("evaluateSucceeded") is True
+        and value.get("diagnostics", {}).get("pageErrorCount") == 0
+        and value.get("summary", {}).get("activeViewerMode") == "review"
+        and value.get("summary", {}).get("reviewMetadataGeneration") == generation_before
+        and value.get("summary", {}).get("reviewMetadataItemCount")
+        == expected_review_diff_count,
+    )
 
     session.request("bridge.diff.refresh", {"handle": review_handle})
 
@@ -514,9 +635,6 @@ try:
     if missing_paths:
         fail(f"Review package omitted traversal sentinels: {missing_paths}")
 
-    def read_review_page():
-        return session.request("bridge.diff.renderState", {"handle": review_handle})
-
     review_page = wait_for(
         "refreshed Review page metadata",
         read_review_page,
@@ -530,6 +648,54 @@ try:
         and (value.get("summary", {}).get("reviewMetadataTreeRowCount") or 0)
         >= expected_review_diff_count,
     )
+
+    initial_target_oid = git_output("rev-parse", f"refs/heads/{comparison_target_name}")
+    initial_reviewed_oid = git_output("rev-parse", f"refs/heads/{reviewed_branch_name}")
+    print(
+        f"Computer Use must select the comparison target before verification: {comparison_target_name}",
+        flush=True,
+    )
+    selected_package = wait_for(
+        "UI-selected contribution target",
+        read_package,
+        lambda value: value.get("status") == "ready"
+        and value.get("reviewGeneration", 0) > package.get("reviewGeneration", 0)
+        and has_exact_origin(
+            value,
+            initial_target_oid,
+            initial_reviewed_oid,
+            initial_reviewed_oid,
+        ),
+        attempts=1800,
+    )
+    review_pane_id = review_handle.removeprefix("pane:")
+    wait_for(
+        "persisted symbolic comparison target selected through the UI",
+        lambda: persisted_comparison_target(review_pane_id),
+        lambda value: value
+        == {"basis": "commonCommit", "kind": "branch", "name": comparison_target_name},
+    )
+    generation_before_movement = selected_package.get("reviewGeneration")
+    target_before, reviewed_before, target_after, reviewed_after = move_comparison_history()
+    if target_before != initial_target_oid or reviewed_before != initial_reviewed_oid:
+        fail("Comparison history moved before the automatic-invalidation proof")
+    package = wait_for("automatic contribution refresh", read_package, lambda value: value.get("status") == "ready"
+        and value.get("reviewGeneration", 0) > generation_before_movement
+        and has_exact_origin(value, target_after, reviewed_after, reviewed_after))
+    print("Computer Use must open the comparison control after automatic movement", flush=True)
+    comparison_render = wait_for(
+        "open comparison facts",
+        read_review_page,
+        lambda value: value.get("summary", {}).get("comparisonTriggerState") == "open"
+        and value.get("summary", {}).get("comparisonTargetRevision") == target_after
+        and value.get("summary", {}).get("comparisonSharedStartRevision") == reviewed_after,
+        attempts=1800,
+    )
+    if comparison_render.get("summary", {}).get("comparisonTriggerLabel") != f"Compare to: {comparison_target_name}":
+        fail(f"Review comparison trigger label is stale: {comparison_render}")
+    if not comparison_render.get("summary", {}).get("comparisonTriggerDescription"):
+        fail(f"Review comparison trigger description is missing: {comparison_render}")
+    require_one_row_geometry(comparison_render)
 
     invalid_regex_query = "["
     invalid_search = session.request(
@@ -759,4 +925,4 @@ echo "Bridge packaged LaunchServices product journey PASS"
 echo "pid=$state_pid"
 echo "app=$state_app"
 echo "fixture=$fixture_root"
-echo "candidate remains available for PID-targeted Peekaboo"
+echo "candidate remains available for Computer Use visual proof"

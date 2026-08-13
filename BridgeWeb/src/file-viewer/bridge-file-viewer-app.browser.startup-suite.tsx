@@ -149,14 +149,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				)}
 			/>,
 		);
+		await waitForBridgeViewerTreeItemButton('src/app.ts');
 
 		const toolbar = await waitForFileViewerHTMLElement({
 			selector: '[data-testid="bridge-file-viewer-rail-toolbar"]',
 		});
 		expect(toolbar.getAttribute('data-bridge-shared-rail-toolbar')).toBe('true');
-		expect(
+		const leadingControls = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-leading"]'),
-		).not.toBeNull();
+		);
+		expect(leadingControls.getAttribute('role')).toBeNull();
+		expect(leadingControls.getAttribute('aria-live')).toBeNull();
+		const fileStatus = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-status"]'),
+		);
+		expect(fileStatus.getAttribute('role')).toBe('status');
+		expect(fileStatus.getAttribute('aria-live')).toBe('polite');
 		expect(
 			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-trailing"]'),
 		).not.toBeNull();

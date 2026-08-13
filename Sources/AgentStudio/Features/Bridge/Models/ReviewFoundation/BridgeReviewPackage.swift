@@ -15,6 +15,8 @@ package struct BridgeReviewPackage: Codable, Equatable, Sendable {
     let filterState: BridgeViewFilter
     let generatedAtUnixMilliseconds: Int64
     let changesetCluster: BridgeReviewChangesetClusterMetadata?
+    package let comparisonOrigin: BridgeReviewComparisonOrigin?
+    package let reviewedSubjectLabel: String?
 
     init(
         packageId: String,
@@ -30,7 +32,9 @@ package struct BridgeReviewPackage: Codable, Equatable, Sendable {
         summary: BridgeReviewPackageSummary,
         filterState: BridgeViewFilter,
         generatedAtUnixMilliseconds: Int64,
-        changesetCluster: BridgeReviewChangesetClusterMetadata? = nil
+        changesetCluster: BridgeReviewChangesetClusterMetadata? = nil,
+        comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+        reviewedSubjectLabel: String? = nil
     ) {
         self.packageId = packageId
         self.schemaVersion = schemaVersion
@@ -46,6 +50,8 @@ package struct BridgeReviewPackage: Codable, Equatable, Sendable {
         self.filterState = filterState
         self.generatedAtUnixMilliseconds = generatedAtUnixMilliseconds
         self.changesetCluster = changesetCluster
+        self.comparisonOrigin = comparisonOrigin
+        self.reviewedSubjectLabel = reviewedSubjectLabel
     }
 }
 

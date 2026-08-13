@@ -483,6 +483,14 @@ export function createBridgeMainRenderSnapshotStore(
 				revision: event.projectionRevision,
 				treeRowOrderLength: snapshot.reviewTreeRowsByIndex.length,
 			};
+			if (
+				shouldPublishInitialRootSnapshot ||
+				effect.comparisonChanged ||
+				renderCopyInvalidation.changed ||
+				renderCopyPathReconciliation.changed
+			) {
+				publish({ ...snapshot });
+			}
 			for (const itemId of effect.itemIds) reviewItemListeners.publish(itemId);
 			for (const rowId of effect.treeRowIds) reviewTreeRowListeners.publish(rowId);
 			if (effect.sourceChanged) publishBridgeMainListeners(reviewSourceListeners);
@@ -499,13 +507,6 @@ export function createBridgeMainRenderSnapshotStore(
 				reviewCodeViewItemListeners.publish(itemId);
 			}
 			publishBridgeMainListeners(reviewCatalogListeners);
-			if (
-				shouldPublishInitialRootSnapshot ||
-				renderCopyInvalidation.changed ||
-				renderCopyPathReconciliation.changed
-			) {
-				publish({ ...snapshot });
-			}
 		},
 		completeFileQueryTransaction: (transactionId: string): boolean => {
 			if (isDisposed) return false;

@@ -237,20 +237,28 @@ struct BridgeProductReviewSourceAcceptedEvent: Codable, Equatable, Sendable {
 struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case baseEndpoint
+        case comparisonOrigin
         case headEndpoint
         case itemWindow
+        case presentationRevision
         case query
+        case reviewComparison
+        case reviewedSubjectLabel
         case treeWindow
     }
 
     let identity: BridgeProductReviewMetadataIdentity
     let baseEndpoint: BridgeProductReviewSourceEndpointValue
+    let comparisonOrigin: BridgeReviewComparisonOrigin?
     let contentSources: [BridgeProductReviewContentSourceDescriptor]
     let extentFacts: [BridgeProductReviewExtentFactValue]
     let headEndpoint: BridgeProductReviewSourceEndpointValue
     let itemMetadata: [BridgeProductReviewItemMetadataValue]
     let itemWindow: BridgeProductReviewItemWindow
+    let presentationRevision: Int?
     let query: BridgeProductReviewQueryValue
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
+    let reviewedSubjectLabel: String?
     let summary: BridgeProductReviewPackageSummaryValue
     let treeRows: [BridgeProductReviewTreeRowValue]
     let treeWindow: BridgeProductReviewTreeWindow
@@ -258,29 +266,41 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
     init(
         identity: BridgeProductReviewMetadataIdentity,
         baseEndpoint: BridgeProductReviewSourceEndpointValue,
+        comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
         contentSources: [BridgeProductReviewContentSourceDescriptor],
         extentFacts: [BridgeProductReviewExtentFactValue],
         headEndpoint: BridgeProductReviewSourceEndpointValue,
         itemMetadata: [BridgeProductReviewItemMetadataValue],
         itemWindow: BridgeProductReviewItemWindow,
+        presentationRevision: Int? = nil,
         query: BridgeProductReviewQueryValue,
+        reviewComparison: BridgePaneReviewComparisonPresentation? = nil,
+        reviewedSubjectLabel: String? = nil,
         summary: BridgeProductReviewPackageSummaryValue,
         treeRows: [BridgeProductReviewTreeRowValue],
         treeWindow: BridgeProductReviewTreeWindow
     ) throws {
         self.identity = identity
         self.baseEndpoint = baseEndpoint
+        self.comparisonOrigin = comparisonOrigin
         self.contentSources = contentSources
         self.extentFacts = extentFacts
         self.headEndpoint = headEndpoint
         self.itemMetadata = itemMetadata
         self.itemWindow = itemWindow
+        self.presentationRevision = presentationRevision
         self.query = query
+        self.reviewComparison = reviewComparison
+        self.reviewedSubjectLabel = reviewedSubjectLabel
         self.summary = summary
         self.treeRows = treeRows
         self.treeWindow = treeWindow
         try payload.validate(identity: identity, codingPath: [])
         try validateWindowPayload(codingPath: [])
+        try validatePublicationCommit(
+            hasReviewComparisonKey: presentationRevision != nil || reviewComparison != nil,
+            codingPath: []
+        )
         guard itemWindow.startIndex == 0, treeWindow.startIndex == 0 else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Review snapshot windows must start at zero",
@@ -305,17 +325,31 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         let payload = try BridgeProductReviewMetadataPayload(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.baseEndpoint = try container.decode(BridgeProductReviewSourceEndpointValue.self, forKey: .baseEndpoint)
+        self.comparisonOrigin = try container.decodeIfPresent(
+            BridgeReviewComparisonOrigin.self,
+            forKey: .comparisonOrigin
+        )
         self.contentSources = payload.contentSources
         self.extentFacts = payload.extentFacts
         self.headEndpoint = try container.decode(BridgeProductReviewSourceEndpointValue.self, forKey: .headEndpoint)
         self.itemMetadata = payload.itemMetadata
         self.itemWindow = try container.decode(BridgeProductReviewItemWindow.self, forKey: .itemWindow)
+        self.presentationRevision = try container.decodeIfPresent(Int.self, forKey: .presentationRevision)
         self.query = try container.decode(BridgeProductReviewQueryValue.self, forKey: .query)
+        self.reviewComparison = try container.decodeIfPresent(
+            BridgePaneReviewComparisonPresentation.self,
+            forKey: .reviewComparison
+        )
+        self.reviewedSubjectLabel = try container.decodeIfPresent(String.self, forKey: .reviewedSubjectLabel)
         self.summary = payload.summary
         self.treeRows = payload.treeRows
         self.treeWindow = try container.decode(BridgeProductReviewTreeWindow.self, forKey: .treeWindow)
         try payload.validate(identity: identity, codingPath: decoder.codingPath)
         try validateWindowPayload(codingPath: decoder.codingPath)
+        try validatePublicationCommit(
+            hasReviewComparisonKey: container.contains(.reviewComparison),
+            codingPath: decoder.codingPath
+        )
         guard itemWindow.startIndex == 0, treeWindow.startIndex == 0 else {
             throw BridgeProductContractDecoding.invalidValue(
                 "Review snapshot windows must start at zero",
@@ -331,9 +365,15 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
         try eventContainer.encode("review.snapshot", forKey: .eventKind)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(baseEndpoint, forKey: .baseEndpoint)
+        try container.encodeIfPresent(comparisonOrigin, forKey: .comparisonOrigin)
         try container.encode(headEndpoint, forKey: .headEndpoint)
         try container.encode(itemWindow, forKey: .itemWindow)
+        if let presentationRevision {
+            try container.encode(presentationRevision, forKey: .presentationRevision)
+            try container.encode(reviewComparison, forKey: .reviewComparison)
+        }
         try container.encode(query, forKey: .query)
+        try container.encodeIfPresent(reviewedSubjectLabel, forKey: .reviewedSubjectLabel)
         try container.encode(treeWindow, forKey: .treeWindow)
     }
 
@@ -355,11 +395,35 @@ struct BridgeProductReviewSnapshotEvent: Codable, Equatable, Sendable {
             )
         }
     }
+
+    private func validatePublicationCommit(
+        hasReviewComparisonKey: Bool,
+        codingPath: [any CodingKey]
+    ) throws {
+        let isFinalBarrier = itemWindow.finalWindow && treeWindow.finalWindow
+        let hasCompleteComparisonCommit = presentationRevision != nil && hasReviewComparisonKey
+        let hasNoComparisonCommit = presentationRevision == nil && !hasReviewComparisonKey
+        guard isFinalBarrier ? hasCompleteComparisonCommit : hasNoComparisonCommit else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review publication comparison must appear exactly on the final display barrier",
+                codingPath: codingPath
+            )
+        }
+        if let presentationRevision {
+            try BridgeProductContractDecoding.validatePositive(
+                presentationRevision,
+                name: "presentationRevision",
+                codingPath: codingPath
+            )
+        }
+    }
 }
 
 struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case itemWindow
+        case presentationRevision
+        case reviewComparison
         case treeWindow
     }
 
@@ -368,6 +432,8 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
     let extentFacts: [BridgeProductReviewExtentFactValue]
     let itemMetadata: [BridgeProductReviewItemMetadataValue]
     let itemWindow: BridgeProductReviewItemWindow
+    let presentationRevision: Int?
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
     let summary: BridgeProductReviewPackageSummaryValue
     let treeRows: [BridgeProductReviewTreeRowValue]
     let treeWindow: BridgeProductReviewTreeWindow
@@ -378,6 +444,8 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         extentFacts: [BridgeProductReviewExtentFactValue],
         itemMetadata: [BridgeProductReviewItemMetadataValue],
         itemWindow: BridgeProductReviewItemWindow,
+        presentationRevision: Int? = nil,
+        reviewComparison: BridgePaneReviewComparisonPresentation? = nil,
         summary: BridgeProductReviewPackageSummaryValue,
         treeRows: [BridgeProductReviewTreeRowValue],
         treeWindow: BridgeProductReviewTreeWindow
@@ -387,6 +455,8 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         self.extentFacts = extentFacts
         self.itemMetadata = itemMetadata
         self.itemWindow = itemWindow
+        self.presentationRevision = presentationRevision
+        self.reviewComparison = reviewComparison
         self.summary = summary
         self.treeRows = treeRows
         self.treeWindow = treeWindow
@@ -397,6 +467,10 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
                 codingPath: []
             )
         }
+        try validatePublicationCommit(
+            hasReviewComparisonKey: presentationRevision != nil || reviewComparison != nil,
+            codingPath: []
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -418,6 +492,11 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         self.extentFacts = payload.extentFacts
         self.itemMetadata = payload.itemMetadata
         self.itemWindow = try container.decode(BridgeProductReviewItemWindow.self, forKey: .itemWindow)
+        self.presentationRevision = try container.decodeIfPresent(Int.self, forKey: .presentationRevision)
+        self.reviewComparison = try container.decodeIfPresent(
+            BridgePaneReviewComparisonPresentation.self,
+            forKey: .reviewComparison
+        )
         self.summary = payload.summary
         self.treeRows = payload.treeRows
         self.treeWindow = try container.decode(BridgeProductReviewTreeWindow.self, forKey: .treeWindow)
@@ -428,6 +507,10 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
+        try validatePublicationCommit(
+            hasReviewComparisonKey: container.contains(.reviewComparison),
+            codingPath: decoder.codingPath
+        )
     }
 
     func encode(to encoder: Encoder) throws {
@@ -437,6 +520,10 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
         try eventContainer.encode("review.window", forKey: .eventKind)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(itemWindow, forKey: .itemWindow)
+        if let presentationRevision {
+            try container.encode(presentationRevision, forKey: .presentationRevision)
+            try container.encode(reviewComparison, forKey: .reviewComparison)
+        }
         try container.encode(treeWindow, forKey: .treeWindow)
     }
 
@@ -448,6 +535,28 @@ struct BridgeProductReviewWindowEvent: Codable, Equatable, Sendable {
             summary: summary,
             treeRows: treeRows
         )
+    }
+
+    private func validatePublicationCommit(
+        hasReviewComparisonKey: Bool,
+        codingPath: [any CodingKey]
+    ) throws {
+        let isFinalBarrier = itemWindow.finalWindow && treeWindow.finalWindow
+        let hasCompleteComparisonCommit = presentationRevision != nil && hasReviewComparisonKey
+        let hasNoComparisonCommit = presentationRevision == nil && !hasReviewComparisonKey
+        guard isFinalBarrier ? hasCompleteComparisonCommit : hasNoComparisonCommit else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review publication comparison must appear exactly on the final display barrier",
+                codingPath: codingPath
+            )
+        }
+        if let presentationRevision {
+            try BridgeProductContractDecoding.validatePositive(
+                presentationRevision,
+                name: "presentationRevision",
+                codingPath: codingPath
+            )
+        }
     }
 }
 

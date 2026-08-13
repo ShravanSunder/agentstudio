@@ -13,7 +13,9 @@ const maximumLogTailCharacters = 8_192;
 export interface OwnedBridgeDevelopmentServer {
 	readonly origin: string;
 	readonly pid: number;
+	readonly stderrTail: () => string;
 	readonly stop: () => Promise<OwnedBridgeDevelopmentServerCleanup>;
+	readonly stdoutTail: () => string;
 }
 
 export interface OwnedBridgeDevelopmentServerCleanup {
@@ -51,7 +53,9 @@ type BridgeDevelopmentServerReadinessProbeOutcome =
 	| { readonly kind: 'response'; readonly response: Response };
 
 export async function startOwnedBridgeDevelopmentServer(props: {
-	readonly baseRef: string;
+	readonly dataRootPath: string;
+	readonly initialTarget: string;
+	readonly paneId: string;
 	readonly repoRootPath: string;
 	readonly worktreeRoot: string;
 }): Promise<OwnedBridgeDevelopmentServer> {
@@ -61,7 +65,13 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 	await access(executablePath);
 	const child = spawn(
 		executablePath,
-		['--worktree', props.worktreeRoot, '--base', props.baseRef, '--port', String(port)],
+		bridgeDevelopmentServerArguments({
+			dataRootPath: props.dataRootPath,
+			initialTarget: props.initialTarget,
+			paneId: props.paneId,
+			port,
+			worktreeRoot: props.worktreeRoot,
+		}),
 		{
 			cwd: props.repoRootPath,
 			env: { ...process.env },
@@ -107,9 +117,32 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 	return {
 		origin,
 		pid: child.pid ?? 0,
+		stderrTail: (): string => stderrTail,
 		stop: async (): Promise<OwnedBridgeDevelopmentServerCleanup> =>
 			await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome),
+		stdoutTail: (): string => stdoutTail,
 	};
+}
+
+export function bridgeDevelopmentServerArguments(props: {
+	readonly dataRootPath: string;
+	readonly initialTarget: string;
+	readonly paneId: string;
+	readonly port: number;
+	readonly worktreeRoot: string;
+}): string[] {
+	return [
+		'--data-root',
+		props.dataRootPath,
+		'--pane-id',
+		props.paneId,
+		'--seed-worktree',
+		props.worktreeRoot,
+		'--seed-target',
+		props.initialTarget,
+		'--port',
+		String(props.port),
+	];
 }
 
 export function bridgeDevelopmentServerExecutablePath(repoRootPath: string): string {
