@@ -8,6 +8,44 @@ import Testing
 @MainActor
 @Suite("Terminal activation scheduler", .serialized)
 struct TerminalActivationSchedulerTests {
+    enum ReferenceVersusGatedCase: CaseIterable, CustomTestStringConvertible {
+        case ready
+        case createFailure
+        case attachFailure
+        case retryReady
+
+        var testDescription: String { String(describing: self) }
+
+        func results(surfaceID: UUID) -> [TerminalActivationAttemptResult] {
+            switch self {
+            case .ready:
+                return [.ready(surfaceID: surfaceID)]
+            case .createFailure:
+                return [
+                    .failed(
+                        failure: .surfaceCreationFailed(code: "surface-unavailable"),
+                        retry: .doNotRetry
+                    )
+                ]
+            case .attachFailure:
+                return [
+                    .failed(
+                        failure: .surfaceAttachmentFailed(code: "exact-attach-rejected"),
+                        retry: .doNotRetry
+                    )
+                ]
+            case .retryReady:
+                return [
+                    .failed(
+                        failure: .surfaceCreationFailed(code: "transient-create"),
+                        retry: .retry
+                    ),
+                    .ready(surfaceID: surfaceID),
+                ]
+            }
+        }
+    }
+
     @Test("empty cohort settles without admission")
     func emptyCohortSettlesWithoutAdmission() async throws {
         let port = ImmediateTerminalActivationAdmissionPort()
@@ -56,26 +94,138 @@ struct TerminalActivationSchedulerTests {
         let active = makeDescriptors(count: 4, priority: .activeVisible)
         let visible = makeDescriptors(count: 4, priority: .visible)
         let hidden = makeDescriptors(count: 4, priority: .hidden)
-        let port = ControlledTerminalActivationAdmissionPort()
+        let port = ImmediateTerminalActivationAdmissionPort()
         let scheduler = try makeScheduler(entries: hidden + visible + active, port: port)
-        let activation = Task { await scheduler.activate() }
 
-        await port.waitUntilStartedCount(4)
+        let settlement = await scheduler.activate()
+
         #expect(
-            port.admissions.prefix(4).map(\.descriptor.visibilityPriority) == Array(repeating: .activeVisible, count: 4)
+            port.admissions.map(\.descriptor.visibilityPriority)
+                == Array(repeating: .activeVisible, count: 4)
+                + Array(repeating: .visible, count: 4)
+                + Array(repeating: .hidden, count: 4)
         )
-
-        port.releaseAllPendingAsReady()
-        await port.waitUntilStartedCount(8)
-        #expect(port.admissions[4..<8].map(\.descriptor.visibilityPriority) == Array(repeating: .visible, count: 4))
-
-        port.releaseAllPendingAsReady()
-        await port.waitUntilStartedCount(12)
-        #expect(port.admissions[8..<12].map(\.descriptor.visibilityPriority) == Array(repeating: .hidden, count: 4))
-
-        port.releaseAllPendingAsReady()
-        let settlement = await activation.value
         #expect(settlement.outcomesByPaneID.count == 12)
+    }
+
+    @Test("closed restore gate admits nothing before release and preserves stable priority order")
+    func closedRestoreGatePreservesOrderUntilRelease() async throws {
+        let active = makeDescriptor(priority: .activeVisible)
+        let firstHidden = makeDescriptor(priority: .hidden)
+        let secondHidden = makeDescriptor(priority: .hidden)
+        let port = ImmediateTerminalActivationAdmissionPort()
+        let releaseSignal = ControlledTerminalActivationReleaseSignal()
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(
+                generation: try makeCompositionGeneration(),
+                input: TerminalActivationInput(entries: [firstHidden, active, secondHidden])
+            ),
+            admissionPort: port,
+            releaseSignal: releaseSignal
+        )
+        let activation = Task { await scheduler.activate() }
+        await releaseSignal.waitUntilSchedulerIsWaiting()
+
+        #expect(port.admissions.isEmpty)
+
+        await releaseSignal.release()
+        let settlement = await activation.value
+
+        #expect(
+            port.admissions.map(\.descriptor.paneID)
+                == [active.paneID, firstHidden.paneID, secondHidden.paneID]
+        )
+        #expect(settlement.outcomesByPaneID.count == 3)
+    }
+
+    @Test("restore admissions are serial with a yield after every completed attempt")
+    func restoreAdmissionsAreSerialAndYielded() async throws {
+        let descriptors = makeDescriptors(count: 3, priority: .activeVisible)
+        let port = ImmediateTerminalActivationAdmissionPort()
+        let scheduler = try makeScheduler(entries: descriptors, port: port)
+
+        _ = await scheduler.activate()
+        let diagnostics = await scheduler.diagnostics()
+
+        #expect(diagnostics.maximumSimultaneousAdmissions == 1)
+        #expect(diagnostics.workerCount == 1)
+        #expect(diagnostics.yieldCount == descriptors.count)
+        #expect(port.admissions.map(\.descriptor.paneID) == descriptors.map(\.paneID))
+    }
+
+    @Test("replacement while gated settles without admitting stale members")
+    func replacementWhileGatedSettlesWithoutAdmission() async throws {
+        let originalGeneration = nextCompositionGeneration()
+        let replacementGeneration = nextCompositionGeneration()
+        let descriptors = makeDescriptors(count: 3, priority: .hidden)
+        let port = ImmediateTerminalActivationAdmissionPort()
+        let releaseSignal = ControlledTerminalActivationReleaseSignal()
+        let scheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(
+                generation: originalGeneration,
+                input: TerminalActivationInput(entries: descriptors)
+            ),
+            admissionPort: port,
+            releaseSignal: releaseSignal
+        )
+        let activation = Task { await scheduler.activate() }
+        await releaseSignal.waitUntilSchedulerIsWaiting()
+
+        await scheduler.cancelAndReplace(with: replacementGeneration)
+        await releaseSignal.release()
+        let settlement = await activation.value
+
+        #expect(port.admissions.isEmpty)
+        #expect(
+            settlement.outcomesByPaneID.values.allSatisfy {
+                $0 == .cancelledReplaced(replacement: replacementGeneration)
+            }
+        )
+    }
+
+    @Test(
+        "gated restore is lossless against the reference scheduler",
+        arguments: ReferenceVersusGatedCase.allCases
+    )
+    func gatedRestoreMatchesReference(testCase: ReferenceVersusGatedCase) async throws {
+        let storedText = "opaque restored zmx identity ! '$`\\"
+        let storedSessionID = try makeRestoredZmxSessionID(storedText)
+        let descriptor = makeDescriptor(zmxSessionID: storedSessionID)
+        let surfaceID = UUIDv7.generate()
+        let results = testCase.results(surfaceID: surfaceID)
+        let referencePort = ImmediateTerminalActivationAdmissionPort(
+            resultsByPaneID: [descriptor.paneID: results]
+        )
+        let gatedPort = ImmediateTerminalActivationAdmissionPort(
+            resultsByPaneID: [descriptor.paneID: results]
+        )
+        let referenceScheduler = try makeScheduler(entries: [descriptor], port: referencePort)
+        let releaseSignal = ControlledTerminalActivationReleaseSignal()
+        let gatedScheduler = TerminalActivationScheduler(
+            cohort: TerminalActivationCohort(
+                generation: try makeCompositionGeneration(),
+                input: TerminalActivationInput(entries: [descriptor])
+            ),
+            admissionPort: gatedPort,
+            releaseSignal: releaseSignal
+        )
+        let gatedActivation = Task { await gatedScheduler.activate() }
+        await releaseSignal.waitUntilSchedulerIsWaiting()
+
+        let referenceSettlement = await referenceScheduler.activate()
+        #expect(gatedPort.admissions.isEmpty)
+        await releaseSignal.release()
+        let gatedSettlement = await gatedActivation.value
+
+        #expect(
+            gatedSettlement.outcomesByPaneID[descriptor.paneID]
+                == referenceSettlement.outcomesByPaneID[descriptor.paneID]
+        )
+        #expect(gatedPort.admissions.map(\.attempt) == referencePort.admissions.map(\.attempt))
+        for admission in gatedPort.admissions {
+            #expect(admission.descriptor.pane.terminalState?.zmxSessionID == storedSessionID)
+            #expect(admission.descriptor.pane.terminalState?.zmxSessionID.rawValue == storedText)
+        }
     }
 
     @Test("slot bound holds while queued work remains")
@@ -85,25 +235,25 @@ struct TerminalActivationSchedulerTests {
         let scheduler = try makeScheduler(entries: descriptors, port: port)
         let activation = Task { await scheduler.activate() }
 
-        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
 
-        #expect(port.admissions.count == AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        #expect(port.admissions.count == AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
         #expect(
             await scheduler.diagnostics().currentSimultaneousAdmissions
-                == AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+                == AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
 
         port.releaseFirstPendingAsReady()
-        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions + 1)
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions + 1)
 
         #expect(
             await scheduler.diagnostics().maximumSimultaneousAdmissions
-                == AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+                == AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
 
         while port.admissions.count < descriptors.count {
             port.releaseAllPendingAsReady()
             await port.waitUntilStartedCount(
                 min(
-                    port.admissions.count + AppPolicies.TerminalActivation.maximumConcurrentAdmissions,
+                    port.admissions.count + AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions,
                     descriptors.count))
         }
         port.releaseAllPendingAsReady()
@@ -122,8 +272,11 @@ struct TerminalActivationSchedulerTests {
 
         #expect(settlement.outcomesByPaneID.count == memberCount)
         #expect(port.admissions.count == memberCount)
-        #expect(diagnostics.maximumSimultaneousAdmissions <= AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
-        #expect(diagnostics.workerCount <= AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        #expect(
+            diagnostics.maximumSimultaneousAdmissions
+                <= AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions
+        )
+        #expect(diagnostics.workerCount <= AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
     }
 
     @Test("one requested retry requeues the same member and can become ready")
@@ -187,12 +340,12 @@ struct TerminalActivationSchedulerTests {
         )
         let activation = Task { await scheduler.activate() }
 
-        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
         await scheduler.cancelAndReplace(with: replacementGeneration)
         port.releaseAllPendingAsReady()
         let settlement = await activation.value
 
-        #expect(port.admissions.count == AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        #expect(port.admissions.count == AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
         #expect(
             settlement.outcomesByPaneID.values.allSatisfy {
                 $0 == .cancelledReplaced(replacement: replacementGeneration)
@@ -203,7 +356,7 @@ struct TerminalActivationSchedulerTests {
     @Test("aggregate settlement waits for every member outcome")
     func aggregateSettlementWaitsForEveryMemberOutcome() async throws {
         let descriptors = makeDescriptors(
-            count: AppPolicies.TerminalActivation.maximumConcurrentAdmissions + 1,
+            count: AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions + 1,
             priority: .activeVisible
         )
         let port = ControlledTerminalActivationAdmissionPort()
@@ -215,10 +368,10 @@ struct TerminalActivationSchedulerTests {
             return settlement
         }
 
-        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
         let releasedAdmission = try #require(port.releaseFirstPendingAsReady())
         await port.waitUntilStartedCount(
-            AppPolicies.TerminalActivation.maximumConcurrentAdmissions + 1
+            AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions + 1
         )
         let newlyStartedAdmission = try #require(port.admissions.last)
 
@@ -235,7 +388,7 @@ struct TerminalActivationSchedulerTests {
     @Test("priority promotion preempts queued hidden work")
     func priorityPromotionPreemptsQueuedHiddenWork() async throws {
         let active = makeDescriptors(
-            count: AppPolicies.TerminalActivation.maximumConcurrentAdmissions,
+            count: AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions,
             priority: .activeVisible
         )
         let firstHidden = makeDescriptor(priority: .hidden)
@@ -244,17 +397,17 @@ struct TerminalActivationSchedulerTests {
         let scheduler = try makeScheduler(entries: active + [firstHidden, promotedHidden], port: port)
         let activation = Task { await scheduler.activate() }
 
-        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions)
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions)
         let promotion = await scheduler.promote(
             paneID: promotedHidden.paneID,
             to: .activeVisible
         )
         port.releaseFirstPendingAsReady()
-        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.maximumConcurrentAdmissions + 1)
+        await port.waitUntilStartedCount(AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions + 1)
 
         #expect(promotion == .promoted(from: .hidden, to: .activeVisible))
         #expect(
-            port.admissions[AppPolicies.TerminalActivation.maximumConcurrentAdmissions].descriptor.paneID
+            port.admissions[AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions].descriptor.paneID
                 == promotedHidden.paneID)
 
         port.releaseAllPendingAsReady()
@@ -401,5 +554,41 @@ private actor TerminalActivationCompletionProbe {
 
     func record(_ settlement: TerminalActivationSettlement) {
         self.settlement = settlement
+    }
+}
+
+private actor ControlledTerminalActivationReleaseSignal: TerminalActivationReleaseSignal {
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var waitStartedContinuations: [CheckedContinuation<Void, Never>] = []
+    private var isSchedulerWaiting = false
+    private var isReleased = false
+
+    func waitUntilReleased() async -> StartupDeferralOutcome {
+        guard !isReleased else { return .completed }
+        isSchedulerWaiting = true
+        let startedContinuations = waitStartedContinuations
+        waitStartedContinuations.removeAll()
+        for continuation in startedContinuations {
+            continuation.resume()
+        }
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+        return .completed
+    }
+
+    func waitUntilSchedulerIsWaiting() async {
+        guard !isSchedulerWaiting else { return }
+        await withCheckedContinuation { continuation in
+            waitStartedContinuations.append(continuation)
+        }
+    }
+
+    func release() {
+        guard !isReleased else { return }
+        isReleased = true
+        let continuation = releaseContinuation
+        releaseContinuation = nil
+        continuation?.resume()
     }
 }

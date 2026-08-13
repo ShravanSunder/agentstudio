@@ -162,4 +162,100 @@ struct ApplicationLifecycleMonitorTests {
         #expect(windowStore.isReadyForLaunchRestore == true)
     }
 
+    @Test("display completion is scheduled only after launch layout readiness")
+    func schedulesDisplayCompletionAtReadinessEdge() {
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        var scheduledCompletion: (@MainActor () -> Void)?
+        var scheduleCount = 0
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore,
+            scheduleFirstDisplayCommit: { completion in
+                scheduleCount += 1
+                scheduledCompletion = completion
+            }
+        )
+
+        monitor.handleLaunchLayoutSettled()
+        #expect(scheduleCount == 0)
+        monitor.handleTerminalContainerBoundsChanged(CGRect(x: 0, y: 0, width: 1140, height: 824))
+        #expect(scheduleCount == 1)
+        #expect(!windowStore.didPublishFirstInteractiveFrame)
+
+        scheduledCompletion?()
+        #expect(windowStore.didPublishFirstInteractiveFrame)
+        #expect(windowStore.firstInteractiveFrameSource == .presented)
+
+        monitor.handleLaunchLayoutSettled()
+        #expect(scheduleCount == 1)
+    }
+
+    @Test("main run-loop drain publishes an occluded fallback after launch layout readiness")
+    func runLoopDrainPublishesOccludedFallbackAtReadinessEdge() {
+        // Arrange
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        var scheduledFallback: (@MainActor () -> Void)?
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore,
+            scheduleFirstMainRunLoopDrain: { completion in
+                scheduledFallback = completion
+            }
+        )
+
+        // Act
+        monitor.handleLaunchLayoutSettled()
+        monitor.handleTerminalContainerBoundsChanged(CGRect(x: 0, y: 0, width: 1140, height: 824))
+
+        // Assert
+        #expect(!windowStore.didPublishFirstInteractiveFrame)
+        scheduledFallback?()
+        #expect(windowStore.didPublishFirstInteractiveFrame)
+        #expect(windowStore.firstInteractiveFrameSource == .occludedFallback)
+    }
+
+    @Test("display commit wins the one-shot race with the occluded fallback")
+    func displayCommitWinsSourceRace() {
+        // Arrange
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        var scheduledDisplayCommit: (@MainActor () -> Void)?
+        var scheduledFallback: (@MainActor () -> Void)?
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore,
+            scheduleFirstDisplayCommit: { completion in
+                scheduledDisplayCommit = completion
+            },
+            scheduleFirstMainRunLoopDrain: { completion in
+                scheduledFallback = completion
+            }
+        )
+        monitor.handleTerminalContainerBoundsChanged(CGRect(x: 0, y: 0, width: 1140, height: 824))
+        monitor.handleLaunchLayoutSettled()
+
+        // Act
+        scheduledDisplayCommit?()
+        scheduledFallback?()
+
+        // Assert
+        #expect(windowStore.firstInteractiveFrameSource == .presented)
+    }
+
+    @Test("completion before launch readiness cannot publish the proxy frame")
+    func ignoresPreReadyDisplayCompletion() {
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
+        let monitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appStore,
+            windowLifecycleStore: windowStore
+        )
+
+        monitor.handleFirstDisplayCommitCompleted()
+
+        #expect(!windowStore.didPublishFirstInteractiveFrame)
+    }
+
 }

@@ -5,6 +5,66 @@ import Testing
 
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
+    @Test("startup deferral records bounded gate and outcome")
+    func startupDeferralRecordsBoundedOutcome() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "startup-deferral",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 912,
+            timeUnixNano: { 120 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordStartupDeferral(
+            gate: "first_interactive_frame",
+            outcome: .fallbackTimeout
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.startup.deferral\""))
+        #expect(contents.contains("\"agentstudio.performance.startup.deferral.gate\":\"first_interactive_frame\""))
+        #expect(contents.contains("\"agentstudio.performance.startup.deferral.outcome\":\"fallback_timeout\""))
+    }
+
+    @Test("startup usable records launch and layout phase durations without identity")
+    func startupUsableRecordsSafeDurations() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "startup-usable",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 913,
+            timeUnixNano: { 121 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordStartupUsable(
+            launchToUsable: .milliseconds(125),
+            layoutSettleToUsable: .milliseconds(8),
+            source: "occluded_fallback"
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.startup.usable\""))
+        #expect(contents.contains("\"agentstudio.performance.elapsed_ms\":125"))
+        #expect(contents.contains("\"agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms\":8"))
+        #expect(contents.contains("\"agentstudio.performance.startup.source\":\"occluded_fallback\""))
+        #expect(!contents.contains("pane_id"))
+        #expect(!contents.contains("surface_id"))
+    }
+
     @Test
     func recorderEmitsTypedRuntimePressureAggregateSnapshots() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()

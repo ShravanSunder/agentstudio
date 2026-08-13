@@ -44,7 +44,28 @@ extension AppDelegate {
             initialFramesByPaneID = [:]
         }
         _ = preparedMountOwners.terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID)
-        let settlement = await preparedMountOwners.coordinator.mount()
+        let placeholderOwner: WorkspaceSurfaceCoordinator = workspaceSurfaceCoordinator
+        let placeholderPublication = preparedMountOwners.coordinator.publishTerminalPlaceholders { descriptor in
+            placeholderOwner.registerPreparedTerminalPlaceholders(for: descriptor)
+        }
+        RestoreTrace.log(
+            "launchRestore placeholders published count=\(placeholderPublication.paneIDs.count)"
+        )
+        await preparedMountOwners.coordinator.holdTerminalActivationUntilReleased()
+        async let deferredSettlement = preparedMountOwners.coordinator.mount()
+        let firstFrameDeferralOutcome = await windowLifecycleStore.waitUntilFirstInteractiveFramePublished()
+        performanceTraceRecorder?.recordStartupDeferral(
+            gate: "first_interactive_frame",
+            outcome: firstFrameDeferralOutcome
+        )
+        await preparedMountOwners.coordinator.releaseTerminalActivation()
+        let settlement = await deferredSettlement
+        if let terminalDeferralOutcome = await preparedMountOwners.coordinator.terminalActivationDeferralOutcome() {
+            performanceTraceRecorder?.recordStartupDeferral(
+                gate: "terminal_activation_release",
+                outcome: terminalDeferralOutcome
+            )
+        }
         syncFocusAfterPreparedContentMount(settlement)
         for paneID in preparedMountOwners.coordinator.takeDeferredSteadyStateRepairPaneIDs() {
             workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(

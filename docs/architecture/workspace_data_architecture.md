@@ -350,8 +350,9 @@ Watched-folder refresh preserves that admission boundary. `FilesystemGitPipeline
 maps the supplied watched paths to intersecting registered worktree roots and
 requests immediate status only for that affected set. The explicit user
 refresh-all entry point remains fleet-wide. Runtime demand and retry state are
-not persisted; deferred work settles when demand returns or an explicit request
-admits it.
+not persisted. The accumulator retains a bounded pending invalidation with the
+union of affected paths while waiting for demand; an eligible event re-arms
+that work, and an explicit request may admit it immediately.
 
 #### ForgeActor
 
@@ -361,9 +362,9 @@ admits it.
 | **Scope** | Per-repo, keyed by repoId + remoteURL |
 | **Subscribes to** | `.gitWorkingDirectory(.branchChanged)`, `.originChanged`, `.worktreeDiscovered` from EventBus |
 | **Runs** | `gh pr list`, GitHub REST API via `@concurrent nonisolated` helpers |
-| **Self-driven** | Polling timer (30-60s) as fallback |
+| **Self-driven** | One reschedulable next-eligibility deadline for demanded repositories; no fleet-wide periodic poll |
 | **Command-plane** | `refresh(repo:)` after git push |
-| **Admission** | One provider call per repo at a time; overlapping triggers coalesce into one follow-up with the freshest correlation context |
+| **Admission** | Current demand, freshness, provider backoff, and generation gate one provider call per repo; overlapping eligible triggers retain one latest-scope follow-up |
 | **Recovery** | Per-repo failure backoff is policy-derived and cancelled on unregister/shutdown |
 | **Publication** | Successful count maps publish only when they differ from the last successfully published map |
 | **Produces** | `ForgeEvent` envelopes on EventBus |
@@ -618,7 +619,8 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
    → emits .branchChanged(wt-1, repo-A, from: "feat-1", to: "feat-2")
    → emits .snapshotChanged(new snapshot)
 4. ForgeActor subscribes to .branchChanged (via bus fan-out):
-   → immediate refresh for repo-A
+   → updates repo-A membership and requests refresh through demand admission
+   → starts immediately only when demanded and stale/missing
    → gh pr list for new branch
    → emits .pullRequestCountsChanged
 5. CacheCoordinator writes all to cache store (gets branchChanged + prCountsChanged from bus)

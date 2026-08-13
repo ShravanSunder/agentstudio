@@ -7,6 +7,7 @@ import AgentStudioRepoExplorer
 import AgentStudioSharedComponents
 import AppKit
 import Observation
+import QuartzCore
 import SwiftUI
 
 /// Main window controller for AgentStudio
@@ -82,6 +83,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.workspaceWindowMemoryAtom = store.windowMemoryAtom
         self.inboxAtom = inboxAtom
         window.delegate = self
+        applicationLifecycleMonitor.installFirstDisplayCommitScheduler { [weak window] completion in
+            guard let window else { return }
+            CATransaction.begin()
+            CATransaction.setCompletionBlock(completion)
+            window.contentView?.needsDisplay = true
+            window.displayIfNeeded()
+            CATransaction.commit()
+        }
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
         synchronizeWindowPresentationFacts()
 
@@ -128,8 +137,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         saveWindowFrame()
         guard awaitsLaunchRestoreResize else { return }
         awaitsLaunchRestoreResize = false
-        applicationLifecycleMonitor.handleLaunchLayoutSettled()
         window?.contentView?.layoutSubtreeIfNeeded()
+        applicationLifecycleMonitor.handleLaunchLayoutSettled()
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
@@ -304,8 +313,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         )
         if window.frame.equalTo(targetFrame) {
             RestoreTrace.log("MainWindowController.applyLaunchMaximize alreadyAtTargetFrame")
-            applicationLifecycleMonitor.handleLaunchLayoutSettled()
             window.contentView?.layoutSubtreeIfNeeded()
+            applicationLifecycleMonitor.handleLaunchLayoutSettled()
             return
         }
         // Mark launch geometry as settled before the maximize resize begins so the

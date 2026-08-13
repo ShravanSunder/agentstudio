@@ -34,22 +34,29 @@ package actor TerminalActivationScheduler {
 
     private let cohort: TerminalActivationCohort
     private let admissionPort: any TerminalActivationAdmissionPort
+    private let releaseSignal: any TerminalActivationReleaseSignal
     private var lifecycle = Lifecycle.idle
     private var membersByPaneID: [PaneId: Member]
     private var activationWaiters: [CheckedContinuation<TerminalActivationSettlement, Never>] = []
     private var currentSimultaneousAdmissions = 0
     private var maximumSimultaneousAdmissions = 0
     private var workerCount = 0
+    private var yieldCount = 0
+    private var activationDeferralOutcome: StartupDeferralOutcome?
 
     package init(
         cohort: TerminalActivationCohort,
-        admissionPort: any TerminalActivationAdmissionPort
+        admissionPort: any TerminalActivationAdmissionPort,
+        releaseSignal: any TerminalActivationReleaseSignal = TerminalActivationReleaseGate(
+            isReleased: true
+        )
     ) {
         let paneIDs = cohort.input.entries.map(\.paneID)
         precondition(Set(paneIDs).count == paneIDs.count, "terminal activation cohort contains duplicate panes")
 
         self.cohort = cohort
         self.admissionPort = admissionPort
+        self.releaseSignal = releaseSignal
         membersByPaneID = Dictionary(
             uniqueKeysWithValues: cohort.input.entries.enumerated().map { ordinal, descriptor in
                 (
@@ -79,10 +86,12 @@ package actor TerminalActivationScheduler {
             lifecycle = .activating
         }
 
+        activationDeferralOutcome = await releaseSignal.waitUntilReleased()
+
         var initialAdmissions: [TerminalActivationAdmission] = []
         let maximumWorkerCount = min(
             membersByPaneID.count,
-            AppPolicies.TerminalActivation.maximumConcurrentAdmissions
+            AppPolicies.TerminalActivation.restoreMaximumConcurrentAdmissions
         )
         for _ in 0..<maximumWorkerCount {
             guard let admission = claimNextAdmission() else { break }
@@ -108,6 +117,10 @@ package actor TerminalActivationScheduler {
         return settlement
     }
 
+    package func recordedActivationDeferralOutcome() -> StartupDeferralOutcome? {
+        activationDeferralOutcome
+    }
+
     func memberState(for paneID: PaneId) -> TerminalActivationMemberState? {
         guard let execution = membersByPaneID[paneID]?.execution else { return nil }
         return publicState(for: execution)
@@ -117,7 +130,8 @@ package actor TerminalActivationScheduler {
         TerminalActivationSchedulerDiagnostics(
             currentSimultaneousAdmissions: currentSimultaneousAdmissions,
             maximumSimultaneousAdmissions: maximumSimultaneousAdmissions,
-            workerCount: workerCount
+            workerCount: workerCount,
+            yieldCount: yieldCount
         )
     }
 
@@ -162,6 +176,8 @@ package actor TerminalActivationScheduler {
         while let admission = nextAdmission {
             let result = await admissionPort.activate(admission)
             complete(admission: admission, with: result)
+            yieldCount += 1
+            await Task.yield()
             nextAdmission = claimNextAdmission()
         }
     }

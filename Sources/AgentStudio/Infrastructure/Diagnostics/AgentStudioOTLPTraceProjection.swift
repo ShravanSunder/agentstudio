@@ -129,6 +129,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
         "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.startup.source",
+        "agentstudio.performance.startup.deferral.gate",
+        "agentstudio.performance.startup.deferral.outcome",
         "agentstudio.performance.repo_explorer.facet",
         "agentstudio.performance.repo_explorer.key_class",
         "agentstudio.performance.repo_explorer.outcome",
@@ -416,6 +419,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.coordinator.unregistered.count",
         "agentstudio.performance.coordinator.worktree.count",
         "agentstudio.performance.elapsed_ms",
+        "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms",
         "agentstudio.performance.filesystem.drain_task.count",
         "agentstudio.performance.filesystem.affected_key_request.count",
         "agentstudio.performance.filesystem.full_reconciliation_request.count",
@@ -809,9 +813,7 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 }
-
 // MARK: - Value Validation
-
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(
         key: String,
@@ -885,7 +887,6 @@ extension AgentStudioOTLPTraceProjection {
     private static func safeBody(_ body: String) -> String {
         isSafeEventName(body) ? body : "agentstudio.trace.record"
     }
-
     private static func isSafeEventName(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 128 else {
             return false
@@ -898,11 +899,9 @@ extension AgentStudioOTLPTraceProjection {
                 || scalar == ":"
         }
     }
-
     private static func isSafeControlledString(_ value: String) -> Bool {
         isSafeEventName(value)
     }
-
     private static func isAllowedControlledStringValue(key: String, value: String) -> Bool {
         if let allowedValues = BridgeTelemetryWireSchema.allowedStringValues(for: key) {
             return allowedValues.contains(value)
@@ -933,6 +932,12 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.startup.source":
+            return ["presented", "occluded_fallback"].contains(value)
+        case "agentstudio.performance.startup.deferral.gate":
+            return ["first_interactive_frame", "terminal_activation_release"].contains(value)
+        case "agentstudio.performance.startup.deferral.outcome":
+            return ["completed", "cancelled", "fallback_timeout"].contains(value)
         case "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome":
             return ["equal", "changed"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.phase":
@@ -958,12 +963,10 @@ extension AgentStudioOTLPTraceProjection {
             return true
         }
     }
-
     private static func isSafeResourceValue(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 160 else {
             return false
         }
-
         let normalizedValue = value.lowercased()
         return !normalizedValue.hasPrefix("/")
             && !normalizedValue.contains("/users/")
@@ -972,15 +975,12 @@ extension AgentStudioOTLPTraceProjection {
             && !normalizedValue.contains("\n")
             && !normalizedValue.contains("\r")
     }
-
     private static func validTraceID(_ value: String?) -> String? {
         validHexIdentifier(value, requiredLength: 32)
     }
-
     private static func validSpanID(_ value: String?) -> String? {
         validHexIdentifier(value, requiredLength: 16)
     }
-
     private static func validHexIdentifier(_ value: String?, requiredLength: Int) -> String? {
         guard let value, value.count == requiredLength else {
             return nil

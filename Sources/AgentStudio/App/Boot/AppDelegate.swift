@@ -141,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
+        performanceTraceRecorder.markStartupLaunchStarted()
         startupTraceRecorder.recordAppStartup(
             "app.did_finish_launching.started",
             phase: "did_finish_launching"

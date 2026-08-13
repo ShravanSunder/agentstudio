@@ -184,6 +184,30 @@ file is not proof by itself; it is the handoff containing the marker and process
 identity. Verification must query Victoria using the current marker and expected
 resource labels.
 
+### Manual and stress verification
+
+- Treat every debug launch as a distinct proof window. When an interaction feels
+  slow, query that launch marker's lanes first: feel, query, attribute, then
+  diagnose. Never diagnose latency from feel alone.
+- Correlate the user's timestamps with the marker's per-second VictoriaLogs
+  timeline. Event bursts can attribute the responsible lane immediately; for
+  example, 42 coordinator writes in the second after Add Folder.
+- Verify the target instance before every manual verdict. Production and multiple
+  per-worktree debug identities can run together: match the window's
+  four-character identity code to the code and PID in
+  `tmp/debug-observability/latest-observability.env`. A verdict against another
+  instance is void.
+- Detached debug launches are background by default (`open -g`). Set
+  `AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1` only for human manual testing; automated
+  proof must not steal the user's foreground.
+- Synthetic fixtures can under-detect MainActor pressure. Interaction-latency and
+  MainActor claims require real-sized state—many repositories, heavy watched
+  folders, and an active PTY fleet—through either a live marker-scoped manual
+  session or a stress fixture derived from one. A **stress baseline** is a
+  recorded marker window under heavy real load; load-sensitive fixes must
+  demonstrably improve it. A fixture measuring 0.2 ms does not substitute for a
+  real-load lane measuring 290 ms p95 and 841 ms maximum coordinator writes.
+
 Preference-honoring proof writes
 `AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE=honor_preferences` in the state
 file. When that flag is present, verifiers must also require the

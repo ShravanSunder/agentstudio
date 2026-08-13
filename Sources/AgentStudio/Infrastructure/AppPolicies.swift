@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum StartupDeferral {
+        package static let maximumWait: Duration = .seconds(10)
+    }
+
     package enum CommandBar {
         package static let maximumHistoryCount: Int = 8
     }
@@ -115,7 +119,7 @@ package enum AppPolicies {
     }
 
     package enum TerminalActivation {
-        package static let maximumConcurrentAdmissions: Int = 4
+        package static let restoreMaximumConcurrentAdmissions: Int = 1
     }
 
     package enum TerminalLocalAction {
@@ -436,4 +440,10 @@ package enum AppPolicies {
         /// produce a child smaller than this are forbidden.
         package static let splitMinimumPaneSize: CGFloat = 10
     }
+}
+
+package enum StartupDeferralOutcome: String, Equatable, Sendable {
+    case completed
+    case cancelled
+    case fallbackTimeout = "fallback_timeout"
 }
