@@ -94,6 +94,14 @@ struct FilesystemGitPipelineIntegrationTests {
     func periodicGitRefreshUpdatesCacheWithoutFilesystemIngress() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gitClock = TestPushClock()
+        let tierCadence = Duration.milliseconds(120)
+        let refreshPolicy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: tierCadence,
+            visibleSidebarCadence: tierCadence,
+            openPaneCadence: tierCadence,
+            backgroundCadence: tierCadence,
+            backgroundStripeCount: 1
+        )
         let provider = MutableGitWorkingTreeStatusProvider(
             status: makeTrackedStatus()
         )
@@ -104,14 +112,8 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: .milliseconds(120),
-            gitRefreshPolicy: AppPolicies.GitRefresh.Policy(
-                activePaneCadence: .milliseconds(120),
-                visibleSidebarCadence: .milliseconds(120),
-                openPaneCadence: .milliseconds(120),
-                backgroundCadence: .milliseconds(120),
-                backgroundStripeCount: 1
-            ),
+            gitPeriodicRefreshInterval: refreshPolicy.activePaneCadence,
+            gitRefreshPolicy: refreshPolicy,
             gitSleepClock: gitClock
         )
         await pipeline.start()
@@ -128,6 +130,7 @@ struct FilesystemGitPipelineIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore()
         let repoCache = RepoCacheAtom()
+        let cacheReceipt = PeriodicGitCacheReceipt()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: store,
@@ -138,6 +141,9 @@ struct FilesystemGitPipelineIntegrationTests {
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 cacheCoordinator.consume(envelope)
+                if let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot {
+                    await cacheReceipt.record(snapshot)
+                }
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
@@ -154,25 +160,22 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(firstRefreshSleepScheduled)
 
-        await provider.setStatus(makeTrackedStatus(aheadCount: 1))
-        gitClock.advance(by: .milliseconds(120))
-
-        let aheadUpdateArrived = await eventually("periodic refresh should update ahead count") {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.aheadCount == 1
-        }
-        #expect(aheadUpdateArrived)
-        let secondRefreshSleepScheduled = await waitUntilYielding {
-            gitClock.pendingSleepCount > 0
-        }
-        #expect(secondRefreshSleepScheduled)
-
-        await provider.setStatus(makeTrackedStatus(behindCount: 2))
-        gitClock.advance(by: .milliseconds(120))
-
-        let behindUpdateArrived = await eventually("periodic refresh should update behind count") {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.behindCount == 2
-        }
-        #expect(behindUpdateArrived)
+        let refreshContext = PeriodicGitRefreshContext(
+            clock: gitClock,
+            provider: provider,
+            cacheReceipt: cacheReceipt,
+            cadence: refreshPolicy.activePaneCadence,
+            repoCache: repoCache,
+            worktreeId: worktreeId
+        )
+        await runPeriodicGitRefreshPhase(
+            .init(status: makeTrackedStatus(aheadCount: 1), expectedStatusReadCount: 2),
+            context: refreshContext
+        )
+        await runPeriodicGitRefreshPhase(
+            .init(status: makeTrackedStatus(behindCount: 2), expectedStatusReadCount: 3),
+            context: refreshContext
+        )
 
         await shutdownWorld(
             pipeline: pipeline,
@@ -489,6 +492,79 @@ struct FilesystemGitPipelineIntegrationTests {
         return condition()
     }
 
+    private struct AdvancePeriodicGitRefreshProps {
+        let clock: TestPushClock
+        let provider: MutableGitWorkingTreeStatusProvider
+        let cacheReceipt: PeriodicGitCacheReceipt
+        let cadence: Duration
+        let expectedStatusReadCount: Int
+        let expectedAheadCount: Int?
+        let expectedBehindCount: Int?
+    }
+
+    private struct PeriodicGitRefreshContext {
+        let clock: TestPushClock
+        let provider: MutableGitWorkingTreeStatusProvider
+        let cacheReceipt: PeriodicGitCacheReceipt
+        let cadence: Duration
+        let repoCache: RepoCacheAtom
+        let worktreeId: UUID
+    }
+
+    private struct PeriodicGitRefreshPhase {
+        let status: GitWorkingTreeStatus
+        let expectedStatusReadCount: Int
+    }
+
+    private func runPeriodicGitRefreshPhase(
+        _ phase: PeriodicGitRefreshPhase,
+        context: PeriodicGitRefreshContext
+    ) async {
+        let expectedAheadCount = phase.status.summary.aheadCount
+        let expectedBehindCount = phase.status.summary.behindCount
+        await context.provider.setStatus(phase.status)
+        await advancePeriodicGitRefresh(
+            .init(
+                clock: context.clock,
+                provider: context.provider,
+                cacheReceipt: context.cacheReceipt,
+                cadence: context.cadence,
+                expectedStatusReadCount: phase.expectedStatusReadCount,
+                expectedAheadCount: expectedAheadCount,
+                expectedBehindCount: expectedBehindCount
+            )
+        )
+        let cacheConverged = await eventually("periodic refresh should update ahead/behind counts") {
+            let summary = context.repoCache.worktreeEnrichmentByWorktreeId[context.worktreeId]?.snapshot?.summary
+            return summary?.aheadCount == expectedAheadCount
+                && summary?.behindCount == expectedBehindCount
+        }
+        #expect(cacheConverged)
+        let nextRefreshSleepScheduled = await waitUntilYielding {
+            context.clock.pendingSleepCount > 0
+        }
+        #expect(nextRefreshSleepScheduled)
+    }
+
+    private func advancePeriodicGitRefresh(_ props: AdvancePeriodicGitRefreshProps) async {
+        let clock = props.clock
+        let provider = props.provider
+        let cacheReceipt = props.cacheReceipt
+        let cadence = props.cadence
+        let expectedStatusReadCount = props.expectedStatusReadCount
+        let expectedAheadCount = props.expectedAheadCount
+        let expectedBehindCount = props.expectedBehindCount
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        let nextSleepGeneration = clock.scheduledSleepGeneration
+        clock.advance(by: cadence)
+        await provider.waitForCallCount(expectedStatusReadCount)
+        await cacheReceipt.waitForSnapshot(
+            aheadCount: expectedAheadCount,
+            behindCount: expectedBehindCount
+        )
+        await clock.waitForPendingSleepGeneration(nextSleepGeneration)
+    }
+
     private func waitForSubscriberCount(
         bus: EventBus<RuntimeEnvelope>,
         atLeast expectedCount: Int,
@@ -518,10 +594,41 @@ struct FilesystemGitPipelineIntegrationTests {
 
 }
 
+private actor PeriodicGitCacheReceipt {
+    private struct ExpectedCounts: Hashable {
+        let aheadCount: Int?
+        let behindCount: Int?
+    }
+
+    private var observedCounts: Set<ExpectedCounts> = []
+    private var waiters: [ExpectedCounts: [CheckedContinuation<Void, Never>]] = [:]
+
+    func record(_ snapshot: GitWorkingTreeSnapshot) {
+        let counts = ExpectedCounts(
+            aheadCount: snapshot.summary.aheadCount,
+            behindCount: snapshot.summary.behindCount
+        )
+        observedCounts.insert(counts)
+        let continuations = waiters.removeValue(forKey: counts) ?? []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    func waitForSnapshot(aheadCount: Int?, behindCount: Int?) async {
+        let counts = ExpectedCounts(aheadCount: aheadCount, behindCount: behindCount)
+        guard !observedCounts.contains(counts) else { return }
+        await withCheckedContinuation { continuation in
+            waiters[counts, default: []].append(continuation)
+        }
+    }
+}
+
 private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private var currentStatus: GitWorkingTreeStatus?
     private(set) var callCount = 0
     private var callCountByRootPath: [URL: Int] = [:]
+    private var callCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
     init(status: GitWorkingTreeStatus?) {
         self.currentStatus = status
@@ -540,13 +647,31 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
         callCountByRootPath[rootPath.standardizedFileURL, default: 0]
     }
 
+    func waitForCallCount(_ expectedCount: Int) async {
+        guard callCount < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            callCountWaiters[expectedCount, default: []].append(continuation)
+        }
+    }
+
     func statusResult(for rootPath: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
         callCount += 1
         callCountByRootPath[rootPath.standardizedFileURL, default: 0] += 1
+        resumeSatisfiedCallCountWaiters()
         guard let currentStatus else {
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
         }
         return .available(currentStatus)
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        let satisfiedCounts = callCountWaiters.keys.filter { $0 <= callCount }
+        for satisfiedCount in satisfiedCounts {
+            let continuations = callCountWaiters.removeValue(forKey: satisfiedCount) ?? []
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
     }
 }
 

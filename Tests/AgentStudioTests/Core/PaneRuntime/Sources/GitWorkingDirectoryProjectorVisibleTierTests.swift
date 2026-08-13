@@ -62,23 +62,17 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         )
         await actor.setSidebarVisibleWorktrees(Set(worktreeIds))
 
-        #expect(await visibleTierWaitUntil { await gate.labels.count == policy.visibleSidebarMaxConcurrent })
+        await gate.waitForLabelCount(policy.visibleSidebarMaxConcurrent)
         #expect(await gate.labels.count == policy.visibleSidebarMaxConcurrent)
 
         for expectedCount in stride(from: 4, through: policy.visibleSidebarStripeSize, by: 2) {
             await gate.releaseAll()
-            #expect(await visibleTierWaitUntil { await gate.labels.count == expectedCount })
+            await gate.waitForLabelCount(expectedCount)
         }
         await gate.releaseAll()
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activePaneCadence)
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activePaneCadence)
-        #expect(
-            await visibleTierWaitUntil {
-                await gate.labels.count > policy.visibleSidebarStripeSize
-            }
-        )
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await gate.waitForLabelCount(policy.visibleSidebarStripeSize + policy.visibleSidebarMaxConcurrent)
         let admittedLabels = await gate.labels
         #expect(Set(admittedLabels).count > policy.visibleSidebarStripeSize)
         #expect(await gate.maximumInFlightCount == policy.visibleSidebarMaxConcurrent)
@@ -145,9 +139,9 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             unchangedStatusCadenceMultipliers: [1, 2]
         )
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
-            _ = await calls.record(rootPath.lastPathComponent)
+            let callNumber = await calls.record(rootPath.lastPathComponent)
             return GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                summary: GitWorkingTreeSummary(changed: min(callNumber, 2), staged: 0, untracked: 0),
                 branch: "main",
                 origin: nil
             )
@@ -165,26 +159,25 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/adaptive-cadence-\(UUID().uuidString)")
         await bus.post(visibleTierRegistrationEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath))
-        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        await calls.waitForCount(1)
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
         await actor.setSidebarVisibleWorktrees([worktreeId])
-        #expect(await visibleTierWaitUntil { await calls.count == 2 })
+        await calls.waitForCount(2)
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         for _ in 0..<2 {
-            await clock.waitForPendingSleepCount(atLeast: 1)
-            clock.advance(by: policy.activePaneCadence)
+            await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
         }
-        #expect(await visibleTierWaitUntil { await calls.count == 3 })
+        await calls.waitForCount(3)
         #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
 
         for _ in 0..<3 {
-            await clock.waitForPendingSleepCount(atLeast: 1)
-            clock.advance(by: policy.activePaneCadence)
+            await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
         }
         #expect(await calls.count == 3)
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activePaneCadence)
-        #expect(await visibleTierWaitUntil { await calls.count == 4 })
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await calls.waitForCount(4)
 
         await actor.shutdown()
     }
@@ -384,6 +377,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
 
 private actor VisibleTierCallRecorder {
     private var labels: [String] = []
+    private var countWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
     var count: Int {
         labels.count
@@ -391,18 +385,38 @@ private actor VisibleTierCallRecorder {
 
     func record(_ label: String) -> Int {
         labels.append(label)
+        resumeSatisfiedCountWaiters()
         return labels.count
+    }
+
+    func waitForCount(_ expectedCount: Int) async {
+        guard labels.count < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters[expectedCount, default: []].append(continuation)
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        let satisfiedCounts = countWaiters.keys.filter { $0 <= labels.count }
+        for satisfiedCount in satisfiedCounts {
+            let continuations = countWaiters.removeValue(forKey: satisfiedCount) ?? []
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
     }
 }
 
 private actor VisibleTierStatusGate {
     private(set) var labels: [String] = []
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+    private var countWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private(set) var maximumInFlightCount = 0
     private var remainsOpen = false
 
     func recordAndWait(_ label: String) async {
         labels.append(label)
+        resumeSatisfiedCountWaiters()
         guard !remainsOpen else { return }
         await withCheckedContinuation { continuation in
             waiters[label] = continuation
@@ -427,6 +441,33 @@ private actor VisibleTierStatusGate {
         remainsOpen = true
         releaseAll()
     }
+
+    func waitForLabelCount(_ expectedCount: Int) async {
+        guard labels.count < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters[expectedCount, default: []].append(continuation)
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        let satisfiedCounts = countWaiters.keys.filter { $0 <= labels.count }
+        for satisfiedCount in satisfiedCounts {
+            let continuations = countWaiters.removeValue(forKey: satisfiedCount) ?? []
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+private func advanceVisibleTierProjectorTick(
+    clock: TestPushClock,
+    by duration: Duration
+) async {
+    await clock.waitForPendingSleepCount(atLeast: 1)
+    let nextSleepGeneration = clock.scheduledSleepGeneration
+    clock.advance(by: duration)
+    await clock.waitForPendingSleepGeneration(nextSleepGeneration)
 }
 
 private func visibleTierWaitUntil(
