@@ -814,7 +814,6 @@ package enum AgentStudioOTLPTraceProjection {
     }
 }
 // MARK: - Value Validation
-
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(
         key: String,
@@ -939,6 +938,8 @@ extension AgentStudioOTLPTraceProjection {
             return ["first_interactive_frame", "terminal_activation_release"].contains(value)
         case "agentstudio.performance.startup.deferral.outcome":
             return ["completed", "cancelled", "fallback_timeout"].contains(value)
+        case "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome":
+            return ["equal", "changed"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.phase":
             return ["input", "host_hit_test"].contains(value)
         case "agentstudio.performance.tabbar.context_menu.hit_view_class":
@@ -966,7 +967,6 @@ extension AgentStudioOTLPTraceProjection {
         guard !value.isEmpty, value.count <= 160 else {
             return false
         }
-
         let normalizedValue = value.lowercased()
         return !normalizedValue.hasPrefix("/")
             && !normalizedValue.contains("/users/")
