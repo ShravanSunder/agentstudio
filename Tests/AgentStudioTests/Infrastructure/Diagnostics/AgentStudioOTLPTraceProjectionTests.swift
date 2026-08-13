@@ -116,6 +116,26 @@ struct AgentStudioOTLPTraceProjectionTests {
                     && $0.value == 42
             }
         )
+
+        let invalidRecord = AgentStudioTraceRecord(
+            timeUnixNano: 126,
+            severityText: .info,
+            body: "performance.repo_explorer.outline_apply_proxy",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string("unexpected")
+            ]
+        )
+        let invalidProjection = AgentStudioOTLPTraceProjection.project(invalidRecord)
+        #expect(
+            invalidProjection.attributes[
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome"
+            ] == nil
+        )
     }
 
     @Test
