@@ -111,8 +111,8 @@ struct RepoExplorerCommandPresentationBatchTests {
         )
     }
 
-    @Test("capability generation ignores structural facts outside the visible worktree set")
-    func capabilityGenerationIgnoresUnrelatedStructuralFacts() async throws {
+    @Test("capability recompute preserves presentation for structural facts outside the visible worktree set")
+    func capabilityRecomputePreservesPresentationForUnrelatedStructuralFacts() async throws {
         try await withIsolatedCommandDispatcher(
             configure: {
                 AppCommandDispatcher.shared.handler = nil
@@ -180,14 +180,19 @@ struct RepoExplorerCommandPresentationBatchTests {
                         batch.snapshot.generation > managementGeneration
                     }
                     let activeTabGeneration = batch.snapshot.generation
+                    let presentationBeforeUnrelatedRepo = batch.snapshot.results
 
                     _ = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
                             path: "repo-command-batch-\(UUIDv7.generate().uuidString)"
                         )
                     )
-                    for _ in 0..<20 { await Task.yield() }
-                    #expect(batch.snapshot.generation == activeTabGeneration)
+                    // A path-index rebuild is uncertain for any pane CWD, so recomputation is
+                    // required even when equality suppresses a visible presentation change.
+                    await eventually("path index capability recompute") {
+                        batch.snapshot.generation > activeTabGeneration
+                    }
+                    #expect(batch.snapshot.results == presentationBeforeUnrelatedRepo)
                 }
             }
         )
