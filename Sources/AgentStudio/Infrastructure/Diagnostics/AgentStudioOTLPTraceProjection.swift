@@ -137,6 +137,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.outcome",
         "agentstudio.performance.repo_explorer.row_relation",
         "agentstudio.performance.repo_explorer.stage",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome",
         "agentstudio.inbox.claim.lane",
         "agentstudio.inbox.claim.semantic",
         "agentstudio.inbox.decision",
@@ -478,6 +479,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.repo_explorer.affected_item.count",
         "agentstudio.performance.repo_explorer.capability_snapshot.count",
         "agentstudio.performance.repo_explorer.command_resolution.count",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
         "agentstudio.performance.sidebar.group.count",
         "agentstudio.performance.sidebar.input.count",
@@ -811,7 +813,6 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 }
-
 // MARK: - Value Validation
 
 extension AgentStudioOTLPTraceProjection {
@@ -980,7 +981,6 @@ extension AgentStudioOTLPTraceProjection {
     private static func validSpanID(_ value: String?) -> String? {
         validHexIdentifier(value, requiredLength: 16)
     }
-
     private static func validHexIdentifier(_ value: String?, requiredLength: Int) -> String? {
         guard let value, value.count == requiredLength else {
             return nil
