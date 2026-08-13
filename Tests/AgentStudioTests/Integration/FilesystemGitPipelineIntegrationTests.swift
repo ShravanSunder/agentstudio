@@ -106,7 +106,10 @@ struct FilesystemGitPipelineIntegrationTests {
             gitCoalescingWindow: .zero,
             gitPeriodicRefreshInterval: .milliseconds(120),
             gitRefreshPolicy: AppPolicies.GitRefresh.Policy(
-                activeCadence: .milliseconds(120),
+                activePaneCadence: .milliseconds(120),
+                visibleSidebarCadence: .milliseconds(120),
+                openPaneCadence: .milliseconds(120),
+                backgroundCadence: .milliseconds(120),
                 backgroundStripeCount: 1
             ),
             gitSleepClock: gitClock

@@ -56,17 +56,10 @@ extension GitWorkingDirectoryProjector {
     }
 
     func demandClass(for worktreeId: UUID) -> String {
-        if activePaneWorktreeId == worktreeId { return "active_pane" }
-        if sidebarVisibleWorktreeIds.contains(worktreeId) { return "visible_sidebar" }
-        if activeWorktreeIds.contains(worktreeId) || immediateRefreshWorktreeIds.contains(worktreeId) {
-            return "explicit"
-        }
-        return "background"
+        explicitRefreshWorktreeIds.contains(worktreeId) ? "explicit" : demandTier(for: worktreeId).rawValue
     }
 
     func cadenceTier(for worktreeId: UUID) -> String {
-        let unchangedCount = unchangedStatusResultCountByWorktreeId[worktreeId] ?? 0
-        let interval = refreshPolicy.cadenceTickInterval(forUnchangedResultCount: unchangedCount)
-        return String(min(4, max(1, interval)))
+        demandTier(for: worktreeId).rawValue
     }
 }

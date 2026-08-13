@@ -1,13 +1,39 @@
 import AgentStudioInfrastructure
 import Foundation
 
-/// Admission policy for pending status computes: decides which pending
-/// worktrees get the bounded compute slots each cycle. The reserved lane
-/// serves the active-pane worktree first, then the oldest-stale background
-/// worktrees, so foreground panes cannot starve behind a large background
-/// fleet. Split from the projector actor body to keep it under the
-/// type/file length caps.
+enum GitDemandTier: String, CaseIterable, Sendable {
+    case activePane = "active_pane"
+    case visibleSidebar = "visible_sidebar"
+    case openPane = "open_pane"
+    case background
+
+    func cadence(in policy: AppPolicies.GitRefresh.Policy) -> Duration {
+        switch self {
+        case .activePane: policy.activePaneCadence
+        case .visibleSidebar: policy.visibleSidebarCadence
+        case .openPane: policy.openPaneCadence
+        case .background: policy.backgroundCadence
+        }
+    }
+
+    func maximumConcurrent(in policy: AppPolicies.GitRefresh.Policy) -> Int {
+        switch self {
+        case .activePane: policy.activePaneMaxConcurrent
+        case .visibleSidebar: policy.visibleSidebarMaxConcurrent
+        case .openPane: policy.openPaneMaxConcurrent
+        case .background: policy.backgroundMaxConcurrent
+        }
+    }
+}
+
+/// Attention-tiered admission for pending git status computes. Pending debt is
+/// never removed here until a slot is granted: demotion changes eligibility and
+/// cadence, not whether the refresh survives.
 extension GitWorkingDirectoryProjector {
+    func grantDemandEligibility(worktreeId: UUID) {
+        tierEligibleWorktreeIds.insert(worktreeId)
+    }
+
     func admitPendingWorktrees() {
         guard !isShuttingDown else { return }
         quarantineDeadPathPendingWorktrees()
@@ -24,42 +50,57 @@ extension GitWorkingDirectoryProjector {
         guard !eligibleWorktreeIds.isEmpty else { return }
 
         var admittedWorktreeIds: [UUID] = []
-        let reservedSlotCount = min(refreshPolicy.oldestStaleReservedSlots, availableSlots)
-        if reservedSlotCount > 0 {
-            if let activePaneWorktreeId, eligibleWorktreeIds.contains(activePaneWorktreeId) {
-                admittedWorktreeIds.append(activePaneWorktreeId)
-            }
-            let remainingReservedSlotCount = reservedSlotCount - admittedWorktreeIds.count
-            if remainingReservedSlotCount > 0 {
-                admittedWorktreeIds.append(
-                    contentsOf:
-                        eligibleWorktreeIds
-                        .filter { priorityKey(for: $0) == 3 }
-                        .sorted(by: sortPendingWorktreeByStaleness)
-                        .prefix(remainingReservedSlotCount)
-                )
-            }
-        }
+        let runningDemandTiers = worktreeTasks.keys.map { demandTier(for: $0) }
+        var runningCountByTier = Dictionary(grouping: runningDemandTiers, by: { $0 })
+            .mapValues(\.count)
+        let runningLowerTierCount = runningDemandTiers.filter { $0 != .activePane }.count
+        let activePaneHasDebt =
+            activePaneWorktreeId.map {
+                pendingByWorktreeId[$0] != nil || worktreeTasks[$0] != nil
+            } ?? false
+        let reservedActivePaneSlotCount = activePaneHasDebt ? refreshPolicy.activePaneMaxConcurrent : 0
+        var availableLowerTierSlots = max(
+            0,
+            refreshPolicy.maxConcurrentStatusComputes
+                - reservedActivePaneSlotCount
+                - runningLowerTierCount
+        )
 
-        let remainingSlotCount = availableSlots - admittedWorktreeIds.count
-        if remainingSlotCount > 0 {
-            let alreadyAdmitted = Set(admittedWorktreeIds)
-            admittedWorktreeIds.append(
-                contentsOf:
-                    eligibleWorktreeIds
-                    .filter { !alreadyAdmitted.contains($0) }
-                    .sorted(by: sortPendingWorktreeByPriority)
-                    .prefix(remainingSlotCount)
-            )
+        for worktreeId in eligibleWorktreeIds.sorted(by: sortPendingWorktreeByPriority) {
+            guard admittedWorktreeIds.count < availableSlots else { break }
+            if explicitRefreshWorktreeIds.contains(worktreeId) {
+                admittedWorktreeIds.append(worktreeId)
+                continue
+            }
+
+            let tier = demandTier(for: worktreeId)
+            let runningTierCount = runningCountByTier[tier, default: 0]
+            guard runningTierCount < tier.maximumConcurrent(in: refreshPolicy) else { continue }
+            if tier != .activePane {
+                guard availableLowerTierSlots > 0 else { continue }
+                availableLowerTierSlots -= 1
+            }
+            admittedWorktreeIds.append(worktreeId)
+            runningCountByTier[tier, default: 0] += 1
         }
 
         for worktreeId in admittedWorktreeIds {
             refreshAttribution.nextRequestSequence &+= 1
             refreshAttribution.requestSequenceByWorktreeId[worktreeId] = refreshAttribution.nextRequestSequence
-            refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] = demandClass(for: worktreeId)
-            refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] = cadenceTier(for: worktreeId)
-            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] =
-                refreshAttribution.triggerSourceByWorktreeId[worktreeId] ?? .registration
+            let isExplicit = explicitRefreshWorktreeIds.contains(worktreeId)
+            let admittedTier = demandTier(for: worktreeId)
+            refreshAttribution.admittedDemandClassByWorktreeId[worktreeId] =
+                isExplicit ? "explicit" : admittedTier.rawValue
+            refreshAttribution.admittedCadenceTierByWorktreeId[worktreeId] = admittedTier.rawValue
+            let admittedTriggerSource = refreshAttribution.triggerSourceByWorktreeId[worktreeId] ?? .registration
+            refreshAttribution.admittedTriggerSourceByWorktreeId[worktreeId] = admittedTriggerSource
+            if !isExplicit {
+                admittedDemandTierByWorktreeId[worktreeId] = admittedTier
+            }
+            explicitRefreshWorktreeIds.remove(worktreeId)
+            tierEligibleWorktreeIds.remove(worktreeId)
+            lastPeriodicAdmissionTickByWorktreeId[worktreeId] =
+                admittedTriggerSource == .periodic ? periodicRefreshTick : periodicRefreshTick &- 1
             startDrainTask(worktreeId: worktreeId)
         }
         guard !admittedWorktreeIds.isEmpty else { return }
@@ -75,10 +116,6 @@ extension GitWorkingDirectoryProjector {
         if lhsPriority != rhsPriority {
             return lhsPriority < rhsPriority
         }
-        return lhs.uuidString < rhs.uuidString
-    }
-
-    private func sortPendingWorktreeByStaleness(_ lhs: UUID, _ rhs: UUID) -> Bool {
         guard let lhsChangeset = pendingByWorktreeId[lhs] else { return false }
         guard let rhsChangeset = pendingByWorktreeId[rhs] else { return true }
         if lhsChangeset.timestamp != rhsChangeset.timestamp {
@@ -91,26 +128,27 @@ extension GitWorkingDirectoryProjector {
     }
 
     private func priorityKey(for worktreeId: UUID) -> Int {
-        if activePaneWorktreeId == worktreeId {
-            return 0
+        if explicitRefreshWorktreeIds.contains(worktreeId) { return -1 }
+        switch demandTier(for: worktreeId) {
+        case .activePane: return 0
+        case .visibleSidebar: return 1
+        case .openPane: return 2
+        case .background: return 3
         }
-        if sidebarVisibleWorktreeIds.contains(worktreeId) {
-            return 1
-        }
-        if activeWorktreeIds.contains(worktreeId) {
-            return 2
-        }
-        return 3
+    }
+
+    func demandTier(for worktreeId: UUID) -> GitDemandTier {
+        if activePaneWorktreeId == worktreeId { return .activePane }
+        if sidebarVisibleWorktreeIds.contains(worktreeId) { return .visibleSidebar }
+        if activeWorktreeIds.contains(worktreeId) { return .openPane }
+        return .background
     }
 
     func isDemandEligible(worktreeId: UUID) -> Bool {
-        // A changeset without registered topology is an explicit direct request
-        // (used by callers that do not own registration); registered runtime
-        // worktrees require one of the product demand facts below.
         registeredContext(for: worktreeId) == nil
-            || immediateRefreshWorktreeIds.contains(worktreeId)
+            || explicitRefreshWorktreeIds.contains(worktreeId)
             || activePaneWorktreeId == worktreeId
-            || sidebarVisibleWorktreeIds.contains(worktreeId)
             || activeWorktreeIds.contains(worktreeId)
+            || tierEligibleWorktreeIds.contains(worktreeId)
     }
 }

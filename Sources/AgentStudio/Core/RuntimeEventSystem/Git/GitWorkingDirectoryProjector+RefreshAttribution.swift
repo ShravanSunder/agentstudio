@@ -20,7 +20,8 @@ struct GitRefreshAttributionState {
 extension GitWorkingDirectoryProjector {
     func enqueueImmediateRefreshIfRegistered(
         worktreeId: UUID,
-        triggerSource: GitRefreshTriggerSource = .visibilityChange
+        triggerSource: GitRefreshTriggerSource = .visibilityChange,
+        isExplicit: Bool = false
     ) {
         guard !suppressedWorktreeIds.contains(worktreeId) else { return }
         guard let context = registeredContext(for: worktreeId) else { return }
@@ -36,15 +37,19 @@ extension GitWorkingDirectoryProjector {
             timestamp: envelopeClock.now,
             batchSeq: nextBatchSeq
         )
-        enqueueImmediateRefresh(changeset, triggerSource: triggerSource)
+        enqueueImmediateRefresh(changeset, triggerSource: triggerSource, isExplicit: isExplicit)
     }
 
     func enqueueImmediateRefresh(
         _ changeset: FileChangeset,
-        triggerSource: GitRefreshTriggerSource
+        triggerSource: GitRefreshTriggerSource,
+        isExplicit: Bool = false
     ) {
         let worktreeId = changeset.worktreeId
         immediateRefreshWorktreeIds.insert(worktreeId)
+        if isExplicit {
+            explicitRefreshWorktreeIds.insert(worktreeId)
+        }
         guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
         guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
         pendingByWorktreeId[worktreeId] = Self.mergeChangesets(

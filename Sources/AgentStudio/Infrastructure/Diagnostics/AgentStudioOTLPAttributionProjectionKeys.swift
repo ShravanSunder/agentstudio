@@ -19,11 +19,11 @@ enum AgentStudioOTLPAttributionProjectionKeys {
                 "query_meaningful_transition", "topology_observation",
             ].contains(value)
         case "agentstudio.performance.git.demand_class":
-            return ["active_pane", "visible_sidebar", "explicit", "background"].contains(value)
+            return ["active_pane", "visible_sidebar", "open_pane", "explicit", "background"].contains(value)
         case "agentstudio.performance.git.trigger_source":
             return ["registration", "filesystem_change", "periodic", "visibility_change", "retry"].contains(value)
         case "agentstudio.performance.git.cadence_tier":
-            return ["1", "2", "4"].contains(value)
+            return ["active_pane", "visible_sidebar", "open_pane", "background"].contains(value)
         default:
             return nil
         }

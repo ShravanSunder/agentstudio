@@ -23,9 +23,9 @@ struct AgentStudioOTLPGitWorktreeProjectionTests {
             ],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
-                "agentstudio.performance.git.demand_class": .string("active_pane"),
+                "agentstudio.performance.git.demand_class": .string("open_pane"),
                 "agentstudio.performance.git.trigger_source": .string("filesystem_change"),
-                "agentstudio.performance.git.cadence_tier": .string("2"),
+                "agentstudio.performance.git.cadence_tier": .string("open_pane"),
                 "agentstudio.performance.git.request.sequence": .int(42),
                 "agentstudio.performance.git.status_scope": .string("full"),
                 "agentstudio.performance.git.root_path": .string(rawRootPath),
@@ -38,9 +38,9 @@ struct AgentStudioOTLPGitWorktreeProjectionTests {
 
         #expect(projection.resource["dev.worktree.hash"] == "worktree-hash")
         #expect(projection.attributes["dev.worktree.hash"] == .string("worktree-hash"))
-        #expect(projection.attributes["agentstudio.performance.git.demand_class"] == .string("active_pane"))
+        #expect(projection.attributes["agentstudio.performance.git.demand_class"] == .string("open_pane"))
         #expect(projection.attributes["agentstudio.performance.git.trigger_source"] == .string("filesystem_change"))
-        #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == .string("2"))
+        #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == .string("open_pane"))
         #expect(projection.attributes["agentstudio.performance.git.request.sequence"] == .int(42))
         #expect(projection.attributes["agentstudio.worktree.id"] == nil)
         #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
@@ -71,6 +71,30 @@ struct AgentStudioOTLPGitWorktreeProjectionTests {
         #expect(projection.attributes["agentstudio.performance.git.demand_class"] == nil)
         #expect(projection.attributes["agentstudio.performance.git.trigger_source"] == nil)
         #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == nil)
+    }
+
+    @Test(
+        "git projection keeps bounded named cadence tiers",
+        arguments: ["active_pane", "visible_sidebar", "open_pane", "background"]
+    )
+    func gitProjectionKeepsBoundedNamedCadenceTier(cadenceTier: String) {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 502,
+            severityText: .info,
+            body: "performance.git.admission",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.cadence_tier": .string(cadenceTier)
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.git.cadence_tier"] == .string(cadenceTier))
     }
 }
 
