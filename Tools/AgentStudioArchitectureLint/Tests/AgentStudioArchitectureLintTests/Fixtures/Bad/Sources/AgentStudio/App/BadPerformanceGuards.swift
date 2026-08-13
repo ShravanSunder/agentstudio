@@ -22,3 +22,19 @@ struct BadPerformanceOwner {
 
     private func paneSnapshot() -> [Int] { [] }
 }
+
+@MainActor
+extension BadPerformanceOwner {
+    func arrangeInMainActorExtension() {
+        _ = rows.sorted()
+    }
+}
+
+struct BadMainActorFunctionOwner {
+    let rows: [Int]
+
+    @MainActor
+    func arrangeInMainActorFunction() {
+        _ = rows.sorted()
+    }
+}
