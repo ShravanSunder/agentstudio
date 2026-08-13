@@ -141,18 +141,18 @@ extension WorkspaceSurfaceCoordinator {
         )
         let indexDuration = indexStart.duration(to: clock.now)
 
+        let affectedKeys = Self.affectedKeys(from: projectionResult.intents)
+        await publishProductFileEnvelopeIfNeeded(
+            envelope,
+            affectedKeys: affectedKeys
+        )
+
         guard
             projectionResult.paneContextGeneration == paneContextGeneration,
             projectionResult.topologyGeneration == filesystemAppliedTopologyGeneration
         else {
             return true
         }
-
-        let affectedKeys = Self.affectedKeys(from: projectionResult.intents)
-        await publishProductFileEnvelopeIfNeeded(
-            envelope,
-            affectedKeys: affectedKeys
-        )
 
         let applyStart = clock.now
         let derivedEnvelopes = projectionResult.intents.map(makeFilesystemProjectionEnvelope)

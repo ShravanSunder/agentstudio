@@ -103,8 +103,8 @@ extension WebKitSerializedTests {
             await harness.finish()
         }
 
-        @Test("stale index projection authorizes no Bridge product invalidation")
-        func staleIndexProjectionAuthorizesNoBridgeProductInvalidation() async throws {
+        @Test("stale pane projection retains Bridge product invalidation")
+        func stalePaneProjectionRetainsBridgeProductInvalidation() async throws {
             // Arrange
             let projectionIndex = RefreshGateableFilesystemProjectionIndex()
             let setup = try makeWorkspaceRefreshTestSetup(projectionIndex: projectionIndex)
@@ -149,14 +149,17 @@ extension WebKitSerializedTests {
             await projectionIndex.resumePausedProjection()
             #expect(await projectionTask.value)
 
-            // Assert — a stale index result cannot authorize Bridge product work.
+            // Assert — pane projection staleness cannot discard the independent product invalidation fact.
             let snapshot = controller.refreshAdmissionCoordinator.diagnosticSnapshot
             let dirtyFact = try #require(snapshot.dirtyFact)
+            let retainedChangeset = try #require(dirtyFact.fileChangeset)
             #expect(dirtyFact.generation == baselineDirtyFact.generation)
-            #expect(dirtyFact.fileChangeset == nil)
+            #expect(retainedChangeset.paths == ["Sources/App/StaleProjection.swift"])
+            #expect(retainedChangeset.batchSeq == 81)
+            #expect(retainedChangeset.suppressedIgnoredPathCount == 1)
             #expect(dirtyFact.latestFileStatus == nil)
-            #expect(dirtyFact.latestBatchSequence == baselineDirtyFact.latestBatchSequence)
-            #expect(dirtyFact.requiresReviewRefresh == baselineDirtyFact.requiresReviewRefresh)
+            #expect(dirtyFact.latestBatchSequence == changeset.batchSeq)
+            #expect(dirtyFact.requiresReviewRefresh)
             #expect(snapshot.refreshPassCount == baselineSnapshot.refreshPassCount)
 
             await harness.finish()

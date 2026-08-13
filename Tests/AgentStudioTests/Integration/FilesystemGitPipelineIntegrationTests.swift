@@ -349,6 +349,63 @@ struct FilesystemGitPipelineIntegrationTests {
         await pipeline.shutdown()
     }
 
+    @Test("explicit Refresh Worktrees refreshes every registered worktree")
+    func explicitRefreshWorktreesRefreshesEveryRegisteredWorktree() async throws {
+        installTestCoreAtomsIfNeeded()
+        let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus())
+        let pipeline = FilesystemGitPipeline(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: provider,
+            fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero,
+            gitPeriodicRefreshInterval: nil
+        )
+        await pipeline.start()
+
+        let harness = makeBridgePaneActivityTestHarness()
+        let fixtureRoot = harness.tempDirectory.appending(path: "explicit-refresh-fleet")
+        let watchedFolder = fixtureRoot.appending(path: "watched")
+        let worktreeRoots = [
+            watchedFolder.appending(path: "worktree-a"),
+            fixtureRoot.appending(path: "external/worktree-b"),
+            fixtureRoot.appending(path: "external/worktree-c"),
+        ]
+        for worktreeRoot in worktreeRoots {
+            try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+            await pipeline.register(
+                worktreeId: UUIDv7.generate(),
+                repoId: UUIDv7.generate(),
+                rootPath: worktreeRoot
+            )
+        }
+        let registrationReadsCompleted = await eventually("all registration reads should complete") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(registrationReadsCompleted)
+        await provider.resetRecordedRequests()
+        _ = harness.store.addWatchedPath(watchedFolder)
+
+        let delegate = AppDelegate()
+        delegate.store = harness.store
+        delegate.watchedFolderCommands = pipeline
+        delegate.workspaceSurfaceCoordinator = harness.coordinator
+
+        await delegate.handleRefreshWorktreesRequested()
+
+        let fleetRefreshCompleted = await eventually("explicit refresh should read every registered worktree") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(fleetRefreshCompleted)
+        for worktreeRoot in worktreeRoots {
+            #expect(await provider.callCount(for: worktreeRoot) == 1)
+        }
+
+        await pipeline.shutdown()
+        await harness.finish()
+    }
+
     private func makeTrackedStatus(
         aheadCount: Int = 0,
         behindCount: Int = 0,
