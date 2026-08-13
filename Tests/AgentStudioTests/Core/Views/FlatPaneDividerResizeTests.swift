@@ -32,6 +32,25 @@ struct FlatPaneDividerResizeTests {
         #expect(recorder.records.map(\.duration) == [.milliseconds(1), .milliseconds(2)])
     }
 
+    @Test("gesture end abandons an unsettled sample before a later layout publication")
+    func gestureEndPreventsIdleGapSettlement() {
+        let clock = DividerInteractionTestClock(nowNanoseconds: 1_000_000)
+        let recorder = DividerInteractionTestRecorder()
+        let probe = AgentStudioInteractionPerformanceProbe(
+            nowNanoseconds: clock.now,
+            recordDuration: recorder.record
+        )
+        var measurement = DividerFrameMeasurementState()
+
+        let sampleAdmitted = measurement.admitSample(using: probe)
+        #expect(sampleAdmitted)
+        measurement.gestureDidEnd(using: probe)
+        clock.nowNanoseconds = 60_001_000_000
+        measurement.layoutDidPublish(using: probe)
+
+        #expect(recorder.records.isEmpty)
+    }
+
     // MARK: - Pure computation tests
 
     @Test

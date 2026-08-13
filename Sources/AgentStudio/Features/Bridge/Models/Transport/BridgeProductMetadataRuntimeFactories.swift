@@ -341,14 +341,15 @@ extension BridgeProductPanePresentationFrame {
             codingPath: []
         )
         try BridgeProductContractDecoding.validatePositive(
-            snapshot.activityRevision,
-            name: "activityRevision",
+            snapshot.presentationRevision,
+            name: "presentationRevision",
             codingPath: []
         )
         self.frameIdentity = .init(correlation: stream, streamSequence: streamSequence)
-        self.activityRevision = snapshot.activityRevision
+        self.presentationRevision = snapshot.presentationRevision
         self.nativeActivity = snapshot.nativeActivity
         self.refreshingLanes = snapshot.refreshingLanes.sorted { $0.rawValue < $1.rawValue }
+        self.reviewComparison = snapshot.reviewComparison
     }
 }
 

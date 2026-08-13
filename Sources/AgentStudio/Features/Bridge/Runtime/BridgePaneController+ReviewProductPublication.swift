@@ -9,6 +9,7 @@ enum BridgeReviewPackageLoadCommitDisposition: Equatable, Sendable {
 extension BridgePaneController {
     func commitReviewPackageLoad(
         _ load: BridgeReviewPackageLoadData,
+        expectedReviewGeneration: BridgeReviewGeneration,
         productAdmission: BridgeProductAdmissionContext,
         traceContext: BridgeTraceContext?,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
@@ -56,17 +57,21 @@ extension BridgePaneController {
             return .rejected
         }
 
-        let commitPublication = {
-            self.reviewPublicationCoordinator.commit(
+        let commitResult = foregroundWorkAdmission.withValidAdmission {
+            () -> BridgeReviewPublicationCommitResult? in
+            guard expectedReviewGeneration == self.nextReviewGeneration else { return nil }
+            return self.reviewPublicationCoordinator.commit(
                 publicationToken,
-                productAdmission: productAdmission
-            ) { committedPublication in
-                self.paneState.diff.setPackageMetadata(committedPublication.package)
-                self.paneState.diff.setPackageDelta(committedPublication.delta)
-                self.paneState.diff.setStatus(.ready)
-            }
-        }
-        guard let commitResult = foregroundWorkAdmission.withValidAdmission(commitPublication)
+                productAdmission: productAdmission,
+                captureCommittedPresentation: captureCommittedReviewComparisonPresentation,
+                presentCommitted: { committedPublication in
+                    self.paneState.diff.setPackageMetadata(committedPublication.package)
+                    self.paneState.diff.setPackageDelta(committedPublication.delta)
+                    self.paneState.diff.setStatus(.ready)
+                }
+            )
+        }.flatMap { $0 }
+        guard let commitResult
         else {
             _ = reviewPublicationCoordinator.rejectReservation(
                 publicationToken,
@@ -116,6 +121,24 @@ extension BridgePaneController {
             productAdmission: productAdmission
         )
         return .committed(delivery: deliveryDisposition)
+    }
+
+    private func captureCommittedReviewComparisonPresentation(
+        _ package: BridgeReviewPackage
+    ) -> BridgePaneProductPresentationSnapshot {
+        if case .workspace(_, let baseline) = bridgePaneState.source,
+            baseline?.contributionTarget != nil
+        {
+            refreshAdmissionCoordinator.recordCommittedReviewComparisonSnapshot(
+                reviewGeneration: package.reviewGeneration.rawValue,
+                displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity(
+                    packageId: package.packageId,
+                    reviewGeneration: package.reviewGeneration.rawValue,
+                    revision: package.revision
+                )
+            )
+        }
+        return refreshAdmissionCoordinator.productPresentationSnapshot
     }
 
     private func invalidateRetainedReviewTargetIfSourceChanged(

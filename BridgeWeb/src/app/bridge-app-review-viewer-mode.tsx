@@ -7,14 +7,21 @@ import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-fram
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeFileChangeKind } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import {
+	recordBridgeFrameJankTelemetrySample,
+	recordBridgeReviewComparisonPaneTelemetrySample,
+} from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import { BridgeReviewProjectionMenu } from '../review-viewer/chrome/bridge-review-projection-menu.js';
 import {
 	bridgeCodeViewOptions,
 	createBridgeReviewViewSettingsDefaults,
 	deriveBridgeReviewCodeViewOptions,
 } from '../review-viewer/code-view/bridge-code-view-options.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import type { BridgeReviewSearchMode } from '../review-viewer/models/review-projection-models.js';
+import type {
+	BridgeReviewProjectionMode,
+	BridgeReviewSearchMode,
+} from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
@@ -33,6 +40,12 @@ import {
 	BridgeReviewViewerShellBoundary,
 	type BridgeReviewViewerPresentationState,
 } from './bridge-app-review-viewer-shell-boundary.js';
+import { BridgeReviewComparisonControl } from './bridge-review-comparison-control.js';
+import {
+	bridgeReviewComparisonPackageMatch,
+	bridgeReviewComparisonPaneIsLoading,
+	bridgeReviewComparisonPaneState,
+} from './bridge-review-comparison-pane-state.js';
 import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
@@ -66,7 +79,7 @@ export interface BridgeReviewViewerModeProps {
 	readonly reviewClient: BridgePaneSurfaceClient;
 	readonly target?: EventTarget;
 	readonly telemetryRecorderRef: { readonly current: BridgeTelemetryRecorder };
-	readonly viewerHeaderControls: ReactElement;
+	readonly viewerContextSwitcher: ReactElement;
 }
 
 type BridgeReviewFilterCandidate = Extract<
@@ -88,15 +101,17 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		reviewClient,
 		target = document,
 		telemetryRecorderRef,
-		viewerHeaderControls,
+		viewerContextSwitcher,
 	} = props;
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const presentationPositionKey = useId();
 	const controller = useBridgeReviewRenderSnapshotController({
 		pierreCourier,
 		reviewClient,
+		telemetryRecorderRef,
 	});
 	const catalogSnapshot = controller.catalogSnapshot;
+	const comparisonTargetsQueryState = controller.comparisonTargetsQueryState;
 	const clearSelectedReviewItemId = controller.clearSelectedReviewItemId;
 	const commitSelectedReviewItemId = controller.commitSelectedReviewItemId;
 	const displayStore = controller.displayStore;
@@ -112,6 +127,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const setReviewCodeViewVisibleItemIds = controller.setReviewCodeViewVisibleItemIds;
 	const setReviewTreeVisibleItemIds = controller.setReviewTreeVisibleItemIds;
 	const updateReviewDisplayProjection = controller.updateReviewDisplayProjection;
+	const queryReviewComparisonTargets = controller.queryReviewComparisonTargets;
+	const cancelReviewComparisonTargetsQuery = controller.cancelReviewComparisonTargetsQuery;
 	const visibleCodeViewItems = controller.visibleCodeViewItems;
 	const [treeSearchState, setTreeSearchState] = useState(createBridgeViewerSearchState);
 	const [treeSearchRejectionMessage, setTreeSearchRejectionMessage] = useState<string | null>(null);
@@ -130,6 +147,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		bridgeReviewDefaultViewSettings,
 	);
 	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
+	const [projectionMode, setProjectionMode] = useState<BridgeReviewProjectionMode>({
+		kind: 'normalReview',
+	});
 	useEffect((): void => {
 		if (!isActive) {
 			setFacetMenuOpen(false);
@@ -143,21 +163,6 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 				viewSettings,
 			}),
 		[viewSettings],
-	);
-	const contentHeaderControls = (
-		<>
-			{viewerHeaderControls}
-			{isActive ? (
-				<BridgeViewerViewSettingsMenu
-					defaultSettings={bridgeReviewDefaultViewSettings}
-					onChange={setViewSettings}
-					onOpenChange={setViewSettingsMenuOpen}
-					open={viewSettingsMenuOpen}
-					settings={viewSettings}
-					surface="review"
-				/>
-			) : null}
-		</>
 	);
 	const [treeSelectionRevealRequest, setTreeSelectionRevealRequest] =
 		useState<BridgeReviewTreeSelectionRevealRequest | null>(null);
@@ -295,6 +300,67 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			}),
 		[catalogSnapshot, displayStore, reviewSourceSlice],
 	);
+	const displayedReviewPackage = presentationSnapshot?.reviewPackage ?? null;
+	const comparisonPresentation = panelChromeSlice.reviewComparison;
+	const comparisonPaneState = bridgeReviewComparisonPaneState({
+		comparisonPresentation,
+		displayedReviewPackage,
+	});
+	const comparisonPackageMatch =
+		comparisonPresentation === null || comparisonPresentation === undefined
+			? 'snapshot_not_current'
+			: bridgeReviewComparisonPackageMatch({
+					displayedReviewPackage,
+					displayedSnapshot: comparisonPresentation.displayedSnapshot,
+				});
+	const comparisonAttemptTelemetryStatus =
+		bridgeReviewComparisonAttemptTelemetryStatus(comparisonPresentation);
+	const comparisonPaneTelemetryState =
+		bridgeReviewComparisonPaneTelemetryState(comparisonPaneState);
+	useEffect((): void => {
+		recordBridgeReviewComparisonPaneTelemetrySample({
+			attemptStatus: comparisonAttemptTelemetryStatus,
+			packageMatch: comparisonPackageMatch,
+			paneState: comparisonPaneTelemetryState,
+			telemetryRecorder: telemetryRecorderRef.current,
+		});
+	}, [
+		comparisonAttemptTelemetryStatus,
+		comparisonPackageMatch,
+		comparisonPaneTelemetryState,
+		telemetryRecorderRef,
+	]);
+	const comparisonIsLoading = bridgeReviewComparisonPaneIsLoading(comparisonPaneState);
+	const contentHeaderControls = (
+		<>
+			<BridgeReviewComparisonControl
+				comparisonPresentation={panelChromeSlice.reviewComparison}
+				displayedReviewPackage={presentationSnapshot?.reviewPackage ?? null}
+				disabled={comparisonIsLoading}
+				isActive={isActive}
+				onApplyTarget={controller.updateReviewComparisonTarget}
+				onCancelTargetQuery={cancelReviewComparisonTargetsQuery}
+				onQueryTargets={queryReviewComparisonTargets}
+				targetQueryState={comparisonTargetsQueryState}
+			/>
+			<BridgeReviewProjectionMenu
+				disabled={comparisonIsLoading}
+				onProjectionModeChange={setProjectionMode}
+				projectionMode={projectionMode}
+			/>
+			{isActive ? (
+				<BridgeViewerViewSettingsMenu
+					defaultSettings={bridgeReviewDefaultViewSettings}
+					disabled={comparisonIsLoading}
+					onChange={setViewSettings}
+					onOpenChange={setViewSettingsMenuOpen}
+					open={viewSettingsMenuOpen}
+					settings={viewSettings}
+					surface="review"
+				/>
+			) : null}
+		</>
+	);
 	const reviewGeneration = presentationSnapshot?.reviewPackage.reviewGeneration ?? null;
 	const reviewPackageId = presentationSnapshot?.reviewPackage.packageId ?? null;
 	const orderedItemIds = presentationSnapshot?.reviewPackage.orderedItemIds ?? [];
@@ -370,6 +436,9 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
 		panelChromeSlice,
+		comparisonPaneState,
+		onRetryComparison: controller.updateReviewComparisonTarget,
+		projectionMode,
 		codeViewControlHandleRef,
 		facetMenuOpen,
 		categoryFilter,
@@ -408,18 +477,55 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	});
 	return (
 		<BridgeReviewViewerShellBoundary
+			comparisonPaneState={comparisonPaneState}
 			isActive={isActive}
+			onRetryComparison={controller.updateReviewComparisonTarget}
 			presentationState={presentationState}
+			viewerContextSwitcher={viewerContextSwitcher}
 			viewerHeaderControls={contentHeaderControls}
 		/>
 	);
 }
 
+function bridgeReviewComparisonAttemptTelemetryStatus(
+	presentation: BridgeReviewRenderSnapshotController['panelChromeSlice']['reviewComparison'],
+): 'absent' | 'pending' | 'selection_required' | 'settled' | 'unavailable' {
+	const status = presentation?.attempt.status;
+	if (status === undefined) return 'absent';
+	return status === 'selectionRequired' ? 'selection_required' : status;
+}
+
+function bridgeReviewComparisonPaneTelemetryState(
+	state: ReturnType<typeof bridgeReviewComparisonPaneState>,
+): 'failed_initial' | 'failed_previous' | 'loading_initial' | 'loading_previous' | 'settled' {
+	switch (state.kind) {
+		case 'failedInitial':
+			return 'failed_initial';
+		case 'failedPrevious':
+			return 'failed_previous';
+		case 'loadingInitial':
+			return 'loading_initial';
+		case 'loadingPrevious':
+			return 'loading_previous';
+		case 'settled':
+			return 'settled';
+		default:
+			return assertNeverBridgeReviewComparisonPaneTelemetryState(state);
+	}
+}
+
+function assertNeverBridgeReviewComparisonPaneTelemetryState(state: never): never {
+	throw new Error(`Unexpected Review comparison pane telemetry state: ${JSON.stringify(state)}`);
+}
+
 function reviewPresentationState(props: {
+	readonly comparisonPaneState: ReturnType<typeof bridgeReviewComparisonPaneState>;
+	readonly onRetryComparison: BridgeReviewRenderSnapshotController['updateReviewComparisonTarget'];
 	readonly codeViewOptions: ReturnType<typeof deriveBridgeReviewCodeViewOptions>;
 	readonly codeViewWorkerFactory: (() => Worker) | undefined;
 	readonly codeViewWorkerPoolEnabled: boolean | undefined;
 	readonly panelChromeSlice: BridgeReviewRenderSnapshotController['panelChromeSlice'];
+	readonly projectionMode: BridgeReviewProjectionMode;
 	readonly codeViewControlHandleRef: { current: BridgeCodeViewControlHandle | null };
 	readonly facetMenuOpen: boolean;
 	readonly categoryFilter: BridgeReviewFilterCandidate['categoryFilter'];
@@ -470,6 +576,7 @@ function reviewPresentationState(props: {
 	return {
 		presentationKey: props.presentationSnapshot.presentationKey,
 		shellProps: {
+			comparisonPaneState: props.comparisonPaneState,
 			codeViewOptions: props.codeViewOptions,
 			facetMenuOpen: props.facetMenuOpen,
 			categoryFilter: props.categoryFilter,
@@ -482,7 +589,9 @@ function reviewPresentationState(props: {
 			onFilterChange: props.onFilterChange,
 			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
+			onRetryComparison: props.onRetryComparison,
 			panelChromeSlice: props.panelChromeSlice,
+			projectionMode: props.projectionMode,
 			presentationPositionKey: props.presentationPositionKey,
 			presentationRegistry: props.presentationSnapshot.presentationRegistry,
 			renderFulfillmentCoordinator: props.renderFulfillmentCoordinator,

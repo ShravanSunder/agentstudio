@@ -45,7 +45,7 @@ export interface BridgeFileViewerModeProps {
 	) => void;
 	readonly requiresNavigationSourceDiscovery: boolean;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
-	readonly viewerHeaderControls: ReactElement;
+	readonly viewerContextSwitcher: ReactElement;
 }
 
 export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactElement {
@@ -130,7 +130,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 					onDisplaySourceChange={reportDisplaySource}
 					telemetryRecorder={props.telemetryRecorder}
 					telemetryTraceContext={null}
-					viewerHeaderControls={props.viewerHeaderControls}
+					viewerContextSwitcher={props.viewerContextSwitcher}
 				/>
 			)}
 		</BridgeFileViewerSurfaceClientProvider>

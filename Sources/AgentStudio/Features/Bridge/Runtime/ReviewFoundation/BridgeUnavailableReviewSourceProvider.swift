@@ -1,6 +1,16 @@
 import Foundation
 
 actor BridgeUnavailableReviewSourceProvider: BridgeReviewSourceProvider {
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        nil
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        throw BridgeProviderFailure.providerUnavailable
+    }
+
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
         throw BridgeProviderFailure.providerUnavailable
     }

@@ -104,7 +104,7 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 		const messageCountBeforeSuppression = postedMessages.length;
 
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(2, 'loadedHidden'),
+			makeReviewPanePresentationFrame(12, 'loadedHidden'),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		dispatch.message(
@@ -131,11 +131,11 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 		).toEqual([]);
 
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(3, 'foreground'),
+			makeReviewPanePresentationFrame(13, 'foreground'),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(3, 'foreground'),
+			makeReviewPanePresentationFrame(13, 'foreground'),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 
@@ -215,10 +215,10 @@ describe('Bridge comm worker Review product pane activity lifecycle', () => {
 		const messageCountBeforeNativeCycle = postedMessages.length;
 
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(2, 'loadedHidden'),
+			makeReviewPanePresentationFrame(12, 'loadedHidden'),
 		);
 		requirePanePresentationSink(panePresentationSink)(
-			makeReviewPanePresentationFrame(3, 'foreground'),
+			makeReviewPanePresentationFrame(13, 'foreground'),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
 

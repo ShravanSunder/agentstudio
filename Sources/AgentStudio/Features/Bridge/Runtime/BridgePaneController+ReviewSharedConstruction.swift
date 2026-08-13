@@ -39,7 +39,6 @@ extension BridgePaneController {
         default defaultReason: BridgeReviewPackageBuildReason
     ) -> BridgeReviewPackageBuildReason {
         let reasonPriority: [BridgeReviewPackageBuildReason] = [
-            .fallbackUnresolvedHead,
             .initialIntake,
             .productResync,
             .filesystemRefresh,

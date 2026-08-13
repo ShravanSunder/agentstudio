@@ -24,6 +24,17 @@ type ReviewMetadataSnapshotEvent = Extract<
 	{ readonly eventKind: 'review.snapshot' }
 >;
 
+export type BridgeCommWorkerReviewComparisonCommitState =
+	| { readonly status: 'absent' }
+	| {
+			readonly presentationRevision: number;
+			readonly reviewComparison: Exclude<
+				ReviewMetadataSnapshotEvent['reviewComparison'],
+				undefined
+			>;
+			readonly status: 'committed';
+	  };
+
 export interface BridgeCommWorkerReviewMetadataIdentity {
 	readonly generation: number;
 	readonly packageId: string;
@@ -33,6 +44,8 @@ export interface BridgeCommWorkerReviewMetadataIdentity {
 
 export interface BridgeCommWorkerReviewMetadataSnapshot {
 	readonly baseEndpoint: ReviewMetadataSnapshotEvent['baseEndpoint'] | null;
+	readonly comparisonOrigin: NonNullable<ReviewMetadataSnapshotEvent['comparisonOrigin']> | null;
+	readonly comparisonCommit: BridgeCommWorkerReviewComparisonCommitState;
 	readonly contentSources: readonly BridgeProductReviewContentSourceDescriptor[];
 	readonly extentFacts: readonly BridgeProductReviewExtentFact[];
 	readonly headEndpoint: ReviewMetadataSnapshotEvent['headEndpoint'] | null;
@@ -41,6 +54,7 @@ export interface BridgeCommWorkerReviewMetadataSnapshot {
 	readonly orderedItemIds: readonly string[];
 	readonly query: ReviewMetadataSnapshotEvent['query'] | null;
 	readonly revision: number | null;
+	readonly reviewedSubjectLabel: string | null;
 	readonly summary: ReviewMetadataPayloadEvent['summary'] | null;
 	readonly totalItemCount: number | null;
 	readonly totalTreeRowCount: number | null;
@@ -56,6 +70,8 @@ export interface BridgeCommWorkerReviewMetadataApplyResult {
 
 export class BridgeCommWorkerReviewMetadataProjection {
 	#baseEndpoint: ReviewMetadataSnapshotEvent['baseEndpoint'] | null = null;
+	#comparisonOrigin: NonNullable<ReviewMetadataSnapshotEvent['comparisonOrigin']> | null = null;
+	#comparisonCommit: BridgeCommWorkerReviewComparisonCommitState = { status: 'absent' };
 	readonly #contentSourceByDescriptorId = new Map<
 		string,
 		BridgeProductReviewContentSourceDescriptor
@@ -72,6 +88,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 	#projectionRevision = 0;
 	#query: ReviewMetadataSnapshotEvent['query'] | null = null;
 	#revision: number | null = null;
+	#reviewedSubjectLabel: string | null = null;
 	#summary: ReviewMetadataPayloadEvent['summary'] | null = null;
 	#totalItemCount: number | null = null;
 	#totalTreeRowCount: number | null = null;
@@ -106,8 +123,10 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				this.#identity = reviewMetadataIdentity(event);
 				this.#revision = event.revision;
 				this.#baseEndpoint = event.baseEndpoint;
+				this.#comparisonOrigin = event.comparisonOrigin ?? null;
 				this.#headEndpoint = event.headEndpoint;
 				this.#query = event.query;
+				this.#reviewedSubjectLabel = event.reviewedSubjectLabel ?? null;
 				this.#applyPayload(event, affectedItemIds);
 				reset = true;
 				break;
@@ -118,6 +137,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				break;
 			case 'review.delta':
 				this.#applyDelta(event, affectedItemIds);
+				this.#comparisonCommit = requiredReviewComparisonCommit(event);
 				break;
 			case 'review.invalidated':
 				this.#assertCurrentIdentity(event);
@@ -130,6 +150,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 				this.#resetProjection();
 				this.#identity = reviewMetadataIdentity(event);
 				this.#revision = event.revision;
+				this.#comparisonOrigin = event.comparisonOrigin ?? null;
+				this.#reviewedSubjectLabel = event.reviewedSubjectLabel ?? null;
 				reset = true;
 				break;
 			default:
@@ -174,6 +196,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			this.#query !== null &&
 			this.#revision !== null &&
 			this.#summary !== null &&
+			this.#comparisonCommit.status === 'committed' &&
 			this.#totalItemCount !== null &&
 			this.#itemIdsByIndex.length === this.#totalItemCount &&
 			everyOrderedIndexIsDefined(this.#itemIdsByIndex) &&
@@ -211,6 +234,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		);
 		return {
 			baseEndpoint: this.#baseEndpoint,
+			comparisonOrigin: this.#comparisonOrigin,
+			comparisonCommit: this.#comparisonCommit,
 			contentSources: [...this.#contentSourceByDescriptorId.values()].toSorted((left, right) =>
 				left.descriptorId.localeCompare(right.descriptorId),
 			),
@@ -224,6 +249,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			orderedItemIds,
 			query: this.#query,
 			revision: this.#revision,
+			reviewedSubjectLabel: this.#reviewedSubjectLabel,
 			summary: this.#summary,
 			totalItemCount: this.#totalItemCount,
 			totalTreeRowCount: this.#totalTreeRowCount,
@@ -237,6 +263,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		const uniqueItemIds = [...new Set(itemIds)];
 		return {
 			baseEndpoint: this.#baseEndpoint,
+			comparisonOrigin: this.#comparisonOrigin,
+			comparisonCommit: this.#comparisonCommit,
 			contentSources: uniqueItemIds.flatMap((itemId) =>
 				[...(this.#contentSourceDescriptorIdsByItemId.get(itemId) ?? [])].flatMap(
 					(descriptorId) => {
@@ -260,6 +288,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 			orderedItemIds: uniqueItemIds.filter((itemId) => this.#itemMetadataById.has(itemId)),
 			query: this.#query,
 			revision: this.#revision,
+			reviewedSubjectLabel: this.#reviewedSubjectLabel,
 			summary: this.#summary,
 			totalItemCount: this.#totalItemCount,
 			totalTreeRowCount: this.#totalTreeRowCount,
@@ -269,6 +298,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 
 	#applyPayload(event: ReviewMetadataPayloadEvent, affectedItemIds: Set<string>): void {
 		this.#summary = event.summary;
+		const comparisonCommit = optionalReviewComparisonCommit(event);
+		if (comparisonCommit !== null) this.#comparisonCommit = comparisonCommit;
 		this.#itemFinalWindowReceived ||= event.itemWindow.finalWindow;
 		this.#treeFinalWindowReceived ||= event.treeWindow.finalWindow;
 		this.#applyItemWindow(event, affectedItemIds);
@@ -479,6 +510,8 @@ export class BridgeCommWorkerReviewMetadataProjection {
 
 	#resetProjection(): void {
 		this.#baseEndpoint = null;
+		this.#comparisonCommit = { status: 'absent' };
+		this.#comparisonOrigin = null;
 		this.#contentSourceByDescriptorId.clear();
 		this.#contentSourceDescriptorIdsByItemId.clear();
 		this.#extentFactByKey.clear();
@@ -491,6 +524,7 @@ export class BridgeCommWorkerReviewMetadataProjection {
 		this.#itemIdsByIndex = [];
 		this.#query = null;
 		this.#revision = null;
+		this.#reviewedSubjectLabel = null;
 		this.#summary = null;
 		this.#totalItemCount = null;
 		this.#totalTreeRowCount = null;
@@ -505,6 +539,28 @@ function everyOrderedIndexIsDefined(values: readonly unknown[]): boolean {
 		if (values[index] === undefined) return false;
 	}
 	return true;
+}
+
+function optionalReviewComparisonCommit(
+	event: ReviewMetadataPayloadEvent,
+): Extract<BridgeCommWorkerReviewComparisonCommitState, { readonly status: 'committed' }> | null {
+	const hasPresentationRevision = event.presentationRevision !== undefined;
+	const hasReviewComparison = event.reviewComparison !== undefined;
+	if (!hasPresentationRevision && !hasReviewComparison) return null;
+	return requiredReviewComparisonCommit(event);
+}
+
+function requiredReviewComparisonCommit(
+	event: ReviewMetadataPayloadEvent | ReviewMetadataDeltaEvent,
+): Extract<BridgeCommWorkerReviewComparisonCommitState, { readonly status: 'committed' }> {
+	if (event.presentationRevision === undefined || event.reviewComparison === undefined) {
+		throw new Error('Bridge Review publication is missing its committed comparison presentation.');
+	}
+	return {
+		presentationRevision: event.presentationRevision,
+		reviewComparison: event.reviewComparison,
+		status: 'committed',
+	};
 }
 
 function reviewMetadataIdentity(

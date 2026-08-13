@@ -7,6 +7,273 @@ import Testing
 @Suite("Bridge pane refresh admission coordinator")
 @MainActor
 struct BridgePaneRefreshAdmissionCoordinatorTests {
+    @Test("only the pending comparison attempt is current for publication")
+    func onlyPendingComparisonAttemptIsCurrentForPublication() {
+        // Arrange
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(initialActivity: .foreground)
+
+        // Act
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/first"),
+            reviewGeneration: 8
+        )
+        let firstAttemptWasPending = coordinator.isReviewComparisonAttemptPending(
+            reviewGeneration: 8
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/second"),
+            reviewGeneration: 9
+        )
+
+        // Assert
+        #expect(firstAttemptWasPending)
+        #expect(!coordinator.isReviewComparisonAttemptPending(reviewGeneration: 8))
+        #expect(coordinator.isReviewComparisonAttemptPending(reviewGeneration: 9))
+    }
+
+    @Test("successor comparison keeps the displayed predecessor stale until settlement")
+    func successorComparisonKeepsDisplayedPredecessorStaleUntilSettlement() throws {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let successor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-8",
+            reviewGeneration: 8,
+            revision: 12
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        let initialRevision = coordinator.productPresentationSnapshot.presentationRevision
+
+        // Act
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+        let pending = coordinator.productPresentationSnapshot
+        coordinator.settleReviewComparisonAttempt(
+            reviewGeneration: 8,
+            displayedSnapshotIdentity: successor
+        )
+        let settled = coordinator.productPresentationSnapshot
+
+        // Assert
+        #expect(pending.presentationRevision == initialRevision + 1)
+        #expect(pending.reviewComparison?.activeTarget == .branch(name: "stack/base"))
+        #expect(pending.reviewComparison?.attempt == .pending(reviewGeneration: 8))
+        #expect(pending.reviewComparison?.displayedSnapshot == .stale(predecessor))
+        #expect(settled.presentationRevision == initialRevision + 2)
+        #expect(settled.reviewComparison?.attempt == .settled(reviewGeneration: 8))
+        #expect(settled.reviewComparison?.displayedSnapshot == .current(successor))
+    }
+
+    @Test("committed refresh advances the displayed comparison snapshot without a pending target attempt")
+    func committedRefreshAdvancesDisplayedComparisonSnapshotWithoutPendingTargetAttempt() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let refreshed = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-8",
+            reviewGeneration: 8,
+            revision: 12
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        let initialRevision = coordinator.productPresentationSnapshot.presentationRevision
+
+        // Act
+        coordinator.recordCommittedReviewComparisonSnapshot(
+            reviewGeneration: 8,
+            displayedSnapshotIdentity: refreshed
+        )
+
+        // Assert
+        let presentation = coordinator.productPresentationSnapshot
+        #expect(presentation.presentationRevision == initialRevision + 1)
+        #expect(presentation.reviewComparison?.attempt == .settled(reviewGeneration: 7))
+        #expect(presentation.reviewComparison?.displayedSnapshot == .current(refreshed))
+    }
+
+    @Test("newer committed generation settles a pending comparison attempt")
+    func newerCommittedGenerationSettlesPendingComparisonAttempt() {
+        // Arrange — foreground cancellation may re-arm the same target under a successor generation.
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let successor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-9",
+            reviewGeneration: 9,
+            revision: 13
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+
+        // Act
+        coordinator.recordCommittedReviewComparisonSnapshot(
+            reviewGeneration: 9,
+            displayedSnapshotIdentity: successor
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison
+                == BridgePaneReviewComparisonPresentation(
+                    activeTarget: .branch(name: "stack/base"),
+                    attempt: .settled(reviewGeneration: 9),
+                    displayedSnapshot: .current(successor)
+                )
+        )
+    }
+
+    @Test("comparison transitions retain the published repository default target")
+    func comparisonTransitionsRetainPublishedRepositoryDefaultTarget() throws {
+        let repositoryDefaultTarget = BridgeReviewComparisonDefaultTargetIdentity(
+            remoteName: "origin",
+            branchName: "main"
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: nil,
+                attempt: .selectionRequired,
+                displayedSnapshot: .absent
+            )
+        )
+
+        coordinator.publishReviewComparisonDefaultTarget(repositoryDefaultTarget)
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .originDefaultBranch(remoteName: "origin", branchName: "main"),
+            reviewGeneration: 8
+        )
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 8,
+            failureKind: "git.unresolvedTarget",
+            retryable: true
+        )
+
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison?.repositoryDefaultTarget
+                == repositoryDefaultTarget
+        )
+    }
+
+    @Test("current comparison failure retains the displayed predecessor as stale")
+    func currentComparisonFailureRetainsDisplayedPredecessorAsStale() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+
+        // Act
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 8,
+            failureKind: "git.unresolvedTarget",
+            retryable: true
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison
+                == BridgePaneReviewComparisonPresentation(
+                    activeTarget: .branch(name: "stack/base"),
+                    attempt: .unavailable(
+                        failureKind: "git.unresolvedTarget",
+                        retryable: true
+                    ),
+                    displayedSnapshot: .stale(predecessor)
+                )
+        )
+    }
+
+    @Test("successor failure clears pending attempt while stale failure does not")
+    func successorFailureClearsPendingAttemptWhileStaleFailureDoesNot() {
+        // Arrange
+        let predecessor = BridgePaneReviewDisplayedSnapshotIdentity(
+            packageId: "package-7",
+            reviewGeneration: 7,
+            revision: 11
+        )
+        let coordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground,
+            initialReviewComparison: BridgePaneReviewComparisonPresentation(
+                activeTarget: .branch(name: "main"),
+                attempt: .settled(reviewGeneration: 7),
+                displayedSnapshot: .current(predecessor)
+            )
+        )
+        coordinator.beginReviewComparisonAttempt(
+            activeTarget: .branch(name: "stack/base"),
+            reviewGeneration: 8
+        )
+
+        // Act
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 7,
+            failureKind: "stale_failure",
+            retryable: true
+        )
+
+        // Assert
+        #expect(coordinator.productPresentationSnapshot.reviewComparison?.attempt == .pending(reviewGeneration: 8))
+
+        // Act
+        coordinator.failReviewComparisonAttempt(
+            reviewGeneration: 9,
+            failureKind: "successor_failure",
+            retryable: true
+        )
+
+        // Assert
+        #expect(
+            coordinator.productPresentationSnapshot.reviewComparison?.attempt
+                == .unavailable(failureKind: "successor_failure", retryable: true)
+        )
+    }
+
     @Test("loaded-hidden invalidation storms accumulate in one pane-wide dirty fact")
     func loadedHiddenInvalidationStormAccumulatesOneDirtyFact() throws {
         // Arrange

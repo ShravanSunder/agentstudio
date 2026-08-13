@@ -29,6 +29,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 		expect(firstResult).toMatchObject({ affectedItemIds: ['item-1'], reset: true });
 		expect(finalResult).toMatchObject({ affectedItemIds: ['item-2'], reset: false });
 		expect(projection.snapshot()).toMatchObject({
+			comparisonOrigin: reviewComparisonOrigin,
 			identity: {
 				generation: 7,
 				packageId: 'package-1',
@@ -36,6 +37,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 				sourceIdentity: 'source-1',
 			},
 			orderedItemIds: ['item-1', 'item-2'],
+			reviewedSubjectLabel: 'feature/review-comments',
 			totalItemCount: 2,
 			totalTreeRowCount: 2,
 		});
@@ -67,8 +69,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 					startIndex: 0,
 				},
 			],
+			presentationRevision: 12,
 			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
+			reviewComparison: null,
 			summary: reviewSummary,
 			toRevision: 12,
 		});
@@ -76,6 +80,7 @@ describe('Bridge comm worker Review metadata projection', () => {
 		// Assert
 		expect(deltaResult.affectedItemIds).toEqual(['item-1']);
 		expect(projection.snapshot().revision).toBe(12);
+		expect(projection.snapshot().comparisonOrigin).toEqual(reviewComparisonOrigin);
 		expect(projection.snapshot().itemMetadata[0]?.headPath).toBe('src/renamed.ts');
 		expect(projection.snapshot().treeRows[0]?.rowId).toBe('row-replaced');
 		expect(() =>
@@ -120,8 +125,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 			eventKind: 'review.delta',
 			fromRevision: 11,
 			operations: [],
+			presentationRevision: 12,
 			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
+			reviewComparison: null,
 			summary: reviewSummary,
 			toRevision: 12,
 		});
@@ -131,8 +138,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 			eventKind: 'review.delta',
 			fromRevision: 12,
 			operations: [],
+			presentationRevision: 13,
 			publicationId: '00000000-0000-7000-8000-000000000013',
 			revision: 13,
+			reviewComparison: null,
 			summary: reviewSummary,
 			toRevision: 13,
 		});
@@ -209,8 +218,10 @@ describe('Bridge comm worker Review metadata projection', () => {
 					operationKind: 'upsertItem',
 				},
 			],
+			presentationRevision: 12,
 			publicationId: '00000000-0000-7000-8000-000000000012',
 			revision: 12,
+			reviewComparison: null,
 			summary: { ...reviewSummary, filesChanged: totalItemCount, visibleFileCount: totalItemCount },
 			toRevision: 12,
 		});
@@ -282,6 +293,7 @@ function reviewSnapshot(): ReviewSnapshotEvent {
 	return {
 		...reviewIdentity,
 		baseEndpoint: reviewEndpoint('base', 'gitRef'),
+		comparisonOrigin: reviewComparisonOrigin,
 		contentSources: [reviewContentSource('descriptor-1', 'item-1')],
 		eventKind: 'review.snapshot',
 		extentFacts: [{ contentRole: 'head', itemId: 'item-1', lineCount: 10 }],
@@ -289,11 +301,22 @@ function reviewSnapshot(): ReviewSnapshotEvent {
 		itemMetadata: [reviewItem('item-1', 'src/one.ts')],
 		itemWindow: { finalWindow: false, itemCount: 1, startIndex: 0, totalItemCount: 2 },
 		query: reviewQuery(),
+		reviewedSubjectLabel: 'feature/review-comments',
 		summary: reviewSummary,
 		treeRows: [reviewTreeRow('row-1', 'item-1', 'src/one.ts')],
 		treeWindow: { finalWindow: false, rowCount: 1, startIndex: 0, totalRowCount: 2 },
 	};
 }
+
+const reviewComparisonOrigin = {
+	baseOID: 'contribution-base-oid',
+	baseRole: 'commonCommit',
+	comparedRole: 'capturedWorkingTree',
+	kind: 'contribution',
+	resolvedTargetOID: 'resolved-target-oid',
+	reviewedHeadOID: 'reviewed-head-oid',
+	symbolicTarget: { basis: 'commonCommit', kind: 'branch', name: 'integration' },
+} as const;
 
 function reviewWindow(props: {
 	readonly itemId: string;
@@ -314,7 +337,9 @@ function reviewWindow(props: {
 			startIndex: props.itemStartIndex,
 			totalItemCount: 2,
 		},
+		presentationRevision: 11,
 		summary: reviewSummary,
+		reviewComparison: null,
 		treeRows: [reviewTreeRow(props.rowId, props.itemId, path)],
 		treeWindow: {
 			finalWindow: true,
@@ -352,6 +377,7 @@ function reviewMetadataWindowRange(props: {
 			startIndex: props.startIndex,
 			totalItemCount: props.totalItemCount,
 		},
+		...(finalWindow ? { presentationRevision: 11, reviewComparison: null } : {}),
 		summary: {
 			...reviewSummary,
 			filesChanged: props.totalItemCount,

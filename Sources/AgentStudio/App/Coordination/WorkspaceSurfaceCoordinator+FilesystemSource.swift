@@ -141,18 +141,18 @@ extension WorkspaceSurfaceCoordinator {
         )
         let indexDuration = indexStart.duration(to: clock.now)
 
+        let affectedKeys = Self.affectedKeys(from: projectionResult.intents)
+        await publishProductFileEnvelopeIfNeeded(
+            envelope,
+            affectedKeys: affectedKeys
+        )
+
         guard
             projectionResult.paneContextGeneration == paneContextGeneration,
             projectionResult.topologyGeneration == filesystemAppliedTopologyGeneration
         else {
             return true
         }
-
-        let affectedKeys = Self.affectedKeys(from: projectionResult.intents)
-        await publishProductFileEnvelopeIfNeeded(
-            envelope,
-            affectedKeys: affectedKeys
-        )
 
         let applyStart = clock.now
         let derivedEnvelopes = projectionResult.intents.map(makeFilesystemProjectionEnvelope)
@@ -226,7 +226,18 @@ extension WorkspaceSurfaceCoordinator {
     ) async {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard let worktreeId = worktreeEnvelope.worktreeId else { return }
-        guard affectedKeys.worktreeIds.contains(worktreeId) else { return }
+        let admitsCrossWorktreeGitInternalInvalidation: Bool
+        if case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event {
+            admitsCrossWorktreeGitInternalInvalidation =
+                changeset.containsGitInternalChanges
+                || changeset.suppressedGitInternalPathCount > 0
+        } else {
+            admitsCrossWorktreeGitInternalInvalidation = false
+        }
+        guard
+            admitsCrossWorktreeGitInternalInvalidation
+                || affectedKeys.worktreeIds.contains(worktreeId)
+        else { return }
 
         // Close the observation callback scheduling gap before admitting work from
         // this raw event. The same canonical facts remain the sole activity mint.
@@ -243,19 +254,26 @@ extension WorkspaceSurfaceCoordinator {
 
         for bridgeView in viewRegistry.allBridgeViews.values {
             let controller = bridgeView.controller
-            guard affectedKeys.paneIds.contains(controller.paneId),
-                controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
-                controller.runtime.metadata.worktreeId == worktreeId
-            else {
+            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId else {
                 continue
             }
+            let matchesPaneWorktree = controller.runtime.metadata.worktreeId == worktreeId
             switch worktreeEnvelope.event {
             case .filesystem(.filesChanged(let changeset)):
-                await controller.handleWorktreeProductInvalidation(
-                    .filesChanged(changeset)
-                )
+                let invalidation = BridgePaneWorktreeProductInvalidation.filesChanged(changeset)
+                guard
+                    invalidation.isGitInternalFileInvalidation
+                        || (affectedKeys.paneIds.contains(controller.paneId) && matchesPaneWorktree)
+                else {
+                    continue
+                }
+                await controller.handleWorktreeProductInvalidation(invalidation)
             case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
-                guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
+                guard affectedKeys.paneIds.contains(controller.paneId),
+                    matchesPaneWorktree,
+                    snapshot.worktreeId == worktreeId,
+                    snapshot.repoId == worktreeEnvelope.repoId
+                else {
                     continue
                 }
                 await controller.handleWorktreeProductInvalidation(

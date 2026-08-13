@@ -76,9 +76,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -113,15 +115,17 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let initialPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = initialPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: initialPackage, delta: nil),
+                    expectedReviewGeneration: initialPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
                 ) == .committed(delivery: .deferred)
             )
-            try await controller.requestReviewTargetAndPublish(
+            _ = try controller.surfaceSelectionAuthority.retainReviewTarget(
                 source: BridgeProductNavigationReviewSource(
                     generation: initialPackage.reviewGeneration.rawValue,
                     metadataSourceId: initialPackage.query.queryId,
@@ -131,11 +135,14 @@ extension WebKitSerializedTests {
                     reviewItemId: initialPackage.orderedItemIds.first
                 )
             )
+            #expect(controller.surfaceSelectionAuthority.diagnosticSnapshot.desiredSurface == .review)
             let successorPackage = productActiveViewerSuccessorReviewPackage(from: initialPackage)
+            controller.nextReviewGeneration = successorPackage.reviewGeneration
 
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: successorPackage, delta: nil),
+                    expectedReviewGeneration: successorPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -154,9 +161,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -188,9 +197,11 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             let reviewPackage = try productActiveViewerReviewPackageFixture()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
             #expect(
                 await controller.commitReviewPackageLoad(
                     try await productActiveViewerPreparedLoad(package: reviewPackage, delta: nil),
+                    expectedReviewGeneration: reviewPackage.reviewGeneration,
                     productAdmission: productAdmission,
                     traceContext: nil,
                     foregroundWorkAdmission: foregroundWorkAdmission
@@ -233,8 +244,10 @@ extension WebKitSerializedTests {
                 package: reviewPackage,
                 delta: reviewDelta
             )
+            harness.controller.nextReviewGeneration = reviewPackage.reviewGeneration
             let commitDisposition = await harness.controller.commitReviewPackageLoad(
                 load,
+                expectedReviewGeneration: load.package.reviewGeneration,
                 productAdmission: openedSubscription.productAdmission,
                 traceContext: nil,
                 foregroundWorkAdmission: openedSubscription.foregroundWorkAdmission
@@ -273,6 +286,7 @@ extension WebKitSerializedTests {
                 controller.refreshAdmissionCoordinator.acquireForegroundWork()
             )
             controller.productAdmissionGate.close()
+            controller.nextReviewGeneration = reviewPackage.reviewGeneration
 
             // Act
             let commitDisposition = await controller.commitReviewPackageLoad(
@@ -280,6 +294,7 @@ extension WebKitSerializedTests {
                     package: reviewPackage,
                     delta: reviewDelta
                 ),
+                expectedReviewGeneration: reviewPackage.reviewGeneration,
                 productAdmission: productAdmission,
                 traceContext: nil,
                 foregroundWorkAdmission: foregroundWorkAdmission
@@ -472,7 +487,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .fileViewer,
-                    source: .workspace(rootPath: "/tmp/product-file-viewer", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/product-file-viewer",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 initialPaneActivity: .foreground
@@ -693,11 +710,11 @@ private actor ProductActiveViewerReviewMetadataRecorder:
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation _: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
-        guard let observation = await controllerBox.observation(deliveredPackage: package) else {
+        guard let observation = await controllerBox.observation(deliveredPackage: publication.package) else {
             throw ProductActiveViewerReviewMetadataRecorderError.controllerUnavailable
         }
         return productAdmission.withValidAdmission {

@@ -15,7 +15,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		const rendered = await render(
 			<BridgeViewerContentHeader
 				controls={<button data-testid="header-proof-control">Control</button>}
-				eyebrow="Files"
+				mode="file"
 				statusText="Updating files…"
 				title="src/app.ts"
 			/>,
@@ -32,6 +32,10 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		const status = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-content-status"]'),
 		);
+		const modeIcon = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-content-mode-icon"]'),
+		);
+		const modeIconBounds = modeIcon.getBoundingClientRect();
 		const topbarBoxWithStatus = topbar.getBoundingClientRect();
 		const titleBoxWithStatus = title.getBoundingClientRect();
 		const controlsBoxWithStatus = controls.getBoundingClientRect();
@@ -42,6 +46,11 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		expect(status.getAttribute('role')).toBe('status');
 		expect(status.getAttribute('aria-live')).toBe('polite');
 		expect(status.getAttribute('aria-atomic')).toBe('true');
+		expect(modeIcon.getAttribute('aria-label')).toBe('Files');
+		expect(modeIcon.getAttribute('title')).toBe('Files');
+		expect(modeIcon.textContent).toBe('');
+		expect(modeIcon.querySelector('svg')).not.toBeNull();
+		expect(verticalCenter(modeIconBounds)).toBe(verticalCenter(titleBoxWithStatus));
 		expect(Math.round(topbarBoxWithStatus.height)).toBe(36);
 		expect(statusBox.right).toBeLessThanOrEqual(controlsBoxWithStatus.left);
 
@@ -49,7 +58,7 @@ describe('BridgeViewerContentHeader Browser Mode', () => {
 		await rendered.rerender(
 			<BridgeViewerContentHeader
 				controls={<button data-testid="header-proof-control">Control</button>}
-				eyebrow="Files"
+				mode="file"
 				statusText={null}
 				title="src/app.ts"
 			/>,
@@ -77,7 +86,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		await render(
 			<BridgeViewerContentHeader
 				controls={<BridgeViewerContextSwitcher mode="file" onModeChange={modeChanges} />}
-				eyebrow="Files"
+				mode="file"
 				statusText={null}
 				title="src/app.ts"
 			/>,
@@ -107,24 +116,23 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		const chromeControlTextSize = '11px';
 
 		expect(Math.round(switcherBox.height)).toBe(railToolbarButtonTokenHeight);
-		expect(Math.round(fileButtonBox.height)).toBe(railToolbarButtonTokenHeight);
-		expect(Math.round(reviewButtonBox.height)).toBe(railToolbarButtonTokenHeight);
-		expect(fileButton.getAttribute('data-slot')).toBe('button');
-		expect(fileButton.getAttribute('data-toggle-group-slot')).toBe('toggle-group-item');
-		expect(reviewButton.getAttribute('data-slot')).toBe('button');
-		expect(reviewButton.getAttribute('data-toggle-group-slot')).toBe('toggle-group-item');
+		expect(Math.round(fileButtonBox.height)).toBe(20);
+		expect(Math.round(reviewButtonBox.height)).toBe(20);
+		expect(Math.abs(fileButtonBox.width - reviewButtonBox.width)).toBeLessThanOrEqual(1);
+		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
+		expect(fileButton.getAttribute('data-slot')).toBe('toggle-group-item');
+		expect(reviewButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(fileButton.getAttribute('aria-label')).toBe('Files');
 		expect(reviewButton.getAttribute('aria-label')).toBe('Review');
 		expect(fileButton.getAttribute('aria-pressed')).toBe('true');
 		expect(reviewButton.getAttribute('aria-pressed')).toBe('false');
 		expect(fileButton.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
 		expect(reviewButton.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
-		expect(fileButton.className).toContain('h-6');
-		expect(reviewButton.className).toContain('h-6');
+		expect(fileButton.className).toContain('h-5');
+		expect(reviewButton.className).toContain('h-5');
 		expect(getComputedStyle(fileButton).fontSize).toBe(chromeControlTextSize);
 		expect(getComputedStyle(reviewButton).fontSize).toBe(chromeControlTextSize);
-		expect(fileButton.className).not.toContain('h-5');
-		expect(reviewButton.className).not.toContain('h-5');
 		expect(fileButton.textContent).toBe('Files');
 		expect(reviewButton.textContent).toBe('Review');
 
@@ -157,19 +165,16 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 		expect(switcher.getAttribute('data-slot')).toBe('toggle-group');
 		expect(switcher.getAttribute('role')).toBe('radiogroup');
 		expect(Math.round(switcher.getBoundingClientRect().height)).toBe(24);
+		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
 		expect(segments).toHaveLength(3);
 		expect(segments.map((segment) => segment.getAttribute('data-slot'))).toEqual([
-			'button',
-			'button',
-			'button',
-		]);
-		expect(segments.map((segment) => segment.getAttribute('data-toggle-group-slot'))).toEqual([
 			'toggle-group-item',
 			'toggle-group-item',
 			'toggle-group-item',
 		]);
 		expect(segments.map((segment) => Math.round(segment.getBoundingClientRect().height))).toEqual([
-			24, 24, 24,
+			20, 20, 20,
 		]);
 		expect(segments.map((segment) => getComputedStyle(segment).fontSize)).toEqual([
 			'11px',
@@ -203,4 +208,8 @@ function requireHTMLElement(element: Element | null): HTMLElement {
 		throw new Error('Expected HTMLElement');
 	}
 	return element;
+}
+
+function verticalCenter(bounds: DOMRect): number {
+	return Math.round(bounds.top + bounds.height / 2);
 }

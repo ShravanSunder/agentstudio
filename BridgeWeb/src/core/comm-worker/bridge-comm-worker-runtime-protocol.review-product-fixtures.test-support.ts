@@ -45,6 +45,7 @@ export const reviewSnapshotEvent = {
 	itemMetadata: [reviewItemMetadata],
 	itemWindow: { finalWindow: true, itemCount: 1, startIndex: 0, totalItemCount: 1 },
 	packageId: 'package-1',
+	presentationRevision: 11,
 	publicationId: '00000000-0000-7000-8000-000000000011',
 	query: {
 		baseEndpointId: 'base',
@@ -79,6 +80,7 @@ export const reviewSnapshotEvent = {
 		worktreeId: 'worktree-1',
 	},
 	revision: 11,
+	reviewComparison: null,
 	sourceIdentity: 'source-1',
 	summary: {
 		additions: 1,

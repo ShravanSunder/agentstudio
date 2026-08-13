@@ -1,13 +1,54 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import {
+	bridgeDevelopmentServerArguments,
 	bridgeDevelopmentServerExecutablePath,
 	runAllOwnedCleanupOperations,
+	startOwnedBridgeDevelopmentServer,
 	stopOwnedBridgeDevelopmentServerProcess,
 	waitForBridgeDevelopmentServerReadiness,
 } from './bridge-development-server-process.ts';
 
 describe('owned Bridge development server executable', () => {
+	test('start contract requires persisted identity inputs', () => {
+		expectTypeOf(startOwnedBridgeDevelopmentServer).parameter(0).toEqualTypeOf<{
+			readonly dataRootPath: string;
+			readonly initialTarget: string;
+			readonly paneId: string;
+			readonly repoRootPath: string;
+			readonly worktreeRoot: string;
+		}>();
+	});
+
+	test('launch arguments carry one isolated root and exact pane identity without base authority', () => {
+		// Arrange
+		const paneId = '019fe721-7d8b-7ca0-b5c7-89e5fd7463f3';
+
+		// Act
+		const developmentServerArguments = bridgeDevelopmentServerArguments({
+			dataRootPath: '/tmp/bridge-development-data',
+			initialTarget: 'refs/heads/review-base',
+			paneId,
+			port: 43_871,
+			worktreeRoot: '/tmp/repository',
+		});
+
+		// Assert
+		expect(developmentServerArguments).toEqual([
+			'--data-root',
+			'/tmp/bridge-development-data',
+			'--pane-id',
+			paneId,
+			'--seed-worktree',
+			'/tmp/repository',
+			'--seed-target',
+			'refs/heads/review-base',
+			'--port',
+			'43871',
+		]);
+		expect(developmentServerArguments).not.toContain('--base');
+	});
+
 	test('resolves the prebuilt stable artifact path', () => {
 		// Arrange
 		const repoRootPath = '/tmp/agent-studio';

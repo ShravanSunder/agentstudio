@@ -147,7 +147,7 @@ describe('review viewer shell', () => {
 		expect(text).toContain('Sources/App/View.swift');
 	});
 
-	test('renders projection and tree refinement controls for fast review view switching', () => {
+	test('renders tree refinement controls while projection controls remain parent-owned', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = renderReviewViewerShellForTest({
 			reviewPackage,
@@ -158,16 +158,29 @@ describe('review viewer shell', () => {
 		});
 
 		const text = collectText(element);
-		expect(findElementByComponent(element, BridgeReviewProjectionMenu)).not.toBeNull();
+		expect(findElementByComponent(element, BridgeReviewProjectionMenu)).toBeNull();
 		expect(findElementByComponent(element, BridgeReviewFacetMenu)).not.toBeNull();
 		expect(text).toContain('Search files');
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 
-	test('renders review content header from comparison endpoint identity', () => {
+	test('renders contribution subject without generic endpoint comparison vocabulary', () => {
 		const basePackage = makeBridgeReviewPackage();
 		const reviewPackage = {
 			...basePackage,
+			comparisonOrigin: {
+				baseOID: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+				baseRole: 'commonCommit' as const,
+				comparedRole: 'capturedWorkingTree' as const,
+				kind: 'contribution' as const,
+				resolvedTargetOID: 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm',
+				reviewedHeadOID: 'hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh',
+				symbolicTarget: {
+					basis: 'commonCommit' as const,
+					branchName: 'master',
+					kind: 'localDefaultBranch' as const,
+				},
+			},
 			query: {
 				...basePackage.query,
 				baseEndpointId: 'baseline-local-default',
@@ -187,6 +200,7 @@ describe('review viewer shell', () => {
 				label: 'Working tree',
 				providerIdentity: 'working-tree:worktree-1',
 			},
+			reviewedSubjectLabel: 'feature/annotations',
 		};
 		const element = renderReviewViewerShellForTest({
 			reviewPackage,
@@ -197,8 +211,9 @@ describe('review viewer shell', () => {
 		});
 
 		const contentHeader = findElementByComponent(element, BridgeViewerContentHeader);
-		expect(contentHeader?.props.title).toBe('Current worktree vs Default / Sources/App/View.swift');
+		expect(contentHeader?.props.title).toBe('feature/annotations changes / Sources/App/View.swift');
 		expect(contentHeader?.props.title).not.toBe(basePackage.query.queryId);
+		expect(contentHeader?.props.title).not.toContain(' vs ');
 	});
 
 	test('passes Review updating chrome to the shared header only while Review is active', () => {
@@ -244,7 +259,7 @@ describe('review viewer shell', () => {
 		expect(settledHeader?.props.statusText).toBeNull();
 	});
 
-	test('keeps projection controls in compact rail chrome without a top app bar or footer stats', () => {
+	test('keeps parent-owned projection controls out of rail chrome', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
 			renderReviewViewerShellForTest({
@@ -262,19 +277,15 @@ describe('review viewer shell', () => {
 
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 		expect(projectionScope).toBeNull();
-		expect(projectionMenu).not.toBeNull();
+		expect(projectionMenu).toBeNull();
 		expect(facetMenu).not.toBeNull();
 		expect(findElementByTestId(element, 'bridge-review-rail-stats')).toBeNull();
 	});
 
 	test('renders review mode as a compact segmented control instead of a filter menu', () => {
-		const requestedModes: string[] = [];
 		const element = requireTestElement(
 			BridgeReviewProjectionMenu({
 				projectionMode: { kind: 'normalReview' },
-				onProjectionModeChange: (mode): void => {
-					requestedModes.push(mode.kind);
-				},
 			}),
 		);
 
@@ -291,13 +302,6 @@ describe('review viewer shell', () => {
 		]);
 		expect(modeButtons.map((button) => button.props.disabled)).toEqual([false, true, true]);
 		expect(findElementByTestId(element, 'bridge-review-projection-menu')).toBeNull();
-
-		const plansButton = modeButtons[2];
-		if (plansButton?.props.onClick === undefined) {
-			throw new Error('expected plans/specs mode button');
-		}
-		plansButton.props.onClick();
-		expect(requestedModes).toEqual([]);
 	});
 
 	test('renders custom review controls without native select widgets', () => {
@@ -326,6 +330,7 @@ describe('review viewer shell', () => {
 				selectedItemId: 'item-source',
 				onSelectItem: () => undefined,
 				selectedContentText: null,
+				viewerContextSwitcher: <div data-testid="bridge-viewer-context-switcher" />,
 			}),
 		);
 
@@ -343,7 +348,7 @@ describe('review viewer shell', () => {
 		expect(toolbar?.props['data-bridge-shared-rail-toolbar']).toBe('true');
 		expect(classNameForElement(leadingGroup)).toContain('gap-1');
 		expect(classNameForElement(trailingGroup)).toContain('gap-1');
-		expect(leadingControlOrder).toEqual(['BridgeReviewProjectionMenu']);
+		expect(leadingControlOrder).toEqual(['bridge-viewer-context-switcher']);
 		expect(trailingControlOrder).toEqual([
 			'bridge-review-facet-menu',
 			'bridge-review-search-control-slot',
@@ -715,6 +720,8 @@ function renderReviewViewerShellForTest(
 	props: Omit<
 		ReviewViewerShellProps,
 		| 'panelChromeSlice'
+		| 'comparisonPaneState'
+		| 'onRetryComparison'
 		| 'facetMenuOpen'
 		| 'onFacetMenuOpenChange'
 		| 'presentationPositionKey'
@@ -722,6 +729,8 @@ function renderReviewViewerShellForTest(
 		| 'renderFulfillmentCoordinator'
 	> & {
 		readonly panelChromeSlice?: ReviewViewerShellProps['panelChromeSlice'];
+		readonly comparisonPaneState?: ReviewViewerShellProps['comparisonPaneState'];
+		readonly onRetryComparison?: ReviewViewerShellProps['onRetryComparison'];
 		readonly presentationPositionKey?: string;
 		readonly presentationRegistry?: BridgeReviewItemRegistry;
 	},
@@ -733,6 +742,8 @@ function renderReviewViewerShellForTest(
 		props: {
 			...props,
 			facetMenuOpen: false,
+			comparisonPaneState: props.comparisonPaneState ?? { kind: 'settled' },
+			onRetryComparison: props.onRetryComparison ?? ((): void => {}),
 			onFacetMenuOpenChange: (): void => {},
 			panelChromeSlice: props.panelChromeSlice ?? {},
 			presentationPositionKey: props.presentationPositionKey ?? 'review-shell-test-position',
@@ -797,6 +808,7 @@ function traversalChildrenForElement(
 }
 
 interface TestElementProps {
+	readonly 'aria-busy'?: string;
 	readonly 'aria-checked'?: string;
 	readonly 'aria-label'?: string;
 	readonly ariaPressed?: boolean;
@@ -831,6 +843,7 @@ interface TestElementProps {
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;
 	readonly handleTestId?: string;
+	readonly inert?: boolean;
 	readonly onClick?: () => void;
 	readonly onValueChange?: () => void;
 	readonly rail?: ReactNode;

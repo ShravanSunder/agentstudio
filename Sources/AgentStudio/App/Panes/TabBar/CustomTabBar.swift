@@ -539,8 +539,6 @@ struct TabPillView: View {
     private static let shortcutLabelClearWidth: CGFloat = 28
 
     var body: some View {
-        let presentedCommands = Set(Self.presentedCommands(clickedTabIsSplit: tab.isSplit))
-
         HStack(spacing: 0) {
             // Insert line BEFORE
             if showInsertBefore {
@@ -551,51 +549,6 @@ struct TabPillView: View {
             tabContent
                 .scaleEffect(isDragging ? 1.05 : 1.0)
                 .opacity(isDragging ? 0.6 : 1.0)
-                .contextMenu {
-                    if presentedCommands.contains(.renameTab) {
-                        commandButton(.renameTab)
-                    }
-                    if presentedCommands.contains(.closeTab) {
-                        commandButton(.closeTab)
-                            .keyboardShortcut("w", modifiers: .command)
-                    }
-                    if presentedCommands.contains(.breakUpTab) {
-                        commandButton(.breakUpTab)
-                    }
-
-                    Divider()
-
-                    Menu(LocalActionSpec.addTerminalToTab.actionSpec.label) {
-                        if presentedCommands.contains(.splitRight) {
-                            commandButton(.splitRight)
-                        }
-                        if presentedCommands.contains(.splitLeft) {
-                            commandButton(.splitLeft)
-                        }
-                    }
-
-                    if presentedCommands.contains(.newFloatingTerminal) {
-                        commandButton(.newFloatingTerminal)
-                    }
-
-                    Divider()
-
-                    if presentedCommands.contains(.equalizePanes) {
-                        commandButton(.equalizePanes)
-                    }
-
-                    Divider()
-
-                    Menu(LocalActionSpec.arrangements.actionSpec.label) {
-                        Button(
-                            LocalActionSpec.showArrangements.actionSpec.label,
-                            action: onShowArrangements
-                        )
-                        if presentedCommands.contains(.saveArrangement) {
-                            commandButton(.saveArrangement)
-                        }
-                    }
-                }
 
             // Insert line AFTER (only for last tab)
             if showInsertAfter {
@@ -605,27 +558,6 @@ struct TabPillView: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isDragging)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showInsertBefore)
         .animation(.spring(response: 0.2, dampingFraction: 0.8), value: showInsertAfter)
-    }
-
-    private func commandButton(_ command: AppCommand) -> some View {
-        let definition = command.definition
-        return Button(definition.label) { onCommand(command) }
-            .disabled(!canDispatchCommand(command))
-    }
-
-    static func presentedCommands(clickedTabIsSplit: Bool) -> [AppCommand] {
-        let splitCommands: [AppCommand] = clickedTabIsSplit ? [.breakUpTab, .equalizePanes] : []
-        let candidates: [AppCommand] =
-            [.renameTab, .closeTab] + splitCommands
-            + [.splitRight, .splitLeft, .newFloatingTerminal, .saveArrangement]
-        return candidates.filter {
-            $0.definition.shouldPresent(
-                AppCommandPresentationQuery(
-                    surface: .contextMenu,
-                    subject: .targeted(.tab)
-                )
-            )
-        }
     }
 
     static func inlineCommandAction(

@@ -363,6 +363,51 @@ describe('Bridge product transport', () => {
 		});
 	});
 
+	test('opens a fresh metadata stream after a physical stream failure', async () => {
+		const harness = createTransportHarness();
+		const firstSubscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		const firstEvent = firstSubscription.events[Symbol.asyncIterator]().next();
+		await harness.server.waitForMetadataStream();
+		const firstRequest = harness.server.requiredMetadataRequest();
+		harness.server.emitMetadata(metadataAccepted(firstRequest, 0));
+		harness.server.emitMetadata(
+			bridgeProductMetadataFrameSchema.parse({
+				...metadataAccepted(firstRequest, 1),
+				metadataStreamId: 'metadata-stream-mismatch',
+			}),
+		);
+
+		await expect(firstEvent).rejects.toThrow();
+
+		const secondSubscription = harness.transport.subscribe('review.metadata', { interests: [] });
+		await waitForCondition(() => harness.server.metadataFetchCount === 2);
+		const secondRequest = harness.server.requiredMetadataRequest();
+		expect(secondRequest.metadataStreamId).not.toBe(firstRequest.metadataStreamId);
+		harness.server.emitMetadata(metadataAccepted(secondRequest, 0));
+		harness.server.emitMetadata(
+			subscriptionAccepted({
+				epoch: 0,
+				interestHash: emptyInterestHash('review.metadata'),
+				kind: 'review.metadata',
+				request: secondRequest,
+				streamSequence: 1,
+				subscriptionId: secondSubscription.subscriptionId,
+			}),
+		);
+		const secondCancel = secondSubscription.cancel();
+		await harness.server.waitForControlKind('subscription.cancel');
+		harness.server.emitMetadata(
+			subscriptionCancelled({
+				epoch: 0,
+				interestHash: emptyInterestHash('review.metadata'),
+				request: secondRequest,
+				streamSequence: 2,
+				subscriptionId: secondSubscription.subscriptionId,
+			}),
+		);
+		await secondCancel;
+	});
+
 	test('settles cancel only after the correlated terminal metadata frame', async () => {
 		const harness = createTransportHarness();
 		const subscription = harness.transport.subscribe('review.metadata', { interests: [] });

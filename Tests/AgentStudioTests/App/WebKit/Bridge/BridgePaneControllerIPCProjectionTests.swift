@@ -40,7 +40,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -88,7 +90,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -125,6 +129,51 @@ extension WebKitSerializedTests {
             #expect(encodedPayload.contains("\"package\"") == false)
             #expect(encodedPayload.contains("\"contentRoles\"") == false)
             #expect(encodedPayload.contains("\"provenance\"") == false)
+        }
+
+        @Test("IPC package snapshot projects the exact contribution origin and reviewed subject")
+        func ipcPackageSnapshot_projectsExactContributionOriginAndReviewedSubject() throws {
+            let controller = makeIPCForegroundController()
+            defer { controller.teardown() }
+            controller.paneState.diff.setPackageMetadata(
+                makeIPCReviewPackage(
+                    descriptors: [],
+                    orderedItemIds: [],
+                    comparisonOrigin: .contribution(
+                        BridgeReviewContributionOrigin(
+                            symbolicTarget: .commit(
+                                oid: "0123456789abcdef0123456789abcdef01234567"
+                            ),
+                            resolvedTargetOID: "1111111111111111111111111111111111111111",
+                            reviewedHeadOID: "2222222222222222222222222222222222222222",
+                            baseRole: .selectedTarget,
+                            baseOID: "3333333333333333333333333333333333333333"
+                        )
+                    ),
+                    reviewedSubjectLabel: "feature/review-comments"
+                )
+            )
+
+            let result = try controller.ipcReviewPackageSnapshot()
+            let encodedResult = try JSONEncoder().encode(result)
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: encodedResult) as? [String: Any]
+            )
+            let origin = try #require(payload["comparisonOrigin"] as? [String: Any])
+            let symbolicTarget = try #require(origin["symbolicTarget"] as? [String: Any])
+
+            #expect(payload["reviewedSubjectLabel"] as? String == "feature/review-comments")
+            #expect(origin["kind"] as? String == "contribution")
+            #expect(origin["baseRole"] as? String == "selectedTarget")
+            #expect(origin["comparedRole"] as? String == "capturedWorkingTree")
+            #expect(symbolicTarget["kind"] as? String == "commit")
+            #expect(
+                symbolicTarget["oid"] as? String
+                    == "0123456789abcdef0123456789abcdef01234567"
+            )
+            #expect(origin["resolvedTargetOID"] as? String == "1111111111111111111111111111111111111111")
+            #expect(origin["reviewedHeadOID"] as? String == "2222222222222222222222222222222222222222")
+            #expect(origin["baseOID"] as? String == "3333333333333333333333333333333333333333")
         }
 
         @Test("IPC package summaries preserve package order and descriptor fields")
@@ -455,7 +504,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -511,7 +562,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -626,7 +679,9 @@ extension WebKitSerializedTests {
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                    source: .workspace(
+                        rootPath: "/tmp/worktree",
+                        baseline: .unstaged)
                 ),
                 appRootURL: testBridgeAppRootURL(),
                 metadata: PaneMetadata(
@@ -683,7 +738,8 @@ private func makeIPCReviewSelectionController() async throws -> BridgePaneContro
         paneId: UUIDv7.generate(),
         state: BridgePaneState(
             panelKind: .diffViewer,
-            source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+            source: .workspace(
+                rootPath: "/tmp/worktree", baseline: .unstaged)
         ),
         appRootURL: testBridgeAppRootURL(),
         metadata: PaneMetadata(
@@ -782,6 +838,9 @@ private func installIPCContentDescriptorPackage(
         case .committed = controller.reviewPublicationCoordinator.commit(
             token,
             productAdmission: productAdmission,
+            captureCommittedPresentation: { _ in
+                controller.refreshAdmissionCoordinator.productPresentationSnapshot
+            },
             presentCommitted: { committedPublication in
                 controller.paneState.diff.setPackageMetadata(committedPublication.package)
             }
@@ -836,7 +895,9 @@ private func makeIPCReviewItemDescriptor(
 
 private func makeIPCReviewPackage(
     descriptors: [BridgeReviewItemDescriptor],
-    orderedItemIds: [String]
+    orderedItemIds: [String],
+    comparisonOrigin: BridgeReviewComparisonOrigin? = nil,
+    reviewedSubjectLabel: String? = nil
 ) -> BridgeReviewPackage {
     let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
     let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
@@ -862,6 +923,8 @@ private func makeIPCReviewPackage(
             hiddenFileCount: 0
         ),
         filterState: BridgeViewFilter(),
-        generatedAtUnixMilliseconds: 1
+        generatedAtUnixMilliseconds: 1,
+        comparisonOrigin: comparisonOrigin,
+        reviewedSubjectLabel: reviewedSubjectLabel
     )
 }

@@ -1,3 +1,4 @@
+import AgentStudioCore
 import AgentStudioGit
 import AgentStudioInfrastructure
 import CryptoKit
@@ -507,7 +508,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         return fileURL
     }
 
-    private func bridgeChangedFile(_ file: GitDiffFile) -> BridgeEndpointChangedFile {
+    func bridgeChangedFile(_ file: GitDiffFile) -> BridgeEndpointChangedFile {
         BridgeEndpointChangedFile(
             fileId: BridgeDirectGitDiffFileIdNormalizer.normalize(file.fileId),
             path: file.path,
@@ -528,7 +529,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         )
     }
 
-    private func registerContentLocators(
+    func registerContentLocators(
         for changedFiles: [BridgeEndpointChangedFile],
         baseEndpoint: BridgeSourceEndpoint,
         headEndpoint: BridgeSourceEndpoint,

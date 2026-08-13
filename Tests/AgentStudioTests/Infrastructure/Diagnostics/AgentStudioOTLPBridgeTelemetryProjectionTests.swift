@@ -6,6 +6,84 @@ import Testing
 @Suite
 struct AgentStudioOTLPBridgeTelemetryProjectionTests {
     @Test
+    func projectionPreservesNativePanePresentationOutcomeVocabulary() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 771,
+            severityText: .info,
+            body: "performance.bridge.swift.pane_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("pane_presentation_not_enqueued"),
+                "agentstudio.bridge.protocol": .string("pane-presentation"),
+                "agentstudio.bridge.result": .string("skipped"),
+                "agentstudio.bridge.result_reason": .string("no_active_stream"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("pane_presentation_not_enqueued"))
+        #expect(projection.attributes["agentstudio.bridge.protocol"] == .string("pane-presentation"))
+        #expect(projection.attributes["agentstudio.bridge.result"] == .string("skipped"))
+        #expect(projection.attributes["agentstudio.bridge.result_reason"] == .string("no_active_stream"))
+    }
+
+    @Test
+    func projectionPreservesPanePresentationCorrelationWithoutProductIdentity() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 772,
+            severityText: .info,
+            body: "performance.bridge.web.pane_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.comparison.attempt.status": .string("settled"),
+                "agentstudio.bridge.comparison.package_match": .string("revision_mismatch"),
+                "agentstudio.bridge.comparison.pane_state": .string("loading_previous"),
+                "agentstudio.bridge.panel.operation": .string("upsert"),
+                "agentstudio.bridge.phase": .string("panel_chrome_published"),
+                "agentstudio.bridge.plane": .string("control"),
+                "agentstudio.bridge.presentation.disposition": .string("published"),
+                "agentstudio.bridge.presentation.publication_sequence": .int(22),
+                "agentstudio.bridge.presentation.revision": .int(18),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.refreshing.review": .bool(false),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.review.generation": .int(5),
+                "agentstudio.bridge.slice": .string("review_metadata"),
+                "agentstudio.bridge.transport": .string("worker"),
+                "agentstudio.bridge.viewer": .string("review"),
+                "agentstudio.bridge.worker.derivation_epoch": .int(7),
+                "agentstudio.bridge.package_id": .string("must-not-export"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.bridge.comparison.attempt.status"] == .string("settled"))
+        #expect(
+            projection.attributes["agentstudio.bridge.comparison.package_match"]
+                == .string("revision_mismatch")
+        )
+        #expect(
+            projection.attributes["agentstudio.bridge.comparison.pane_state"]
+                == .string("loading_previous")
+        )
+        #expect(projection.attributes["agentstudio.bridge.presentation.revision"] == .int(18))
+        #expect(projection.attributes["agentstudio.bridge.review.generation"] == .int(5))
+        #expect(projection.attributes["agentstudio.bridge.worker.derivation_epoch"] == .int(7))
+        #expect(projection.attributes["agentstudio.bridge.refreshing.review"] == .bool(false))
+        #expect(projection.attributes["agentstudio.bridge.package_id"] == nil)
+    }
+
+    @Test
     func bridgeProjectionPreservesPackageBuildReason() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 515,
