@@ -35,7 +35,11 @@ describe('Bridge Review presentation adapter', () => {
 		const presentationSnapshot = bridgeReviewPresentationSnapshotForDisplay({
 			catalogSnapshot: catalogSnapshot({ itemCount: 1, revision: 7, treeRowCount: 2 }),
 			displayStore: displayStore({ items: [displayItem], rawTreeRows }),
-			reviewSourceSlice: readyReviewSourceSlice({ itemCount: 1, treeRowCount: 2 }),
+			reviewSourceSlice: readyReviewSourceSlice({
+				itemCount: 1,
+				revision: 101,
+				treeRowCount: 2,
+			}),
 		});
 
 		// Assert
@@ -78,9 +82,17 @@ describe('Bridge Review presentation adapter', () => {
 		expect(presentationSnapshot?.projection.projectionId).toBe(
 			presentationSnapshot?.presentationKey,
 		);
-		expect(presentationSnapshot?.reviewPackage.packageId).toBe(
-			presentationSnapshot?.presentationKey,
-		);
+		expect(presentationSnapshot?.reviewPackage.packageId).toBe('review-package-ready');
+		expect(presentationSnapshot?.reviewPackage.revision).toBe(101);
+		expect(presentationSnapshot?.reviewPackage.itemsById['item-source']?.itemVersion).toBe(7);
+		expect(presentationSnapshot?.reviewPackage).toMatchObject({
+			baseEndpoint: reviewBaseEndpoint,
+			comparisonOrigin: reviewComparisonOrigin,
+			filterState: reviewQuery.viewFilter,
+			headEndpoint: reviewHeadEndpoint,
+			query: reviewQuery,
+			reviewedSubjectLabel: 'feature/review-comments',
+		});
 	});
 
 	test('keeps a complete stale worker display mounted while replacement metadata is pending', () => {
@@ -116,10 +128,16 @@ describe('Bridge Review presentation adapter', () => {
 		[
 			'loading',
 			{
+				baseEndpoint: null,
+				comparisonOrigin: null,
+				headEndpoint: null,
 				metadataSourceId: 'review-source-loading',
 				metadataWindowIdentity: 'review-window-loading',
 				packageId: 'review-package-loading',
+				query: null,
 				reviewGeneration: 1,
+				reviewedSubjectLabel: null,
+				revision: 0,
 				status: 'loading',
 				summary: null,
 				totalItemCount: null,
@@ -402,6 +420,7 @@ describe('Bridge Review presentation adapter', () => {
 			reviewSourceSlice: readyReviewSourceSlice({
 				itemCount: initialItemCount,
 				metadataWindowIdentity: 'review-window-source-revision-1',
+				revision: 101,
 				treeRowCount: initialItemCount,
 			}),
 		});
@@ -449,6 +468,7 @@ describe('Bridge Review presentation adapter', () => {
 			reviewSourceSlice: readyReviewSourceSlice({
 				itemCount: initialItemCount + appendedItemCount,
 				metadataWindowIdentity: 'review-window-source-revision-2',
+				revision: 102,
 				treeRowCount: initialItemCount + appendedItemCount,
 			}),
 		});
@@ -461,6 +481,12 @@ describe('Bridge Review presentation adapter', () => {
 		expect(appendedPresentation?.reviewPackage.packageId).toBe(
 			initialPresentation?.reviewPackage.packageId,
 		);
+		expect(initialPresentation?.reviewPackage.revision).toBe(101);
+		expect(appendedPresentation?.reviewPackage.revision).toBe(102);
+		expect(initialPresentation?.reviewPackage.itemsById[reviewItemId(0)]?.itemVersion).toBe(1);
+		expect(
+			appendedPresentation?.reviewPackage.itemsById[reviewItemId(initialItemCount)]?.itemVersion,
+		).toBe(2);
 		expect(appendedPresentation?.reviewPackage.orderedItemIds).toHaveLength(
 			initialItemCount + appendedItemCount,
 		);
@@ -518,15 +544,22 @@ function readyReviewSourceSlice(props: {
 	readonly itemCount: number;
 	readonly metadataWindowIdentity?: string;
 	readonly reviewGeneration?: number;
+	readonly revision?: number;
 	readonly treeRowCount: number;
 }): Exclude<BridgeMainReviewSourceDisplaySlice, { readonly status: 'failed' }> & {
 	readonly status: 'ready';
 } {
 	return {
+		baseEndpoint: reviewBaseEndpoint,
+		comparisonOrigin: reviewComparisonOrigin,
+		headEndpoint: reviewHeadEndpoint,
 		metadataSourceId: 'review-source-ready',
 		metadataWindowIdentity: props.metadataWindowIdentity ?? 'review-window-ready',
 		packageId: 'review-package-ready',
+		query: reviewQuery,
 		reviewGeneration: props.reviewGeneration ?? 1,
+		reviewedSubjectLabel: 'feature/review-comments',
+		revision: props.revision ?? 1,
 		status: 'ready',
 		summary: {
 			additions: 1,
@@ -539,6 +572,69 @@ function readyReviewSourceSlice(props: {
 		totalTreeRowCount: props.treeRowCount,
 	};
 }
+
+const reviewBaseEndpoint = {
+	createdAtUnixMilliseconds: 1,
+	endpointId: 'review-base-endpoint',
+	kind: 'gitRef',
+	label: 'integration',
+	providerIdentity: 'git-ref:integration',
+	repoId: 'repo-1',
+	worktreeId: 'worktree-1',
+} as const;
+
+const reviewHeadEndpoint = {
+	createdAtUnixMilliseconds: 2,
+	endpointId: 'review-head-endpoint',
+	kind: 'workingTree',
+	label: 'Working Tree',
+	providerIdentity: 'working-tree',
+	repoId: 'repo-1',
+	worktreeId: 'worktree-1',
+} as const;
+
+const reviewComparisonOrigin = {
+	baseOID: 'contribution-base-oid',
+	baseRole: 'commonCommit',
+	comparedRole: 'capturedWorkingTree',
+	kind: 'contribution',
+	resolvedTargetOID: 'resolved-target-oid',
+	reviewedHeadOID: 'reviewed-head-oid',
+	symbolicTarget: { basis: 'commonCommit', kind: 'branch', name: 'integration' },
+} as const;
+
+const reviewQuery = {
+	baseEndpointId: reviewBaseEndpoint.endpointId,
+	comparisonSemantics: 'threeDot',
+	fileTarget: null,
+	grouping: { kind: 'folder' },
+	headEndpointId: reviewHeadEndpoint.endpointId,
+	pathScope: ['Sources/**'],
+	provenanceFilter: {
+		agentSessionIds: [],
+		operationIds: [],
+		paneIds: [],
+		promptIds: [],
+		sourceKinds: [],
+	},
+	queryId: 'review-query-1',
+	queryKind: 'compare',
+	repoId: 'repo-1',
+	viewFilter: {
+		changeKinds: ['modified'],
+		excludedExtensions: [],
+		excludedFileClasses: [],
+		excludedPathGlobs: [],
+		includedExtensions: ['swift'],
+		includedFileClasses: ['source'],
+		includedPathGlobs: ['Sources/**'],
+		reviewStates: ['unreviewed'],
+		showBinaryFiles: false,
+		showHiddenFiles: false,
+		showLargeFiles: false,
+	},
+	worktreeId: 'worktree-1',
+} as const;
 
 function incrementalCatalogSnapshot(props: {
 	readonly changeCursor: number;

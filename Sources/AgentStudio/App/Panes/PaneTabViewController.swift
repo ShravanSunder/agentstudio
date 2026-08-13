@@ -115,6 +115,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let interactionProbe: AgentStudioInteractionPerformanceProbe?
     private var pendingTabMovePublication: PendingTabMovePublication?
+    private let tabContextMenuPresenter = TabContextMenuPresenter()
     private var hasShutdown = false
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -412,12 +413,44 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 self?.acknowledgeTabBarPublication(frames: frames)
             }
         )
-        let hostingView = DraggableTabBarHostingView(rootView: tabBar)
+        let hostingView = DraggableTabBarHostingView(
+            rootView: tabBar,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
         hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex, correlationId in
             self?.handleTabReorder(
                 fromId: fromId,
                 toIndex: toIndex,
                 correlationId: correlationId
+            )
+        }
+        hostingView.contextMenuRequestHandler = { [weak self, weak hostingView] tabId, event in
+            guard
+                let self,
+                let hostingView,
+                let clickedTab = self.tabBarAdapter.tabs.first(where: { $0.id == tabId })
+            else { return false }
+            return self.tabContextMenuPresenter.present(
+                clickedTabIsSplit: clickedTab.isSplit,
+                event: event,
+                in: hostingView,
+                canDispatchCommand: { command in
+                    AppCommandDispatcher.shared.canDispatch(
+                        command,
+                        target: tabId,
+                        targetType: .tab
+                    )
+                },
+                onCommand: { command in
+                    AppCommandDispatcher.shared.dispatch(
+                        command,
+                        target: tabId,
+                        targetType: .tab
+                    )
+                },
+                onShowArrangements: { [weak self] in
+                    self?.showTabContextMenuArrangements(tabId: tabId)
+                }
             )
         }
         hostingView.dragPayloadProvider = { [weak self] tabId in

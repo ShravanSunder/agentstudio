@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
@@ -15,6 +19,7 @@ const worktreeDataTestTimeoutMilliseconds = 15_000;
 
 describe('Bridge viewer typed product File worktree data', () => {
 	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
+	let bridgeDevelopmentServerDataRootPath: string | null = null;
 	let viteServer: ViteDevServer | null = null;
 	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 	const initialDevServerUrl = process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'];
@@ -22,8 +27,10 @@ describe('Bridge viewer typed product File worktree data', () => {
 	afterEach(async (): Promise<void> => {
 		const ownedViteServer = viteServer;
 		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
+		const ownedBridgeDevelopmentServerDataRootPath = bridgeDevelopmentServerDataRootPath;
 		viteServer = null;
 		bridgeDevelopmentServer = null;
+		bridgeDevelopmentServerDataRootPath = null;
 		try {
 			await runAllOwnedCleanupOperations({
 				operations: [
@@ -37,6 +44,17 @@ describe('Bridge viewer typed product File worktree data', () => {
 						name: 'integration Swift development backend',
 						run: async (): Promise<void> => {
 							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+					{
+						name: 'integration Swift development backend data root',
+						run: async (): Promise<void> => {
+							if (ownedBridgeDevelopmentServerDataRootPath !== null) {
+								await rm(ownedBridgeDevelopmentServerDataRootPath, {
+									force: true,
+									recursive: true,
+								});
+							}
 						},
 					},
 				],
@@ -60,8 +78,13 @@ describe('Bridge viewer typed product File worktree data', () => {
 		'opens typed File data and drains every verifier-owned metadata stream',
 		async () => {
 			// Arrange
+			bridgeDevelopmentServerDataRootPath = await mkdtemp(
+				join(tmpdir(), 'bridge-worktree-data-development-server-'),
+			);
 			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
-				baseRef: 'HEAD',
+				dataRootPath: bridgeDevelopmentServerDataRootPath,
+				initialTarget: 'HEAD',
+				paneId: randomUUID(),
 				repoRootPath,
 				worktreeRoot: repoRootPath,
 			});

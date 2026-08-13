@@ -39,6 +39,30 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 Agents must use plain `mise run setup` by default. It builds vendors in the primary worktree and reuses those prepared inputs from linked worktrees. Do not hydrate submodules or invoke low-level vendor tasks directly. Use `mise run setup --use-local-vendors` only when the user explicitly requests Ghostty/zmx vendor work or the accepted task requires changing one of those vendors; an ordinary setup failure does not authorize the flag.
 
+### BridgeWeb fast UI loop
+
+Always use the existing Swift development backend plus Vite as the primary
+iteration loop for Bridge development instead of repeatedly rebuilding the full
+app. From the repository root, start the backend with an isolated data root:
+
+```bash
+mise run build-bridge-development-server
+bridge_dev_root="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-bridge-dev.XXXXXX")"
+.build-bridge-development-server/agentstudio-bridge-dev-server \
+  --data-root "$bridge_dev_root" \
+  --pane-id 00000000-0000-7000-8000-000000000001 \
+  --seed-worktree "$PWD" \
+  --seed-target HEAD \
+  --port 43871
+```
+
+In a second terminal, run `pnpm --dir BridgeWeb run dev`, then open
+`http://127.0.0.1:5173/?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`.
+Vite provides React HMR while the Swift backend uses the production Core,
+Bridge, `agentstudio-git`, and isolated `core.sqlite`/`local.sqlite` owners.
+Use the actual app for final validation of packaged WKWebView, native chrome,
+App lifecycle, and other boundaries the development server cannot prove.
+
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.

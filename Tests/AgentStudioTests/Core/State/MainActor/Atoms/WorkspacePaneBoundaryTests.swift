@@ -293,7 +293,10 @@ struct WorkspacePaneBoundaryTests {
                 content: .bridgePanel(
                     BridgePaneState(
                         panelKind: .fileViewer,
-                        source: .workspace(rootPath: bridgeRoot.path, baseline: .headMinusOne)
+                        source: .workspace(
+                            rootPath: bridgeRoot.path,
+                            baseline: .ref(name: "HEAD~1")
+                        )
                     )
                 ),
                 metadata: PaneMetadata(title: "Files")

@@ -5,12 +5,31 @@ import { makeBridgeReviewPackage } from './bridge-review-package-test-support.js
 
 describe('Bridge review package schema', () => {
 	test('parses the current Bridge review package contract', () => {
-		const reviewPackage = makeBridgeReviewPackage();
+		const reviewPackage = {
+			...makeBridgeReviewPackage(),
+			comparisonOrigin: {
+				baseOID: 'contribution-base-oid',
+				baseRole: 'selectedTarget',
+				comparedRole: 'capturedWorkingTree',
+				kind: 'contribution',
+				resolvedTargetOID: 'resolved-target-oid',
+				reviewedHeadOID: 'reviewed-head-oid',
+				symbolicTarget: {
+					kind: 'commit',
+					oid: '0123456789abcdef0123456789abcdef01234567',
+				},
+			},
+			reviewedSubjectLabel: 'feature/review-comments',
+		} as const;
 
 		const parsedReviewPackage = bridgeReviewPackageSchema.parse(reviewPackage);
 
 		expect(parsedReviewPackage.packageId).toBe(reviewPackage.packageId);
 		expect(parsedReviewPackage.orderedItemIds).toEqual(reviewPackage.orderedItemIds);
+		expect(parsedReviewPackage).toMatchObject({
+			comparisonOrigin: reviewPackage.comparisonOrigin,
+			reviewedSubjectLabel: reviewPackage.reviewedSubjectLabel,
+		});
 	});
 
 	test('accepts omitted keys for Swift nil optional fields', () => {
@@ -70,6 +89,24 @@ describe('Bridge review package schema', () => {
 		const result = bridgeReviewPackageSchema.safeParse({
 			...reviewPackage,
 			itemsById: undefined,
+		});
+
+		expect(result.success).toBe(false);
+	});
+
+	test('rejects non-exact commit comparison origins', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const result = bridgeReviewPackageSchema.safeParse({
+			...reviewPackage,
+			comparisonOrigin: {
+				baseOID: 'contribution-base-oid',
+				baseRole: 'selectedTarget',
+				comparedRole: 'capturedWorkingTree',
+				kind: 'contribution',
+				resolvedTargetOID: 'resolved-target-oid',
+				reviewedHeadOID: 'reviewed-head-oid',
+				symbolicTarget: { kind: 'commit', oid: 'abc123' },
+			},
 		});
 
 		expect(result.success).toBe(false);

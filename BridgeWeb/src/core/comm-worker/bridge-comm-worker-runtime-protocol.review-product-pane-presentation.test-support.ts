@@ -8,17 +8,18 @@ export function requirePanePresentationSink(
 }
 
 export function makeReviewPanePresentationFrame(
-	activityRevision: number,
+	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
-		activityRevision,
+		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'metadata-stream-review-pane-suppression',
 		nativeActivity,
 		paneSessionId: 'pane-session-review-pane-suppression',
 		refreshingLanes: [],
-		streamSequence: activityRevision,
+		reviewComparison: null,
+		streamSequence: presentationRevision,
 		wireVersion: 2,
 		workerInstanceId: 'worker-instance-review-pane-suppression',
 	};

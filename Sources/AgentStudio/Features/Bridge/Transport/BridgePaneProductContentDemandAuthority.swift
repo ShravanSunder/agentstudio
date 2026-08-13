@@ -85,6 +85,8 @@ actor BridgePaneProductContentDemandAuthority {
                 })
             else { return .unspecified }
             highestLane = admittedHighestLane
+        case .reviewComparisonTargets:
+            return .selected
         }
         return highestLane.map(Self.contentDemandInterest(for:)) ?? .unspecified
     }

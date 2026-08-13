@@ -1,7 +1,34 @@
 import AgentStudioGit
+import CryptoKit
 import Foundation
 
 @testable import AgentStudioBridge
+
+extension AgentStudioGitLocalClient {
+    func resolveReviewDefaultTarget(for _: URL) async throws(GitDataPlaneError)
+        -> GitReviewComparisonBranchTarget?
+    {
+        throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
+    }
+
+    func captureReviewComparisonTargets(_ request: GitReviewComparisonTargetCaptureRequest)
+        async throws(GitDataPlaneError) -> GitReviewComparisonTargetCapture
+    {
+        throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
+    }
+
+    func contributionDiff(_: GitContributionDiffRequest) async throws(GitDataPlaneError)
+        -> GitContributionDiffSnapshot
+    {
+        throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
+    }
+
+    func directReviewComparison(_: GitDirectReviewComparisonRequest) async throws(GitDataPlaneError)
+        -> GitDirectReviewComparisonSnapshot
+    {
+        throw GitDataPlaneError.unsupported(message: "direct review comparison not configured")
+    }
+}
 
 struct GitContentLocator: Hashable, Sendable {
     let target: GitDiffTarget
@@ -9,6 +36,9 @@ struct GitContentLocator: Hashable, Sendable {
 }
 
 actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
+    private let reviewComparisonTargetCapture: GitReviewComparisonTargetCapture?
+    private var contributionDiffSnapshot: GitContributionDiffSnapshot?
+    private var directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot?
     private var diffSnapshot: GitDiffSnapshot
     private let diffFailure: GitDataPlaneError?
     private var contentByLocator: [GitContentLocator: GitContentPayload]
@@ -28,8 +58,14 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private var treeRequests: [GitTreeReadRequest] = []
     private var statusRequests: [(URL, GitStatusOptions)] = []
     private var revisionResolutionRequests: [GitRevisionResolutionRequest] = []
+    private var reviewComparisonTargetRequests: [GitReviewComparisonTargetCaptureRequest] = []
+    private var contributionDiffRequests: [GitContributionDiffRequest] = []
+    private var directReviewComparisonRequests: [GitDirectReviewComparisonRequest] = []
 
     init(
+        reviewComparisonTargetCapture: GitReviewComparisonTargetCapture? = nil,
+        contributionDiffSnapshot: GitContributionDiffSnapshot? = nil,
+        directReviewComparisonSnapshot: GitDirectReviewComparisonSnapshot? = nil,
         diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
         diffFailure: GitDataPlaneError? = nil,
         contentByLocator: [GitContentLocator: GitContentPayload] = [:],
@@ -45,6 +81,9 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionGate: BridgeGitContentReadGate? = nil,
         revisionResolutionFailure: GitDataPlaneError? = nil
     ) {
+        self.reviewComparisonTargetCapture = reviewComparisonTargetCapture
+        self.contributionDiffSnapshot = contributionDiffSnapshot
+        self.directReviewComparisonSnapshot = directReviewComparisonSnapshot
         self.diffSnapshot = diffSnapshot
         self.diffFailure = diffFailure
         self.contentByLocator = contentByLocator
@@ -128,6 +167,16 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
+    func captureReviewComparisonTargets(_ request: GitReviewComparisonTargetCaptureRequest)
+        async throws(GitDataPlaneError) -> GitReviewComparisonTargetCapture
+    {
+        reviewComparisonTargetRequests.append(request)
+        guard let reviewComparisonTargetCapture else {
+            throw GitDataPlaneError.unsupported(message: "review comparison targets not configured")
+        }
+        return reviewComparisonTargetCapture
+    }
+
     func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
         -> GitResolvedRevision
     {
@@ -184,6 +233,26 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         return diffSnapshot
     }
 
+    func contributionDiff(_ request: GitContributionDiffRequest) async throws(GitDataPlaneError)
+        -> GitContributionDiffSnapshot
+    {
+        contributionDiffRequests.append(request)
+        guard let contributionDiffSnapshot else {
+            throw GitDataPlaneError.unsupported(message: "contribution diff not configured")
+        }
+        return contributionDiffSnapshot
+    }
+
+    func directReviewComparison(_ request: GitDirectReviewComparisonRequest) async throws(GitDataPlaneError)
+        -> GitDirectReviewComparisonSnapshot
+    {
+        directReviewComparisonRequests.append(request)
+        guard let directReviewComparisonSnapshot else {
+            throw GitDataPlaneError.unsupported(message: "direct review comparison not configured")
+        }
+        return directReviewComparisonSnapshot
+    }
+
     func content(_ request: GitContentRequest) async throws(GitDataPlaneError) -> GitContentPayload {
         contentRequests.append(request)
         let locator = GitContentLocator(target: request.target, path: request.path)
@@ -201,6 +270,10 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
 
     func recordedDiffRequests() -> [GitDiffRequest] {
         diffRequests
+    }
+
+    func recordedDirectReviewComparisonRequests() -> [GitDirectReviewComparisonRequest] {
+        directReviewComparisonRequests
     }
 
     func recordedContentRequests() -> [GitContentRequest] {
@@ -223,8 +296,20 @@ actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         revisionResolutionRequests
     }
 
+    func recordedReviewComparisonTargetRequests() -> [GitReviewComparisonTargetCaptureRequest] {
+        reviewComparisonTargetRequests
+    }
+
+    func recordedContributionDiffRequests() -> [GitContributionDiffRequest] {
+        contributionDiffRequests
+    }
+
     func replaceDiffSnapshot(_ snapshot: GitDiffSnapshot) {
         diffSnapshot = snapshot
+    }
+
+    func replaceContributionDiffSnapshot(_ snapshot: GitContributionDiffSnapshot) {
+        contributionDiffSnapshot = snapshot
     }
 
     func replaceContent(_ content: GitContentPayload, for locator: GitContentLocator) {
@@ -269,4 +354,20 @@ actor BridgeGitContentReadGate {
         releaseWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume() }
     }
+}
+
+func gitContentPayload(_ content: String) -> GitContentPayload {
+    GitContentPayload(
+        data: Data(content.utf8),
+        contentHash: bridgeSHA256ContentHash(content),
+        contentHashAlgorithm: "sha256",
+        isBinary: false
+    )
+}
+
+func gitBlobSHA1ContentHash(_ content: String) -> String {
+    let data = Data(content.utf8)
+    var blobData = Data("blob \(data.count)\0".utf8)
+    blobData.append(data)
+    return Insecure.SHA1.hash(data: blobData).map { String(format: "%02x", $0) }.joined()
 }

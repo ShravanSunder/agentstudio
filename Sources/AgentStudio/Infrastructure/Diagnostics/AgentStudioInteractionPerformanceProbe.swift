@@ -110,4 +110,17 @@ package final class AgentStudioInteractionPerformanceProbe: @unchecked Sendable 
         )
         return true
     }
+
+    @discardableResult
+    package func cancelInteraction(correlationId: UUID) -> Bool {
+        lock.withLock {
+            guard
+                let matchingEntry = pendingBySurface.first(where: {
+                    $0.value.correlationId == correlationId
+                })
+            else { return false }
+            pendingBySurface.removeValue(forKey: matchingEntry.key)
+            return true
+        }
+    }
 }

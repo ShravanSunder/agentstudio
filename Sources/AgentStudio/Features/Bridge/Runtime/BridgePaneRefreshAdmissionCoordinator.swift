@@ -88,9 +88,10 @@ struct BridgePaneRefreshAdmissionSnapshot: Sendable {
 }
 
 struct BridgePaneProductPresentationSnapshot: Equatable, Sendable {
-    let activityRevision: Int
     let nativeActivity: BridgePaneActivity
+    let presentationRevision: Int
     let refreshingLanes: Set<BridgePaneRefreshLane>
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
 }
 
 /// Owns foreground work admission and the one pane-wide hidden freshness fact.
@@ -107,9 +108,14 @@ final class BridgePaneRefreshAdmissionCoordinator {
     private var nextDirtyGeneration: UInt64 = 0
     private var presentationRevision = 1
     private var refreshPassCount = 0
+    private var reviewComparison: BridgePaneReviewComparisonPresentation?
 
-    init(initialActivity: BridgePaneActivity = .dormant) {
+    init(
+        initialActivity: BridgePaneActivity = .dormant,
+        initialReviewComparison: BridgePaneReviewComparisonPresentation? = nil
+    ) {
         activity = initialActivity
+        reviewComparison = initialReviewComparison
         workAdmissionGate = BridgePaneRefreshWorkAdmissionGate(initialActivity: initialActivity)
     }
 
@@ -129,10 +135,107 @@ final class BridgePaneRefreshAdmissionCoordinator {
 
     var productPresentationSnapshot: BridgePaneProductPresentationSnapshot {
         BridgePaneProductPresentationSnapshot(
-            activityRevision: presentationRevision,
             nativeActivity: activity,
-            refreshingLanes: activeRefreshPass?.lanes ?? []
+            presentationRevision: presentationRevision,
+            refreshingLanes: activeRefreshPass?.lanes ?? [],
+            reviewComparison: reviewComparison
         )
+    }
+
+    func publishReviewComparisonDefaultTarget(
+        _ repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+    ) {
+        guard let reviewComparison else { return }
+        let nextComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: reviewComparison.activeTarget,
+            attempt: reviewComparison.attempt,
+            displayedSnapshot: reviewComparison.displayedSnapshot,
+            repositoryDefaultTarget: repositoryDefaultTarget
+        )
+        guard nextComparison != reviewComparison else { return }
+        self.reviewComparison = nextComparison
+        presentationRevision += 1
+    }
+
+    func beginReviewComparisonAttempt(
+        activeTarget: WorkspaceReviewContributionTarget,
+        reviewGeneration: Int
+    ) {
+        let nextComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: activeTarget,
+            attempt: .pending(reviewGeneration: reviewGeneration),
+            displayedSnapshot: reviewComparison?.displayedSnapshot.stalePredecessor ?? .absent,
+            repositoryDefaultTarget: reviewComparison?.repositoryDefaultTarget
+        )
+        guard nextComparison != reviewComparison else { return }
+        reviewComparison = nextComparison
+        presentationRevision += 1
+    }
+
+    func isReviewComparisonAttemptPending(reviewGeneration: Int) -> Bool {
+        reviewComparison?.attempt == .pending(reviewGeneration: reviewGeneration)
+    }
+
+    func settleReviewComparisonAttempt(
+        reviewGeneration: Int,
+        displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity
+    ) {
+        guard let reviewComparison,
+            case .pending(let pendingGeneration) = reviewComparison.attempt,
+            pendingGeneration <= reviewGeneration
+        else { return }
+        self.reviewComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: reviewComparison.activeTarget,
+            attempt: .settled(reviewGeneration: reviewGeneration),
+            displayedSnapshot: .current(displayedSnapshotIdentity),
+            repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
+        )
+        presentationRevision += 1
+    }
+
+    func recordCommittedReviewComparisonSnapshot(
+        reviewGeneration: Int,
+        displayedSnapshotIdentity: BridgePaneReviewDisplayedSnapshotIdentity
+    ) {
+        guard let reviewComparison else { return }
+        if case .pending(let pendingGeneration) = reviewComparison.attempt {
+            guard pendingGeneration <= reviewGeneration else { return }
+            settleReviewComparisonAttempt(
+                reviewGeneration: reviewGeneration,
+                displayedSnapshotIdentity: displayedSnapshotIdentity
+            )
+            return
+        }
+        let nextComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: reviewComparison.activeTarget,
+            attempt: reviewComparison.attempt,
+            displayedSnapshot: .current(displayedSnapshotIdentity),
+            repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
+        )
+        guard nextComparison != reviewComparison else { return }
+        self.reviewComparison = nextComparison
+        presentationRevision += 1
+    }
+
+    func failReviewComparisonAttempt(
+        reviewGeneration: Int,
+        failureKind: String,
+        retryable: Bool
+    ) {
+        guard let reviewComparison,
+            case .pending(let pendingGeneration) = reviewComparison.attempt,
+            pendingGeneration <= reviewGeneration
+        else { return }
+        self.reviewComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: reviewComparison.activeTarget,
+            attempt: .unavailable(
+                failureKind: failureKind,
+                retryable: retryable
+            ),
+            displayedSnapshot: reviewComparison.displayedSnapshot.stalePredecessor,
+            repositoryDefaultTarget: reviewComparison.repositoryDefaultTarget
+        )
+        presentationRevision += 1
     }
 
     func recordInvalidation(

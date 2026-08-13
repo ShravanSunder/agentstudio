@@ -883,17 +883,18 @@ function requireFilePanePresentationSink(
 }
 
 function makeFilePanePresentationFrame(
-	activityRevision: number,
+	presentationRevision: number,
 	nativeActivity: BridgeProductPanePresentationFrame['nativeActivity'],
 ): BridgeProductPanePresentationFrame {
 	return {
-		activityRevision,
+		presentationRevision,
 		kind: 'pane.presentation',
 		metadataStreamId: 'file-product-test-metadata-stream',
 		nativeActivity,
 		paneSessionId: 'file-product-test-pane-session',
 		refreshingLanes: [],
-		streamSequence: activityRevision,
+		reviewComparison: null,
+		streamSequence: presentationRevision,
 		wireVersion: 2,
 		workerInstanceId: 'file-product-test-worker-instance',
 	};

@@ -114,7 +114,11 @@ package final class CommandBarPanelController {
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
         self.performanceTraceRecorder = performanceTraceRecorder
-        self.interactionProbe = interactionProbe
+        self.interactionProbe =
+            interactionProbe
+            ?? performanceTraceRecorder.map {
+                AgentStudioInteractionPerformanceProbe(recorder: $0)
+            }
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,

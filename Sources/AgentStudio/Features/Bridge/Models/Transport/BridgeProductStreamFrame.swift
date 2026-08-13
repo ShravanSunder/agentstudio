@@ -1,3 +1,4 @@
+import AgentStudioCore
 import Foundation
 
 enum BridgeProductMetadataStreamResumeDisposition: String, Codable, Equatable, Sendable {
@@ -360,18 +361,339 @@ struct BridgeProductPaneSurfaceSelectionRequestedFrame: Codable, Equatable, Send
     }
 }
 
+struct BridgePaneReviewDisplayedSnapshotIdentity: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case packageId
+        case reviewGeneration
+        case revision
+    }
+
+    let packageId: String
+    let reviewGeneration: Int
+    let revision: Int
+
+    init(packageId: String, reviewGeneration: Int, revision: Int) {
+        self.packageId = packageId
+        self.reviewGeneration = reviewGeneration
+        self.revision = revision
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review displayed snapshot identity"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        packageId = try container.decode(String.self, forKey: .packageId)
+        reviewGeneration = try container.decode(Int.self, forKey: .reviewGeneration)
+        revision = try container.decode(Int.self, forKey: .revision)
+        try BridgeProductContractDecoding.validateIdentifier(packageId, codingPath: decoder.codingPath)
+        try BridgeProductContractDecoding.validateNonnegative(
+            reviewGeneration,
+            name: "reviewGeneration",
+            codingPath: decoder.codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            revision,
+            name: "revision",
+            codingPath: decoder.codingPath
+        )
+    }
+}
+
+enum BridgePaneReviewDisplayedSnapshot: Codable, Equatable, Sendable {
+    case absent
+    case current(BridgePaneReviewDisplayedSnapshotIdentity)
+    case stale(BridgePaneReviewDisplayedSnapshotIdentity)
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case packageId
+        case reviewGeneration
+        case revision
+        case status
+    }
+
+    private enum Status: String, Codable {
+        case absent = "none"
+        case current
+        case stale
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Status.self, forKey: .status) {
+        case .absent:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.status.rawValue],
+                contract: "empty Review displayed snapshot"
+            )
+            self = .absent
+        case .current, .stale:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+                contract: "Review displayed snapshot"
+            )
+            let packageId = try container.decode(String.self, forKey: .packageId)
+            let reviewGeneration = try container.decode(Int.self, forKey: .reviewGeneration)
+            let revision = try container.decode(Int.self, forKey: .revision)
+            try BridgeProductContractDecoding.validateIdentifier(
+                packageId,
+                codingPath: decoder.codingPath
+            )
+            try BridgeProductContractDecoding.validateNonnegative(
+                reviewGeneration,
+                name: "reviewGeneration",
+                codingPath: decoder.codingPath
+            )
+            try BridgeProductContractDecoding.validateNonnegative(
+                revision,
+                name: "revision",
+                codingPath: decoder.codingPath
+            )
+            let identity = BridgePaneReviewDisplayedSnapshotIdentity(
+                packageId: packageId,
+                reviewGeneration: reviewGeneration,
+                revision: revision
+            )
+            self =
+                try container.decode(Status.self, forKey: .status) == .current
+                ? .current(identity)
+                : .stale(identity)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .absent:
+            try container.encode(Status.absent, forKey: .status)
+        case .current(let identity):
+            try identity.encode(to: encoder)
+            try container.encode(Status.current, forKey: .status)
+        case .stale(let identity):
+            try identity.encode(to: encoder)
+            try container.encode(Status.stale, forKey: .status)
+        }
+    }
+
+    var identity: BridgePaneReviewDisplayedSnapshotIdentity? {
+        switch self {
+        case .absent: nil
+        case .current(let identity), .stale(let identity): identity
+        }
+    }
+
+    var stalePredecessor: Self {
+        switch self {
+        case .absent: .absent
+        case .current(let identity), .stale(let identity): .stale(identity)
+        }
+    }
+}
+
+enum BridgePaneReviewComparisonAttempt: Codable, Equatable, Sendable {
+    case selectionRequired
+    case pending(reviewGeneration: Int)
+    case settled(reviewGeneration: Int)
+    case unavailable(failureKind: String, retryable: Bool)
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case failureKind
+        case retryable
+        case reviewGeneration
+        case status
+    }
+
+    private enum Status: String, Codable {
+        case selectionRequired
+        case pending
+        case settled
+        case unavailable
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Status.self, forKey: .status) {
+        case .selectionRequired:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.status.rawValue],
+                contract: "selection-required Review comparison attempt"
+            )
+            self = .selectionRequired
+        case .pending, .settled:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [CodingKeys.reviewGeneration.rawValue, CodingKeys.status.rawValue],
+                contract: "Review comparison attempt"
+            )
+            let reviewGeneration = try container.decode(Int.self, forKey: .reviewGeneration)
+            try BridgeProductContractDecoding.validateNonnegative(
+                reviewGeneration,
+                name: "reviewGeneration",
+                codingPath: decoder.codingPath
+            )
+            self =
+                try container.decode(Status.self, forKey: .status) == .pending
+                ? .pending(reviewGeneration: reviewGeneration)
+                : .settled(reviewGeneration: reviewGeneration)
+        case .unavailable:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: [
+                    CodingKeys.failureKind.rawValue,
+                    CodingKeys.retryable.rawValue,
+                    CodingKeys.status.rawValue,
+                ],
+                contract: "unavailable Review comparison attempt"
+            )
+            let failureKind = try container.decode(String.self, forKey: .failureKind)
+            try BridgeProductContractDecoding.validateIdentifier(
+                failureKind,
+                codingPath: decoder.codingPath
+            )
+            self = .unavailable(
+                failureKind: failureKind,
+                retryable: try container.decode(Bool.self, forKey: .retryable)
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .selectionRequired:
+            try container.encode(Status.selectionRequired, forKey: .status)
+        case .pending(let reviewGeneration):
+            try container.encode(reviewGeneration, forKey: .reviewGeneration)
+            try container.encode(Status.pending, forKey: .status)
+        case .settled(let reviewGeneration):
+            try container.encode(reviewGeneration, forKey: .reviewGeneration)
+            try container.encode(Status.settled, forKey: .status)
+        case .unavailable(let failureKind, let retryable):
+            try container.encode(failureKind, forKey: .failureKind)
+            try container.encode(retryable, forKey: .retryable)
+            try container.encode(Status.unavailable, forKey: .status)
+        }
+    }
+}
+
+package struct BridgeReviewComparisonDefaultTargetIdentity: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case branchName
+        case remoteName
+    }
+
+    let remoteName: String
+    let branchName: String
+
+    package init(remoteName: String, branchName: String) {
+        self.remoteName = remoteName
+        self.branchName = branchName
+    }
+
+    package init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review comparison default target identity"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.branchName = try container.decode(String.self, forKey: .branchName)
+        self.remoteName = try container.decode(String.self, forKey: .remoteName)
+        guard !branchName.isEmpty, !remoteName.isEmpty else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Review comparison default target identity must be non-empty",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+
+    package func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(branchName, forKey: .branchName)
+        try container.encode(remoteName, forKey: .remoteName)
+    }
+}
+
+struct BridgePaneReviewComparisonPresentation: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case activeTarget
+        case attempt
+        case displayedSnapshot
+        case repositoryDefaultTarget
+    }
+
+    let activeTarget: WorkspaceReviewContributionTarget?
+    let attempt: BridgePaneReviewComparisonAttempt
+    let displayedSnapshot: BridgePaneReviewDisplayedSnapshot
+    let repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity?
+
+    init(
+        activeTarget: WorkspaceReviewContributionTarget?,
+        attempt: BridgePaneReviewComparisonAttempt,
+        displayedSnapshot: BridgePaneReviewDisplayedSnapshot,
+        repositoryDefaultTarget: BridgeReviewComparisonDefaultTargetIdentity? = nil
+    ) {
+        self.activeTarget = activeTarget
+        self.attempt = attempt
+        self.displayedSnapshot = displayedSnapshot
+        self.repositoryDefaultTarget = repositoryDefaultTarget
+    }
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "Review comparison presentation"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let transportTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeProductReviewComparisonTransportTarget.self,
+            forKey: .activeTarget,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+        activeTarget = transportTarget?.workspaceTarget
+        attempt = try container.decode(BridgePaneReviewComparisonAttempt.self, forKey: .attempt)
+        displayedSnapshot = try container.decode(
+            BridgePaneReviewDisplayedSnapshot.self,
+            forKey: .displayedSnapshot
+        )
+        repositoryDefaultTarget = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgeReviewComparisonDefaultTargetIdentity.self,
+            forKey: .repositoryDefaultTarget,
+            from: container,
+            codingPath: decoder.codingPath
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(activeTarget, forKey: .activeTarget)
+        try container.encode(attempt, forKey: .attempt)
+        try container.encode(displayedSnapshot, forKey: .displayedSnapshot)
+        try container.encode(repositoryDefaultTarget, forKey: .repositoryDefaultTarget)
+    }
+}
+
 struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
-        case activityRevision
         case kind
         case nativeActivity
+        case presentationRevision
         case refreshingLanes
+        case reviewComparison
     }
 
     let frameIdentity: BridgeProductMetadataFrameIdentity
-    let activityRevision: Int
     let nativeActivity: BridgePaneActivity
+    let presentationRevision: Int
     let refreshingLanes: [BridgePaneRefreshLane]
+    let reviewComparison: BridgePaneReviewComparisonPresentation?
 
     init(from decoder: Decoder) throws {
         try BridgeProductContractDecoding.rejectUnknownKeys(
@@ -388,23 +710,29 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
         }
-        self.activityRevision = try container.decode(Int.self, forKey: .activityRevision)
         self.nativeActivity = try container.decode(BridgePaneActivity.self, forKey: .nativeActivity)
+        self.presentationRevision = try container.decode(Int.self, forKey: .presentationRevision)
         self.refreshingLanes = try container.decode(
             [BridgePaneRefreshLane].self,
             forKey: .refreshingLanes
         )
+        self.reviewComparison = try BridgeProductContractDecoding.decodeRequiredNullable(
+            BridgePaneReviewComparisonPresentation.self,
+            forKey: .reviewComparison,
+            from: container,
+            codingPath: decoder.codingPath
+        )
         self.frameIdentity = try BridgeProductMetadataFrameIdentity(from: decoder)
         try frameIdentity.validateProgressSequence(codingPath: decoder.codingPath)
         try BridgeProductContractDecoding.validatePositive(
-            activityRevision,
-            name: "activityRevision",
+            presentationRevision,
+            name: "presentationRevision",
             codingPath: decoder.codingPath
         )
         try BridgeProductContractDecoding.validateMaximum(
-            activityRevision,
+            presentationRevision,
             maximum: BridgeProductWireContract.maximumSafeInteger,
-            name: "activityRevision",
+            name: "presentationRevision",
             codingPath: decoder.codingPath
         )
         let canonicalLanes = Array(Set(refreshingLanes)).sorted { $0.rawValue < $1.rawValue }
@@ -419,10 +747,11 @@ struct BridgeProductPanePresentationFrame: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         try frameIdentity.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(activityRevision, forKey: .activityRevision)
         try container.encode("pane.presentation", forKey: .kind)
         try container.encode(nativeActivity, forKey: .nativeActivity)
+        try container.encode(presentationRevision, forKey: .presentationRevision)
         try container.encode(refreshingLanes, forKey: .refreshingLanes)
+        try container.encode(reviewComparison, forKey: .reviewComparison)
     }
 }
 

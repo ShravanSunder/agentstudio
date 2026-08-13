@@ -374,6 +374,7 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				break;
 			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':
+			case 'reviewComparisonTargetsQuery':
 				break;
 			default:
 				assertNeverBridgeFileViewerWorkerServerMessage(message);

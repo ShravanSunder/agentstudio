@@ -37,9 +37,13 @@ export class BridgeCommWorkerReviewQueryProjection {
 		patches: readonly BridgeWorkerReviewDisplayPatch[],
 	): readonly BridgeWorkerReviewDisplayPatch[] {
 		for (const patch of patches) this.#applyRawPatch(patch);
-		return reviewProjectionQueryIsPassThrough(this.#query)
-			? patches
-			: this.snapshotDisplayPatches();
+		if (reviewProjectionQueryIsPassThrough(this.#query)) return patches;
+		const snapshotPatches = this.snapshotDisplayPatches();
+		return [
+			...snapshotPatches.filter((patch) => patch.slice === 'reviewSource'),
+			...patches.filter((patch) => patch.slice === 'reviewComparison'),
+			...snapshotPatches.filter((patch) => patch.slice !== 'reviewSource'),
+		];
 	}
 
 	updateQuery(query: BridgeWorkerReviewProjectionQuery): readonly BridgeWorkerReviewDisplayPatch[] {
@@ -85,6 +89,8 @@ export class BridgeCommWorkerReviewQueryProjection {
 
 	#applyRawPatch(patch: BridgeWorkerReviewDisplayPatch): void {
 		switch (patch.slice) {
+			case 'reviewComparison':
+				break;
 			case 'reviewSource':
 				this.#sourcePatch = patch;
 				break;

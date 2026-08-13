@@ -57,13 +57,15 @@ private func assertFileViewPane(
     #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
     guard case .bridgePanel(let state) = pane.content,
         state.panelKind == .fileViewer,
-        case .workspace(let rootPath, let baseline) = state.source
+        case .workspace(let rootPath, let comparisonIntent) = state.source
     else {
         Issue.record("Expected Bridge file-viewer workspace source")
         return
     }
     #expect(rootPath == worktree.path.path)
-    #expect(baseline == .localDefaultBranch(branchName: "main"))
+    #expect(
+        comparisonIntent == nil
+    )
     guard let script = bridgeView?.controller.bootstrapScriptSourceForTesting else {
         Issue.record("Expected mounted Bridge file-viewer bootstrap script")
         return
@@ -145,17 +147,19 @@ extension WebKitSerializedTests {
             #expect(pane?.worktreeId == worktree.id)
             #expect(pane?.metadata.cwd == worktree.path)
             guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(let rootPath, let baseline) = state.source
+                case .workspace(let rootPath, let comparisonIntent) = state.source
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .ref(name: "HEAD"))
+            #expect(
+                comparisonIntent == nil
+            )
         }
 
-        @Test("openBridgeReviewInNewTab uses HEAD when default branch enrichment is unavailable")
-        func openBridgeReviewInNewTab_usesHEADWhenDefaultBranchEnrichmentIsUnavailable() {
+        @Test("openBridgeReviewInNewTab starts without a target when enrichment is unavailable")
+        func openBridgeReviewInNewTab_startsWithoutTargetWhenEnrichmentIsUnavailable() {
             let harness = makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let viewRegistry = harness.viewRegistry
@@ -182,17 +186,19 @@ extension WebKitSerializedTests {
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
             #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
             guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(let rootPath, let baseline) = state.source
+                case .workspace(let rootPath, let comparisonIntent) = state.source
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .ref(name: "HEAD"))
+            #expect(
+                comparisonIntent == nil
+            )
         }
 
-        @Test("openBridgeReviewInNewTab uses the cached main-worktree branch as its baseline")
-        func openBridgeReviewInNewTab_usesCachedMainWorktreeBranchAsBaseline() {
+        @Test("openBridgeReviewInNewTab does not persist the cached main-worktree branch")
+        func openBridgeReviewInNewTab_doesNotPersistCachedMainWorktreeBranch() {
             let harness = makeWorkspaceActionExecutorHarness()
             let store = harness.store
             let executor = harness.executor
@@ -214,12 +220,14 @@ extension WebKitSerializedTests {
             let pane = executor.openBridgeReviewInNewTab(worktreeId: worktree.id)
 
             guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(_, let baseline) = state.source
+                case .workspace(_, let comparisonIntent) = state.source
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
-            #expect(baseline == .localDefaultBranch(branchName: "master"))
+            #expect(
+                comparisonIntent == nil
+            )
         }
 
         @Test("openBridgeReviewInNewTab can target a registered worktree without an active source pane")
@@ -252,13 +260,15 @@ extension WebKitSerializedTests {
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
             #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
             guard case .bridgePanel(let state) = pane?.content,
-                case .workspace(let rootPath, let baseline) = state.source
+                case .workspace(let rootPath, let comparisonIntent) = state.source
             else {
                 Issue.record("Expected Bridge workspace source")
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .ref(name: "HEAD"))
+            #expect(
+                comparisonIntent == nil
+            )
         }
 
         @Test("openBridgeFilesInNewTab can target a registered worktree without an active source pane")
@@ -293,13 +303,15 @@ extension WebKitSerializedTests {
             #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
             guard case .bridgePanel(let state) = pane?.content,
                 state.panelKind == .fileViewer,
-                case .workspace(let rootPath, let baseline) = state.source
+                case .workspace(let rootPath, let comparisonIntent) = state.source
             else {
                 Issue.record("Expected Bridge file-viewer workspace source")
                 return
             }
             #expect(rootPath == worktree.path.path)
-            #expect(baseline == .localDefaultBranch(branchName: "main"))
+            #expect(
+                comparisonIntent == nil
+            )
         }
 
         @Test("openBridgeFilesInNewTab inherits active pane worktree context")

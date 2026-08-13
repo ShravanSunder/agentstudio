@@ -86,6 +86,7 @@ describe('Bridge comm worker Review product source projection', () => {
 					},
 					slice: 'reviewSource',
 				},
+				expect.objectContaining({ operation: 'replace', slice: 'reviewComparison' }),
 				expect.objectContaining({ operation: 'batch', slice: 'reviewItem' }),
 				expect.objectContaining({ operation: 'batch', slice: 'reviewTree' }),
 			],
@@ -154,6 +155,7 @@ describe('Bridge comm worker Review product source projection', () => {
 					},
 					slice: 'reviewSource',
 				},
+				{ operation: 'replace', payload: null, slice: 'reviewComparison' },
 				{
 					operation: 'batch',
 					payload: { items: [], operations: [], reset: true },

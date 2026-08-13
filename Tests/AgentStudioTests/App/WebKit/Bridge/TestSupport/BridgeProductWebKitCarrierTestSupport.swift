@@ -353,13 +353,13 @@ actor BridgeWebKitFailingReviewMetadataSource:
     }
 
     func deliver(
-        package: BridgeReviewPackage,
+        publication: BridgeReviewCommittedPublication,
         reservation: BridgeReviewMetadataPublicationReservation,
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> BridgePaneProductReviewMetadataPublicationOutcome {
         deliveryAttempts.append(
             BridgeProductWebKitCarrierReviewDeliveryAttempt(
-                package: package,
+                package: publication.package,
                 publicationId: reservation.publicationId
             )
         )
@@ -380,7 +380,7 @@ actor BridgeWebKitFailingReviewMetadataSource:
             corruptedPublicationId = reservation.publicationId
         }
         return try await source.deliver(
-            package: package,
+            publication: publication,
             reservation: reservation,
             productAdmission: productAdmission
         )
@@ -438,6 +438,8 @@ actor BridgeWebKitFailingReviewMetadataSource:
             extentFacts: window.extentFacts,
             itemMetadata: Array(window.itemMetadata.dropFirst()),
             itemWindow: gappedItemWindow,
+            presentationRevision: window.presentationRevision,
+            reviewComparison: window.reviewComparison,
             summary: window.summary,
             treeRows: window.treeRows,
             treeWindow: window.treeWindow

@@ -42,7 +42,6 @@ enum BridgeReviewPackageBuildReason: String, Sendable {
     case initialIntake = "initial_intake"
     case productResync = "product_resync"
     case filesystemRefresh = "filesystem_refresh"
-    case fallbackUnresolvedHead = "fallback_unresolved_head"
 }
 
 enum BridgeError: Error, LocalizedError, Sendable {

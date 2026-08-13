@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import Testing
@@ -147,7 +148,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let activeTabIsSplit = false
         let clickedTabIsSplit = true
 
-        let commands = TabPillView.presentedCommands(
+        let commands = TabContextMenuPresenter.presentedCommands(
             clickedTabIsSplit: clickedTabIsSplit
         )
 
@@ -164,7 +165,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         let activeTabIsSplit = true
         let clickedTabIsSplit = false
 
-        let commands = TabPillView.presentedCommands(
+        let commands = TabContextMenuPresenter.presentedCommands(
             clickedTabIsSplit: clickedTabIsSplit
         )
 
@@ -178,7 +179,7 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
 
     @Test("tab context menu filters undeclared rows and has no dead arrangement commands")
     func presentation_filtersCommandsAndOmitsDeadArrangementRows() {
-        let commands = TabPillView.presentedCommands(
+        let commands = TabContextMenuPresenter.presentedCommands(
             clickedTabIsSplit: true
         )
 
@@ -190,6 +191,45 @@ struct PaneTabViewControllerTabContextMenuCommandTests {
         #expect(!commands.contains(.switchArrangement))
         #expect(!commands.contains(.deleteArrangement))
         #expect(!commands.contains(.renameArrangement))
+    }
+
+    @Test("native tab context menu preserves the existing visible hierarchy")
+    func nativeMenuPreservesExistingVisibleHierarchy() throws {
+        let presenter = TabContextMenuPresenter()
+        let menu = presenter.makeMenu(
+            clickedTabIsSplit: true,
+            canDispatchCommand: { $0 != .splitLeft },
+            onCommand: { _ in },
+            onShowArrangements: {}
+        )
+
+        #expect(
+            menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
+                == [
+                    "Rename Tab...",
+                    "Close Tab",
+                    "Split Tab Into Individuals",
+                    "-",
+                    "Add Terminal to Tab",
+                    "New Floating Terminal",
+                    "-",
+                    "Equalize Panes",
+                    "-",
+                    "Arrangements",
+                ]
+        )
+
+        let addTerminalMenu = try #require(menu.item(withTitle: "Add Terminal to Tab")?.submenu)
+        #expect(addTerminalMenu.items.map(\.title) == ["Split Right", "Split Left"])
+        #expect(addTerminalMenu.item(withTitle: "Split Right")?.isEnabled == true)
+        #expect(addTerminalMenu.item(withTitle: "Split Left")?.isEnabled == false)
+
+        let arrangementsMenu = try #require(menu.item(withTitle: "Arrangements")?.submenu)
+        #expect(arrangementsMenu.items.map(\.title) == ["Show Arrangements", "Save Arrangement As..."])
+
+        let closeItem = try #require(menu.item(withTitle: "Close Tab"))
+        #expect(closeItem.keyEquivalent == "w")
+        #expect(closeItem.keyEquivalentModifierMask == .command)
     }
 
     @Test("tab-pill close uses targeted inline presentation and rechecks capability")
