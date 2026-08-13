@@ -1177,6 +1177,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Tab Content Hosts
 
     private func buildTabContentHost(for tabId: UUID) -> PersistentTabHostView {
+        if let tab = store.tabLayoutAtom.tab(tabId) {
+            for paneId in tab.allPaneIds {
+                viewRegistry.ensureSlot(for: paneId)
+            }
+        }
         let inboxAtom = inboxAtom
         let contentView = SingleTabContent(
             tabId: tabId,
