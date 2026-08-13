@@ -147,8 +147,8 @@ struct FilesystemGitPipelineIntegrationTests {
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
-        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await pipeline.setSidebarVisibleWorktrees([worktreeId])
+        await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
             guard let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot else { return false }
@@ -417,6 +417,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
 
         let repoCache = RepoCacheAtom()
+        let cacheReceipt = OriginRetryCacheReceipt()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -427,35 +428,31 @@ struct FilesystemGitPipelineIntegrationTests {
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 coordinator.consume(envelope)
+                await cacheReceipt.record(
+                    branch: repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch,
+                    repoEnrichment: repoCache.repoEnrichmentByRepoId[repo.id]
+                )
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
         await pipeline.setSidebarVisibleWorktrees([worktreeId])
 
-        let initialSnapshotConverged = await eventually(
-            "initial registration should produce a git snapshot before origin retry",
-            maxTurns: 20_000
-        ) {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
-        }
-        #expect(initialSnapshotConverged)
+        await cacheReceipt.waitForInitialSnapshot()
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
         await provider.setStatus(status(originResolution: .resolved("git@github.com:askluna/agent-studio.git")))
         await pipeline.enqueueRawPathsForTesting(worktreeId: worktreeId, paths: [".git/config"])
 
-        let remoteIdentityConverged = await eventually(
-            "git config change should trigger origin retry and remote identity",
-            maxTurns: 20_000
-        ) {
-            guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
-            else {
-                return false
-            }
-            return raw.origin == "git@github.com:askluna/agent-studio.git"
-                && identity.groupKey == "remote:askluna/agent-studio"
+        await cacheReceipt.waitForRemoteIdentity()
+        guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
+        else {
+            Issue.record("git config change should resolve the remote identity")
+            await shutdownWorld(pipeline: pipeline, observerTasks: [coordinatorTask], bus: bus)
+            return
         }
-        #expect(remoteIdentityConverged)
+        #expect(raw.origin == "git@github.com:askluna/agent-studio.git")
+        #expect(identity.groupKey == "remote:askluna/agent-studio")
 
         await shutdownWorld(
             pipeline: pipeline,
@@ -624,6 +621,45 @@ private actor PeriodicGitCacheReceipt {
         guard !observedCounts.contains(counts) else { return }
         await withCheckedContinuation { continuation in
             waiters[counts, default: []].append(continuation)
+        }
+    }
+}
+
+private actor OriginRetryCacheReceipt {
+    private var initialSnapshotObserved = false
+    private var remoteIdentityObserved = false
+    private var initialSnapshotWaiters: [CheckedContinuation<Void, Never>] = []
+    private var remoteIdentityWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func record(branch: String?, repoEnrichment: RepoEnrichment?) {
+        if branch == "main" {
+            initialSnapshotObserved = true
+            resumeAll(&initialSnapshotWaiters)
+        }
+        if case .some(.resolvedRemote(_, let raw, let identity, _)) = repoEnrichment,
+            raw.origin == "git@github.com:askluna/agent-studio.git",
+            identity.groupKey == "remote:askluna/agent-studio"
+        {
+            remoteIdentityObserved = true
+            resumeAll(&remoteIdentityWaiters)
+        }
+    }
+
+    func waitForInitialSnapshot() async {
+        guard !initialSnapshotObserved else { return }
+        await withCheckedContinuation { initialSnapshotWaiters.append($0) }
+    }
+
+    func waitForRemoteIdentity() async {
+        guard !remoteIdentityObserved else { return }
+        await withCheckedContinuation { remoteIdentityWaiters.append($0) }
+    }
+
+    private func resumeAll(_ waiters: inout [CheckedContinuation<Void, Never>]) {
+        let continuations = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for continuation in continuations {
+            continuation.resume()
         }
     }
 }
