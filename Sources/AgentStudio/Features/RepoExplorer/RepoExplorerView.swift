@@ -9,6 +9,7 @@ import SwiftUI
 // The view remains one cohesive SwiftUI surface; its projection lifecycle and
 // render helpers share private state that is not a reusable module boundary.
 // swiftlint:disable file_length type_body_length
+
 enum RepoExplorerOutlineApplyOutcome: String, Equatable, Sendable {
     case equal
     case changed
@@ -929,7 +930,6 @@ package struct RepoExplorerView: View {
             nextRowIDs: nextRowIDs,
             apply: { cachedProjectionResult = result }
         )
-        projectionTask = nil
         performanceTraceRecorder?.recordDuration(
             .sidebarProjection,
             duration: outlineApplyMeasurement.duration,
