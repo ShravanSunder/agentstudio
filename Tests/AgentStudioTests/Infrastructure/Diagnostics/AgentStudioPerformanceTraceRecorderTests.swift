@@ -5,6 +5,33 @@ import Testing
 
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
+    @Test("focus responder changes record only the bounded reason")
+    func focusResponderChangeRecordsBoundedReason() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "focus-responder-change",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 911,
+            timeUnixNano: { 119 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordFocusResponderChange(reason: .restoreTailSkippedUserFocus)
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.focus.responder_change\""))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.focus.responder_change.reason\":\"restore_tail_skipped_user_focus\""
+            ))
+    }
+
     @Test("startup deferral records bounded gate and outcome")
     func startupDeferralRecordsBoundedOutcome() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()
