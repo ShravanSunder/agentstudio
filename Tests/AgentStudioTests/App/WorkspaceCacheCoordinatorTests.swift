@@ -393,8 +393,8 @@ final class WorkspaceCacheCoordinatorTests {
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             scopeSyncHandler: { _ in },
-            enrichmentApplierFlushInterval: .milliseconds(25),
-            enrichmentApplierClock: clock
+            enrichmentApplyTickCadence: .milliseconds(25),
+            enrichmentApplyClock: clock
         )
 
         let repoId = UUID()
@@ -491,8 +491,8 @@ final class WorkspaceCacheCoordinatorTests {
             workspaceStore: workspaceStore,
             repoCache: repoCache,
             scopeSyncHandler: { _ in },
-            enrichmentApplierFlushInterval: .milliseconds(25),
-            enrichmentApplierClock: clock
+            enrichmentApplyTickCadence: .milliseconds(25),
+            enrichmentApplyClock: clock
         )
         let repoId = UUID()
         let worktreeId = UUID()

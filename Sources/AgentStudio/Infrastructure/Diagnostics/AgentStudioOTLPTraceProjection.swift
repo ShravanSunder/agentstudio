@@ -1,6 +1,5 @@
 import Foundation
 
-// This exhaustive allowlist centralizes every audited OTLP field projection.
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
@@ -397,6 +396,9 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.atom.input_revision.count",
         "agentstudio.performance.atom.slot.count",
         "agentstudio.performance.commandbar.input.count",
+        "agentstudio.performance.apply_governor.batch.count",
+        "agentstudio.performance.apply_governor.carried_over.count",
+        "agentstudio.performance.apply_governor.superseded.count",
         "agentstudio.performance.commandbar.item.count",
         "agentstudio.performance.commandbar.pane.count",
         "agentstudio.performance.commandbar.query_character.count",
@@ -810,12 +812,10 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 }
-// MARK: - Value Validation
 extension AgentStudioOTLPTraceProjection {
-    private static func projectedAttributeValue(
-        key: String,
-        value: AgentStudioTraceValue
-    ) -> AgentStudioTraceValue? {
+    private static func projectedAttributeValue(key: String, value: AgentStudioTraceValue)
+        -> AgentStudioTraceValue?
+    {
         guard !isIdentifierKey(key), !isErrorKey(key) else {
             return nil
         }

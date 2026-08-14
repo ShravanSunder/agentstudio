@@ -128,6 +128,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case atomDerived = "performance.atom.derived"
         case atomMutation = "performance.atom.mutation"
         case atomRead = "performance.atom.read"
+        case applyGovernorDrain = "performance.apply_governor.drain"
         case bridgeGitReadScheduler = "performance.bridge.git_read_scheduler"
         case bridgeWorktreeProductConstruction = "performance.bridge.worktree_product_construction"
         case commandBarFilter = "performance.commandbar.filter"
