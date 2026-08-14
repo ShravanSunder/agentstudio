@@ -1,10 +1,10 @@
 # Agent Studio
 
-![Agent Studio workspace](web/images/screen3.png)
+![Agent Studio running coding agents in parallel terminal panes with repository and worktree navigation](web/images/agent-studio-parallel-agent-terminals.png)
 
-A macOS workspace for agent-assisted development. Run multiple coding agents across projects simultaneously — and stay oriented while they work.
+An opinionated native macOS workspace for running dozens of coding agents across repositories and worktrees. Stay oriented while they work without losing context.
 
-Agent-agnostic. Keyboard-first. Native macOS. Built on [Ghostty](https://github.com/ghostty-org/ghostty).
+Agent-agnostic. Repo-aware. Keyboard-first. Built on [Ghostty](https://github.com/ghostty-org/ghostty).
 
 ## Install
 
@@ -17,85 +17,86 @@ Requires macOS 26+. No external dependencies.
 
 ## Why
 
-Development is changing. Coding agents run alongside you now — sometimes several at once, across multiple projects and worktrees. But the tools weren't built for this.
+Coding agents multiply both the work you can run and the places you can lose track of it. Terminals, builds, diffs, documentation, and reviews spread across tabs, windows, and worktrees. Traditional terminal tabs flatten all of that into one long list.
 
-Your terminals multiply. Context scatters across terminal tabs, browser windows, and editor panels. You alt-tab to GitHub to check a diff, lose your place, and spend more time managing your workspace than doing the work.
+Agent Studio makes the repository and worktree, not the terminal tab, the unit of organization. Panes carry repository, worktree, branch, and working-directory context. Related panes can live in a drawer. Layouts can be saved as arrangements. Source and changes open beside the terminal that prompted the work.
 
-Agents spawn sub-processes — builds, tests, tool calls — that float away from the parent with no association. You end up with dozens of panes and no way to tell which belongs to which project, which worktree, or which agent.
-
-Agent Studio is a ground-up redesign of the development experience around agents. Not a terminal with extra features — a workspace where agents, terminals, diffs, PRs, and project context live together.
+It is not a terminal with a few agent features added. It is a workspace for keeping agents, terminals, source, reviews, and project context together.
 
 ## How It Works
 
-### One pane per unit of work. Everything else in its drawer.
+### One pane per unit of work. Related context in its drawer.
 
-Each worktree, agent, or task gets a main terminal pane. Below it, a **drawer** holds everything associated with that work — sub-terminals, git operations, build output, webviews, whatever context belongs together.
+Give each worktree, agent session, or task a main pane. Its **drawer** holds the terminals and tools you choose to associate with that work.
 
+![Agent Studio terminal panes with an expanded multi-tool drawer beneath them](web/images/agent-studio-pane-drawers.png)
+
+The relationship stays simple:
+
+```text
+┌─ MAIN PANE ─────────────────────────────────────┐
+│  Agent session for feature-auth                 │
+│  The primary unit of work                       │
+├─ DRAWER ────────────────────────────────────────┤
+│  [ Shell ]  [ Diff ]  [ Build ]  [ Browser ]    │
+│  Related terminals and tools stay attached      │
+└─────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────┐
-│  Claude Code — feature-auth         │  ← main pane (your agent)
-│  > Implementing OAuth flow...       │
-│                                     │
-├─────────────────────────────────────┤
-│ [shell] [git log] [build] [+]       │  ← drawer (associated context)
-│ ┌─────────────────────────────────┐ │
-│ │ $ git diff --stat               │ │
-│ │  src/auth.swift | 42 +++---     │ │
-│ └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
-```
 
-Agent spawns a build? It lands in the drawer. Need to check git status? It's already there. Open a webview to review the PR? Drawer. Close the main pane — the drawer goes with it. Move it to another tab — the drawer follows.
+Open a build log, git status, documentation, or a browser beside the agent that prompted it. The drawer travels with its main pane when you move it and closes with that pane when the work is finished.
 
-This is what keeps you oriented. Not a flat list of 30 terminals — a structured workspace where every pane has a home.
+This is what keeps you oriented. Not a flat list of 30 terminals, but a structured workspace where every pane has a home.
 
-![Pane drawers and project context](web/images/screen1.png)
+### Stay oriented across repositories and worktrees
 
-### GitHub, PRs, and diffs without leaving the workspace
+Choose one or more folders to watch. Agent Studio scans them for Git repositories and linked worktrees, then keeps that topology current as the filesystem changes. The repository sidebar turns those watched folders into one live map of your work: branches, checkout type, dirty changes, ahead and behind state, pull requests, unread activity, and every open pane. Jump to existing work or open a terminal, Files, or Review for any worktree.
 
-Webview panes sit alongside your terminals. Review a pull request, check CI status, or browse documentation right next to the agent doing the work. No alt-tab. No lost context.
+### Keep parallel work separate, but visible
 
-![GitHub and terminals in one workspace](web/images/screen4.png)
+Put Codex, Claude Code, or any CLI agent in its own pane. Each pane keeps its repository, branch, worktree, and current directory visible. Save layouts as named arrangements, or zoom one pane when the work needs focus.
 
-### Built for the keyboard
+### Close the app without tearing down your work
 
-**Pane arrangements** — save named layouts per tab ("coding", "reviewing", "monitoring") and switch between them. Sessions keep running in the background.
+Persistent terminal sessions are the default. zmx keeps their processes alive when Agent Studio closes, while the app saves the workspace around them. Reopen it to restore your tabs, panes, drawers, layouts, and visible terminal sessions instead of reconstructing the context by hand. Temporary sessions remain available for work you do not want to keep.
 
-**Session restore** — close the app, reopen, pick up where you left off. Optional zmx-backed persistence is on by default — no tmux, no scripts, no configuration.
+### Jump instead of hunting
 
-**Any agent, any pane** — Claude Code, Codex, aider, Cursor CLI. Agent Studio provides the workspace. The agent is just a process.
+The command bar is one keyboard interaction model for the workspace. Press Cmd+P for Quick Find, then use `#` for repositories and worktrees, `$` for panes and tabs, and `>` for commands. Recents and open-pane counts help you resume work without remembering where it lives.
 
-**Command bar (Cmd+P)** — one interaction point for everything.
+<p align="center">
+  <img src="web/images/agent-studio-repository-command-bar.png" alt="Repository-scoped command bar showing worktrees and open panes" width="640">
+</p>
 
-![Multi-pane agent workflow](web/images/screen2.png)
+### Review changes in a diff viewer built to stay fast
 
-## Roadmap
+Agent Studio presents every changed file as one continuous, read-only diff with file-tree navigation and syntax highlighting. The viewer is built on [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) and [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees), then adds a demand-driven data path designed to stay responsive when a review spans thousands of changed files.
 
-### Solved
+It does not render the whole change at once: metadata streams separately, visible files hydrate from viewport demand, and a worker prepares bounded render windows before budgeted main-thread updates. Scroll through large reviews without leaving the workspace. Editing stays in your editor.
 
-**Pane explosion** — agents and worktrees generate dozens of terminals. Pane drawers keep sub-processes associated with their parent. Split layouts and arrangements let you organize what's visible without killing what's running.
+![Agent Studio's file tree and continuous diff viewer beside an agent terminal](web/images/agent-studio-file-diff-review.png)
 
-**Lost sessions** — close the app, lose your work. Optional zmx-backed session restore (on by default) brings every session back on relaunch. No tmux, no scripts.
+## What works today
 
-**No project context** — terminals are anonymous. Agent Studio ties every pane to its repo, worktree, and working directory automatically.
+- **Watched folders** discover repositories and linked worktrees, keep them refreshed, and collect them in one navigable sidebar.
+- **Structured panes and drawers** keep related terminals and tools together without flattening the workspace.
+- **Repository-aware navigation** connects panes to repositories, worktrees, branches, and working directories.
+- **Fast keyboard navigation** uses repository, pane, tab, and command scopes with recent-item and open-pane context.
+- **Named arrangements and Pane Zoom** let you switch between saved layouts or focus one pane without stopping the others.
+- **Full workspace restoration and persistent terminal sessions by default** let you close the app and resume without rebuilding tabs, panes, drawers, layouts, or terminal process context.
+- **Built-in Files and Review viewers** keep source and performant read-only diffs beside the agent doing the work.
+- **Multiple pane types** let terminal, browser, and native code-viewer content share the same workspace.
 
-### Solving next
+## Next
 
-**"Which pane was that?"** — you're running agents across five repos. You need to see all panes for one project, or all panes running Claude Code, or all panes in a specific worktree. Today you hunt through tabs.
+These capabilities are planned, not shipped:
 
-Dynamic views regroup your entire workspace on demand — by repo, by worktree, by agent type, by CWD — without touching your layout. Switch to "By Agent" and every Claude pane appears in one tab, every aider pane in another. Switch back and your workspace is untouched.
-
-**"I have to leave to review diffs"** — agents generate diffs constantly and you alt-tab to GitHub or VS Code to review them.
-
-Agent Studio will embed a full read-only diff viewer and code review experience directly in pane drawers — inline diffs with syntax highlighting, file tree navigation, markdown-capable review comments, annotations, and review actions. When an agent finishes a task, its changes appear in the drawer right below it. Review, comment, send context back to the agent, move on. Source editing and patch application belong to separate panes/workflows.
-
-**"I just gave an agent root access to my machine"** — agents execute shell commands, install packages, and make network requests with your full permissions. One bad tool call and credentials leak, repos corrupt, or packages install that you didn't authorize. No guardrails.
-
-Built-in sandboxing with network isolation (egress firewalls, domain allowlisting), credential injection (secrets stay on host, never enter the agent environment), and filesystem controls (read-only git, scoped workspace access). Full agent capability, bounded access.
+- Review comments, annotations, and context-return workflows.
+- Whole-workspace dynamic regrouping beyond the current repository and pane navigation.
+- Sandboxed runtimes with explicit network, credential, and filesystem boundaries.
 
 ## Architecture
 
-AppKit-main with SwiftUI views. Canonical app state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, with persistence wrappers under `Core/State/MainActor/Persistence`. `WorkspaceStore` wraps workspace-domain atoms, `RepoCacheStore` wraps derived enrichment, and `UIStateStore` wraps app-shell presentation state. `PaneCoordinator` lives in the App composition root and sequences cross-store, cross-feature work without owning domain state.
+Agent Studio is AppKit-main with SwiftUI views. `AtomRegistry` composes one `CoreAtoms` graph plus explicit feature roots, while persistence wrappers store workspace, repository-cache, and local UI state. `WorkspaceSurfaceCoordinator` sequences cross-feature lifecycle work from the App composition root. `PaneTabViewController` owns pane, drawer, focus, layout, and workspace-command routing.
 
 Pane implementations are feature slices: Terminal owns Ghostty, Webview owns browser panes, Bridge owns the React/WebKit bridge, CodeViewer owns native source viewing, CommandBar owns command-palette state, RepoExplorer owns repo/worktree navigation, and InboxNotification owns notification state. Shared pane layout primitives live in Core; reusable stateless UI primitives live in `SharedComponents`; domain-agnostic utilities live in `Infrastructure`.
 
@@ -105,7 +106,7 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 
 ## Development
 
-[Deep-wiki agentstudio](https://deepwiki.com/ShravanSunder/agentstudio)
+[DeepWiki: Agent Studio](https://deepwiki.com/ShravanSunder/agentstudio)
 
 ### Prerequisites
 
@@ -188,5 +189,5 @@ Contributions welcome. Fork, branch, test, PR. By submitting a pull request you 
 
 ## Acknowledgments
 
-- [Ghostty](https://github.com/ghostty-org/ghostty) — terminal emulator
-- [zmx](https://github.com/neurosnap/zmx) — session persistence for terminal processes
+- [Ghostty](https://github.com/ghostty-org/ghostty): terminal emulator
+- [zmx](https://github.com/neurosnap/zmx): session persistence for terminal processes
