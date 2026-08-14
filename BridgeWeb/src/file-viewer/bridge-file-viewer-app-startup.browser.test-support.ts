@@ -1,5 +1,4 @@
 import { act } from 'react';
-import { userEvent } from 'vitest/browser';
 
 import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
@@ -149,24 +148,41 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 }
 
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
+	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
-		await userEvent.click(element);
-		await Promise.resolve();
-		const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
-		if (menuContent instanceof HTMLElement) {
-			await Promise.all(
-				menuContent.getAnimations().map(async (animation): Promise<void> => {
-					try {
-						await animation.finished;
-					} catch {
-						// A replacement menu transition cancels the superseded animation.
-					}
-				}),
-			);
-		}
+		element.click();
 		await Promise.resolve();
 	});
-	// Base UI observes the finished transition from an effect, then advances one
-	// frame before committing the popup's mounted-state change.
+	await waitForFileViewerMenuState({ element, expectedExpandedState });
+}
+
+async function waitForFileViewerMenuState(props: {
+	readonly element: HTMLElement;
+	readonly expectedExpandedState: 'false' | 'true';
+	readonly remainingAttempts?: number;
+}): Promise<void> {
+	const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
+	const contentMatches =
+		props.expectedExpandedState === 'true'
+			? menuContent instanceof HTMLElement && menuContent.hasAttribute('data-open')
+			: menuContent === null;
+	if (
+		props.element.getAttribute('aria-expanded') === props.expectedExpandedState &&
+		contentMatches
+	) {
+		return;
+	}
+
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`Expected FileView menu state aria-expanded=${props.expectedExpandedState}; ` +
+				`actual=${props.element.getAttribute('aria-expanded') ?? 'missing'}.`,
+		);
+	}
 	await actFrame();
+	await waitForFileViewerMenuState({
+		...props,
+		remainingAttempts: remainingAttempts - 1,
+	});
 }
