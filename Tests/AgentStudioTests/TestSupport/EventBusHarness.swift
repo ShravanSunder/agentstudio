@@ -183,6 +183,13 @@ package func waitForBusSubscriberCount<Envelope: Sendable>(
     }
 }
 
+package func waitForBusSubscriberRegistration<Envelope: Sendable>(
+    _ bus: EventBus<Envelope>,
+    subscriberName: String
+) async {
+    await bus.waitForSubscriberRegistration(subscriberName: subscriberName)
+}
+
 package func assertBusDrained<Envelope: Sendable>(
     _ bus: EventBus<Envelope>,
     maxTurns: Int = 200
