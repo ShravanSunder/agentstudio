@@ -302,8 +302,8 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         switch PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event) {
         case .filesystemChanges(let changeset):
             intents = filesystemIntents(for: changeset, envelope: worktreeEnvelope)
-            affectedPaneIds = paneIdsByWorktreeId[changeset.worktreeId] ?? []
-            affectedWorktreeIds = [changeset.worktreeId]
+            affectedPaneIds = []
+            affectedWorktreeIds = []
             derivedInputCount = 1
             skippedUnchangedInputCount = 0
             inputRevision = 0
