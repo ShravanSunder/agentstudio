@@ -1,4 +1,31 @@
 enum ArchitectureAllowlists {
+    static let broadObservationReadNames = Set([
+        "paneSnapshot",
+        "paneStateSnapshot",
+        "snapshot",
+        "values",
+    ])
+    static let observationCaptureAllowedPathSuffixes: [String] = []
+
+    static let unboundedCollectionCallNames = Set([
+        "grouped",
+        "hash",
+        "reduce",
+        "sort",
+        "sorted",
+    ])
+    static let mainActorCollectionWorkAllowedPathSuffixes: [String] = []
+
+    static let performanceConstantNameFragments = [
+        "cadence",
+        "debounce",
+        "interval",
+        "threshold",
+        "timeout",
+    ]
+    static let performanceConstantAllowedPathSuffixes: [String] = []
+    static let concurrentIOAllowedPathSuffixes: [String] = []
+
     static let rawRepoCacheMembers = Set([
         "repoEnrichmentByRepoId",
         "worktreeEnrichmentByWorktreeId",

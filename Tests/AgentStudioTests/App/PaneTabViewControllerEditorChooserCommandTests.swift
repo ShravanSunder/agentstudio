@@ -50,6 +50,7 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
+        let inboxAtom = InboxNotificationAtom()
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: viewRegistry,
@@ -67,11 +68,15 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             appLifecycleStore: appLifecycleStore,
             executor: WorkspaceActionExecutor(coordinator: coordinator, store: store),
             runtimeCommandDispatcher: coordinator,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
+            tabBarAdapter: TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: inboxAtom
+            ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: bridgePaneAttendance,
             editorChooser: editorChooser,
-            inboxAtom: InboxNotificationAtom(),
+            inboxAtom: inboxAtom,
             installedEditorTargetsProvider: { installedEditorTargets },
             openEditorHandler: { _, _, _ in true },
             openFinderHandler: { _ in true },
@@ -144,17 +149,11 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 }
 
 private final class MockEditorChooserCommandSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
         self.createSurfaceResult = createSurfaceResult
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
     }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

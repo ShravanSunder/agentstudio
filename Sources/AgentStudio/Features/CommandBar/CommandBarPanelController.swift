@@ -65,8 +65,17 @@ package final class CommandBarPanelController {
     private let notificationInboxCommands: InboxNotificationCommands?
     private let commandBarSurface: CommandBarSurfaceAtom
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    private let interactionProbe: AgentStudioInteractionPerformanceProbe?
+    private let animatePanelDismissal: Bool
     private let resultSession: CommandBarResultSession
     private var activationGenerationGate = CommandBarActivationGenerationGate()
+    private var pendingOpenAcknowledgement: PendingOpenAcknowledgement?
+
+    private struct PendingOpenAcknowledgement {
+        let correlationId: UUID
+        var inputFocusAcknowledged = false
+        var initialResultsPublished = false
+    }
 
     // MARK: - Panel
 
@@ -94,7 +103,9 @@ package final class CommandBarPanelController {
             @escaping @MainActor @Sendable (URL, QuickOpenDirectoryPlacement) -> Void,
         notificationInboxCommands: InboxNotificationCommands? = nil,
         commandBarSurface: CommandBarSurfaceAtom,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
+        animatePanelDismissal: Bool = true
     ) {
         self.store = store
         self.octiconLoader = octiconLoader
@@ -105,6 +116,12 @@ package final class CommandBarPanelController {
         self.notificationInboxCommands = notificationInboxCommands
         self.commandBarSurface = commandBarSurface
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.interactionProbe =
+            interactionProbe
+            ?? performanceTraceRecorder.map {
+                AgentStudioInteractionPerformanceProbe(recorder: $0)
+            }
+        self.animatePanelDismissal = animatePanelDismissal
         self.resultSession = CommandBarResultSession(
             store: store,
             repoCache: repoCache,
@@ -170,6 +187,10 @@ package final class CommandBarPanelController {
             }
         }
 
+        let openCorrelationId = UUIDv7.generate()
+        interactionProbe?.beginInteraction(.commandBarOpen, correlationId: openCorrelationId)
+        pendingOpenAcknowledgement = PendingOpenAcknowledgement(correlationId: openCorrelationId)
+
         // Create panel and backdrop
         switch mode {
         case .prefix(let prefix):
@@ -183,12 +204,33 @@ package final class CommandBarPanelController {
 
     /// Dismiss the command bar and clean up.
     package func dismiss() {
+        dismiss(measureNonExecutingClose: true)
+    }
+
+    private func dismiss(measureNonExecutingClose: Bool) {
         guard state.isVisible else { return }
+
+        if let acknowledgement = pendingOpenAcknowledgement {
+            interactionProbe?.cancelInteraction(correlationId: acknowledgement.correlationId)
+        }
+        pendingOpenAcknowledgement = nil
+        let closeCorrelationId: UUID? =
+            if measureNonExecutingClose {
+                UUIDv7.generate()
+            } else {
+                nil
+            }
+        if let closeCorrelationId {
+            interactionProbe?.beginInteraction(.commandBarClose, correlationId: closeCorrelationId)
+        }
 
         activationGenerationGate.invalidate()
         state.dismiss()
         commandBarSurface.dismiss(workspaceWindowId: workspaceWindowId)
-        dismissPanel()
+        dismissPanel { [weak self] in
+            guard let self, let closeCorrelationId else { return }
+            self.interactionProbe?.settleInteraction(correlationId: closeCorrelationId)
+        }
         workspaceWindowId = nil
     }
 
@@ -229,6 +271,12 @@ package final class CommandBarPanelController {
             },
             onShowActions: { [weak self] item in
                 self?.showActions(for: item)
+            },
+            onInitialResultsPublished: { [weak self] in
+                self?.acknowledgeInitialResultsPublished()
+            },
+            onInputFocusAcknowledged: { [weak self] in
+                self?.acknowledgeInputFocus()
             }
         )
         panel.setContent(contentView)
@@ -256,6 +304,26 @@ package final class CommandBarPanelController {
         })
 
         controllerLogger.debug("Command bar panel presented")
+    }
+
+    private func acknowledgeInitialResultsPublished() {
+        pendingOpenAcknowledgement?.initialResultsPublished = true
+        settleOpenIfAcknowledged()
+    }
+
+    private func acknowledgeInputFocus() {
+        pendingOpenAcknowledgement?.inputFocusAcknowledged = true
+        settleOpenIfAcknowledged()
+    }
+
+    private func settleOpenIfAcknowledged() {
+        guard
+            let acknowledgement = pendingOpenAcknowledgement,
+            acknowledgement.initialResultsPublished,
+            acknowledgement.inputFocusAcknowledged
+        else { return }
+        pendingOpenAcknowledgement = nil
+        interactionProbe?.settleInteraction(correlationId: acknowledgement.correlationId)
     }
 
     private func movePanel(to parentWindow: NSWindow) {
@@ -327,7 +395,7 @@ package final class CommandBarPanelController {
             guard dispatcher.canDispatch(command) else { return }
             state.recordRecent(itemId: item.id)
             recordRecentCommandIfNeeded(command)
-            dismiss()
+            dismiss(measureNonExecutingClose: false)
             dispatcher.dispatch(command)
         case .dispatchTargeted(let command, let target, let targetType):
             guard dispatcher.canDispatch(command, target: target, targetType: targetType) else {
@@ -335,13 +403,25 @@ package final class CommandBarPanelController {
             }
             state.recordRecent(itemId: item.id)
             recordRecentCommandIfNeeded(command)
-            dismiss()
+            dismiss(measureNonExecutingClose: false)
             dispatcher.dispatch(command, target: target, targetType: targetType)
-        case .navigate(let level), .navigateRepo(let level):
+        case .navigate(let level):
             state.pushLevel(level)
+        case .navigateRepo(let repositoryID):
+            guard
+                let repository = store.repositoryTopologyAtom.repo(repositoryID),
+                !store.repositoryTopologyAtom.isRepoUnavailable(repositoryID)
+            else { return }
+            state.pushLevel(
+                CommandBarDataSource.buildRepoLevel(
+                    repo: repository,
+                    store: store,
+                    dispatcher: dispatcher
+                )
+            )
         case .custom(let closure):
             state.recordRecent(itemId: item.id)
-            dismiss()
+            dismiss(measureNonExecutingClose: false)
             closure()
         case .worktreeAction(let presence):
             let canOpenWorktreeInCurrentTab = resultSession.snapshot(state: state).canOpenWorktreeInCurrentTab
@@ -425,7 +505,7 @@ package final class CommandBarPanelController {
         let placement: CommandBarWorktreeTerminalPlacement
         switch modifier {
         case .plain:
-            placement = canOpenInCurrentTab ? .currentTabPane : .newTab
+            placement = .newTab
         case .command:
             placement = .newTab
         case .option:
@@ -445,7 +525,7 @@ package final class CommandBarPanelController {
             return
         }
         state.recordRecent(itemId: itemId)
-        dismiss()
+        dismiss(measureNonExecutingClose: false)
         dispatcher.dispatch(commandSpec.command, target: worktree.id, targetType: .worktree)
     }
 
@@ -465,7 +545,7 @@ package final class CommandBarPanelController {
             placement = .currentTabPane
         }
 
-        dismiss()
+        dismiss(measureNonExecutingClose: false)
         quickOpenDirectoryHandler(
             directory.standardizedFileURL,
             placement
@@ -584,7 +664,7 @@ package final class CommandBarPanelController {
                 return
             }
             state.recordRecent(itemId: itemId)
-            dismiss()
+            dismiss(measureNonExecutingClose: false)
             dispatcher.dispatch(focusPaneSpec.command, target: paneID, targetType: targetType)
         }
     }
@@ -629,7 +709,7 @@ package final class CommandBarPanelController {
                 return
             }
             state.recordRecent(itemId: itemId)
-            dismiss()
+            dismiss(measureNonExecutingClose: false)
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .showActionsMenu:
             guard let worktree = store.repositoryTopologyAtom.worktree(presence.worktreeId) else { return }
@@ -644,26 +724,38 @@ package final class CommandBarPanelController {
         }
     }
 
-    private func dismissPanel() {
-        guard let panel else { return }
+    private func dismissPanel(completion: @escaping @MainActor () -> Void) {
+        guard let panel else {
+            completion()
+            return
+        }
 
         // Animate out — capture panel locally to avoid actor-isolation issues in completion
         let panelToRemove = panel
         self.panel = nil
 
-        NSAnimationContext.runAnimationGroup(
-            { context in
-                context.duration = 0.08
-                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panelToRemove.animator().alphaValue = 0
-            },
-            completionHandler: {
-                Task { @MainActor in
-                    panelToRemove.parent?.removeChildWindow(panelToRemove)
-                    panelToRemove.orderOut(nil)
-                    controllerLogger.debug("Command bar panel dismissed")
-                }
-            })
+        let finishDismissal: @MainActor () -> Void = {
+            panelToRemove.parent?.removeChildWindow(panelToRemove)
+            panelToRemove.orderOut(nil)
+            controllerLogger.debug("Command bar panel dismissed")
+            completion()
+        }
+
+        if !animatePanelDismissal || !panelToRemove.isVisible || parentWindow?.isVisible != true {
+            finishDismissal()
+        } else {
+            NSAnimationContext.runAnimationGroup(
+                { context in
+                    context.duration = 0.08
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    panelToRemove.animator().alphaValue = 0
+                },
+                completionHandler: {
+                    Task { @MainActor in
+                        finishDismissal()
+                    }
+                })
+        }
 
         // Remove backdrop
         hideBackdrop()

@@ -7,6 +7,7 @@ enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
     case retainForReplay
 }
 
+// swiftlint:disable type_body_length
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private struct BufferedContentBody: Sendable {
         let data: Data
@@ -25,6 +26,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductControlCorrelation,
             BridgeProductAdmissionContext
         ) async -> Void
+    private let applyReviewComparisonUpdate:
+        @MainActor @Sendable (
+            BridgeProductReviewComparisonUpdateRequest,
+            BridgeProductAdmissionContext
+        ) async -> Void
+    private let queryReviewComparisonTargets: @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture?
     private let contentDemandAdmission: BridgeContentDemandAdmission
     private let fileContentReaderFactory: BridgePaneProductFileContentReaderFactory
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
@@ -35,6 +42,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     private nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
+    package var pendingComparisonTargetQuery: BridgeProductReviewComparisonTargetsQueryCapture?
 
     init(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
@@ -59,6 +67,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductControlCorrelation,
                 BridgeProductAdmissionContext
             ) async -> Void = { _, _, _ in },
+        applyReviewComparisonUpdate:
+            @escaping @MainActor @Sendable (
+                BridgeProductReviewComparisonUpdateRequest,
+                BridgeProductAdmissionContext
+            ) async -> Void = { _, _ in },
+        queryReviewComparisonTargets:
+            @escaping @Sendable () async ->
+            BridgeProductReviewComparisonTargetsQueryCapture? = { nil },
         initialPanePresentation: BridgePaneProductPresentationSnapshot? = nil,
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
@@ -85,8 +101,11 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.refreshWorkAdmissionSource = refreshWorkAdmissionSource
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
+        self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
+        self.queryReviewComparisonTargets = queryReviewComparisonTargets
     }
 
+    // swiftlint:disable:next function_body_length
     func response(
         for request: BridgeProductControlRequest
     ) async -> BridgeProductControlResponse {
@@ -110,6 +129,36 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewActiveViewerModeUpdate
+                    )
+                case .reviewComparisonUpdate:
+                    return try .callCompleted(
+                        correlating: request,
+                        result: .reviewComparisonUpdate
+                    )
+                case .reviewComparisonTargetsQuery:
+                    guard
+                        let capture = await queryReviewComparisonTargets(),
+                        capture.foregroundWorkAdmission.withValidAdmission({
+                            pendingComparisonTargetQuery = capture
+                            return true
+                        }) == true
+                    else {
+                        return try .requestError(
+                            correlating: request,
+                            code: .internal,
+                            nextExpectedRequestSequence: request.requestSequence + 1,
+                            retryAfterMilliseconds: nil,
+                            retryable: true,
+                            safeMessage: "Comparison targets are unavailable"
+                        )
+                    }
+                    return try .callCompleted(
+                        correlating: request,
+                        result: .reviewComparisonTargetsQuery(
+                            BridgeProductReviewComparisonTargetsQueryResult(
+                                descriptor: capture.descriptor
+                            )
+                        )
                     )
                 case .reviewMarkFileViewed:
                     return try .callCompleted(
@@ -171,43 +220,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         }
     }
 
-    func applyCommittedControlEffect(
-        _ effect: BridgeProductSessionCompletionEffect,
-        for request: BridgeProductControlRequest,
-        productAdmission: BridgeProductAdmissionContext
-    ) async {
-        if case .productCall(let committedProductCall) = effect,
-            case .productCall(let callRequest) = request,
-            committedProductCall == callRequest.call
-        {
-            guard (productAdmission.withValidAdmission { true }) == true else { return }
-            switch committedProductCall {
-            case .fileSourceCurrent:
-                break
-            case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
-                await applyActiveViewerModeUpdate(
-                    committedProductCall,
-                    request.correlation,
-                    productAdmission
-                )
-            case .reviewMarkFileViewed(let markRequest):
-                await markReviewItemViewed(markRequest.itemId, productAdmission)
-            case .reviewIntakeReady(let intakeRequest):
-                await handleReviewIntakeReady(intakeRequest, productAdmission)
-            case .reviewPublicationApplied(let appliedRequest):
-                _ = await recordReviewPublicationApplication(
-                    appliedRequest.publicationId,
-                    productAdmission
-                )
-            }
-            return
-        }
-        await metadataCoordinator.apply(
-            effect,
-            productAdmission: productAdmission
-        )
-    }
-
     func reserveReviewPublication(
         package: BridgeReviewPackage,
         publicationId: UUID,
@@ -247,9 +259,10 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func publishPanePresentation(
-        _ snapshot: BridgePaneProductPresentationSnapshot
+        _ snapshot: BridgePaneProductPresentationSnapshot,
+        traceContext: BridgeTraceContext? = nil
     ) async {
-        await metadataCoordinator.publishPanePresentation(snapshot)
+        await metadataCoordinator.publishPanePresentation(snapshot, traceContext: traceContext)
     }
 
     func publishPaneSurfaceSelectionRequest(
@@ -451,6 +464,27 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     data: body.data,
                     endOfSource: body.isFinalRange,
                     sha256: body.sha256
+                ),
+                lease: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
+        case .reviewComparisonTargets(let queryRequest):
+            guard let capture = consumeComparisonTargetCapture(queryRequest.descriptor) else {
+                try? await enqueueUnavailableContentTerminal(
+                    for: lease,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    session: session
+                )
+                return
+            }
+            try await runBufferedContentProducer(
+                BufferedContentBody(
+                    data: capture.body,
+                    endOfSource: true,
+                    sha256: capture.descriptor.expectedSha256
                 ),
                 lease: lease,
                 productAdmission: productAdmission,
@@ -818,6 +852,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func closeAndDrain() async {
+        pendingComparisonTargetQuery = nil
         await metadataCoordinator.closeAndDrain()
         await contentDemandAdmission.closeAndDrain()
     }
@@ -839,10 +874,62 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             safeMessage: "Metadata stream is not installed"
         )
     }
-
 }
 
 extension BridgePaneProductSchemeProvider {
+    func applyCommittedControlEffect(
+        _ effect: BridgeProductSessionCompletionEffect,
+        for request: BridgeProductControlRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        if case .productCall(let committedProductCall) = effect,
+            case .productCall(let callRequest) = request,
+            committedProductCall == callRequest.call
+        {
+            guard (productAdmission.withValidAdmission { true }) == true else { return }
+            switch committedProductCall {
+            case .fileSourceCurrent:
+                break
+            case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate:
+                await applyActiveViewerModeUpdate(
+                    committedProductCall,
+                    request.correlation,
+                    productAdmission
+                )
+            case .reviewComparisonUpdate(let updateRequest):
+                await applyReviewComparisonUpdate(updateRequest, productAdmission)
+            case .reviewComparisonTargetsQuery:
+                break
+            case .reviewMarkFileViewed(let markRequest):
+                await markReviewItemViewed(markRequest.itemId, productAdmission)
+            case .reviewIntakeReady(let intakeRequest):
+                await handleReviewIntakeReady(intakeRequest, productAdmission)
+            case .reviewPublicationApplied(let appliedRequest):
+                _ = await recordReviewPublicationApplication(
+                    appliedRequest.publicationId,
+                    productAdmission
+                )
+            }
+            return
+        }
+        await metadataCoordinator.apply(
+            effect,
+            productAdmission: productAdmission
+        )
+    }
+
+    func replayCommittedReviewPublicationIfPresent(
+        productAdmission: BridgeProductAdmissionContext,
+        traceContext: BridgeTraceContext? = nil
+    ) async {
+        guard let foregroundWorkAdmission = refreshWorkAdmissionSource.acquire() else { return }
+        await metadataCoordinator.replayCommittedReviewPublicationIfPresent(
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission,
+            traceContext: traceContext
+        )
+    }
+
     func runContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
@@ -855,6 +942,8 @@ extension BridgePaneProductSchemeProvider {
             contentWorkAdmission = refreshWorkAdmissionSource.acquire()
         case .reviewContent:
             contentWorkAdmission = refreshWorkAdmissionSource.acquireReviewContentContinuation()
+        case .reviewComparisonTargets:
+            contentWorkAdmission = refreshWorkAdmissionSource.acquire()
         }
         await runContentProducer(
             request: request,
@@ -890,6 +979,16 @@ extension BridgePaneProductSchemeProvider {
                     productAdmission: productAdmission,
                     session: session,
                     contentWorkAdmission: contentWorkAdmission
+                )
+            }
+        case .reviewComparisonTargets:
+            return { lease in
+                await self.runContentProducer(
+                    request: request,
+                    lease: lease,
+                    productAdmission: productAdmission,
+                    session: session,
+                    contentWorkAdmission: self.refreshWorkAdmissionSource.acquire()
                 )
             }
         }

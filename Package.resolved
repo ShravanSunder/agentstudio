@@ -1,12 +1,12 @@
 {
-  "originHash" : "1f8b28c7c6ff6600c87bcf84114c618f7126160f6df8fb32f6d76637cdb35da6",
+  "originHash" : "566e24d23c9a99dbd76855ea1bf5712851ac1d0e41278347ca86faaa231e4b8f",
   "pins" : [
     {
       "identity" : "agentstudio-git",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ShravanSunder/agentstudio-git.git",
       "state" : {
-        "revision" : "fdeb5b3e822f49e97b44df6d9267565d8c353f7d"
+        "revision" : "474bf34210dd8e176f9b3585b061161a8e8b50d4"
       }
     },
     {
@@ -52,6 +52,15 @@
       "state" : {
         "revision" : "8723cf856dc23d9c2fad4d874e7b9ed3254acf03",
         "version" : "2.3.0"
+      }
+    },
+    {
+      "identity" : "hummingbird",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/hummingbird-project/hummingbird.git",
+      "state" : {
+        "revision" : "277e5db5b6d348270088e6ee8e8fa2539bae603d",
+        "version" : "2.23.0"
       }
     },
     {

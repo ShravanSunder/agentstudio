@@ -22,9 +22,18 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 extension CommandBarDataSource {
     static func repoScopeItems(
         store: WorkspaceStore,
-        dispatcher: any AppCommandDispatching
+        dispatcher: any AppCommandDispatching,
+        itemCache: CommandBarRepoScopeItemCache? = nil
     ) -> [CommandBarItem] {
-        allRepoItems(
+        if let itemCache {
+            return itemCache.items(
+                store: store,
+                group: Group.repositories,
+                groupPriority: Priority.repositories,
+                dispatcher: dispatcher
+            )
+        }
+        return allRepoItems(
             store: store,
             group: Group.repositories,
             groupPriority: Priority.repositories,
@@ -36,7 +45,7 @@ extension CommandBarDataSource {
         store: WorkspaceStore,
         group: String,
         groupPriority: Int,
-        dispatcher: any AppCommandDispatching
+        dispatcher _: any AppCommandDispatching
     ) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return store.repositoryTopologyAtom.repos
@@ -44,11 +53,9 @@ extension CommandBarDataSource {
             .map { repo in
                 repoRootItem(
                     repo: repo,
-                    store: store,
                     presenceByWorktreeId: presenceByWorktreeId,
                     group: group,
-                    groupPriority: groupPriority,
-                    dispatcher: dispatcher
+                    groupPriority: groupPriority
                 )
             }
     }
@@ -95,34 +102,24 @@ extension CommandBarDataSource {
     static func repoRootItem(
         repo: Repo,
         store: WorkspaceStore,
-        dispatcher: any AppCommandDispatching
+        dispatcher _: any AppCommandDispatching
     ) -> CommandBarItem {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
         return repoRootItem(
             repo: repo,
-            store: store,
             presenceByWorktreeId: presenceByWorktreeId,
             group: Group.repos,
-            groupPriority: Priority.repos,
-            dispatcher: dispatcher
+            groupPriority: Priority.repos
         )
     }
 
     static func repoRootItem(
         repo: Repo,
-        store: WorkspaceStore,
         presenceByWorktreeId: [UUID: WorktreePresence],
         group: String,
-        groupPriority: Int,
-        dispatcher: any AppCommandDispatching
+        groupPriority: Int
     ) -> CommandBarItem {
-        let level = buildRepoLevel(
-            repo: repo,
-            store: store,
-            presenceByWorktreeId: presenceByWorktreeId,
-            dispatcher: dispatcher
-        )
-        return CommandBarItem(
+        CommandBarItem(
             id: "repo-\(repo.id.uuidString)",
             title: repo.name,
             subtitle: repoRootSubtitle(repo: repo, presenceByWorktreeId: presenceByWorktreeId),
@@ -131,7 +128,7 @@ extension CommandBarDataSource {
             groupPriority: groupPriority,
             keywords: repoRootKeywords(repo: repo),
             hasChildren: true,
-            action: .navigateRepo(level)
+            action: .navigateRepo(repositoryID: repo.id)
         )
     }
 
@@ -170,19 +167,26 @@ extension CommandBarDataSource {
     }
 
     static func buildWorktreePresenceByWorktreeId(store: WorkspaceStore) -> [UUID: WorktreePresence] {
+        buildWorktreePresenceByWorktreeId(
+            repos: store.repositoryTopologyAtom.repos,
+            locationsByWorktreeId: worktreeLocationsByWorktreeId(store: store)
+        )
+    }
+
+    static func worktreeLocationsByWorktreeId(
+        store: WorkspaceStore
+    ) -> [UUID: [WorkspacePaneLocation]] {
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
         let locationsByWorktreeId = atom(\.workspaceLookup).paneLocationsByWorktreeId(
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: workspaceTab
         )
 
-        return buildWorktreePresenceByWorktreeId(
-            repos: store.repositoryTopologyAtom.repos,
-            locationsByWorktreeId: locationsByWorktreeId
-        )
+        return locationsByWorktreeId
     }
 
     static func buildWorktreePresenceByWorktreeId(
@@ -216,6 +220,7 @@ extension CommandBarDataSource {
         )
         let openPanes = atom(\.workspaceLookup).paneLocations(
             for: worktree.id,
+            repositoryTopology: store.repositoryTopologyAtom,
             workspacePane: store.paneAtom,
             workspaceTab: workspaceTab
         )

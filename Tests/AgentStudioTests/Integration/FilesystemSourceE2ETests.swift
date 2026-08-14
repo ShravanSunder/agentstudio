@@ -61,7 +61,7 @@ extension E2ESerializedTests {
                 repoCache: repoCache,
                 scopeSyncHandler: { _ in }
             )
-            cacheCoordinator.startConsuming()
+            await cacheCoordinator.startConsuming()
             await filesystemSource.start()
 
             let coordinator = WorkspaceSurfaceCoordinator(
@@ -136,12 +136,6 @@ extension E2ESerializedTests {
 private final class FilesystemE2ESurfaceManager:
     WorkspaceSurfaceManaging
 {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> = AsyncStream { continuation in
-        continuation.finish()
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

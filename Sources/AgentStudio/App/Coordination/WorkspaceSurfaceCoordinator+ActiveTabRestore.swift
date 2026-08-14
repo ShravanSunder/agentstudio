@@ -39,12 +39,14 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.paneAtom.panes.keys.map { PaneId(existingUUID: $0) },
+            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
         .map(\.uuid)
-        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        let resolvedPaneFramesByTabId = [
+            activeTab.id: resolveInitialFrames(for: activeTab, in: terminalContainerBounds)
+        ]
         restoreMissingVisibleViews(
             visiblePaneIds,
             in: activeTab,
@@ -56,9 +58,9 @@ extension WorkspaceSurfaceCoordinator {
             duration: restoreStart.duration(to: clock.now),
             attributes: [
                 "agentstudio.performance.pane_view_restore.force_when_bounds_exist": .bool(forceWhenBoundsExist),
-                "agentstudio.performance.pane_view_restore.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.pane_view_restore.pane.count": .int(activeTab.allPaneIds.count),
                 "agentstudio.performance.pane_view_restore.visible_pane.count": .int(visiblePaneIds.count),
-                "agentstudio.performance.pane_view_restore.tab.count": .int(store.tabLayoutAtom.tabs.count),
+                "agentstudio.performance.pane_view_restore.tab.count": .int(1),
             ]
         )
     }

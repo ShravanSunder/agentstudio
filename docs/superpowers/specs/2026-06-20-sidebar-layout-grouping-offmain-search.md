@@ -1,8 +1,19 @@
 # Sidebar Layout, Repo Grouping, and Off-Main Search Spec
 
-Status: reviewed source for PR #190; implementation proof captured in goal state
+Status: archived historical design record; not current implementation guidance
 Date: 2026-06-20
 Scope: repo sidebar header layout, repo sidebar grouping modes, inbox search/list projection performance
+
+> Historical artifact. The Repo Explorer favorite-visibility passages in this
+> document are superseded by the favorites-first contract in
+> [2026-08-08-repo-sidebar-favorites-first](../../specs/2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md).
+> Preserve this document as the PR #190 design record; do not use its old
+> visibility/filter behavior as current implementation guidance.
+>
+> Archive boundary: every Repo Explorer favorite-visibility, toolbar,
+> persistence, IPC, and visibility-telemetry passage below is retained for PR
+> #190 provenance only. The current contract is defined exclusively by the
+> favorites-first Requirements, Specification, and Program Design linked above.
 
 Review/proof source: the implementation plan and delta plan are both marked
 plan-review re-check complete, and current proof is recorded in
@@ -496,9 +507,10 @@ IPCCommandExecuteParams
 ```
 
 The IPC adapter may contain the generic schema validator and the bridge to the
-command owner. It must not know that repo visibility uses
-`RepoExplorerVisibilityMode`, repo sort uses `RepoExplorerSortOrder`, or inbox
-grouping uses `InboxNotificationGrouping`; those are command-system concerns.
+command owner. It must not know that repo sort uses `RepoExplorerSortOrder` or
+inbox grouping uses `InboxNotificationGrouping`; those are command-system
+concerns. Repository favorites are presented first and are not a visibility
+command or filter.
 
 Implementation proof must use real app commands from the sidebar surfaces, not
 throwaway product commands. If a generic helper needs isolated coverage, test

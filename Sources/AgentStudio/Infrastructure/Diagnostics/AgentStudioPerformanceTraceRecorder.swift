@@ -2,8 +2,19 @@ import Foundation
 
 package enum TerminalAccumulatorDrainClass: String, Equatable, Sendable {
     case immediate
-    case titleWindow = "title_window"
+    case titleDeadline = "title_deadline"
     case exactBarrier = "exact_barrier"
+}
+
+package enum TerminalPerformancePublicationKind: String, Equatable, Sendable {
+    case activity
+    case cwd
+    case title
+}
+
+package enum TerminalAccumulatorApplyOutcome: String, Equatable, Sendable {
+    case equal
+    case changed
 }
 
 package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
@@ -93,6 +104,14 @@ package struct TraceIdentityPerformanceSnapshot: Equatable, Sendable {
     }
 }
 
+package enum AgentStudioFocusResponderChangeReason: String, Sendable {
+    case userClick = "user_click"
+    case restoreTail = "restore_tail"
+    case restoreTailSkippedUserFocus = "restore_tail_skipped_user_focus"
+    case parkedReplay = "parked_replay"
+    case parkedCleared = "parked_cleared"
+}
+
 package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     package struct TopologyLookupFact: Hashable, Sendable {
         let normalizedCWD: String
@@ -121,9 +140,12 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case bridgeWorktreeProductConstruction = "performance.bridge.worktree_product_construction"
         case commandBarFilter = "performance.commandbar.filter"
         case commandBarItems = "performance.commandbar.items"
+        case commandBarCache = "performance.commandbar.cache"
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
+        case focusResponderChange = "performance.focus.responder_change"
+        case forgeRefresh = "performance.forge.refresh"
         case gitAdmission = "performance.git.admission"
         case gitBackoff = "performance.git.backoff"
         case gitEventPosted = "performance.git.event_posted"
@@ -134,12 +156,16 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case gitStatusUnavailable = "performance.git.status_unavailable"
         case gitSuppressedInputSkipped = "performance.git.suppressed_input_skipped"
         case gitTick = "performance.git.tick"
+        case interactionLatency = "performance.interaction.latency"
         case managementLayerAppKitState = "performance.management_layer.appkit_state"
         case managementLayerCommand = "performance.management_layer.command"
         case paneActionExecution = "performance.pane_action.execution"
         case paneTabLayout = "performance.pane_tab.layout"
         case paneViewRestore = "performance.pane_view.restore"
         case paneViewRestoreVisible = "performance.pane_view.restore_visible"
+        case repoExplorerCommandPresentation = "performance.repo_explorer.command_presentation"
+        case repoExplorerKeyedWake = "performance.repo_explorer.keyed_wake"
+        case repoExplorerOutlineApplyProxy = "performance.repo_explorer.outline_apply_proxy"
         case repoAndWorktreeLookup = "performance.topology.repo_and_worktree"
         case processMallocZone = "performance.process.malloc_zone"
         case runtimeDeliverySnapshot = "performance.runtime_delivery.snapshot"
@@ -148,9 +174,19 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case sidebarRowIndex = "performance.sidebar.row_index"
         case sidebarResize = "performance.sidebar.resize"
         case sidebarToggle = "performance.sidebar.toggle"
+        case startupUsable = "performance.startup.usable"
+        case startupDeferral = "performance.startup.deferral"
+        case tabBarCurrent = "performance.tabbar.current"
+        case tabBarCapture = "performance.tabbar.capture"
+        case tabBarContextMenu = "performance.tabbar.context_menu"
+        case tabBarPublication = "performance.tabbar.publication"
         case tabBarRefresh = "performance.tabbar.refresh"
+        case tabBarTerminal = "performance.tabbar.terminal"
+        case tabBarVisible = "performance.tabbar.visible"
+        case tabBarWorker = "performance.tabbar.worker"
         case terminalAccumulatorDrain = "performance.terminal.accumulator_drain"
         case terminalCompactApply = "performance.terminal.compact_apply"
+        case terminalEqualSuppressed = "performance.terminal.equal_suppressed"
         case terminalForceGeometrySync = "performance.terminal.force_geometry_sync"
         case terminalGeometrySync = "performance.terminal.geometry_sync"
         case terminalMountLayout = "performance.terminal.mount_layout"
@@ -164,6 +200,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private var topologyLookupAdmission = TopologyLookupTraceAdmission()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
+    private var recordedStartupLaunchInstant: ContinuousClock.Instant
 
     package init(
         traceRuntime: AgentStudioTraceRuntime?,
@@ -171,6 +208,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         processMemorySampleWait: @escaping AgentStudioProcessMemorySampler.WaitForNextSample =
             AgentStudioProcessMemorySampler.waitOneSecond
     ) {
+        self.recordedStartupLaunchInstant = ContinuousClock.now
         self.traceRuntime = traceRuntime
         if let traceRuntime, traceRuntime.isEnabled(.performance) {
             runtimeDeliveryPerformanceReporter?.enable()
@@ -213,27 +251,90 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         eventQueue != nil
     }
 
+    package var startupLaunchInstant: ContinuousClock.Instant {
+        lock.withLock { recordedStartupLaunchInstant }
+    }
+
+    package func markStartupLaunchStarted() {
+        lock.withLock {
+            recordedStartupLaunchInstant = ContinuousClock.now
+        }
+    }
+
     package func record(
         _ event: Event,
-        attributes: [String: AgentStudioTraceValue] = [:]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:]
     ) {
         guard let traceRuntime, traceRuntime.isEnabled(.performance), let eventQueue else { return }
         eventQueue.record(
             tag: .performance,
             body: event.rawValue,
             eventTimeUnixNano: traceRuntime.timestampUnixNano(),
-            attributes: attributes
+            attributes: attributes()
         )
     }
 
     package func recordDuration(
         _ event: Event,
         duration: Duration,
-        attributes: [String: AgentStudioTraceValue] = [:]
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:]
     ) {
-        var mergedAttributes = attributes
+        guard isEnabled else { return }
+        var mergedAttributes = attributes()
         mergedAttributes["agentstudio.performance.elapsed_ms"] = .double(Self.milliseconds(from: duration))
         record(event, attributes: mergedAttributes)
+    }
+
+    package func recordInteractionLatency(
+        kind: AgentStudioInteractionKind,
+        duration: Duration
+    ) {
+        recordDuration(
+            .interactionLatency,
+            duration: duration,
+            attributes: [
+                "agentstudio.performance.interaction.kind": .string(kind.rawValue)
+            ]
+        )
+    }
+
+    package func recordStartupUsable(
+        launchToUsable: Duration,
+        layoutSettleToUsable: Duration,
+        source: String
+    ) {
+        recordDuration(
+            .startupUsable,
+            duration: launchToUsable,
+            attributes: [
+                "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(
+                    Self.milliseconds(from: layoutSettleToUsable)
+                ),
+                "agentstudio.performance.startup.source": .string(source),
+            ]
+        )
+    }
+
+    package func recordStartupDeferral(
+        gate: String,
+        outcome: StartupDeferralOutcome
+    ) {
+        record(
+            .startupDeferral,
+            attributes: [
+                "agentstudio.performance.startup.deferral.gate": .string(gate),
+                "agentstudio.performance.startup.deferral.outcome": .string(outcome.rawValue),
+            ]
+        )
+    }
+
+    package func recordFocusResponderChange(reason: AgentStudioFocusResponderChangeReason) {
+        record(
+            .focusResponderChange,
+            attributes: [
+                "agentstudio.performance.focus.responder_change.reason": .string(reason.rawValue)
+            ]
+        )
     }
 
     package func recordRepoAndWorktreeLookup(
@@ -255,33 +356,54 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     package func recordTerminalAccumulatorDrain(
         _ snapshot: TerminalAccumulatorDrainPerformanceSnapshot,
-        queueAge: Duration
+        queueAge: Duration,
+        applyOutcome: TerminalAccumulatorApplyOutcome?
     ) {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.terminal.accumulator.drain.class": .string(
+                snapshot.drainClass.rawValue
+            ),
+            "agentstudio.performance.terminal.accumulator.offered.count": Self.traceInteger(
+                snapshot.offeredCount),
+            "agentstudio.performance.terminal.accumulator.replaced.count": Self.traceInteger(
+                snapshot.replacedCount),
+            "agentstudio.performance.terminal.accumulator.equal_suppressed.count": Self.traceInteger(
+                snapshot.equalSuppressedCount),
+            "agentstudio.performance.terminal.accumulator.scheduled_drain.count": Self.traceInteger(
+                snapshot.scheduledDrainCount),
+            "agentstudio.performance.terminal.accumulator.follow_up_drain.count": Self.traceInteger(
+                snapshot.followUpDrainCount),
+            "agentstudio.performance.terminal.accumulator.mainactor_task.count": Self.traceInteger(
+                snapshot.mainActorTaskCount),
+            "agentstudio.performance.terminal.activity_aggregate.count": Self.traceInteger(
+                snapshot.activityAggregateCount),
+            "agentstudio.performance.terminal.accumulator.retained_entry.count": Self.traceInteger(
+                snapshot.retainedEntryCount),
+            "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(
+                snapshot.retainedSizeBytes),
+        ]
+        if let applyOutcome {
+            attributes["agentstudio.performance.terminal.accumulator.apply.outcome"] = .string(
+                applyOutcome.rawValue
+            )
+        }
         recordDuration(
             .terminalAccumulatorDrain,
             duration: queueAge,
+            attributes: attributes
+        )
+    }
+
+    package func recordTerminalEqualSuppressed(
+        publicationKind: TerminalPerformancePublicationKind
+    ) {
+        record(
+            .terminalEqualSuppressed,
             attributes: [
-                "agentstudio.performance.terminal.accumulator.drain.class": .string(
-                    snapshot.drainClass.rawValue
+                "agentstudio.performance.terminal.publication.kind": .string(
+                    publicationKind.rawValue
                 ),
-                "agentstudio.performance.terminal.accumulator.offered.count": Self.traceInteger(
-                    snapshot.offeredCount),
-                "agentstudio.performance.terminal.accumulator.replaced.count": Self.traceInteger(
-                    snapshot.replacedCount),
-                "agentstudio.performance.terminal.accumulator.equal_suppressed.count": Self.traceInteger(
-                    snapshot.equalSuppressedCount),
-                "agentstudio.performance.terminal.accumulator.scheduled_drain.count": Self.traceInteger(
-                    snapshot.scheduledDrainCount),
-                "agentstudio.performance.terminal.accumulator.follow_up_drain.count": Self.traceInteger(
-                    snapshot.followUpDrainCount),
-                "agentstudio.performance.terminal.accumulator.mainactor_task.count": Self.traceInteger(
-                    snapshot.mainActorTaskCount),
-                "agentstudio.performance.terminal.activity_aggregate.count": Self.traceInteger(
-                    snapshot.activityAggregateCount),
-                "agentstudio.performance.terminal.accumulator.retained_entry.count": Self.traceInteger(
-                    snapshot.retainedEntryCount),
-                "agentstudio.performance.terminal.accumulator.retained_size_bytes": Self.traceInteger(
-                    snapshot.retainedSizeBytes),
+                "agentstudio.performance.terminal.equal_suppressed.count": .int(1),
             ]
         )
     }
@@ -340,7 +462,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     func measure<T>(
         _ event: Event,
-        attributes: [String: AgentStudioTraceValue] = [:],
+        attributes: @autoclosure () -> [String: AgentStudioTraceValue] = [:],
         operation: () throws -> T
     ) rethrows -> T {
         guard isEnabled else {
@@ -353,7 +475,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         recordDuration(
             event,
             duration: start.duration(to: clock.now),
-            attributes: attributes
+            attributes: attributes()
         )
         return result
     }
@@ -363,6 +485,14 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         runtimeDeliveryPerformanceReporter?.disable()
         try await eventQueue?.drain()
         if eventQueue == nil {
+            try await traceRuntime?.flush()
+        }
+    }
+
+    package func flush() async throws {
+        if let eventQueue {
+            try await eventQueue.flush()
+        } else {
             try await traceRuntime?.flush()
         }
     }

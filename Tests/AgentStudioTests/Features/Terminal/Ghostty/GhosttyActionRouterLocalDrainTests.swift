@@ -36,7 +36,123 @@ private final class TerminalActivityInputRecorder {
     }
 }
 
+@MainActor
+private final class LocalDrainRoutingLookup: GhosttyActionRoutingLookup {
+    private let surfaceIDsByViewObjectID: [ObjectIdentifier: UUID]
+    private let paneIDsBySurfaceID: [UUID: UUID]
+
+    init(
+        surfaceIDsByViewObjectID: [ObjectIdentifier: UUID],
+        paneIDsBySurfaceID: [UUID: UUID]
+    ) {
+        self.surfaceIDsByViewObjectID = surfaceIDsByViewObjectID
+        self.paneIDsBySurfaceID = paneIDsBySurfaceID
+    }
+
+    func surfaceId(forViewObjectId viewObjectId: ObjectIdentifier) -> UUID? {
+        surfaceIDsByViewObjectID[viewObjectId]
+    }
+
+    func paneId(for surfaceId: UUID) -> UUID? {
+        paneIDsBySurfaceID[surfaceId]
+    }
+}
+
 extension GhosttyActionRouterTests {
+    @Test("mounted surface without apply target does not self-reschedule failed title")
+    func mountedSurfaceWithoutApplyTargetDoesNotSelfRescheduleFailedTitle() async {
+        let surfaceID = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
+        let dependencies = TerminalLocalActionDrainDependencies(
+            mountedHostResolver: TerminalLocalActionMountedHostResolver(
+                surfaceForID: { requestedID in requestedID == surfaceID ? host : nil },
+                paneIDForSurfaceID: { requestedID in requestedID == surfaceID ? paneUUID : nil }
+            ),
+            runtimeRegistry: RuntimeRegistry(),
+            fallbackRuntimeRegistry: nil,
+            activityContext: { _ in nil },
+            submitActivityInput: { _ in }
+        )
+        defer {
+            Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+            Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.localActionAccumulator.offer(.titleChanged("pending"), for: surfaceID)
+                == .scheduled
+        )
+        Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+
+        await Ghostty.ActionRouter.drainLocalActions(
+            for: surfaceID,
+            lane: .title,
+            dependencies: dependencies
+        )
+
+        #expect(Ghostty.ActionRouter.localActionAccumulator.beginDrain(for: surfaceID, lane: .title) == nil)
+        #expect(Ghostty.ActionRouter.localActionAccumulator.hasPendingActions(for: surfaceID))
+    }
+
+    @Test("successful title drain commits the applied projection")
+    func successfulTitleDrainCommitsAppliedProjection() async {
+        let surfaceID = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneID = PaneId(existingUUID: paneUUID)
+        let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(
+            TerminalRuntime(
+                paneId: paneID,
+                metadata: PaneMetadata(paneId: paneID, title: "Committed title")
+            )
+        )
+        let routingLookup = LocalDrainRoutingLookup(
+            surfaceIDsByViewObjectID: [ObjectIdentifier(host): surfaceID],
+            paneIDsBySurfaceID: [surfaceID: paneUUID]
+        )
+        let originalRuntimeRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRuntimeRegistry)
+            Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+            Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.localActionAccumulator.offer(
+                .titleChanged("A"),
+                for: surfaceID
+            ) == .scheduled
+        )
+        Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+
+        await Ghostty.ActionRouter.drainLocalActions(
+            for: surfaceID,
+            lane: .title,
+            dependencies: TerminalLocalActionDrainDependencies(
+                mountedHostResolver: TerminalLocalActionMountedHostResolver(
+                    surfaceForID: { requestedID in requestedID == surfaceID ? host : nil },
+                    paneIDForSurfaceID: { requestedID in requestedID == surfaceID ? paneUUID : nil }
+                ),
+                runtimeRegistry: runtimeRegistry,
+                fallbackRuntimeRegistry: nil,
+                routingLookup: routingLookup,
+                activityContext: { _ in nil },
+                submitActivityInput: { _ in }
+            )
+        )
+
+        #expect(
+            Ghostty.ActionRouter.localActionAccumulator.offer(
+                .titleChanged("A"),
+                for: surfaceID
+            ) == .equalSuppressed
+        )
+        #expect(!Ghostty.ActionRouter.localActionAccumulator.hasPendingActions(for: surfaceID))
+    }
+
     private func offerScrollbarState(
         _ state: ScrollbarState,
         surfaceID: UUID
@@ -62,6 +178,7 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
+            lane: .immediate,
             dependencies: TerminalLocalActionDrainDependencies(
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: RuntimeRegistry(),
@@ -120,6 +237,7 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
+            lane: .immediate,
             dependencies: TerminalLocalActionDrainDependencies(
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: runtimeRegistry,
@@ -161,6 +279,11 @@ extension GhosttyActionRouterTests {
         let paneID = PaneId(existingUUID: paneUUID)
         let initialState = ScrollbarState(top: 80, bottom: 120, total: 200)
         let followUpState = ScrollbarState(top: 90, bottom: 130, total: 210)
+        let projectionContext = TerminalActivityProjectionContext(
+            isAttended: false,
+            isAgentClassified: false,
+            outputBurstThreshold: 10
+        )
         let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
         let mountedHostResolver = TerminalLocalActionMountedHostResolver(
             surfaceForID: { requestedID in
@@ -190,11 +313,12 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
+            lane: .immediate,
             dependencies: TerminalLocalActionDrainDependencies(
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: RuntimeRegistry(),
                 fallbackRuntimeRegistry: nil,
-                activityContext: { _ in nil },
+                activityContext: { _ in projectionContext },
                 submitActivityInput: { _ in }
             )
         )
@@ -205,11 +329,12 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
+            lane: .immediate,
             dependencies: TerminalLocalActionDrainDependencies(
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: RuntimeRegistry(),
                 fallbackRuntimeRegistry: nil,
-                activityContext: { _ in nil },
+                activityContext: { _ in projectionContext },
                 submitActivityInput: { _ in }
             )
         )
@@ -261,6 +386,7 @@ extension GhosttyActionRouterTests {
 
         await Ghostty.ActionRouter.drainLocalActions(
             for: surfaceID,
+            lane: .immediate,
             dependencies: TerminalLocalActionDrainDependencies(
                 mountedHostResolver: mountedHostResolver,
                 runtimeRegistry: RuntimeRegistry(),
@@ -294,6 +420,90 @@ extension GhosttyActionRouterTests {
         #expect(contents.contains("\"body\":\"performance.terminal.accumulator_drain\""))
         #expect(contents.contains("\"agentstudio.performance.terminal.equal_write_suppressed.count\":0"))
         #expect(contents.contains("\"agentstudio.performance.terminal.accumulator.mainactor_task.count\":1"))
+    }
+
+    @Test("immediate drain does not publish title before the title lane")
+    func immediateDrainDoesNotPublishTitleBeforeTitleLane() async throws {
+        let surfaceID = UUIDv7.generate()
+        let paneUUID = UUIDv7.generate()
+        let paneID = PaneId(existingUUID: paneUUID)
+        let scrollbarState = ScrollbarState(top: 80, bottom: 120, total: 200)
+        let host = FakeTerminalLocalActionDrainHost(managedSurfaceID: surfaceID)
+        let runtime = TerminalRuntime(
+            paneId: paneID,
+            metadata: PaneMetadata(paneId: paneID, title: "Local title drain")
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let originalRuntimeRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        let routingLookup = LocalDrainRoutingLookup(
+            surfaceIDsByViewObjectID: [ObjectIdentifier(host): surfaceID],
+            paneIDsBySurfaceID: [surfaceID: paneUUID]
+        )
+        let dependencies = TerminalLocalActionDrainDependencies(
+            mountedHostResolver: TerminalLocalActionMountedHostResolver(
+                surfaceForID: { requestedID in requestedID == surfaceID ? host : nil },
+                paneIDForSurfaceID: { requestedID in requestedID == surfaceID ? paneUUID : nil }
+            ),
+            runtimeRegistry: runtimeRegistry,
+            fallbackRuntimeRegistry: nil,
+            routingLookup: routingLookup,
+            activityContext: { _ in nil },
+            submitActivityInput: { _ in }
+        )
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRuntimeRegistry)
+            Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+            Ghostty.ActionRouter.localActionAccumulator.removeSurface(surfaceID)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .titleChanged("window"),
+                surfaceID: surfaceID,
+                accumulator: Ghostty.ActionRouter.localActionAccumulator
+            ) == .handledLocally
+        )
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .tabTitleChanged("tab"),
+                surfaceID: surfaceID,
+                accumulator: Ghostty.ActionRouter.localActionAccumulator
+            ) == .handledLocally
+        )
+        #expect(
+            Ghostty.ActionRouter.admitTranslatedActionToTerminalRuntime(
+                .scrollbarChanged(scrollbarState),
+                surfaceID: surfaceID,
+                accumulator: Ghostty.ActionRouter.localActionAccumulator
+            ) == .handledLocally
+        )
+        Ghostty.ActionRouter.localActionDrainScheduler.cancel(for: surfaceID)
+
+        await Ghostty.ActionRouter.drainLocalActions(
+            for: surfaceID,
+            lane: .immediate,
+            dependencies: dependencies
+        )
+
+        #expect(host.hostScrollbarState == scrollbarState)
+        #expect(host.title.isEmpty)
+        #expect((await runtime.eventsSince(seq: 0)).events.isEmpty)
+
+        await Ghostty.ActionRouter.drainLocalActions(
+            for: surfaceID,
+            lane: .title,
+            dependencies: dependencies
+        )
+
+        #expect(host.title == "window")
+        let titleEvents = await runtime.eventsSince(seq: 0).events.compactMap { envelope -> String? in
+            guard case .pane(let paneEnvelope) = envelope else { return nil }
+            guard case .terminal(.tabTitleChanged(let title)) = paneEnvelope.event else { return nil }
+            return title
+        }
+        #expect(titleEvents == ["tab"])
     }
 
     @Test("missing mounted surface retires pending local actions")

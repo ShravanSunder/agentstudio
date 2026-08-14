@@ -11,6 +11,15 @@ export function readBridgeCommWorkerRuntimeNowMilliseconds(
 	return readBridgeCommWorkerAbsoluteNowMilliseconds();
 }
 
+export function createBridgeWorkerRuntimeSequenceCounter(): () => number {
+	let nextSequence = 1;
+	return (): number => {
+		const sequence = nextSequence;
+		nextSequence += 1;
+		return sequence;
+	};
+}
+
 export function scheduleDefaultBridgeCommWorkerPreparationDrain(
 	drain: () => Promise<unknown>,
 ): void {

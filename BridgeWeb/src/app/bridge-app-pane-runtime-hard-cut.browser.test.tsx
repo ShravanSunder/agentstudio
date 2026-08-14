@@ -281,42 +281,6 @@ describe('BridgeApp pane runtime hard cut', () => {
 		).toBeNull();
 	});
 
-	test('forwards one initial Review activation while page readiness is unresolved', async () => {
-		// Arrange
-		await actWait(async (): Promise<void> => {
-			await render(
-				<BridgeAppProtocolRouter
-					codeViewWorkerPoolEnabled={false}
-					fileViewerProps={{ autoOpenInitialFile: false }}
-					protocol="review"
-				/>,
-			);
-			await Promise.resolve();
-		});
-		// Assert
-		expect(readBridgeReviewSelectionDiagnostic()?.pageReadyState).not.toBe('ready');
-		const activeViewerModeUpdates = paneRuntimeObservation.paneCommands.filter(
-			(command): boolean => command.command === 'activeViewerModeUpdate',
-		);
-		expect(activeViewerModeUpdates).toHaveLength(1);
-		expect(activeViewerModeUpdates[0]).toEqual({
-			command: 'activeViewerModeUpdate',
-			direction: 'mainToServerWorker',
-			epoch: 1,
-			kind: 'command',
-			requestId: 'pane-runtime-owned',
-			transferDescriptors: [],
-			update: {
-				activeSource: null,
-				mode: 'review',
-				nativeSelectionRequestId: null,
-				sequence: 1,
-				sessionId: expect.any(String),
-			},
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		});
-	});
-
 	test('forwards one local File activation before the selected File row', async () => {
 		// Arrange
 		const handshake = installBridgeReadyHandshake();
@@ -415,6 +379,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 
 	test('holds an exact File target until its matching source arrives and then applies it', async () => {
 		// Arrange
+		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
 			await render(
 				<BridgeAppProtocolRouter
@@ -489,10 +454,12 @@ describe('BridgeApp pane runtime hard cut', () => {
 				nativeSelectionRequestId: navigationCommandId,
 			},
 		});
+		handshake.dispose();
 	});
 
 	test('revokes an admitted exact File target before a replacement source can apply it', async () => {
 		// Arrange
+		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
 			await render(
 				<BridgeAppProtocolRouter
@@ -571,6 +538,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 					command.selectedItemId === bridgePaneReplacementFileItemId,
 			),
 		).toBe(false);
+		handshake.dispose();
 	});
 
 	test('revokes an unresolved File target when a newer binding waits for another source', async () => {

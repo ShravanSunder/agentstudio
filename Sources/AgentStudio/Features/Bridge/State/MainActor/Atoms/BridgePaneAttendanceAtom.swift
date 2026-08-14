@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 
@@ -17,6 +18,11 @@ package enum BridgePaneAttendanceEvent: String, CaseIterable, Sendable {
 @Observable
 package final class BridgePaneAttendanceAtom {
     private(set) var ordinalByPaneId: [UUID: UInt64] = [:]
+    @ObservationIgnored private let ordinalByPaneIdFamily = AtomFamily<UUID, UInt64>(
+        telemetryLabel: "bridge_pane_attendance",
+        isContentEqual: ==
+    )
+    @ObservationIgnored private let ordinalRevision = AtomRevision()
     private var nextOrdinal: UInt64 = 0
 
     package init() {}
@@ -26,15 +32,21 @@ package final class BridgePaneAttendanceAtom {
         _ = event
         nextOrdinal += 1
         ordinalByPaneId[paneId] = nextOrdinal
+        let mutation = AtomMutationContext(aggregateRevision: ordinalRevision)
+        ordinalByPaneIdFamily.setValue(nextOrdinal, for: paneId, mutation: mutation)
+        mutation.commit()
         return nextOrdinal
     }
 
     package func ordinal(for paneId: UUID) -> UInt64? {
-        ordinalByPaneId[paneId]
+        ordinalByPaneIdFamily.value(for: paneId)
     }
 
     package func remove(paneId: UUID) {
         ordinalByPaneId.removeValue(forKey: paneId)
+        let mutation = AtomMutationContext(aggregateRevision: ordinalRevision)
+        ordinalByPaneIdFamily.removeValue(for: paneId, mutation: mutation)
+        mutation.commit()
     }
 
     package func ordinalSnapshot() -> [UUID: UInt64] {

@@ -31,8 +31,9 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_canonical_atom_mutation", severity: .error),
         ExpectedRule(id: "agentstudio_shared_components_are_stateless", severity: .error),
         ExpectedRule(id: "agentstudio_atomlib_is_generic", severity: .error),
-        ExpectedRule(id: "agentstudio_derived_value_declared_inputs", severity: .error),
+        ExpectedRule(id: "agentstudio_derived_atom_declared_inputs", severity: .error),
         ExpectedRule(id: "agentstudio_repo_cache_keyed_reads", severity: .error),
+        ExpectedRule(id: "agentstudio_hot_pane_snapshot_reads", severity: .error),
         ExpectedRule(id: "agentstudio_worktree_enrichment_comparator", severity: .error),
         ExpectedRule(id: "agentstudio_state_actor_path", severity: .warning),
         ExpectedRule(id: "agentstudio_ipc_programmatic_control_boundary", severity: .error),
@@ -48,5 +49,9 @@ enum ExpectedRuleInventory {
         ExpectedRule(id: "agentstudio_toolbar_tooltip_source", severity: .error),
         ExpectedRule(id: "agentstudio_eventbus_subscriber_policy_required", severity: .error),
         ExpectedRule(id: "agentstudio_terminal_local_disposition_publication", severity: .error),
+        ExpectedRule(id: "agentstudio_observation_capture_keyed_reads", severity: .report),
+        ExpectedRule(id: "agentstudio_mainactor_unbounded_collection_work", severity: .report),
+        ExpectedRule(id: "agentstudio_performance_constants_in_app_policies", severity: .report),
+        ExpectedRule(id: "agentstudio_nonisolated_async_blocking_io_requires_concurrent", severity: .report),
     ]
 }

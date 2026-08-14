@@ -3,13 +3,6 @@ import Foundation
 import GRDB
 
 enum WorkspaceLocalRepositoryCodecs {
-    struct CountRow {
-        let worktreeId: UUID
-        let repoId: UUID?
-        let count: Int
-        let updatedAtValue: Double
-    }
-
     static func uuid(
         _ rawValue: String,
         _ error: (String) -> WorkspaceLocalRepositoryError
@@ -233,16 +226,6 @@ enum WorkspaceLocalRepositoryCodecs {
         )
     }
 
-    static func insertPullRequestCount(_ database: Database, row: CountRow) throws {
-        try database.execute(
-            sql: """
-                INSERT INTO cache_pull_request_count(worktree_id, repo_id, count, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-            arguments: [row.worktreeId.uuidString, row.repoId?.uuidString, row.count, row.updatedAtValue]
-        )
-    }
-
     static func fetchRepoEnrichments(_ database: Database) throws -> [UUID: RepoEnrichment] {
         let rows = try Row.fetchAll(database, sql: "SELECT repo_id, payload_json FROM cache_repo_enrichment")
         return Dictionary(
@@ -271,20 +254,6 @@ enum WorkspaceLocalRepositoryCodecs {
                     return nil
                 }
                 return (worktreeId, enrichment)
-            }
-        )
-    }
-
-    static func fetchPullRequestCounts(_ database: Database) throws -> [UUID: Int] {
-        let rows = try Row.fetchAll(database, sql: "SELECT worktree_id, count FROM cache_pull_request_count")
-        return Dictionary(
-            uniqueKeysWithValues: rows.compactMap { row in
-                guard let worktreeId = try? uuid(row["worktree_id"], WorkspaceLocalRepositoryError.malformedWorktreeId)
-                else {
-                    return nil
-                }
-                let count: Int = row["count"]
-                return (worktreeId, count)
             }
         )
     }

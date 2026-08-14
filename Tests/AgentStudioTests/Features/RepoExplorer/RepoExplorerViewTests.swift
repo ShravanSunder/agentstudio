@@ -6,85 +6,55 @@ import Testing
 @testable import AgentStudioRepoExplorer
 
 @MainActor
-private final class VisibleWorktreeCallbackRecorder {
-    private(set) var callCount = 0
-
-    func record() {
-        callCount += 1
-    }
-}
-
-@MainActor
 @Suite("RepoExplorerView")
 struct RepoExplorerViewTests {
     init() {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("visible row range maps only resolved worktree entries")
-    func visibleRowRangeMapsResolvedWorktreeEntries() {
-        let firstRepoId = UUID()
-        let secondRepoId = UUID()
-        let firstWorktreeId = UUID()
-        let secondWorktreeId = UUID()
-        let group = RepoPresentationGroup(
-            id: "remote:askluna/agent-studio",
-            repoTitle: "agent-studio",
-            organizationName: "askluna",
-            repos: []
-        )
-        let entries: [RepoExplorerListEntry] = [
-            .resolvedGroupHeader(group),
-            .resolvedWorktreeRow(
-                groupId: group.id,
-                repoId: firstRepoId,
-                worktreeId: firstWorktreeId,
-                rowId: "first"
-            ),
-            .resolvedWorktreeRow(
-                groupId: group.id,
-                repoId: secondRepoId,
-                worktreeId: secondWorktreeId,
-                rowId: "second"
-            ),
-        ]
+    @Test("outline apply proxy spans invocation to return and classifies row identity")
+    func outlineApplyProxySpansInvocationToReturnAndClassifiesRowIdentity() {
+        var clockValues: [UInt64] = [1_000_000, 4_000_000, 8_000_000, 10_000_000]
+        var applyCount = 0
 
-        let visibleWorktreeIds = RepoExplorerVisibleRows.worktreeIds(
-            in: entries,
-            rowRange: NSRange(location: 0, length: 2)
+        let changed = RepoExplorerView.measureOutlineApplyProxy(
+            previousRowIDs: ["repo:a"],
+            nextRowIDs: ["repo:b"],
+            nowNanoseconds: { clockValues.removeFirst() },
+            apply: { applyCount += 1 }
+        )
+        let equal = RepoExplorerView.measureOutlineApplyProxy(
+            previousRowIDs: ["repo:b"],
+            nextRowIDs: ["repo:b"],
+            nowNanoseconds: { clockValues.removeFirst() },
+            apply: { applyCount += 1 }
         )
 
-        #expect(visibleWorktreeIds == [firstWorktreeId])
-        #expect(
-            RepoExplorerVisibleRows.worktreeIds(
-                in: entries,
-                rowRange: NSRange(location: NSNotFound, length: 0)
-            ).isEmpty
-        )
+        #expect(applyCount == 2)
+        #expect(changed.duration == .milliseconds(3))
+        #expect(changed.rowCount == 1)
+        #expect(changed.outcome == .changed)
+        #expect(equal.duration == .milliseconds(2))
+        #expect(equal.outcome == .equal)
     }
 
-    @Test("visible worktree publication replaces atom state and invokes callback")
-    func visibleWorktreePublicationReplacesAtomStateAndInvokesCallback() {
-        let atom = SidebarVisibleWorktreesRuntimeAtom()
-        let recorder = VisibleWorktreeCallbackRecorder()
-        let firstWorktreeId = UUID()
-        let secondWorktreeId = UUID()
-        atom.setVisibleWorktreeIds([firstWorktreeId])
+    @Test("pull request chip distinguishes not-fetched, confirmed zero, and positive facts")
+    func pullRequestChipPresentationDistinguishesFactStates() {
+        let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
+        let confirmedZero = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 0)
+        let positive = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
 
-        RepoExplorerVisibleRows.publish(
-            [secondWorktreeId],
-            into: atom,
-            onChange: recorder.record
-        )
-
-        #expect(atom.visibleWorktreeIds == [secondWorktreeId])
-        #expect(recorder.callCount == 1)
-
-        RepoExplorerVisibleRows.publish([], into: atom, onChange: recorder.record)
-
-        #expect(atom.visibleWorktreeIds.isEmpty)
-        #expect(recorder.callCount == 2)
+        #expect(unknown.icon == .system(.arrowClockwise))
+        #expect(unknown.text == nil)
+        #expect(unknown.usesAccent == false)
+        #expect(confirmedZero.icon == .octicon("octicon-git-pull-request"))
+        #expect(confirmedZero.text == "0")
+        #expect(confirmedZero.usesAccent == false)
+        #expect(positive.icon == .octicon("octicon-git-pull-request"))
+        #expect(positive.text == "2")
+        #expect(positive.usesAccent)
     }
+
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {
         let repoId = UUID()
@@ -110,7 +80,7 @@ struct RepoExplorerViewTests {
 
         let entries = RepoExplorerView.buildListEntries(
             groups: [group],
-            expandedGroupIds: [group.id],
+            collapsedGroupIds: [],
             isFiltering: false
         )
 
@@ -148,7 +118,7 @@ struct RepoExplorerViewTests {
 
         let entries = RepoExplorerView.buildListEntries(
             groups: [group],
-            expandedGroupIds: [],
+            collapsedGroupIds: [group.id],
             isFiltering: false
         )
 
@@ -186,7 +156,7 @@ struct RepoExplorerViewTests {
 
         let entries = RepoExplorerView.buildListEntries(
             groups: [resolvedGroup],
-            expandedGroupIds: [],
+            collapsedGroupIds: [resolvedGroup.id],
             isFiltering: false
         )
 
@@ -516,7 +486,7 @@ struct RepoExplorerViewTests {
 
         let status = RepoExplorerView.branchStatus(
             enrichment: enrichment,
-            pullRequestCount: 3
+            pullRequestFacts: PullRequestFacts(openCount: 3, exactOpenURL: nil)
         )
 
         #expect(status.isDirty == true)
@@ -661,16 +631,18 @@ struct RepoExplorerViewTests {
                 != RepoExplorerView.projectionFingerprint(for: changed))
     }
 
-    @Test("projection fingerprint includes visible empty state")
-    func projectionFingerprintIncludesVisibleEmptyState() {
+    @Test("projection fingerprint includes search no-results state")
+    func projectionFingerprintIncludesSearchNoResultsState() {
         let content = RepoExplorerSidebarProjection(
+            sections: [],
             resolvedGroups: [], loadingRepos: [], emptyState: .content)
-        let favoritesEmpty = RepoExplorerSidebarProjection(
-            resolvedGroups: [], loadingRepos: [], emptyState: .favoritesOnlyEmpty)
+        let searchNoResults = RepoExplorerSidebarProjection(
+            sections: [],
+            resolvedGroups: [], loadingRepos: [], emptyState: .searchNoResults)
 
         #expect(
             RepoExplorerView.projectionFingerprint(for: content)
-                != RepoExplorerView.projectionFingerprint(for: favoritesEmpty))
+                != RepoExplorerView.projectionFingerprint(for: searchNoResults))
     }
 
     @Test("projection fingerprint includes deterministic projected row placement")
@@ -688,10 +660,25 @@ struct RepoExplorerViewTests {
             placementContext: RepoExplorerPlacementContext(
                 paneId: first.placementContext!.paneId, tabId: first.placementContext!.tabId,
                 tabIndex: 1, paneIndexInTab: 0, isActiveInTab: true))
+        let group = RepoPresentationGroup(
+            id: "group",
+            repoTitle: repo.name,
+            organizationName: nil,
+            repos: [repo]
+        )
+        let sections = [
+            RepoExplorerSidebarSection(
+                kind: .repositories,
+                resolvedGroups: [group],
+                loadingRepos: []
+            )
+        ]
         let firstProjection = RepoExplorerSidebarProjection(
-            resolvedGroups: [], worktreeRowsByGroupId: ["group": [first]], loadingRepos: [], emptyState: .content)
+            sections: sections,
+            resolvedGroups: [group], worktreeRowsByGroupId: ["group": [first]], loadingRepos: [], emptyState: .content)
         let secondProjection = RepoExplorerSidebarProjection(
-            resolvedGroups: [], worktreeRowsByGroupId: ["group": [second]], loadingRepos: [], emptyState: .content)
+            sections: sections,
+            resolvedGroups: [group], worktreeRowsByGroupId: ["group": [second]], loadingRepos: [], emptyState: .content)
 
         #expect(
             RepoExplorerView.projectionFingerprint(for: firstProjection)
@@ -889,4 +876,5 @@ struct RepoExplorerViewTests {
         let primaryRepo = RepoExplorerView.primaryRepoForGroup(group)
         #expect(primaryRepo?.name == "a-repo")
     }
+
 }

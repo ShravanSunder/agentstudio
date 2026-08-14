@@ -82,8 +82,8 @@ struct CommandBarQuickOpenActivationTests {
         )
     }
 
-    @Test("Quick Open plain Return opens the live worktree in the current tab")
-    func quickOpenPlainReturnUsesCurrentTabAndLiveIdentity() async throws {
+    @Test("Quick Open plain Return opens the live worktree in a new tab")
+    func quickOpenPlainReturnUsesNewTabAndLiveIdentity() async throws {
         try await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
             let repositoryPath = URL(filePath: "/tmp/command-bar-quick-open-live")
@@ -128,14 +128,14 @@ struct CommandBarQuickOpenActivationTests {
             )
 
             #expect(dispatcher.targetedDispatches.count == 1)
-            #expect(dispatcher.targetedDispatches.first?.command == .openWorktreeInPane)
+            #expect(dispatcher.targetedDispatches.first?.command == .openNewTerminalInTab)
             #expect(dispatcher.targetedDispatches.first?.target == replacementWorktree.id)
             #expect(dispatcher.targetedDispatches.first?.targetType == .worktree)
             #expect(!controller.state.isVisible)
         }
     }
 
-    @Test("Quick Open plain Return falls back to a new tab and Command-Return always uses a new tab")
+    @Test("Quick Open plain Return and Command-Return always use a new tab")
     func quickOpenNewTabVariants() async throws {
         try await withAsyncTestCoreAtoms { _ in
             let store = WorkspaceStore()
@@ -189,6 +189,26 @@ struct CommandBarQuickOpenActivationTests {
 
             #expect(dispatcher.targetedDispatches.isEmpty)
             #expect(controller.state.isVisible)
+
+            let pane = store.createPane(title: "Current")
+            let tab = Tab(paneId: pane.id, name: "Current")
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(pane.id, inTab: tab.id)
+            controller.state.show(defaultScope: .quickOpen)
+            controller.executeItem(
+                makeItem(
+                    id: "quick-open-option-active",
+                    action: .quickOpen(.worktree(worktreeStableKey: worktree.stableKey))
+                ),
+                modifier: .option
+            )
+
+            #expect(dispatcher.targetedDispatches.count == 1)
+            #expect(dispatcher.targetedDispatches.first?.command == .openWorktreeInPane)
+            #expect(dispatcher.targetedDispatches.first?.target == worktree.id)
+            #expect(dispatcher.targetedDispatches.first?.targetType == .worktree)
+            #expect(!controller.state.isVisible)
         }
     }
 

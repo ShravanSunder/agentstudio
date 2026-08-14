@@ -1,6 +1,7 @@
 import AgentStudioCore
 import AgentStudioEditorChooser
 import AgentStudioInfrastructure
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -69,14 +70,52 @@ struct PaneSurfaceToolbarHost: View {
     let leadingToolbarActions: [PaneSurfaceToolbarAction]
     let contextToolbarActions: [PaneSurfaceToolbarAction]
     let store: WorkspaceStore
+    let repoCache: RepoCacheAtom
     let octiconLoader: OcticonLoader
     let editorChooser: EditorChooserState
     let paneInboxPresentation: PaneInboxPresentation?
     let workspaceWindowId: UUID?
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let openExternalURL: @MainActor @Sendable (URL) -> Void
 
     @State private var paneInboxPopoverOpen = false
+
+    init(
+        anchorPaneId: UUID,
+        locationTargetPaneId: UUID,
+        toolbarSurface: AppCommandToolbarSurface,
+        drawer: Drawer?,
+        leadingToolbarActions: [PaneSurfaceToolbarAction],
+        contextToolbarActions: [PaneSurfaceToolbarAction],
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        octiconLoader: OcticonLoader,
+        editorChooser: EditorChooserState,
+        paneInboxPresentation: PaneInboxPresentation?,
+        workspaceWindowId: UUID?,
+        actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        openExternalURL: @escaping @MainActor @Sendable (URL) -> Void = { url in
+            _ = NSWorkspace.shared.open(url)
+        }
+    ) {
+        self.anchorPaneId = anchorPaneId
+        self.locationTargetPaneId = locationTargetPaneId
+        self.toolbarSurface = toolbarSurface
+        self.drawer = drawer
+        self.leadingToolbarActions = leadingToolbarActions
+        self.contextToolbarActions = contextToolbarActions
+        self.store = store
+        self.repoCache = repoCache
+        self.octiconLoader = octiconLoader
+        self.editorChooser = editorChooser
+        self.paneInboxPresentation = paneInboxPresentation
+        self.workspaceWindowId = workspaceWindowId
+        self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.openExternalURL = openExternalURL
+    }
 
     var body: some View {
         let commandPresentation = DrawerToolbarCommandPresentation.resolve(
@@ -97,6 +136,16 @@ struct PaneSurfaceToolbarHost: View {
             paneId: locationTargetPaneId,
             store: store
         )
+        let openPullRequestAction = PanePullRequestToolbarActionFactory.make(
+            paneId: locationTargetPaneId,
+            store: store,
+            repoCache: repoCache,
+            iconAccentColorHex: atom(\.paneDisplay).accentColorHex(for: locationTargetPaneId),
+            openExternalURL: {
+                openExternalURL($0)
+                return true
+            }
+        )
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
             paneId: locationTargetPaneId,
@@ -108,7 +157,8 @@ struct PaneSurfaceToolbarHost: View {
             onOpenEditor: { editorId in
                 guard let targetPath = locationContext.targetPath else { return }
                 _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
-            }
+            },
+            openPullRequestAction: openPullRequestAction
         )
         let paneInboxScope = PaneInboxScopeResolver.resolve(
             anchorPaneId: anchorPaneId,
@@ -162,4 +212,5 @@ struct PaneSurfaceToolbarHost: View {
         }
         paneInboxPresentation?.clearRequest(request)
     }
+
 }

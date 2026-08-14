@@ -29,7 +29,6 @@ struct AppStylesNamespaceTests {
     func shellNamespaceOwnsCompactTitlebarDensityTokens() {
         #expect(AppStyles.Shell.TabBar.height == 40)
         #expect(AppStyles.Shell.TabBar.tabPillHeight == 32)
-        #expect(AppStyles.Shell.Chrome.windowDragRegionHeight == 8)
         #expect(AppStyles.Shell.Chrome.ToolbarButton.size == 28)
         #expect(AppStyles.Shell.Chrome.ToolbarButton.iconSize == 12)
         #expect(AppStyles.Shell.Titlebar.iconSize == 14)
@@ -48,8 +47,11 @@ struct AppStylesNamespaceTests {
     func commandBarNamespaceOwnsPanelChromeAndRowStyling() {
         #expect(AppStyles.CommandBar.Footer.separatorOpacity == 0.15)
         #expect(AppStyles.CommandBar.Footer.rowHeight == 16)
-        #expect(AppStyles.CommandBar.Rows.groupHeaderFontSize == AppStyles.General.Typography.textBase)
-        #expect(AppStyles.CommandBar.Rows.groupHeaderOpacity == 0.70)
+        #expect(AppStyles.Components.SectionSubheading.fontSize == AppStyles.General.Typography.textBase)
+        #expect(AppStyles.Components.SectionSubheading.foregroundOpacity == 0.70)
+        #expect(AppStyles.Components.SectionSubheading.horizontalPadding == 12)
+        #expect(AppStyles.Components.SectionSubheading.topPadding == 8)
+        #expect(AppStyles.Components.SectionSubheading.bottomPadding == 4)
         #expect(AppStyles.CommandBar.Rows.selectedRowTitleOpacity == 0.95)
         #expect(AppStyles.CommandBar.Rows.trailingMetadataOpacity == 0.68)
         #expect(AppStyles.CommandBar.Rows.scopePillFontSize == AppStyles.General.Typography.textXs)

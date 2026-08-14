@@ -1,25 +1,88 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { afterEach, describe, expect, test } from 'vitest';
 
+import {
+	runAllOwnedCleanupOperations,
+	startOwnedBridgeDevelopmentServer,
+	type OwnedBridgeDevelopmentServer,
+} from '../dev-server/bridge-development-server-process.js';
 import { BridgeVerifierProductFileSession } from './product-file-session.js';
 
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
+const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
 const productFileSessionTestTimeoutMilliseconds = 15_000;
 
 describe('Bridge verifier product File session', () => {
+	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
+	let bridgeDevelopmentServerDataRootPath: string | null = null;
 	let viteServer: ViteDevServer | null = null;
+	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 
 	afterEach(async (): Promise<void> => {
-		await viteServer?.close();
+		const ownedViteServer = viteServer;
+		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
+		const ownedBridgeDevelopmentServerDataRootPath = bridgeDevelopmentServerDataRootPath;
 		viteServer = null;
+		bridgeDevelopmentServer = null;
+		bridgeDevelopmentServerDataRootPath = null;
+		try {
+			await runAllOwnedCleanupOperations({
+				operations: [
+					{
+						name: 'integration Vite server',
+						run: async (): Promise<void> => {
+							await ownedViteServer?.close();
+						},
+					},
+					{
+						name: 'integration Swift development backend',
+						run: async (): Promise<void> => {
+							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+					{
+						name: 'integration Swift development backend data root',
+						run: async (): Promise<void> => {
+							if (ownedBridgeDevelopmentServerDataRootPath !== null) {
+								await rm(ownedBridgeDevelopmentServerDataRootPath, {
+									force: true,
+									recursive: true,
+								});
+							}
+						},
+					},
+				],
+			});
+		} finally {
+			if (initialBackendOrigin === undefined) {
+				delete process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
+			} else {
+				process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = initialBackendOrigin;
+			}
+		}
 	});
 
 	test(
 		'proves source, tree, descriptor, content, cancellation, and stream closure through the typed carrier',
 		async () => {
 			// Arrange
+			bridgeDevelopmentServerDataRootPath = await mkdtemp(
+				join(tmpdir(), 'bridge-product-file-development-server-'),
+			);
+			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
+				dataRootPath: bridgeDevelopmentServerDataRootPath,
+				initialTarget: 'HEAD',
+				paneId: randomUUID(),
+				repoRootPath,
+				worktreeRoot: repoRootPath,
+			});
+			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = bridgeDevelopmentServer.origin;
 			let resolveMetadataStreamClosed: (() => void) | null = null;
 			const metadataStreamClosed = new Promise<void>((resolve): void => {
 				resolveMetadataStreamClosed = resolve;

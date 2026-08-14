@@ -30,8 +30,8 @@ struct WorkspaceLocalSchemaContractTests {
         #expect(mergeableLaneStorageValues == SQLiteInboxNotificationClaimStorage.mergeableLaneStorageValues)
     }
 
-    @Test("validated raw preference tokens round trip and malformed rows use defaults")
-    func validatedRawPreferenceTokensRoundTripAndMalformedRowsUseDefaults() throws {
+    @Test("legacy repo visibility tokens are inert while other preferences round trip")
+    func legacyRepoVisibilityTokensAreInertWhileOtherPreferencesRoundTrip() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
         try WorkspaceLocalMigrations.migrate(databaseQueue)
         let workspaceId = UUID()
@@ -40,7 +40,7 @@ struct WorkspaceLocalSchemaContractTests {
             WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
                 groupingMode: "pane",
                 sortOrder: "descending",
-                visibilityMode: "favoritesOnly"
+                visibilityMode: "legacy-favorites-only"
             )
         )
         let inboxPreferences = try #require(
@@ -116,7 +116,6 @@ struct WorkspaceLocalSchemaContractTests {
             "idx_notification_claim_exact",
             "idx_notification_claim_session",
             "idx_cache_worktree_repo",
-            "idx_cache_pull_request_repo",
         ]
 
         let productIndexNames = Set(indexNames.filter { !$0.hasPrefix("sqlite_autoindex_") })
@@ -162,7 +161,7 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("window_frame_json", 0), ("filter_text", 0), ("is_filter_visible", 0),
         ("sidebar_collapsed", 0), ("sidebar_surface", 0), ("updated_at", 0),
     ],
-    "local_window_sidebar_expanded_group": [
+    "local_window_sidebar_collapsed_group": [
         ("window_id", 1), ("group_key", 2),
     ],
     "local_entity_recency": [
@@ -216,9 +215,6 @@ private let localSchemaExpectedColumns: [String: [(String, Int)]] = [
         ("worktree_id", 1), ("repo_id", 0), ("branch", 0), ("is_main_worktree", 0),
         ("updated_at", 0), ("payload_json", 0),
     ],
-    "cache_pull_request_count": [
-        ("worktree_id", 1), ("repo_id", 0), ("count", 0), ("updated_at", 0),
-    ],
 ]
 
 private let localSchemaExpectedTypes: [String: [String]] = [
@@ -228,7 +224,7 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "local_drawer_cursor": ["TEXT", "TEXT", "INTEGER", "REAL"],
     "local_arrangement_drawer_cursor": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_window_state": ["TEXT", "TEXT", "REAL", "TEXT", "TEXT", "INTEGER", "INTEGER", "TEXT", "REAL"],
-    "local_window_sidebar_expanded_group": ["TEXT", "TEXT"],
+    "local_window_sidebar_collapsed_group": ["TEXT", "TEXT"],
     "local_entity_recency": ["TEXT", "TEXT", "TEXT", "REAL"],
     "local_workspace_entity_recency": ["TEXT", "TEXT", "TEXT", "TEXT", "REAL"],
     "local_notification_inbox_collapsed_group": ["TEXT", "TEXT"],
@@ -246,7 +242,6 @@ private let localSchemaExpectedTypes: [String: [String]] = [
     "cache_metadata": ["INTEGER", "INTEGER", "REAL"],
     "cache_repo_enrichment": ["TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "TEXT", "REAL", "TEXT"],
     "cache_worktree_enrichment": ["TEXT", "TEXT", "TEXT", "INTEGER", "REAL", "TEXT"],
-    "cache_pull_request_count": ["TEXT", "TEXT", "INTEGER", "REAL"],
 ]
 
 private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
@@ -259,7 +254,7 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
         "window_role", "sidebar_width", "filter_text", "is_filter_visible", "sidebar_collapsed",
         "sidebar_surface", "updated_at",
     ],
-    "local_window_sidebar_expanded_group": ["window_id", "group_key"],
+    "local_window_sidebar_collapsed_group": ["window_id", "group_key"],
     "local_entity_recency": [
         "entity_kind", "entity_key", "interaction_kind", "last_interacted_at",
     ],
@@ -280,7 +275,6 @@ private let localSchemaExpectedNotNullColumns: [String: Set<String>] = [
     "cache_metadata": ["source_revision"],
     "cache_repo_enrichment": ["state", "updated_at"],
     "cache_worktree_enrichment": ["repo_id", "is_main_worktree", "updated_at"],
-    "cache_pull_request_count": ["count", "updated_at"],
 ]
 
 private func assertLocalSchemaStructuralContract(in databaseQueue: DatabaseQueue) throws {
@@ -335,7 +329,7 @@ private func assertForeignKeyContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(
         allForeignKeys == [
             LocalSchemaForeignKeyContract(
-                sourceTable: "local_window_sidebar_expanded_group",
+                sourceTable: "local_window_sidebar_collapsed_group",
                 targetTable: "local_window_state",
                 sourceColumn: "window_id",
                 targetColumn: "window_id",
@@ -368,7 +362,7 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "local_drawer_cursor": 1,
         "local_arrangement_drawer_cursor": 0,
         "local_window_state": 3,
-        "local_window_sidebar_expanded_group": 0,
+        "local_window_sidebar_collapsed_group": 0,
         "local_entity_recency": 0,
         "local_workspace_entity_recency": 0,
         "local_notification_inbox_collapsed_group": 0,
@@ -379,7 +373,6 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
         "cache_metadata": 2,
         "cache_repo_enrichment": 0,
         "cache_worktree_enrichment": 1,
-        "cache_pull_request_count": 1,
     ]
     for (tableName, expectedCheckCount) in expectedCheckCounts {
         let tableDefinition = try #require(tableSQL[tableName])
@@ -389,7 +382,7 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(tableSQL["local_window_state"]?.contains("window_role = 'main'") == true)
     #expect(tableSQL["local_window_state"]?.contains("is_filter_visible IN (0, 1)") == true)
     #expect(tableSQL["local_window_state"]?.contains("sidebar_collapsed IN (0, 1)") == true)
-    #expect(tableSQL["local_window_sidebar_expanded_group"]?.contains("ON DELETE CASCADE") == true)
+    #expect(tableSQL["local_window_sidebar_collapsed_group"]?.contains("ON DELETE CASCADE") == true)
     #expect(tableSQL["local_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_workspace_entity_recency"]?.contains("CHECK (") == false)
     #expect(tableSQL["local_notification_inbox_item"]?.components(separatedBy: "CHECK (").count == 3)
@@ -405,7 +398,6 @@ private func assertCheckContracts(in databaseQueue: DatabaseQueue) throws {
     #expect(tableSQL["cache_metadata"]?.contains("singleton_id = 1") == true)
     #expect(tableSQL["cache_metadata"]?.contains("source_revision >= 0") == true)
     #expect(tableSQL["cache_worktree_enrichment"]?.contains("is_main_worktree IN (0, 1)") == true)
-    #expect(tableSQL["cache_pull_request_count"]?.contains("count >= 0") == true)
 }
 
 extension WorkspaceLocalSchemaContractTests {

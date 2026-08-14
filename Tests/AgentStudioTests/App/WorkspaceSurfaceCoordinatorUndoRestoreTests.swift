@@ -465,17 +465,11 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
 
 @MainActor
 private final class UndoRestoreSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
     init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
         self.createSurfaceResult = createSurfaceResult
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
     }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId: UUID?) {}
 

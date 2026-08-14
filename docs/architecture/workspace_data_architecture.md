@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces events on the `EventBus`. A single `WorkspaceCacheCoordinator` consumes all events, writing topology changes to the canonical store and enrichment data to the cache store. The sidebar is a pure reader of all three stores via `@Observable` binding — zero imperative fetches, zero mutations.
+Workspace state is split into three persistence tiers: canonical config (user intent), derived cache (enrichment), and UI state (preferences). A sequential enrichment pipeline — `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor` — produces facts on `EventBus<RuntimeEnvelope>`. Subscribers declare the fact topics they consume: `WorkspaceCacheCoordinator` owns topology and enrichment-cache effects, while the surface coordinator, forge projector, terminal activity router, and inbox router consume their own matched facts. The sidebar is a pure reader of the state owners via `@Observable` binding — zero imperative fetches, zero mutations.
 
 Normal boot explicitly prepares authoritative `core.sqlite` and the one app-root
 `local.sqlite` before any hydration, then retains one writable owner for each
@@ -180,12 +180,12 @@ struct WorkspaceCacheState: Codable {
 
 The live `RepoEnrichmentCacheAtom` does not expose those dictionaries as the
 hot observation surface. It owns each repo-cache lane through keyed
-`AtomEntityMap` slots:
+`AtomFamily` slots:
 
 ```swift
-AtomEntityMap<UUID, RepoEnrichment>       // keyed by CanonicalRepo.id
-AtomEntityMap<UUID, WorktreeEnrichment>   // keyed by CanonicalWorktree.id
-AtomEntityMap<UUID, Int>                  // pull request count keyed by CanonicalWorktree.id
+AtomFamily<UUID, RepoEnrichment>       // keyed by CanonicalRepo.id
+AtomFamily<UUID, WorktreeEnrichment>   // keyed by CanonicalWorktree.id
+AtomFamily<UUID, Int>                  // pull request count keyed by CanonicalWorktree.id
 ```
 
 `RepoWorktreeCacheFacts` is a composed read result for surfaces that really need
@@ -340,7 +340,19 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | **Runs** | `git status`, `git branch`, `git remote get-url`, `git worktree list` via `@concurrent nonisolated` helpers |
 | **Produces** | `GitWorkingDirectoryEvent` envelopes on EventBus |
 | **Carries forward** | `correlationId` from source `.filesChanged` event |
+| **Admission** | Demand-gated to visible, active-pane, active-in-app, or explicit requests; bounded slots reserve capacity for the active pane and oldest stale demanded work |
+| **Pending work** | Unions affected paths across ordinary pending, immediate, capacity-retry, and circuit-breaker debt while retaining the freshest ordering context |
+| **Cadence and recovery** | Equal results lengthen the `AppPolicies` cadence; changed results restore prompt cadence; capacity contention uses a short retry, status timeouts use per-worktree exponential backoff, and dead roots are quarantined |
+| **Status scope** | Uses pathspec-scoped status for bounded changed-path sets and conservatively widens to a full status for git-internal, rename-unsafe, or over-cap changes |
 | **Does not** | Access network, scan filesystem for repos, mutate canonical store |
+
+Watched-folder refresh preserves that admission boundary. `FilesystemGitPipeline`
+maps the supplied watched paths to intersecting registered worktree roots and
+requests immediate status only for that affected set. The explicit user
+refresh-all entry point remains fleet-wide. Runtime demand and retry state are
+not persisted. The accumulator retains a bounded pending invalidation with the
+union of affected paths while waiting for demand; an eligible event re-arms
+that work, and an explicit request may admit it immediately.
 
 #### ForgeActor
 
@@ -350,8 +362,11 @@ SIDEBAR (pure reader of canonical atoms + RepoCacheAtom read surface + Workspace
 | **Scope** | Per-repo, keyed by repoId + remoteURL |
 | **Subscribes to** | `.gitWorkingDirectory(.branchChanged)`, `.originChanged`, `.worktreeDiscovered` from EventBus |
 | **Runs** | `gh pr list`, GitHub REST API via `@concurrent nonisolated` helpers |
-| **Self-driven** | Polling timer (30-60s) as fallback |
+| **Self-driven** | One reschedulable next-eligibility deadline for demanded repositories; no fleet-wide periodic poll |
 | **Command-plane** | `refresh(repo:)` after git push |
+| **Admission** | Current demand, freshness, provider backoff, and generation gate one provider call per repo; overlapping eligible triggers retain one latest-scope follow-up |
+| **Recovery** | Per-repo failure backoff is policy-derived and cancelled on unregister/shutdown |
+| **Publication** | Successful count maps publish only when they differ from the last successfully published map |
 | **Produces** | `ForgeEvent` envelopes on EventBus |
 | **Does not** | Scan filesystem, run git commands, discover repos, mutate canonical store |
 
@@ -509,7 +524,20 @@ WorkspaceSidebarState          → filter and sidebar shell composition
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
 
-This is not a "join" problem — each store has one clear job. The bus ensures both are in sync. The sidebar does not do complex data merging; it reads structure from one, display data from the other.
+Repo Explorer captures only the declared repo/worktree membership and keyed
+topology, cache, pane-placement, unread, zoom, capability, and Bridge-attendance
+facts needed by its rendered rows. The immutable capture is admitted to the
+existing `EagerDerivedAtomFamily`; `RepoExplorerProjectionWorker` builds the
+projection, branch maps, and immutable `RepoExplorerRowIndex` off MainActor.
+Cancellation, supersession, removal, and generation checks prevent stale work
+from binding. MainActor owns only keyed capture, current-generation result
+binding, and command-presentation snapshot publication. Whole dictionaries and
+topology snapshots remain persistence/cold-batch bridges, not hot sidebar
+observation inputs.
+
+This is not a broad live "join" problem — each store has one clear job and the
+capture declares the exact keys being combined. The bus keeps owners current;
+the sidebar performs no imperative fetches or mutations.
 
 Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detached HEAD"`. No branch field on the `Worktree` model itself.
 
@@ -591,7 +619,8 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
    → emits .branchChanged(wt-1, repo-A, from: "feat-1", to: "feat-2")
    → emits .snapshotChanged(new snapshot)
 4. ForgeActor subscribes to .branchChanged (via bus fan-out):
-   → immediate refresh for repo-A
+   → updates repo-A membership and requests refresh through demand admission
+   → starts immediately only when demanded and stale/missing
    → gh pr list for new branch
    → emits .pullRequestCountsChanged
 5. CacheCoordinator writes all to cache store (gets branchChanged + prCountsChanged from bus)
@@ -849,7 +878,7 @@ Topology facts flow through a layered pipeline. Each layer's output is the next 
 LAYER              COMPONENT                        OWNS
 ─────              ─────────                        ────
 Fact Producer      FilesystemActor                  Observing filesystem, emitting raw facts
-Publication        EventBus                         Fan-out to all subscribers (dumb pipe)
+Publication        EventBus                         Match fact topics; replay and delivery diagnostics
 Accumulator        WorkspaceCacheCoordinator         Interpreting facts, sequencing effects
 Reconciler         WorktreeReconciler (pure func)   Identity preservation, diff computation
 State              WorkspaceStore                   Canonical truth, mutation methods

@@ -330,8 +330,8 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!ghosttySource.contains("newWindowRequested"))
     }
 
-    @Test("Refresh worktrees is handled as app intent, not a sidebar no-op")
-    func refreshWorktreesRequested_hasRealConsumer() throws {
+    @Test("Refresh worktrees remains app-owned and is absent from the Repo sidebar")
+    func refreshWorktrees_isNotExposedByRepoSidebar() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateRoutingPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"
@@ -348,16 +348,10 @@ struct CoordinationPlaneArchitectureTests {
         let sidebarSurfaceHostSource = try String(contentsOf: sidebarSurfaceHostPath, encoding: .utf8)
 
         #expect(appDelegateRoutingSource.contains("func refreshWorktrees()"))
-        #expect(appDelegateRoutingSource.contains("refreshWatchedFolders"))
-        #expect(sidebarSource.contains("let onRefreshWorktrees: () -> Void"))
-        #expect(sidebarSource.contains("onRefreshWorktrees()"))
+        #expect(appDelegateRoutingSource.contains("refreshRegisteredWorktreesAndWatchedFolders"))
+        #expect(!sidebarSource.contains("onRefreshWorktrees"))
         #expect(!sidebarSource.contains("func refreshWorktrees()"))
-        #expect(sidebarSurfaceHostSource.contains("onRefreshWorktrees: {"))
-        #expect(
-            sidebarSurfaceHostSource.contains(
-                "AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()"
-            )
-        )
+        #expect(!sidebarSurfaceHostSource.contains("onRefreshWorktrees"))
         #expect(!sidebarSource.contains("refreshWorktreesRequested"))
     }
 

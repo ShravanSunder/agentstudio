@@ -16,6 +16,15 @@ extension NSPasteboard.PasteboardType {
 }
 
 extension NSToolbarItem.Identifier {
+    package static let worktreeSidebar = NSToolbarItem.Identifier("worktreeSidebar")
+    package static let inboxSidebar = NSToolbarItem.Identifier("inboxSidebar")
+    package static let sidebarDivider = NSToolbarItem.Identifier("sidebarDivider")
     package static let managementLayer = NSToolbarItem.Identifier("managementLayer")
     package static let watchFolder = NSToolbarItem.Identifier("watchFolder")
+    package static let arrangement = NSToolbarItem.Identifier("arrangement")
+    package static let arrangementDivider = NSToolbarItem.Identifier("arrangementDivider")
+    package static let workspaceTabs = NSToolbarItem.Identifier("workspaceTabs")
+    package static let selectTab = NSToolbarItem.Identifier("selectTab")
+    package static let tabActionsDivider = NSToolbarItem.Identifier("tabActionsDivider")
+    package static let newTab = NSToolbarItem.Identifier("newTab")
 }

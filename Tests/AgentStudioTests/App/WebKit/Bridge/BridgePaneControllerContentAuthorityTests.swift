@@ -23,6 +23,14 @@ extension WebKitSerializedTests {
                 self.firstComparison = firstComparison
             }
 
+            func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? { nil }
+
+            func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+                -> BridgeContributionComparisonCapture
+            {
+                throw BridgeProviderFailure.providerFailed(message: "Contribution capture not configured")
+            }
+
             func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
                 request.endpoint
             }
@@ -87,7 +95,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        baseline: .unstaged)
                 ),
                 reviewSourceProvider: provider
             )
@@ -171,7 +181,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        baseline: .unstaged)
                 ),
                 reviewSourceProvider: provider
             )
@@ -360,7 +372,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        baseline: .unstaged)
                 ),
                 reviewSourceProvider: provider
             )
@@ -419,7 +433,9 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                    source: .workspace(
+                        rootPath: "Sources",
+                        baseline: .unstaged)
                 ),
                 reviewSourceProvider: provider
             )

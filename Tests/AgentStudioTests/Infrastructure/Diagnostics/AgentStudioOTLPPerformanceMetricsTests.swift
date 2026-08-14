@@ -6,6 +6,189 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceMetricsTests {
+    @Test("startup usable projects launch and layout phase distributions")
+    func startupUsableProjectsBothDurations() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 120,
+            severityText: .info,
+            body: "performance.startup.usable",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(125),
+                "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms": .double(8),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.elapsedMilliseconds == 125)
+        #expect(
+            metricEvent.samples.map(\.label)
+                == ["agentstudio_performance_startup_layout_settle_to_usable_elapsed_ms"])
+    }
+
+    @Test("Repo Explorer keyed-wake contract becomes bounded metric dimensions")
+    func repoExplorerKeyedWakeBecomesBoundedMetricDimensions() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.repo_explorer.keyed_wake",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repo_explorer.stage": .string("affected_row"),
+                "agentstudio.performance.repo_explorer.key_class": .string("relevant"),
+                "agentstudio.performance.repo_explorer.outcome": .string("changed"),
+                "agentstudio.performance.repo_explorer.facet": .string("zoom"),
+                "agentstudio.performance.repo_explorer.row_relation": .string("owning"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.map(\.name) == ["event", "stage", "key_class", "outcome", "facet", "row_relation"])
+    }
+
+    @Test("interaction kind becomes a metric dimension")
+    func interactionKindBecomesMetricDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.interaction.latency",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(7.5),
+                "agentstudio.performance.interaction.kind": .string("cmd_r"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions == [
+                AgentStudioOTLPPerformanceMetricDimension(
+                    name: "event",
+                    value: "performance.interaction.latency"
+                ),
+                AgentStudioOTLPPerformanceMetricDimension(name: "interaction_kind", value: "cmd_r"),
+            ])
+        #expect(metricEvent.elapsedMilliseconds == 7.5)
+    }
+
+    @Test
+    func panePresentationMetricsExposeBoundedTransitionOutcome() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.bridge.swift.pane_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.comparison.attempt.status": .string("settled"),
+                "agentstudio.bridge.phase": .string("pane_presentation_enqueued"),
+                "agentstudio.bridge.plane": .string("control"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.result_reason": .string("none"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
+                "agentstudio.bridge.transport": .string("swift"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions == [
+                .init(name: "event", value: "performance.bridge.swift.pane_presentation"),
+                .init(name: "phase", value: "pane_presentation_enqueued"),
+                .init(name: "plane", value: "control"),
+                .init(name: "priority", value: "hot"),
+                .init(name: "slice", value: "review_metadata"),
+                .init(name: "comparison_status", value: "settled"),
+                .init(name: "result", value: "success"),
+                .init(name: "result_reason", value: "none"),
+            ]
+        )
+    }
+
+    @Test
+    func renderedPanePresentationMetricsExposeMismatchAndPaneState() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 124,
+            severityText: .info,
+            body: "performance.bridge.web.pane_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.comparison.attempt.status": .string("settled"),
+                "agentstudio.bridge.comparison.package_match": .string("review_generation_mismatch"),
+                "agentstudio.bridge.comparison.pane_state": .string("loading_previous"),
+                "agentstudio.bridge.phase": .string("comparison_pane_rendered"),
+                "agentstudio.bridge.plane": .string("control"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.dimensions.contains(.init(name: "package_match", value: "review_generation_mismatch")))
+        #expect(metricEvent.dimensions.contains(.init(name: "pane_state", value: "loading_previous")))
+    }
+
+    @Test
+    func repoCommandPresentationAndTabWorkProjectsOnlyApprovedAggregateCounters() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.repo_explorer.command_presentation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.repo_explorer.command_resolution.count": .int(12),
+                "agentstudio.performance.repo_explorer.command_reused.count": .int(18),
+                "agentstudio.performance.repo_explorer.visible_set.count": .int(3),
+                "agentstudio.performance.repo_explorer.visible_set_delta.count": .int(1),
+                "agentstudio.performance.tabbar.affected_item.count": .int(1),
+                "agentstudio.performance.repo_explorer.private_title": .string("must-not-project"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.samples.map(\.label) == [
+                "agentstudio_performance_repo_explorer_command_resolution_count",
+                "agentstudio_performance_repo_explorer_command_reused_count",
+                "agentstudio_performance_repo_explorer_visible_set_count",
+                "agentstudio_performance_repo_explorer_visible_set_delta_count",
+                "agentstudio_performance_tabbar_affected_item_count",
+            ]
+        )
+    }
+
     @Test
     func performanceRecordProjectsBoundedMetricsFromScrubbedAttributes() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
@@ -236,6 +419,37 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func eagerDerivedFamilyRecordProjectsControlledLaneDimensions() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 457,
+            severityText: .info,
+            body: "performance.atom.derived",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.atom.kind": .string("eager_derived_family"),
+                "agentstudio.performance.atom.label": .string("repo_explorer_projection"),
+                "agentstudio.performance.atom.operation": .string("completion"),
+                "agentstudio.performance.atom.outcome": .string("published"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions == [
+                AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.atom.derived"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "atom_kind", value: "eager_derived_family"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "atom_label", value: "repo_explorer_projection"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "atom_operation", value: "completion"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: "published"),
+            ])
+    }
+
+    @Test
     func processMallocRecordProjectsPairedMemoryGauges() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 457,
@@ -275,15 +489,22 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     func runtimePressureAggregateDeltasAreCountersWhileRetainedValuesStayGauges() throws {
         let factory = RecordingMetricsFactory()
         let metrics = AgentStudioOTLPPerformanceMetrics(factory: factory)
-        let dimensions = [
-            ("drain_class", "immediate"),
+        let changedDimensions = [
+            ("outcome", "changed"),
+            ("drain_class", "title_deadline"),
+            ("event", "performance.terminal.accumulator_drain"),
+        ]
+        let equalDimensions = [
+            ("outcome", "equal"),
+            ("drain_class", "title_deadline"),
             ("event", "performance.terminal.accumulator_drain"),
         ]
         let firstRecord = Self.projectedPerformanceRecord(
             body: "performance.terminal.accumulator_drain",
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(3),
-                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
+                "agentstudio.performance.terminal.accumulator.apply.outcome": .string("changed"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(10),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(8),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(4),
@@ -294,7 +515,8 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             body: "performance.terminal.accumulator_drain",
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(1),
-                "agentstudio.performance.terminal.accumulator.drain.class": .string("immediate"),
+                "agentstudio.performance.terminal.accumulator.drain.class": .string("title_deadline"),
+                "agentstudio.performance.terminal.accumulator.apply.outcome": .string("equal"),
                 "agentstudio.performance.terminal.accumulator.offered.count": .int(5),
                 "agentstudio.performance.terminal.accumulator.replaced.count": .int(3),
                 "agentstudio.performance.terminal.accumulator.retained_entry.count": .int(2),
@@ -308,7 +530,12 @@ struct AgentStudioOTLPPerformanceMetricsTests {
 
         #expect(
             metricEvent.dimensions.contains(
-                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "immediate")
+                AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: "title_deadline")
+            )
+        )
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: "changed")
             )
         )
         #expect(
@@ -328,28 +555,61 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(
             factory.counter(
                 label: "agentstudio_performance_terminal_accumulator_offered_count",
-                dimensions: dimensions
-            )?.totalValue == 15)
+                dimensions: changedDimensions
+            )?.totalValue == 10)
+        #expect(
+            factory.counter(
+                label: "agentstudio_performance_terminal_accumulator_offered_count",
+                dimensions: equalDimensions
+            )?.totalValue == 5)
         #expect(
             factory.counter(
                 label: "agentstudio_performance_terminal_accumulator_replaced_count",
-                dimensions: dimensions
-            )?.totalValue == 11)
+                dimensions: changedDimensions
+            )?.totalValue == 8)
         #expect(
             factory.recorder(
                 label: "agentstudio_performance_terminal_accumulator_retained_entry_count",
-                dimensions: dimensions
-            )?.values == [4, 2])
+                dimensions: changedDimensions
+            )?.values == [4])
         #expect(
             factory.recorder(
                 label: "agentstudio_performance_terminal_accumulator_retained_size_bytes",
-                dimensions: dimensions
-            )?.values == [256, 128])
+                dimensions: equalDimensions
+            )?.values == [128])
         #expect(
             factory.recorder(
                 label: AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel,
-                dimensions: dimensions
-            )?.values == [3, 1])
+                dimensions: changedDimensions
+            )?.values == [3])
+    }
+
+    @Test
+    func terminalEqualSuppressionProjectsAsCounterWithPublicationKind() throws {
+        let record = Self.projectedPerformanceRecord(
+            body: "performance.terminal.equal_suppressed",
+            attributes: [
+                "agentstudio.performance.terminal.publication.kind": .string("title"),
+                "agentstudio.performance.terminal.equal_suppressed.count": .int(1),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "publication_kind", value: "title")
+            )
+        )
+        #expect(
+            metricEvent.measurements.contains { measurement in
+                if case .counter(let sample) = measurement {
+                    return sample.label == "agentstudio_performance_terminal_equal_suppressed_count"
+                        && sample.value == 1
+                }
+                return false
+            }
+        )
     }
 
     @Test

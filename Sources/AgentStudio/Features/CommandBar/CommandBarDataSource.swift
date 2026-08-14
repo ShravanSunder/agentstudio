@@ -104,7 +104,8 @@ enum CommandBarDataSource {
         focusedPane: WorkspaceFocusedPane?,
         commandContext: CommandContext,
         notificationInboxCommands: InboxNotificationCommands? = nil,
-        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        repoScopeItemCache: CommandBarRepoScopeItemCache? = nil
     ) -> [CommandBarItem] {
         let clock = ContinuousClock()
         let start = clock.now
@@ -129,7 +130,11 @@ enum CommandBarDataSource {
             case .panes:
                 paneAndTabItems(store: store, repoCache: repoCache)
             case .repos:
-                repoScopeItems(store: store, dispatcher: dispatcher)
+                repoScopeItems(
+                    store: store,
+                    dispatcher: dispatcher,
+                    itemCache: repoScopeItemCache
+                )
             case .inbox:
                 inboxItems(
                     commands: notificationInboxCommands,
@@ -155,7 +160,7 @@ enum CommandBarDataSource {
                 "agentstudio.performance.commandbar.worktree.count": .int(
                     store.repositoryTopologyAtom.repos.reduce(0) { $0 + $1.worktrees.count }
                 ),
-                "agentstudio.performance.commandbar.pane.count": .int(store.paneAtom.panes.count),
+                "agentstudio.performance.commandbar.pane.count": .int(store.paneAtom.graphAtom.paneIDs.count),
             ]
         )
         return items

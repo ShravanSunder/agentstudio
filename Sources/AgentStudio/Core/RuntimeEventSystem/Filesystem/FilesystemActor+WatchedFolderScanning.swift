@@ -115,6 +115,13 @@ extension FilesystemActor {
         await submitWatchedFolderScan(sourceID: sourceID, cause: .callback)
     }
 
+    func handleCoarseWatchedFolderFSEvent(worktreeId: UUID) async {
+        guard
+            let sourceID = watchedFolderScanState.sourceIDByLegacyCallbackRoutingID[worktreeId]
+        else { return }
+        await submitWatchedFolderScan(sourceID: sourceID, cause: .callback)
+    }
+
     private func reconcileWatchedFolderRegistrations(
         _ watchedPaths: [WatchedPath]
     ) async -> Set<FilesystemSourceID> {

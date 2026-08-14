@@ -20,6 +20,12 @@ struct RepoExplorerFavoriteControlVisibility: Equatable {
 }
 
 struct RepoExplorerWorktreeRowContent: View {
+    struct PullRequestChipPresentation: Equatable {
+        let icon: SidebarChip.Icon
+        let text: String?
+        let usesAccent: Bool
+    }
+
     let octiconLoader: OcticonLoader
     let checkoutTitle: String
     let branchName: String
@@ -82,6 +88,21 @@ struct RepoExplorerWorktreeRowContent: View {
 
     static func favoriteActionSpec(isFavorite: Bool) -> AppCommandSpec {
         (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
+    }
+
+    static func pullRequestChipPresentation(prCount: Int?) -> PullRequestChipPresentation {
+        guard let prCount else {
+            return PullRequestChipPresentation(
+                icon: .system(.arrowClockwise),
+                text: nil,
+                usesAccent: false
+            )
+        }
+        return PullRequestChipPresentation(
+            icon: .octicon("octicon-git-pull-request"),
+            text: "\(prCount)",
+            usesAccent: prCount > 0
+        )
     }
 
     var body: some View {
@@ -147,8 +168,8 @@ struct RepoExplorerWorktreeRowContent: View {
 
             if !placementText.isEmpty {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Image(systemName: "rectangle.split.2x1")
-                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                    Image(systemName: "square.split.2x1")
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
@@ -179,17 +200,18 @@ struct RepoExplorerWorktreeRowContent: View {
                     hasSyncSignal: hasSyncSignal
                 )
 
+                let pullRequestChip = Self.pullRequestChipPresentation(prCount: branchStatus.prCount)
                 SidebarChip(
-                    iconAsset: "octicon-git-pull-request",
+                    icon: pullRequestChip.icon,
                     octiconLoader: octiconLoader,
-                    text: "\(branchStatus.prCount ?? 0)",
-                    style: (branchStatus.prCount ?? 0) > 0 ? .accent(iconColor) : .neutral
+                    text: pullRequestChip.text,
+                    style: pullRequestChip.usesAccent ? .accent(iconColor) : .neutral
                 )
 
                 if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
                     Button(action: onUnreadPillTap) {
                         SidebarChip(
-                            iconAsset: "octicon-bell",
+                            icon: .octicon("octicon-bell"),
                             octiconLoader: octiconLoader,
                             text: "\(unreadCount)",
                             style: .accent(iconColor)
@@ -231,6 +253,7 @@ package struct RepoExplorerWorktreeRow: View {
     var bridgeCommandResolution: BridgePaneCommandResolution = .create
     var isFavorite = false
     let commandPresentation: RepoExplorerWorktreeCommandPresentation
+    var panePresentations: [RepoExplorerPanePresentation] = []
     var onToggleFavorite: () -> Void = {}
     var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
@@ -240,6 +263,7 @@ package struct RepoExplorerWorktreeRow: View {
     var onOpenReviewInNewTab: () -> Void = {}
     var onOpenFilesInNewTab: () -> Void = {}
     let onOpenInPane: () -> Void
+    var onFocusPane: (UUID) -> Void = { _ in }
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
     @State private var isHovering = false
@@ -257,6 +281,7 @@ package struct RepoExplorerWorktreeRow: View {
         bridgeCommandResolution: BridgePaneCommandResolution = .create,
         isFavorite: Bool = false,
         commandPresentation: RepoExplorerWorktreeCommandPresentation,
+        panePresentations: [RepoExplorerPanePresentation] = [],
         onToggleFavorite: @escaping () -> Void = {},
         onUnreadPillTap: @escaping () -> Void = {},
         onOpen: @escaping () -> Void,
@@ -265,7 +290,8 @@ package struct RepoExplorerWorktreeRow: View {
         onOpenFiles: @escaping () -> Void,
         onOpenReviewInNewTab: @escaping () -> Void = {},
         onOpenFilesInNewTab: @escaping () -> Void = {},
-        onOpenInPane: @escaping () -> Void
+        onOpenInPane: @escaping () -> Void,
+        onFocusPane: @escaping (UUID) -> Void = { _ in }
     ) {
         self.octiconLoader = octiconLoader
         self.worktree = worktree
@@ -279,6 +305,7 @@ package struct RepoExplorerWorktreeRow: View {
         self.bridgeCommandResolution = bridgeCommandResolution
         self.isFavorite = isFavorite
         self.commandPresentation = commandPresentation
+        self.panePresentations = panePresentations
         self.onToggleFavorite = onToggleFavorite
         self.onUnreadPillTap = onUnreadPillTap
         self.onOpen = onOpen
@@ -288,6 +315,7 @@ package struct RepoExplorerWorktreeRow: View {
         self.onOpenReviewInNewTab = onOpenReviewInNewTab
         self.onOpenFilesInNewTab = onOpenFilesInNewTab
         self.onOpenInPane = onOpenInPane
+        self.onFocusPane = onFocusPane
     }
 
     package var body: some View {
@@ -321,55 +349,13 @@ package struct RepoExplorerWorktreeRow: View {
             onOpen()
         }
         .contextMenu {
-            if let openWorktree = commandPresentation.contextMenuCommand(.openWorktree) {
-                Button {
-                    onOpen()
-                } label: {
-                    menuLabel(actionSpec: openWorktree.commandSpec.actionSpec)
-                }
-                .disabled(!openWorktree.isEnabled)
-            }
-
-            if hasCurrentTabCommands {
-                Menu {
-                    if let openWorktreeInPane = commandPresentation.contextMenuCommand(.openWorktreeInPane) {
-                        Button {
-                            onOpenInPane()
-                        } label: {
-                            menuLabel(actionSpec: openWorktreeInPane.commandSpec.actionSpec)
-                        }
-                        .disabled(!openWorktreeInPane.isEnabled)
-                    }
-
-                    if let showBridgeReview = commandPresentation.contextMenuCommand(.showBridgeReview) {
-                        Button {
-                            onReview()
-                        } label: {
-                            menuLabel(actionSpec: showBridgeReview.commandSpec.actionSpec)
-                        }
-                        .disabled(!showBridgeReview.isEnabled)
-                    }
-
-                    if let showBridgeFiles = commandPresentation.contextMenuCommand(.showBridgeFiles) {
-                        Button {
-                            onOpenFiles()
-                        } label: {
-                            menuLabel(actionSpec: showBridgeFiles.commandSpec.actionSpec)
-                        }
-                        .disabled(!showBridgeFiles.isEnabled)
-                    }
-                } label: {
-                    menuLabel(actionSpec: LocalActionSpec.openInCurrentTabMenu.actionSpec)
-                }
-            }
-
             if hasNewTabCommands {
                 Menu {
                     if let openNewTerminal = commandPresentation.contextMenuCommand(.openNewTerminalInTab) {
                         Button {
                             onOpenNew()
                         } label: {
-                            menuLabel(actionSpec: openNewTerminal.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openNewTerminal)
                         }
                         .disabled(!openNewTerminal.isEnabled)
                     }
@@ -380,7 +366,7 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenReviewInNewTab()
                         } label: {
-                            menuLabel(actionSpec: openReviewInNewTab.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openReviewInNewTab)
                         }
                         .disabled(!openReviewInNewTab.isEnabled)
                     }
@@ -391,12 +377,54 @@ package struct RepoExplorerWorktreeRow: View {
                         Button {
                             onOpenFilesInNewTab()
                         } label: {
-                            menuLabel(actionSpec: openFilesInNewTab.commandSpec.actionSpec)
+                            worktreeContextMenuLabel(for: openFilesInNewTab)
                         }
                         .disabled(!openFilesInNewTab.isEnabled)
                     }
                 } label: {
-                    menuLabel(actionSpec: LocalActionSpec.openInNewTabMenu.actionSpec)
+                    menuLabel(actionSpec: LocalActionSpec.createNewInTab.actionSpec)
+                }
+            }
+
+            if hasCurrentTabCommands {
+                Menu {
+                    if let openWorktreeInPane = commandPresentation.contextMenuCommand(.openWorktreeInPane) {
+                        Button {
+                            onOpenInPane()
+                        } label: {
+                            worktreeContextMenuLabel(for: openWorktreeInPane)
+                        }
+                        .disabled(!openWorktreeInPane.isEnabled)
+                    }
+
+                    if let showBridgeReview = commandPresentation.contextMenuCommand(.showBridgeReview) {
+                        Button {
+                            onReview()
+                        } label: {
+                            worktreeContextMenuLabel(for: showBridgeReview)
+                        }
+                        .disabled(!showBridgeReview.isEnabled)
+                    }
+
+                    if let showBridgeFiles = commandPresentation.contextMenuCommand(.showBridgeFiles) {
+                        Button {
+                            onOpenFiles()
+                        } label: {
+                            worktreeContextMenuLabel(for: showBridgeFiles)
+                        }
+                        .disabled(!showBridgeFiles.isEnabled)
+                    }
+                } label: {
+                    menuLabel(actionSpec: LocalActionSpec.createNewInPane.actionSpec)
+                }
+            }
+
+            if !panePresentations.isEmpty {
+                Menu(LocalActionSpec.goToPane.actionSpec.label) {
+                    RepoExplorerPaneDestinationMenuContent(
+                        presentations: panePresentations,
+                        onFocusPane: onFocusPane
+                    )
                 }
             }
 
@@ -470,19 +498,28 @@ package struct RepoExplorerWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(actionSpec: ActionSpec) -> some View {
+    private func worktreeContextMenuLabel(for command: RepoExplorerPresentedCommand) -> some View {
+        menuLabel(
+            actionSpec: command.commandSpec.actionSpec,
+            labelOverride: RepoExplorerWorktreeCommandPresentation.contextMenuLabel(for: command.command)
+        )
+    }
+
+    @ViewBuilder
+    private func menuLabel(actionSpec: ActionSpec, labelOverride: String? = nil) -> some View {
+        let label = labelOverride ?? actionSpec.label
         switch actionSpec.icon {
         case .system(let systemSymbol):
-            Label(actionSpec.label, systemImage: systemSymbol.rawValue)
+            Label(label, systemImage: systemSymbol.rawValue)
         case .octicon(let octiconSymbol):
             if let image = octiconLoader.image(named: octiconSymbol.rawValue) {
                 Label {
-                    Text(actionSpec.label)
+                    Text(label)
                 } icon: {
                     Image(nsImage: image)
                 }
             } else {
-                Label(actionSpec.label, systemImage: "questionmark.square.dashed")
+                Label(label, systemImage: "questionmark.square.dashed")
             }
         }
     }

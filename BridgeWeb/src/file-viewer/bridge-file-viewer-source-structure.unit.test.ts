@@ -362,6 +362,13 @@ describe('Bridge file viewer source structure', () => {
 			),
 		);
 		expect(treePanelSource).not.toContain('requestAnimationFrame');
+		const treeRuntimeSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-pierre-tree-runtime.ts', import.meta.url)),
+			'utf8',
+		);
+		expect(treeRuntimeSource).toMatch(
+			/useLayoutEffect\(\(\): \(\(\) => void\) => \{[\s\S]*cancelAnimationFrame\(setupFrameId\)/u,
+		);
 	});
 
 	test('keeps fabricated File CodeView item shaping out of every runtime owner', () => {

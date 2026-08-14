@@ -39,6 +39,30 @@ First-time setup: `mise install && mise run doctor-mac && mise run setup && mise
 
 Agents must use plain `mise run setup` by default. It builds vendors in the primary worktree and reuses those prepared inputs from linked worktrees. Do not hydrate submodules or invoke low-level vendor tasks directly. Use `mise run setup --use-local-vendors` only when the user explicitly requests Ghostty/zmx vendor work or the accepted task requires changing one of those vendors; an ordinary setup failure does not authorize the flag.
 
+### BridgeWeb fast UI loop
+
+Always use the existing Swift development backend plus Vite as the primary
+iteration loop for Bridge development instead of repeatedly rebuilding the full
+app. From the repository root, start the backend with an isolated data root:
+
+```bash
+mise run build-bridge-development-server
+bridge_dev_root="$(mktemp -d "${TMPDIR:-/tmp}/agentstudio-bridge-dev.XXXXXX")"
+.build-bridge-development-server/agentstudio-bridge-dev-server \
+  --data-root "$bridge_dev_root" \
+  --pane-id 00000000-0000-7000-8000-000000000001 \
+  --seed-worktree "$PWD" \
+  --seed-target HEAD \
+  --port 43871
+```
+
+In a second terminal, run `pnpm --dir BridgeWeb run dev`, then open
+`http://127.0.0.1:5173/?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`.
+Vite provides React HMR while the Swift backend uses the production Core,
+Bridge, `agentstudio-git`, and isolated `core.sqlite`/`local.sqlite` owners.
+Use the actual app for final validation of packaged WKWebView, native chrome,
+App lifecycle, and other boundaries the development server cannot prove.
+
 > **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround for a primary or explicitly authorized local-vendor worktree: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If vendor-producing setup surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Shared linked worktrees do not build the vendors. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and SwiftLint automatically after every Edit/Write on `.swift` files.
@@ -72,6 +96,7 @@ the question, then inspect current code/tests before making claims.
    Do not call unit tests, mocks, or fake integration coverage a smoke. If a
    higher proof layer is blocked, report the blocker separately from the
    passing lower-layer proof.
+   For expensive derived facts driven by product demand, read [Demand-Driven Derived-State Refresh](docs/architecture/demand_driven_derived_state_refresh.md) before adding observers, debounces, polling, timers, or caches.
 4. Observability: use the shared Victoria path below. AgentStudio produces
    telemetry; the shared stack owns VictoriaMetrics, VictoriaLogs, and
    VictoriaTraces. Prefer marker-scoped verifiers over screenshots, stale JSONL,
@@ -175,6 +200,17 @@ scripts/run-debug-observability.sh --print-identity
 The state file is `tmp/debug-observability/latest-observability.env`. It is a
 marker/verifier handoff, not proof by itself; `mise run verify-debug-observability`
 must still query VictoriaLogs and validate the live process identity.
+
+- Before any manual verdict, match the window's four-character debug identity to
+  the state-file code and PID; a verdict against another running instance is void.
+- Treat feel as a query trigger: inspect the current marker's VictoriaLogs lanes
+  and per-second timeline before attributing or diagnosing latency.
+- Load-sensitive interaction or MainActor claims require a live heavy-load marker
+  or a derived stress fixture, compared against a recorded stress baseline.
+- Detached launches stay background-only; set `AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE=1`
+  only for human manual testing, never automated proof. See
+  [Manual and stress verification](docs/architecture/observability_and_traceability.md#manual-and-stress-verification).
+
 The launcher refuses to start a second `Agent Studio Debug <code>` instance
 while one is already running; quit the reported PID before collecting a new
 debug observability proof for the same worktree. On refusal it overwrites
@@ -272,6 +308,15 @@ high-volume lanes such as atoms must be selected with
 performance workload proof excludes `atoms` by default and should enable it only
 for a dedicated atom telemetry proof run.
 
+### Performance Lane Directive
+
+- Classify a lane as `often` at about 10 or more events/minute, or `heavy` at 1 ms MainActor / 50 ms off-main.
+- Every `often` or `heavy` lane names an admission policy before work crosses its owner boundary.
+- Apply equality suppression before MainActor publication and use keyed reads on hot observation paths.
+- Move heavy derivation off MainActor while preserving the existing owner and published end state.
+- Put timing, cadence, and threshold constants in `AppPolicies`.
+- Ship marker-scoped probes with new performance lanes; measurement is part of the lane contract.
+
 Use `AGENTSTUDIO_TRACE_BACKEND=jsonl|otlp|both` for explicit selection.
 `OTEL_EXPORTER_OTLP_ENDPOINT` is accepted only for loopback HTTP endpoints and
 is treated as a collector base URL; AgentStudio sends logs to `/v1/logs` and
@@ -337,7 +382,7 @@ is stateless and depends only on Infrastructure. Cross-target declarations use
 the narrowest necessary `package` visibility; do not broadly promote product
 APIs to `public`. Further Core decomposition is deferred.
 
-`AtomRegistry` is the internal App-only composition root at `Sources/AgentStudio/AtomRegistry.swift`. It stores one `CoreAtoms` plus explicit concrete Feature roots and is never an ambient lookup surface. `Infrastructure/AtomLib` owns only generic primitives (`AtomValue`, `AtomEntityMap`, `AtomMutationContext`, `AtomRevision`, `DerivedValue`, and their telemetry); product access (`atom(\...)` and `CoreAtomScope`) belongs to Core. Infrastructure must not name `AtomRegistry`, `CoreAtoms`, `CoreAtomScope`, product atoms, or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomEntityMap.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
+`AtomRegistry` is the internal App-only composition root at `Sources/AgentStudio/AtomRegistry.swift`. It stores one `CoreAtoms` plus explicit concrete Feature roots and is never an ambient lookup surface. `Infrastructure/AtomLib` owns only generic primitives (`AtomValue`, `AtomFamily`, `AtomMutationContext`, `AtomRevision`, `DerivedAtom`, and their telemetry); product access (`atom(\...)` and `CoreAtomScope`) belongs to Core. Infrastructure must not name `AtomRegistry`, `CoreAtoms`, `CoreAtomScope`, product atoms, or feature-specific registry fields. Hot UI reads for keyed entity state should use keyed atom-family-style slots such as `AtomFamily.value(for:)`; dictionary-shaped snapshots are for persistence, cold bulk bridges, and measured exceptions.
 
 Architecture boundaries are enforced by stock SwiftLint plus the repo-local
 SwiftPM/SwiftSyntax tool in `Tools/AgentStudioArchitectureLint`. `mise run lint`
@@ -447,7 +492,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceIdentityAtom` | workspace id, name, and creation timestamp | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` |
 | `WorkspaceWindowMemoryAtom` | window-keyed sidebar width and window frame memory | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` |
 | `RepositoryTopologyAtom` | application-global repos, worktrees, watched paths, availability, and stable-key indexes; `WorkspaceStore` references this shared owner but does not make the entities workspace-owned | `Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift` |
-| `WorkspacePaneGraphAtom` | core pane graph: pane identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer identity, drawer membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
+| `WorkspacePaneGraphAtom` | core pane graph with paired keyed canonical `PaneGraphState` and `PaneStructuralFacts` families, one accepted commit revision, pane identity/content/residency/metadata, and drawer identity/membership | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` |
 | `WorkspaceDrawerCursorAtom` | local drawer expansion cursor keyed by drawer id | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` |
 | `WorkspacePaneAtom` | compatibility mutation facade over pane graph + drawer cursor | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
 | `WorkspacePaneDerived` | UI read model composing rich `Pane` values from pane graph, drawer cursor, topology, and cache facts | `Core/State/MainActor/Atoms/WorkspacePaneDerived.swift` |
@@ -793,7 +838,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceIdentityAtom` | `Core/State/MainActor/Atoms/` | Workspace id, name, and creation timestamp |
 | `WorkspaceWindowMemoryAtom` | `Core/State/MainActor/Atoms/` | Window-keyed sidebar width and window frame memory |
 | `RepositoryTopologyAtom` | `Core/State/MainActor/Atoms/` | Application-global repos, worktrees, watched paths, availability, and stable-key indexes |
-| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Core pane graph: identity, content (including stored terminal zmx anchors), residency, durable metadata with live facets, drawer membership |
+| `WorkspacePaneGraphAtom` | `Core/State/MainActor/Atoms/` | Paired keyed canonical pane state and structural facts with one accepted commit revision; identity, content, residency, durable metadata, and drawer membership |
 | `WorkspaceDrawerCursorAtom` | `Core/State/MainActor/Atoms/` | Local drawer expansion cursor |
 | `WorkspacePaneAtom` | `Core/State/MainActor/Atoms/` | Compatibility mutation facade over pane graph + drawer cursor |
 | `WorkspacePaneDerived` | `Core/State/MainActor/Atoms/` | Rich pane read model composed from graph, cursor, topology, and cache facts |

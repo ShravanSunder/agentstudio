@@ -92,6 +92,24 @@ struct PaneObservationResolverTests {
         #expect(observedPaneIds == Set([childId, siblingId]))
     }
 
+    @Test("observed pane ids can resolve drawer visibility without reading rich pane values")
+    func observedPaneIdsAcceptStructuralDrawerVisibility() {
+        let parentId = UUIDv7.generate()
+        let childId = UUIDv7.generate()
+        let siblingId = UUIDv7.generate()
+        let tab = makeTab(paneIds: [parentId, siblingId], activePaneId: parentId)
+        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: childId)
+
+        let observedPaneIds = PaneObservationResolver.currentObservedPaneIds(
+            attendedPaneId: parentId,
+            activeTab: tab,
+            isDrawerExpanded: { $0 == parentId },
+            drawerView: { $0 == parentId ? drawerView : nil }
+        )
+
+        #expect(observedPaneIds == Set([childId, siblingId]))
+    }
+
     @Test("Zoom replaces an expanded drawer source with its active child")
     func zoomReplacesExpandedDrawerSourceWithActiveChild() {
         let parentId = UUIDv7.generate()

@@ -26,6 +26,7 @@ extension AppDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        mainWindowController?.shutdown()
         managementLayerMonitor?.stopMonitoring()
         guard let applicationLifecycleMonitor else {
             appDelegateLifecycleLogger.warning("Skipping applicationWillTerminate before lifecycle monitor is ready")
@@ -79,7 +80,7 @@ extension AppDelegate {
     func handleRefreshWorktreesRequested() async {
         let watchedPaths = store.repositoryTopologyAtom.watchedPaths
         guard !watchedPaths.isEmpty else { return }
-        _ = await watchedFolderCommands.refreshWatchedFolders(watchedPaths)
+        _ = await watchedFolderCommands.refreshRegisteredWorktreesAndWatchedFolders(watchedPaths)
         workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
     }
 

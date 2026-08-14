@@ -69,6 +69,58 @@ struct WorkspaceSurfaceTerminalRestoreIntegrationTests {
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     @Test
+    func preparedTerminalCohort_publishesEveryPlaceholderBeforeSurfaceCreation() throws {
+        // Arrange
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let firstPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+        let secondPane = makeAcceptedPreparedTerminalPane(launchDirectory: harness.tempDir)
+        let generation = try preparedTerminalCohortGeneration()
+        let descriptors = try [firstPane, secondPane].map { pane in
+            try preparedTerminalCohortDescriptor(
+                pane: pane,
+                visibilityPriority: .activeVisible,
+                hostPlacement: .tab(tabID: UUIDv7.generate())
+            )
+        }
+        let registry = harness.viewRegistry
+        registry.beginInitialRestore()
+        let owner = WorkspacePreparedContentMountCoordinator(
+            cohort: WorkspacePreparedContentMountCohort(
+                generation: generation,
+                terminalActivationInput: TerminalActivationInput(entries: descriptors),
+                nonterminalContentMountInput: NonterminalContentMountInput(entries: [])
+            ),
+            viewRegistry: registry,
+            terminalAdmissionPort: PreparedTerminalMountAdmissionPort(
+                generation: generation,
+                initialFramesByPaneID: [:],
+                viewRegistry: registry,
+                mountHandler: harness.coordinator
+            ),
+            nonterminalAdmissionPort: PreparedNonterminalMountAdmissionPort(
+                generation: generation,
+                coordinator: harness.coordinator
+            )
+        )
+
+        // Act
+        let publication = owner.publishTerminalPlaceholders {
+            harness.coordinator.registerPreparedTerminalPlaceholders(for: $0)
+        }
+
+        // Assert
+        #expect(publication.paneIDs == descriptors.map(\.paneID))
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        for descriptor in descriptors {
+            #expect(
+                registry.terminalStatusPlaceholderView(for: descriptor.paneID.uuid)?.mode
+                    == .preparing
+            )
+        }
+    }
+
+    @Test
     func preparedTerminalMount_rejectsMissingTrustedFrameBeforeSurfaceCreation() throws {
         // Arrange
         let harness = makeHarness()
@@ -883,20 +935,10 @@ private func makePreparedTerminalAdmission(pane: Pane) throws -> TerminalActivat
 
 @MainActor
 private final class CapturingSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
     private(set) var lastConfig: Ghostty.SurfaceConfiguration?
     private(set) var lastMetadata: SurfaceMetadata?
     private(set) var createdPaneIds: [UUID] = []
     private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
-
-    init() {
-        self.cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 

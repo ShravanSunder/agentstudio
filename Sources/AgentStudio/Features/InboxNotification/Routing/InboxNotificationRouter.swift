@@ -208,7 +208,22 @@ package final class InboxNotificationRouter {
 
         let stream = await bus.subscribe(
             policy: .criticalUnbounded,
-            subscriberName: "InboxNotificationRouter"
+            subscriberName: "InboxNotificationRouter",
+            factInterest: .matching([
+                .paneLifecycle,
+                .paneTerminal,
+                .paneTerminalActivity,
+                .paneBrowser,
+                .paneDiff,
+                .paneEditor,
+                .paneAgentNotificationRequested,
+                .panePlugin,
+                .paneFilesystemContext,
+                .paneFilesystem,
+                .paneArtifact,
+                .paneSecurity,
+                .paneError,
+            ])
         )
         busTask = Task { @MainActor [weak self] in
             for await envelope in stream {
@@ -254,12 +269,10 @@ package final class InboxNotificationRouter {
     private func observeCurrentSurface() {
         guard isStarted else { return }
         withObservationTracking {
+            _ = paneAtom.graphAtom.paneIDs
             _ = attendedPane.attendedPaneId
-            _ = paneAtom.panes
-            let activeTab = tabLayout.activeTab
-            _ = activeTab.flatMap {
-                tabLayout.arrangementAtom.presentationAtom.zoomPresentation(forTab: $0.id)
-            }
+            _ = currentAttendedPaneId()
+            _ = currentObservedPaneIds()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.isStarted else { return }
@@ -741,7 +754,7 @@ package final class InboxNotificationRouter {
     private func currentAttendedPaneId() -> UUID? {
         PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: attendedPane.attendedPaneId,
-            pane: { paneAtom.pane($0) },
+            isDrawerExpanded: { paneAtom.isDrawerExpanded(for: $0) },
             drawerView: drawerView
         )
     }
@@ -754,7 +767,7 @@ package final class InboxNotificationRouter {
             zoomSourcePaneId: activeTab.flatMap {
                 tabLayout.arrangementAtom.presentationAtom.zoomPresentation(forTab: $0.id)?.sourcePaneId
             },
-            pane: { paneAtom.pane($0) },
+            isDrawerExpanded: { paneAtom.isDrawerExpanded(for: $0) },
             drawerView: drawerView
         )
     }

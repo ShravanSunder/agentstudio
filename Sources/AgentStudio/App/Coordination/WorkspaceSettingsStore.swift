@@ -97,7 +97,6 @@ final class WorkspaceSettingsStore {
             _ = editorPreferenceAtom.bookmarkedEditorId
             _ = repoExplorerSidebarPrefsAtom.groupingMode
             _ = repoExplorerSidebarPrefsAtom.sortOrder
-            _ = repoExplorerSidebarPrefsAtom.repoVisibilityMode
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
@@ -160,7 +159,7 @@ final class WorkspaceSettingsStore {
             let preferences = WorkspaceLocalRepository.RepoExplorerPreferencesRecord.validated(
                 groupingMode: repoExplorerSidebarPrefsAtom.groupingMode.rawValue,
                 sortOrder: repoExplorerSidebarPrefsAtom.sortOrder.rawValue,
-                visibilityMode: repoExplorerSidebarPrefsAtom.repoVisibilityMode.rawValue
+                visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
             )
         else {
             throw WorkspaceSettingsStoreMappingError.unsupportedRepoExplorerPreferenceVocabulary
@@ -224,8 +223,7 @@ final class WorkspaceSettingsStore {
         case .loaded(let preferences):
             guard
                 let groupingMode = RepoExplorerGroupingMode(rawValue: preferences.groupingMode),
-                let sortOrder = RepoExplorerSortOrder(rawValue: preferences.sortOrder),
-                let visibilityMode = RepoExplorerVisibilityMode(rawValue: preferences.visibilityMode)
+                let sortOrder = RepoExplorerSortOrder(rawValue: preferences.sortOrder)
             else {
                 hydrateRepoExplorerDefaults()
                 reportResetToDefaults(workspaceId: workspaceId)
@@ -233,8 +231,7 @@ final class WorkspaceSettingsStore {
             }
             repoExplorerSidebarPrefsAtom.hydrate(
                 groupingMode: groupingMode,
-                sortOrder: sortOrder,
-                repoVisibilityMode: visibilityMode
+                sortOrder: sortOrder
             )
         case .defaulted:
             hydrateRepoExplorerDefaults()
@@ -286,8 +283,7 @@ final class WorkspaceSettingsStore {
     private func hydrateRepoExplorerDefaults() {
         repoExplorerSidebarPrefsAtom.hydrate(
             groupingMode: .repo,
-            sortOrder: .default,
-            repoVisibilityMode: .all
+            sortOrder: .default
         )
     }
 

@@ -178,6 +178,51 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         await fixture.finish()
     }
 
+    @Test("repository invalidation retries an initial Review failure without a committed snapshot")
+    func repositoryInvalidationRetriesInitialReviewFailureWithoutCommittedSnapshot() async throws {
+        // Arrange — the first package reaches the real publication boundary but cannot reserve
+        // its invalid item identity, leaving no committed snapshot to replay.
+        let fixture = try await makeRefreshAdmissionIntegrationFixture()
+        await fixture.reviewProvider.setComparison(
+            BridgeEndpointComparison(
+                baseEndpoint: fixture.baseEndpoint,
+                headEndpoint: fixture.headEndpoint,
+                changedFiles: [
+                    makeBridgeEndpointChangedFile(
+                        fileId: "invalid/review-item",
+                        path: "Sources/App/InvalidReviewItem.swift",
+                        sizeBytes: 100
+                    )
+                ]
+            )
+        )
+        fixture.controller.applyBridgePaneActivity(.foreground)
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
+        #expect(fixture.controller.paneState.diff.status == .error)
+        #expect(fixture.controller.paneState.diff.packageMetadata == nil)
+        #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 1)
+        await fixture.reviewProvider.setComparison(fixture.refreshedComparison)
+
+        // Act — a real repository change is fresh intake and should retry the initial path.
+        await fixture.controller.handleWorktreeProductInvalidation(
+            .filesChanged(
+                fixture.makeChangeset(
+                    paths: ["Sources/App/Recovered.swift"],
+                    batchSequence: 31
+                )
+            )
+        )
+        await waitForRefreshAdmissionIdle(fixture.controller)
+        await waitForActiveReviewRefreshTaskToFinish(fixture.controller)
+
+        // Assert
+        #expect(await fixture.reviewProvider.recordedComparisonRequestsCount() == 2)
+        #expect(fixture.controller.paneState.diff.status == .ready)
+        #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-refreshed"])
+        #expect(fixture.controller.refreshAdmissionCoordinator.diagnosticSnapshot.dirtyFact == nil)
+        await fixture.finish()
+    }
+
     @Test("current initial Review reservation failure resets Review and leaves File active")
     func currentInitialReviewReservationFailureResetsReviewAndLeavesFileActive() async throws {
         // Arrange
@@ -581,7 +626,9 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         let controller = makeController(
             state: BridgePaneState(
                 panelKind: .diffViewer,
-                source: .workspace(rootPath: "/tmp/bridge-refresh-teardown", baseline: .headMinusOne)
+                source: .workspace(
+                    rootPath: "/tmp/bridge-refresh-teardown",
+                    baseline: .ref(name: "HEAD~1"))
             )
         )
         controller.applyBridgePaneActivity(.foreground)

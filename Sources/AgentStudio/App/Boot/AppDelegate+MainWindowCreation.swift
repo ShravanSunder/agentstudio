@@ -8,12 +8,12 @@ import AppKit
 
 struct AppDelegateMainWindowCreationDependencies {
     let store: WorkspaceStore
+    let repoCache: RepoCacheAtom
     let octiconLoader: OcticonLoader
     let executor: WorkspaceActionExecutor
     let workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator
     let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     let appLifecycleStore: AppLifecycleAtom
-    let tabBarAdapter: TabBarAdapter
     let viewRegistry: ViewRegistry
     let bridgePaneAttendance: BridgePaneAttendanceAtom
     let editorChooser: EditorChooserState
@@ -36,7 +36,6 @@ extension AppDelegate {
         if workspaceSurfaceCoordinator == nil { missingDependencies.append("workspaceSurfaceCoordinator") }
         if applicationLifecycleMonitor == nil { missingDependencies.append("applicationLifecycleMonitor") }
         if appLifecycleStore == nil { missingDependencies.append("appLifecycleStore") }
-        if tabBarAdapter == nil { missingDependencies.append("tabBarAdapter") }
         if viewRegistry == nil { missingDependencies.append("viewRegistry") }
         if atomStore == nil { missingDependencies.append("atomStore") }
         if paneInboxNotificationPresenter == nil { missingDependencies.append("paneInboxNotificationPresenter") }
@@ -52,7 +51,6 @@ extension AppDelegate {
             let workspaceSurfaceCoordinator,
             let applicationLifecycleMonitor,
             let appLifecycleStore,
-            let tabBarAdapter,
             let viewRegistry,
             let atomStore,
             let paneInboxNotificationPresenter,
@@ -81,12 +79,12 @@ extension AppDelegate {
 
         return AppDelegateMainWindowCreationDependencies(
             store: store,
+            repoCache: atomStore.core.repoCache,
             octiconLoader: octiconLoader,
             executor: executor,
             workspaceSurfaceCoordinator: workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomStore.bridgePaneAttendance,
             editorChooser: atomStore.editorChooser,
@@ -104,6 +102,12 @@ extension AppDelegate {
     func makeMainWindowController(dependencies: AppDelegateMainWindowCreationDependencies) -> MainWindowController {
         let workspaceSurfaceCoordinator = dependencies.workspaceSurfaceCoordinator
         let workspaceWindowId = UUID()
+        let tabBarAdapter = TabBarAdapter(
+            store: dependencies.store,
+            repoCache: dependencies.repoCache,
+            inboxAtom: dependencies.inboxNotification,
+            performanceTraceRecorder: dependencies.performanceTraceRecorder
+        )
         let mainWindowController = MainWindowController(
             workspaceWindowId: workspaceWindowId,
             store: dependencies.store,
@@ -112,7 +116,7 @@ extension AppDelegate {
             runtimeCommandDispatcher: dependencies.workspaceSurfaceCoordinator,
             applicationLifecycleMonitor: dependencies.applicationLifecycleMonitor,
             appLifecycleStore: dependencies.appLifecycleStore,
-            tabBarAdapter: dependencies.tabBarAdapter,
+            tabBarAdapter: tabBarAdapter,
             viewRegistry: dependencies.viewRegistry,
             bridgePaneAttendance: dependencies.bridgePaneAttendance,
             editorChooser: dependencies.editorChooser,
@@ -121,8 +125,8 @@ extension AppDelegate {
             inboxSidebarState: dependencies.inboxSidebarState,
             paneInboxPresentationState: dependencies.paneInboxPresentationState,
             repoExplorerSidebarPrefs: dependencies.repoExplorerSidebarPrefs,
-            bridgeAttendanceSnapshot: {
-                dependencies.bridgePaneAttendance.ordinalSnapshot()
+            bridgeAttendanceSnapshot: { paneId in
+                dependencies.bridgePaneAttendance.ordinal(for: paneId)
             },
             paneInboxPresenter: dependencies.paneInboxNotificationPresenter,
             performanceTraceRecorder: dependencies.performanceTraceRecorder,
@@ -132,6 +136,9 @@ extension AppDelegate {
             closeTransitionCoordinator: dependencies.closeTransitionCoordinator
         )
         workspaceSurfaceCoordinator.bindBridgePaneActivities(
+            toOwningWindowId: workspaceWindowId
+        )
+        workspaceSurfaceCoordinator.bindPullRequestDemand(
             toOwningWindowId: workspaceWindowId
         )
         return mainWindowController

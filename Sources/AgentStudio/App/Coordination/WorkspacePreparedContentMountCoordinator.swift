@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AgentStudioTerminal
 import Foundation
 
@@ -6,6 +7,16 @@ struct WorkspacePreparedContentMountSettlement: Equatable, Sendable {
     let generation: WorkspaceContentMountGeneration
     let terminal: TerminalActivationSettlement
     let nonterminal: NonterminalContentMountSettlement
+}
+
+struct TerminalPlaceholderPublication: Equatable, Sendable {
+    enum Disposition: Equatable, Sendable {
+        case published
+        case joinedExistingPublication
+    }
+
+    let paneIDs: [PaneId]
+    let disposition: Disposition
 }
 
 /// Joins the independently scheduled terminal and nonterminal startup lanes for
@@ -21,8 +32,10 @@ final class WorkspacePreparedContentMountCoordinator {
     private let cohort: WorkspacePreparedContentMountCohort
     private let viewRegistry: ViewRegistry
     private let terminalScheduler: TerminalActivationScheduler
+    private let terminalActivationReleaseGate: TerminalActivationReleaseGate
     private let nonterminalOwner: NonterminalContentMountOwner
     private var lifecycle = Lifecycle.idle
+    private var didPublishTerminalPlaceholders = false
     private var waiters: [CheckedContinuation<WorkspacePreparedContentMountSettlement, Never>] = []
     private var deferredVisibilityIntentPaneIDs: Set<PaneId> = []
     private var deferredVisibilityIntentOrder: [PaneId] = []
@@ -48,12 +61,15 @@ final class WorkspacePreparedContentMountCoordinator {
         )
         self.cohort = startupCohort
         self.viewRegistry = viewRegistry
+        let terminalActivationReleaseGate = TerminalActivationReleaseGate(isReleased: true)
+        self.terminalActivationReleaseGate = terminalActivationReleaseGate
         terminalScheduler = TerminalActivationScheduler(
             cohort: TerminalActivationCohort(
                 generation: startupCohort.generation,
                 input: startupCohort.terminalActivationInput
             ),
-            admissionPort: terminalAdmissionPort
+            admissionPort: terminalAdmissionPort,
+            releaseSignal: terminalActivationReleaseGate
         )
         nonterminalOwner = NonterminalContentMountOwner(
             generation: startupCohort.generation,
@@ -61,6 +77,18 @@ final class WorkspacePreparedContentMountCoordinator {
             admissionPort: nonterminalAdmissionPort
         )
         viewRegistry.installPreparedContentMountCohort(startupCohort)
+    }
+
+    func holdTerminalActivationUntilReleased() async {
+        await terminalActivationReleaseGate.hold()
+    }
+
+    func releaseTerminalActivation() async {
+        await terminalActivationReleaseGate.release()
+    }
+
+    func terminalActivationDeferralOutcome() async -> StartupDeferralOutcome? {
+        await terminalScheduler.recordedActivationDeferralOutcome()
     }
 
     func mount() async -> WorkspacePreparedContentMountSettlement {
@@ -92,6 +120,35 @@ final class WorkspacePreparedContentMountCoordinator {
             waiter.resume(returning: settlement)
         }
         return settlement
+    }
+
+    /// Publishes the accepted restore cohort in stable order without starting
+    /// terminal activation. The caller owns the concrete placeholder host.
+    func publishTerminalPlaceholders(
+        using publish: (TerminalActivationDescriptor) -> Void
+    ) -> TerminalPlaceholderPublication {
+        let descriptors = cohort.terminalActivationInput.entries
+        guard !didPublishTerminalPlaceholders else {
+            return TerminalPlaceholderPublication(
+                paneIDs: descriptors.map(\.paneID),
+                disposition: .joinedExistingPublication
+            )
+        }
+        precondition(
+            {
+                if case .idle = lifecycle { return true }
+                return false
+            }(),
+            "terminal placeholders must publish before prepared content mounting"
+        )
+        didPublishTerminalPlaceholders = true
+        for descriptor in descriptors {
+            publish(descriptor)
+        }
+        return TerminalPlaceholderPublication(
+            paneIDs: descriptors.map(\.paneID),
+            disposition: .published
+        )
     }
 
     func promoteTerminal(

@@ -6,48 +6,6 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioTestSupport
 
-// MARK: - Mock Command Handler
-
-final class MockCommandHandler: WorkspaceCommandHandling {
-    var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
-    var quickOpenDirectoryRequests: [(directory: URL, placement: QuickOpenDirectoryPlacement)] = []
-    var canExecuteResult: Bool = true
-    var targetedCanExecuteResult: Bool?
-    var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
-    var movePaneRequests: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
-
-    func execute(_ command: AppCommand) {
-        executedCommands.append((command, nil, nil))
-    }
-
-    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        executedCommands.append((command, target, targetType))
-    }
-
-    func executeQuickOpenDirectory(_ directory: URL, placement: QuickOpenDirectoryPlacement) {
-        quickOpenDirectoryRequests.append((directory, placement))
-    }
-
-    func canExecute(_ command: AppCommand) -> Bool {
-        canExecuteResult
-    }
-
-    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        _ = command
-        _ = target
-        _ = targetType
-        return targetedCanExecuteResult ?? canExecuteResult
-    }
-
-    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
-        extractedPaneRequests.append((tabId, paneId, targetTabIndex))
-    }
-
-    func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
-        movePaneRequests.append((sourcePaneId, sourceTabId, targetTabId))
-    }
-}
-
 @MainActor
 final class MockAppCommandRouter: ShellCommandHandling {
     var handledCommands: [AppCommand] = []
@@ -609,12 +567,12 @@ final class AppCommandTests {
     func test_dispatcher_dispatchRequest_routesTypedArgumentsToAppRouter() async throws {
         let dispatcher = AppCommandDispatcher.shared
         let appRouter = MockAppCommandRouter()
-        appRouter.requestCommands = [.setRepoSidebarVisibilityMode]
-        appRouter.requestCapabilityCommands = [.setRepoSidebarVisibilityMode]
+        appRouter.requestCommands = [.setRepoSidebarSortOrder]
+        appRouter.requestCapabilityCommands = [.setRepoSidebarSortOrder]
         appRouter.parameterlessCanExecuteResult = false
         let request = AppCommandExecutionRequest(
-            command: .setRepoSidebarVisibilityMode,
-            arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+            command: .setRepoSidebarSortOrder,
+            arguments: .repoSidebarSortOrder(.descending)
         )
 
         try await withIsolatedCommandDispatcher(

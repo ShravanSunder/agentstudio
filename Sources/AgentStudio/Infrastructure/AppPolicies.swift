@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 package enum AppPolicies {
+    package enum StartupDeferral {
+        package static let maximumWait: Duration = .seconds(10)
+    }
+
     package enum CommandBar {
         package static let maximumHistoryCount: Int = 8
     }
@@ -19,7 +23,6 @@ package enum AppPolicies {
             case surfaceSwitch = "surface_switch"
             case search
             case sortOrder = "sort_order"
-            case visibilityMode = "visibility_mode"
             case collapseToggle = "collapse_toggle"
             case dataRefresh = "data_refresh"
             case startupDiagnostic = "startup_diagnostic"
@@ -45,6 +48,9 @@ package enum AppPolicies {
     }
 
     package enum Bridge {
+        package static let reviewComparisonTargetRecencyWindow: Duration = .seconds(30 * 24 * 60 * 60)
+        package static let reviewComparisonTargetMaximumRows: Int = 2000
+        package static let reviewComparisonTargetMaximumEncodedBytes: Int = 1 * 1024 * 1024
         /// Retention cap for one content body: a single item must never evict
         /// the whole byte cache, and larger bodies render as oversized.
         package static let contentMaxBytesPerItem: Int = 16 * 1024 * 1024
@@ -113,7 +119,11 @@ package enum AppPolicies {
     }
 
     package enum TerminalActivation {
-        package static let maximumConcurrentAdmissions: Int = 4
+        package static let restoreMaximumConcurrentAdmissions: Int = 1
+    }
+
+    package enum TerminalLocalAction {
+        package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
     }
 
     package enum NonterminalContentMount {
@@ -128,12 +138,20 @@ package enum AppPolicies {
         package static let filesystemDebounceWindow: Duration = .milliseconds(500)
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
+        package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
 
         package struct Policy: Equatable, Sendable {
-            package let activeCadence: Duration
+            package let activePaneCadence: Duration
+            package let visibleSidebarCadence: Duration
+            package let openPaneCadence: Duration
+            package let backgroundCadence: Duration
             package let backgroundStripeCount: Int
             package let maxConcurrentStatusComputes: Int
-            package let oldestStaleReservedSlots: Int
+            package let activePaneMaxConcurrent: Int
+            package let visibleSidebarMaxConcurrent: Int
+            package let openPaneMaxConcurrent: Int
+            package let backgroundMaxConcurrent: Int
+            package let visibleSidebarStripeSize: Int
             package let suppressedWorktreeTombstoneLimit: Int
             package let maxNilStatusRetries: Int
             package let nilStatusRetryDelay: Duration
@@ -154,12 +172,23 @@ package enum AppPolicies {
             /// projector falls back to a full-worktree status, since a very large
             /// pathspec set approaches full-tree walk cost anyway.
             package let maxScopedStatusPathspecCount: Int
+            /// Periodic cadence multipliers indexed by consecutive unchanged
+            /// results. The default reaches 4x after two equal outcomes, reducing
+            /// admissions by 75% while retaining a bounded refresh backstop.
+            package let unchangedStatusCadenceMultipliers: [Int]
 
             package init(
-                activeCadence: Duration = .seconds(15),
+                activePaneCadence: Duration = .seconds(15),
+                visibleSidebarCadence: Duration = .seconds(60),
+                openPaneCadence: Duration = .seconds(180),
+                backgroundCadence: Duration = .seconds(240),
                 backgroundStripeCount: Int = 16,
                 maxConcurrentStatusComputes: Int = 4,
-                oldestStaleReservedSlots: Int = 1,
+                activePaneMaxConcurrent: Int = 1,
+                visibleSidebarMaxConcurrent: Int = 2,
+                openPaneMaxConcurrent: Int = 1,
+                backgroundMaxConcurrent: Int = 1,
+                visibleSidebarStripeSize: Int = 8,
                 suppressedWorktreeTombstoneLimit: Int = 1024,
                 maxNilStatusRetries: Int = 1,
                 nilStatusRetryDelay: Duration = .seconds(5),
@@ -168,11 +197,20 @@ package enum AppPolicies {
                 statusFailureBackoffMaxDelay: Duration = .seconds(60),
                 capacityRetryBaseDelay: Duration = .milliseconds(500),
                 capacityRetryJitterMaxDelay: Duration = .milliseconds(100),
-                maxScopedStatusPathspecCount: Int = 128
+                maxScopedStatusPathspecCount: Int = 128,
+                unchangedStatusCadenceMultipliers: [Int] = [1, 2, 4]
             ) {
+                precondition(activePaneCadence > .zero)
+                precondition(visibleSidebarCadence >= activePaneCadence)
+                precondition(openPaneCadence >= visibleSidebarCadence)
+                precondition(backgroundCadence >= openPaneCadence)
                 precondition(backgroundStripeCount > 0)
                 precondition(maxConcurrentStatusComputes > 0)
-                precondition(oldestStaleReservedSlots >= 0)
+                precondition(activePaneMaxConcurrent > 0)
+                precondition(visibleSidebarMaxConcurrent > 0)
+                precondition(openPaneMaxConcurrent > 0)
+                precondition(backgroundMaxConcurrent > 0)
+                precondition(visibleSidebarStripeSize > 0)
                 precondition(suppressedWorktreeTombstoneLimit > 0)
                 precondition(maxNilStatusRetries >= 0)
                 precondition(statusFailureBackoffBaseDelay > .zero)
@@ -181,11 +219,24 @@ package enum AppPolicies {
                 precondition(capacityRetryBaseDelay > .zero)
                 precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
+                precondition(unchangedStatusCadenceMultipliers.first == 1)
+                precondition(
+                    unchangedStatusCadenceMultipliers.elementsEqual(
+                        unchangedStatusCadenceMultipliers.sorted()
+                    )
+                )
 
-                self.activeCadence = activeCadence
+                self.activePaneCadence = activePaneCadence
+                self.visibleSidebarCadence = visibleSidebarCadence
+                self.openPaneCadence = openPaneCadence
+                self.backgroundCadence = backgroundCadence
                 self.backgroundStripeCount = backgroundStripeCount
                 self.maxConcurrentStatusComputes = maxConcurrentStatusComputes
-                self.oldestStaleReservedSlots = oldestStaleReservedSlots
+                self.activePaneMaxConcurrent = activePaneMaxConcurrent
+                self.visibleSidebarMaxConcurrent = visibleSidebarMaxConcurrent
+                self.openPaneMaxConcurrent = openPaneMaxConcurrent
+                self.backgroundMaxConcurrent = backgroundMaxConcurrent
+                self.visibleSidebarStripeSize = visibleSidebarStripeSize
                 self.suppressedWorktreeTombstoneLimit = suppressedWorktreeTombstoneLimit
                 self.maxNilStatusRetries = maxNilStatusRetries
                 self.nilStatusRetryDelay = nilStatusRetryDelay
@@ -195,6 +246,7 @@ package enum AppPolicies {
                 self.capacityRetryBaseDelay = capacityRetryBaseDelay
                 self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
+                self.unchangedStatusCadenceMultipliers = unchangedStatusCadenceMultipliers
             }
 
             /// Exponential per-worktree backoff for status computes that time out
@@ -223,10 +275,6 @@ package enum AppPolicies {
                     )
             }
 
-            package var backgroundCadence: Duration {
-                Self.scaled(activeCadence, by: backgroundStripeCount)
-            }
-
             package func backgroundStripe(for worktreeId: UUID) -> Int {
                 Int(Self.stableHash(for: worktreeId) % UInt64(backgroundStripeCount))
             }
@@ -236,12 +284,43 @@ package enum AppPolicies {
                 return backgroundStripe(for: worktreeId) == currentStripe
             }
 
+            package func cadenceTickInterval(forUnchangedResultCount count: Int) -> UInt64 {
+                let index = min(max(count, 0), unchangedStatusCadenceMultipliers.count - 1)
+                return UInt64(unchangedStatusCadenceMultipliers[index])
+            }
+
+            package var activeCadence: Duration {
+                activePaneCadence
+            }
+
+            package func cadenceTickInterval(
+                for cadence: Duration,
+                unchangedResultCount: Int
+            ) -> UInt64 {
+                let baseTicks = Self.tickCount(for: cadence, baseCadence: activePaneCadence)
+                return baseTicks * cadenceTickInterval(forUnchangedResultCount: unchangedResultCount)
+            }
+
+            package func isCadenceDue(_ cadence: Duration, tick: UInt64) -> Bool {
+                tick.isMultiple(of: Self.tickCount(for: cadence, baseCadence: activePaneCadence))
+            }
+
             private static func scaled(_ duration: Duration, by multiplier: Int) -> Duration {
                 var scaledDuration = Duration.zero
                 for _ in 0..<multiplier {
                     scaledDuration += duration
                 }
                 return scaledDuration
+            }
+
+            private static func tickCount(for cadence: Duration, baseCadence: Duration) -> UInt64 {
+                var elapsed = Duration.zero
+                var tickCount: UInt64 = 0
+                while elapsed < cadence {
+                    elapsed += baseCadence
+                    tickCount &+= 1
+                }
+                return max(1, tickCount)
             }
 
             private static func jitterDelay(maxDelay: Duration, worktreeId: UUID) -> Duration {
@@ -272,6 +351,51 @@ package enum AppPolicies {
                 return hash
             }
         }
+    }
+
+    package enum FilesystemIngress {
+        package static let bufferedFineBatchCapacity: Int = 64
+    }
+
+    package enum FilesystemSourceSync {
+        /// Maximum number of worktree keys admitted to one sequential source-write batch.
+        /// A full reconciliation retains every key and yields between batches.
+        package static let maximumWorktreeKeysPerBatch: Int = 32
+    }
+
+    package enum ForgeRefresh {
+        package static let defaultPollingInterval: Duration = .seconds(45)
+        package static let pendingFollowUpDelay: Duration = .seconds(1)
+        package static let failureBackoffBaseDelay: Duration = .seconds(5)
+        package static let failureBackoffMultiplier: Int = 2
+        package static let failureBackoffMaxDelay: Duration = .seconds(60)
+
+        package static func failureBackoffDelay(forConsecutiveFailureCount failureCount: Int) -> Duration {
+            guard failureCount > 1 else {
+                return min(failureBackoffBaseDelay, failureBackoffMaxDelay)
+            }
+            var backoffDelay = failureBackoffBaseDelay
+            for _ in 1..<failureCount {
+                var scaledDelay = Duration.zero
+                for _ in 0..<failureBackoffMultiplier {
+                    scaledDelay += backoffDelay
+                }
+                backoffDelay = scaledDelay
+                if backoffDelay >= failureBackoffMaxDelay {
+                    return failureBackoffMaxDelay
+                }
+            }
+            return min(backoffDelay, failureBackoffMaxDelay)
+        }
+    }
+
+    package enum Forge {
+        /// Hard cap for one repository-wide pull request query. Reaching the
+        /// cap is treated as potentially truncated rather than complete.
+        package static let pullRequestResultLimit: Int = 200
+        /// Shared floor for automatic-refresh freshness and retries after a
+        /// failed, truncated, or rate-limited pull request query.
+        package static let automaticRefreshMinimumInterval: Duration = .seconds(180)
     }
 
     package enum WatchedFolderScanning {
@@ -375,4 +499,10 @@ package enum AppPolicies {
         /// produce a child smaller than this are forbidden.
         package static let splitMinimumPaneSize: CGFloat = 10
     }
+}
+
+package enum StartupDeferralOutcome: String, Equatable, Sendable {
+    case completed
+    case cancelled
+    case fallbackTimeout = "fallback_timeout"
 }

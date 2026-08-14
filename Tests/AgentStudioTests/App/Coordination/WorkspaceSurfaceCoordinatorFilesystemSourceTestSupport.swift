@@ -428,29 +428,6 @@ actor GateableFilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
 
 @MainActor
 final class MockFilesystemCoordinatorSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-    private let cwdContinuation: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.Continuation
-
-    init() {
-        let stream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.makeStream()
-        cwdStream = stream.stream
-        cwdContinuation = stream.continuation
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdStream
-    }
-
-    func sendCWDChange(paneId: UUID, cwd: URL?) {
-        cwdContinuation.yield(
-            SurfaceManager.SurfaceCWDChangeEvent(
-                surfaceId: UUIDv7.generate(),
-                paneId: paneId,
-                cwd: cwd
-            )
-        )
-    }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

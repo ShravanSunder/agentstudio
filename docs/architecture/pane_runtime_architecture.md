@@ -4,7 +4,7 @@
 
 Agent Studio is a **workspace for agent-assisted development** — an agent orchestration platform where terminal agents (Claude, Codex, aider) are the primary drivers and non-terminal panes (diff viewers, PR reviewers, code viewers) exist for human observation and control. This is the **inverse of Cursor**: agents drive the workspace, users observe and orchestrate.
 
-The current Ghostty integration handles 12 of 40+ C API actions, uses `DispatchQueue.main.async` and `NotificationCenter` for event dispatch, and has no typed event contract. Non-terminal pane types (webview, diff viewer) have no runtime abstraction. There is no bidirectional communication system, no event batching, and no temporal coordination for multi-agent workflows.
+The current system translates Ghostty callbacks into a typed, exhaustive source-admission decision, contracts high-rate terminal presentation locally, and publishes exact coordination facts through typed pane runtimes. Terminal, Bridge, Webview, and native Swift pane implementations share the runtime contract; commands remain direct request-response calls rather than EventBus traffic.
 
 This document defines the pane runtime communication architecture: how panes of all types produce events, receive commands, and coordinate through the workspace.
 
@@ -35,7 +35,7 @@ a `RuntimeEnvelope`.
 
 | Plane | Direction | Mechanism | Invariant |
 |-------|-----------|-----------|-----------|
-| **Event plane** | Producers → EventBus → consumers | Runtimes (`@MainActor`) and boundary actors (FilesystemActor, GitWorkingDirectoryProjector, ForgeActor, ContainerActor) post `RuntimeEnvelope`s (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) to `EventBus`. `WorkspaceCacheCoordinator`, `NotificationReducer`, and future analytics subscribe from the bus independently. | One-way. Events never flow backward. Bus is dumb fan-out (`post()` + `subscribe()` only). See [EventBus Design](pane_runtime_eventbus_design.md) and [Workspace Data Architecture](workspace_data_architecture.md). |
+| **Event plane** | Producers → EventBus → consumers | Runtimes (`@MainActor`) and boundary actors post `RuntimeEnvelope`s (3-tier: `SystemEnvelope`, `WorktreeEnvelope`, `PaneEnvelope`) to `EventBus`. Each subscriber supplies its buffer policy, stable name, and optional fact-topic interest. | One-way. Events never flow backward. The bus matches immutable fact topics before live, batch, or replay yield and owns delivery/replay diagnostics, but no domain policy. See [EventBus Design](pane_runtime_eventbus_design.md) and [Workspace Data Architecture](workspace_data_architecture.md). |
 | **Command plane** | User/system → coordinator → runtime | Coordinator dispatches `PaneRuntimeCommand`s directly via `RuntimeRegistry` (`runtime.handleCommand(envelope)`). Command-plane calls to boundary actors (e.g., `forgeActor.refresh(repo:)`) are also direct. | Request-response. Commands never flow through the EventBus. |
 | **UI plane** | Runtime → SwiftUI view | `@Observable` properties on each runtime, views bind directly. `@Observable` mutation happens synchronously on `@MainActor` **before** any bus post. | Synchronous, zero-overhead. UI is never stale relative to coordination consumers. Bus is for coordination, not UI state transport. |
 
@@ -195,7 +195,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **User problem:** Agents edit 50 files in 2 seconds. The workspace needs to know "agent produced a changeset" without drowning in per-file events (JTBD 5, JTBD 6, P6).
 
-**Decision:** `FilesystemActor` emits filesystem facts (`.filesChanged`) and watched-folder topology facts (`.repoDiscovered`, `.repoRemoved`) alongside worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Add Folder uses a direct watched-folder command to trigger the actor and receive a scan summary, but topology facts still flow through the bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
+**Decision:** `DarwinFSEventStreamClient` feeds a bounded fine-batch ingress into `FilesystemActor`, which emits filesystem facts (`.filesChanged`) and watched-folder topology facts (`.repoDiscovered`, `.repoRemoved`) alongside worktree topology (`.worktreeRegistered`/`.worktreeUnregistered`). When fine ingress overflows, the client records per-worktree coarse refresh debt; `FilesystemActor` consumes that debt as root-scoped affected evidence, never as an empty/no-change batch. A separate `GitWorkingDirectoryProjector` subscribes to `.filesChanged` and emits derived git facts (`.snapshotChanged`, `.branchChanged`, `.originChanged`). Add Folder uses a direct watched-folder command to trigger the actor and receive a scan summary, but topology facts still flow through the bus fanout. `FilesystemActor` enforces debounce (500ms settle) and max latency (2s) so sustained writes still flush bounded batches.
 
 **Enrichment pipeline context:** This filesystem observation is part of a sequential enrichment pipeline: `FilesystemActor → GitWorkingDirectoryProjector → ForgeActor → WorkspaceCacheCoordinator`. Each stage subscribes to the bus and produces enriched events. The full pipeline contract is in [Workspace Data Architecture](workspace_data_architecture.md).
 
@@ -1784,6 +1784,29 @@ while leaving `.exactFactOrControl` eligible for that edge. The rule
 intentionally does not perform general type resolution or control-flow
 analysis.
 
+Terminal scheduling has two independent drain lanes. `.immediate` contracts
+local presentation and ordered lifecycle work; `.title` retains its own
+deadline and MainActor-admission slack. Per-surface title, activity, and CWD
+publication state is `unknown`, `pending(value)`, or `committed(value)`.
+Equality against a committed value suppresses work before MainActor scheduling;
+only successful apply acknowledgement commits a pending value. CWD is an exact
+fact with this publication admission state, not a third timed drain lane. Local
+SurfaceManager CWD metadata remains current, while the exact runtime
+`.cwdChanged` fact is the sole coordinator path that performs topology lookup
+and pane mutation.
+
+`TabBarAdapter` observes one materialized projection slot per tab. Each tab has
+an observation generation; stale invalidations cannot re-register an obsolete
+observer. A changed slot refreshes only that tab item, and the adapter publishes
+the ordered collection only after every retained keyed projection is ready and
+the collection differs from its committed projection.
+
+`CoalescingBusApplier` is the consumer-side bridge for sources that need
+contraction before MainActor mutation. It coalesces by a fixed key off-main,
+schedules at most one flush while work is pending, and hands one bounded batch
+to its MainActor apply closure. It does not change EventBus delivery semantics
+or become a second state owner.
+
 #### Contract 7a: Coverage Invariants
 
 1. Borrowed C payloads are copied before callback return.
@@ -2248,8 +2271,8 @@ This enables use cases like "show all events from panes in worktree X" or "aggre
 /// self-classify without any core code changes.
 ///
 /// Event flow (EventBus path — see pane_runtime_eventbus_design.md):
-///   Runtimes post envelopes → EventBus.post(envelope) → fan-out
-///     → NotificationReducer subscribes via bus.subscribe()
+///   Runtimes post envelopes → EventBus.post(envelope) → fact-topic match
+///     → NotificationReducer subscribes with policy, name, and interest
 ///       → for await envelope in bus stream
 ///       → reads envelope.event.actionPolicy (self-classifying)
 ///       → critical path: immediate yield to consumers
@@ -2261,9 +2284,10 @@ This enables use cases like "show all events from panes in worktree X" or "aggre
 /// so the reducer sees events from ALL runtimes through one stream.
 ///
 /// Subscription contract:
-///   - EventBus.subscribe() returns an independent stream per caller.
-///   - Each subscriber (reducer, coordinator, future consumers) gets
-///     its own stream and consumes at its own pace.
+///   - EventBus.subscribe(policy:subscriberName:factInterest:) returns an
+///     independent stream per caller.
+///   - Each subscriber gets only matching fact topics and consumes its stream
+///     at its own pace with its declared buffer policy.
 ///   - Per-runtime subscribe() still exists for replay catch-up and
 ///     per-pane direct subscription, but is secondary to the bus path.
 @MainActor
@@ -2902,7 +2926,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 **Risk:** Agent writes 500 files → FSEvents fires 500+ raw events → local git projection thrashes.
 
-**Mitigation:** Worktree-scoped debounce (500ms settle window) + deduped path set + 256-path chunking + max latency cap (2 seconds). `GitWorkingDirectoryProjector` coalesces by `worktreeId` (latest wins), so one noisy burst converges to bounded recompute work. Multiple worktrees remain independent.
+**Mitigation:** `DarwinFSEventStreamClient` retains a bounded number of fine batches and converts overflow into one coarse affected-worktree debt rather than dropping scope. `FilesystemActor` adds worktree-scoped debounce, a deduped path set, bounded chunking, and a max-latency flush. `GitWorkingDirectoryProjector` losslessly unions affected paths across pending and retry states, gates compute by current demand, and admits through bounded per-worktree slots. One noisy burst therefore converges to bounded work without treating evicted paths as no change; multiple worktrees remain independent.
 
 ### 4. Replay buffer memory growth
 
@@ -2942,7 +2966,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 **Risk:** Event bus accumulates routing logic, filtering, batching, domain decisions, workflow branching.
 
-**Mitigation:** The bus is a dumb fan-out pipe: `post()` and `subscribe()` are its only operations. It never filters, batches, transforms, or makes domain decisions. Filtering and batching live in consumers (`NotificationReducer` for priority-aware delivery, coordinator for replay buffering). Domain logic lives in runtimes. Stream operators from `swift-async-algorithms` (merge, filter, throttle) are applied by consumers on their subscription streams, not inside the bus itself. If the bus grows methods beyond `post()` and `subscribe()`, it's doing too much.
+**Mitigation:** The bus owns transport mechanics: named subscriptions, per-subscriber buffering, bounded per-source replay, delivery/drop diagnostics, and immutable fact-topic matching before live, batch, and replay yield. The topic descriptor states only which fact families a subscriber consumes; it carries no command, eligibility, visibility, equality, or mutable product policy. Domain interpretation and consumer-side contraction remain outside the bus.
 
 ---
 
@@ -2955,7 +2979,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 | Current Mechanism | Replacement | Migrated By |
 |---|---|---|
 | `NotificationCenter.default.post(name: .ghosttyAction, ...)` | `GhosttyAdapter` → typed `GhosttyEvent` → `TerminalRuntime.handleEvent()` | LUNA-325 |
-| `DispatchQueue.main.async { ... }` in C callback trampolines | `Task { @MainActor in ... }` or direct `@MainActor` calls | LUNA-342 (partial — wakeup_cb, initialize), LUNA-325 (remaining 23 instances) |
+| `DispatchQueue.main.async { ... }` in C callback trampolines | `Task { @MainActor in ... }` or direct `@MainActor` calls | Complete in current source; no callback-trampoline instances remain. |
 | `@objc` notification observers in `WorkspaceSurfaceCoordinator` | `for await envelope in bus.subscribe()` in coordinator event loop (EventBus fan-out) | LUNA-325 |
 | `userInfo` dictionaries on notifications | Typed `GhosttyEvent` enum cases with associated values | LUNA-325 |
 | String-keyed notification names (`.ghosttyTitleChanged`, etc.) | Exhaustive `GhosttyEvent` enum switch (compile-time coverage) | LUNA-325 |
@@ -3072,7 +3096,7 @@ Hard rules for all types in this architecture. Violations are compile errors, no
 
 2. **No stringly-typed event identity in core contracts.** `EventIdentifier`, `PaneContentType`, and `PaneCapability` are typed enums (with `.plugin(String)` escape hatches) instead of bare strings.
 
-3. **No `DispatchQueue.main.async` / `NotificationCenter` selector patterns.** These are v5-era patterns incompatible with Swift 6 concurrency conventions. C API callbacks use `Task { @MainActor in }` for async work. Event transport uses `AsyncStream` + `swift-async-algorithms`. 23 `DispatchQueue.main.async` and 20 `NotificationCenter` selector instances remain as technical debt — tracked by SwiftLint concurrency rules (`no_dispatch_queue_main`, `no_notification_center_selector`) and migrated by LUNA-325.
+3. **No `DispatchQueue.main.async` / `NotificationCenter` selector patterns.** These are v5-era patterns incompatible with Swift 6 concurrency conventions. C API callbacks use typed admission plus `Task { @MainActor in }` or direct MainActor calls. Current source has zero callback-trampoline `DispatchQueue.main.async` uses and zero selector observers.
 
 4. **Callback handoff is explicitly actor-safe.** Static `@Sendable` trampolines at FFI boundary. No closures capturing mutable state across isolation boundaries. Adapters are `@MainActor` — the trampoline is the only non-isolated code.
 
@@ -3148,7 +3172,7 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **PaneRuntimeEventChannel** | `Core/RuntimeEventSystem/Runtime/` | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
 | **FilesystemProjectionIndex** | `App/Coordination/` | C16 off-main indexing, canonicalization, and per-pane CWD-subtree filtering; returns typed intents to `WorkspaceSurfaceCoordinator` for sequencing and publication |
 | **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
-| **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
+| **DarwinFSEventStreamClient + FilesystemActor** | `Core/RuntimeEventSystem/Filesystem/` | Implemented system-level FSEvents ingress and actor-owned filtering, bounded batching, coarse overflow debt, and `FilesystemEvent` publication |
 | **WorkspaceSurfaceCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core

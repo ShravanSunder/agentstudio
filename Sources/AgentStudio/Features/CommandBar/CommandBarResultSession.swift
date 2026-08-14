@@ -24,6 +24,7 @@ final class CommandBarResultSession {
     @ObservationIgnored private let dispatcher: any AppCommandDispatching
     @ObservationIgnored private let notificationInboxCommands: InboxNotificationCommands?
     @ObservationIgnored private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    @ObservationIgnored private let repoScopeItemCache = CommandBarRepoScopeItemCache()
     @ObservationIgnored private var cachedRootItemSnapshot: CachedRootItemSnapshot?
     @ObservationIgnored private var lastDisplayedItemIDs: [String] = []
     @ObservationIgnored private var isRootItemSnapshotInvalidated = false
@@ -34,6 +35,9 @@ final class CommandBarResultSession {
     private(set) var rootItemSnapshotBuildCount = 0
     @ObservationIgnored
     private(set) var rootItemSnapshotCacheHitCount = 0
+
+    @ObservationIgnored
+    var repoScopeItemBuildCount: Int { repoScopeItemCache.buildCount }
 
     init(
         store: WorkspaceStore,
@@ -134,9 +138,14 @@ final class CommandBarResultSession {
             !isRootItemSnapshotInvalidated
         {
             rootItemSnapshotCacheHitCount += 1
+            performanceTraceRecorder?.record(
+                .commandBarCache,
+                attributes: ["agentstudio.performance.commandbar.cache_outcome": .string("hit")]
+            )
             return cachedRootItemSnapshot.snapshot
         }
 
+        let invalidationReason = rootItemSnapshotInvalidationReason(for: identity)
         let snapshot = trackedRootItemSnapshot(
             scope: state.activeScope,
             queryState: queryState,
@@ -147,7 +156,26 @@ final class CommandBarResultSession {
         cachedRootItemSnapshot = CachedRootItemSnapshot(identity: identity, snapshot: snapshot)
         isRootItemSnapshotInvalidated = false
         rootItemSnapshotBuildCount += 1
+        performanceTraceRecorder?.record(
+            .commandBarCache,
+            attributes: [
+                "agentstudio.performance.commandbar.cache_outcome": .string("miss"),
+                "agentstudio.performance.commandbar.invalidation_reason": .string(invalidationReason),
+            ]
+        )
         return snapshot
+    }
+
+    private func rootItemSnapshotInvalidationReason(
+        for identity: RootItemSnapshotCacheIdentity
+    ) -> String {
+        guard let cachedIdentity = cachedRootItemSnapshot?.identity else { return "open_generation" }
+        if isRootItemSnapshotInvalidated { return "topology_observation" }
+        if cachedIdentity.scope != identity.scope { return "scope_change" }
+        if cachedIdentity.focusedPane != identity.focusedPane { return "focused_pane" }
+        if cachedIdentity.commandContext != identity.commandContext { return "command_context" }
+        if cachedIdentity.rootSessionGeneration != identity.rootSessionGeneration { return "open_generation" }
+        return "query_meaningful_transition"
     }
 
     private func trackedRootItemSnapshot(
@@ -173,7 +201,8 @@ final class CommandBarResultSession {
                     focusedPane: focusedPane,
                     commandContext: commandContext,
                     notificationInboxCommands: notificationInboxCommands,
-                    performanceTraceRecorder: performanceTraceRecorder
+                    performanceTraceRecorder: performanceTraceRecorder,
+                    repoScopeItemCache: repoScopeItemCache
                 )
             )
         } onChange: { [weak self] in

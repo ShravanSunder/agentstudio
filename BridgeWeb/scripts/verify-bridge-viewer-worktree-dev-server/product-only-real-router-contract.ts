@@ -102,8 +102,10 @@ export interface BridgeViewerReviewFailureSnapshot {
 
 export interface BridgeViewerProductOnlyJourneyFailureCheckpoint {
 	readonly browserCleanup: BridgeViewerProductOnlyJourneyProof['browserCleanup'];
+	readonly browserDiagnostics: readonly BridgeViewerConsoleDiagnostic[];
 	readonly captureStatus: 'captured' | 'unavailable';
 	readonly documentGeneration: number;
+	readonly failedResponses: readonly BridgeViewerFailedResponse[];
 	readonly failureCode: string;
 	readonly review: BridgeViewerReviewFailureSnapshot | null;
 	readonly transport: BridgeViewerProductFailureTransportSnapshot;

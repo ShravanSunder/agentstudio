@@ -6,6 +6,69 @@ package enum RuntimeEnvelope: Sendable {
     case pane(PaneEnvelope)
 }
 
+extension EventBusFactTopic {
+    package static let systemTopology = Self("system.topology")
+    package static let systemAppLifecycle = Self("system.appLifecycle")
+    package static let systemFocusChanged = Self("system.focusChanged")
+    package static let systemConfigChanged = Self("system.configChanged")
+    package static let systemWorkspaceActivity = Self("system.workspaceActivity")
+    package static let worktreeFilesystem = Self("worktree.filesystem")
+    package static let worktreeGitWorkingDirectory = Self("worktree.gitWorkingDirectory")
+    package static let worktreeForge = Self("worktree.forge")
+    package static let worktreeSecurity = Self("worktree.security")
+    package static let paneLifecycle = Self("pane.lifecycle")
+    package static let paneTerminal = Self("pane.terminal")
+    package static let paneTerminalActivity = Self("pane.terminalActivity")
+    package static let paneBrowser = Self("pane.browser")
+    package static let paneDiff = Self("pane.diff")
+    package static let paneEditor = Self("pane.editor")
+    package static let paneAgentNotificationRequested = Self("pane.agentNotificationRequested")
+    package static let panePlugin = Self("pane.plugin")
+    package static let paneFilesystemContext = Self("pane.paneFilesystemContext")
+    package static let paneFilesystem = Self("pane.filesystem")
+    package static let paneArtifact = Self("pane.artifact")
+    package static let paneSecurity = Self("pane.security")
+    package static let paneError = Self("pane.error")
+}
+
+extension RuntimeEnvelope: EventBusFactTopicProviding {
+    package var eventBusFactTopic: EventBusFactTopic {
+        switch self {
+        case .system(let envelope):
+            switch envelope.event {
+            case .topology: return .systemTopology
+            case .appLifecycle: return .systemAppLifecycle
+            case .focusChanged: return .systemFocusChanged
+            case .configChanged: return .systemConfigChanged
+            case .workspaceActivity: return .systemWorkspaceActivity
+            }
+        case .worktree(let envelope):
+            switch envelope.event {
+            case .filesystem: return .worktreeFilesystem
+            case .gitWorkingDirectory: return .worktreeGitWorkingDirectory
+            case .forge: return .worktreeForge
+            case .security: return .worktreeSecurity
+            }
+        case .pane(let envelope):
+            switch envelope.event {
+            case .lifecycle: return .paneLifecycle
+            case .terminal: return .paneTerminal
+            case .terminalActivity: return .paneTerminalActivity
+            case .browser: return .paneBrowser
+            case .diff: return .paneDiff
+            case .editor: return .paneEditor
+            case .agentNotificationRequested: return .paneAgentNotificationRequested
+            case .plugin: return .panePlugin
+            case .paneFilesystemContext: return .paneFilesystemContext
+            case .filesystem: return .paneFilesystem
+            case .artifact: return .paneArtifact
+            case .security: return .paneSecurity
+            case .error: return .paneError
+            }
+        }
+    }
+}
+
 enum RuntimeEnvelopeSchema {
     static let current: UInt16 = 1
 }
@@ -77,10 +140,12 @@ package enum GitWorkingDirectoryEvent: Sendable {
 }
 
 package enum ForgeEvent: Sendable {
-    case pullRequestCountsChanged(repoId: UUID, countsByBranch: [String: Int])
+    case pullRequestsChanged(repoId: UUID, factsByBranch: [String: PullRequestFacts])
+    case pullRequestBranchesInvalidated(repoId: UUID, branches: Set<String>)
+    case pullRequestRepositoryInvalidated(repoId: UUID)
     case checksUpdated(repoId: UUID, status: ForgeChecksStatus)
     case refreshFailed(repoId: UUID, error: String)
-    case rateLimited(repoId: UUID, retryAfterSeconds: Int)
+    case rateLimited(repoId: UUID, retryAfterSeconds: Int?)
 }
 
 package enum ForgeChecksStatus: String, Sendable {

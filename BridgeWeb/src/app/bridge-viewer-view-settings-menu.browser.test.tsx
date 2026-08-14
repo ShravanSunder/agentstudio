@@ -120,6 +120,35 @@ describe('BridgeViewerViewSettingsMenu Browser Mode', () => {
 		});
 		expect(onChange).toHaveBeenNthCalledWith(2, defaults);
 	});
+
+	test('requests closure when an open menu becomes disabled', async () => {
+		const onOpenChange = vi.fn();
+		const settings = { lineNumbers: true, wordWrap: true };
+		const rendered = await render(
+			<BridgeViewerViewSettingsMenu
+				defaultSettings={settings}
+				onChange={vi.fn()}
+				onOpenChange={onOpenChange}
+				open
+				settings={settings}
+				surface="file"
+			/>,
+		);
+
+		await rendered.rerender(
+			<BridgeViewerViewSettingsMenu
+				defaultSettings={settings}
+				disabled
+				onChange={vi.fn()}
+				onOpenChange={onOpenChange}
+				open
+				settings={settings}
+				surface="file"
+			/>,
+		);
+
+		await expect.poll(() => onOpenChange.mock.calls).toContainEqual([false]);
+	});
 });
 
 function findMenuItems(groupLabel: string, role: string): HTMLElement[] {

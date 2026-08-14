@@ -66,7 +66,11 @@ private func makeMainSplitViewControllerHarness(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: WindowLifecycleAtom()
     )
-    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
+    let tabBarAdapter = TabBarAdapter(
+        store: store,
+        repoCache: atoms.core.repoCache,
+        inboxAtom: inboxAtom
+    )
     let controller = MainSplitViewController(
         store: store,
         octiconLoader: makeTestOcticonLoader(),
@@ -81,8 +85,8 @@ private func makeMainSplitViewControllerHarness(
         inboxSidebarState: atoms.inboxSidebarState,
         paneInboxPresentationState: atoms.paneInboxPresentationState,
         repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
-        bridgeAttendanceSnapshot: {
-            atoms.bridgePaneAttendance.ordinalSnapshot()
+        bridgeAttendanceSnapshot: { paneId in
+            atoms.bridgePaneAttendance.ordinal(for: paneId)
         },
         bridgePaneAttendance: atoms.bridgePaneAttendance,
         editorChooser: atoms.editorChooser,
@@ -249,16 +253,6 @@ struct MainSplitViewControllerTestInboxView: NSViewRepresentable {
 }
 
 private final class MainSplitViewControllerTestSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

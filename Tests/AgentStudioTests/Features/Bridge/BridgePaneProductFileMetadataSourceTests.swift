@@ -795,6 +795,7 @@ struct ProductFileSourceFixture {
     func makeSource(
         paneId: UUID? = nil,
         constructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
+        sourceAcceptedObserver: @escaping @Sendable (BridgeProductFileSourceIdentity) async -> Void = { _ in },
         snapshotPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader? = nil,
         sharedSnapshotBuilder: @escaping BridgePaneProductFileSharedSnapshotBuilder =
             BridgeWorktreeFileMaterializer.buildSharedSnapshot,
@@ -815,6 +816,7 @@ struct ProductFileSourceFixture {
             ),
             gitReadContext: makeBridgeGitReadContext(rootURL: rootURL),
             constructionCoordinator: constructionCoordinator ?? BridgeWorktreeProductConstructionCoordinator(),
+            sourceAcceptedObserver: sourceAcceptedObserver,
             statusProvider: ProductFileSourceStatusProvider(),
             snapshotPreparationLoader: snapshotPreparationLoader,
             sharedSnapshotBuilder: sharedSnapshotBuilder,

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Keyed hot state uses atom-family-style slots through `AtomEntityMap` so one repo/worktree row can observe one key instead of a whole dictionary snapshot. `ActiveWorkspaceSelectionAtom`, `RepositoryTopologyAtom`, `RepoEnrichmentCacheAtom`, and `ApplicationEntityRecencyAtom` own application-global state. `WorkspaceStore` wraps the currently hydrated workspace graph while referencing the shared topology owner; that reference is not a workspace relation on `Repo`, `Worktree`, or `WatchedPath`. `WorkspaceTabLayoutDerived` is the rich tab read model. `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary workspace entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Keyed hot state uses atom-family-style slots through `AtomFamily` so one repo/worktree row can observe one key instead of a whole dictionary snapshot. `ActiveWorkspaceSelectionAtom`, `RepositoryTopologyAtom`, `RepoEnrichmentCacheAtom`, and `ApplicationEntityRecencyAtom` own application-global state. `WorkspaceStore` wraps the currently hydrated workspace graph while referencing the shared topology owner; that reference is not a workspace relation on `Repo`, `Worktree`, or `WatchedPath`. `WorkspaceTabLayoutDerived` is the rich tab read model. `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary workspace entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Ten invariants are enforced at all times.
 
 ---
 
@@ -929,7 +929,7 @@ CommandBarView.executeItem(item)
 │   └─ state.pushLevel(level) — drill into nested target picker
 │
 └─ .custom(closure)
-    └─ onDismiss() → closure() — e.g., NotificationCenter.post(.selectTabById)
+    └─ onDismiss() → closure() — for a UI-local action without an `AppCommand` identity
 ```
 
 The command bar records the selected item ID in `recentItemIds` (persisted to `UserDefaults`) before executing. Dimmed items (commands where `dispatcher.canDispatch()` returns false) are blocked from execution on both click and Enter key.

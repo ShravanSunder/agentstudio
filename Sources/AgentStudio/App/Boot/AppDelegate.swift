@@ -73,7 +73,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var workspaceSurfaceCoordinator: WorkspaceSurfaceCoordinator!
     var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
     var executor: WorkspaceActionExecutor!
-    var tabBarAdapter: TabBarAdapter!
     var runtime: SessionRuntime!
     var appIPCServer: AgentStudioAppIPCServer?
     var appLifecycleStore: AppLifecycleAtom!
@@ -142,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
+        performanceTraceRecorder.markStartupLaunchStarted()
         startupTraceRecorder.recordAppStartup(
             "app.did_finish_launching.started",
             phase: "did_finish_launching"
@@ -183,6 +183,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // Create main window
+        mainWindowController?.shutdown()
         mainWindowController = makeMainWindowController(dependencies: dependencies)
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
@@ -244,6 +245,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
 
+            mainWindowController?.shutdown()
             mainWindowController = makeMainWindowController(dependencies: dependencies)
             mainWindowController?.showWindow(nil)
             wireLifecycleConsumers()
@@ -251,6 +253,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        mainWindowController?.shutdown()
         guard let store else { return .terminateNow }
 
         guard terminationDrainTask == nil else { return .terminateLater }

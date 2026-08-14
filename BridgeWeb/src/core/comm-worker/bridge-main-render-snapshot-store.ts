@@ -207,9 +207,14 @@ export interface BridgeMainRenderSnapshotStore {
 	readonly fileTreePatchStream: BridgeMainFileTreePatchStream;
 }
 
+export interface BridgeMainRenderSnapshotStoreProps extends BridgeMainFileDisplayPatchApplierProps {
+	readonly onFileQueryTransactionPublished?: (transactionId: string) => void;
+}
+
 export function createBridgeMainRenderSnapshotStore(
-	fileDisplayApplierProps: BridgeMainFileDisplayPatchApplierProps = {},
+	props: BridgeMainRenderSnapshotStoreProps = {},
 ): BridgeMainRenderSnapshotStore {
+	const { onFileQueryTransactionPublished, ...fileDisplayApplierProps } = props;
 	const fileDisplayPatchApplier = new BridgeMainFileDisplayPatchApplier(fileDisplayApplierProps);
 	let snapshot = emptyBridgeMainRenderSnapshot(fileDisplayPatchApplier.state);
 	const listeners = new Set<() => void>();
@@ -478,6 +483,14 @@ export function createBridgeMainRenderSnapshotStore(
 				revision: event.projectionRevision,
 				treeRowOrderLength: snapshot.reviewTreeRowsByIndex.length,
 			};
+			if (
+				shouldPublishInitialRootSnapshot ||
+				effect.comparisonChanged ||
+				renderCopyInvalidation.changed ||
+				renderCopyPathReconciliation.changed
+			) {
+				publish({ ...snapshot });
+			}
 			for (const itemId of effect.itemIds) reviewItemListeners.publish(itemId);
 			for (const rowId of effect.treeRowIds) reviewTreeRowListeners.publish(rowId);
 			if (effect.sourceChanged) publishBridgeMainListeners(reviewSourceListeners);
@@ -494,19 +507,13 @@ export function createBridgeMainRenderSnapshotStore(
 				reviewCodeViewItemListeners.publish(itemId);
 			}
 			publishBridgeMainListeners(reviewCatalogListeners);
-			if (
-				shouldPublishInitialRootSnapshot ||
-				renderCopyInvalidation.changed ||
-				renderCopyPathReconciliation.changed
-			) {
-				publish({ ...snapshot });
-			}
 		},
 		completeFileQueryTransaction: (transactionId: string): boolean => {
 			if (isDisposed) return false;
 			const fileDisplayState = fileDisplayPatchApplier.completeQueryTransaction(transactionId);
 			if (fileDisplayState === null) return false;
 			publish({ ...snapshot, ...fileDisplayState });
+			onFileQueryTransactionPublished?.(transactionId);
 			return true;
 		},
 		fileTreePatchStream,
@@ -699,8 +706,6 @@ function buildSnapshotFromUpdate(
 				if (patch.operation === 'reset') {
 					mutableRowPaint = {};
 					rowPaintById = mutableRowPaint;
-					mutableCodeViewItems = {};
-					codeViewItemsById = mutableCodeViewItems;
 					break;
 				}
 				const nextRowPaint = ensureMutableRowPaint();

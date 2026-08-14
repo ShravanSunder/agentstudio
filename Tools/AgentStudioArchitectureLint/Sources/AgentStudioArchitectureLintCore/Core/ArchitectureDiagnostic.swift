@@ -28,7 +28,12 @@ struct ArchitectureDiagnostic: Comparable, Equatable {
 
 enum ArchitectureSeverity: String, Comparable {
     case error
+    case report
     case warning
+
+    var affectsExitCode: Bool {
+        self != .report
+    }
 
     static func < (left: Self, right: Self) -> Bool {
         left.rawValue < right.rawValue

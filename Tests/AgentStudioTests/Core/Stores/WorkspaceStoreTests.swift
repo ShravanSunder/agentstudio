@@ -1040,6 +1040,43 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func paneAcceptedCommitRevisionDrivesAutosaveWithoutEqualOrPruneNoise() async throws {
+        await prepareSharedDatastoreForBoot()
+        let pane = store.paneAtom.createPane(zmxSessionID: .generateUUIDv7())
+        store.tabLayoutAtom.appendTab(Tab(paneId: pane.id))
+        #expect((await store.flushAsync()).succeeded)
+        #expect(!store.isDirty)
+
+        store.paneAtom.updatePaneTitle(pane.id, title: "Accepted title")
+        await waitForDirtyObservation()
+        #expect(store.isDirty)
+        #expect((await store.flushAsync()).succeeded)
+        #expect(!store.isDirty)
+
+        store.paneAtom.updatePaneTitle(pane.id, title: "Accepted title")
+        await Task.yield()
+        #expect(!store.isDirty)
+
+        let missingPaneID = UUIDv7.generate()
+        _ = store.paneAtom.graphAtom.paneState(missingPaneID)
+        _ = store.paneAtom.graphAtom.paneStructuralFacts(missingPaneID)
+        let unchangedReplacement = try requirePaneGraphReplacement(
+            store.paneAtom.graphAtom.paneStateSnapshot()
+        )
+        store.paneAtom.graphAtom.replacePaneStates(unchangedReplacement)
+        await Task.yield()
+        #expect(!store.isDirty)
+
+        var replacementStates = store.paneAtom.graphAtom.paneStateSnapshot()
+        replacementStates[pane.id]?.metadata.title = "Replacement title"
+        store.paneAtom.graphAtom.replacePaneStates(
+            try requirePaneGraphReplacement(replacementStates)
+        )
+        await waitForDirtyObservation()
+        #expect(store.isDirty)
+    }
+
+    @Test
     func repositoryTopologyStoreAutosavesWithoutWorkspaceActivation() async {
         await prepareSharedDatastoreForBoot()
         let topologyAtom = RepositoryTopologyAtom()
@@ -1102,6 +1139,24 @@ final class WorkspaceStoreTests {
 
         #expect(restoredRepositoryIds == [repositoryID])
         #expect(!topologyStore.isDirty)
+    }
+
+    private func waitForDirtyObservation() async {
+        for _ in 0..<20 where !store.isDirty {
+            await Task.yield()
+        }
+    }
+
+    private func requirePaneGraphReplacement(
+        _ paneStates: [UUID: PaneGraphState]
+    ) throws -> WorkspacePaneGraphReplacement {
+        switch WorkspacePaneGraphReplacement.prepare(paneStates) {
+        case .success(let replacement):
+            return replacement
+        case .failure(let rejection):
+            Issue.record("pane graph replacement rejected: \(rejection)")
+            throw rejection
+        }
     }
 
     @Test

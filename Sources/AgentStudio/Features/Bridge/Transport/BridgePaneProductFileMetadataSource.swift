@@ -67,6 +67,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
     let authority: BridgePaneProductFileSourceAuthority
     let descriptorMaterializer: BridgePaneProductFileDescriptorMaterializer
     let sharedConstructionBinder: BridgePaneProductFileSharedConstructionBinder
+    var sourceAcceptedObserver: BridgePaneProductFileSourceAcceptedObserver
     let treeRowRefresher: BridgePaneProductFileTreeRowRefresher
     var contextBySubscriptionId: [String: SubscriptionContext] = [:]
     var nextSourceGeneration = 0
@@ -75,6 +76,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         authority: BridgePaneProductFileSourceAuthority,
         gitReadContext: BridgeGitReadContext,
         constructionCoordinator: BridgeWorktreeProductConstructionCoordinator,
+        sourceAcceptedObserver: @escaping BridgePaneProductFileSourceAcceptedObserver = { _ in },
         statusProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         snapshotPreparationLoader: BridgePaneProductFileSnapshotPreparationLoader? = nil,
         sharedSnapshotBuilder: @escaping BridgePaneProductFileSharedSnapshotBuilder =
@@ -124,6 +126,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             snapshotBuilder: sharedSnapshotBuilder,
             worktree: authority.worktree
         )
+        self.sourceAcceptedObserver = sourceAcceptedObserver
         self.treeRowRefresher =
             treeRowRefresher ?? { rootURL, relativePaths, includeAncestorDirectories in
                 await BridgeWorktreeFileMaterializer.refreshTreeRows(
@@ -132,6 +135,12 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
                     includeAncestorDirectories: includeAncestorDirectories
                 )
             }
+    }
+
+    func setSourceAcceptedObserver(
+        _ observer: @escaping BridgePaneProductFileSourceAcceptedObserver
+    ) {
+        sourceAcceptedObserver = observer
     }
 
     func open(
@@ -160,6 +169,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
             (productAdmission.withValidAdmission { true }) == true
         else { return }
         try await emit(.sourceAccepted(.init(source: productSource)))
+        await sourceAcceptedObserver(productSource)
         let constructionLease = try await sharedConstructionBinder.acquire(
             openedSource: context.openedSource
         )

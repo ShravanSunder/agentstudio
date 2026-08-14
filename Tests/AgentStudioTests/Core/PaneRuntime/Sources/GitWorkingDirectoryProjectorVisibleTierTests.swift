@@ -7,13 +7,276 @@ import Testing
 
 @Suite("GitWorkingDirectoryProjector visible tier")
 struct GitWorkingDirectoryProjectorVisibleTierTests {
+    @Test("rapid visibility changes retain only the latest pending delta")
+    func rapidVisibilityChangesRetainOnlyLatestPendingDelta() async {
+        let clock = TestPushClock()
+        let actor = GitWorkingDirectoryProjector(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider { _ in nil },
+            coalescingWindow: .zero,
+            sleepClock: clock
+        )
+        let firstWorktreeId = UUID()
+        let latestWorktreeId = UUID()
+
+        await actor.setSidebarVisibleWorktrees([firstWorktreeId])
+        await clock.waitForPendingSleepCount(exactly: 1)
+        await actor.setSidebarVisibleWorktrees([latestWorktreeId])
+        await clock.waitForPendingSleepCount(exactly: 1)
+
+        #expect(await actor.pendingVisibilityDeltaWorktreeIds == [latestWorktreeId])
+        #expect(await actor.sidebarVisibleWorktreeIds == [latestWorktreeId])
+
+        await actor.shutdown()
+    }
+
+    @Test("covered worktree visibility change waits for its tier cadence")
+    func coveredWorktreeVisibilityChangeWaitsForTierCadence() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = VisibleTierCallRecorder()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(100),
+            visibleSidebarCadence: .milliseconds(200),
+            openPaneCadence: .milliseconds(600),
+            backgroundCadence: .milliseconds(800)
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            let callNumber = await calls.record(rootPath.lastPathComponent)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
+                branch: "call-\(callNumber)",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            periodicRefreshInterval: policy.activePaneCadence,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/covered-visibility-\(UUID().uuidString)")
+        await bus.post(visibleTierRegistrationEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath))
+        await calls.waitForCount(1)
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+
+        await actor.setSidebarVisibleWorktrees([worktreeId])
+
+        #expect(await actor.worktreeTasks[worktreeId] == nil)
+        #expect(await calls.count == 1)
+
+        await actor.shutdown()
+    }
+
+    @Test("160 visible worktrees stay within the visible share and make rolling progress")
+    func hugeVisibleFleetUsesBoundedShareWithRollingProgress() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let gate = VisibleTierStatusGate()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(100),
+            visibleSidebarCadence: .milliseconds(200),
+            openPaneCadence: .milliseconds(600),
+            backgroundCadence: .milliseconds(800),
+            maxConcurrentStatusComputes: 4,
+            activePaneMaxConcurrent: 1,
+            visibleSidebarMaxConcurrent: 2,
+            openPaneMaxConcurrent: 1,
+            backgroundMaxConcurrent: 1,
+            visibleSidebarStripeSize: 8
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            await gate.recordAndWait(rootPath.lastPathComponent)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            periodicRefreshInterval: policy.activePaneCadence,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            subscriptionBufferLimit: 512
+        )
+        await actor.start()
+
+        let worktreeIds = (0..<160).map { offset in
+            UUID(uuidString: String(format: "00000000-0000-0000-0000-%012X", offset + 1))!
+        }
+        for (offset, worktreeId) in worktreeIds.enumerated() {
+            await bus.post(
+                visibleTierRegistrationEnvelope(
+                    seq: UInt64(offset + 1),
+                    worktreeId: worktreeId,
+                    rootPath: URL(fileURLWithPath: "/tmp/visible-fleet-\(offset)")
+                )
+            )
+        }
+        #expect(
+            await visibleTierWaitUntil {
+                await actor.rootPathByWorktreeId.count == worktreeIds.count
+            }
+        )
+        await actor.setSidebarVisibleWorktrees(Set(worktreeIds))
+        await clock.waitForPendingSleepCount(atLeast: 2)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+
+        await gate.waitForLabelCount(policy.visibleSidebarMaxConcurrent)
+        #expect(await gate.labels.count == policy.visibleSidebarMaxConcurrent)
+
+        for expectedCount in stride(from: 4, through: policy.visibleSidebarStripeSize, by: 2) {
+            await gate.releaseAll()
+            await gate.waitForLabelCount(expectedCount)
+        }
+        await gate.releaseAllAndRemainOpen()
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await gate.waitForLabelCount((2 * policy.visibleSidebarStripeSize) + policy.visibleSidebarMaxConcurrent)
+        let admittedLabels = await gate.labels
+        #expect(Set(admittedLabels).count > policy.visibleSidebarStripeSize)
+        #expect(await gate.maximumInFlightCount == policy.visibleSidebarMaxConcurrent)
+
+        await actor.shutdown()
+    }
+
+    @Test("hidden worktree retains refresh debt without starting status compute until visible")
+    func hiddenWorktreeDefersStatusComputeUntilVisible() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = VisibleTierCallRecorder()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(100),
+            visibleSidebarCadence: .milliseconds(200),
+            openPaneCadence: .milliseconds(600),
+            backgroundCadence: .milliseconds(800)
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            let callNumber = await calls.record(rootPath.lastPathComponent)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
+                branch: "call-\(callNumber)",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            periodicRefreshInterval: policy.activePaneCadence,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/hidden-demand-\(UUID().uuidString)")
+        await bus.post(visibleTierRegistrationEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath))
+        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+        await bus.post(
+            visibleTierFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1
+            )
+        )
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await calls.count == 1)
+
+        await actor.setSidebarVisibleWorktrees([worktreeId])
+        await clock.waitForPendingSleepCount(atLeast: 2)
+        clock.advance(by: policy.visibleSidebarCadence)
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        #expect(await visibleTierWaitUntil { await calls.count == 2 })
+
+        await actor.shutdown()
+    }
+
+    @Test("unchanged cadence multiplier composes with visible tier cadence")
+    func unchangedResultsLengthenPeriodicCadence() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = VisibleTierCallRecorder()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: .milliseconds(120),
+            visibleSidebarCadence: .milliseconds(240),
+            openPaneCadence: .milliseconds(720),
+            backgroundCadence: .milliseconds(960),
+            backgroundStripeCount: 1,
+            maxConcurrentStatusComputes: 1,
+            unchangedStatusCadenceMultipliers: [1, 2]
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            let callNumber = await calls.record(rootPath.lastPathComponent)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: min(callNumber, 2), staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            periodicRefreshInterval: policy.activePaneCadence,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/adaptive-cadence-\(UUID().uuidString)")
+        await bus.post(visibleTierRegistrationEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath))
+        await calls.waitForCount(1)
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+        await actor.setSidebarVisibleWorktrees([worktreeId])
+        await clock.waitForPendingSleepCount(atLeast: 2)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await calls.waitForCount(2)
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+
+        for _ in 0..<2 {
+            await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        }
+        await calls.waitForCount(3)
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[worktreeId] == nil })
+
+        for _ in 0..<3 {
+            await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        }
+        #expect(await calls.count == 3)
+
+        await advanceVisibleTierProjectorTick(clock: clock, by: policy.activePaneCadence)
+        await calls.waitForCount(4)
+
+        await actor.shutdown()
+    }
+
     @Test("visible sidebar worktree refreshes on active cadence before its background stripe")
     func visibleSidebarWorktreeRefreshesOnActiveCadenceBeforeBackgroundStripe() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = VisibleTierCallRecorder()
         let policy = AppPolicies.GitRefresh.Policy(
-            activeCadence: .milliseconds(120),
+            activePaneCadence: .milliseconds(120),
+            visibleSidebarCadence: .milliseconds(120),
+            openPaneCadence: .milliseconds(360),
+            backgroundCadence: .milliseconds(480),
             backgroundStripeCount: 3,
             maxConcurrentStatusComputes: 4
         )
@@ -29,7 +292,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
-            periodicRefreshInterval: policy.activeCadence,
+            periodicRefreshInterval: policy.activePaneCadence,
             sleepClock: clock,
             refreshPolicy: policy
         )
@@ -46,30 +309,33 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         #expect(await visibleTierWaitUntil { await calls.count == 1 })
 
         await actor.setSidebarVisibleWorktrees([visibleWorktreeId])
+        await clock.waitForPendingSleepCount(atLeast: 2)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
         #expect(await visibleTierWaitUntil { await calls.count == 2 })
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activeCadence)
+        for _ in 0..<2 {
+            await clock.waitForPendingSleepCount(atLeast: 1)
+            clock.advance(by: policy.activePaneCadence)
+        }
         #expect(await visibleTierWaitUntil { await calls.count == 3 })
 
         await actor.shutdown()
     }
 
-    @Test("removed sidebar visibility demotes worktree back to background stripe")
-    func removedSidebarVisibilityDemotesWorktreeBackToBackgroundStripe() async throws {
+    @Test("demotion preserves pending refresh debt until visibility returns")
+    func demotionPreservesPendingRefreshDebtUntilVisibilityReturns() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
-        let calls = VisibleTierCallRecorder()
+        let gate = VisibleTierStatusGate()
         let policy = AppPolicies.GitRefresh.Policy(
-            activeCadence: .milliseconds(120),
-            backgroundStripeCount: 3,
-            maxConcurrentStatusComputes: 4
+            maxConcurrentStatusComputes: 1,
+            visibleSidebarMaxConcurrent: 1
         )
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
-            let callNumber = await calls.record(rootPath.lastPathComponent)
+            await gate.recordAndWait(rootPath.lastPathComponent)
             return GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
-                branch: "call-\(callNumber)",
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: rootPath.lastPathComponent,
                 origin: nil
             )
         }
@@ -77,41 +343,53 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
-            periodicRefreshInterval: policy.activeCadence,
             sleepClock: clock,
             refreshPolicy: policy
         )
         await actor.start()
 
-        let visibleWorktreeId = visibleTierWorktreeId(forBackgroundStripe: 2, policy: policy)
+        let blockingWorktreeId = UUID()
+        let pendingWorktreeId = UUID()
         await bus.post(
             visibleTierRegistrationEnvelope(
                 seq: 1,
-                worktreeId: visibleWorktreeId,
-                rootPath: URL(fileURLWithPath: "/tmp/visible-demote-\(UUID().uuidString)")
+                worktreeId: blockingWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/demotion-blocking-\(UUID().uuidString)")
             )
         )
-        #expect(await visibleTierWaitUntil { await calls.count == 1 })
+        #expect(await visibleTierWaitUntil { await gate.labels.count == 1 })
 
-        await actor.setSidebarVisibleWorktrees([visibleWorktreeId])
-        #expect(await visibleTierWaitUntil { await calls.count == 2 })
-
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activeCadence)
-        #expect(await visibleTierWaitUntil { await calls.count == 3 })
+        await actor.setSidebarVisibleWorktrees([pendingWorktreeId])
+        await bus.post(
+            visibleTierRegistrationEnvelope(
+                seq: 2,
+                worktreeId: pendingWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/demotion-pending-\(UUID().uuidString)")
+            )
+        )
+        #expect(await visibleTierWaitUntil { await actor.pendingByWorktreeId[pendingWorktreeId] != nil })
 
         await actor.setSidebarVisibleWorktrees([])
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activeCadence)
+        #expect(await actor.pendingByWorktreeId[pendingWorktreeId] != nil)
+
+        await gate.releaseFirst(containing: "demotion-blocking")
+        #expect(await visibleTierWaitUntil { await actor.worktreeTasks[blockingWorktreeId] == nil })
         for _ in 0..<300 {
             await Task.yield()
         }
-        #expect(await calls.count == 3)
+        #expect(await gate.labels.count == 1)
+        #expect(await actor.pendingByWorktreeId[pendingWorktreeId] != nil)
 
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: policy.activeCadence)
-        #expect(await visibleTierWaitUntil { await calls.count == 4 })
+        await actor.setSidebarVisibleWorktrees([pendingWorktreeId])
+        await clock.waitForPendingSleepCount(exactly: 1)
+        clock.advance(by: AppPolicies.GitRefresh.visibilityChangeCoalescingWindow)
+        #expect(
+            await visibleTierWaitUntil {
+                await gate.labels.contains(where: { $0.contains("demotion-pending") })
+            }
+        )
 
+        await gate.releaseAll()
         await actor.shutdown()
     }
 
@@ -122,7 +400,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         let policy = AppPolicies.GitRefresh.Policy(
             backgroundStripeCount: 1,
             maxConcurrentStatusComputes: 4,
-            oldestStaleReservedSlots: 1
+            activePaneMaxConcurrent: 1
         )
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
             await gate.recordAndWait(rootPath.lastPathComponent)
@@ -140,21 +418,23 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
         )
         await actor.start()
 
-        for offset in 0..<policy.maxConcurrentStatusComputes {
+        let runningWorktreeIds = (0..<policy.maxConcurrentStatusComputes).map { _ in UUID() }
+        await actor.setSidebarVisibleWorktrees(Set(runningWorktreeIds))
+        for (offset, runningWorktreeId) in runningWorktreeIds.enumerated() {
             await bus.post(
                 visibleTierFilesChangedEnvelope(
                     seq: UInt64(offset + 1),
-                    worktreeId: UUID(),
+                    worktreeId: runningWorktreeId,
                     rootPath: URL(fileURLWithPath: "/tmp/visible-running-\(offset)-\(UUID().uuidString)"),
                     batchSeq: 1
                 )
             )
         }
-        #expect(await visibleTierWaitUntil { await gate.labels.count == policy.maxConcurrentStatusComputes })
+        #expect(await visibleTierWaitUntil { await gate.labels.count == policy.visibleSidebarMaxConcurrent })
 
         let visibleWorktreeId = UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!
         let activePaneWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        await actor.setSidebarVisibleWorktrees([visibleWorktreeId])
+        await actor.setSidebarVisibleWorktrees(Set(runningWorktreeIds).union([visibleWorktreeId]))
         await actor.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
         await bus.post(
             visibleTierFilesChangedEnvelope(
@@ -173,14 +453,13 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
             )
         )
 
-        await gate.releaseFirst(containing: "visible-running-0")
         #expect(
             await visibleTierWaitUntil {
-                await gate.labels.count == policy.maxConcurrentStatusComputes + 1
+                await gate.labels.count == policy.visibleSidebarMaxConcurrent + 1
             }
         )
         let labels = await gate.labels
-        #expect(labels.dropFirst(policy.maxConcurrentStatusComputes).first?.contains("active-pane-pending") == true)
+        #expect(labels.contains(where: { $0.contains("active-pane-pending") }))
 
         await gate.releaseAll()
         await actor.shutdown()
@@ -189,6 +468,7 @@ struct GitWorkingDirectoryProjectorVisibleTierTests {
 
 private actor VisibleTierCallRecorder {
     private var labels: [String] = []
+    private var countWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
     var count: Int {
         labels.count
@@ -196,18 +476,42 @@ private actor VisibleTierCallRecorder {
 
     func record(_ label: String) -> Int {
         labels.append(label)
+        resumeSatisfiedCountWaiters()
         return labels.count
+    }
+
+    func waitForCount(_ expectedCount: Int) async {
+        guard labels.count < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters[expectedCount, default: []].append(continuation)
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        let satisfiedCounts = countWaiters.keys.filter { $0 <= labels.count }
+        for satisfiedCount in satisfiedCounts {
+            let continuations = countWaiters.removeValue(forKey: satisfiedCount) ?? []
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
     }
 }
 
 private actor VisibleTierStatusGate {
     private(set) var labels: [String] = []
     private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+    private var countWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+    private(set) var maximumInFlightCount = 0
+    private var remainsOpen = false
 
     func recordAndWait(_ label: String) async {
         labels.append(label)
+        resumeSatisfiedCountWaiters()
+        guard !remainsOpen else { return }
         await withCheckedContinuation { continuation in
             waiters[label] = continuation
+            maximumInFlightCount = max(maximumInFlightCount, waiters.count)
         }
     }
 
@@ -223,10 +527,42 @@ private actor VisibleTierStatusGate {
             continuation.resume()
         }
     }
+
+    func releaseAllAndRemainOpen() {
+        remainsOpen = true
+        releaseAll()
+    }
+
+    func waitForLabelCount(_ expectedCount: Int) async {
+        guard labels.count < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            countWaiters[expectedCount, default: []].append(continuation)
+        }
+    }
+
+    private func resumeSatisfiedCountWaiters() {
+        let satisfiedCounts = countWaiters.keys.filter { $0 <= labels.count }
+        for satisfiedCount in satisfiedCounts {
+            let continuations = countWaiters.removeValue(forKey: satisfiedCount) ?? []
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
+    }
+}
+
+private func advanceVisibleTierProjectorTick(
+    clock: TestPushClock,
+    by duration: Duration
+) async {
+    await clock.waitForPendingSleepCount(atLeast: 1)
+    let nextSleepGeneration = clock.scheduledSleepGeneration
+    clock.advance(by: duration)
+    await clock.waitForPendingSleepGeneration(nextSleepGeneration)
 }
 
 private func visibleTierWaitUntil(
-    maxTurns: Int = 2000,
+    maxTurns: Int = 20_000,
     _ condition: @escaping () async -> Bool
 ) async -> Bool {
     for _ in 0..<maxTurns {

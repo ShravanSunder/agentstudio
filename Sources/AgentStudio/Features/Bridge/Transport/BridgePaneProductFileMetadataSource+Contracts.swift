@@ -18,6 +18,9 @@ struct BridgePaneProductFileMetadataEmission: Sendable {
 typealias BridgePaneProductFileMetadataEventSink =
     @Sendable (BridgeProductFileMetadataEvent) async throws -> Void
 
+typealias BridgePaneProductFileSourceAcceptedObserver =
+    @Sendable (BridgeProductFileSourceIdentity) async -> Void
+
 typealias BridgePaneProductFileIgnorePolicyLoader =
     @Sendable (URL) async -> BridgeWorktreeFileIgnorePolicy
 

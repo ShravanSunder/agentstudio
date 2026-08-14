@@ -98,8 +98,64 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("Zoom companion uses the cached main-worktree branch as its review baseline")
-        func zoomCompanionUsesCachedMainWorktreeBranchBaseline() async throws {
+        @Test("Zoom companion retains its selected comparison while hidden")
+        func zoomCompanionRetainsSelectedComparisonWhileHidden() async throws {
+            // Arrange
+            let harness = makeZoomCompanionHarness()
+            defer { try? FileManager.default.removeItem(at: harness.root) }
+            let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
+            let sourceTab = Tab(paneId: sourcePane.id)
+            harness.store.appendTab(sourceTab)
+            harness.store.panePresentationAtom.enterZoom(
+                inTab: sourceTab.id,
+                sourcePaneId: sourcePane.id,
+                viewerPresentation: .retryable
+            )
+            let presentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+            let companionPaneId = try #require(presentation.companionPaneId)
+            let mountedView = try #require(harness.viewRegistry.allBridgeViews[companionPaneId])
+            let productAdmission = try #require(
+                mountedView.controller.productAdmissionGate.acquire()
+            )
+            let selectedTarget = WorkspaceReviewContributionTarget.branch(name: "stack/base")
+
+            // Act
+            let didApplyTarget = await mountedView.controller
+                .handleCommittedProductReviewComparisonUpdate(
+                    BridgeProductReviewComparisonUpdateRequest(target: selectedTarget),
+                    productAdmission: productAdmission
+                )
+            #expect(
+                harness.store.panePresentationAtom.setZoomViewerVisible(
+                    false,
+                    forSourcePane: sourcePane.id
+                )
+            )
+            let hiddenPresentation = harness.coordinator.reconcileZoomCompanion(
+                sourcePaneId: sourcePane.id,
+                owningTabId: sourceTab.id
+            )
+
+            // Assert
+            #expect(didApplyTarget)
+            #expect(hiddenPresentation == .retainedHidden(companionPaneId: companionPaneId))
+            #expect(
+                mountedView.controller.bridgePaneState.source
+                    == .workspace(
+                        rootPath: harness.worktree.path.path,
+                        baseline: WorkspaceBaseline(contributionTarget: selectedTarget)
+                    )
+            )
+            #expect(harness.store.pane(companionPaneId) == nil)
+
+            await harness.coordinator.shutdown()
+        }
+
+        @Test("Zoom companion ignores cached checkout and starts without a comparison target")
+        func zoomCompanionStartsWithoutTargetWhenCheckoutIsCached() async throws {
             let harness = makeZoomCompanionHarness()
             defer { try? FileManager.default.removeItem(at: harness.root) }
             let repo = try #require(
@@ -135,18 +191,20 @@ extension WebKitSerializedTests {
                 harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
             )
 
-            guard case .workspace(_, let baseline) = companionState.source else {
+            guard case .workspace(_, let comparisonIntent) = companionState.source else {
                 Issue.record("Expected Zoom companion to use a workspace source")
                 await harness.coordinator.shutdown()
                 return
             }
-            #expect(baseline == .localDefaultBranch(branchName: "master"))
+            #expect(
+                comparisonIntent == nil
+            )
 
             await harness.coordinator.shutdown()
         }
 
-        @Test("Zoom companion falls back to HEAD when default-branch enrichment is unavailable")
-        func zoomCompanionFallsBackToHEADWithoutDefaultBranchEnrichment() async throws {
+        @Test("Zoom companion starts without a comparison target when checkout enrichment is absent")
+        func zoomCompanionStartsWithoutTargetWhenCheckoutEnrichmentIsAbsent() async throws {
             let harness = makeZoomCompanionHarness()
             defer { try? FileManager.default.removeItem(at: harness.root) }
             let sourcePane = makeZoomSourcePane(in: harness.store, worktree: harness.worktree)
@@ -167,12 +225,14 @@ extension WebKitSerializedTests {
                 harness.viewRegistry.allBridgeViews[companionPaneId]?.controller.bridgePaneState
             )
 
-            guard case .workspace(_, let baseline) = companionState.source else {
+            guard case .workspace(_, let comparisonIntent) = companionState.source else {
                 Issue.record("Expected Zoom companion to use a workspace source")
                 await harness.coordinator.shutdown()
                 return
             }
-            #expect(baseline == .ref(name: "HEAD"))
+            #expect(
+                comparisonIntent == nil
+            )
 
             await harness.coordinator.shutdown()
         }
@@ -518,7 +578,7 @@ extension WebKitSerializedTests {
             harness.store.setActiveTab(sourceTab.id)
             harness.store.setActivePane(firstSourcePane.id, inTab: sourceTab.id)
             enterForegroundZoomEnvironment(harness, owningWindowId: owningWindowId)
-            let durablePaneIds = Set(harness.store.paneAtom.panes.keys)
+            let durablePaneIds = harness.store.paneAtom.graphAtom.paneIDs
             let runtimeCountBeforeZoom = harness.runtimeRegistry.count
             let slotPaneIdsBeforeZoom = harness.viewRegistry.slotPaneIdsForTesting
             let bridgeHostPaneIdsBeforeZoom = Set(harness.viewRegistry.allBridgeViews.keys)
@@ -577,7 +637,7 @@ extension WebKitSerializedTests {
             )
             #expect(harness.coordinator.bridgePaneActivity(for: firstCompanionPaneId) == .foreground)
             #expect(harness.coordinator.bridgePaneActivity(for: secondCompanionPaneId) == .loadedHidden)
-            #expect(Set(harness.store.paneAtom.panes.keys) == durablePaneIds)
+            #expect(harness.store.paneAtom.graphAtom.paneIDs == durablePaneIds)
             #expect(
                 harness.store.tab(sourceTab.id)?.arrangements.allSatisfy {
                     !$0.layout.contains(firstCompanionPaneId)

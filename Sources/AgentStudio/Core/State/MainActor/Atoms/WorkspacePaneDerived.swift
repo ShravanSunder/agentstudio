@@ -19,9 +19,9 @@ package struct WorkspacePaneDerived {
         self.repoEnrichmentCacheAtom = repoEnrichmentCacheAtom
     }
 
-    var panes: [UUID: Pane] {
+    func paneSnapshot() -> [UUID: Pane] {
         Dictionary(
-            uniqueKeysWithValues: graphAtom.paneStates.map { paneId, state in
+            uniqueKeysWithValues: graphAtom.paneStateSnapshot().map { paneId, state in
                 (paneId, pane(from: state))
             }
         )
@@ -33,7 +33,7 @@ package struct WorkspacePaneDerived {
     }
 
     func panes(for worktreeId: UUID) -> [Pane] {
-        panes.values.filter { $0.worktreeId == worktreeId }
+        paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }
 
     private func pane(from state: PaneGraphState) -> Pane {
@@ -46,24 +46,15 @@ package struct WorkspacePaneDerived {
     }
 
     private func displayFacets(for durableFacets: PaneContextFacets) -> PaneContextFacets {
-        var facets = PaneContextFacets(cwd: durableFacets.cwd)
-        guard let resolvedContext = resolvedWorkspaceContext(for: facets) else {
-            return facets
+        let resolvedContext = resolvedWorkspaceContext(for: durableFacets)
+        let repoEnrichment = resolvedContext.flatMap {
+            repoEnrichmentCacheAtom?.repoEnrichment(for: $0.repo.id)
         }
-
-        facets.repoId = resolvedContext.repo.id
-        facets.worktreeId = resolvedContext.worktree.id
-        facets.repoName = resolvedContext.repo.name
-        facets.worktreeName = resolvedContext.worktree.name
-        facets.parentFolder = parentFolderName(for: resolvedContext.repo.repoPath)
-
-        if let enrichment = repoEnrichmentCacheAtom?.repoEnrichment(for: resolvedContext.repo.id) {
-            facets.organizationName = enrichment.organizationName
-            facets.origin = enrichment.origin
-            facets.upstream = enrichment.upstream
-        }
-
-        return facets
+        return Self.displayFacets(
+            for: durableFacets,
+            resolvedContext: resolvedContext,
+            repoEnrichment: repoEnrichment
+        )
     }
 
     private func resolvedWorkspaceContext(
@@ -74,8 +65,26 @@ package struct WorkspacePaneDerived {
         return repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd)
     }
 
-    private func parentFolderName(for repoPath: URL) -> String? {
-        let parentName = repoPath.deletingLastPathComponent().lastPathComponent
-        return parentName.isEmpty ? nil : parentName
+    nonisolated package static func displayFacets(
+        for durableFacets: PaneContextFacets,
+        resolvedContext: (repo: Repo, worktree: Worktree)?,
+        repoEnrichment: RepoEnrichment?
+    ) -> PaneContextFacets {
+        var facets = PaneContextFacets(cwd: durableFacets.cwd)
+        guard let resolvedContext else { return facets }
+
+        facets.repoId = resolvedContext.repo.id
+        facets.worktreeId = resolvedContext.worktree.id
+        facets.repoName = resolvedContext.repo.name
+        facets.worktreeName = resolvedContext.worktree.name
+        let parentName = resolvedContext.repo.repoPath.deletingLastPathComponent().lastPathComponent
+        facets.parentFolder = parentName.isEmpty ? nil : parentName
+
+        if let repoEnrichment {
+            facets.organizationName = repoEnrichment.organizationName
+            facets.origin = repoEnrichment.origin
+            facets.upstream = repoEnrichment.upstream
+        }
+        return facets
     }
 }

@@ -154,6 +154,7 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.newTab)"))
         #expect(startupDiagnosticsSource.contains("AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)"))
         #expect(startupDiagnosticsSource.contains("commandBarController.state.rawInput = \"# repo\""))
+        try assertCommandBarRepoFilterEmitsTerminalCompletion(startupDiagnosticsSource)
         #expect(startupDiagnosticsSource.contains("handleWatchFolderRequested(startingAt: folderURL)"))
         let diagnosticTaskIndex = try #require(
             startupDiagnosticsSource.range(of: "Task { @MainActor")?.lowerBound)
@@ -163,12 +164,22 @@ struct ApplicationEntrypointArchitectureTests {
             startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
         #expect(diagnosticTaskIndex < diagnosticDispatchRecordIndex)
         #expect(diagnosticDispatchRecordIndex < diagnosticFirstYieldIndex)
-        let dispatchDebugGuardIndex = try #require(startupDiagnosticsSource.range(of: "#if DEBUG")?.lowerBound)
+        let diagnosticSwitchIndex = try #require(
+            startupDiagnosticsSource.range(of: "switch action.kind {")?.lowerBound)
+        let dispatchDebugGuardIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "#if DEBUG",
+                range: diagnosticSwitchIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
         let dispatchSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .crossTabMoveGeometrySmoke")?.lowerBound)
         let dispatchIPCSmokeCaseIndex = try #require(
             startupDiagnosticsSource.range(of: "case .ipcTerminalSmoke")?.lowerBound)
-        let dispatchDebugEndIndex = try #require(startupDiagnosticsSource.range(of: "#endif")?.lowerBound)
+        let dispatchDebugEndIndex = try #require(
+            startupDiagnosticsSource.range(
+                of: "#endif",
+                range: dispatchDebugGuardIndex..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
         #expect(dispatchDebugGuardIndex < dispatchSmokeCaseIndex)
         #expect(dispatchSmokeCaseIndex < dispatchDebugEndIndex)
         #expect(dispatchDebugGuardIndex < dispatchIPCSmokeCaseIndex)
@@ -199,6 +210,60 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
+    }
+
+    @Test("Repo Explorer mutation diagnostic opens the sidebar idempotently")
+    func repoExplorerMutationDiagnosticOpensSidebarIdempotently() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let diagnosticURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+RepoExplorerKeyMutationStartupDiagnostics.swift")
+        let diagnosticSource = try String(contentsOf: diagnosticURL, encoding: .utf8)
+
+        #expect(
+            diagnosticSource.contains(
+                "atomStore.core.workspaceSidebarState.setSidebarSurface(.repos)"))
+        #expect(diagnosticSource.contains("mainWindowController?.expandSidebar()"))
+        #expect(!diagnosticSource.contains("AppCommandDispatcher.shared.dispatch(.showWorktreeSidebar)"))
+        #expect(
+            diagnosticSource.contains(
+                "await waitForRepoExplorerProjectionReadiness(fixture: fixture)"))
+        let readinessIndex = try #require(
+            diagnosticSource.range(
+                of: "settleRepoExplorerProjection(fixture: fixture, action: action)"
+            )?.lowerBound)
+        let mutationIndex = try #require(
+            diagnosticSource.range(of: "self.runRenderedRepoFavoriteMutations()")?.lowerBound)
+        #expect(readinessIndex < mutationIndex)
+        #expect(
+            !diagnosticSource.contains(
+                "atomStore.core.sidebarVisibleWorktreesRuntime.visibleWorktreeIds"))
+        #expect(diagnosticSource.contains("repositoryTopologyAtom.repositoryIdsInOrder"))
+        #expect(diagnosticSource.contains("repositoryTopologyAtom.worktreeIdsInOrder"))
+        #expect(diagnosticSource.contains("AppPolicies.StartupDiagnostic.appActivationTimeout"))
+    }
+
+    private func assertCommandBarRepoFilterEmitsTerminalCompletion(
+        _ startupDiagnosticsSource: String
+    ) throws {
+        let caseStart = try #require(
+            startupDiagnosticsSource.range(of: "case .commandBarRepoFilter:")?.lowerBound)
+        let caseEnd = try #require(
+            startupDiagnosticsSource.range(
+                of: "case .tccUpgradeProbe:",
+                range: caseStart..<startupDiagnosticsSource.endIndex
+            )?.lowerBound)
+        let commandBarRepoFilterCase = startupDiagnosticsSource[caseStart..<caseEnd]
+        let rawInputIndex = try #require(
+            commandBarRepoFilterCase.range(of: "commandBarController.state.rawInput = \"# repo\"")?.lowerBound)
+        let exercisedIndex = try #require(
+            commandBarRepoFilterCase.range(of: "app.startup_diagnostic_action.command_exercised")?.lowerBound)
+        let completedIndex = try #require(
+            commandBarRepoFilterCase.range(of: "app.startup_diagnostic_action.completed")?.lowerBound)
+        #expect(rawInputIndex < exercisedIndex)
+        #expect(exercisedIndex < completedIndex)
+        #expect(commandBarRepoFilterCase.contains("phase: \"startup_diagnostic_action\""))
+        #expect(commandBarRepoFilterCase.contains("outcome: \"succeeded\""))
+        #expect(commandBarRepoFilterCase.contains("attributes: self.startupDiagnosticTraceAttributes(for: action)"))
     }
 
     private func assertStartupDiagnosticActivationPrecedesOpeningTerminal(

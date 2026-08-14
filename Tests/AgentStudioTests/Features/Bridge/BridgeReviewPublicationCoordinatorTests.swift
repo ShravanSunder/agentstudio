@@ -95,19 +95,40 @@ struct BridgeReviewPublicationCoordinatorTests {
         )
         var panePackageId: String?
         var deliveryAttemptStarted = false
+        let expectedComparison = BridgePaneReviewComparisonPresentation(
+            activeTarget: .branch(name: "origin/main"),
+            attempt: .settled(reviewGeneration: publicationB.package.reviewGeneration.rawValue),
+            displayedSnapshot: .current(
+                BridgePaneReviewDisplayedSnapshotIdentity(
+                    packageId: publicationB.package.packageId,
+                    reviewGeneration: publicationB.package.reviewGeneration.rawValue,
+                    revision: publicationB.package.revision
+                )
+            ),
+            repositoryDefaultTarget: nil
+        )
 
         // Act
         let commitResult = coordinator.commit(
             candidateToken,
-            productAdmission: productAdmission.context
-        ) { committedPublication in
-            #expect(
-                coordinator.diagnosticSnapshot.active?.packageId
-                    == publicationB.package.packageId
-            )
-            #expect(!deliveryAttemptStarted)
-            panePackageId = committedPublication.package.packageId
-        }
+            productAdmission: productAdmission.context,
+            captureCommittedPresentation: { _ in
+                BridgePaneProductPresentationSnapshot(
+                    nativeActivity: .foreground,
+                    presentationRevision: 23,
+                    refreshingLanes: [],
+                    reviewComparison: expectedComparison
+                )
+            },
+            presentCommitted: { committedPublication in
+                #expect(
+                    coordinator.diagnosticSnapshot.active?.packageId
+                        == publicationB.package.packageId
+                )
+                #expect(!deliveryAttemptStarted)
+                panePackageId = committedPublication.package.packageId
+            }
+        )
         let committedPublication = try #require(commitResult.committedPublication)
         deliveryAttemptStarted = true
         let deliveryOutcome = coordinator.recordTransportDeliveryDisposition(
@@ -119,6 +140,8 @@ struct BridgeReviewPublicationCoordinatorTests {
         // Assert
         #expect(panePackageId == publicationB.package.packageId)
         #expect(committedPublication.package == publicationB.package)
+        #expect(committedPublication.comparisonPresentationRevision == 23)
+        #expect(committedPublication.reviewComparison == expectedComparison)
         #expect(deliveryOutcome == .committed(delivery: .transportAcknowledged))
     }
 
@@ -158,6 +181,7 @@ struct BridgeReviewPublicationCoordinatorTests {
             coordinator.commit(
                 candidateToken,
                 productAdmission: productAdmission.context,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             ).committedPublication
         )
@@ -201,6 +225,7 @@ struct BridgeReviewPublicationCoordinatorTests {
         let commitResult = coordinator.commit(
             token,
             productAdmission: productAdmission.context,
+            captureCommittedPresentation: reviewCommittedPresentationSnapshot,
             presentCommitted: { _ in
                 Issue.record("A post-close candidate must not reach pane presentation")
             }
@@ -234,6 +259,7 @@ struct BridgeReviewPublicationCoordinatorTests {
             coordinator.commit(
                 token,
                 productAdmission: productAdmission.context,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             ).committedPublication
         )
@@ -292,6 +318,7 @@ struct BridgeReviewPublicationCoordinatorTests {
         let olderCommitResult = coordinator.commit(
             olderToken,
             productAdmission: productAdmission.context,
+            captureCommittedPresentation: reviewCommittedPresentationSnapshot,
             presentCommitted: { _ in
                 Issue.record("A superseded candidate must not reach pane presentation")
             }
@@ -372,6 +399,7 @@ struct BridgeReviewPublicationCoordinatorTests {
         let revisedCommit = coordinator.commit(
             revisedPublicationToken,
             productAdmission: productAdmission.context,
+            captureCommittedPresentation: reviewCommittedPresentationSnapshot,
             presentCommitted: { _ in }
         )
 
@@ -506,6 +534,7 @@ struct BridgeReviewPublicationCoordinatorTests {
             coordinator.commit(
                 tokenB,
                 productAdmission: productAdmission.context,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             ).committedPublication
         )
@@ -647,6 +676,7 @@ struct BridgeReviewPublicationCoordinatorTests {
             coordinator.commit(
                 tokenB,
                 productAdmission: productAdmission.context,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             ).committedPublication
         )
@@ -710,6 +740,7 @@ struct BridgeReviewPublicationCoordinatorTests {
             coordinator.commit(
                 tokenB,
                 productAdmission: productAdmission.context,
+                captureCommittedPresentation: reviewCommittedPresentationSnapshot,
                 presentCommitted: { _ in }
             ).committedPublication
         )
@@ -781,6 +812,7 @@ private func commitObserved(
         coordinator.commit(
             token,
             productAdmission: productAdmission,
+            captureCommittedPresentation: reviewCommittedPresentationSnapshot,
             presentCommitted: { _ in }
         ).committedPublication
     )

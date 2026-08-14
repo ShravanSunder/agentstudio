@@ -169,13 +169,16 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
         context.store.appendTab(tab)
         context.store.setActiveTab(tab.id)
         let source = OrderedRecordingFilesystemSource()
-        let surfaceManager = MockFilesystemCoordinatorSurfaceManager()
-        let coordinator = makeCoordinator(context: context, source: source, surfaceManager: surfaceManager)
-        defer { Task { await coordinator.shutdown() } }
+        let coordinator = makeCoordinator(context: context, source: source)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
         await source.resetOperations()
 
-        surfaceManager.sendCWDChange(paneId: pane.id, cwd: secondWorktree.path)
+        _ = await context.bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .terminal(.cwdChanged(secondWorktree.path.path)),
+                paneId: PaneId(existingUUID: pane.id)
+            )
+        )
         await source.waitForOperationCount(3)
         await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
@@ -194,6 +197,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemEffectsTests {
             )
         )
         #expect(operations.last == .activePane(worktreeId: secondWorktree.id))
+        await coordinator.shutdown()
     }
 
     @Test("pane mount and removal write only affected worktree activity")

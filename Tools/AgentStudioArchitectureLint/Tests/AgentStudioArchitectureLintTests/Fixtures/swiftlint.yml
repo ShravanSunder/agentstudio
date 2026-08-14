@@ -2,7 +2,7 @@ only_rules:
   - agentstudio_import_direction
   - agentstudio_shared_components_are_stateless
   - agentstudio_atomlib_is_generic
-  - agentstudio_derived_value_declared_inputs
+  - agentstudio_derived_atom_declared_inputs
   - agentstudio_repo_cache_keyed_reads
   - agentstudio_worktree_enrichment_comparator
   - agentstudio_state_actor_path

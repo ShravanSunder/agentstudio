@@ -6,6 +6,76 @@ import Testing
 @MainActor
 @Suite("Bridge pane product Review metadata source")
 struct BridgePaneProductReviewMetadataSourceTests {
+    @Test("origin change resets metadata and projects the successor origin and subject")
+    func originChangeResetsMetadataAndProjectsSuccessorOriginAndSubject() async throws {
+        let productAdmission = try BridgeProductAdmissionTestContext.make()
+        let initialOrigin = BridgeReviewComparisonOrigin.contribution(
+            BridgeReviewContributionOrigin(
+                symbolicTarget: .branch(name: "main"),
+                resolvedTargetOID: "target-oid-1",
+                reviewedHeadOID: "head-oid-1",
+                baseRole: .commonCommit,
+                baseOID: "base-oid-1"
+            )
+        )
+        let successorOrigin = BridgeReviewComparisonOrigin.contribution(
+            BridgeReviewContributionOrigin(
+                symbolicTarget: .branch(name: "main"),
+                resolvedTargetOID: "target-oid-2",
+                reviewedHeadOID: "head-oid-2",
+                baseRole: .commonCommit,
+                baseOID: "base-oid-2"
+            )
+        )
+        let initialPackage = makeReviewPackage(
+            itemCount: 1,
+            comparisonOrigin: initialOrigin,
+            reviewedSubjectLabel: "feature/review"
+        )
+        let successorPackage = replacingReviewOrigin(
+            initialPackage,
+            revision: initialPackage.revision + 1,
+            comparisonOrigin: successorOrigin,
+            reviewedSubjectLabel: "feature/review"
+        )
+        let source = BridgePaneProductReviewMetadataSource()
+        let collector = ReviewMetadataEventCollector()
+        try await source.open(
+            subscription: try reviewSubscription(),
+            productAdmission: productAdmission.context
+        ) { event, _ in
+            try await collector.append(event)
+        }
+        _ = try await deliverReviewPackage(
+            initialPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+        await collector.removeAll()
+
+        _ = try await deliverReviewPackage(
+            successorPackage,
+            through: source,
+            productAdmission: productAdmission.context
+        )
+
+        let events = await collector.events
+        guard events.count == 3,
+            case .reset(let reset) = events[0],
+            case .sourceAccepted = events[1],
+            case .snapshot(let snapshot) = events[2]
+        else {
+            Issue.record("Expected reset, source acceptance, and successor snapshot")
+            return
+        }
+        #expect(reset.comparisonOrigin == successorOrigin)
+        #expect(reset.reviewedSubjectLabel == "feature/review")
+        #expect(snapshot.comparisonOrigin == successorOrigin)
+        #expect(snapshot.reviewedSubjectLabel == "feature/review")
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        #expect(try JSONDecoder().decode(BridgeProductReviewSnapshotEvent.self, from: encodedSnapshot) == snapshot)
+    }
+
     @Test("opens with source acceptance and byte-bounded windows covering 3,420 items")
     func opensWithCompleteOrderedWindows() async throws {
         let productAdmission = try BridgeProductAdmissionTestContext.make()
@@ -572,7 +642,7 @@ struct BridgePaneProductReviewMetadataSourceTests {
         }
         let eventsBeforeDelivery = await collector.events
         _ = try await source.deliver(
-            package: reviewPackage,
+            publication: reviewMetadataCommittedPublication(reviewPackage),
             reservation: reservation,
             productAdmission: productAdmission.context
         )
@@ -909,66 +979,5 @@ private func reviewItemWithDiffStatistics(
         annotationSummary: item.annotationSummary,
         reviewState: item.reviewState,
         collapsed: item.collapsed
-    )
-}
-
-private func replacingReviewSource(
-    _ package: BridgeReviewPackage,
-    packageId: String,
-    queryId: String,
-    generation: Int
-) -> BridgeReviewPackage {
-    let query = BridgeReviewQuery(
-        queryId: queryId,
-        queryKind: package.query.queryKind,
-        repoId: package.query.repoId,
-        worktreeId: package.query.worktreeId,
-        baseEndpointId: package.query.baseEndpointId,
-        headEndpointId: package.query.headEndpointId,
-        comparisonSemantics: package.query.comparisonSemantics,
-        pathScope: package.query.pathScope,
-        fileTarget: package.query.fileTarget,
-        viewFilter: package.query.viewFilter,
-        grouping: package.query.grouping,
-        provenanceFilter: package.query.provenanceFilter
-    )
-    return BridgeReviewPackage(
-        packageId: packageId,
-        schemaVersion: package.schemaVersion,
-        reviewGeneration: BridgeReviewGeneration(generation),
-        revision: 0,
-        query: query,
-        baseEndpoint: package.baseEndpoint,
-        headEndpoint: package.headEndpoint,
-        orderedItemIds: package.orderedItemIds,
-        itemsById: package.itemsById,
-        groups: package.groups,
-        summary: package.summary,
-        filterState: package.filterState,
-        generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
-        changesetCluster: package.changesetCluster
-    )
-}
-
-private func replacingReviewPackage(
-    _ package: BridgeReviewPackage,
-    revision: Int,
-    itemsById: [String: BridgeReviewItemDescriptor]
-) -> BridgeReviewPackage {
-    BridgeReviewPackage(
-        packageId: package.packageId,
-        schemaVersion: package.schemaVersion,
-        reviewGeneration: package.reviewGeneration,
-        revision: revision,
-        query: package.query,
-        baseEndpoint: package.baseEndpoint,
-        headEndpoint: package.headEndpoint,
-        orderedItemIds: package.orderedItemIds,
-        itemsById: itemsById,
-        groups: package.groups,
-        summary: package.summary,
-        filterState: package.filterState,
-        generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds,
-        changesetCluster: package.changesetCluster
     )
 }

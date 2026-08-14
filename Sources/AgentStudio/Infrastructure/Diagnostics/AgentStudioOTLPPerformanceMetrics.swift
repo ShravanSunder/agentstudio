@@ -231,6 +231,29 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         var dimensions = [
             AgentStudioOTLPPerformanceMetricDimension(name: "event", value: record.body)
         ]
+        if record.body == "performance.interaction.latency",
+            case .string(let interactionKind) = record.attributes[
+                "agentstudio.performance.interaction.kind"
+            ],
+            isSafeDimensionValue(interactionKind)
+        {
+            dimensions.append(
+                AgentStudioOTLPPerformanceMetricDimension(
+                    name: "interaction_kind",
+                    value: interactionKind
+                )
+            )
+        }
+        if record.body == "performance.repo_explorer.outline_apply_proxy",
+            case .string(let outcome) = record.attributes[
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome"
+            ],
+            ["equal", "changed"].contains(outcome)
+        {
+            dimensions.append(
+                AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome)
+            )
+        }
         if record.body == "performance.git.status_unavailable",
             case .string(let reason) = record.attributes["agentstudio.performance.git.status_unavailable.reason"],
             isSafeDimensionValue(reason)
@@ -259,6 +282,10 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 AgentStudioOTLPPerformanceMetricDimension(name: "drain_class", value: drainClass)
             )
         }
+        appendTerminalAccumulatorApplyOutcomeDimension(record: record, dimensions: &dimensions)
+        appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
+        appendAtomDimensions(record: record, dimensions: &dimensions)
+        appendRepoExplorerKeyedWakeDimensions(record: record, dimensions: &dimensions)
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimensions(record: record, dimensions: &dimensions)
         }
@@ -297,6 +324,93 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         return dimensions
     }
 
+    private static func appendRepoExplorerKeyedWakeDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.repo_explorer.keyed_wake" else { return }
+        for (name, attributeKey) in [
+            ("stage", "agentstudio.performance.repo_explorer.stage"),
+            ("key_class", "agentstudio.performance.repo_explorer.key_class"),
+            ("outcome", "agentstudio.performance.repo_explorer.outcome"),
+            ("facet", "agentstudio.performance.repo_explorer.facet"),
+            ("row_relation", "agentstudio.performance.repo_explorer.row_relation"),
+        ] {
+            appendSafeStringDimension(
+                name: name,
+                attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+    }
+
+    private static func appendAtomDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.atom.derived",
+            record.attributes["agentstudio.performance.atom.kind"] == .string("eager_derived_family")
+        else { return }
+        appendSafeStringDimension(
+            name: "atom_kind",
+            attributeKey: "agentstudio.performance.atom.kind",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendSafeStringDimension(
+            name: "atom_label",
+            attributeKey: "agentstudio.performance.atom.label",
+            record: record,
+            dimensions: &dimensions
+        )
+        appendSafeStringDimension(
+            name: "atom_operation",
+            attributeKey: "agentstudio.performance.atom.operation",
+            record: record,
+            dimensions: &dimensions
+        )
+        guard case .string(let outcome) = record.attributes["agentstudio.performance.atom.outcome"],
+            ["published", "equal", "superseded", "cancelled"].contains(outcome)
+        else { return }
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome))
+    }
+
+    private static func appendTerminalAccumulatorApplyOutcomeDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.terminal.accumulator_drain",
+            case .string(let outcome) = record.attributes[
+                "agentstudio.performance.terminal.accumulator.apply.outcome"
+            ],
+            ["equal", "changed"].contains(outcome)
+        else {
+            return
+        }
+        dimensions.append(
+            AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome)
+        )
+    }
+
+    private static func appendTerminalEqualSuppressedDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.terminal.equal_suppressed",
+            case .string(let publicationKind) = record.attributes[
+                "agentstudio.performance.terminal.publication.kind"
+            ],
+            ["activity", "cwd", "title"].contains(publicationKind)
+        else { return }
+        dimensions.append(
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "publication_kind",
+                value: publicationKind
+            )
+        )
+    }
+
     private static func appendBridgeDimensions(
         record: AgentStudioOTLPProjectedLogRecord,
         dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
@@ -322,6 +436,23 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 dimensions: &dimensions
             )
         }
+        if record.body.hasSuffix(".pane_presentation") {
+            let panePresentationDimensions = [
+                ("comparison_status", "agentstudio.bridge.comparison.attempt.status"),
+                ("package_match", "agentstudio.bridge.comparison.package_match"),
+                ("pane_state", "agentstudio.bridge.comparison.pane_state"),
+                ("result", "agentstudio.bridge.result"),
+                ("result_reason", "agentstudio.bridge.result_reason"),
+            ]
+            for (name, attributeKey) in panePresentationDimensions {
+                appendBridgeDimension(
+                    name: name,
+                    attributeKey: attributeKey,
+                    record: record,
+                    dimensions: &dimensions
+                )
+            }
+        }
     }
 
     private static func measurement(
@@ -345,6 +476,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio_performance_terminal_accumulator_scheduled_drain_count",
         "agentstudio_performance_terminal_activity_aggregate_count",
         "agentstudio_performance_terminal_equal_write_suppressed_count",
+        "agentstudio_performance_terminal_equal_suppressed_count",
         "agentstudio_performance_trace_identity_coalesced_request_count",
         "agentstudio_performance_trace_identity_equal_snapshot_suppressed_count",
         "agentstudio_performance_trace_identity_fleet_capture_count",
@@ -539,7 +671,6 @@ private enum SidebarMetricTrigger: String {
     case surfaceSwitch = "surface_switch"
     case search
     case sortOrder = "sort_order"
-    case visibilityMode = "visibility_mode"
     case collapseToggle = "collapse_toggle"
     case dataRefresh = "data_refresh"
     case startupDiagnostic = "startup_diagnostic"

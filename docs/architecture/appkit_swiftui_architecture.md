@@ -61,6 +61,142 @@ let menu = NSHostingMenu(rootView: MenuView())
 - **Flexible Sizing**: Use `.frame(minWidth:idealWidth:maxWidth:)` in SwiftUI to inform AppKit's layout system.
 - **Constraint Management**: For `NSHostingController`, set `sizingOptions` (e.g., `.intrinsicContentSize`) to control how the view interacts with its container.
 
+## Native Titlebar And Tab Strip
+
+The main window uses one native `NSToolbar` with `.unifiedCompact` styling. The
+toolbar owns titlebar placement, traffic-light coexistence, item ordering, and
+overflow. Agent Studio does not draw a second content-owned chrome row below
+it.
+
+```text
+NSWindow (.fullSizeContentView, transparent titlebar)
+└── NSToolbar (.unifiedCompact)
+    ├── native and hosted toolbar controls
+    └── workspaceTabs NSToolbarItem
+        └── MainToolbarChromeView             40-point AppKit envelope
+            └── DraggableTabBarHostingView    hit testing + drag ownership
+                └── NSHostingView
+                    └── CustomTabBar          SwiftUI tab pills and controls
+```
+
+### Ownership
+
+- `MainWindowController` configures the `NSWindow` and `NSToolbar`, declares
+  toolbar item order, and installs the workspace-tabs item.
+- `MainSplitViewController` creates one `PaneTabViewController`, initializes
+  its shared tab host, and hands that same host to the toolbar. It does not
+  create a second tab surface.
+- `MainToolbarChromeView` is the AppKit layout envelope for the flexible tab
+  item. It owns no click or drag policy.
+- `DraggableTabBarHostingView` bridges AppKit events to the SwiftUI tab surface.
+  It owns pill-frame hit testing, management-mode tab dragging, and native
+  window dragging from empty strip space. It also owns secondary-click
+  admission and requests the clicked tab's native `NSMenu` from the controller.
+- `CustomTabBar` renders the tab pills and toolbar-local controls. SwiftUI owns
+  ordinary tab selection, hover, close buttons, layout, and paint. It does not
+  own tab context-menu presentation because that path is unreliable inside the
+  native-toolbar-hosted scrolling subtree.
+
+### Geometry And Hit Testing
+
+The visible and interactive geometry must be treated as one contract:
+
+| Layer | Height | Purpose |
+| --- | ---: | --- |
+| `MainToolbarChromeView` | `AppStyles.Shell.TabBar.height` (40 points) | Full native toolbar hit-test envelope |
+| `DraggableTabBarHostingView` | fills the 40-point chrome | AppKit event and drag owner |
+| visible SwiftUI tab pill | `tabPillHeight` (32 points) | Product appearance |
+
+The tab host uses `NSHostingView.sizingOptions = []` and is constrained through
+the chrome instead of accepting an intrinsic 24-point toolbar-control height.
+This distinction is load-bearing: a 32-point pill can still render outside a
+24-point AppKit ancestor, but window-rooted hit testing clips at that ancestor.
+The result looks correct while clicks near the visible pill edges fall through
+to `NSToolbarItemViewer` or the window frame.
+
+Keep the AppKit chrome and tab host at the full 40-point tab-bar height. Use
+`stripCenterlineOffset` only to align the full-height host with native controls;
+do not shrink the host to move the visible pill. Changes to the toolbar style,
+tab height, pill height, or centerline offset must verify both visible
+alignment and window-rooted hits at the top and bottom of a rendered pill.
+
+### Tab Dragging Versus Window Dragging
+
+The tab strip deliberately owns two different drag paths:
+
+1. A mouse-down inside a reported tab-pill frame remains a tab interaction.
+   In management mode, `NSPanGestureRecognizer` can promote it to a tab reorder.
+2. A mouse-down outside every pill is empty titlebar chrome.
+   `DraggableTabBarHostingView.mouseDown(with:)` calls
+   `NSWindow.performDrag(with:)`; a double-click follows the user's macOS
+   titlebar action preference.
+
+`window.isMovable` remains enabled so explicit `performDrag` works, while
+`window.isMovableByWindowBackground` remains disabled so terminal or content
+clicks cannot move the window. Do not add a transparent drag overlay or a
+`hitTest` override above the tab surface: either would compete with SwiftUI tab
+clicks and controls.
+
+### Content Below The Titlebar
+
+Because the window uses `.fullSizeContentView`, `MainSplitViewController`
+projects `window.contentLayoutRect` into `additionalSafeAreaInsets`. This keeps
+sidebar and pane content below the native toolbar without recreating toolbar
+height assumptions in the content hierarchy.
+
+### Proof Obligations
+
+- Use a real `NSWindow` and `NSToolbar` for hit-test regression coverage. Begin
+  at the window root and require both visible pill edges to resolve to the tab
+  host or one of its descendants.
+- Preserve the focused window-drag tests for pill exclusion, empty-strip drag,
+  double-click behavior, and the window movement policy.
+- For manual proof, launch the worktree-isolated debug app and verify clicks at
+  the lowest visible row of inactive pills, management-mode tab reorder, empty
+  strip window movement on a non-maximized window, and unchanged visual
+  alignment.
+
+### Gotchas
+
+- **Rendering outside an ancestor does not expand its hit area.** AppKit may
+  display a SwiftUI pill beyond a smaller hosting ancestor, but window-rooted
+  hit testing still clips at the ancestor. Inspect every view from the rendered
+  control back to the window root when only part of a visible control responds.
+- **`NSToolbarItemViewer` geometry is not the custom view's geometry.** A
+  40-point toolbar row does not guarantee that `MainToolbarChromeView` or
+  `DraggableTabBarHostingView` also resolved to 40 points. Measure each layer
+  independently before changing event routing.
+- **Intrinsic hosting size can silently collapse the interactive envelope.** The
+  tab host intentionally uses `NSHostingView.sizingOptions = []`. Restoring
+  intrinsic sizing can make the AppKit host follow a compact control height
+  even while SwiftUI continues drawing the larger pill.
+- **Move the full-height host; do not resize it to align the pills.** The same
+  `stripCenterlineOffset` is applied to the host's top and bottom constraints,
+  translating the host without changing its height. Using asymmetric constants
+  changes the hit envelope and can fix one edge while breaking the other.
+- **AppKit and SwiftUI use opposite vertical coordinate conventions here.** Tab
+  frames are reported in SwiftUI coordinates and converted by
+  `DraggableTabBarGeometry` for the AppKit host. Do not compare or hit-test raw
+  Y coordinates across the boundary without performing that conversion.
+- **The toolbar can reframe custom views after their initial layout.** Do not
+  rely on a one-time frame assignment. Toolbar control hosts perform
+  backing-pixel alignment from `layout()` so later AppKit layout passes preserve
+  crisp borders.
+- **A drag overlay competes with the tab surface.** Transparent titlebar views,
+  broad `hitTest` overrides, and `isMovableByWindowBackground = true` can steal
+  clicks from SwiftUI buttons or make terminal content move the window. Keep
+  pill-versus-empty-strip classification in `DraggableTabBarHostingView`.
+- **The pan recognizer is management-mode-only.** Enabling it continuously can
+  delay or consume SwiftUI tab clicks. `delaysPrimaryMouseButtonEvents = false`
+  is necessary but does not replace the management-mode enablement boundary.
+- **Do not hard-code content insets from the 40-point toolbar constant.** The
+  effective non-obscured content rectangle belongs to AppKit and can change with
+  window or toolbar configuration. Project `window.contentLayoutRect` instead.
+- **A maximized window is not useful window-drag proof.** `performDrag(with:)`
+  may receive the event correctly while the frame cannot visibly move. Exercise
+  empty-strip dragging on a non-maximized window and report the limitation when
+  that is not possible.
+
 ## Data Flow & State
 
 The full data model, service layer, and mutation pipeline are documented in [Component Architecture](component_architecture.md). Key patterns relevant to the AppKit+SwiftUI boundary:
@@ -345,9 +481,10 @@ class DraggableHostingView: NSView, NSDraggingSource {
 ```
 
 **Why this works:**
-- SwiftUI receives all clicks, hovers, right-clicks normally
+- SwiftUI receives primary clicks and hovers normally
 - Pan gesture only fires after sufficient movement
-- No event ownership conflicts
+- AppKit separately admits secondary clicks for native tab menus and empty-strip
+  primary clicks for native window dragging
 
 ### Avoid: hitTest Override
 
@@ -355,6 +492,12 @@ Overriding `hitTest` to claim events creates problems:
 - Breaks SwiftUI's event handling (close buttons, context menus)
 - Risk of infinite loops if events are forwarded back to subviews
 - Requires reimplementing click handling manually
+
+`DraggableTabBarHostingView` is a narrow exception for diagnostics only: its
+`hitTest` override returns the unchanged AppKit result and records bounded facts
+when the current event is a secondary click. The local secondary-click monitor,
+not `hitTest`, owns menu admission. It resolves the existing pill frames and
+consumes the event only after `TabContextMenuPresenter` accepts presentation.
 
 ### Reference Implementation
 

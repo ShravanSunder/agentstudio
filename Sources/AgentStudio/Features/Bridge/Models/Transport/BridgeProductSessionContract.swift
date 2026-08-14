@@ -7,7 +7,7 @@ package enum BridgeProductWireContract {
     static let commandRoute = "agentstudio://rpc/command"
     static let streamRoute = "agentstudio://rpc/stream"
     static let contentRoute = "agentstudio://rpc/content"
-    static let capabilityHeaderName = "X-AgentStudio-Bridge-Product-Capability"
+    package static let capabilityHeaderName = "X-AgentStudio-Bridge-Product-Capability"
 
     static let maximumIdentifierByteLength = 128
     static let maximumOpaqueReferenceByteLength = 256

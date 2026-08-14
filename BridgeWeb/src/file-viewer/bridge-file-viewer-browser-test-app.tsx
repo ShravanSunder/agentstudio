@@ -75,7 +75,11 @@ export function BridgeFileViewerBrowserHarnessApp(
 		[props.fileViewPaneSessionFactory],
 	);
 	const paneRuntime = useMemo(
-		() => createBridgePaneRuntime({ sessionFactory: fileViewPaneSessionFactory }),
+		() =>
+			createBridgePaneRuntime({
+				renderStoreFactory: fileViewPaneSessionFactory.renderStoreFactory,
+				sessionFactory: fileViewPaneSessionFactory,
+			}),
 		[fileViewPaneSessionFactory],
 	);
 	useEffect((): (() => void) => (): void => paneRuntime.dispose(), [paneRuntime]);

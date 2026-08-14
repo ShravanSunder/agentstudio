@@ -22,7 +22,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         let subscriptionId: String
         let subscriptionKind: BridgeProductSubscriptionKind
         let executionContext: BridgePaneProductMetadataProducerExecutionContext
-        let taskFinished: @Sendable (String, UUID) async -> Void
+        let taskFinished: @Sendable (String, UUID, Bool) async -> Void
         let operation: @Sendable (BridgeTraceContext?) async throws -> Void
     }
 
@@ -42,7 +42,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         subscriptionId: String,
         subscriptionKind: BridgeProductSubscriptionKind,
         executionContext: BridgePaneProductMetadataProducerExecutionContext,
-        taskFinished: @escaping @Sendable (String, UUID) async -> Void,
+        taskFinished: @escaping @Sendable (String, UUID, Bool) async -> Void,
         operation: @escaping @Sendable (BridgeTraceContext?) async throws -> Void
     ) {
         startTask(
@@ -61,7 +61,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         subscriptionId: String,
         subscriptionKind: BridgeProductSubscriptionKind,
         executionContext: BridgePaneProductMetadataProducerExecutionContext,
-        taskFinished: @escaping @Sendable (String, UUID) async -> Void,
+        taskFinished: @escaping @Sendable (String, UUID, Bool) async -> Void,
         operation: @escaping @Sendable (BridgeTraceContext?) async throws -> Void
     ) {
         startTask(
@@ -91,6 +91,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
         let lifecycleTraceRecorder = lifecycleTraceRecorder
         let task = Task {
             let traceContext = BridgeTraceContextFactory.live.makeRootContext()
+            var shouldRetireSubscription = false
             var terminalResult = BridgeProductMetadataLifecycleTraceEvent.Result.success
             await lifecycleTraceRecorder?.record(
                 .init(
@@ -139,6 +140,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
                         foregroundWorkAdmission: foregroundWorkAdmission
                     )
                     if case .enqueued? = resetResult {
+                        shouldRetireSubscription = true
                         await lifecycleTraceRecorder?.record(
                             .init(
                                 stage: .subscriptionResetEnqueued,
@@ -150,7 +152,7 @@ struct BridgePaneProductMetadataProducerTaskLifecycle {
                     }
                 }
             }
-            await taskFinished(subscriptionId, taskId)
+            await taskFinished(subscriptionId, taskId, shouldRetireSubscription)
             await lifecycleTraceRecorder?.record(
                 .init(
                     stage: .bootstrapFinished,

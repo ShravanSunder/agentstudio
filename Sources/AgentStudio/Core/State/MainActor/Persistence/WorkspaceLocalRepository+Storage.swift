@@ -190,21 +190,21 @@ enum WorkspaceLocalRepositoryStorage {
         try WorkspaceLocalRepositoryCodecs.fetchSidebarState(database)
     }
 
-    static func replaceExpandedGroupRows(
+    static func replaceCollapsedGroupRows(
         _ database: Database,
         workspaceId _: UUID,
-        expandedGroups: Set<SidebarGroupKey>,
+        collapsedGroups: Set<SidebarGroupKey>,
         updatedAt: Date
     ) throws {
         let windowId = try ensureMainWindowRow(database, updatedAt: updatedAt)
         try database.execute(
-            sql: "DELETE FROM local_window_sidebar_expanded_group WHERE window_id = ?",
+            sql: "DELETE FROM local_window_sidebar_collapsed_group WHERE window_id = ?",
             arguments: [windowId]
         )
-        for groupKey in expandedGroups {
+        for groupKey in collapsedGroups {
             try database.execute(
                 sql: """
-                    INSERT INTO local_window_sidebar_expanded_group(window_id, group_key)
+                    INSERT INTO local_window_sidebar_collapsed_group(window_id, group_key)
                     VALUES (?, ?)
                     """,
                 arguments: [windowId, groupKey.rawValue]
@@ -212,7 +212,7 @@ enum WorkspaceLocalRepositoryStorage {
         }
     }
 
-    static func fetchExpandedGroupRows(
+    static func fetchCollapsedGroupRows(
         _ database: Database,
         workspaceId _: UUID
     ) throws -> Set<SidebarGroupKey> {
@@ -220,8 +220,8 @@ enum WorkspaceLocalRepositoryStorage {
             database,
             sql: """
                 SELECT group_key
-                FROM local_window_sidebar_expanded_group AS expanded
-                JOIN local_window_state AS window ON window.window_id = expanded.window_id
+                FROM local_window_sidebar_collapsed_group AS collapsed
+                JOIN local_window_state AS window ON window.window_id = collapsed.window_id
                 WHERE window.window_role = 'main'
                 """
         )
@@ -287,7 +287,6 @@ enum WorkspaceLocalRepositoryStorage {
             "cache_metadata",
             "cache_repo_enrichment",
             "cache_worktree_enrichment",
-            "cache_pull_request_count",
         ] {
             try database.execute(sql: "DELETE FROM \(table)")
         }
@@ -316,17 +315,6 @@ enum WorkspaceLocalRepositoryStorage {
         for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
             try WorkspaceLocalRepositoryCodecs.insertWorktreeEnrichment(database, enrichment: enrichment)
         }
-        for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
-            try WorkspaceLocalRepositoryCodecs.insertPullRequestCount(
-                database,
-                row: .init(
-                    worktreeId: worktreeId,
-                    repoId: cacheState.worktreeEnrichmentByWorktreeId[worktreeId]?.repoId,
-                    count: count,
-                    updatedAtValue: updatedAt.timeIntervalSince1970
-                )
-            )
-        }
     }
 
     static func fetchCacheRows(
@@ -342,7 +330,6 @@ enum WorkspaceLocalRepositoryStorage {
         return .init(
             repoEnrichmentByRepoId: try WorkspaceLocalRepositoryCodecs.fetchRepoEnrichments(database),
             worktreeEnrichmentByWorktreeId: try WorkspaceLocalRepositoryCodecs.fetchWorktreeEnrichments(database),
-            pullRequestCountByWorktreeId: try WorkspaceLocalRepositoryCodecs.fetchPullRequestCounts(database),
             sourceRevision: UInt64(sourceRevisionValue),
             lastRebuiltAt: lastRebuiltAtValue.map(Date.init(timeIntervalSince1970:))
         )
@@ -352,7 +339,7 @@ enum WorkspaceLocalRepositoryStorage {
         try mainWindowExists(database)
     }
 
-    static func hasExpandedGroupStateRows(_ database: Database, workspaceId _: UUID) throws -> Bool {
+    static func hasCollapsedGroupStateRows(_ database: Database, workspaceId _: UUID) throws -> Bool {
         try mainWindowExists(database)
     }
 

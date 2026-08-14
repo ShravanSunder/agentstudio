@@ -24,5 +24,5 @@ export interface BridgeFileViewerAppProps {
 	readonly onDisplaySourceChange?: (source: BridgeFileViewerDisplaySource | null) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
-	readonly viewerHeaderControls?: ReactNode;
+	readonly viewerContextSwitcher?: ReactNode;
 }

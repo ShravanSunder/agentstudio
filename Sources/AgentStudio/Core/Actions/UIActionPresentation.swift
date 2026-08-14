@@ -78,8 +78,8 @@ package enum LocalActionSpec {
     case quickOpen
     case commandPalette
     case goToPane
-    case openInCurrentTabMenu
-    case openInNewTabMenu
+    case createNewInTab
+    case createNewInPane
     case openInEditorMenu
     case goToTerminal
     case openInCursor
@@ -94,6 +94,7 @@ package enum LocalActionSpec {
     case extractPaneToNewTab
     case movePaneToTabMenu
     case openGitHubInNewTab
+    case openPullRequest
     case arrangements
     case addTerminalToTab
     case showArrangements
@@ -136,14 +137,14 @@ package enum LocalActionSpec {
                 label: "Command Palette", helpText: "Show the command palette", icon: .system(.command))
         case .goToPane:
             return ActionSpec(label: "Go to Pane", helpText: "Show the pane picker", icon: .system(.terminal))
-        case .openInCurrentTabMenu:
+        case .createNewInTab:
             return ActionSpec(
-                label: "Open in Current Tab", helpText: "Choose what to open in the current tab",
-                icon: .system(.rectangleSplit2x1))
-        case .openInNewTabMenu:
-            return ActionSpec(
-                label: "Open in New Tab", helpText: "Choose what to open in a new tab",
+                label: "Create New in Tab", helpText: "Choose what to create in a new tab",
                 icon: .system(.plusRectangle))
+        case .createNewInPane:
+            return ActionSpec(
+                label: "Create New in Pane", helpText: "Choose what to create in the current pane",
+                icon: .system(.rectangleSplit2x1))
         case .openInEditorMenu:
             return ActionSpec(
                 label: "Open in Editor", helpText: "Choose an editor to open this worktree",
@@ -193,6 +194,9 @@ package enum LocalActionSpec {
         case .openGitHubInNewTab:
             return ActionSpec(
                 label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system(.globe))
+        case .openPullRequest:
+            return ActionSpec(
+                label: "Open PR", helpText: "Open PR in Browser", icon: .octicon(.gitPullRequest))
         case .arrangements:
             return ActionSpec(
                 label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))

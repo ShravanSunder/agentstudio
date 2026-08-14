@@ -10,21 +10,6 @@ import Observation
 
 @MainActor
 extension AppDelegate {
-    static func tabNotificationDotColor(
-        for lane: InboxNotificationClaimLane?
-    ) -> TabNotificationDotColor? {
-        switch lane {
-        case .actionNeeded:
-            return .red
-        case .safety:
-            return .amber
-        case .settledAgent:
-            return .yellow
-        case .activity, nil:
-            return nil
-        }
-    }
-
     func bootWorkspacePresentationPrerequisites(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
@@ -55,15 +40,15 @@ extension AppDelegate {
     }
 
     /// Seed pane slots immediately after canonical composition installation and before any hosting controller exists.
-    /// Installed panes already live in `store.paneAtom.panes`; creating their slots here ensures the first
+    /// Installed pane identities already live in `store.paneAtom.graphAtom`; creating their slots here ensures the first
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
     func seedSlotsForInstalledPanes() {
         guard store != nil, viewRegistry != nil else { return }
         viewRegistry.beginInitialRestore()
-        for paneId in store.paneAtom.panes.keys {
+        for paneId in store.paneAtom.graphAtom.paneIDs {
             viewRegistry.ensureSlot(for: paneId)
         }
-        RestoreTrace.log("seedSlotsForInstalledPanes count=\(store.paneAtom.panes.count)")
+        RestoreTrace.log("seedSlotsForInstalledPanes count=\(store.paneAtom.graphAtom.paneIDs.count)")
     }
 
     /// Build a canonical `.repoDiscovered` topology envelope.
@@ -130,7 +115,7 @@ extension AppDelegate {
         case .startForgeActor:
             bootChainPipelineStep(filesystemSource) { await $0.startForgeActor() }
         case .startCacheCoordinator:
-            workspaceCacheCoordinator.startConsuming()
+            await workspaceCacheCoordinator.startConsuming()
         case .triggerInitialTopologySync:
             bootTriggerInitialTopologySync()
         case .armPersistenceObservation:
@@ -254,17 +239,27 @@ extension AppDelegate {
             )
             preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
         }
-        managementLayerMonitor = ManagementLayerMonitor()
+        configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.core.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
-            windowLifecycleStore: windowLifecycleStore
+            windowLifecycleStore: windowLifecycleStore,
+            performanceTraceRecorder: performanceTraceRecorder
         )
         synchronizeApplicationLifecycleStateAfterWorkspaceBoot(isApplicationActive: NSApp.isActive)
         RestoreTrace.log(
-            "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
+            "workspace.composition.load complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.graphAtom.paneIDs.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
+    }
+
+    private func configureInteractionPerformanceProbeOwners() {
+        let interactionProbe = AgentStudioInteractionPerformanceProbe(recorder: performanceTraceRecorder)
+        managementLayerMonitor = ManagementLayerMonitor(interactionProbe: interactionProbe)
+        AppCommandDispatcher.shared.interactionProbe = interactionProbe
+        AppCommandDispatcher.shared.onCommandRefreshAccepted = { [weak managementLayerMonitor] correlationId in
+            managementLayerMonitor?.prepareCommandRefreshSettlement(correlationId: correlationId)
+        }
     }
 
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
@@ -369,21 +364,7 @@ extension AppDelegate {
             self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = WorkspaceActionExecutor(coordinator: workspaceSurfaceCoordinator, store: store)
-        let inboxNotification = atomStore.inboxNotification
         startWorkspacePaneRecencyObservation()
-        tabBarAdapter = TabBarAdapter(
-            store: store,
-            repoCache: repoCache,
-            performanceTraceRecorder: performanceTraceRecorder,
-            notificationDotColorProvider: { paneIds in
-                Self.tabNotificationDotColor(
-                    for: inboxNotification.attentionLane(forPaneIds: paneIds)
-                )
-            },
-            observeNotificationDotInputs: {
-                _ = inboxNotification.notifications
-            }
-        )
         commandBarController = CommandBarPanelController(
             store: store,
             octiconLoader: octiconLoader,
@@ -511,7 +492,7 @@ extension AppDelegate {
     }
 
     func refreshTraceIdentitySnapshot() async {
-        let panes = Array(store.paneAtom.panes.values)
+        let panes = Array(store.paneAtom.paneSnapshot().values)
         let snapshot = AgentStudioTraceIdentitySnapshot.from(
             repos: store.repositoryTopologyAtom.repos,
             panes: panes,
@@ -696,12 +677,6 @@ extension AppDelegate {
             repoCache.removeWorktree(worktreeId)
             didPrune = true
         }
-        if repoCache.enrichmentCacheAtom.pruneNilSlots(
-            validRepoIds: validRepoIds,
-            validWorktreeIds: validWorktreeIds
-        ) {
-            didPrune = true
-        }
         return didPrune
     }
 
@@ -712,7 +687,7 @@ extension AppDelegate {
         let watchedPaths = store.repositoryTopologyAtom.watchedPaths
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = tabLayout.activeTab else { return [] }
-            let repoIds = activeTab.activePaneIds.compactMap { workspacePane.panes[$0]?.repoId }
+            let repoIds = activeTab.activePaneIds.compactMap { workspacePane.pane($0)?.repoId }
             return Set(repoIds)
         }()
         let prioritizedRepos = repos.sorted { a, b in

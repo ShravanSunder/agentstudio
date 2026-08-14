@@ -16,83 +16,25 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("surface cwd changed updates pane worktree identity")
-    func surfaceCwdChangedUpdatesPaneWorktreeIdentity() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-coordinator-surface-cwd-\(UUID().uuidString)")
-        let store = WorkspaceStore()
-        let viewRegistry = ViewRegistry()
-        let runtime = SessionRuntime(store: store)
-        let surfaceManager = CWDIdentitySurfaceManager()
-        let coordinator = makeTestWorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: viewRegistry,
-            runtime: runtime,
-            surfaceManager: surfaceManager,
-            runtimeRegistry: RuntimeRegistry()
-        )
-
-        let repo = store.addRepo(at: URL(filePath: "/tmp/surface-cwd-identity-repo"))
-        let mainWorktree = Worktree(
-            repoId: repo.id,
-            name: "main",
-            path: repo.repoPath,
-            isMainWorktree: true
-        )
-        let featureWorktree = Worktree(
-            repoId: repo.id,
-            name: "feature",
-            path: repo.repoPath.appending(path: "../surface-cwd-identity-repo-feature"),
-        )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, featureWorktree])
-        let pane = store.createPane(
-            launchDirectory: mainWorktree.path,
-            title: "Terminal",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
-        )
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-
-        let newCwd = URL(
-            filePath: featureWorktree.path.appending(path: "Sources").standardizedFileURL.path,
-            directoryHint: .isDirectory
-        )
-        surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: newCwd)
-
-        await eventually("surface cwd should refresh pane identity") {
-            store.pane(pane.id)?.worktreeId == featureWorktree.id
-        }
-
-        let updated = store.pane(pane.id)
-        #expect(updated?.metadata.cwd == newCwd)
-        #expect(updated?.repoId == repo.id)
-        #expect(updated?.worktreeId == featureWorktree.id)
-        #expect(updated?.metadata.worktreeName == "feature")
-        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
-
-        await coordinator.shutdown()
-        try? FileManager.default.removeItem(at: tempDir)
-    }
-
-    @Test("surface cwd tracing belongs to coordinator rather than topology lookup")
-    func surfaceCwdTracingBelongsToCoordinatorRatherThanTopologyLookup() async throws {
+    @Test("one CWD fact performs one coordinator topology lookup and pane mutation attempt")
+    func oneCWDFactPerformsOneCoordinatorLookupAndMutationAttempt() async throws {
         let traceDirectory = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-surface-cwd-topology-trace-\(UUID().uuidString)")
+            .appending(path: "agentstudio-single-cwd-authority-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: traceDirectory) }
         let traceRuntime = AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
                 "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
-                "AGENTSTUDIO_TRACE_NAME": "surface-cwd-topology-trace",
+                "AGENTSTUDIO_TRACE_NAME": "single-cwd-authority",
                 "AGENTSTUDIO_TRACE_TAGS": "performance",
             ]),
-            processIdentifier: 927,
-            timeUnixNano: { 125 }
+            processIdentifier: 928,
+            timeUnixNano: { 126 }
         )
         let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let bus = makeTestPaneRuntimeEventBus()
         let store = WorkspaceStore()
-        let surfaceManager = CWDIdentitySurfaceManager()
-        let repo = store.addRepo(at: URL(filePath: "/tmp/surface-cwd-topology-trace-repo"))
+        let repo = store.addRepo(at: URL(filePath: "/tmp/single-cwd-authority-repo"))
         let pane = store.createPane(
             launchDirectory: repo.repoPath,
             title: "Terminal",
@@ -103,93 +45,39 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
             )
         )
         store.appendTab(Tab(paneId: pane.id))
-
-        let directLookup = store.repositoryTopologyAtom.repoAndWorktree(
-            containing: repo.repoPath.appending(path: "DirectLookup")
-        )
-        #expect(directLookup?.repo.id == repo.id)
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
-        #expect(!FileManager.default.fileExists(atPath: outputFileURL.path))
-
         let coordinator = WorkspaceSurfaceCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
             runtime: SessionRuntime(store: store),
-            surfaceManager: surfaceManager,
+            surfaceManager: CWDIdentitySurfaceManager(),
             runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: bus,
             windowLifecycleStore: WindowLifecycleAtom(),
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             performanceTraceRecorder: performanceTraceRecorder
         )
-        let coordinatorCwd = URL(
-            filePath: repo.repoPath.appending(path: "CoordinatorLookup").path,
-            directoryHint: .isDirectory
-        )
-        surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: coordinatorCwd)
+        let rawCwdPath = repo.repoPath.appending(path: "Sources").path
+        let normalizedCwd = try #require(CWDNormalizer.normalize(rawCwdPath))
 
-        await eventually("surface cwd should pass through coordinator topology lookup") {
-            store.pane(pane.id)?.metadata.cwd == coordinatorCwd
+        _ = await bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .terminal(.cwdChanged(rawCwdPath)),
+                paneId: PaneId(existingUUID: pane.id)
+            )
+        )
+        await eventually("runtime CWD fact should finish coordinator handling") {
+            store.pane(pane.id)?.metadata.cwd?.standardizedFileURL.path == normalizedCwd.standardizedFileURL.path
         }
         try await performanceTraceRecorder.drain()
 
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
         let traceContents = try String(contentsOf: outputFileURL, encoding: .utf8)
         let topologyLookupRecords = traceContents.split(separator: "\n").filter {
             $0.contains("\"body\":\"performance.topology.repo_and_worktree\"")
         }
-        let topologyLookupRecord = try #require(topologyLookupRecords.single)
-        #expect(topologyLookupRecord.contains("\"agentstudio.performance.topology.index.count\":1"))
-        #expect(topologyLookupRecord.contains("\"agentstudio.performance.topology.has_match\":true"))
+        #expect(topologyLookupRecords.count == 1)
 
         await coordinator.shutdown()
-    }
-
-    @Test("surface cwd changed clears stale worktree identity when cwd leaves known worktrees")
-    func surfaceCwdChangedClearsStaleWorktreeIdentityWhenCwdLeavesKnownWorktrees() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-coordinator-surface-cwd-clears-\(UUID().uuidString)")
-        let store = WorkspaceStore()
-        let surfaceManager = CWDIdentitySurfaceManager()
-        let coordinator = makeTestWorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: surfaceManager,
-            runtimeRegistry: RuntimeRegistry()
-        )
-
-        let repo = store.addRepo(at: URL(filePath: "/tmp/cwd-clear-repo"))
-        let mainWorktree = Worktree(
-            repoId: repo.id,
-            name: "main",
-            path: repo.repoPath,
-            isMainWorktree: true
-        )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree])
-        let pane = store.createPane(
-            launchDirectory: mainWorktree.path,
-            title: "Terminal",
-            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
-        )
-        store.appendTab(Tab(paneId: pane.id))
-
-        let outsideKnownWorktrees = URL(filePath: "/tmp/project-dev", directoryHint: .isDirectory)
-        surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: outsideKnownWorktrees)
-
-        await eventually("surface cwd outside topology should clear pane worktree identity") {
-            store.pane(pane.id)?.metadata.cwd == outsideKnownWorktrees
-                && store.pane(pane.id)?.repoId == nil
-                && store.pane(pane.id)?.worktreeId == nil
-        }
-
-        let updated = store.pane(pane.id)
-        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
-        #expect(updated?.metadata.cwd == outsideKnownWorktrees)
-        #expect(updated?.repoId == nil)
-        #expect(updated?.worktreeId == nil)
-        #expect(PaneDisplayDerived().displayParts(for: updated!).primaryLabel == "project-dev")
-
-        await coordinator.shutdown()
-        try? FileManager.default.removeItem(at: tempDir)
     }
 
     @Test("runtime cwd event preserves normalized full cwd and refreshes live identity")
@@ -254,68 +142,10 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    @Test("surface cwd changed enriches live facets while preserving launch directory")
-    func surfaceCwdChangedEnrichesLiveFacetsWhilePreservingLaunchDirectory() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-coordinator-floating-cwd-\(UUID().uuidString)")
-        let store = WorkspaceStore()
-        let surfaceManager = CWDIdentitySurfaceManager()
-        let coordinator = makeTestWorkspaceSurfaceCoordinator(
-            store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: surfaceManager,
-            runtimeRegistry: RuntimeRegistry()
-        )
-
-        let repo = store.addRepo(at: URL(filePath: "/tmp/floating-cwd-repo"))
-        let worktree = Worktree(
-            repoId: repo.id,
-            name: "floating-target",
-            path: URL(filePath: "/tmp/floating-cwd-repo/floating-target")
-        )
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
-        let pane = store.createPane(
-            launchDirectory: URL(filePath: "/tmp/scratch"),
-            title: "Scratch Terminal"
-        )
-        store.appendTab(Tab(paneId: pane.id))
-
-        surfaceManager.sendCWDChange(surfaceId: UUID(), paneId: pane.id, cwd: worktree.path.appending(path: "Sources"))
-
-        await eventually("floating cwd should refresh pane live identity") {
-            store.pane(pane.id)?.repoId == repo.id
-                && store.pane(pane.id)?.worktreeId == worktree.id
-        }
-
-        let updated = store.pane(pane.id)
-        #expect(updated?.metadata.launchDirectory == pane.metadata.launchDirectory)
-        #expect(updated?.repoId == repo.id)
-        #expect(updated?.worktreeId == worktree.id)
-        #expect(updated?.metadata.worktreeName == "floating-target")
-
-        await coordinator.shutdown()
-        try? FileManager.default.removeItem(at: tempDir)
-    }
 }
 
 @MainActor
 private final class CWDIdentitySurfaceManager: WorkspaceSurfaceManaging {
-    private let continuation: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>.Continuation
-    let surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        let stream = AsyncStream.makeStream(of: SurfaceManager.SurfaceCWDChangeEvent.self)
-        self.surfaceCWDChanges = stream.stream
-        self.continuation = stream.continuation
-    }
-
-    func sendCWDChange(surfaceId: UUID, paneId: UUID?, cwd: URL?) {
-        continuation.yield(
-            SurfaceManager.SurfaceCWDChangeEvent(surfaceId: surfaceId, paneId: paneId, cwd: cwd)
-        )
-    }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

@@ -1,12 +1,20 @@
 import type {
+	BridgeCommWorkerPanePresentationAuthority,
+	BridgeCommWorkerPanePresentationSnapshot,
+} from './bridge-comm-worker-pane-presentation.js';
+import type { BridgeCommWorkerReviewComparisonCommit } from './bridge-comm-worker-review-metadata-applicator.js';
+import type {
 	BridgeCommWorkerReviewMetadataApplyResult,
 	BridgeCommWorkerReviewMetadataSnapshot,
 } from './bridge-comm-worker-review-metadata-projection.js';
 import type { BridgeProductReviewMetadataEvent } from './bridge-product-review-metadata-contracts.js';
-import type {
-	BridgeWorkerReviewDisplayItem,
-	BridgeWorkerReviewDisplayPatch,
-	BridgeWorkerReviewSourceDisplayPayload,
+import {
+	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerReviewDisplayPatchEventSchema,
+	type BridgeWorkerReviewDisplayItem,
+	type BridgeWorkerReviewDisplayPatch,
+	type BridgeWorkerReviewDisplayPatchEvent,
+	type BridgeWorkerReviewSourceDisplayPayload,
 } from './bridge-worker-contracts.js';
 
 type ReviewDeltaEvent = Extract<
@@ -22,6 +30,106 @@ interface ReviewDisplayProjectionIndex {
 	readonly displayItem: (itemId: string) => BridgeWorkerReviewDisplayItem | undefined;
 }
 
+export interface BridgeCommWorkerReviewSourceIdentity {
+	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
+}
+
+export interface BridgeCommWorkerAdmittedReviewDisplayPatches {
+	readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+	readonly reviewComparison?:
+		| BridgeCommWorkerPanePresentationSnapshot['reviewComparison']
+		| undefined;
+	readonly sourceIdentity: BridgeCommWorkerReviewSourceIdentity | null;
+}
+
+export function bridgeCommWorkerReviewDisplayPatchEvent(props: {
+	readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+	readonly projectionRevision: number;
+	readonly sequence: number;
+	readonly workerDerivationEpoch: number;
+}): BridgeWorkerReviewDisplayPatchEvent {
+	return bridgeWorkerReviewDisplayPatchEventSchema.parse({
+		direction: 'serverWorkerToMain',
+		epoch: props.workerDerivationEpoch,
+		kind: 'reviewDisplayPatch',
+		patches: props.patches,
+		projectionRevision: props.projectionRevision,
+		sequence: props.sequence,
+		surface: 'review',
+		transferDescriptors: [],
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+	});
+}
+
+export function admitBridgeCommWorkerReviewDisplayPatches(props: {
+	readonly comparisonCommit?: BridgeCommWorkerReviewComparisonCommit | undefined;
+	readonly panePresentationAuthority: BridgeCommWorkerPanePresentationAuthority;
+	readonly patches: readonly BridgeWorkerReviewDisplayPatch[];
+}): BridgeCommWorkerAdmittedReviewDisplayPatches {
+	const sourceIdentity = reviewSourceIdentityFromPatches(props.patches);
+	if (props.comparisonCommit === undefined) return { patches: props.patches, sourceIdentity };
+	const disposition = props.panePresentationAuthority.reconcileReviewComparison(
+		props.comparisonCommit.presentationRevision,
+		props.comparisonCommit.reviewComparison,
+	);
+	const reviewComparison = props.panePresentationAuthority.snapshot.reviewComparison;
+	const comparisonMatchesSource = bridgeCommWorkerReviewComparisonMatchesSource(
+		reviewComparison,
+		sourceIdentity,
+	);
+	if (disposition === 'stale' && !comparisonMatchesSource) {
+		return {
+			patches: props.patches.filter((patch): boolean => patch.slice !== 'reviewComparison'),
+			sourceIdentity,
+		};
+	}
+	if (!comparisonMatchesSource) {
+		throw new Error('Bridge Review comparison commit does not match its displayed Review source.');
+	}
+	return {
+		patches: props.patches.map((patch) =>
+			patch.slice === 'reviewComparison' ? { ...patch, payload: reviewComparison } : patch,
+		),
+		reviewComparison,
+		sourceIdentity,
+	};
+}
+
+export function bridgeCommWorkerReviewComparisonMatchesSource(
+	reviewComparison: BridgeCommWorkerPanePresentationSnapshot['reviewComparison'],
+	sourceIdentity: BridgeCommWorkerReviewSourceIdentity | null,
+): boolean {
+	const displayedSnapshot = reviewComparison?.displayedSnapshot;
+	if (displayedSnapshot?.status !== 'current') return true;
+	return (
+		sourceIdentity !== null &&
+		displayedSnapshot.packageId === sourceIdentity.packageId &&
+		displayedSnapshot.reviewGeneration === sourceIdentity.reviewGeneration &&
+		displayedSnapshot.revision === sourceIdentity.revision
+	);
+}
+
+function reviewSourceIdentityFromPatches(
+	patches: readonly BridgeWorkerReviewDisplayPatch[],
+): BridgeCommWorkerReviewSourceIdentity | null {
+	const sourcePatch = patches.find(
+		(
+			patch,
+		): patch is Extract<
+			BridgeWorkerReviewDisplayPatch,
+			{ readonly operation: 'upsert'; readonly slice: 'reviewSource' }
+		> => patch.slice === 'reviewSource' && patch.operation === 'upsert',
+	);
+	if (sourcePatch === undefined) return null;
+	return {
+		packageId: sourcePatch.payload.packageId,
+		reviewGeneration: sourcePatch.payload.reviewGeneration,
+		revision: sourcePatch.payload.revision,
+	};
+}
+
 export function bridgeCommWorkerReviewDisplayPatches(props: {
 	readonly event: BridgeProductReviewMetadataEvent;
 	readonly projectionResult: BridgeCommWorkerReviewMetadataApplyResult;
@@ -29,11 +137,13 @@ export function bridgeCommWorkerReviewDisplayPatches(props: {
 	readonly snapshot: BridgeCommWorkerReviewMetadataSnapshot;
 }): readonly BridgeWorkerReviewDisplayPatch[] {
 	const sourcePatch = reviewSourceDisplayPatch(props.snapshot, props.sourceStatus);
+	const comparisonPatches = reviewComparisonDisplayPatches(props.event);
 	switch (props.event.eventKind) {
 		case 'review.sourceAccepted':
 		case 'review.reset':
 			return [
 				sourcePatch,
+				...comparisonPatches,
 				{ operation: 'reset', slice: 'reviewItem' },
 				{ operation: 'reset', slice: 'reviewTree' },
 			];
@@ -42,6 +152,7 @@ export function bridgeCommWorkerReviewDisplayPatches(props: {
 			const projectionIndex = createReviewDisplayProjectionIndex(props.snapshot);
 			return [
 				sourcePatch,
+				...comparisonPatches,
 				{
 					operation: 'batch',
 					payload: {
@@ -82,9 +193,10 @@ export function bridgeCommWorkerReviewDisplayPatches(props: {
 				projectionIndex,
 			);
 			return operations.length === 0 && items.length === 0
-				? [sourcePatch]
+				? [sourcePatch, ...comparisonPatches]
 				: [
 						sourcePatch,
+						...comparisonPatches,
 						{
 							operation: 'batch',
 							payload: { items, operations, reset: false, startIndex: null },
@@ -99,6 +211,13 @@ export function bridgeCommWorkerReviewDisplayPatches(props: {
 	}
 }
 
+function reviewComparisonDisplayPatches(
+	event: BridgeProductReviewMetadataEvent,
+): readonly BridgeWorkerReviewDisplayPatch[] {
+	if (!('reviewComparison' in event) || event.reviewComparison === undefined) return [];
+	return [{ operation: 'replace', payload: event.reviewComparison, slice: 'reviewComparison' }];
+}
+
 function reviewSourceDisplayPatch(
 	snapshot: BridgeCommWorkerReviewMetadataSnapshot,
 	status: BridgeWorkerReviewSourceDisplayPayload['status'],
@@ -107,10 +226,16 @@ function reviewSourceDisplayPatch(
 		throw new Error('Review display projection requires active source identity and revision.');
 	}
 	const payload: BridgeWorkerReviewSourceDisplayPayload = {
+		baseEndpoint: snapshot.baseEndpoint,
+		comparisonOrigin: snapshot.comparisonOrigin,
+		headEndpoint: snapshot.headEndpoint,
 		metadataWindowIdentity: reviewMetadataWindowIdentity(snapshot),
 		metadataSourceId: snapshot.identity.sourceIdentity,
 		packageId: snapshot.identity.packageId,
+		query: snapshot.query,
 		reviewGeneration: snapshot.identity.generation,
+		reviewedSubjectLabel: snapshot.reviewedSubjectLabel,
+		revision: snapshot.revision,
 		status,
 		summary: snapshot.summary,
 		totalItemCount: snapshot.totalItemCount,

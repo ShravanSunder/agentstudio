@@ -1,5 +1,6 @@
+import { CodeView, type CodeViewItem } from '@pierre/diffs';
 import { useState, type ReactElement } from 'react';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
@@ -29,6 +30,7 @@ import {
 import {
 	actFrame,
 	actUpdate,
+	actUpdateAndWaitForBridgeFileViewerWorkerPublication,
 	makeDeferredContent,
 	makeGeneratedFileBody,
 	openFileBodyPreview,
@@ -52,6 +54,7 @@ import {
 
 describe('BridgeFileViewerApp Browser Mode', () => {
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await settleBridgeFileViewerBrowserUpdates();
 		await actUpdate(cleanup);
 		document.body.replaceChildren();
@@ -321,6 +324,29 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 	});
 
 	test('restores File CodeView scroll position after a same-path worker source refresh', async () => {
+		const codeViewByRoot = new Map<HTMLElement, CodeView<undefined>>();
+		const setItemReceipts: {
+			readonly items: readonly CodeViewItem<undefined>[];
+			readonly owner: CodeView<undefined>;
+		}[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness delegates to the exact prototype method.
+		const originalSetup = CodeView.prototype.setup;
+		// oxlint-disable-next-line unbound-method -- Browser witness delegates to the exact prototype method.
+		const originalSetItems = CodeView.prototype.setItems;
+		vi.spyOn(CodeView.prototype, 'setup').mockImplementation(function captureCodeViewRoot(
+			this: CodeView<undefined>,
+			root: HTMLElement,
+		): void {
+			codeViewByRoot.set(root, this);
+			originalSetup.call(this, root);
+		});
+		vi.spyOn(CodeView.prototype, 'setItems').mockImplementation(function captureCodeViewItems(
+			this: CodeView<undefined>,
+			items: readonly CodeViewItem<undefined>[],
+		): void {
+			setItemReceipts.push({ items: [...items], owner: this });
+			originalSetItems.call(this, items);
+		});
 		const initialContent = makeGeneratedFileBody('initialScroll', 140);
 		const refreshedContent = makeGeneratedFileBody('refreshedScroll', 140);
 		const initialDescriptor = await makeFileDescriptorForContent({
@@ -368,6 +394,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const initialScrollLine001 = true;');
 		const scrollOwner = await waitForFileCodeViewScrollOwner();
+		const codeViewOwner = codeViewByRoot.get(scrollOwner);
+		if (codeViewOwner === undefined) {
+			throw new Error('Expected the File CodeView owner for the selected scroll element.');
+		}
 		await waitForFileCodeViewScrollable(scrollOwner);
 		await actUpdate((): void => {
 			scrollOwner.scrollTop = 320;
@@ -382,6 +412,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			throw new Error(`Expected a visible initial scroll line; actual=${visibleInitialText}`);
 		}
 
+		setItemReceipts.length = 0;
 		const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
 		await actUpdate((): void => {
 			publishRequiredMetadataEvents(makeSourceReplacementMetadataEvents(replacementDescriptor));
@@ -397,6 +428,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 
 		expect(openFileBodyPreview()).toContain('export const refreshedScrollLine001 = true;');
+		expect(refreshedScrollOwner).toBe(scrollOwner);
+		expect(
+			setItemReceipts.some(
+				(receipt) => receipt.owner === codeViewOwner && receipt.items.length === 0,
+			),
+		).toBe(false);
 		expect(refreshedScrollOwner.scrollTop).toBeGreaterThanOrEqual(scrollTopBeforeRefresh - 1);
 		expect(visibleCodeText()).not.toContain('export const initialScrollLine001 = true;');
 	});
@@ -496,7 +533,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForOpenFileState('loading');
-		await actUpdate((): void => {
+		await actUpdateAndWaitForBridgeFileViewerWorkerPublication((): void => {
 			const publisher = publishWorkerMessages;
 			if (publisher === null) throw new Error('Expected File worker message publisher.');
 			publisher([
@@ -709,8 +746,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await actUpdate((): void => {
 			deferredRefreshContent.resolve(replacementContent);
 		});
-		await actFrame();
-		await actFrame();
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('inactiveRefreshReplacement');
 
 		expect(openFileState()).toBe('ready');
 		expect(visibleCodeText()).not.toContain('inactiveRefreshInitial');

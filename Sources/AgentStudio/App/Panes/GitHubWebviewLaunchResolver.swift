@@ -39,6 +39,32 @@ enum GitHubWebviewLaunchResolver {
         return url(for: activePaneId, store: store, repoCache: repoCache)
     }
 
+    static func pullRequestsURL(
+        for paneId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> URL? {
+        guard
+            let pane = store.paneAtom.pane(paneId),
+            let context = repoContext(for: pane, store: store),
+            let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL
+        else {
+            return nil
+        }
+
+        return exactOpenURL
+    }
+
+    static func hasResolvableWorktreeContext(
+        for paneId: UUID,
+        store: WorkspaceStore
+    ) -> Bool {
+        guard let pane = store.paneAtom.pane(paneId),
+            let context = repoContext(for: pane, store: store)
+        else { return false }
+        return context.worktreeId != nil
+    }
+
     private static func url(
         for pane: Pane,
         store: WorkspaceStore,
@@ -49,6 +75,10 @@ enum GitHubWebviewLaunchResolver {
             return fallbackURL
         }
 
+        if let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL {
+            return exactOpenURL
+        }
+
         guard let slug = repoCache.repoEnrichment(for: context.repo.id)?.remoteSlug else {
             logger.info(
                 "Falling back to GitHub home because repo slug is unavailable for repoId=\(context.repo.id.uuidString, privacy: .public)"
@@ -56,24 +86,20 @@ enum GitHubWebviewLaunchResolver {
             return fallbackURL
         }
 
-        let path =
-            if let worktreeId = context.worktreeId,
-                (repoCache.pullRequestCount(for: worktreeId) ?? 0) > 0
-            {
-                "/\(slug)/pulls"
-            } else {
-                "/\(slug)"
-            }
+        let path = "/\(slug)"
 
-        var components = URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)
-        components?.path = path
-
-        guard let url = components?.url else {
+        guard let url = githubURL(path: path) else {
             logger.error("Failed to build GitHub URL for path=\(path, privacy: .public)")
             return fallbackURL
         }
 
         return url
+    }
+
+    private static func githubURL(path: String) -> URL? {
+        var components = URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)
+        components?.path = path
+        return components?.url
     }
 
     private static func repoContext(
@@ -91,5 +117,19 @@ enum GitHubWebviewLaunchResolver {
             return nil
         }
         return (resolved.repo, resolved.worktree.id)
+    }
+
+    private static func pullRequestFacts(
+        for context: (repo: Repo, worktreeId: UUID?),
+        repoCache: RepoCacheAtom
+    ) -> PullRequestFacts? {
+        guard
+            let worktreeId = context.worktreeId,
+            let enrichment = repoCache.worktreeEnrichment(for: worktreeId),
+            let key = RepoBranchKey(repoId: context.repo.id, branch: enrichment.branch)
+        else {
+            return nil
+        }
+        return repoCache.pullRequestFacts(for: key)
     }
 }

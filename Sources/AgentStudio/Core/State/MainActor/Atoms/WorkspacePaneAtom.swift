@@ -30,10 +30,6 @@ package final class WorkspacePaneAtom {
         self.repoEnrichmentCacheAtom = repoEnrichmentCacheAtom
     }
 
-    package var panes: [UUID: Pane] {
-        derived.panes
-    }
-
     private var derived: WorkspacePaneDerived {
         WorkspacePaneDerived(
             graphAtom: graphAtom,
@@ -51,8 +47,12 @@ package final class WorkspacePaneAtom {
         return pane
     }
 
+    package func paneSnapshot() -> [UUID: Pane] {
+        derived.paneSnapshot()
+    }
+
     package func panes(for worktreeId: UUID) -> [Pane] {
-        panes.values.filter { $0.worktreeId == worktreeId }
+        paneSnapshot().values.filter { $0.worktreeId == worktreeId }
     }
 
     package func addPane(_ pane: Pane) {
@@ -65,11 +65,11 @@ package final class WorkspacePaneAtom {
     }
 
     package func isWorktreeActive(_ worktreeId: UUID) -> Bool {
-        panes.values.contains { $0.worktreeId == worktreeId && $0.residency == .active }
+        paneSnapshot().values.contains { $0.worktreeId == worktreeId && $0.residency == .active }
     }
 
     package func orphanedPanes(excluding layoutPaneIds: Set<UUID>) -> [Pane] {
-        panes.values.filter {
+        paneSnapshot().values.filter {
             guard !layoutPaneIds.contains($0.id) else { return false }
             guard !$0.isDrawerChild else { return false }
             return $0.residency == .backgrounded || $0.residency.isOrphaned
@@ -158,6 +158,30 @@ package final class WorkspacePaneAtom {
 
     package func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
         graphAtom.syncPaneWebviewState(paneId, state: state)
+    }
+
+    @discardableResult
+    package func updateBridgePaneState(
+        _ paneId: UUID,
+        state: BridgePaneState
+    ) -> BridgePaneStateMutationResult {
+        graphAtom.updateBridgePaneState(paneId, state: state)
+    }
+
+    @discardableResult
+    package func setInitialBridgeContributionTargetIfAbsent(
+        _ paneId: UUID,
+        target: WorkspaceReviewContributionTarget
+    ) -> BridgePaneStateMutationResult {
+        graphAtom.setInitialBridgeContributionTargetIfAbsent(paneId, target: target)
+    }
+
+    @discardableResult
+    package func setBridgeContributionTarget(
+        _ paneId: UUID,
+        target: WorkspaceReviewContributionTarget
+    ) -> BridgePaneStateMutationResult {
+        graphAtom.setBridgeContributionTarget(paneId, target: target)
     }
 
     package func setResidency(_ residency: SessionResidency, for paneId: UUID) {
@@ -291,6 +315,11 @@ package final class WorkspacePaneAtom {
         drawerCursorAtom.collapseAllDrawers()
     }
 
+    package func isDrawerExpanded(for parentPaneID: UUID) -> Bool {
+        guard let drawerID = graphAtom.paneStructuralFacts(parentPaneID)?.ownedDrawerID else { return false }
+        return drawerCursorAtom.isExpanded(drawerId: drawerID)
+    }
+
     @discardableResult
     package func orphanPanes(forUnavailableWorktreePathsById unavailablePathByWorktreeId: [UUID: String]) -> [UUID] {
         graphAtom.orphanPanes(forUnavailableWorktreePathsById: unavailablePathByWorktreeId)
@@ -307,7 +336,7 @@ package final class WorkspacePaneAtom {
         activeLayoutPaneIds: Set<UUID>
     ) -> Bool {
         let paneIds = Set<UUID>(
-            panes.values.compactMap { pane in
+            paneSnapshot().values.compactMap { pane in
                 guard let worktreeId = pane.worktreeId, worktreeIds.contains(worktreeId) else { return nil }
                 return pane.id
             }

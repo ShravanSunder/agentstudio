@@ -7,6 +7,39 @@ import Testing
 
 @Suite(.serialized)
 struct FilesystemActorTests {
+    @Test("overflow debt widens the affected worktree to a root-scoped change")
+    func overflowDebtWidensAffectedWorktreeToRootScope() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let streamClient = ControllableFSEventStreamClient()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: streamClient,
+            sleepClock: TestPushClock(),
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
+        var iterator = stream.makeAsyncIterator()
+        let worktreeId = UUIDv7.generate()
+
+        await actor.register(
+            worktreeId: worktreeId,
+            repoId: UUIDv7.generate(),
+            rootPath: URL(fileURLWithPath: "/tmp/overflow-debt-(UUIDv7.generate().uuidString)")
+        )
+        _ = try #require(await iterator.next())
+
+        streamClient.sendCoarseRefreshDebt(worktreeId: worktreeId)
+        streamClient.send(FSEventBatch(worktreeId: worktreeId, paths: ["Sources/Fine.swift"]))
+
+        let envelope = try #require(await iterator.next())
+        let changeset = try #require(filesChangedChangeset(from: envelope))
+        #expect(changeset.worktreeId == worktreeId)
+        #expect(Set(changeset.paths) == [".", "Sources/Fine.swift"])
+
+        await actor.shutdown()
+    }
+
     @Test("older scheduler snapshot cannot overwrite a newer logical-debt publication")
     func olderSchedulerSnapshotCannotOverwriteNewerLogicalDebtPublication() async throws {
         let traceRuntime = makeFilesystemLogicalDebtTraceRuntime()

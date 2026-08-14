@@ -179,14 +179,6 @@ func expectBridgePaneActivity(
 
 @MainActor
 private final class BridgeActivityIntegrationSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdChanges = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.finish()
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdChanges
-    }
-
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

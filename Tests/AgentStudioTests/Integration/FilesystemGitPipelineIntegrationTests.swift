@@ -94,6 +94,14 @@ struct FilesystemGitPipelineIntegrationTests {
     func periodicGitRefreshUpdatesCacheWithoutFilesystemIngress() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let gitClock = TestPushClock()
+        let tierCadence = Duration.milliseconds(120)
+        let refreshPolicy = AppPolicies.GitRefresh.Policy(
+            activePaneCadence: tierCadence,
+            visibleSidebarCadence: tierCadence,
+            openPaneCadence: tierCadence,
+            backgroundCadence: tierCadence,
+            backgroundStripeCount: 1
+        )
         let provider = MutableGitWorkingTreeStatusProvider(
             status: makeTrackedStatus()
         )
@@ -104,11 +112,8 @@ struct FilesystemGitPipelineIntegrationTests {
             filesystemDebounceWindow: .zero,
             filesystemMaxFlushLatency: .zero,
             gitCoalescingWindow: .zero,
-            gitPeriodicRefreshInterval: .milliseconds(120),
-            gitRefreshPolicy: AppPolicies.GitRefresh.Policy(
-                activeCadence: .milliseconds(120),
-                backgroundStripeCount: 1
-            ),
+            gitPeriodicRefreshInterval: refreshPolicy.activePaneCadence,
+            gitRefreshPolicy: refreshPolicy,
             gitSleepClock: gitClock
         )
         await pipeline.start()
@@ -125,6 +130,7 @@ struct FilesystemGitPipelineIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore()
         let repoCache = RepoCacheAtom()
+        let cacheReceipt = PeriodicGitCacheReceipt()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: store,
@@ -135,9 +141,13 @@ struct FilesystemGitPipelineIntegrationTests {
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 cacheCoordinator.consume(envelope)
+                if let snapshot = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot {
+                    await cacheReceipt.record(snapshot)
+                }
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
+        await pipeline.setSidebarVisibleWorktrees([worktreeId])
         await pipeline.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
 
         let initialSnapshotArrived = await eventually("initial periodic snapshot should arrive") {
@@ -150,25 +160,22 @@ struct FilesystemGitPipelineIntegrationTests {
         }
         #expect(firstRefreshSleepScheduled)
 
-        await provider.setStatus(makeTrackedStatus(aheadCount: 1))
-        gitClock.advance(by: .milliseconds(120))
-
-        let aheadUpdateArrived = await eventually("periodic refresh should update ahead count") {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.aheadCount == 1
-        }
-        #expect(aheadUpdateArrived)
-        let secondRefreshSleepScheduled = await waitUntilYielding {
-            gitClock.pendingSleepCount > 0
-        }
-        #expect(secondRefreshSleepScheduled)
-
-        await provider.setStatus(makeTrackedStatus(behindCount: 2))
-        gitClock.advance(by: .milliseconds(120))
-
-        let behindUpdateArrived = await eventually("periodic refresh should update behind count") {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.behindCount == 2
-        }
-        #expect(behindUpdateArrived)
+        let refreshContext = PeriodicGitRefreshContext(
+            clock: gitClock,
+            provider: provider,
+            cacheReceipt: cacheReceipt,
+            cadence: refreshPolicy.activePaneCadence,
+            repoCache: repoCache,
+            worktreeId: worktreeId
+        )
+        await runPeriodicGitRefreshPhase(
+            .init(status: makeTrackedStatus(aheadCount: 1), expectedStatusReadCount: 2),
+            context: refreshContext
+        )
+        await runPeriodicGitRefreshPhase(
+            .init(status: makeTrackedStatus(behindCount: 2), expectedStatusReadCount: 3),
+            context: refreshContext
+        )
 
         await shutdownWorld(
             pipeline: pipeline,
@@ -282,6 +289,129 @@ struct FilesystemGitPipelineIntegrationTests {
         await pipeline.shutdown()
     }
 
+    @Test("watched-folder refresh requests git status only for intersecting registered worktrees")
+    func watchedFolderRefreshRequestsGitStatusOnlyForIntersectingRegisteredWorktrees() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus())
+        let pipeline = FilesystemGitPipeline(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero,
+            gitPeriodicRefreshInterval: nil
+        )
+        await pipeline.start()
+
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: "pipeline-watched-scope-\(UUIDv7.generate().uuidString)")
+        let watchedFolder = fixtureRoot.appending(path: "watched")
+        let worktreeRoots = [
+            watchedFolder.appending(path: "worktree-a"),
+            fixtureRoot.appending(path: "unrelated/worktree-b"),
+            fixtureRoot.appending(path: "unrelated/worktree-c"),
+        ]
+        for worktreeRoot in worktreeRoots {
+            try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        for worktreeRoot in worktreeRoots {
+            await pipeline.register(
+                worktreeId: UUIDv7.generate(),
+                repoId: UUIDv7.generate(),
+                rootPath: worktreeRoot
+            )
+        }
+        let registrationReadsCompleted = await eventually("all registration reads should complete") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(registrationReadsCompleted)
+        await provider.resetRecordedRequests()
+
+        let watchedPaths = [WatchedPath(path: watchedFolder)]
+        let summary = await pipeline.refreshWatchedFolders(watchedPaths)
+        let affectedReadCompleted = await eventually("affected worktree git read should complete") {
+            await provider.callCount >= 1
+        }
+        #expect(affectedReadCompleted)
+
+        #expect(await provider.callCount(for: worktreeRoots[0]) == 1)
+        #expect(await provider.callCount(for: worktreeRoots[1]) == 0)
+        #expect(await provider.callCount(for: worktreeRoots[2]) == 0)
+        #expect(Set(summary.repoPathsByWatchedFolder.keys) == [watchedFolder.standardizedFileURL])
+
+        await provider.resetRecordedRequests()
+        _ = await pipeline.refreshWatchedFolders([])
+        let refreshAllReadsCompleted = await eventually("explicit refresh-all should read every worktree") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(refreshAllReadsCompleted)
+        for worktreeRoot in worktreeRoots {
+            #expect(await provider.callCount(for: worktreeRoot) == 1)
+        }
+
+        await pipeline.shutdown()
+    }
+
+    @Test("explicit Refresh Worktrees refreshes every registered worktree")
+    func explicitRefreshWorktreesRefreshesEveryRegisteredWorktree() async throws {
+        installTestCoreAtomsIfNeeded()
+        let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus())
+        let pipeline = FilesystemGitPipeline(
+            bus: EventBus<RuntimeEnvelope>(),
+            gitWorkingTreeProvider: provider,
+            fseventStreamClient: SilentFSEventStreamClient(),
+            filesystemDebounceWindow: .zero,
+            filesystemMaxFlushLatency: .zero,
+            gitCoalescingWindow: .zero,
+            gitPeriodicRefreshInterval: nil
+        )
+        await pipeline.start()
+
+        let harness = makeBridgePaneActivityTestHarness()
+        let fixtureRoot = harness.tempDirectory.appending(path: "explicit-refresh-fleet")
+        let watchedFolder = fixtureRoot.appending(path: "watched")
+        let worktreeRoots = [
+            watchedFolder.appending(path: "worktree-a"),
+            fixtureRoot.appending(path: "external/worktree-b"),
+            fixtureRoot.appending(path: "external/worktree-c"),
+        ]
+        for worktreeRoot in worktreeRoots {
+            try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
+            await pipeline.register(
+                worktreeId: UUIDv7.generate(),
+                repoId: UUIDv7.generate(),
+                rootPath: worktreeRoot
+            )
+        }
+        let registrationReadsCompleted = await eventually("all registration reads should complete") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(registrationReadsCompleted)
+        await provider.resetRecordedRequests()
+        _ = harness.store.addWatchedPath(watchedFolder)
+
+        let delegate = AppDelegate()
+        delegate.store = harness.store
+        delegate.watchedFolderCommands = pipeline
+        delegate.workspaceSurfaceCoordinator = harness.coordinator
+
+        await delegate.handleRefreshWorktreesRequested()
+
+        let fleetRefreshCompleted = await eventually("explicit refresh should read every registered worktree") {
+            await provider.callCount == worktreeRoots.count
+        }
+        #expect(fleetRefreshCompleted)
+        for worktreeRoot in worktreeRoots {
+            #expect(await provider.callCount(for: worktreeRoot) == 1)
+        }
+
+        await pipeline.shutdown()
+        await harness.finish()
+    }
+
     private func makeTrackedStatus(
         aheadCount: Int = 0,
         behindCount: Int = 0,
@@ -344,6 +474,7 @@ struct FilesystemGitPipelineIntegrationTests {
         }
 
         let repoCache = RepoCacheAtom()
+        let cacheReceipt = OriginRetryCacheReceipt()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -354,34 +485,31 @@ struct FilesystemGitPipelineIntegrationTests {
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 coordinator.consume(envelope)
+                await cacheReceipt.record(
+                    branch: repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch,
+                    repoEnrichment: repoCache.repoEnrichmentByRepoId[repo.id]
+                )
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
+        await pipeline.setSidebarVisibleWorktrees([worktreeId])
 
-        let initialSnapshotConverged = await eventually(
-            "initial registration should produce a git snapshot before origin retry",
-            maxTurns: 20_000
-        ) {
-            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
-        }
-        #expect(initialSnapshotConverged)
+        await cacheReceipt.waitForInitialSnapshot()
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
         await provider.setStatus(status(originResolution: .resolved("git@github.com:askluna/agent-studio.git")))
         await pipeline.enqueueRawPathsForTesting(worktreeId: worktreeId, paths: [".git/config"])
 
-        let remoteIdentityConverged = await eventually(
-            "git config change should trigger origin retry and remote identity",
-            maxTurns: 20_000
-        ) {
-            guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
-            else {
-                return false
-            }
-            return raw.origin == "git@github.com:askluna/agent-studio.git"
-                && identity.groupKey == "remote:askluna/agent-studio"
+        await cacheReceipt.waitForRemoteIdentity()
+        guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
+        else {
+            Issue.record("git config change should resolve the remote identity")
+            await shutdownWorld(pipeline: pipeline, observerTasks: [coordinatorTask], bus: bus)
+            return
         }
-        #expect(remoteIdentityConverged)
+        #expect(raw.origin == "git@github.com:askluna/agent-studio.git")
+        #expect(identity.groupKey == "remote:askluna/agent-studio")
 
         await shutdownWorld(
             pipeline: pipeline,
@@ -418,6 +546,83 @@ struct FilesystemGitPipelineIntegrationTests {
         return condition()
     }
 
+    private struct AdvancePeriodicGitRefreshProps {
+        let clock: TestPushClock
+        let provider: MutableGitWorkingTreeStatusProvider
+        let cacheReceipt: PeriodicGitCacheReceipt
+        let cadence: Duration
+        let expectedStatusReadCount: Int
+        let expectedAheadCount: Int?
+        let expectedBehindCount: Int?
+    }
+
+    private struct PeriodicGitRefreshContext {
+        let clock: TestPushClock
+        let provider: MutableGitWorkingTreeStatusProvider
+        let cacheReceipt: PeriodicGitCacheReceipt
+        let cadence: Duration
+        let repoCache: RepoCacheAtom
+        let worktreeId: UUID
+    }
+
+    private struct PeriodicGitRefreshPhase {
+        let status: GitWorkingTreeStatus
+        let expectedStatusReadCount: Int
+    }
+
+    private func runPeriodicGitRefreshPhase(
+        _ phase: PeriodicGitRefreshPhase,
+        context: PeriodicGitRefreshContext
+    ) async {
+        let expectedAheadCount = phase.status.summary.aheadCount
+        let expectedBehindCount = phase.status.summary.behindCount
+        await context.provider.setStatus(phase.status)
+        await advancePeriodicGitRefresh(
+            .init(
+                clock: context.clock,
+                provider: context.provider,
+                cacheReceipt: context.cacheReceipt,
+                cadence: context.cadence,
+                expectedStatusReadCount: phase.expectedStatusReadCount,
+                expectedAheadCount: expectedAheadCount,
+                expectedBehindCount: expectedBehindCount
+            )
+        )
+        let cacheConverged = await eventually("periodic refresh should update ahead/behind counts") {
+            let summary = context.repoCache.worktreeEnrichmentByWorktreeId[context.worktreeId]?.snapshot?.summary
+            return summary?.aheadCount == expectedAheadCount
+                && summary?.behindCount == expectedBehindCount
+        }
+        #expect(cacheConverged)
+        let nextRefreshSleepScheduled = await waitUntilYielding {
+            context.clock.pendingSleepCount > 0
+        }
+        #expect(nextRefreshSleepScheduled)
+    }
+
+    private func advancePeriodicGitRefresh(_ props: AdvancePeriodicGitRefreshProps) async {
+        let clock = props.clock
+        let provider = props.provider
+        let cacheReceipt = props.cacheReceipt
+        let cadence = props.cadence
+        let expectedStatusReadCount = props.expectedStatusReadCount
+        let expectedAheadCount = props.expectedAheadCount
+        let expectedBehindCount = props.expectedBehindCount
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        guard let currentSleepGeneration = clock.pendingSleepGenerations.max() else {
+            Issue.record("periodic refresh should have a pending sleep before clock advancement")
+            return
+        }
+        let nextSleepGeneration = currentSleepGeneration + 1
+        clock.advance(by: cadence)
+        await provider.waitForCallCount(expectedStatusReadCount)
+        await cacheReceipt.waitForSnapshot(
+            aheadCount: expectedAheadCount,
+            behindCount: expectedBehindCount
+        )
+        await clock.waitForPendingSleepGeneration(nextSleepGeneration)
+    }
+
     private func waitForSubscriberCount(
         bus: EventBus<RuntimeEnvelope>,
         atLeast expectedCount: Int,
@@ -447,9 +652,80 @@ struct FilesystemGitPipelineIntegrationTests {
 
 }
 
+private actor PeriodicGitCacheReceipt {
+    private struct ExpectedCounts: Hashable {
+        let aheadCount: Int?
+        let behindCount: Int?
+    }
+
+    private var observedCounts: Set<ExpectedCounts> = []
+    private var waiters: [ExpectedCounts: [CheckedContinuation<Void, Never>]] = [:]
+
+    func record(_ snapshot: GitWorkingTreeSnapshot) {
+        let counts = ExpectedCounts(
+            aheadCount: snapshot.summary.aheadCount,
+            behindCount: snapshot.summary.behindCount
+        )
+        observedCounts.insert(counts)
+        let continuations = waiters.removeValue(forKey: counts) ?? []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
+    func waitForSnapshot(aheadCount: Int?, behindCount: Int?) async {
+        let counts = ExpectedCounts(aheadCount: aheadCount, behindCount: behindCount)
+        guard !observedCounts.contains(counts) else { return }
+        await withCheckedContinuation { continuation in
+            waiters[counts, default: []].append(continuation)
+        }
+    }
+}
+
+private actor OriginRetryCacheReceipt {
+    private var initialSnapshotObserved = false
+    private var remoteIdentityObserved = false
+    private var initialSnapshotWaiters: [CheckedContinuation<Void, Never>] = []
+    private var remoteIdentityWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func record(branch: String?, repoEnrichment: RepoEnrichment?) {
+        if branch == "main" {
+            initialSnapshotObserved = true
+            resumeAll(&initialSnapshotWaiters)
+        }
+        if case .some(.resolvedRemote(_, let raw, let identity, _)) = repoEnrichment,
+            raw.origin == "git@github.com:askluna/agent-studio.git",
+            identity.groupKey == "remote:askluna/agent-studio"
+        {
+            remoteIdentityObserved = true
+            resumeAll(&remoteIdentityWaiters)
+        }
+    }
+
+    func waitForInitialSnapshot() async {
+        guard !initialSnapshotObserved else { return }
+        await withCheckedContinuation { initialSnapshotWaiters.append($0) }
+    }
+
+    func waitForRemoteIdentity() async {
+        guard !remoteIdentityObserved else { return }
+        await withCheckedContinuation { remoteIdentityWaiters.append($0) }
+    }
+
+    private func resumeAll(_ waiters: inout [CheckedContinuation<Void, Never>]) {
+        let continuations = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
 private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private var currentStatus: GitWorkingTreeStatus?
     private(set) var callCount = 0
+    private var callCountByRootPath: [URL: Int] = [:]
+    private var callCountWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
 
     init(status: GitWorkingTreeStatus?) {
         self.currentStatus = status
@@ -459,12 +735,40 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
         currentStatus = status
     }
 
-    func statusResult(for _: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
+    func resetRecordedRequests() {
+        callCount = 0
+        callCountByRootPath.removeAll(keepingCapacity: true)
+    }
+
+    func callCount(for rootPath: URL) -> Int {
+        callCountByRootPath[rootPath.standardizedFileURL, default: 0]
+    }
+
+    func waitForCallCount(_ expectedCount: Int) async {
+        guard callCount < expectedCount else { return }
+        await withCheckedContinuation { continuation in
+            callCountWaiters[expectedCount, default: []].append(continuation)
+        }
+    }
+
+    func statusResult(for rootPath: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
         callCount += 1
+        callCountByRootPath[rootPath.standardizedFileURL, default: 0] += 1
+        resumeSatisfiedCallCountWaiters()
         guard let currentStatus else {
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
         }
         return .available(currentStatus)
+    }
+
+    private func resumeSatisfiedCallCountWaiters() {
+        let satisfiedCounts = callCountWaiters.keys.filter { $0 <= callCount }
+        for satisfiedCount in satisfiedCounts {
+            let continuations = callCountWaiters.removeValue(forKey: satisfiedCount) ?? []
+            for continuation in continuations {
+                continuation.resume()
+            }
+        }
     }
 }
 
@@ -480,6 +784,10 @@ private final class SilentFSEventStreamClient: FSEventStreamClient, @unchecked S
 
     func events() -> AsyncStream<FSEventBatch> {
         stream
+    }
+
+    func consumeCoarseRefreshDebt() -> Set<UUID> {
+        []
     }
 
     func register(worktreeId _: UUID, repoId _: UUID, rootPath _: URL) {}

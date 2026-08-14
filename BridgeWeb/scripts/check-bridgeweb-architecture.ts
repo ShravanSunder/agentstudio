@@ -18,9 +18,9 @@ type RuleId =
 	| 'telemetry-boundary'
 	| 'worker-boundary'
 	| 'no-raw-file-bodies-in-state'
+	| 'no-typescript-live-product-authority'
 	| 'core-imports-app-protocol'
-	| 'product-endpoint-boundary'
-	| 'worktree-dev-review-package-scaffolding';
+	| 'product-endpoint-boundary';
 
 export interface ArchitectureViolation {
 	readonly ruleId: RuleId;
@@ -179,7 +179,7 @@ async function checkSourceFile(
 		checkTelemetryEmit(context, node);
 	});
 	checkRawBodyStateFields(context);
-	checkWorktreeDevReviewPackageScaffolding(context);
+	checkTypeScriptLiveProductAuthority(context);
 
 	return context.violations;
 }
@@ -639,15 +639,18 @@ function checkRawBodyStateFields(context: SourceContext): void {
 	});
 }
 
-function checkWorktreeDevReviewPackageScaffolding(context: SourceContext): void {
-	if (!isWorktreeDevPath(context.relativePath) || isTestPath(context.relativePath)) {
+function checkTypeScriptLiveProductAuthority(context: SourceContext): void {
+	if (
+		!isPathInside(context.relativePath, 'scripts/dev-server/') ||
+		isTestPath(context.relativePath) ||
+		context.relativePath === 'scripts/dev-server/bridge-dev-telemetry.ts' ||
+		context.relativePath === 'scripts/dev-server/bridge-development-server-process.ts'
+	) {
 		return;
 	}
 
 	const forbiddenPattern =
-		context.relativePath === 'src/app/bridge-app-dev-bootstrap.tsx'
-			? /\/__bridge-worktree\/(?:package|content)\b/u
-			: /\b(?:loadReviewPackage|pushPackage|BridgeReviewPackage|bridgeReviewPackageSchema|buildReviewSnapshotFrame|dispatchBridgeDevHostAdmittedEnvelope)\b|\/__bridge-worktree\/(?:package|content)\b|foundation\/review-package/u;
+		/\b(?:loadReviewPackage|pushPackage|BridgeReviewPackage|BridgeProductDevCarrier|BridgeProductDevSession|bridgeReviewPackageSchema|buildReviewSnapshotFrame|dispatchBridgeDevHostAdmittedEnvelope)\b|foundation\/review-package/u;
 	const match = forbiddenPattern.exec(context.sourceText);
 
 	if (match === null) {
@@ -655,10 +658,10 @@ function checkWorktreeDevReviewPackageScaffolding(context: SourceContext): void 
 	}
 
 	addViolation(context, {
-		ruleId: 'worktree-dev-review-package-scaffolding',
+		ruleId: 'no-typescript-live-product-authority',
 		position: match.index,
 		message:
-			'Worktree dev route must use Worktree/File frames and descriptor content, not Review-package scaffolding',
+			'Debug TypeScript may supervise or proxy the Swift development backend but must not implement live Files/Review product authority',
 	});
 }
 
@@ -842,14 +845,6 @@ function isSharedBridgeProductRequestRuntimePath(relativePath: string): boolean 
 		isPathInside(relativePath, 'src/core/comm-worker/bridge-comm-worker-') ||
 		isPathInside(relativePath, 'src/core/comm-worker/bridge-worker-') ||
 		isPathInside(relativePath, 'src/core/comm-worker/bridge-product-')
-	);
-}
-
-function isWorktreeDevPath(relativePath: string): boolean {
-	return (
-		relativePath === 'src/app/bridge-app-dev-bootstrap.tsx' ||
-		relativePath === 'scripts/dev-server/bridge-worktree-dev-provider.ts' ||
-		relativePath === 'vite.config.ts'
 	);
 }
 

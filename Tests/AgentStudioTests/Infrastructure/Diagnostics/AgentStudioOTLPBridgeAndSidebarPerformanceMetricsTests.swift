@@ -5,6 +5,35 @@ import Testing
 @Suite
 struct AgentStudioOTLPBridgeSidebarMetricTests {
     @Test
+    func outlineApplyProxyProjectsOutcomeAndRowCount() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 140,
+            severityText: .info,
+            body: "performance.repo_explorer.outline_apply_proxy",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(3),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string("changed"),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count": .int(42),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.dimensionTuples.contains { $0 == ("outcome", "changed") })
+        #expect(
+            metricEvent.samples.contains {
+                $0.label == "agentstudio_performance_repo_explorer_outline_apply_proxy_row_count"
+                    && $0.value == 42
+            }
+        )
+    }
+
+    @Test
     func bridgePerformanceRecordProjectsOnlySafeBridgeMetrics() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,
@@ -293,43 +322,6 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
         )
 
         #expect(AgentStudioOTLPPerformanceMetricEvent(record: record) == nil)
-    }
-
-    @Test
-    func sidebarPerformanceRecordAcceptsVisibilityModeTrigger() throws {
-        let record = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 131,
-            severityText: .info,
-            body: "performance.sidebar.projection",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: ["service.name": "AgentStudio"],
-            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
-            attributes: [
-                "agentstudio.performance.elapsed_ms": .double(1.5),
-                "agentstudio.performance.sidebar.surface": .string("repo"),
-                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
-                "agentstudio.performance.sidebar.query_state": .string("empty"),
-                "agentstudio.performance.sidebar.group_mode": .string("repo"),
-                "agentstudio.performance.sidebar.trigger": .string("visibility_mode"),
-                "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(1.5),
-            ]
-        )
-
-        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
-
-        #expect(
-            metricEvent.dimensions.contains(
-                AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "visibility_mode")))
-        #expect(
-            metricEvent.samples.contains(
-                AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.sidebar.projection",
-                    label: "agentstudio_performance_sidebar_total_worker_elapsed_ms",
-                    dimensions: metricEvent.dimensions,
-                    value: 1.5
-                )))
     }
 
     @Test

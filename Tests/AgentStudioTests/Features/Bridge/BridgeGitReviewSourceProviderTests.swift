@@ -1,7 +1,6 @@
 import AgentStudioGit
 import AgentStudioInfrastructure
 import AgentStudioTestSupport
-import CryptoKit
 import Foundation
 import Testing
 
@@ -846,15 +845,6 @@ private func gitTreeSnapshot(path: String, oid: String) -> GitTreeSnapshot {
     )
 }
 
-private func gitContentPayload(_ content: String) -> GitContentPayload {
-    GitContentPayload(
-        data: Data(content.utf8),
-        contentHash: bridgeSHA256ContentHash(content),
-        contentHashAlgorithm: "sha256",
-        isBinary: false
-    )
-}
-
 private func gitStatusEntry(
     path: String,
     previousPath: String? = nil,
@@ -897,11 +887,4 @@ private func gitStatusSnapshot(
         ),
         entries: entries
     )
-}
-
-private func gitBlobSHA1ContentHash(_ content: String) -> String {
-    let data = Data(content.utf8)
-    var blobData = Data("blob \(data.count)\0".utf8)
-    blobData.append(data)
-    return Insecure.SHA1.hash(data: blobData).map { String(format: "%02x", $0) }.joined()
 }

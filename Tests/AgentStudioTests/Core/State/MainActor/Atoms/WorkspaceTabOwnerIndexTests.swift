@@ -80,19 +80,33 @@ struct WorkspaceTabOwnerIndexTests {
         #expect(atom.parentPaneID(containingDrawer: firstDrawerID) == firstState.id)
         #expect(atom.parentPaneID(containingDrawer: secondDrawerID) == nil)
 
-        atom.setCanonicalPaneState(secondState)
+        atom.replacePaneStates(
+            try requirePaneGraphReplacement([
+                firstState.id: firstState,
+                secondState.id: secondState,
+            ])
+        )
         #expect(atom.parentPaneID(containingDrawer: firstDrawerID) == firstState.id)
         #expect(atom.parentPaneID(containingDrawer: secondDrawerID) == secondState.id)
 
         var firstStateWithReplacementDrawer = firstState
         firstStateWithReplacementDrawer.kind = .layout(drawer: DrawerGraphState(parentPaneId: firstState.id))
         let replacementDrawerID = try #require(firstStateWithReplacementDrawer.drawer?.drawerId)
-        atom.setCanonicalPaneState(firstStateWithReplacementDrawer)
+        atom.replacePaneStates(
+            try requirePaneGraphReplacement([
+                firstStateWithReplacementDrawer.id: firstStateWithReplacementDrawer,
+                secondState.id: secondState,
+            ])
+        )
         #expect(atom.parentPaneID(containingDrawer: firstDrawerID) == nil)
         #expect(atom.parentPaneID(containingDrawer: replacementDrawerID) == firstState.id)
         #expect(atom.parentPaneID(containingDrawer: secondDrawerID) == secondState.id)
 
-        atom.removeCanonicalPaneState(for: secondState.id)
+        atom.replacePaneStates(
+            try requirePaneGraphReplacement([
+                firstStateWithReplacementDrawer.id: firstStateWithReplacementDrawer
+            ])
+        )
         #expect(atom.parentPaneID(containingDrawer: secondDrawerID) == nil)
     }
 }

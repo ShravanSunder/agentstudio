@@ -99,7 +99,9 @@ fi
 
 case "$mode" in
   test)
-    run_non_serialized_swift_tests "non-serialized suites"
+    SWIFT_TEST_NUM_WORKERS="${SWIFT_TEST_NUM_WORKERS:-4}"
+    run_fast_non_webkit_swift_tests
+    run_large_non_webkit_swift_tests
     run_webkit_suites
 
     echo "--- E2E serialized tests (serial) ---"

@@ -7,6 +7,7 @@ import Testing
 @testable import AgentStudioCore
 @testable import AgentStudioEditorChooser
 @testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -19,6 +20,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
     private struct PaneTabControllerHarness {
         let store: WorkspaceStore
         let controller: PaneTabViewController
+        let appEventBus: EventBus<AppEvent>
         let tempDir: URL
     }
 
@@ -57,6 +59,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
             preferenceAtom: editorPreference,
             runtimeAtom: editorChooserRuntime
         )
+        let inboxAtom = InboxNotificationAtom()
+        let appEventBus = EventBus<AppEvent>()
         let controller = PaneTabViewController(
             store: store,
             octiconLoader: makeTerminalTestOcticonLoader(),
@@ -65,71 +69,77 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appLifecycleStore: appLifecycleStore,
             executor: executor,
             runtimeCommandDispatcher: coordinator,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
+            tabBarAdapter: TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: inboxAtom
+            ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: BridgePaneAttendanceAtom(),
             editorChooser: editorChooser,
-            inboxAtom: InboxNotificationAtom(),
-            registersAsCommandHandler: false
+            inboxAtom: inboxAtom,
+            registersAsCommandHandler: false,
+            appEventBus: appEventBus
         )
         return PaneTabControllerHarness(
             store: store,
             controller: controller,
+            appEventBus: appEventBus,
             tempDir: tempDir
         )
     }
 
-    private func waitForAppEventBusSubscriberCount(_ expectedCount: Int) async {
+    private func waitForAppEventBusSubscriberCount(
+        _ expectedCount: Int,
+        on appEventBus: EventBus<AppEvent>
+    ) async {
         for _ in 0..<1000 {
-            if await AppEventBus.shared.subscriberCount >= expectedCount {
+            if await appEventBus.subscriberCount == expectedCount {
                 return
             }
             await Task.yield()
         }
-        Issue.record("Timed out waiting for AppEventBus subscriberCount >= \(expectedCount)")
-    }
-
-    private func stableAppEventBusSubscriberCount() async -> Int {
-        var lastCount = await AppEventBus.shared.subscriberCount
-        var stableObservations = 0
-
-        for _ in 0..<1000 {
-            await Task.yield()
-            let currentCount = await AppEventBus.shared.subscriberCount
-            if currentCount == lastCount {
-                stableObservations += 1
-                if stableObservations >= 10 {
-                    return currentCount
-                }
-            } else {
-                lastCount = currentCount
-                stableObservations = 0
-            }
-        }
-
-        return await AppEventBus.shared.subscriberCount
+        Issue.record("Timed out waiting for AppEventBus subscriberCount == \(expectedCount)")
     }
 
     private func makeSubscribedPaneTabControllerHarness() async -> PaneTabControllerHarness {
-        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
+        await waitForAppEventBusSubscriberCount(1, on: harness.appEventBus)
         return harness
     }
 
-    private func makeDroppedDeliverySubscriber() async -> EventBusSubscription<AppEvent> {
-        await AppEventBus.shared.subscribe(policy: .lossyNewest(0), subscriberName: #function)
+    private func waitForAppEventBusSubscriber(
+        named subscriberName: String,
+        on appEventBus: EventBus<AppEvent>,
+        isPresent: Bool
+    ) async {
+        for _ in 0..<1000 {
+            let activeSubscriberNames =
+                await appEventBus
+                .diagnosticsSnapshot()
+                .activeSubscribers
+                .map(\.subscriberName)
+            if activeSubscriberNames.contains(subscriberName) == isPresent {
+                return
+            }
+            await Task.yield()
+        }
+        Issue.record(
+            "Timed out waiting for AppEventBus subscriber \(subscriberName) presence == \(isPresent)"
+        )
     }
 
     private func makeProcessExitMountView(
         paneId: UUID = UUID(),
-        showsRestorePresentationDuringStartup: Bool = false
+        showsRestorePresentationDuringStartup: Bool = false,
+        appEventBus: EventBus<AppEvent> = EventBus<AppEvent>()
     ) -> TerminalPaneMountView {
         TerminalPaneMountView(
             restoredSurfaceId: UUID(),
             paneId: paneId,
             title: "Terminal",
-            showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
+            showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup,
+            appEventBus: appEventBus
         )
     }
 
@@ -146,13 +156,10 @@ struct TerminalPaneMountViewExitBehaviorTests {
     func processTermination_withoutSubscribers_showsFallbackOverlay() async {
         let mountView = makeProcessExitMountView()
 
-        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         #expect(mountView.isProcessRunning == false)
 
-        await eventually("fallback overlay should become visible when the close event is dropped") {
-            mountView.isShowingErrorOverlayForTesting
-        }
-
+        await terminationTask?.value
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(mountView.isShowingErrorOverlayForTesting)
@@ -164,43 +171,61 @@ struct TerminalPaneMountViewExitBehaviorTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let paneId = makeSubscribedPaneId(in: harness.store)
 
-        let mountView = makeProcessExitMountView(paneId: paneId)
+        let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
 
-        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(!mountView.isShowingErrorOverlayForTesting)
         #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
 
-        await eventually("close event should be effectively delivered to a subscriber") {
-            mountView.hasObservedEffectiveTerminationDeliveryForTesting
-        }
-
+        await terminationTask?.value
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingErrorOverlayForTesting)
     }
 
+    @Test("process termination ignored by a subscribed controller restores visible fallback UI")
+    func processTermination_ignoredBySubscribedController_restoresFallbackOverlay() async {
+        let harness = await makeSubscribedPaneTabControllerHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let mountView = makeProcessExitMountView(
+            paneId: UUIDv7.generate(),
+            appEventBus: harness.appEventBus
+        )
+
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
+
+        #expect(!mountView.isShowingErrorOverlayForTesting)
+        await terminationTask?.value
+        #expect(mountView.isShowingErrorOverlayForTesting)
+        #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
+    }
+
     @Test("process termination with dropped delivery restores visible fallback UI")
     func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
-        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
-        var droppedDeliverySubscriber: EventBusSubscription<AppEvent>? = await makeDroppedDeliverySubscriber()
+        let subscriberName = "TerminalPaneMountViewExitBehaviorTests.droppedDelivery"
+        let appEventBus = EventBus<AppEvent>()
+        var droppedDeliverySubscriber: EventBusSubscription<AppEvent>? = await appEventBus.subscribe(
+            policy: .lossyNewest(0),
+            subscriberName: subscriberName
+        )
         #expect(droppedDeliverySubscriber != nil)
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
-        let mountView = makeProcessExitMountView()
+        await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: true)
+        let mountView = makeProcessExitMountView(appEventBus: appEventBus)
 
-        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(!mountView.isShowingErrorOverlayForTesting)
         #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
 
-        await eventually("fallback overlay should appear after dropped close delivery") {
-            mountView.isShowingErrorOverlayForTesting
-        }
+        await terminationTask?.value
+        #expect(mountView.isShowingErrorOverlayForTesting)
         #expect(!mountView.hasObservedEffectiveTerminationDeliveryForTesting)
 
         droppedDeliverySubscriber = nil
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount)
+        await waitForAppEventBusSubscriber(named: subscriberName, on: appEventBus, isPresent: false)
     }
 
     @Test("startup restore close with subscribers auto-closes without showing process-exit UI")
@@ -211,21 +236,19 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
         let mountView = makeProcessExitMountView(
             paneId: paneId,
-            showsRestorePresentationDuringStartup: true
+            showsRestorePresentationDuringStartup: true,
+            appEventBus: harness.appEventBus
         )
 
         mountView.beginRestorePresentationForTesting()
         #expect(mountView.isShowingStartupOverlayForTesting)
 
-        mountView.simulateSurfaceCloseForTesting(processAlive: false)
+        let terminationTask = mountView.simulateSurfaceCloseForTesting(processAlive: false)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(!mountView.isShowingErrorOverlayForTesting)
 
-        await eventually("startup close should be effectively delivered to a subscriber") {
-            mountView.hasObservedEffectiveTerminationDeliveryForTesting
-        }
-
+        await terminationTask?.value
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingStartupOverlayForTesting)
         #expect(!mountView.isShowingErrorOverlayForTesting)
@@ -245,7 +268,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal process termination delivered through AppEventBus closes a single-pane tab")
     func terminalProcessTermination_deliveredThroughAppEventBus_closesSinglePaneTab() async {
-        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let pane = harness.store.createPane(
@@ -255,8 +277,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
 
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
-        AppEventBus.post(.terminalProcessTerminated(paneId: pane.id))
+        await waitForAppEventBusSubscriberCount(1, on: harness.appEventBus)
+        await harness.appEventBus.post(.terminalProcessTerminated(paneId: pane.id))
 
         await eventually("single-pane tab should close after AppEventBus delivery") {
             harness.store.tabs.isEmpty
@@ -265,7 +287,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal process termination delivered through AppEventBus closes drawer children")
     func terminalProcessTermination_deliveredThroughAppEventBus_closesDrawerChild() async {
-        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let parentPane = harness.store.createPane(
@@ -284,8 +305,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
             return
         }
 
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
-        AppEventBus.post(.terminalProcessTerminated(paneId: drawerPane.id))
+        await waitForAppEventBusSubscriberCount(1, on: harness.appEventBus)
+        await harness.appEventBus.post(.terminalProcessTerminated(paneId: drawerPane.id))
 
         await eventually("drawer child should close after AppEventBus delivery") {
             harness.store.pane(drawerPane.id) == nil
@@ -295,7 +316,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
     @Test("terminal termination delivered through AppEventBus removes minimized panes from the active arrangement")
     func terminalProcessTermination_deliveredThroughAppEventBus_removesMinimizedOwnedPane() async {
-        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         let harness = makePaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -326,8 +346,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         #expect(harness.store.tab(tab.id)?.panes.contains(minimizedPane.id) == true)
         #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds.contains(minimizedPane.id) == true)
 
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
-        AppEventBus.post(.terminalProcessTerminated(paneId: minimizedPane.id))
+        await waitForAppEventBusSubscriberCount(1, on: harness.appEventBus)
+        await harness.appEventBus.post(.terminalProcessTerminated(paneId: minimizedPane.id))
 
         await eventually("minimized owned pane should be removed without closing the whole tab") {
             harness.store.pane(minimizedPane.id) == nil
@@ -343,28 +363,29 @@ struct TerminalPaneMountViewExitBehaviorTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let paneId = makeSubscribedPaneId(in: harness.store)
 
-        let mountView = makeProcessExitMountView(paneId: paneId)
+        let mountView = makeProcessExitMountView(paneId: paneId, appEventBus: harness.appEventBus)
 
-        mountView.requestClose()
+        let terminationTask = mountView.requestClose()
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
 
         #expect(mountView.isProcessRunning == false)
         #expect(!mountView.isShowingErrorOverlayForTesting)
         #expect(mountView.isProcessExitedOverlaySuppressedAfterTerminationForTesting)
 
-        await eventually("requestClose should be effectively delivered to a subscriber") {
-            mountView.hasObservedEffectiveTerminationDeliveryForTesting
-        }
+        await terminationTask?.value
+        #expect(mountView.hasObservedEffectiveTerminationDeliveryForTesting)
     }
 
     @Test("controller subscribes before view load and unregisters on teardown")
     func controller_subscribesBeforeViewLoad_andUnregistersOnTeardown() async {
-        let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
         var harness: PaneTabControllerHarness? = makePaneTabControllerHarness()
         let tempDir = harness?.tempDir
         let weakController = WeakControllerBox(harness?.controller)
 
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
+        let appEventBus = harness?.appEventBus
+        if let appEventBus {
+            await waitForAppEventBusSubscriberCount(1, on: appEventBus)
+        }
         #expect(weakController.value != nil)
 
         harness = nil
@@ -372,7 +393,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
         await eventually("controller should deallocate after teardown") {
             weakController.value == nil
         }
-        await waitForAppEventBusSubscriberCount(baselineSubscriberCount)
+        if let appEventBus {
+            await waitForAppEventBusSubscriberCount(0, on: appEventBus)
+        }
 
         if let tempDir {
             try? FileManager.default.removeItem(at: tempDir)
@@ -382,16 +405,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
 @MainActor
 private final class MockTerminalExitSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

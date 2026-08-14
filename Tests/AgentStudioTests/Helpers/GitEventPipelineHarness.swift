@@ -10,17 +10,6 @@ import Testing
 @testable import AgentStudioTestSupport
 
 final class HarnessSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        cwdStream = AsyncStream { continuation in
-            continuation.onTermination = { _ in }
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> {
-        cwdStream
-    }
 
     func syncFocus(activeSurfaceId _: UUID?) {}
 
@@ -287,7 +276,7 @@ struct GitTopologyPipelineHarness {
             topologyEffectHandler: workspaceSurfaceCoordinator,
             scopeSyncHandler: { _ in }
         )
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
 
         return Self(
             bus: bus,
@@ -374,10 +363,9 @@ struct GitEnrichmentPipelineHarness {
         let forgeActor = ForgeActor(
             bus: bus,
             statusProvider: forgeProvider,
-            providerName: "stub",
-            pollInterval: .seconds(60)
+            providerName: "stub"
         )
-        coordinator.startConsuming()
+        await coordinator.startConsuming()
         return Self(
             bus: bus,
             workspaceStore: workspaceStore,

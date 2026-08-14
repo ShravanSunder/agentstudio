@@ -4,6 +4,9 @@ import Foundation
 
 protocol WatchedFolderCommandHandling: AnyObject, Sendable {
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary
+    func refreshRegisteredWorktreesAndWatchedFolders(
+        _ watchedPaths: [WatchedPath]
+    ) async -> WatchedFolderRefreshSummary
 }
 
 /// Composition root for app-wide filesystem facts + derived local git facts.
@@ -50,7 +53,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         self.forgeActor = ForgeActor(
             bus: bus,
             statusProvider: forgeStatusProvider,
-            providerName: "github"
+            providerName: "github",
+            performanceTraceRecorder: performanceTraceRecorder
         )
     }
 
@@ -73,6 +77,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func shutdown() async {
+        await forgeActor.setDemand(worktreeIds: [])
         await filesystemActor.shutdown()
         await gitWorkingDirectoryProjector.shutdown()
         await forgeActor.shutdown()
@@ -82,10 +87,12 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         // Ensure projector subscription is active before lifecycle facts are posted.
         await startGitProjector()
         await startForgeActor()
+        await forgeActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {
+        await forgeActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
@@ -109,11 +116,27 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await gitWorkingDirectoryProjector.setSidebarVisibleWorktrees(worktreeIds)
     }
 
+    func setPullRequestDemandWorktrees(_ worktreeIds: Set<UUID>) async {
+        await forgeActor.setDemand(worktreeIds: worktreeIds)
+    }
+
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
     }
 
     func refreshWatchedFolders(_ watchedPaths: [WatchedPath]) async -> WatchedFolderRefreshSummary {
+        let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
+        if watchedPaths.isEmpty {
+            await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
+        } else {
+            await gitWorkingDirectoryProjector.refreshRegisteredWorktreesIntersecting(watchedPaths.map(\.path))
+        }
+        return summary
+    }
+
+    func refreshRegisteredWorktreesAndWatchedFolders(
+        _ watchedPaths: [WatchedPath]
+    ) async -> WatchedFolderRefreshSummary {
         let summary = await filesystemActor.refreshWatchedFolders(watchedPaths)
         await gitWorkingDirectoryProjector.refreshRegisteredWorktreesImmediately()
         return summary
@@ -122,9 +145,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     func applyScopeChange(_ change: ScopeChange) async {
         switch change {
         case .registerForgeRepo(let repoId, let remote):
-            await forgeActor.register(repo: repoId, remote: remote)
+            await forgeActor.setOrigin(repo: repoId, remote: remote)
         case .unregisterForgeRepo(let repoId):
-            await forgeActor.unregister(repo: repoId)
+            await forgeActor.removeRepository(repo: repoId)
         case .refreshForgeRepo(let repoId, let correlationId):
             await forgeActor.refresh(repo: repoId, correlationId: correlationId)
         case .updateWatchedFolders(let watchedPaths):

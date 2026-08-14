@@ -35,6 +35,10 @@ struct SidebarSurfaceSwitchMetricState {
 }
 
 struct SidebarSurfaceHost: View {
+    enum SurfaceSwitchPublicationMode: Equatable {
+        case cachedThenDelta
+    }
+
     enum ChildKind: Equatable {
         case repoExplorer
         case inbox
@@ -56,10 +60,13 @@ struct SidebarSurfaceHost: View {
     let onDismissInbox: @MainActor @Sendable () -> Void
     @State private var surfaceSwitchSequence = 0
     @State private var surfaceSwitchMetricState = SidebarSurfaceSwitchMetricState()
+    @State private var repoCommandPresentationBatch: RepoExplorerCommandPresentationBatch?
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
         SidebarSurfaceChrome<EmptyView>.policy
     }
+
+    static let surfaceSwitchPublicationMode: SurfaceSwitchPublicationMode = .cachedThenDelta
 
     var body: some View {
         SidebarSurfaceChrome {
@@ -72,44 +79,25 @@ struct SidebarSurfaceHost: View {
                 surface: newSurface,
                 at: ContinuousClock().now
             )
+            let sequence = surfaceSwitchSequence
+            Task { @MainActor in
+                await Task.yield()
+                completeSurfaceSwitch(sequence: sequence, surface: newSurface)
+            }
         }
     }
 
     @ViewBuilder
     private var currentSurface: some View {
         let initialProjectionTrigger = surfaceSwitchSequence == 0 ? "data_refresh" : "surface_switch"
-        switch uiState.sidebarSurface {
-        case .repos:
+        ZStack {
             RepoExplorerView(
                 store: store,
                 octiconLoader: octiconLoader,
                 repoExplorerPrefs: repoExplorerSidebarPrefs,
                 bridgeAttendanceSnapshot: bridgeAttendanceSnapshot,
                 commandDispatcher: AppCommandDispatcher.shared,
-                canSetVisibilityMode: { mode in
-                    AppCommandDispatcher.shared.canDispatch(
-                        AppCommandExecutionRequest(
-                            command: .setRepoSidebarVisibilityMode,
-                            arguments: .repoSidebarVisibilityMode(mode)
-                        )
-                    )
-                },
-                canSetSortOrder: { order in
-                    AppCommandDispatcher.shared.canDispatch(
-                        AppCommandExecutionRequest(
-                            command: .setRepoSidebarSortOrder,
-                            arguments: .repoSidebarSortOrder(order)
-                        )
-                    )
-                },
-                onSetVisibilityMode: { mode in
-                    AppCommandDispatcher.shared.dispatch(
-                        AppCommandExecutionRequest(
-                            command: .setRepoSidebarVisibilityMode,
-                            arguments: .repoSidebarVisibilityMode(mode)
-                        )
-                    )
-                },
+                commandPresentationSnapshot: repoCommandPresentationBatch?.snapshot ?? .empty,
                 onSetSortOrder: { order in
                     AppCommandDispatcher.shared.dispatch(
                         AppCommandExecutionRequest(
@@ -117,9 +105,6 @@ struct SidebarSurfaceHost: View {
                             arguments: .repoSidebarSortOrder(order)
                         )
                     )
-                },
-                onRefreshWorktrees: {
-                    AppCommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
                 },
                 onRefocusActivePane: onRefocusActivePane,
                 onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
@@ -140,8 +125,26 @@ struct SidebarSurfaceHost: View {
                     completeSurfaceSwitch(sequence: sequence, surface: .repos)
                 }
             )
-            .id(surfaceSwitchSequence)
-        case .inbox:
+            .task {
+                guard repoCommandPresentationBatch == nil else { return }
+                let batch = RepoExplorerCommandPresentationBatch(
+                    store: store,
+                    repoExplorerPrefs: repoExplorerSidebarPrefs,
+                    visibleWorktrees: atom(\.sidebarVisibleWorktreesRuntime),
+                    dispatcher: .shared,
+                    performanceTraceRecorder: performanceTraceRecorder
+                )
+                repoCommandPresentationBatch = batch
+                batch.start()
+            }
+            .onDisappear {
+                repoCommandPresentationBatch?.stop()
+                repoCommandPresentationBatch = nil
+            }
+            .opacity(uiState.sidebarSurface == .repos ? 1 : 0)
+            .allowsHitTesting(uiState.sidebarSurface == .repos)
+            .accessibilityHidden(uiState.sidebarSurface != .repos)
+
             InboxNotificationSidebarView(
                 inboxAtom: inboxAtom,
                 octiconLoader: octiconLoader,
@@ -193,7 +196,9 @@ struct SidebarSurfaceHost: View {
                 },
                 onRefocusActivePane: onDismissInbox
             )
-            .id(surfaceSwitchSequence)
+            .opacity(uiState.sidebarSurface == .inbox ? 1 : 0)
+            .allowsHitTesting(uiState.sidebarSurface == .inbox)
+            .accessibilityHidden(uiState.sidebarSurface != .inbox)
         }
     }
 

@@ -59,22 +59,13 @@ struct WorkspaceLocalCacheMigrationTests {
                     #"{"branch":"main"}"#,
                 ]
             )
-            try database.execute(
-                sql: """
-                    INSERT INTO cache_pull_request_count(worktree_id, repo_id, count, updated_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                arguments: [worktreeId, repoId, 5, 4.0]
-            )
             return try Row.fetchOne(
                 database,
                 sql: """
-                    SELECT metadata.source_revision, repo.display_name, worktree.branch,
-                           pull_request.count AS pull_request_count
+                    SELECT metadata.source_revision, repo.display_name, worktree.branch
                     FROM cache_metadata metadata
                     JOIN cache_repo_enrichment repo
                     JOIN cache_worktree_enrichment worktree ON worktree.repo_id = repo.repo_id
-                    JOIN cache_pull_request_count pull_request ON pull_request.worktree_id = worktree.worktree_id
                     WHERE metadata.singleton_id = 1
                     """,
                 arguments: []
@@ -84,7 +75,6 @@ struct WorkspaceLocalCacheMigrationTests {
         #expect(restored?["source_revision"] as Int? == 7)
         #expect(restored?["display_name"] as String? == "project")
         #expect(restored?["branch"] as String? == "main")
-        #expect(restored?["pull_request_count"] as Int? == 5)
     }
 
     @Test("cache counters reject negative values")
@@ -99,18 +89,6 @@ struct WorkspaceLocalCacheMigrationTests {
                         VALUES (?, ?, ?)
                         """,
                     arguments: [1, -1, nil]
-                )
-            }
-        }
-
-        expectLocalCacheDatabaseError(containing: "CHECK constraint failed") {
-            try databaseQueue.write { database in
-                try database.execute(
-                    sql: """
-                        INSERT INTO cache_pull_request_count(worktree_id, repo_id, count, updated_at)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                    arguments: [UUID().uuidString, nil, -1, 1.0]
                 )
             }
         }

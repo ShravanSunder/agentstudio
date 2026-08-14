@@ -2,11 +2,23 @@ import AgentStudioCore
 import AppKit
 import SwiftUI
 
+private struct CommandBarInputFocusAcknowledgementKey: EnvironmentKey {
+    static let defaultValue: @MainActor @Sendable () -> Void = {}
+}
+
+extension EnvironmentValues {
+    var commandBarInputFocusAcknowledgement: @MainActor @Sendable () -> Void {
+        get { self[CommandBarInputFocusAcknowledgementKey.self] }
+        set { self[CommandBarInputFocusAcknowledgementKey.self] = newValue }
+    }
+}
+
 // MARK: - CommandBarTextField
 
 /// NSViewRepresentable wrapping NSTextField for keyboard interception.
 /// Captures arrow keys, Enter, Escape, and Backspace before SwiftUI default handling.
 struct CommandBarTextField: NSViewRepresentable {
+    @Environment(\.commandBarInputFocusAcknowledgement) private var acknowledgeInputFocus
     @Binding var text: String
     let placeholder: String
     let onArrowUp: () -> Void
@@ -22,6 +34,7 @@ struct CommandBarTextField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> KeyInterceptingTextField {
+        let acknowledgeInputFocus = acknowledgeInputFocus
         let field = KeyInterceptingTextField()
         field.delegate = context.coordinator
         field.coordinator = context.coordinator
@@ -38,7 +51,9 @@ struct CommandBarTextField: NSViewRepresentable {
         // Become first responder on next run loop
         Task { @MainActor [weak field] in
             guard let field else { return }
-            field.window?.makeFirstResponder(field)
+            if field.window?.makeFirstResponder(field) == true {
+                acknowledgeInputFocus()
+            }
         }
 
         return field

@@ -18,11 +18,9 @@ extension CommandBarDataSource {
 
                 let repositoryItem = repoRootItem(
                     repo: repository,
-                    store: store,
                     presenceByWorktreeId: presenceByWorktreeID,
                     group: Group.repositoriesAndWorktrees,
-                    groupPriority: Priority.repositoriesAndWorktrees,
-                    dispatcher: dispatcher
+                    groupPriority: Priority.repositoriesAndWorktrees
                 )
                 .projected(
                     group: Group.repositoriesAndWorktrees,
@@ -109,12 +107,28 @@ extension CommandBarDataSource {
         }
 
         if let watchedRoot = store.repositoryTopologyAtom.watchedPaths.first?.path {
-            appendCurrentDirectory(
-                watchedRoot,
-                detail: "Watched folder",
-                rows: &currentRows,
-                promotedPathKeys: &promotedPathKeys
-            )
+            let watchedPathKey = quickOpenPathKey(watchedRoot)
+            if !promotedPathKeys.contains(watchedPathKey),
+                let canonicalItem = canonicalItems.first(where: { item in
+                    quickOpenPath(for: item, store: store).map(quickOpenPathKey) == watchedPathKey
+                })
+            {
+                currentRows.append(
+                    canonicalItem.projected(
+                        group: Group.current,
+                        groupPriority: Priority.current
+                    )
+                )
+                promotedIDs.insert(canonicalItem.id)
+                promotedPathKeys.insert(watchedPathKey)
+            } else {
+                appendCurrentDirectory(
+                    watchedRoot,
+                    detail: "Watched folder",
+                    rows: &currentRows,
+                    promotedPathKeys: &promotedPathKeys
+                )
+            }
         }
         appendCurrentDirectory(
             FileManager.default.homeDirectoryForCurrentUser,

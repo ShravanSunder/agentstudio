@@ -107,7 +107,7 @@ extension WorkspaceStore {
     package var windowFrame: CGRect? { windowMemoryAtom.windowFrame }
     package var repos: [Repo] { repositoryTopologyAtom.repos }
     package var watchedPaths: [WatchedPath] { repositoryTopologyAtom.watchedPaths }
-    package var panes: [UUID: Pane] { paneAtom.panes }
+    package var panes: [UUID: Pane] { paneAtom.paneSnapshot() }
     package var tabs: [Tab] { tabLayoutAtom.tabs }
     package var activeTabId: UUID? { tabLayoutAtom.activeTabId }
     package var activeTab: Tab? { tabLayoutAtom.activeTab }

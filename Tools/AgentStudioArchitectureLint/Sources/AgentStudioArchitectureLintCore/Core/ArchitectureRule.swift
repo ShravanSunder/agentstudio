@@ -39,8 +39,9 @@ enum ArchitectureRuleRegistry {
         CanonicalAtomMutationRule(),
         SharedComponentsStatelessRule(),
         AtomLibGenericRule(),
-        DerivedValueDeclaredInputsRule(),
+        DerivedAtomDeclaredInputsRule(),
         RepoCacheKeyedReadsRule(),
+        HotPaneSnapshotReadsRule(),
         WorktreeEnrichmentComparatorRule(),
         StateActorPathRule(),
         IPCProgrammaticControlBoundaryRule(),
@@ -56,5 +57,9 @@ enum ArchitectureRuleRegistry {
         TooltipSourceRule(),
         EventBusSubscriberPolicyRule(),
         TerminalLocalDispositionPublicationRule(),
+        ObservationCaptureKeyedReadsRule(),
+        MainActorUnboundedCollectionWorkRule(),
+        PerformanceConstantsInAppPoliciesRule(),
+        NonisolatedAsyncBlockingIORule(),
     ]
 }

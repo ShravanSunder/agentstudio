@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
 @MainActor
@@ -18,6 +19,8 @@ struct WindowLifecycleAtomTests {
         #expect(atom.terminalContainerBounds == .zero)
         #expect(atom.isLaunchLayoutSettled == false)
         #expect(atom.isReadyForLaunchRestore == false)
+        #expect(atom.didPublishFirstInteractiveFrame == false)
+        #expect(atom.firstInteractiveFrameSource == nil)
     }
 
     @Test("registered windows start with conservative hidden presentation facts")
@@ -185,5 +188,71 @@ struct WindowLifecycleAtomTests {
         atom.recordLaunchLayoutSettled()
 
         #expect(atom.isReadyForLaunchRestore == false)
+    }
+
+    @Test("first interactive frame is a transient one-shot fact")
+    func firstInteractiveFrameRecordsOnlyOnce() {
+        let atom = WindowLifecycleAtom()
+
+        let firstAccepted = atom.recordFirstInteractiveFramePublished(source: .occludedFallback)
+        let duplicateAccepted = atom.recordFirstInteractiveFramePublished(source: .presented)
+
+        #expect(firstAccepted)
+        #expect(!duplicateAccepted)
+        #expect(atom.didPublishFirstInteractiveFrame)
+        #expect(atom.firstInteractiveFrameSource == .occludedFallback)
+    }
+
+    @Test("occluded fallback releases every pending activation waiter")
+    func occludedFallbackReleasesEveryPendingActivationWaiter() async {
+        let atom = WindowLifecycleAtom()
+        let firstWaiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+            return true
+        }
+        let secondWaiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+            return true
+        }
+        await Task.yield()
+
+        let accepted = atom.recordFirstInteractiveFramePublished(source: .occludedFallback)
+
+        #expect(accepted)
+        #expect(await firstWaiter.value)
+        #expect(await secondWaiter.value)
+        await atom.waitUntilFirstInteractiveFramePublished()
+    }
+
+    @Test("first-frame deferral returns timeout when its injected deadline fires")
+    func firstFrameDeferralReturnsTimeout() async {
+        let timeout = AsyncStream<Void>.makeStream()
+        let atom = WindowLifecycleAtom(
+            deferralDelay: AsyncDelay { _ in
+                var iterator = timeout.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
+        let waiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+        }
+        await Task.yield()
+
+        timeout.continuation.yield()
+
+        #expect(await waiter.value == .fallbackTimeout)
+    }
+
+    @Test("first-frame deferral returns cancelled when its caller is cancelled")
+    func firstFrameDeferralReturnsCancelled() async {
+        let atom = WindowLifecycleAtom()
+        let waiter = Task { @MainActor in
+            await atom.waitUntilFirstInteractiveFramePublished()
+        }
+        await Task.yield()
+
+        waiter.cancel()
+
+        #expect(await waiter.value == .cancelled)
     }
 }

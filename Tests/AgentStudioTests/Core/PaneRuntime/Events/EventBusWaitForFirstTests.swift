@@ -6,6 +6,39 @@ import Testing
 
 @Suite("EventBus.waitForFirst")
 struct EventBusWaitForFirstTests {
+    private enum TestFact: Equatable, Sendable, EventBusFactTopicProviding {
+        case unrelated
+        case matching
+
+        var eventBusFactTopic: EventBusFactTopic {
+            switch self {
+            case .unrelated: EventBusFactTopic("test.unrelated")
+            case .matching: EventBusFactTopic("test.matching")
+            }
+        }
+    }
+
+    @Test("fact interest filters before waitForFirst extraction")
+    func waitForFirstForwardsFactInterest() async {
+        let harness = EventBusHarness<TestFact>()
+        let waitTask = Task {
+            await harness.bus.waitForFirst(
+                policy: .criticalUnbounded,
+                subscriberName: "waitForFirstForwardsFactInterest",
+                factInterest: .matching([EventBusFactTopic("test.matching")])
+            ) { fact -> Bool? in
+                fact == .matching ? true : nil
+            }
+        }
+
+        await waitForBusSubscriberCount(harness.bus, atLeast: 1)
+        await harness.post(.unrelated)
+        let diagnosticsBeforeMatch = await harness.bus.diagnosticsSnapshot()
+        #expect(diagnosticsBeforeMatch.activeSubscribers.first?.yieldedCount == 0)
+        await harness.post(.matching)
+
+        #expect(await waitTask.value == true)
+    }
 
     // MARK: - Non-timeout variant
 

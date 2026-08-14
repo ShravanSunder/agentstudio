@@ -9,6 +9,9 @@ import {
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerRenderDispositionCommandSchema,
 	bridgeWorkerReviewIntakeReadyCommandSchema,
+	bridgeWorkerReviewComparisonUpdateCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
+	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewProjectionUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
@@ -25,6 +28,9 @@ import {
 	type BridgeWorkerModeCommand,
 	type BridgeWorkerRenderDispositionCommand,
 	type BridgeWorkerReviewIntakeReadyCommand,
+	type BridgeWorkerReviewComparisonUpdateCommand,
+	type BridgeWorkerReviewComparisonTargetsQueryCommand,
+	type BridgeWorkerReviewComparisonTargetsQueryCancelCommand,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerSelectCommand,
@@ -70,6 +76,18 @@ export interface EncodeBridgeWorkerReviewIntakeReadyCommandProps extends EncodeB
 	readonly reason?: BridgeWorkerReviewIntakeReadyCommand['reason'];
 	readonly streamId: BridgeWorkerReviewIntakeReadyCommand['streamId'];
 }
+
+export interface EncodeBridgeWorkerReviewComparisonUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly target: BridgeWorkerReviewComparisonUpdateCommand['target'];
+}
+
+export type EncodeBridgeWorkerReviewComparisonTargetsQueryCommandProps =
+	EncodeBridgeWorkerCommandBaseProps;
+
+export type EncodeBridgeWorkerReviewComparisonTargetsQueryCancelCommandProps =
+	EncodeBridgeWorkerCommandBaseProps & {
+		readonly queryRequestId: string;
+	};
 
 export interface EncodeBridgeWorkerActiveViewerModeUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly update: BridgeWorkerActiveViewerModeUpdateCommand['update'];
@@ -162,6 +180,32 @@ export function encodeBridgeWorkerReviewIntakeReadyCommand(
 		protocolId: 'review',
 		streamId: props.streamId,
 		reason: props.reason ?? null,
+	});
+}
+
+export function encodeBridgeWorkerReviewComparisonUpdateCommand(
+	props: EncodeBridgeWorkerReviewComparisonUpdateCommandProps,
+): BridgeWorkerReviewComparisonUpdateCommand {
+	return bridgeWorkerReviewComparisonUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewComparisonUpdate'),
+		target: props.target,
+	});
+}
+
+export function encodeBridgeWorkerReviewComparisonTargetsQueryCommand(
+	props: EncodeBridgeWorkerReviewComparisonTargetsQueryCommandProps,
+): BridgeWorkerReviewComparisonTargetsQueryCommand {
+	return bridgeWorkerReviewComparisonTargetsQueryCommandSchema.parse(
+		bridgeWorkerCommandEnvelope(props, 'reviewComparisonTargetsQuery'),
+	);
+}
+
+export function encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand(
+	props: EncodeBridgeWorkerReviewComparisonTargetsQueryCancelCommandProps,
+): BridgeWorkerReviewComparisonTargetsQueryCancelCommand {
+	return bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewComparisonTargetsQueryCancel'),
+		queryRequestId: props.queryRequestId,
 	});
 }
 

@@ -51,7 +51,11 @@ struct PaneTabViewControllerTabRetentionTests {
             appLifecycleStore: appLifecycleStore,
             executor: WorkspaceActionExecutor(coordinator: coordinator, store: store),
             runtimeCommandDispatcher: coordinator,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
+            tabBarAdapter: TabBarAdapter(
+                store: store,
+                repoCache: RepoCacheAtom(),
+                inboxAtom: atomRegistry.inboxNotification
+            ),
             viewRegistry: viewRegistry,
             bridgePaneAttendance: atomRegistry.bridgePaneAttendance,
             editorChooser: atomRegistry.editorChooser,
@@ -90,6 +94,26 @@ struct PaneTabViewControllerTabRetentionTests {
         let contentView = try #require(harness.window.contentView)
         host.frame = contentView.bounds
         contentView.addSubview(host)
+    }
+
+    @Test("registering a tab host seeds its pane slots before SwiftUI can render")
+    func registeringTabHostSeedsPaneSlotsBeforeRender() {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let pane = harness.store.createPane(
+            launchDirectory: harness.tempDir,
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "New tab")
+        harness.store.appendTab(tab)
+
+        harness.controller.viewWillLayout()
+
+        #expect(harness.viewRegistry.slotPaneIdsForTesting.contains(pane.id))
     }
 
     @Test
@@ -505,12 +529,6 @@ struct PaneTabViewControllerTabRetentionTests {
 
 @MainActor
 private final class MockPersistentTabSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-        continuation.finish()
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

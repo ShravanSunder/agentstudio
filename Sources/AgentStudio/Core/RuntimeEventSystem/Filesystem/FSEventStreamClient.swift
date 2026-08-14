@@ -7,6 +7,7 @@ package struct FSEventBatch: Sendable {
 
 package protocol FSEventStreamClient: Sendable {
     func events() -> AsyncStream<FSEventBatch>
+    func consumeCoarseRefreshDebt() -> Set<UUID>
     func register(worktreeId: UUID, repoId: UUID, rootPath: URL)
     func unregister(worktreeId: UUID)
     func shutdown()

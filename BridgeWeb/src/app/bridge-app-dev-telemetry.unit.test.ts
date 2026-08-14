@@ -80,6 +80,9 @@ describe('Bridge app dev telemetry host', () => {
 
 		expect(bootstrapSource.match(/installBridgeAppDevTelemetryHost\(\{/g)).toHaveLength(1);
 		expect(bootstrapSource).not.toContain('respondToHandshakeRequests: false');
+		expect(bootstrapSource).toMatch(
+			/beforeunload[\s\S]*root\.unmount\(\);[\s\S]*paneRuntime\.dispose\(\);/u,
+		);
 		expect(appSource).toContain('onTelemetryConfig: configureTelemetryRecorder');
 		expect(appSource).toContain('paneRuntimeHost.runtime.installTelemetryProducer');
 	});

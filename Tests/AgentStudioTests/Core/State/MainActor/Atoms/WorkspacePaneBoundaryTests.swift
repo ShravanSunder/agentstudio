@@ -1,12 +1,163 @@
 import AgentStudioInfrastructure
 import Foundation
+import Observation
 import Testing
 
 @testable import AgentStudioCore
 
+private final class WorkspacePaneObservationCounter: @unchecked Sendable {
+    private(set) var invalidationCount = 0
+
+    func record() {
+        invalidationCount += 1
+    }
+}
+
 @MainActor
 @Suite("Workspace pane boundary split")
 struct WorkspacePaneBoundaryTests {
+    @Test("Pane graph isolates canonical structural membership and accepted revision observation")
+    func paneGraphObservationIsolatesDependencyClasses() throws {
+        let graphAtom = WorkspacePaneGraphAtom()
+        let paneA = graphAtom.createPane(
+            launchDirectory: URL(filePath: "/tmp/pane-a", directoryHint: .isDirectory),
+            zmxSessionID: .generateUUIDv7()
+        )
+        let paneB = graphAtom.createPane(
+            launchDirectory: URL(filePath: "/tmp/pane-b", directoryHint: .isDirectory),
+            zmxSessionID: .generateUUIDv7()
+        )
+        let revisionAfterInsertion = graphAtom.paneAcceptedCommitRevision
+        let canonicalA = observe { _ = graphAtom.paneState(paneA.id) }
+        let canonicalB = observe { _ = graphAtom.paneState(paneB.id) }
+        let structuralA = observe { _ = graphAtom.paneStructuralFacts(paneA.id) }
+        let structuralB = observe { _ = graphAtom.paneStructuralFacts(paneB.id) }
+        let membership = observe { _ = graphAtom.paneIDs }
+        let acceptedRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+
+        graphAtom.updatePaneTitle(paneA.id, title: "Renamed")
+
+        #expect(canonicalA.invalidationCount == 1)
+        #expect(canonicalB.invalidationCount == 0)
+        #expect(structuralA.invalidationCount == 0)
+        #expect(structuralB.invalidationCount == 0)
+        #expect(membership.invalidationCount == 0)
+        #expect(acceptedRevision.invalidationCount == 1)
+        #expect(graphAtom.paneAcceptedCommitRevision == revisionAfterInsertion + 1)
+
+        let equalCanonicalA = observe { _ = graphAtom.paneState(paneA.id) }
+        let equalStructuralA = observe { _ = graphAtom.paneStructuralFacts(paneA.id) }
+        let equalRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+
+        graphAtom.updatePaneTitle(paneA.id, title: "Renamed")
+
+        #expect(equalCanonicalA.invalidationCount == 0)
+        #expect(equalStructuralA.invalidationCount == 0)
+        #expect(equalRevision.invalidationCount == 0)
+        #expect(graphAtom.paneAcceptedCommitRevision == revisionAfterInsertion + 1)
+
+        let cwdCanonicalA = observe { _ = graphAtom.paneState(paneA.id) }
+        let cwdCanonicalB = observe { _ = graphAtom.paneState(paneB.id) }
+        let cwdStructuralA = observe { _ = graphAtom.paneStructuralFacts(paneA.id) }
+        let cwdStructuralB = observe { _ = graphAtom.paneStructuralFacts(paneB.id) }
+        let cwdMembership = observe { _ = graphAtom.paneIDs }
+        let cwdRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+        let updatedCWD = URL(filePath: "/tmp/pane-a/Sources", directoryHint: .isDirectory)
+
+        graphAtom.updatePaneCWD(paneA.id, cwd: updatedCWD)
+
+        #expect(cwdCanonicalA.invalidationCount == 1)
+        #expect(cwdCanonicalB.invalidationCount == 0)
+        #expect(cwdStructuralA.invalidationCount == 1)
+        #expect(cwdStructuralB.invalidationCount == 0)
+        #expect(cwdMembership.invalidationCount == 0)
+        #expect(cwdRevision.invalidationCount == 1)
+        #expect(graphAtom.paneStructuralFacts(paneA.id)?.cwd == updatedCWD)
+        #expect(graphAtom.paneStructuralFacts(paneA.id)?.paneID == paneA.id)
+    }
+
+    @Test("Pane graph reconciles insertion removal replacement restore and retained missing slots atomically")
+    func paneGraphReconcilesLifecycleAndRetainedMissingSlotsAtomically() throws {
+        let graphAtom = WorkspacePaneGraphAtom()
+        let paneA = graphAtom.createPane(
+            launchDirectory: URL(filePath: "/tmp/pane-lifecycle-a", directoryHint: .isDirectory),
+            zmxSessionID: .generateUUIDv7()
+        )
+        let restoredPaneID = UUIDv7.generate()
+        let restoredPane = Pane(
+            id: restoredPaneID,
+            content: .terminal(
+                TerminalState(provider: .zmx, lifetime: .persistent, zmxSessionID: .generateUUIDv7())
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: URL(filePath: "/tmp/pane-restored", directoryHint: .isDirectory),
+                title: "Restored"
+            )
+        )
+        let missingCanonical = observe { _ = graphAtom.paneState(restoredPaneID) }
+        let missingStructural = observe { _ = graphAtom.paneStructuralFacts(restoredPaneID) }
+        let insertionMembership = observe { _ = graphAtom.paneIDs }
+        let insertionRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+
+        #expect(graphAtom.insertRestoredPane(restoredPane))
+
+        #expect(missingCanonical.invalidationCount == 1)
+        #expect(missingStructural.invalidationCount == 1)
+        #expect(insertionMembership.invalidationCount == 1)
+        #expect(insertionRevision.invalidationCount == 1)
+        #expect(graphAtom.paneStateSnapshot()[restoredPaneID] == graphAtom.paneState(restoredPaneID))
+
+        let unaffectedCanonical = observe { _ = graphAtom.paneState(paneA.id) }
+        let removedCanonical = observe { _ = graphAtom.paneState(restoredPaneID) }
+        let removedStructural = observe { _ = graphAtom.paneStructuralFacts(restoredPaneID) }
+        let removalMembership = observe { _ = graphAtom.paneIDs }
+        let removalRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+
+        #expect(graphAtom.deletePaneAndOwnedDrawerChildren(restoredPaneID))
+
+        #expect(unaffectedCanonical.invalidationCount == 0)
+        #expect(removedCanonical.invalidationCount == 1)
+        #expect(removedStructural.invalidationCount == 1)
+        #expect(removalMembership.invalidationCount == 1)
+        #expect(removalRevision.invalidationCount == 1)
+        #expect(graphAtom.paneState(restoredPaneID) == nil)
+
+        var replacementStates = graphAtom.paneStateSnapshot()
+        replacementStates[paneA.id]?.metadata.title = "Replacement title"
+        replacementStates[restoredPaneID] = PaneGraphState(pane: restoredPane)
+        let replacementCanonicalA = observe { _ = graphAtom.paneState(paneA.id) }
+        let replacementStructuralA = observe { _ = graphAtom.paneStructuralFacts(paneA.id) }
+        let replacementCanonicalB = observe { _ = graphAtom.paneState(restoredPaneID) }
+        let replacementStructuralB = observe { _ = graphAtom.paneStructuralFacts(restoredPaneID) }
+        let replacementMembership = observe { _ = graphAtom.paneIDs }
+        let replacementRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+
+        graphAtom.replacePaneStates(try requirePaneGraphReplacement(replacementStates))
+
+        #expect(replacementCanonicalA.invalidationCount == 1)
+        #expect(replacementStructuralA.invalidationCount == 0)
+        #expect(replacementCanonicalB.invalidationCount == 1)
+        #expect(replacementStructuralB.invalidationCount == 1)
+        #expect(replacementMembership.invalidationCount == 1)
+        #expect(replacementRevision.invalidationCount == 1)
+        #expect(graphAtom.paneIDs == Set([paneA.id, restoredPaneID]))
+
+        let retainedMissingID = UUIDv7.generate()
+        let retainedCanonical = observe { _ = graphAtom.paneState(retainedMissingID) }
+        let retainedStructural = observe { _ = graphAtom.paneStructuralFacts(retainedMissingID) }
+        let unchangedRevision = observe { _ = graphAtom.paneAcceptedCommitRevision }
+        let revisionBeforeReplacement = graphAtom.paneAcceptedCommitRevision
+
+        graphAtom.replacePaneStates(
+            try requirePaneGraphReplacement(graphAtom.paneStateSnapshot())
+        )
+
+        #expect(retainedCanonical.invalidationCount == 0)
+        #expect(retainedStructural.invalidationCount == 0)
+        #expect(unchangedRevision.invalidationCount == 0)
+        #expect(graphAtom.paneAcceptedCommitRevision == revisionBeforeReplacement)
+    }
+
     @Test("Pane graph state strips drawer expansion and display facets")
     func paneGraphStateStripsCursorAndDisplayFields() throws {
         let repoId = UUID()
@@ -128,7 +279,7 @@ struct WorkspacePaneBoundaryTests {
             metadata: PaneMetadata(title: "Unlocated review")
         )
 
-        #expect(graphAtom.paneIds.isEmpty)
+        #expect(graphAtom.paneIDs.isEmpty)
     }
 
     @Test("Generic pane creation derives required locations from content-owned sources")
@@ -142,7 +293,10 @@ struct WorkspacePaneBoundaryTests {
                 content: .bridgePanel(
                     BridgePaneState(
                         panelKind: .fileViewer,
-                        source: .workspace(rootPath: bridgeRoot.path, baseline: .headMinusOne)
+                        source: .workspace(
+                            rootPath: bridgeRoot.path,
+                            baseline: .ref(name: "HEAD~1")
+                        )
                     )
                 ),
                 metadata: PaneMetadata(title: "Files")
@@ -551,6 +705,16 @@ struct WorkspacePaneBoundaryTests {
         case .failure:
             throw WorkspacePaneBoundaryTestError.paneGraphReplacementRejected
         }
+    }
+
+    private func observe(_ read: @escaping @MainActor () -> Void) -> WorkspacePaneObservationCounter {
+        let counter = WorkspacePaneObservationCounter()
+        withObservationTracking {
+            read()
+        } onChange: {
+            counter.record()
+        }
+        return counter
     }
 }
 

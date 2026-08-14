@@ -10,40 +10,40 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
     func commandExecuteParamsEncodeExactPublicKeysAndDefaultOmittedArguments() throws {
         let decoded = try JSONDecoder().decode(
             IPCCommandExecuteParams.self,
-            from: Data(#"{"commandId":"setRepoSidebarVisibilityMode"}"#.utf8)
+            from: Data(#"{"commandId":"setRepoSidebarSortOrder"}"#.utf8)
         )
-        #expect(decoded.commandId == IPCCommandIdentifier(rawValue: "setRepoSidebarVisibilityMode"))
+        #expect(decoded.commandId == IPCCommandIdentifier(rawValue: "setRepoSidebarSortOrder"))
         #expect(decoded.targetHandle == nil)
         #expect(decoded.arguments.isEmpty)
 
         let encodedData = try JSONEncoder().encode(
             IPCCommandExecuteParams(
-                commandId: IPCCommandIdentifier(rawValue: "setRepoSidebarVisibilityMode"),
+                commandId: IPCCommandIdentifier(rawValue: "setRepoSidebarSortOrder"),
                 targetHandle: nil,
-                arguments: ["mode": "favoritesOnly"]
+                arguments: ["order": "descending"]
             )
         )
         let encodedObject = try #require(JSONSerialization.jsonObject(with: encodedData) as? [String: Any])
 
         #expect(Set(encodedObject.keys) == ["commandId", "targetHandle", "arguments"])
-        #expect(encodedObject["commandId"] as? String == "setRepoSidebarVisibilityMode")
+        #expect(encodedObject["commandId"] as? String == "setRepoSidebarSortOrder")
         #expect(encodedObject["targetHandle"] is NSNull)
         let arguments = try #require(encodedObject["arguments"] as? [String: String])
-        #expect(arguments == ["mode": "favoritesOnly"])
+        #expect(arguments == ["order": "descending"])
     }
 
     @Test("command list entry argument schema encodes stable string enum shape")
     func commandListEntryArgumentSchemaEncodesStableStringEnumShape() throws {
         let entry = IPCCommandListEntry(
-            id: IPCCommandIdentifier(rawValue: "setRepoSidebarVisibilityMode"),
-            title: "Set Repo Sidebar Visibility Mode",
+            id: IPCCommandIdentifier(rawValue: "setRepoSidebarSortOrder"),
+            title: "Set Repo Sidebar Sort Order",
             executionModes: [.headless],
             targetKinds: [],
-            requiredPrivileges: [.layoutMutate],
+            requiredPrivileges: [.sidebarStateMutate],
             argumentSchema: [
                 IPCCommandArgumentSchema(
-                    name: "mode",
-                    kind: .stringEnum(values: ["all", "favoritesOnly"]),
+                    name: "order",
+                    kind: .stringEnum(values: ["ascending", "descending"]),
                     isRequired: true
                 )
             ]
@@ -62,12 +62,12 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 "argumentSchema",
             ])
         let argumentSchema = try #require(encodedObject["argumentSchema"] as? [[String: Any]])
-        let modeArgument = try #require(argumentSchema.first)
-        #expect(modeArgument["name"] as? String == "mode")
-        #expect(modeArgument["isRequired"] as? Bool == true)
-        let kind = try #require(modeArgument["kind"] as? [String: Any])
+        let orderArgument = try #require(argumentSchema.first)
+        #expect(orderArgument["name"] as? String == "order")
+        #expect(orderArgument["isRequired"] as? Bool == true)
+        let kind = try #require(orderArgument["kind"] as? [String: Any])
         #expect(kind["type"] as? String == "stringEnum")
-        #expect(kind["values"] as? [String] == ["all", "favoritesOnly"])
+        #expect(kind["values"] as? [String] == ["ascending", "descending"])
     }
 
     @Test("unknown command ids decode and return unsupported capability")
@@ -145,8 +145,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         let commandPort = FakeCommandPort(
             workspaceWindowId: UUID(),
             activeScope: .commands,
-            successfulCommandId: "setRepoSidebarVisibilityMode",
-            commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")]
+            successfulCommandId: "setRepoSidebarSortOrder",
+            commands: [sidebarCommandEntry("setRepoSidebarSortOrder")]
         )
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -164,17 +164,17 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 id: .number(72),
                 method: "command.execute",
                 params: .object([
-                    "commandId": .string("setRepoSidebarVisibilityMode"),
-                    "arguments": .object(["mode": .string("favoritesOnly")]),
+                    "commandId": .string("setRepoSidebarSortOrder"),
+                    "arguments": .object(["order": .string("descending")]),
                 ])
             )
         )
 
         #expect(response.error == nil)
         let result = try decodeResponseResult(IPCCommandExecuteResult.self, from: response)
-        #expect(result.commandId == IPCCommandIdentifier(rawValue: "setRepoSidebarVisibilityMode"))
+        #expect(result.commandId == IPCCommandIdentifier(rawValue: "setRepoSidebarSortOrder"))
         #expect(result.applied)
-        #expect(commandPort.receivedExecuteParams.map(\.arguments) == [["mode": "favoritesOnly"]])
+        #expect(commandPort.receivedExecuteParams.map(\.arguments) == [["order": "descending"]])
     }
 
     @Test("debug token escrow automation can execute sidebar state commands")
@@ -232,8 +232,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         let commandPort = FakeCommandPort(
             workspaceWindowId: UUID(),
             activeScope: .commands,
-            successfulCommandId: "setRepoSidebarVisibilityMode",
-            commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")],
+            successfulCommandId: "setRepoSidebarSortOrder",
+            commands: [sidebarCommandEntry("setRepoSidebarSortOrder")],
             requiredPermissionTargetByPrivilege: [.sidebarStateMutate: .workspace(workspaceId)]
         )
         let fixture = try LiveServerFixture(
@@ -253,8 +253,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 id: .number(76),
                 method: "command.execute",
                 params: .object([
-                    "commandId": .string("setRepoSidebarVisibilityMode"),
-                    "arguments": .object(["mode": .string("favoritesOnly")]),
+                    "commandId": .string("setRepoSidebarSortOrder"),
+                    "arguments": .object(["order": .string("descending")]),
                 ])
             )
         )
@@ -269,14 +269,14 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 id: .number(77),
                 method: "command.execute",
                 params: .object([
-                    "commandId": .string("setRepoSidebarVisibilityMode"),
-                    "arguments": .object(["mode": .string("favoritesOnly")]),
+                    "commandId": .string("setRepoSidebarSortOrder"),
+                    "arguments": .object(["order": .string("descending")]),
                 ])
             )
         )
 
         #expect(workspaceScopedResponse.error == nil)
-        #expect(commandPort.receivedExecuteParams.map(\.commandId.rawValue) == ["setRepoSidebarVisibilityMode"])
+        #expect(commandPort.receivedExecuteParams.map(\.commandId.rawValue) == ["setRepoSidebarSortOrder"])
     }
 
     @Test("command execute rejects wrong typed argument values as validation rejected")
@@ -284,8 +284,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         let commandPort = FakeCommandPort(
             workspaceWindowId: UUID(),
             activeScope: .commands,
-            successfulCommandId: "setRepoSidebarVisibilityMode",
-            commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")]
+            successfulCommandId: "setRepoSidebarSortOrder",
+            commands: [sidebarCommandEntry("setRepoSidebarSortOrder")]
         )
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -303,8 +303,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 id: .number(74),
                 method: "command.execute",
                 params: .object([
-                    "commandId": .string("setRepoSidebarVisibilityMode"),
-                    "arguments": .object(["mode": .number(1)]),
+                    "commandId": .string("setRepoSidebarSortOrder"),
+                    "arguments": .object(["order": .number(1)]),
                 ])
             )
         )
@@ -324,8 +324,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
             commandPort: FakeCommandPort(
                 workspaceWindowId: UUID(),
                 activeScope: .commands,
-                stateUnavailableCommandId: "setRepoSidebarVisibilityMode",
-                commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")]
+                stateUnavailableCommandId: "setRepoSidebarSortOrder",
+                commands: [sidebarCommandEntry("setRepoSidebarSortOrder")]
             )
         )
         defer {
@@ -339,8 +339,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 id: .number(73),
                 method: "command.execute",
                 params: .object([
-                    "commandId": .string("setRepoSidebarVisibilityMode"),
-                    "arguments": .object(["mode": .string("favoritesOnly")]),
+                    "commandId": .string("setRepoSidebarSortOrder"),
+                    "arguments": .object(["order": .string("descending")]),
                 ])
             )
         )
@@ -359,8 +359,8 @@ private func sidebarCommandEntry(_ commandId: String) -> IPCCommandListEntry {
         requiredPrivileges: [.sidebarStateMutate],
         argumentSchema: [
             IPCCommandArgumentSchema(
-                name: "mode",
-                kind: .stringEnum(values: ["all", "favoritesOnly"]),
+                name: "order",
+                kind: .stringEnum(values: ["ascending", "descending"]),
                 isRequired: true
             )
         ]

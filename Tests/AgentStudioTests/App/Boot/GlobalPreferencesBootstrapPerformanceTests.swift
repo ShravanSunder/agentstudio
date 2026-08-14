@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudioInfrastructure
 
 @Suite(.serialized)
-struct GlobalPreferencesBootstrapPerformanceTests {
+struct GlobalPreferencesBootstrapBenchmarkTests {
     private static let sampleCount = 1000
     private static let p95BudgetMilliseconds = 2.0
     private static let slowSampleThresholdMilliseconds = 10.0

@@ -5,6 +5,12 @@ import os.log
 
 private let launchRestoreLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
+enum LaunchRestoreFocusTailPolicy {
+    static func shouldRun(for disposition: TerminalPlaceholderPublication.Disposition) -> Bool {
+        disposition == .published
+    }
+}
+
 @MainActor
 extension AppDelegate {
     func finishLaunchRestore(
@@ -44,16 +50,41 @@ extension AppDelegate {
             initialFramesByPaneID = [:]
         }
         _ = preparedMountOwners.terminalAdmissionPort.installTrustedInitialFrames(initialFramesByPaneID)
-        let settlement = await preparedMountOwners.coordinator.mount()
-        syncFocusAfterPreparedContentMount(settlement)
+        let placeholderOwner: WorkspaceSurfaceCoordinator = workspaceSurfaceCoordinator
+        let placeholderPublication = preparedMountOwners.coordinator.publishTerminalPlaceholders { descriptor in
+            placeholderOwner.registerPreparedTerminalPlaceholders(for: descriptor)
+        }
+        RestoreTrace.log(
+            "launchRestore placeholders published count=\(placeholderPublication.paneIDs.count)"
+        )
+        await preparedMountOwners.coordinator.holdTerminalActivationUntilReleased()
+        async let deferredSettlement = preparedMountOwners.coordinator.mount()
+        let firstFrameDeferralOutcome = await windowLifecycleStore.waitUntilFirstInteractiveFramePublished()
+        performanceTraceRecorder?.recordStartupDeferral(
+            gate: "first_interactive_frame",
+            outcome: firstFrameDeferralOutcome
+        )
+        await preparedMountOwners.coordinator.releaseTerminalActivation()
+        let settlement = await deferredSettlement
+        if let terminalDeferralOutcome = await preparedMountOwners.coordinator.terminalActivationDeferralOutcome() {
+            performanceTraceRecorder?.recordStartupDeferral(
+                gate: "terminal_activation_release",
+                outcome: terminalDeferralOutcome
+            )
+        }
+        if LaunchRestoreFocusTailPolicy.shouldRun(for: placeholderPublication.disposition) {
+            syncFocusAfterPreparedContentMount(settlement)
+        }
         for paneID in preparedMountOwners.coordinator.takeDeferredSteadyStateRepairPaneIDs() {
             workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
                 paneID.uuid,
                 forceWhenBoundsExist: true
             )
         }
-        if let focusedPaneID = currentWorkspaceFocusedPaneID() {
-            workspaceSurfaceCoordinator.focusVisiblePaneHost(focusedPaneID)
+        if LaunchRestoreFocusTailPolicy.shouldRun(for: placeholderPublication.disposition),
+            let focusedPaneID = currentWorkspaceFocusedPaneID()
+        {
+            workspaceSurfaceCoordinator.focusVisiblePaneHost(focusedPaneID, reason: .restoreTail)
         }
         mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
         launchRestoreObservationState.complete()

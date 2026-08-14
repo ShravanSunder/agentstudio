@@ -631,54 +631,57 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         return store.tabLayoutAtom.tabs.reduce(into: [UUID: [UUID: CGRect]]()) { result, tab in
-            var resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
-                for: tab.layout,
-                in: terminalContainerBounds,
+            result[tab.id] = resolveInitialFrames(for: tab, in: terminalContainerBounds)
+        }
+    }
+
+    func resolveInitialFrames(for tab: Tab, in terminalContainerBounds: CGRect) -> [UUID: CGRect] {
+        var resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: tab.layout,
+            in: terminalContainerBounds,
+            dividerThickness: AppStyles.General.Layout.paneGap,
+            minimizedPaneIds: tab.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+        if resolvedFrames.isEmpty, !tab.layout.isEmpty {
+            Self.logger.warning(
+                "resolveInitialFramesByTabId: no resolved frames for non-empty tab \(tab.id.uuidString, privacy: .public)"
+            )
+            RestoreTrace.log("resolveInitialFramesByTabId noFrames tab=\(tab.id)")
+        }
+
+        for paneId in tab.activePaneIds {
+            guard
+                let parentFrame = resolvedFrames[paneId],
+                let drawer = store.paneAtom.pane(paneId)?.drawer,
+                drawer.isExpanded,
+                let drawerView = arrangementView.drawerView(forParent: paneId),
+                let drawerContentRect = resolvedDrawerContentRect(
+                    parentPaneFrame: parentFrame,
+                    tabSize: terminalContainerBounds.size
+                )
+            else {
+                if store.paneAtom.pane(paneId)?.drawer?.isExpanded == true {
+                    Self.logger.warning(
+                        "resolveInitialFramesByTabId: missing expanded drawer geometry for parent pane \(paneId.uuidString, privacy: .public)"
+                    )
+                    RestoreTrace.log("resolveInitialFramesByTabId missingDrawerGeometry parent=\(paneId)")
+                }
+                continue
+            }
+            let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
+                for: drawerView.layout,
+                in: drawerContentRect,
                 dividerThickness: AppStyles.General.Layout.paneGap,
-                minimizedPaneIds: tab.activeMinimizedPaneIds,
+                minimizedPaneIds: drawerView.minimizedPaneIds,
                 collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
             )
-            if resolvedFrames.isEmpty, !tab.layout.isEmpty {
-                Self.logger.warning(
-                    "resolveInitialFramesByTabId: no resolved frames for non-empty tab \(tab.id.uuidString, privacy: .public)"
-                )
-                RestoreTrace.log("resolveInitialFramesByTabId noFrames tab=\(tab.id)")
+
+            for (drawerPaneId, drawerPaneFrame) in drawerFrames {
+                resolvedFrames[drawerPaneId] = drawerPaneFrame
             }
-
-            for paneId in tab.activePaneIds {
-                guard
-                    let parentFrame = resolvedFrames[paneId],
-                    let drawer = store.paneAtom.pane(paneId)?.drawer,
-                    drawer.isExpanded,
-                    let drawerView = arrangementView.drawerView(forParent: paneId),
-                    let drawerContentRect = resolvedDrawerContentRect(
-                        parentPaneFrame: parentFrame,
-                        tabSize: terminalContainerBounds.size
-                    )
-                else {
-                    if store.paneAtom.pane(paneId)?.drawer?.isExpanded == true {
-                        Self.logger.warning(
-                            "resolveInitialFramesByTabId: missing expanded drawer geometry for parent pane \(paneId.uuidString, privacy: .public)"
-                        )
-                        RestoreTrace.log("resolveInitialFramesByTabId missingDrawerGeometry parent=\(paneId)")
-                    }
-                    continue
-                }
-                let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
-                    for: drawerView.layout,
-                    in: drawerContentRect,
-                    dividerThickness: AppStyles.General.Layout.paneGap,
-                    minimizedPaneIds: drawerView.minimizedPaneIds,
-                    collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
-                )
-
-                for (drawerPaneId, drawerPaneFrame) in drawerFrames {
-                    resolvedFrames[drawerPaneId] = drawerPaneFrame
-                }
-            }
-
-            result[tab.id] = resolvedFrames
         }
+        return resolvedFrames
     }
 
     private func resolvedDrawerContentRect(

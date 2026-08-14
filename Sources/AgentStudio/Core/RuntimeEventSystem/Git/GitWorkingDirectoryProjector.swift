@@ -21,7 +21,7 @@ package actor GitWorkingDirectoryProjector {
     let gitWorkingTreeProvider: any GitWorkingTreeStatusProvider
     let envelopeClock: ContinuousClock
     let coalescingWindow: Duration
-    private let periodicRefreshInterval: Duration?
+    let periodicRefreshInterval: Duration?
     let delay: AsyncDelay
     let refreshPolicy: AppPolicies.GitRefresh.Policy
     private let subscriptionBufferLimit: Int
@@ -33,24 +33,33 @@ package actor GitWorkingDirectoryProjector {
     let pathExistenceProbe: @Sendable (URL) -> Bool
 
     private var subscriptionTask: Task<Void, Never>?
-    private var periodicRefreshTask: Task<Void, Never>?
+    var periodicRefreshTask: Task<Void, Never>?
     var worktreeTasks: [UUID: Task<Void, Never>] = [:]
     private var worktreeTaskGenerationByWorktreeId: [UUID: UInt64] = [:]
     private var nextWorktreeTaskGeneration: UInt64 = 0
-    private var immediateRefreshWorktreeIds: Set<UUID> = []
-    private var coalescingWorktreeIds: Set<UUID> = []
+    var immediateRefreshWorktreeIds: Set<UUID> = []
+    var explicitRefreshWorktreeIds: Set<UUID> = []
+    var tierEligibleWorktreeIds: Set<UUID> = []
+    var admittedDemandTierByWorktreeId: [UUID: GitDemandTier] = [:]
+    var admissionStartedAtByWorktreeId: [UUID: ContinuousClock.Instant] = [:]
+    var visibleSidebarStripeCursor: Int = 0
+    var visibilityAdmissionTask: Task<Void, Never>?
+    var lastProcessedSidebarVisibleWorktreeIds: Set<UUID> = []
+    var pendingVisibilityDeltaWorktreeIds: Set<UUID> = []
+    var coalescingWorktreeIds: Set<UUID> = []
     private var nilStatusRetryTasks: [UUID: Task<Void, Never>] = [:]
     var pendingByWorktreeId: [UUID: FileChangeset] = [:]
+    var refreshAttribution = GitRefreshAttributionState()
     var capacityRetryWorktreeIds: Set<UUID> = []
     var capacityRetryTasks: [UUID: Task<Void, Never>] = [:]
     var suppressedWorktreeIds: Set<UUID> = []
     private var suppressedWorktreeOrder: [UUID] = []
-    private var rootPathByWorktreeId: [UUID: URL] = [:]
+    var rootPathByWorktreeId: [UUID: URL] = [:]
     private var latestTopologyAssertion: FilesystemTopologyAssertion?
     var activeWorktreeIds: Set<UUID> = []
     var activePaneWorktreeId: UUID?
     var sidebarVisibleWorktreeIds: Set<UUID> = []
-    private var repoIdByWorktreeId: [UUID: UUID] = [:]
+    var repoIdByWorktreeId: [UUID: UUID] = [:]
     private var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
     private var lastEmittedSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
@@ -60,7 +69,7 @@ package actor GitWorkingDirectoryProjector {
     /// extension can read it.
     var lastStatusEntriesByWorktreeId: [UUID: [GitWorkingTreeStatusEntry]] = [:]
     private var nilStatusRetryCountByWorktreeId: [UUID: Int] = [:]
-    private var nextPeriodicBatchSeqByWorktreeId: [UUID: UInt64] = [:]
+    var nextPeriodicBatchSeqByWorktreeId: [UUID: UInt64] = [:]
     var statusBackoffFailureCountByWorktreeId: [UUID: Int] = [:]
     var openStatusBackoffWorktreeIds: Set<UUID> = []
     var deferredStatusBackoffChangesetByWorktreeId: [UUID: FileChangeset] = [:]
@@ -70,8 +79,9 @@ package actor GitWorkingDirectoryProjector {
     /// until an event-driven re-arm clears the mark
     /// (see `GitWorkingDirectoryProjector+PathQuarantine`).
     var quarantinedWorktreeIds: Set<UUID> = []
-    private var quiescentWorktreeIds: Set<UUID> = []
-    private var periodicRefreshTick: UInt64 = 0
+    var unchangedStatusResultCountByWorktreeId: [UUID: Int] = [:]
+    var lastPeriodicAdmissionTickByWorktreeId: [UUID: UInt64] = [:]
+    var periodicRefreshTick: UInt64 = 1
     var nextEnvelopeSequence: UInt64 = 0
     var lastRecordedLogicalDebtSnapshot: GitLogicalDebtSnapshot?
     var isShuttingDown = false
@@ -115,6 +125,7 @@ package actor GitWorkingDirectoryProjector {
     isolated deinit {
         subscriptionTask?.cancel()
         periodicRefreshTask?.cancel()
+        visibilityAdmissionTask?.cancel()
         for task in worktreeTasks.values {
             task.cancel()
         }
@@ -139,7 +150,8 @@ package actor GitWorkingDirectoryProjector {
         isShuttingDown = false
         let stream = await runtimeBus.subscribe(
             policy: .lossyNewest(subscriptionBufferLimit),
-            subscriberName: "GitWorkingDirectoryProjector"
+            subscriberName: "GitWorkingDirectoryProjector",
+            factInterest: .matching([.systemTopology, .worktreeFilesystem])
         )
         subscriptionTask = Task { [weak self] in
             for await runtimeEnvelope in stream {
@@ -160,6 +172,9 @@ package actor GitWorkingDirectoryProjector {
         let periodicRefresh = periodicRefreshTask
         periodicRefreshTask?.cancel()
         periodicRefreshTask = nil
+        let visibilityAdmission = visibilityAdmissionTask
+        visibilityAdmissionTask?.cancel()
+        visibilityAdmissionTask = nil
 
         var tasksToAwait: [Task<Void, Never>] = []
         for task in worktreeTasks.values {
@@ -174,6 +189,9 @@ package actor GitWorkingDirectoryProjector {
         }
         if let periodicRefresh {
             await periodicRefresh.value
+        }
+        if let visibilityAdmission {
+            await visibilityAdmission.value
         }
         for task in tasksToAwait {
             await task.value
@@ -195,9 +213,17 @@ package actor GitWorkingDirectoryProjector {
         openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
         deferredStatusBackoffChangesetByWorktreeId.removeAll(keepingCapacity: false)
         quarantinedWorktreeIds.removeAll(keepingCapacity: false)
-        quiescentWorktreeIds.removeAll(keepingCapacity: false)
+        unchangedStatusResultCountByWorktreeId.removeAll(keepingCapacity: false)
+        lastPeriodicAdmissionTickByWorktreeId.removeAll(keepingCapacity: false)
         pendingByWorktreeId.removeAll(keepingCapacity: false)
         immediateRefreshWorktreeIds.removeAll(keepingCapacity: false)
+        explicitRefreshWorktreeIds.removeAll(keepingCapacity: false)
+        tierEligibleWorktreeIds.removeAll(keepingCapacity: false)
+        admittedDemandTierByWorktreeId.removeAll(keepingCapacity: false)
+        admissionStartedAtByWorktreeId.removeAll(keepingCapacity: false)
+        visibleSidebarStripeCursor = 0
+        lastProcessedSidebarVisibleWorktreeIds.removeAll(keepingCapacity: false)
+        pendingVisibilityDeltaWorktreeIds.removeAll(keepingCapacity: false)
         coalescingWorktreeIds.removeAll(keepingCapacity: false)
         suppressedWorktreeIds.removeAll(keepingCapacity: false)
         suppressedWorktreeOrder.removeAll(keepingCapacity: false)
@@ -214,7 +240,7 @@ package actor GitWorkingDirectoryProjector {
         nilStatusRetryCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
         nextWorktreeTaskGeneration = 0
-        periodicRefreshTick = 0
+        periodicRefreshTick = 1
     }
 
     private func handleIncomingRuntimeEnvelope(_ envelope: RuntimeEnvelope) async {
@@ -260,11 +286,15 @@ package actor GitWorkingDirectoryProjector {
             }
             guard admitFileChangeAfterQuarantine(worktreeId: worktreeId, rootPath: changeset.rootPath) else { return }
             repoIdByWorktreeId[worktreeId] = changeset.repoId
-            quiescentWorktreeIds.remove(worktreeId)
+            resetAdaptiveCadence(worktreeId: worktreeId)
             guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
             guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
             if !immediateRefreshWorktreeIds.contains(worktreeId) {
-                pendingByWorktreeId[worktreeId] = changeset
+                pendingByWorktreeId[worktreeId] = Self.mergeChangesets(
+                    pendingByWorktreeId[worktreeId],
+                    with: changeset
+                )
+                refreshAttribution.triggerSourceByWorktreeId[worktreeId] = .filesystemChange
             }
             admitPendingWorktrees()
         case .pane:
@@ -302,29 +332,70 @@ package actor GitWorkingDirectoryProjector {
     package func setActivity(worktreeId: UUID, isActiveInApp: Bool) {
         if isActiveInApp {
             activeWorktreeIds.insert(worktreeId)
-            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
+            tierEligibleWorktreeIds.insert(worktreeId)
+            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId, triggerSource: .visibilityChange)
         } else {
             activeWorktreeIds.remove(worktreeId)
+            if activePaneWorktreeId != worktreeId, !sidebarVisibleWorktreeIds.contains(worktreeId) {
+                tierEligibleWorktreeIds.remove(worktreeId)
+            }
         }
     }
 
     package func setActivePaneWorktree(worktreeId: UUID?) {
+        let previousActivePaneWorktreeId = activePaneWorktreeId
         activePaneWorktreeId = worktreeId
+        if let previousActivePaneWorktreeId,
+            previousActivePaneWorktreeId != worktreeId,
+            !sidebarVisibleWorktreeIds.contains(previousActivePaneWorktreeId),
+            !activeWorktreeIds.contains(previousActivePaneWorktreeId)
+        {
+            tierEligibleWorktreeIds.remove(previousActivePaneWorktreeId)
+        }
         guard let worktreeId else { return }
-        enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
+        tierEligibleWorktreeIds.insert(worktreeId)
+        enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId, triggerSource: .visibilityChange)
     }
 
     package func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
-        let newlyVisibleWorktreeIds = worktreeIds.subtracting(sidebarVisibleWorktreeIds)
+        guard worktreeIds != sidebarVisibleWorktreeIds else { return }
+        let noLongerVisibleWorktreeIds = sidebarVisibleWorktreeIds.subtracting(worktreeIds)
         sidebarVisibleWorktreeIds = worktreeIds
-        for worktreeId in newlyVisibleWorktreeIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
+        for worktreeId in noLongerVisibleWorktreeIds
+        where activePaneWorktreeId != worktreeId && !activeWorktreeIds.contains(worktreeId) {
+            tierEligibleWorktreeIds.remove(worktreeId)
         }
+        scheduleCoalescedVisibilityAdmission()
     }
 
     package func refreshRegisteredWorktreesImmediately() {
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
-            enqueueImmediateRefreshIfRegistered(worktreeId: worktreeId)
+            enqueueImmediateRefreshIfRegistered(
+                worktreeId: worktreeId,
+                triggerSource: .visibilityChange,
+                isExplicit: true
+            )
+        }
+    }
+
+    package func refreshRegisteredWorktreesIntersecting(_ watchedPaths: [URL]) {
+        let canonicalWatchedPaths = watchedPaths.map { watchedPath in
+            FilesystemRootOwnership.canonicalRootPath(for: watchedPath)
+        }
+        for (worktreeId, rootPath) in rootPathByWorktreeId.sorted(by: { lhs, rhs in
+            lhs.key.uuidString < rhs.key.uuidString
+        }) {
+            let canonicalRootPath = FilesystemRootOwnership.canonicalRootPath(for: rootPath)
+            guard
+                canonicalWatchedPaths.contains(where: { watchedPath in
+                    Self.pathsIntersect(canonicalRootPath, watchedPath)
+                })
+            else { continue }
+            enqueueImmediateRefreshIfRegistered(
+                worktreeId: worktreeId,
+                triggerSource: .visibilityChange,
+                isExplicit: true
+            )
         }
     }
 
@@ -392,7 +463,7 @@ package actor GitWorkingDirectoryProjector {
             clearCapacityRetryState(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
             clearQuarantineState(worktreeId: worktreeId)
-            quiescentWorktreeIds.remove(worktreeId)
+            resetAdaptiveCadence(worktreeId: worktreeId)
             worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
             worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
             immediateRefreshWorktreeIds.remove(worktreeId)
@@ -402,6 +473,7 @@ package actor GitWorkingDirectoryProjector {
         removeSuppressedWorktree(worktreeId)
         repoIdByWorktreeId[worktreeId] = context.repoId
         rootPathByWorktreeId[worktreeId] = context.rootPath
+        tierEligibleWorktreeIds.insert(worktreeId)
         nextPeriodicBatchSeqByWorktreeId[worktreeId] = nextPeriodicBatchSeqByWorktreeId[worktreeId] ?? 0
         let registrationChangeset = FileChangeset(
             worktreeId: worktreeId,
@@ -412,16 +484,22 @@ package actor GitWorkingDirectoryProjector {
             timestamp: timestamp,
             batchSeq: 0
         )
-        enqueueImmediateRefresh(registrationChangeset)
+        enqueueImmediateRefresh(registrationChangeset, triggerSource: .registration)
     }
 
     private func applyUnregistration(worktreeId: UUID, repoId: UUID) {
         addSuppressedWorktree(worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         immediateRefreshWorktreeIds.remove(worktreeId)
+        explicitRefreshWorktreeIds.remove(worktreeId)
+        tierEligibleWorktreeIds.remove(worktreeId)
+        admittedDemandTierByWorktreeId.removeValue(forKey: worktreeId)
+        admissionStartedAtByWorktreeId.removeValue(forKey: worktreeId)
         coalescingWorktreeIds.remove(worktreeId)
         activeWorktreeIds.remove(worktreeId)
         sidebarVisibleWorktreeIds.remove(worktreeId)
+        lastProcessedSidebarVisibleWorktreeIds.remove(worktreeId)
+        pendingVisibilityDeltaWorktreeIds.remove(worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
@@ -434,7 +512,7 @@ package actor GitWorkingDirectoryProjector {
         clearCapacityRetryState(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
         clearQuarantineState(worktreeId: worktreeId)
-        quiescentWorktreeIds.remove(worktreeId)
+        resetAdaptiveCadence(worktreeId: worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
             lastKnownOriginByRepoId.removeValue(forKey: repoId)
@@ -465,38 +543,9 @@ package actor GitWorkingDirectoryProjector {
         nilStatusRetryTasks.removeValue(forKey: worktreeId)?.cancel()
     }
 
-    func enqueueImmediateRefreshIfRegistered(worktreeId: UUID) {
-        guard !suppressedWorktreeIds.contains(worktreeId) else { return }
-        guard let context = registeredContext(for: worktreeId) else { return }
-
-        let nextBatchSeq = (nextPeriodicBatchSeqByWorktreeId[worktreeId] ?? 0) + 1
-        nextPeriodicBatchSeqByWorktreeId[worktreeId] = nextBatchSeq
-        let changeset = FileChangeset(
-            worktreeId: worktreeId,
-            repoId: context.repoId,
-            rootPath: context.rootPath,
-            paths: [],
-            containsGitInternalChanges: true,
-            timestamp: envelopeClock.now,
-            batchSeq: nextBatchSeq
-        )
-        enqueueImmediateRefresh(changeset)
-    }
-
-    private func enqueueImmediateRefresh(_ changeset: FileChangeset) {
-        let worktreeId = changeset.worktreeId
-        immediateRefreshWorktreeIds.insert(worktreeId)
-        guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
-        guard !deferChangesetIfCapacityRetryPending(changeset) else { return }
-        pendingByWorktreeId[worktreeId] = changeset
-        if coalescingWorktreeIds.contains(worktreeId) {
-            worktreeTasks[worktreeId]?.cancel()
-        }
-        admitPendingWorktrees()
-    }
-
     func clearImmediateRefreshIntent(worktreeId: UUID) {
         immediateRefreshWorktreeIds.remove(worktreeId)
+        explicitRefreshWorktreeIds.remove(worktreeId)
     }
 
     private func drainWorktree(worktreeId: UUID, taskGeneration: UInt64) async {
@@ -504,6 +553,7 @@ package actor GitWorkingDirectoryProjector {
             if worktreeTaskGenerationByWorktreeId[worktreeId] == taskGeneration {
                 worktreeTasks.removeValue(forKey: worktreeId)
                 worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
+                admittedDemandTierByWorktreeId.removeValue(forKey: worktreeId)
                 admitPendingWorktrees()
                 recordLogicalDebtSnapshotIfChanged()
             }
@@ -534,7 +584,7 @@ package actor GitWorkingDirectoryProjector {
                 guard !Task.isCancelled else { return }
                 if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
                     recordLogicalDebtSnapshotIfChanged()
-                    nextChangeset = newer
+                    nextChangeset = Self.mergeChangesets(nextChangeset, with: newer)
                     _ = immediateRefreshWorktreeIds.remove(worktreeId)
                 }
             }
@@ -563,16 +613,19 @@ package actor GitWorkingDirectoryProjector {
             )
             return
         }
+        let statusCompletion = envelopeClock.now
         performanceTraceRecorder?.recordDuration(
             .gitStatusComputed,
             duration: computeStart.duration(to: envelopeClock.now),
-            attributes: gitStatusTraceAttributes(
+            attributes: gitStatusCompletionTraceAttributes(
                 for: changeset,
                 unavailable: nil,
                 scope: resolved.scope,
-                pathspecCount: resolved.pathspecCount
+                pathspecCount: resolved.pathspecCount,
+                statusCompletion: statusCompletion
             )
         )
+        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
         clearCapacityRetryState(worktreeId: changeset.worktreeId)
         resetStatusBackoff(worktreeId: changeset.worktreeId)
@@ -593,7 +646,7 @@ package actor GitWorkingDirectoryProjector {
         let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
         if previousSnapshot != nextSnapshot {
             lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
-            quiescentWorktreeIds.remove(changeset.worktreeId)
+            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
@@ -609,11 +662,10 @@ package actor GitWorkingDirectoryProjector {
                     "agentstudio.performance.git.snapshot_dedup.count": .int(1),
                 ]
             )
-            // Backstop tick suppression: mark the worktree quiescent so its next
-            // periodic re-enqueue is skipped, but only when no newer refresh is
-            // already queued (i.e. no file-change arrived since this compute).
+            // Lengthen only when no newer refresh is already queued (i.e. no
+            // file-change arrived since this compute).
             if pendingByWorktreeId[changeset.worktreeId] == nil {
-                quiescentWorktreeIds.insert(changeset.worktreeId)
+                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
             }
         }
 
@@ -687,16 +739,19 @@ package actor GitWorkingDirectoryProjector {
         guard isCurrent(changeset) else { return }
         guard case .unavailable(let unavailable) = statusResult else { return }
 
+        let statusCompletion = envelopeClock.now
         performanceTraceRecorder?.recordDuration(
             .gitStatusUnavailable,
             duration: computeStart.duration(to: envelopeClock.now),
-            attributes: gitStatusTraceAttributes(
+            attributes: gitStatusCompletionTraceAttributes(
                 for: changeset,
                 unavailable: unavailable,
                 scope: scope,
-                pathspecCount: pathspecCount
+                pathspecCount: pathspecCount,
+                statusCompletion: statusCompletion
             )
         )
+        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         switch unavailable.reason {
         case .timeout:
             openOrAdvanceStatusBackoff(for: changeset, reason: unavailable.reason)
@@ -748,10 +803,11 @@ package actor GitWorkingDirectoryProjector {
         guard !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
         guard isCurrent(changeset) else { return }
-        if pendingByWorktreeId[changeset.worktreeId] == nil {
-            pendingByWorktreeId[changeset.worktreeId] = changeset
-            admitPendingWorktrees()
-        }
+        pendingByWorktreeId[changeset.worktreeId] = Self.mergeChangesets(
+            pendingByWorktreeId[changeset.worktreeId],
+            with: changeset
+        )
+        admitPendingWorktrees()
         recordLogicalDebtSnapshotIfChanged()
     }
 
@@ -784,80 +840,6 @@ package actor GitWorkingDirectoryProjector {
             .replacingOccurrences(of: "\\", with: "/")
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return normalizedPath == ".git/config" || normalizedPath.hasSuffix("/.git/config")
-    }
-
-    private func startPeriodicRefreshLoopIfNeeded() {
-        guard let periodicRefreshInterval else { return }
-        guard periodicRefreshInterval > .zero else { return }
-        guard periodicRefreshTask == nil else { return }
-
-        let delay = self.delay
-        periodicRefreshTask = Task { [weak self, delay, periodicRefreshInterval] in
-            while !Task.isCancelled {
-                do {
-                    try await delay.wait(periodicRefreshInterval)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    Self.logger.warning(
-                        "Unexpected periodic git refresh sleep failure: \(String(describing: error), privacy: .public)"
-                    )
-                    continue
-                }
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
-                await self.enqueuePeriodicRefreshes()
-            }
-        }
-    }
-
-    private func enqueuePeriodicRefreshes() {
-        defer { periodicRefreshTick &+= 1 }
-        guard !rootPathByWorktreeId.isEmpty else { return }
-
-        var enqueuedWorktreeIds: [UUID] = []
-        for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
-            guard !suppressedWorktreeIds.contains(worktreeId) else { continue }
-            guard !quarantinedWorktreeIds.contains(worktreeId) else { continue }
-            guard !openStatusBackoffWorktreeIds.contains(worktreeId) else { continue }
-            guard pendingByWorktreeId[worktreeId] == nil else { continue }
-            guard isPeriodicRefreshDue(worktreeId: worktreeId) else { continue }
-            guard let repoId = repoIdByWorktreeId[worktreeId] else { continue }
-            guard let rootPath = rootPathByWorktreeId[worktreeId] else { continue }
-
-            let nextBatchSeq = (nextPeriodicBatchSeqByWorktreeId[worktreeId] ?? 0) + 1
-            nextPeriodicBatchSeqByWorktreeId[worktreeId] = nextBatchSeq
-
-            pendingByWorktreeId[worktreeId] = FileChangeset(
-                worktreeId: worktreeId,
-                repoId: repoId,
-                rootPath: rootPath,
-                paths: [],
-                containsGitInternalChanges: true,
-                suppressedIgnoredPathCount: 0,
-                suppressedGitInternalPathCount: 0,
-                timestamp: envelopeClock.now,
-                batchSeq: nextBatchSeq
-            )
-            enqueuedWorktreeIds.append(worktreeId)
-        }
-        recordPeriodicRefreshTickTelemetry(
-            enqueuedWorktreeIds: enqueuedWorktreeIds,
-            registeredCount: rootPathByWorktreeId.count,
-            pendingCount: pendingByWorktreeId.count,
-            tick: periodicRefreshTick
-        )
-        admitPendingWorktrees()
-    }
-
-    private func isPeriodicRefreshDue(worktreeId: UUID) -> Bool {
-        if activePaneWorktreeId == worktreeId || sidebarVisibleWorktreeIds.contains(worktreeId) {
-            // The active worktree used to backstop-refresh every tick. Skip the
-            // tick while it is quiescent (its last compute found no change and no
-            // file-change has arrived since); a real change re-arms the tick.
-            return !quiescentWorktreeIds.contains(worktreeId)
-        }
-        return refreshPolicy.isBackgroundWorktreeDue(worktreeId, tick: periodicRefreshTick)
     }
 
 }

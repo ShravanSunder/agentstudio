@@ -20,7 +20,8 @@ struct RepoExplorerBridgePresentationSnapshotTests {
 
         // Act
         let rendersFromProjectionSnapshot =
-            source.contains("bridgeCommandResolution: cachedProjectionResult.snapshot")
+            source.contains("bridgeCommandResolution:")
+            && source.contains("cachedProjectionResult")
             && source.contains(".bridgeCommandResolutionByWorktreeId[")
         let resolvesThroughDispatcher = source.contains(".bridgePaneCommandTarget(")
 
@@ -78,7 +79,7 @@ struct RepoExplorerBridgePresentationSnapshotTests {
         // Assert
         for fixture in fixtures {
             #expect(
-                snapshot.bridgeCommandResolutionByWorktreeId[fixture.worktree.id]
+                bridgeResolutions(for: snapshot)[fixture.worktree.id]
                     == fixture.expectedResolution,
                 "Failed Bridge presentation fixture: \(fixture.name)"
             )
@@ -232,11 +233,11 @@ struct RepoExplorerBridgePresentationSnapshotTests {
         )
 
         // Act / Assert
-        #expect(baseline.bridgeCommandResolutionByWorktreeId[worktree.id] == .reuse(paneId: preferredPaneId))
-        #expect(attendanceChanged.bridgeCommandResolutionByWorktreeId[worktree.id] == .reuse(paneId: fallbackPaneId))
-        #expect(activePaneChanged.bridgeCommandResolutionByWorktreeId[worktree.id] == .reuse(paneId: fallbackPaneId))
-        #expect(contentChanged.bridgeCommandResolutionByWorktreeId[worktree.id] == .reuse(paneId: fallbackPaneId))
-        #expect(residencyChanged.bridgeCommandResolutionByWorktreeId[worktree.id] == .reuse(paneId: fallbackPaneId))
+        #expect(bridgeResolutions(for: baseline)[worktree.id] == .reuse(paneId: preferredPaneId))
+        #expect(bridgeResolutions(for: attendanceChanged)[worktree.id] == .reuse(paneId: fallbackPaneId))
+        #expect(bridgeResolutions(for: activePaneChanged)[worktree.id] == .reuse(paneId: fallbackPaneId))
+        #expect(bridgeResolutions(for: contentChanged)[worktree.id] == .reuse(paneId: fallbackPaneId))
+        #expect(bridgeResolutions(for: residencyChanged)[worktree.id] == .reuse(paneId: fallbackPaneId))
         #expect(baseline != attendanceChanged)
         #expect(baseline != activePaneChanged)
         #expect(baseline != contentChanged)
@@ -312,6 +313,24 @@ struct RepoExplorerBridgePresentationSnapshotTests {
             query: "",
             bridgePaneCommandCandidatesByWorktreeId: [worktreeId: candidates]
         )
+    }
+
+    private func bridgeResolutions(
+        for snapshot: RepoExplorerSnapshot
+    ) -> [UUID: BridgePaneCommandResolution] {
+        let request = RepoExplorerProjectionRequest(
+            generation: 1,
+            snapshot: snapshot,
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .dataRefresh
+        )
+        do {
+            return try RepoExplorerProjectionWorker.project(request).bridgeCommandResolutionByWorktreeId
+        } catch {
+            Issue.record("Unexpected projection cancellation: \(error)")
+            return [:]
+        }
     }
 
     private func replacing(

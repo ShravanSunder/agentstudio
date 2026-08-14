@@ -5,6 +5,58 @@ import AgentStudioTerminal
 import AppKit
 import Foundation
 
+#if DEBUG
+    @MainActor
+    struct SidebarPerformanceProofFixture {
+        let paneId: UUID
+        let arrangementPaneId: UUID
+        let tabId: UUID
+        let arrangementId: UUID
+        let repositoryId: UUID
+        let worktreeId: UUID
+
+        static func prepare(
+            store: WorkspaceStore,
+            repositoryRoot: URL,
+            openTerminal: () -> Pane?
+        ) -> Self? {
+            let fixtureRepository = store.mutationCoordinator.addRepo(at: repositoryRoot)
+            guard
+                let fixtureWorktree = fixtureRepository.worktrees.first,
+                let pane = openTerminal(),
+                pane.metadata.contentType == .terminal,
+                let tabId = store.tabLayoutAtom.tabID(containingPane: pane.id),
+                let arrangementId = store.tabLayoutAtom.tab(tabId)?.activeArrangementId
+            else { return nil }
+            let arrangementPane = store.paneAtom.createPane(
+                title: "Arrangement Fixture",
+                provider: .zmx,
+                lifetime: .temporary,
+                zmxSessionID: .generateUUIDv7()
+            )
+            guard
+                store.tabLayoutAtom.insertPane(
+                    arrangementPane.id,
+                    inTab: tabId,
+                    at: pane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            else { return nil }
+            store.tabLayoutAtom.renameTab(tabId, name: "Tab")
+            return Self(
+                paneId: pane.id,
+                arrangementPaneId: arrangementPane.id,
+                tabId: tabId,
+                arrangementId: arrangementId,
+                repositoryId: fixtureRepository.id,
+                worktreeId: fixtureWorktree.id
+            )
+        }
+    }
+#endif
+
 @MainActor
 extension AppDelegate {
     func runStartupDiagnosticActionIfRequested() {
@@ -31,6 +83,18 @@ extension AppDelegate {
                 AppCommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 await Task.yield()
                 self.commandBarController.state.rawInput = "# repo"
+                self.startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.command_exercised",
+                    phase: "startup_diagnostic_action",
+                    outcome: "succeeded",
+                    attributes: self.startupDiagnosticTraceAttributes(for: action)
+                )
+                self.startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.completed",
+                    phase: "startup_diagnostic_action",
+                    outcome: "succeeded",
+                    attributes: self.startupDiagnosticTraceAttributes(for: action)
+                )
             case .tccUpgradeProbe:
                 await self.runTCCUpgradeProbeDiagnostic(action: action)
             #if DEBUG
@@ -54,6 +118,10 @@ extension AppDelegate {
                     await self.runBridgeProductStreamWebKitFeasibilityDiagnostic(action: action)
                 case .sidebarPerformanceProof:
                     await self.runSidebarPerformanceProofDiagnostic(action: action)
+                case .repoExplorerKeyMutationProof:
+                    await self.runRepoExplorerKeyMutationProofDiagnostic(action: action)
+                case .repoExplorerInteractionProof:
+                    await self.runRepoExplorerInteractionProofDiagnostic(action: action)
             #endif
             case .addWatchFolder:
                 guard let folderURL = AgentStudioStartupDiagnosticAction.watchFolderURL() else {
@@ -302,6 +370,10 @@ extension AppDelegate {
         private func runSidebarPerformanceProofDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
+            guard await prepareSidebarPerformanceProofFixture(action: action) != nil else {
+                return
+            }
+
             let repoCount = store.repositoryTopologyAtom.repos.count
             let worktreeCount = store.repositoryTopologyAtom.repos.reduce(0) { count, repo in
                 count + repo.worktrees.count
@@ -316,6 +388,7 @@ extension AppDelegate {
                     "agentstudio.startup_diagnostic.fixture.worktree.count": .int(worktreeCount),
                     "agentstudio.startup_diagnostic.fixture.inbox_notification.count": .int(inboxCount),
                     "agentstudio.startup_diagnostic.fixture.sidebar_surface.count": .int(1),
+                    "agentstudio.startup_diagnostic.fixture.terminal_pane.count": .int(1),
                     "agentstudio.startup_diagnostic.projection_proof.succeeded": .bool(inboxProjectionProof.succeeded),
                     "agentstudio.performance.sidebar.surface": .string("inbox"),
                     "agentstudio.performance.sidebar.phase": .string(projectionTrigger.rawValue),
@@ -358,6 +431,73 @@ extension AppDelegate {
                 phase: "startup_diagnostic_action",
                 outcome: diagnosticOutcome,
                 attributes: attributes
+            )
+        }
+
+        private func prepareSidebarPerformanceProofFixture(
+            action: AgentStudioStartupDiagnosticAction
+        ) async -> SidebarPerformanceProofFixture? {
+            NSApp.activate(ignoringOtherApps: true)
+            mainWindowController?.window?.makeKeyAndOrderFront(nil)
+            await waitForStartupDiagnosticAppActivation()
+            guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "missing_bounds"
+                )
+                return nil
+            }
+            if !launchRestoreObservationState.didComplete {
+                await finishLaunchRestore(
+                    using: terminalContainerBounds,
+                    source: "sidebarPerformanceProofPreflight"
+                )
+            }
+            guard
+                let fixture = SidebarPerformanceProofFixture.prepare(
+                    store: store,
+                    repositoryRoot: FileManager.default.homeDirectoryForCurrentUser,
+                    openTerminal: {
+                        workspaceSurfaceCoordinator.openFloatingTerminal(
+                            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                            title: "Sidebar Performance Terminal"
+                        )
+                    })
+            else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "terminal_fixture_failed"
+                )
+                return nil
+            }
+            workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
+                fixture.paneId,
+                forceWhenBoundsExist: true
+            )
+            await Task.yield()
+            mainWindowController?.syncVisibleTerminalGeometry(reason: "sidebarPerformanceProof")
+            let terminalRenderProof = await waitForIPCTerminalSmokeRenderProof(for: fixture.paneId)
+            guard terminalRenderProof.succeeded else {
+                recordBlockedSidebarPerformanceProofDiagnostic(
+                    action: action,
+                    reason: "terminal_render_failed"
+                )
+                return nil
+            }
+            return fixture
+        }
+
+        private func recordBlockedSidebarPerformanceProofDiagnostic(
+            action: AgentStudioStartupDiagnosticAction,
+            reason: String
+        ) {
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.blocked",
+                phase: "startup_diagnostic_action",
+                outcome: "blocked",
+                attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                    "agentstudio.startup_diagnostic.skip_reason": .string(reason)
+                ]) { _, newValue in newValue }
             )
         }
 

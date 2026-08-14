@@ -4,12 +4,15 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @MainActor
 @Suite
 struct DraggableTabBarWindowDragTests {
+    private static let doubleClickActionDefaultsKey = "AppleActionOnDoubleClick"
+
     init() {
         installTestCoreAtomsIfNeeded()
     }
@@ -24,181 +27,298 @@ struct DraggableTabBarWindowDragTests {
         )
     }
 
-    @Test("main window disables native titlebar and background movement")
-    func mainWindowDisablesNativeWindowMovement() throws {
+    @Test("main window allows native movement so performDrag can move it")
+    func mainWindowAllowsNativeMovementButNotBackgroundDrag() throws {
         let source = try sourceContents("Sources/AgentStudio/App/Windows/MainWindowController.swift")
 
-        #expect(source.contains("window.isMovable = false"))
+        #expect(source.contains("window.isMovable = true"))
         #expect(source.contains("window.isMovableByWindowBackground = false"))
     }
 
-    @Test("shell chrome owns an explicit app drag region")
-    func shellChromeOwnsExplicitDragRegion() throws {
-        let source = try sourceContents("Sources/AgentStudio/App/Windows/ShellChromeDragRegionView.swift")
+    @Test("toolbar chrome no longer hosts a separate drag region overlay")
+    func toolbarChromeNoLongerHostsSeparateDragRegionOverlay() throws {
+        let source = try sourceContents("Sources/AgentStudio/App/Windows/MainToolbarChromeView.swift")
 
-        #expect(source.contains("final class ShellChromeDragRegionView: NSView"))
+        #expect(!source.contains("ShellChromeDragRegionView"))
+        #expect(!source.contains("windowDragRegionHeight"))
+    }
+
+    @Test("tab host owns mouse down window-drag handling directly")
+    func tabHostOwnsMouseDownWindowDragHandlingDirectly() throws {
+        let source = try sourceContents("Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift")
+
         #expect(source.contains("override func mouseDown(with event: NSEvent)"))
-        #expect(source.contains("window?.performDrag(with: event)"))
+        #expect(source.contains("tabAtPoint(location)"))
+        #expect(source.contains("AppleActionOnDoubleClick"))
     }
 
-    @Test("drag region tracks the tab bar gap above bottom-aligned tab pills")
-    func dragRegionTracksTabBarGapAboveBottomAlignedTabPills() {
-        #expect(
-            AppStyles.Shell.Chrome.windowDragRegionHeight
-                == AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
-        )
-    }
-
-    @MainActor
-    @Test("explicit drag region forwards mouse down to app-owned window drag")
-    func explicitDragRegionForwardsMouseDownToAppOwnedWindowDrag() throws {
-        let dragRegion = ShellChromeDragRegionView(
-            frame: NSRect(
-                x: 0,
-                y: 0,
-                width: 320,
-                height: AppStyles.Shell.Chrome.windowDragRegionHeight
-            )
-        )
-        let event = try #require(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown,
-                location: NSPoint(x: 12, y: 3),
-                modifierFlags: [],
-                timestamp: 1,
-                windowNumber: 0,
-                context: nil,
-                eventNumber: 10,
-                clickCount: 1,
-                pressure: 1
-            )
-        )
-
-        var capturedEvent: NSEvent?
-        dragRegion.performWindowDrag = { capturedEvent = $0 }
-
-        dragRegion.mouseDown(with: event)
-
-        #expect(capturedEvent === event)
-    }
-
-    @MainActor
-    @Test("explicit drag region zooms the window on double click")
-    func explicitDragRegionZoomsWindowOnDoubleClick() throws {
-        let dragRegion = ShellChromeDragRegionView(
-            frame: NSRect(
-                x: 0,
-                y: 0,
-                width: 320,
-                height: AppStyles.Shell.Chrome.windowDragRegionHeight
-            )
-        )
-        let event = try #require(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown,
-                location: NSPoint(x: 12, y: 3),
-                modifierFlags: [],
-                timestamp: 1,
-                windowNumber: 0,
-                context: nil,
-                eventNumber: 10,
-                clickCount: 2,
-                pressure: 1
-            )
-        )
-
+    @Test("a click inside a tab pill frame does not start a window drag")
+    func clickInsidePillFrameDoesNotStartWindowDrag() throws {
+        let fixture = makeHostingViewFixture()
         var didDrag = false
-        var didZoom = false
-        dragRegion.performWindowDrag = { _ in didDrag = true }
-        dragRegion.performWindowZoom = { didZoom = true }
+        fixture.hostingView.performWindowDrag = { _ in didDrag = true }
 
-        dragRegion.mouseDown(with: event)
+        let event = try makeMouseDownEvent(
+            atNSViewPoint: fixture.pointInsidePill, clickCount: 1, windowNumber: fixture.window.windowNumber
+        )
+        fixture.hostingView.mouseDown(with: event)
+
+        #expect(!didDrag)
+    }
+
+    @Test("a secondary click entering the tab host emits an input trace")
+    func secondaryClickEnteringTabHostEmitsInputTrace() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "tab-context-menu-input-\(UUIDv7.generate().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: traceDirectory) }
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "tab-context-menu-input",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 941,
+            timeUnixNano: { 941 }
+        )
+        let traceRecorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let fixture = makeHostingViewFixture(performanceTraceRecorder: traceRecorder)
+        let event = try makeMouseDownEvent(
+            type: .rightMouseDown,
+            atNSViewPoint: fixture.pointInsidePill,
+            clickCount: 1,
+            windowNumber: fixture.window.windowNumber
+        )
+
+        NSApp.sendEvent(event)
+        fixture.hostingView.currentEventProvider = { event }
+        _ = fixture.hostingView.hitTest(fixture.pointInsidePill)
+        try await traceRecorder.drain()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.tabbar.context_menu\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.phase\":\"input\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.tab_hit\":true"))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.phase\":\"host_hit_test\""))
+        #expect(contents.contains("\"agentstudio.performance.tabbar.context_menu.host_hit\":true"))
+        #expect(
+            contents.contains(
+                "\"agentstudio.performance.tabbar.context_menu.hit_view_class\":\"swiftui\""
+            )
+        )
+    }
+
+    @Test("a secondary click on a tab requests its native context menu and consumes the event")
+    func secondaryClickOnTabRequestsContextMenuAndConsumesEvent() throws {
+        let fixture = makeHostingViewFixture()
+        var requestedTabId: UUID?
+        fixture.hostingView.contextMenuRequestHandler = { tabId, _ in
+            requestedTabId = tabId
+            return true
+        }
+        let event = try makeMouseDownEvent(
+            type: .rightMouseDown,
+            atNSViewPoint: fixture.pointInsidePill,
+            clickCount: 1,
+            windowNumber: fixture.window.windowNumber
+        )
+
+        let forwardedEvent = fixture.hostingView.processRightMouseDown(event)
+
+        #expect(requestedTabId == fixture.tabId)
+        #expect(forwardedEvent == nil)
+    }
+
+    @Test("a click in the empty strip starts a window drag")
+    func clickInEmptyStripStartsWindowDrag() throws {
+        let fixture = makeHostingViewFixture()
+        var draggedEvent: NSEvent?
+        fixture.hostingView.performWindowDrag = { draggedEvent = $0 }
+
+        let event = try makeMouseDownEvent(
+            atNSViewPoint: fixture.pointOutsidePill, clickCount: 1, windowNumber: fixture.window.windowNumber
+        )
+        fixture.hostingView.mouseDown(with: event)
+
+        #expect(draggedEvent === event)
+    }
+
+    @Test("a double click in the empty strip zooms when the system pref is Maximize")
+    func doubleClickInEmptyStripZoomsWhenSystemPrefIsMaximize() throws {
+        UserDefaults.standard.set("Maximize", forKey: Self.doubleClickActionDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.doubleClickActionDefaultsKey) }
+
+        let fixture = makeHostingViewFixture()
+        var didZoom = false
+        var didDrag = false
+        fixture.hostingView.performWindowZoom = { didZoom = true }
+        fixture.hostingView.performWindowDrag = { _ in didDrag = true }
+
+        let event = try makeMouseDownEvent(
+            atNSViewPoint: fixture.pointOutsidePill, clickCount: 2, windowNumber: fixture.window.windowNumber
+        )
+        fixture.hostingView.mouseDown(with: event)
 
         #expect(didZoom)
         #expect(!didDrag)
     }
 
-    @MainActor
-    @Test("explicit drag region falls back to window zoom on double click")
-    func explicitDragRegionFallsBackToWindowZoomOnDoubleClick() throws {
-        let window = ZoomRecordingWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
-            styleMask: [.titled, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 120))
-        window.contentView = contentView
+    @Test("a double click in the empty strip minimizes when the system pref is Minimize")
+    func doubleClickInEmptyStripMinimizesWhenSystemPrefIsMinimize() throws {
+        UserDefaults.standard.set("Minimize", forKey: Self.doubleClickActionDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.doubleClickActionDefaultsKey) }
 
-        let dragRegion = ShellChromeDragRegionView(
-            frame: NSRect(
-                x: 0,
-                y: 0,
-                width: 320,
-                height: AppStyles.Shell.Chrome.windowDragRegionHeight
-            )
-        )
-        contentView.addSubview(dragRegion)
+        let fixture = makeHostingViewFixture()
+        var didMiniaturize = false
+        fixture.hostingView.performWindowMiniaturize = { didMiniaturize = true }
 
-        let event = try #require(
-            NSEvent.mouseEvent(
-                with: .leftMouseDown,
-                location: NSPoint(x: 12, y: 3),
-                modifierFlags: [],
-                timestamp: 1,
-                windowNumber: window.windowNumber,
-                context: nil,
-                eventNumber: 11,
-                clickCount: 2,
-                pressure: 1
-            )
+        let event = try makeMouseDownEvent(
+            atNSViewPoint: fixture.pointOutsidePill, clickCount: 2, windowNumber: fixture.window.windowNumber
         )
+        fixture.hostingView.mouseDown(with: event)
 
+        #expect(didMiniaturize)
+    }
+
+    @Test("a double click in the empty strip does nothing when the system pref is some other value")
+    func doubleClickInEmptyStripDoesNothingWhenSystemPrefIsSomeOtherValue() throws {
+        // Setting an explicit non-matching value (rather than removeObject) keeps this
+        // deterministic: UserDefaults.standard falls through to NSGlobalDomain, and this
+        // machine's real "double-click title bar" system preference could otherwise leak
+        // in as "Maximize" once the app-level override is merely removed.
+        UserDefaults.standard.set("None", forKey: Self.doubleClickActionDefaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.doubleClickActionDefaultsKey) }
+
+        let fixture = makeHostingViewFixture()
+        var didZoom = false
+        var didMiniaturize = false
         var didDrag = false
-        dragRegion.performWindowDrag = { _ in didDrag = true }
+        fixture.hostingView.performWindowZoom = { didZoom = true }
+        fixture.hostingView.performWindowMiniaturize = { didMiniaturize = true }
+        fixture.hostingView.performWindowDrag = { _ in didDrag = true }
 
-        dragRegion.mouseDown(with: event)
+        let event = try makeMouseDownEvent(
+            atNSViewPoint: fixture.pointOutsidePill, clickCount: 2, windowNumber: fixture.window.windowNumber
+        )
+        fixture.hostingView.mouseDown(with: event)
 
-        #expect(window.didPerformZoom)
+        #expect(!didZoom)
+        #expect(!didMiniaturize)
         #expect(!didDrag)
     }
 
     @MainActor
-    @Test("main split chrome layers explicit drag region above tab host")
-    func mainSplitChromeLayersExplicitDragRegionAboveTabHost() async throws {
-        try await withMainSplitViewControllerHarness { harness in
-            harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
-            harness.controller.view.layoutSubtreeIfNeeded()
+    @Test("main split no longer owns a content chrome row")
+    func mainSplitNoLongerOwnsContentChromeRow() throws {
+        let source = try sourceContents("Sources/AgentStudio/App/Windows/MainSplitViewController.swift")
 
-            let descendants = descendants(of: harness.controller.view)
-            let dragRegion = try #require(descendants.compactMap { $0 as? ShellChromeDragRegionView }.first)
-            let tabHost = try #require(descendants.compactMap { $0 as? DraggableTabBarHostingView }.first)
-            let chromeContainer = try #require(dragRegion.superview)
-            let tabHostContainer = try #require(tabHost.superview)
+        #expect(!source.contains("shellChromeContainerView"))
+        #expect(!source.contains("installShellChrome"))
+        #expect(source.contains("makeToolbarChromeView"))
+    }
 
-            #expect(chromeContainer === tabHostContainer)
-            let dragRegionIndex = try #require(chromeContainer.subviews.firstIndex { $0 === dragRegion })
-            let tabHostIndex = try #require(chromeContainer.subviews.firstIndex { $0 === tabHost })
-            #expect(dragRegionIndex > tabHostIndex)
-            #expect(abs(dragRegion.frame.height - AppStyles.Shell.Chrome.windowDragRegionHeight) < 0.5)
-        }
+    // MARK: - Fixture
+
+    private struct HostingViewFixture {
+        let hostingView: DraggableTabBarHostingView
+        let window: NSWindow
+        let tabId: UUID
+        let pointInsidePill: NSPoint
+        let pointOutsidePill: NSPoint
+    }
+
+    /// Builds a `DraggableTabBarHostingView` hosted as the content view of a real,
+    /// never-ordered-front borderless window, with one tab-pill frame seeded directly
+    /// via `updateTabFrames`. The window performs one layout pass so hit testing reaches
+    /// the hosted SwiftUI subtree. `mouseDown` converts
+    /// `event.locationInWindow` through `convert(_:from:)`, which needs a real window
+    /// to resolve correctly; a borderless window sized to the view's bounds keeps
+    /// window-base coordinates identical to the view's own local coordinates.
+    /// `tabAtPoint` then flips NSView-space points (bottom-left origin) into the
+    /// SwiftUI-space frame stored in `tabFrames` (top-left origin), so the two probe
+    /// points below are chosen to land inside and outside the seeded pill frame after
+    /// that flip.
+    private func makeHostingViewFixture(
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
+    ) -> HostingViewFixture {
+        let atoms = makeTestAtomRegistry()
+        let store = WorkspaceStore(
+            identityAtom: atoms.core.workspaceIdentity,
+            windowMemoryAtom: atoms.core.workspaceWindowMemory,
+            repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+            paneAtom: atoms.core.workspacePane,
+            tabLayoutAtom: atoms.core.workspaceTabLayout,
+            mutationCoordinator: atoms.core.workspaceMutationCoordinator
+        )
+        let adapter = TabBarAdapter(
+            store: store,
+            repoCache: atoms.core.repoCache,
+            inboxAtom: InboxNotificationAtom(),
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+        let tabBar = CustomTabBar(
+            adapter: adapter,
+            onSelect: { _ in },
+            canDispatchCommand: { _, _ in true },
+            onCommand: { _, _ in },
+            onShowArrangements: { _ in }
+        )
+        let hostingView = DraggableTabBarHostingView(
+            rootView: tabBar,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+        hostingView.configure(adapter: adapter) { _, _, _ in }
+        let boundsHeight: CGFloat = AppStyles.Shell.TabBar.height
+        let bounds = NSRect(x: 0, y: 0, width: 400, height: boundsHeight)
+        hostingView.frame = bounds
+
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let tabId = UUIDv7.generate()
+        let pillFrame = CGRect(x: 20, y: 4, width: 100, height: AppStyles.Shell.TabBar.tabPillHeight)
+        hostingView.updateTabFrames([tabId: pillFrame])
+
+        return HostingViewFixture(
+            hostingView: hostingView,
+            window: window,
+            tabId: tabId,
+            pointInsidePill: NSPoint(x: 50, y: boundsHeight - 20),
+            pointOutsidePill: NSPoint(x: 300, y: boundsHeight - 20)
+        )
+    }
+
+    private func makeMouseDownEvent(
+        type: NSEvent.EventType = .leftMouseDown,
+        atNSViewPoint point: NSPoint,
+        clickCount: Int,
+        windowNumber: Int
+    ) throws -> NSEvent {
+        try #require(
+            NSEvent.mouseEvent(
+                with: type,
+                location: point,
+                modifierFlags: [],
+                timestamp: 1,
+                windowNumber: windowNumber,
+                context: nil,
+                eventNumber: 10,
+                clickCount: clickCount,
+                pressure: 1
+            )
+        )
     }
 
     private func sourceContents(_ relativePath: String) throws -> String {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
-    }
-
-    @MainActor
-    private func descendants(of view: NSView) -> [NSView] {
-        view.subviews + view.subviews.flatMap { descendants(of: $0) }
-    }
-}
-
-private final class ZoomRecordingWindow: NSWindow {
-    var didPerformZoom = false
-
-    override func performZoom(_ sender: Any?) {
-        didPerformZoom = true
     }
 }

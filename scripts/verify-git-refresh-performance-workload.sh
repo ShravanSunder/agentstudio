@@ -131,6 +131,7 @@ COMMON_QUIESCENCE_TIMEOUT_SECONDS=75
 METRICS_EXPORT_TIMEOUT_SECONDS=75
 REQUIRED_PERFORMANCE_METRIC_MINIMUM_COUNT=1
 REQUIRED_COMMANDBAR_QUERY_CHARACTER_MINIMUM=1
+REGRESSION_BOUNDARY_PERCENT=10
 
 absolute_path() {
   local path="$1"
@@ -151,7 +152,46 @@ workload_fingerprint() {
     | awk '{print $1}'
 }
 
+source_digest() {
+  /usr/bin/python3 - "$PROJECT_ROOT" <<'PY'
+import hashlib
+import os
+import subprocess
+import sys
+
+project_root = sys.argv[1]
+tracked_and_untracked = subprocess.check_output(
+    ["git", "-C", project_root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
+)
+relative_paths = sorted(path for path in tracked_and_untracked.split(b"\0") if path)
+digest = hashlib.sha256()
+for relative_path_bytes in relative_paths:
+    relative_path = os.fsdecode(relative_path_bytes)
+    absolute_path = os.path.join(project_root, relative_path)
+    digest.update(relative_path_bytes)
+    digest.update(b"\0")
+    if os.path.islink(absolute_path):
+        digest.update(b"symlink\0")
+        digest.update(os.fsencode(os.readlink(absolute_path)))
+    elif os.path.isdir(absolute_path):
+        digest.update(b"gitlink\0")
+        digest.update(
+            subprocess.check_output(
+                ["git", "-C", project_root, "ls-files", "--stage", "--", relative_path]
+            )
+        )
+    else:
+        digest.update(b"file\0")
+        with open(absolute_path, "rb") as source_file:
+            while chunk := source_file.read(1024 * 1024):
+                digest.update(chunk)
+    digest.update(b"\0")
+print(digest.hexdigest())
+PY
+}
+
 SOURCE_HEAD="$(git -C "$PROJECT_ROOT" rev-parse HEAD)"
+SOURCE_DIGEST="$(source_digest)"
 WORKTREE_IDENTITY="$(canonical_path "$PROJECT_ROOT")"
 WORKLOAD_FINGERPRINT="$(workload_fingerprint)"
 
@@ -201,14 +241,42 @@ SUMMARY_FILE="$ARTIFACT/summary.txt"
 DEBUG_OBSERVABILITY_STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
 DEBUG_IDENTITY_FILE="$ARTIFACT/debug-identity.env"
 DEBUG_STATE_COPY="$ARTIFACT/debug-observability.env"
+ZMX_CLEANUP_SCRIPT="$PROJECT_ROOT/scripts/cleanup-owned-zmx-sessions.sh"
+ZMX_CLEANUP_ARTIFACT="$ARTIFACT/zmx-cleanup.env"
+RUNTIME_DATA_ROOT=""
+WORKLOAD_ZMX_DIR=""
+WORKLOAD_ZMX_EXECUTABLE=""
+DEBUG_IDENTITY_DATA_DIR=""
+LAUNCH_ATTEMPTED=0
+CLEANUP_RAN=0
+ZMX_SESSION_IDS=()
 
 APP_PID=""
 APP_BINARY=""
 APP_LAUNCH_BUNDLE=""
 APP_LAUNCH_METHOD=""
 ACTIVATION_MODE=""
+IPC_AUTH_MODE=""
+EXECUTABLE_DIGEST=""
 QUERY_START=""
 WRITERS_FINISHED_AT=""
+ISSUED_INTERACTION_COUNT=0
+TAB_BAR_CAPTURE_COUNT=0
+TAB_BAR_TERMINAL_COUNT=0
+TAB_BAR_LIFECYCLE_EXACT=false
+TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT=0
+TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT=0
+TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT=0
+TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT=0
+TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT=0
+TRACE_QUEUE_DROPPED_RECORD_COUNT=""
+TRACE_QUEUE_HIGH_WATERMARK=""
+FINAL_TAB_COUNT=0
+FINAL_PANE_COUNT=0
+FINAL_ACTIVE_PANE_COUNT=0
+FINAL_TAB_COUNT_EQUIVALENT=false
+FINAL_ACTIVE_TAB_EQUIVALENT=false
+FINAL_MEMBERSHIP_EQUIVALENT=false
 WRITER_PIDS=()
 
 log_command() {
@@ -220,22 +288,41 @@ stop_pid() {
   [ -n "$pid" ] || return 0
   if kill -0 "$pid" >/dev/null 2>&1; then
     kill "$pid" >/dev/null 2>&1 || true
-    wait "$pid" >/dev/null 2>&1 || true
+    local attempt
+    for attempt in $(seq 1 50); do
+      if ! kill -0 "$pid" >/dev/null 2>&1; then
+        wait "$pid" >/dev/null 2>&1 || true
+        return 0
+      fi
+      sleep 0.1
+    done
+    return 1
   fi
 }
 
 cleanup() {
+  [ "$CLEANUP_RAN" -eq 0 ] || return 0
+  CLEANUP_RAN=1
   local cleanup_log="$ARTIFACT/cleanup.log"
+  local cleanup_failed=0
   mkdir -p "$ARTIFACT"
   {
     echo "cleanup started $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     for pid in "${WRITER_PIDS[@]:-}"; do
-      stop_pid "$pid"
-      echo "writer pid stopped: $pid"
+      if stop_pid "$pid"; then
+        echo "writer pid stopped: $pid"
+      else
+        echo "writer pid did not exit within 5 seconds: $pid"
+        cleanup_failed=1
+      fi
     done
     if [ -n "$APP_PID" ]; then
-      stop_pid "$APP_PID"
-      echo "app pid stopped: $APP_PID"
+      if stop_pid "$APP_PID"; then
+        echo "app pid stopped: $APP_PID"
+      else
+        echo "app pid did not exit within 5 seconds: $APP_PID"
+        cleanup_failed=1
+      fi
     fi
     local live_writers=0
     for pid_file in "$PID_DIR"/writer-*.pid; do
@@ -247,11 +334,39 @@ cleanup() {
       fi
     done
     echo "live writer pids after cleanup: $live_writers"
-    echo "cleanup finished $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    if [ "$live_writers" -ne 0 ]; then
+      cleanup_failed=1
+    fi
   } >>"$cleanup_log"
+
+  if [ "$LAUNCH_ATTEMPTED" -eq 1 ] && [ "${#ZMX_SESSION_IDS[@]}" -gt 0 ]; then
+    if ! "$ZMX_CLEANUP_SCRIPT" \
+      "$WORKLOAD_ZMX_EXECUTABLE" \
+      "$WORKLOAD_ZMX_DIR" \
+      "$ZMX_CLEANUP_ARTIFACT" \
+      "${ZMX_SESSION_IDS[@]}"
+    then
+      cleanup_failed=1
+    fi
+  fi
+  echo "cleanup finished $(date -u +"%Y-%m-%dT%H:%M:%SZ") status=$cleanup_failed" >>"$cleanup_log"
+  return "$cleanup_failed"
 }
 
-trap cleanup EXIT INT TERM
+finish() {
+  local body_status="$?"
+  local cleanup_status=0
+  trap - EXIT INT TERM
+  cleanup || cleanup_status=$?
+  if [ "$body_status" -ne 0 ]; then
+    exit "$body_status"
+  fi
+  exit "$cleanup_status"
+}
+
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 require_positive_integer() {
   local name="$1"
@@ -289,6 +404,14 @@ if [ "$ALLOW_TEST_RESPONSES" != "0" ] && [ "$ALLOW_TEST_RESPONSES" != "1" ]; the
   echo "AGENTSTUDIO_PERF_ALLOW_TEST_RESPONSES must be 0 or 1" >&2
   exit 2
 fi
+case ",$WORKLOAD_TRACE_TAGS," in
+  *,performance,*)
+    ;;
+  *)
+    echo "AGENTSTUDIO_TRACE_TAGS must contain the performance tag: $WORKLOAD_TRACE_TAGS" >&2
+    exit 2
+    ;;
+esac
 
 test_responses_enabled() {
   [ "$prepare_only" = true ] && [ "$ALLOW_TEST_RESPONSES" = "1" ]
@@ -345,12 +468,17 @@ load_debug_identity_for_workload() {
   log_command "$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity
   AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$DEBUG_OBSERVABILITY_STATE_FILE" \
     "$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity >"$DEBUG_IDENTITY_FILE"
-  APP_DATA_DIR="$(decode_env_file_value "$DEBUG_IDENTITY_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
-  TRACE_DIR="$APP_DATA_DIR/traces"
-  if [ -z "$APP_DATA_DIR" ] || [ -z "$TRACE_DIR" ]; then
+  DEBUG_IDENTITY_DATA_DIR="$(decode_env_file_value "$DEBUG_IDENTITY_FILE" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  if [ -z "$DEBUG_IDENTITY_DATA_DIR" ]; then
     echo "debug identity did not provide data/trace directories: $DEBUG_IDENTITY_FILE" >&2
     exit 1
   fi
+  RUNTIME_DATA_ROOT="$(mktemp -d /tmp/asw.XXXXXX)"
+  chmod 700 "$RUNTIME_DATA_ROOT"
+  APP_DATA_DIR="$RUNTIME_DATA_ROOT"
+  WORKLOAD_ZMX_DIR="$RUNTIME_DATA_ROOT/z"
+  WORKLOAD_ZMX_EXECUTABLE="$DEBUG_IDENTITY_DATA_DIR/bin/zmx"
+  TRACE_DIR="$ARTIFACT/traces"
 }
 
 preflight_debug_observability_idle() {
@@ -593,6 +721,15 @@ prepare_fixture() {
     ZMX_SESSION_IDS[$pane_index]="$(uuid_v7)"
     DRAWER_IDS[$pane_index]="$(uuid_v7)"
   done
+  if [ "$prepare_only" != true ]; then
+    local owned_session_id
+    for owned_session_id in "${ZMX_SESSION_IDS[@]}"; do
+      if [ $((${#WORKLOAD_ZMX_DIR} + 1 + ${#owned_session_id})) -gt 103 ]; then
+        echo "workload zmx socket path exceeds Darwin's 103-byte limit: $WORKLOAD_ZMX_DIR/$owned_session_id" >&2
+        exit 1
+      fi
+    done
+  fi
   if [ "$ACTIVE_PANE_COUNT" -gt 1 ]; then
     local divider_index
     for divider_index in $(seq 0 $((ACTIVE_PANE_COUNT - 2))); do
@@ -639,11 +776,14 @@ launch_debug_observability_app() {
     "AGENTSTUDIO_TRACE_FLUSH=immediate"
     "AGENTSTUDIO_TRACE_NAME=$TRACE_NAME"
     "AGENTSTUDIO_TRACE_DIR=$TRACE_DIR"
+    "AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1"
+    "AGENTSTUDIO_DEBUG_DATA_DIR=$RUNTIME_DATA_ROOT"
   )
   if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
     launcher_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=command-bar-repo-filter")
   fi
 
+  LAUNCH_ATTEMPTED=1
   log_command env "${launcher_env[@]}" "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
   env "${launcher_env[@]}" "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach \
     >"$ARTIFACT/run-debug-observability.log" 2>&1
@@ -658,11 +798,32 @@ launch_debug_observability_app() {
   ACTIVATION_MODE="$(
     decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE
   )"
+  IPC_AUTH_MODE="$(
+    decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE
+  )"
+  WORKLOAD_ZMX_DIR="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ZMX_DIR)"
   QUERY_START="$(decode_env_file_value "$DEBUG_OBSERVABILITY_STATE_FILE" AGENTSTUDIO_OBSERVABILITY_QUERY_START)"
   if [ -z "$APP_PID" ] || [ -z "$APP_BINARY" ]; then
     echo "debug observability state did not include PID/executable: $DEBUG_OBSERVABILITY_STATE_FILE" >&2
     exit 1
   fi
+  if [ "$WORKLOAD_ZMX_DIR" != "$RUNTIME_DATA_ROOT/z" ]; then
+    echo "debug workload did not use its isolated zmx root: $WORKLOAD_ZMX_DIR" >&2
+    exit 1
+  fi
+  if [ "$APP_LAUNCH_METHOD" != "launchservices" ]; then
+    echo "performance workload requires launch_method=launchservices: ${APP_LAUNCH_METHOD:-<missing>}" >&2
+    exit 1
+  fi
+  if [ "$ACTIVATION_MODE" != "background" ]; then
+    echo "performance workload requires activation_mode=background: ${ACTIVATION_MODE:-<missing>}" >&2
+    exit 1
+  fi
+  if [ "$IPC_AUTH_MODE" != "authenticated" ]; then
+    echo "performance workload requires authenticated IPC: ${IPC_AUTH_MODE:-<missing>}" >&2
+    exit 1
+  fi
+  EXECUTABLE_DIGEST="$(/usr/bin/shasum -a 256 "$APP_BINARY" | awk '{print $1}')"
   printf '%s\n' "$APP_PID" >"$PID_DIR/app.pid"
 
   log_command "$PROJECT_ROOT/scripts/verify-debug-observability.sh"
@@ -1152,10 +1313,15 @@ required_performance_metric_event_names() {
   cat <<'EOF'
 performance.commandbar.items
 performance.commandbar.filter
+performance.tabbar.capture
 performance.tabbar.refresh
+performance.tabbar.worker
+performance.tabbar.current
+performance.tabbar.terminal
+performance.tabbar.publication
+performance.tabbar.visible
 performance.sidebar.projection
 performance.sidebar.row_index
-performance.topology.repo_and_worktree
 performance.coordinator.write
 EOF
 }
@@ -1209,6 +1375,208 @@ wait_for_required_performance_metrics_export() {
     done < <(required_performance_metric_event_names)
   } | tee -a "$export_log" >&2
   return 1
+}
+
+wait_for_tab_bar_lifecycle_continuity() {
+  local continuity_log="$ARTIFACT/tabbar-lifecycle-continuity.log"
+  local deadline=$((SECONDS + METRICS_EXPORT_TIMEOUT_SECONDS))
+  : >"$continuity_log"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! capture_tab_bar_lifecycle_snapshot; then
+      echo "tabbar_lifecycle_continuity=query_failed" >>"$continuity_log"
+      return 1
+    fi
+    printf 'observed_at=%s capture_count=%s terminal_count=%s exact=%s duplicate_capture=%s duplicate_terminal=%s missing_terminal=%s unexpected_terminal=%s invalid_outcome=%s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "$TAB_BAR_CAPTURE_COUNT" \
+      "$TAB_BAR_TERMINAL_COUNT" \
+      "$TAB_BAR_LIFECYCLE_EXACT" \
+      "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" \
+      "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" \
+      "$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" \
+      "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" \
+      "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >>"$continuity_log"
+    if [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]; then
+      echo "tabbar_lifecycle_continuity=succeeded" >>"$continuity_log"
+      return 0
+    fi
+    if tab_bar_lifecycle_has_irrecoverable_failure; then
+      report_tab_bar_lifecycle_errors
+      echo "tabbar_lifecycle_continuity=invalid" >>"$continuity_log"
+      return 1
+    fi
+    sleep 1
+  done
+  echo "tabbar_lifecycle_continuity=timed_out" >>"$continuity_log"
+  return 1
+}
+
+capture_tab_bar_lifecycle_snapshot() {
+  local capture_response terminal_response snapshot
+  if ! capture_response="$(
+    query_victoria_logs \
+      "$(victoria_event_query performance.tabbar.capture) | fields _msg, agentstudio.performance.tabbar.sequence | limit 10000" \
+      2>&1
+  )"; then
+    echo "VictoriaLogs Tab Bar capture query failed: $capture_response" >&2
+    return 1
+  fi
+  if ! terminal_response="$(
+    query_victoria_logs \
+      "$(victoria_event_query performance.tabbar.terminal) | fields _msg, agentstudio.performance.tabbar.sequence, agentstudio.performance.tabbar.terminal.outcome | limit 10000" \
+      2>&1
+  )"; then
+    echo "VictoriaLogs Tab Bar terminal query failed: $terminal_response" >&2
+    return 1
+  fi
+  snapshot="$(
+    /usr/bin/python3 - \
+      <(printf '%s\n' "$capture_response") \
+      <(printf '%s\n' "$terminal_response") <<'PY'
+import collections
+import json
+import sys
+
+capture_path, terminal_path = sys.argv[1:3]
+valid_outcomes = {"published", "equal", "superseded", "cancelled"}
+
+
+def records(path):
+    with open(path, "r", encoding="utf-8") as response_file:
+        for line in response_file:
+            if not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except (TypeError, ValueError):
+                continue
+
+
+def sequence(record):
+    try:
+        value = int(record.get("agentstudio.performance.tabbar.sequence"))
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0 else None
+
+
+captures = []
+for record in records(capture_path):
+    if record.get("_msg") not in (None, "performance.tabbar.capture"):
+        continue
+    value = sequence(record)
+    if value is not None:
+        captures.append(value)
+
+terminals = []
+invalid_outcome_count = 0
+for record in records(terminal_path):
+    if record.get("_msg") not in (None, "performance.tabbar.terminal"):
+        continue
+    value = sequence(record)
+    outcome = record.get("agentstudio.performance.tabbar.terminal.outcome")
+    if value is None or outcome not in valid_outcomes:
+        invalid_outcome_count += 1
+        continue
+    terminals.append(value)
+
+capture_counts = collections.Counter(captures)
+terminal_counts = collections.Counter(terminals)
+duplicate_capture_count = sum(count - 1 for count in capture_counts.values() if count > 1)
+duplicate_terminal_count = sum(count - 1 for count in terminal_counts.values() if count > 1)
+missing_terminal_count = sum((capture_counts - terminal_counts).values())
+unexpected_terminal_count = sum((terminal_counts - capture_counts).values())
+is_exact = (
+    bool(captures)
+    and capture_counts == terminal_counts
+    and duplicate_capture_count == 0
+    and duplicate_terminal_count == 0
+    and invalid_outcome_count == 0
+)
+
+print(f"capture_count={len(captures)}")
+print(f"terminal_count={len(terminals)}")
+print(f"lifecycle_exact={str(is_exact).lower()}")
+print(f"duplicate_capture_sequence_count={duplicate_capture_count}")
+print(f"duplicate_terminal_sequence_count={duplicate_terminal_count}")
+print(f"missing_terminal_sequence_count={missing_terminal_count}")
+print(f"unexpected_terminal_sequence_count={unexpected_terminal_count}")
+print(f"invalid_terminal_outcome_count={invalid_outcome_count}")
+PY
+  )"
+
+  TAB_BAR_CAPTURE_COUNT="$(sed -n 's/^capture_count=//p' <<<"$snapshot")"
+  TAB_BAR_TERMINAL_COUNT="$(sed -n 's/^terminal_count=//p' <<<"$snapshot")"
+  TAB_BAR_LIFECYCLE_EXACT="$(sed -n 's/^lifecycle_exact=//p' <<<"$snapshot")"
+  TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT="$(sed -n 's/^duplicate_capture_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT="$(sed -n 's/^duplicate_terminal_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT="$(sed -n 's/^missing_terminal_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT="$(sed -n 's/^unexpected_terminal_sequence_count=//p' <<<"$snapshot")"
+  TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT="$(sed -n 's/^invalid_terminal_outcome_count=//p' <<<"$snapshot")"
+}
+
+tab_bar_lifecycle_has_irrecoverable_failure() {
+  [ "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" != "0" ] \
+    || [ "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" != "0" ] \
+    || [ "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" != "0" ] \
+    || [ "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" != "0" ]
+}
+
+report_tab_bar_lifecycle_errors() {
+  [ "$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has duplicate capture sequences: $TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has duplicate terminal sequences: $TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has missing terminal sequences: $TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has unexpected terminal sequences: $TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT" >&2
+  [ "$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" = "0" ] \
+    || echo "Tab Bar lifecycle has invalid terminal outcomes: $TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT" >&2
+}
+
+require_exact_tab_bar_lifecycle() {
+  capture_tab_bar_lifecycle_snapshot || return 1
+  report_tab_bar_lifecycle_errors
+  [ "$TAB_BAR_LIFECYCLE_EXACT" = "true" ]
+}
+
+trace_queue_metric_query() {
+  local metric_name="$1"
+  printf 'max(%s{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s"})' \
+    "$metric_name" \
+    "$TRACE_NAME"
+}
+
+require_trace_queue_completeness() {
+  TRACE_QUEUE_DROPPED_RECORD_COUNT="$(
+    victoria_metric_value_or_empty "$(
+      trace_queue_metric_query agentstudio_performance_trace_queue_dropped_record_count
+    )"
+  )"
+  TRACE_QUEUE_HIGH_WATERMARK="$(
+    victoria_metric_value_or_empty "$(
+      trace_queue_metric_query agentstudio_performance_trace_queue_high_watermark
+    )"
+  )"
+  /usr/bin/python3 - "$TRACE_QUEUE_DROPPED_RECORD_COUNT" "$TRACE_QUEUE_HIGH_WATERMARK" <<'PY'
+import math
+import sys
+
+try:
+    dropped_record_count = float(sys.argv[1])
+    high_watermark = float(sys.argv[2])
+except (IndexError, ValueError):
+    print("trace queue completeness metrics are missing", file=sys.stderr)
+    sys.exit(1)
+
+if not math.isfinite(dropped_record_count) or dropped_record_count != 0:
+    print(f"trace queue dropped record count must be zero: {dropped_record_count:g}", file=sys.stderr)
+    sys.exit(1)
+if not math.isfinite(high_watermark) or high_watermark < 0:
+    print(f"trace queue high-water mark must be present and nonnegative: {high_watermark:g}", file=sys.stderr)
+    sys.exit(1)
+PY
 }
 
 jsonl_proof_enabled() {
@@ -1283,6 +1651,23 @@ wait_for_command_bar_repo_filter_event() {
   return 1
 }
 
+wait_for_startup_diagnostic_completion() {
+  local timeout_seconds="$1"
+  local deadline=$((SECONDS + timeout_seconds))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ "$(victoria_event_count app.startup_diagnostic_action.completed)" -gt 0 ]; then
+      return 0
+    fi
+    if [ "$(victoria_event_count app.startup_diagnostic_action.blocked)" -gt 0 ]; then
+      echo "startup diagnostic reported blocked" >&2
+      return 1
+    fi
+    sleep 1
+  done
+  echo "timed out waiting for startup diagnostic completion" >&2
+  return 1
+}
+
 writer_loop() {
   local writer_index="$1"
   local worktree_path="$2"
@@ -1301,6 +1686,7 @@ writer_loop() {
     iteration=$((iteration + 1))
     sleep 1
   done
+  printf '%s\n' "$iteration" >"$ARTIFACT/writer-$writer_index.iterations"
 }
 
 start_writers() {
@@ -1313,6 +1699,32 @@ start_writers() {
     WRITER_PIDS+=("$writer_pid")
     printf '%s\n' "$writer_pid" >"$PID_DIR/writer-$writer_index.pid"
   done
+}
+
+sum_issued_interaction_count() {
+  local total=0
+  local writer_index
+  for writer_index in $(seq 0 $((WRITER_COUNT - 1))); do
+    local count_file="$ARTIFACT/writer-$writer_index.iterations"
+    if [ ! -f "$count_file" ]; then
+      echo "writer did not record completed iterations: $writer_index" >&2
+      return 1
+    fi
+    local iteration_count
+    iteration_count="$(cat "$count_file")"
+    case "$iteration_count" in
+      ''|*[!0-9]*)
+        echo "writer recorded invalid iteration count: $writer_index" >&2
+        return 1
+        ;;
+    esac
+    total=$((total + iteration_count))
+  done
+  if [ "$total" -le 0 ]; then
+    echo "workload did not issue any writer interactions" >&2
+    return 1
+  fi
+  printf '%s\n' "$total"
 }
 
 drive_command_bar_smoke() {
@@ -1350,6 +1762,110 @@ capture_restore_trace() {
   grep "pid=$APP_PID " "$restore_trace_source" >"$restore_trace_target" 2>/dev/null || true
 }
 
+capture_authenticated_final_state_oracle() {
+  local ipc_metadata_path="${AGENTSTUDIO_OBSERVABILITY_IPC_METADATA:-$APP_DATA_DIR/ipc/runtime.json}"
+  local ipc_debug_token_path="${AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN:-$APP_DATA_DIR/ipc/debug-token}"
+  local oracle_file="$ARTIFACT/final-state-oracle.env"
+  if [ ! -f "$ipc_metadata_path" ] || [ ! -f "$ipc_debug_token_path" ]; then
+    echo "authenticated IPC metadata or token is missing for final-state oracle" >&2
+    return 1
+  fi
+
+  /usr/bin/python3 - \
+    "$ipc_metadata_path" \
+    "$ipc_debug_token_path" \
+    "$TAB_ID" \
+    "$ACTIVE_PANE_COUNT" >"$oracle_file" <<'PY'
+import json
+import socket
+import sys
+
+metadata_path, token_path, expected_tab_id = sys.argv[1:4]
+expected_pane_count = int(sys.argv[4])
+expected_tab_id = expected_tab_id.lower()
+
+with open(metadata_path, "r", encoding="utf-8") as metadata_file:
+    socket_path = json.load(metadata_file).get("socketPath")
+with open(token_path, "r", encoding="utf-8") as token_file:
+    token = token_file.read().strip()
+if not socket_path or not token:
+    print("authenticated IPC metadata or token is incomplete", file=sys.stderr)
+    sys.exit(1)
+
+ipc_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+ipc_socket.settimeout(15)
+ipc_socket.connect(socket_path)
+reader = ipc_socket.makefile("rb")
+
+
+def request(request_id, method, params):
+    payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+    ipc_socket.sendall((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
+    while True:
+        line = reader.readline()
+        if not line:
+            print(f"IPC socket closed before {method} response", file=sys.stderr)
+            sys.exit(1)
+        response = json.loads(line.decode("utf-8"))
+        if response.get("id") != request_id:
+            continue
+        if response.get("error") is not None:
+            print(f"{method} failed", file=sys.stderr)
+            sys.exit(1)
+        return response.get("result", {})
+
+
+try:
+    request(1, "auth.login", {"token": token})
+    workspace_result = request(2, "workspace.list", {})
+    pane_result = request(3, "pane.list", {})
+finally:
+    reader.close()
+    ipc_socket.close()
+
+current_workspaces = [workspace for workspace in workspace_result.get("workspaces", []) if workspace.get("isCurrent")]
+panes = pane_result.get("panes", [])
+current_tab_count = current_workspaces[0].get("tabCount", 0) if len(current_workspaces) == 1 else 0
+active_panes = [pane for pane in panes if pane.get("isActive")]
+
+
+def normalized_uuid(value):
+    return value.lower() if isinstance(value, str) else None
+
+
+tab_count_equivalent = current_tab_count == 1
+active_tab_equivalent = (
+    len(active_panes) == 1 and normalized_uuid(active_panes[0].get("tabId")) == expected_tab_id
+)
+membership_equivalent = (
+    len(panes) == expected_pane_count
+    and all(normalized_uuid(pane.get("tabId")) == expected_tab_id for pane in panes)
+)
+
+print(f"final_tab_count={current_tab_count}")
+print(f"final_pane_count={len(panes)}")
+print(f"final_active_pane_count={len(active_panes)}")
+print(f"final_tab_count_equivalent={str(tab_count_equivalent).lower()}")
+print(f"final_active_tab_equivalent={str(active_tab_equivalent).lower()}")
+print(f"final_membership_equivalent={str(membership_equivalent).lower()}")
+PY
+
+  FINAL_TAB_COUNT="$(sed -n 's/^final_tab_count=//p' "$oracle_file")"
+  FINAL_PANE_COUNT="$(sed -n 's/^final_pane_count=//p' "$oracle_file")"
+  FINAL_ACTIVE_PANE_COUNT="$(sed -n 's/^final_active_pane_count=//p' "$oracle_file")"
+  FINAL_TAB_COUNT_EQUIVALENT="$(sed -n 's/^final_tab_count_equivalent=//p' "$oracle_file")"
+  FINAL_ACTIVE_TAB_EQUIVALENT="$(sed -n 's/^final_active_tab_equivalent=//p' "$oracle_file")"
+  FINAL_MEMBERSHIP_EQUIVALENT="$(sed -n 's/^final_membership_equivalent=//p' "$oracle_file")"
+
+  if [ "$FINAL_TAB_COUNT_EQUIVALENT" != "true" ] \
+    || [ "$FINAL_ACTIVE_TAB_EQUIVALENT" != "true" ] \
+    || [ "$FINAL_MEMBERSHIP_EQUIVALENT" != "true" ]
+  then
+    echo "authenticated IPC final-state oracle did not match the fixture" >&2
+    return 1
+  fi
+}
+
 summary_event_names() {
   cat <<'EOF'
 performance.git.tick
@@ -1360,7 +1876,13 @@ performance.git.snapshot_dedup
 performance.git.event_posted
 performance.coordinator.write
 performance.topology.repo_and_worktree
+performance.tabbar.capture
+performance.tabbar.current
+performance.tabbar.publication
 performance.tabbar.refresh
+performance.tabbar.terminal
+performance.tabbar.visible
+performance.tabbar.worker
 performance.sidebar.projection
 performance.sidebar.row_index
 performance.commandbar.items
@@ -1402,12 +1924,33 @@ summarize_traces() {
     echo "artifact=$ARTIFACT"
     echo "trace_name=$TRACE_NAME"
     echo "source_head=$SOURCE_HEAD"
+    echo "source_digest=$SOURCE_DIGEST"
+    echo "executable_digest=$EXECUTABLE_DIGEST"
     echo "trace_tags=$WORKLOAD_TRACE_TAGS"
     echo "activation_mode=$ACTIVATION_MODE"
     echo "launch_method=$APP_LAUNCH_METHOD"
+    echo "ipc_auth_mode=$IPC_AUTH_MODE"
     echo "executable_identity=$APP_BINARY"
     echo "worktree_identity=$WORKTREE_IDENTITY"
     echo "workload_fingerprint=$WORKLOAD_FINGERPRINT"
+    echo "issued_interaction_count=$ISSUED_INTERACTION_COUNT"
+    echo "regression_boundary_percent=$REGRESSION_BOUNDARY_PERCENT"
+    echo "performance.tabbar.capture_count=$TAB_BAR_CAPTURE_COUNT"
+    echo "performance.tabbar.terminal_count=$TAB_BAR_TERMINAL_COUNT"
+    echo "performance.tabbar.lifecycle_exact=$TAB_BAR_LIFECYCLE_EXACT"
+    echo "performance.tabbar.duplicate_capture_sequence_count=$TAB_BAR_DUPLICATE_CAPTURE_SEQUENCE_COUNT"
+    echo "performance.tabbar.duplicate_terminal_sequence_count=$TAB_BAR_DUPLICATE_TERMINAL_SEQUENCE_COUNT"
+    echo "performance.tabbar.missing_terminal_sequence_count=$TAB_BAR_MISSING_TERMINAL_SEQUENCE_COUNT"
+    echo "performance.tabbar.unexpected_terminal_sequence_count=$TAB_BAR_UNEXPECTED_TERMINAL_SEQUENCE_COUNT"
+    echo "performance.tabbar.invalid_terminal_outcome_count=$TAB_BAR_INVALID_TERMINAL_OUTCOME_COUNT"
+    echo "agentstudio.performance.trace_queue.dropped_record.count=${TRACE_QUEUE_DROPPED_RECORD_COUNT:-}"
+    echo "agentstudio.performance.trace_queue.high_watermark=${TRACE_QUEUE_HIGH_WATERMARK:-}"
+    echo "final_tab_count=$FINAL_TAB_COUNT"
+    echo "final_pane_count=$FINAL_PANE_COUNT"
+    echo "final_active_pane_count=$FINAL_ACTIVE_PANE_COUNT"
+    echo "final_tab_count_equivalent=$FINAL_TAB_COUNT_EQUIVALENT"
+    echo "final_active_tab_equivalent=$FINAL_ACTIVE_TAB_EQUIVALENT"
+    echo "final_membership_equivalent=$FINAL_MEMBERSHIP_EQUIVALENT"
     echo "required_performance_metric_minimum_count=$REQUIRED_PERFORMANCE_METRIC_MINIMUM_COUNT"
     echo "required_commandbar_query_character_minimum=$REQUIRED_COMMANDBAR_QUERY_CHARACTER_MINIMUM"
     echo "workspace_file=$WORKSPACE_FILE"
@@ -1468,6 +2011,7 @@ prepare_fixture
   echo "artifact=$ARTIFACT"
   echo "workspace_file=$WORKSPACE_FILE"
   echo "app_data_dir=$APP_DATA_DIR"
+  echo "runtime_zmx_dir=$WORKLOAD_ZMX_DIR"
   echo "debug_observability_state_file=$DEBUG_OBSERVABILITY_STATE_FILE"
   echo "fixture_root=$FIXTURE_ROOT"
   echo "repo_count=$REPO_COUNT"
@@ -1476,6 +2020,17 @@ prepare_fixture
 } >"$ARTIFACT/observability-state.env"
 
 if [ "$prepare_only" = true ]; then
+  if test_responses_enabled; then
+    if ! wait_for_tab_bar_lifecycle_continuity; then
+      echo "Tab Bar capture/terminal continuity did not settle within $METRICS_EXPORT_TIMEOUT_SECONDS seconds" >&2
+      summarize_traces
+      exit 1
+    fi
+    if ! require_trace_queue_completeness; then
+      summarize_traces
+      exit 1
+    fi
+  fi
   summarize_traces
   echo "prepared fixture only: $ARTIFACT"
   exit 0
@@ -1494,6 +2049,14 @@ fi
 if ! drive_command_bar_smoke; then
   echo "command-bar smoke did not run; see $ARTIFACT/commandbar-smoke.log" >&2
 fi
+if [ "$DRIVE_COMMAND_BAR" = "1" ]; then
+  if ! wait_for_startup_diagnostic_completion 20; then
+    summarize_traces
+    exit 1
+  fi
+else
+  echo "perf:report candidate selection requires AGENTSTUDIO_PERF_DRIVE_COMMAND_BAR=1; startup diagnostic completion wait skipped"
+fi
 
 start_writers
 if [ "$SAMPLE_DURING_WORKLOAD" = "1" ]; then
@@ -1506,6 +2069,10 @@ fi
 for writer_pid in "${WRITER_PIDS[@]}"; do
   wait "$writer_pid" >/dev/null 2>&1 || true
 done
+if ! ISSUED_INTERACTION_COUNT="$(sum_issued_interaction_count)"; then
+  summarize_traces
+  exit 1
+fi
 # VictoriaMetrics timestamps have one-second precision at this proof boundary.
 # Use the enclosing second so a final zero-debt snapshot emitted immediately
 # before the writer processes exit remains eligible for the freshness check.
@@ -1535,9 +2102,22 @@ if ! wait_for_required_performance_metrics_export; then
   summarize_traces
   exit 1
 fi
+if ! wait_for_tab_bar_lifecycle_continuity; then
+  echo "Tab Bar capture/terminal continuity did not settle within $METRICS_EXPORT_TIMEOUT_SECONDS seconds" >&2
+  summarize_traces
+  exit 1
+fi
+if ! require_trace_queue_completeness; then
+  summarize_traces
+  exit 1
+fi
 require_status_latency_metrics
 
 if ! capture_final_process_resources; then
+  summarize_traces
+  exit 1
+fi
+if ! capture_authenticated_final_state_oracle; then
   summarize_traces
   exit 1
 fi

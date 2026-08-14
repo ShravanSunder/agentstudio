@@ -160,16 +160,6 @@ private final class FakePaneRuntimeNonTerminal: PaneRuntime {
 
 @MainActor
 private final class NonTerminalSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        self.cwdStream = AsyncStream { continuation in
-            continuation.finish()
-        }
-    }
-
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(

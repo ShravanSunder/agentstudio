@@ -49,6 +49,8 @@ struct BridgeProductSessionDependencyInput {
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     let initialProductPresentation: BridgePaneProductPresentationSnapshot
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let reviewSourceProvider: any BridgeReviewSourceProvider
+    let reviewComparisonTargetProjection: BridgeReviewComparisonTargetProjection
 }
 
 struct BridgeSchemeHandlerRegistrationInput {
@@ -84,7 +86,12 @@ package struct BridgePaneProductSessionDependencies {
 
 @MainActor
 final class BridgePaneProductCommittedCallTarget {
+    private let productAdmissionGate: BridgeProductAdmissionGate
     weak var controller: BridgePaneController?
+
+    init(productAdmissionGate: BridgeProductAdmissionGate) {
+        self.productAdmissionGate = productAdmissionGate
+    }
 
     func applyActiveViewerModeUpdate(
         _ call: BridgeProductCallRequest,
@@ -105,7 +112,8 @@ final class BridgePaneProductCommittedCallTarget {
             mode = .review
             sourceProtocol = .review
             update = request
-        case .reviewIntakeReady, .reviewMarkFileViewed, .reviewPublicationApplied:
+        case .reviewComparisonUpdate, .reviewIntakeReady, .reviewMarkFileViewed,
+            .reviewPublicationApplied, .reviewComparisonTargetsQuery:
             return
         }
         let activeSource = update.activeSource.map {
@@ -135,16 +143,44 @@ final class BridgePaneProductCommittedCallTarget {
             productAdmission: productAdmission
         )
     }
+
+    func applyReviewComparisonUpdate(
+        _ request: BridgeProductReviewComparisonUpdateRequest,
+        productAdmission: BridgeProductAdmissionContext
+    ) async {
+        guard let controller,
+            await controller.handleCommittedProductReviewComparisonUpdate(
+                request,
+                productAdmission: productAdmission
+            )
+        else {
+            productAdmissionGate.close()
+            return
+        }
+    }
 }
 
 private enum CommittedReviewIntakeSchedulingDecision {
     case initialPackageLoad
     case productResync
-    case noScheduling
+    case replayCommittedPublication
 }
 
 @MainActor
 extension BridgePaneController {
+    static func registerReadyMessageHandler(
+        in userContentController: WKUserContentController,
+        contentWorld: WKContentWorld
+    ) -> BridgeReadyMessageHandler {
+        let readyMessageHandler = BridgeReadyMessageHandler()
+        userContentController.add(
+            readyMessageHandler,
+            contentWorld: contentWorld,
+            name: "rpc"
+        )
+        return readyMessageHandler
+    }
+
     func handleCommittedProductReviewIntakeReady(
         _ request: BridgeProductReviewIntakeReadyRequest,
         productAdmission: BridgeProductAdmissionContext
@@ -172,7 +208,7 @@ extension BridgePaneController {
                 if request.reason == "sequence_gap" {
                     return CommittedReviewIntakeSchedulingDecision.productResync
                 }
-                return CommittedReviewIntakeSchedulingDecision.noScheduling
+                return CommittedReviewIntakeSchedulingDecision.replayCommittedPublication
             })
         else {
             return
@@ -183,8 +219,13 @@ extension BridgePaneController {
             scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
         case .productResync:
             scheduleReviewPackageReloadForProductResync(reason: .productResync)
-        case .noScheduling:
-            break
+        case .replayCommittedPublication:
+            let productSchemeProvider = productSchemeProvider
+            Task { [productSchemeProvider] in
+                await productSchemeProvider?.replayCommittedReviewPublicationIfPresent(
+                    productAdmission: productAdmission
+                )
+            }
         }
     }
 }
@@ -455,7 +496,7 @@ extension BridgePaneController {
         _ input: BridgeProductSessionDependencyInput
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
-        let committedCallTarget = BridgePaneProductCommittedCallTarget()
+        let committedCallTarget = makeCommittedCallTarget(productAdmissionGate)
         let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
             if let authority = makeProductFileSourceAuthority(
                 paneId: UUID(uuidString: input.paneSessionId),
@@ -528,6 +569,8 @@ extension BridgePaneController {
                     productAdmission: productAdmission
                 )
             },
+            applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
+            queryReviewComparisonTargets: makeReviewComparisonTargetsQuery(input),
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
             lifecycleTraceRecorder: input.telemetryRecorder.map(
@@ -552,6 +595,22 @@ extension BridgePaneController {
             committedCallTarget: committedCallTarget,
             productProvider: provider
         )
+    }
+
+    private static func makeReviewComparisonTargetsQuery(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture? {
+        BridgePaneProductComparisonTargetQuerySource.makeQuery(
+            reviewSourceProvider: input.reviewSourceProvider,
+            targetProjection: input.reviewComparisonTargetProjection,
+            refreshWorkAdmissionSource: input.refreshWorkAdmissionSource
+        )
+    }
+
+    private static func makeCommittedCallTarget(
+        _ productAdmissionGate: BridgeProductAdmissionGate
+    ) -> BridgePaneProductCommittedCallTarget {
+        BridgePaneProductCommittedCallTarget(productAdmissionGate: productAdmissionGate)
     }
 
     private static func makeProductFileSourceAuthority(

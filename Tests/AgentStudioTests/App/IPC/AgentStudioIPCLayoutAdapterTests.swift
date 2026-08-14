@@ -228,20 +228,20 @@ struct AgentStudioIPCLayoutAdapterTests {
                 workspaceActionExecutor: harness.executor
             )
 
-            let panesBeforeSplit = Set(harness.store.paneAtom.panes.keys)
+            let panesBeforeSplit = harness.store.paneAtom.graphAtom.paneIDs
             _ = try adapter.splitPane(
                 IPCPaneSplitParams(handle: "pane:1", direction: .right, correlationId: nil)
             )
-            let splitPaneIds = Set(harness.store.paneAtom.panes.keys).subtracting(panesBeforeSplit)
+            let splitPaneIds = harness.store.paneAtom.graphAtom.paneIDs.subtracting(panesBeforeSplit)
             let splitPaneId = try #require(splitPaneIds.first)
 
             #expect(harness.viewRegistry.view(for: splitPaneId) != nil)
 
-            let panesBeforeDrawerAdd = Set(harness.store.paneAtom.panes.keys)
+            let panesBeforeDrawerAdd = harness.store.paneAtom.graphAtom.paneIDs
             _ = try adapter.addDrawerPane(
                 IPCDrawerAddPaneParams(parentPaneHandle: "pane:1", correlationId: nil)
             )
-            let drawerPaneIds = Set(harness.store.paneAtom.panes.keys).subtracting(panesBeforeDrawerAdd)
+            let drawerPaneIds = harness.store.paneAtom.graphAtom.paneIDs.subtracting(panesBeforeDrawerAdd)
             let drawerPaneId = try #require(drawerPaneIds.first)
 
             #expect(harness.store.paneAtom.pane(drawerPaneId)?.isDrawerChild == true)

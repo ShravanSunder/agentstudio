@@ -22,6 +22,7 @@ struct SingleTabContent: View {
     let workspaceWindowId: UUID?
     let paneSurfaceToolbarPresentation: (UUID) -> PaneSurfaceToolbarPresentation
     let zoomPaneSurfaceToolbarPresentation: (UUID, ZoomViewerPresentation) -> PaneSurfaceToolbarPresentation
+    let interactionProbe: AgentStudioInteractionPerformanceProbe?
 
     init(
         tabId: UUID,
@@ -42,7 +43,8 @@ struct SingleTabContent: View {
         workspaceWindowId: UUID? = nil,
         paneSurfaceToolbarPresentation: @escaping (UUID) -> PaneSurfaceToolbarPresentation,
         zoomPaneSurfaceToolbarPresentation:
-            @escaping (UUID, ZoomViewerPresentation) -> PaneSurfaceToolbarPresentation
+            @escaping (UUID, ZoomViewerPresentation) -> PaneSurfaceToolbarPresentation,
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil
     ) {
         self.tabId = tabId
         self.octiconLoader = octiconLoader
@@ -62,6 +64,7 @@ struct SingleTabContent: View {
         self.workspaceWindowId = workspaceWindowId
         self.paneSurfaceToolbarPresentation = paneSurfaceToolbarPresentation
         self.zoomPaneSurfaceToolbarPresentation = zoomPaneSurfaceToolbarPresentation
+        self.interactionProbe = interactionProbe
     }
 
     private static func traceMissingTab(tabId: UUID) -> Int {
@@ -116,6 +119,7 @@ struct SingleTabContent: View {
                 }
             }
         }
+        .environment(\.agentStudioInteractionPerformanceProbe, interactionProbe)
     }
 
     @ViewBuilder

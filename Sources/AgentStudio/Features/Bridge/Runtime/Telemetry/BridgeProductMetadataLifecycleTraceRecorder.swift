@@ -4,6 +4,111 @@ import Foundation
 protocol BridgeProductMetadataLifecycleTraceRecording: Sendable {
     func record(_ event: BridgeProductMetadataLifecycleTraceEvent) async
     func record(_ event: BridgeProductReviewMetadataPublicationTraceEvent) async
+    func record(_ event: BridgePanePresentationTraceEvent) async
+}
+
+extension BridgeProductMetadataLifecycleTraceRecording {
+    func record(_: BridgePanePresentationTraceEvent) async {}
+}
+
+struct BridgePanePresentationTraceEvent: Equatable, Sendable {
+    enum Stage: String, Sendable {
+        case enqueued = "pane_presentation_enqueued"
+        case notEnqueued = "pane_presentation_not_enqueued"
+    }
+
+    enum Result: String, Sendable {
+        case failure
+        case skipped
+        case success
+    }
+
+    enum ResultReason: String, Sendable {
+        case deduplicated
+        case noActiveStream = "no_active_stream"
+        case noReason = "none"
+        case producerQueueReset = "producer_queue_reset"
+        case producerRejected = "producer_rejected"
+        case unexpected
+    }
+
+    enum ComparisonAttempt: String, Sendable {
+        case absent
+        case pending
+        case selectionRequired = "selection_required"
+        case settled
+        case unavailable
+    }
+
+    let stage: Stage
+    let result: Result
+    let resultReason: ResultReason
+    let presentationRevision: Int
+    let comparisonAttempt: ComparisonAttempt
+    let reviewGeneration: Int?
+    let refreshingReview: Bool
+    let hasActiveStream: Bool
+    let traceContext: BridgeTraceContext?
+
+    init(
+        stage: Stage,
+        result: Result,
+        resultReason: ResultReason,
+        presentationRevision: Int,
+        comparisonAttempt: ComparisonAttempt,
+        reviewGeneration: Int?,
+        refreshingReview: Bool,
+        hasActiveStream: Bool,
+        traceContext: BridgeTraceContext? = nil
+    ) {
+        self.stage = stage
+        self.result = result
+        self.resultReason = resultReason
+        self.presentationRevision = presentationRevision
+        self.comparisonAttempt = comparisonAttempt
+        self.reviewGeneration = reviewGeneration
+        self.refreshingReview = refreshingReview
+        self.hasActiveStream = hasActiveStream
+        self.traceContext = traceContext
+    }
+
+    init(
+        snapshot: BridgePaneProductPresentationSnapshot,
+        stage: Stage,
+        result: Result,
+        resultReason: ResultReason,
+        hasActiveStream: Bool,
+        traceContext: BridgeTraceContext?
+    ) {
+        let comparisonAttempt: ComparisonAttempt
+        let reviewGeneration: Int?
+        switch snapshot.reviewComparison?.attempt {
+        case .none:
+            comparisonAttempt = .absent
+            reviewGeneration = nil
+        case .pending(let generation):
+            comparisonAttempt = .pending
+            reviewGeneration = generation
+        case .selectionRequired:
+            comparisonAttempt = .selectionRequired
+            reviewGeneration = nil
+        case .settled(let generation):
+            comparisonAttempt = .settled
+            reviewGeneration = generation
+        case .unavailable:
+            comparisonAttempt = .unavailable
+            reviewGeneration = nil
+        }
+        self.stage = stage
+        self.result = result
+        self.resultReason = resultReason
+        self.presentationRevision = snapshot.presentationRevision
+        self.comparisonAttempt = comparisonAttempt
+        self.reviewGeneration = reviewGeneration
+        self.refreshingReview = snapshot.refreshingLanes.contains(.review)
+        self.hasActiveStream = hasActiveStream
+        self.traceContext = traceContext
+    }
 }
 
 enum BridgeProductReviewMetadataPublicationFailure: String, Equatable, Sendable {
@@ -260,6 +365,41 @@ struct BridgeProductMetadataLifecycleTraceRecorder: BridgeProductMetadataLifecyc
                 ],
                 numericAttributes: numericAttributes,
                 booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
+    func record(_ event: BridgePanePresentationTraceEvent) async {
+        var numericAttributes = [
+            "agentstudio.bridge.presentation.revision": Double(event.presentationRevision)
+        ]
+        if let reviewGeneration = event.reviewGeneration {
+            numericAttributes["agentstudio.bridge.review.generation"] = Double(reviewGeneration)
+        }
+        await recorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.pane_presentation",
+                durationMilliseconds: nil,
+                traceContext: event.traceContext,
+                stringAttributes: [
+                    "agentstudio.bridge.comparison.attempt.status": event.comparisonAttempt.rawValue,
+                    "agentstudio.bridge.phase": event.stage.rawValue,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.protocol": "pane-presentation",
+                    "agentstudio.bridge.result": event.result.rawValue,
+                    "agentstudio.bridge.result_reason": event.resultReason.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewMetadata.rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                    "agentstudio.bridge.viewer": "review",
+                ],
+                numericAttributes: numericAttributes,
+                booleanAttributes: [
+                    "agentstudio.bridge.presentation.has_active_stream": event.hasActiveStream,
+                    "agentstudio.bridge.refreshing.review": event.refreshingReview,
+                ]
             ),
             receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
         )

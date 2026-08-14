@@ -1,6 +1,12 @@
 import Foundation
 
 protocol BridgeGitReviewDataClient: Sendable {
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity?
+    func captureReviewComparisonTargets(
+        _ request: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison
     func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult
@@ -16,6 +22,14 @@ protocol BridgeGitReviewDataClient: Sendable {
 }
 
 extension BridgeGitReviewDataClient {
+    func captureReviewComparisonTargets(
+        _: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        throw BridgeProviderFailure.providerFailed(
+            message: "Review comparison target capture is unavailable"
+        )
+    }
+
     func streamContent(
         _ request: BridgeContentStreamRequest,
         chunkByteCount: Int,
@@ -48,6 +62,22 @@ actor BridgeGitReviewSourceProvider: BridgeReviewSourceProvider {
 
     init(client: any BridgeGitReviewDataClient) {
         self.client = client
+    }
+
+    func resolveReviewDefaultTarget() async throws -> BridgeReviewComparisonDefaultTargetIdentity? {
+        try await client.resolveReviewDefaultTarget()
+    }
+
+    func captureReviewComparisonTargets(
+        _ request: BridgeReviewComparisonTargetsCaptureRequest
+    ) async throws -> BridgeReviewComparisonTargetsCapture {
+        try await client.captureReviewComparisonTargets(request)
+    }
+
+    func captureContributionComparison(_ request: BridgeContributionComparisonRequest) async throws
+        -> BridgeContributionComparisonCapture
+    {
+        try await client.captureContributionComparison(request)
     }
 
     func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {

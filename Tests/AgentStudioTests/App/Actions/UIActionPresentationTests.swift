@@ -146,9 +146,12 @@ struct UIActionPresentationTests {
 
     @Test
     func worktreeTabActionsUseTerminalAndBridgeLabels() {
-        #expect(LocalActionSpec.openInCurrentTabMenu.actionSpec.label == "Open in Current Tab")
-        #expect(LocalActionSpec.openInNewTabMenu.actionSpec.label == "Open in New Tab")
+        #expect(LocalActionSpec.createNewInTab.actionSpec.label == "Create New in Tab")
+        #expect(LocalActionSpec.createNewInPane.actionSpec.label == "Create New in Pane")
         #expect(LocalActionSpec.openInEditorMenu.actionSpec.label == "Open in Editor")
+        #expect(LocalActionSpec.openPullRequest.actionSpec.label == "Open PR")
+        #expect(LocalActionSpec.openPullRequest.actionSpec.helpText == "Open PR in Browser")
+        #expect(LocalActionSpec.openPullRequest.actionSpec.icon == .octicon(.gitPullRequest))
         #expect(AppCommand.openWorktreeInPane.definition.actionSpec.label == "Open Worktree in Pane")
         #expect(AppCommand.openNewTerminalInTab.definition.actionSpec.label == "Open Terminal in New Tab")
         #expect(AppCommand.showViewer.definition.actionSpec.label == "Worktree Viewer")

@@ -5,6 +5,11 @@ Updated: 2026-07-26
 Status: reviewed; planning-ready
 Source version: `fix-tests` at `5a7bd64690a3566dcb57fdf4d5a6dd34f9ed056c`
 
+> Repo Explorer note (2026-08-09): references to RepoExplorer visibility state
+> and setters are historical context from before the favorites-first cutover.
+> They are non-executable; current behavior is defined by the
+> [favorites-first Specification](../2026-08-08-repo-sidebar-favorites-first/2026-08-08-repo-sidebar-favorites-first-specification.md).
+
 ## Decision
 
 Preserve AgentStudio's current atom semantics while changing only the ownership
@@ -704,7 +709,6 @@ RepoExplorer continues to mutate the actual reference:
 ```swift
 repoExplorerPrefs.setGroupingMode(.tab)
 repoExplorerPrefs.toggleSortOrder()
-repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
 ```
 
 Observation reads still occur against the canonical `@Observable` object.

@@ -1,8 +1,10 @@
+import AppKit
 import Foundation
 import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInboxNotification
 @testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
@@ -233,6 +235,97 @@ struct AppBootSequenceTests {
         #expect(helperFunctionBody.contains("scheduleSidebarVisibleWorktreesUpdate()"))
         #expect(!helperFunctionBody.contains("syncFilesystemRootsAndActivity()"))
         #expect(!reopenFunctionBody.contains("workspaceActionExecutor: executor"))
+    }
+
+    @Test("each main-window factory call owns a distinct live tab bar adapter")
+    func mainWindowFactoryCreatesDistinctLiveTabBarAdapters() async {
+        let atoms = makeTestAtomRegistry()
+        let store = WorkspaceStore(
+            identityAtom: atoms.core.workspaceIdentity,
+            windowMemoryAtom: atoms.core.workspaceWindowMemory,
+            repositoryTopologyAtom: atoms.core.workspaceRepositoryTopology,
+            paneAtom: atoms.core.workspacePane,
+            tabLayoutAtom: atoms.core.workspaceTabLayout,
+            mutationCoordinator: atoms.core.workspaceMutationCoordinator
+        )
+        let viewRegistry = ViewRegistry()
+        let appLifecycleStore = AppLifecycleAtom()
+        let coordinator = WorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: viewRegistry,
+            runtime: SessionRuntime(atom: atoms.core.sessionRuntime, store: store),
+            surfaceManager: HarnessSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: atoms.core.windowLifecycle,
+            appLifecycleStore: appLifecycleStore,
+            bridgePaneAttendance: atoms.bridgePaneAttendance
+        )
+        let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: atoms.core.windowLifecycle
+        )
+        let performanceTraceRecorder = AgentStudioPerformanceTraceRecorder(
+            traceRuntime: AgentStudioTraceRuntime(
+                configuration: AgentStudioTraceConfiguration.from(environment: [
+                    "AGENTSTUDIO_TRACE_TAGS": "off",
+                    "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                ])
+            )
+        )
+        let delegate = AppDelegate()
+
+        await withAsyncTestCoreAtoms(using: atoms.core) { _ in
+            let dependencies = AppDelegateMainWindowCreationDependencies(
+                store: store,
+                repoCache: atoms.core.repoCache,
+                octiconLoader: makeTestOcticonLoader(),
+                executor: WorkspaceActionExecutor(coordinator: coordinator, store: store),
+                workspaceSurfaceCoordinator: coordinator,
+                applicationLifecycleMonitor: applicationLifecycleMonitor,
+                appLifecycleStore: appLifecycleStore,
+                viewRegistry: viewRegistry,
+                bridgePaneAttendance: atoms.bridgePaneAttendance,
+                editorChooser: atoms.editorChooser,
+                inboxNotification: atoms.inboxNotification,
+                inboxNotificationPrefs: atoms.inboxNotificationPrefs,
+                inboxSidebarState: atoms.inboxSidebarState,
+                paneInboxPresentationState: atoms.paneInboxPresentationState,
+                repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
+                paneInboxNotificationPresenter: PaneInboxNotificationPresenter(),
+                performanceTraceRecorder: performanceTraceRecorder,
+                closeTransitionCoordinator: PaneCloseTransitionCoordinator()
+            )
+            let pane = store.createPane(title: "Materialized projection")
+            store.appendTab(Tab(paneId: pane.id, name: "Materialized projection"))
+            let firstController = delegate.makeMainWindowController(dependencies: dependencies)
+            let reopenedController = delegate.makeMainWindowController(dependencies: dependencies)
+            defer {
+                (firstController.window?.contentViewController as? MainSplitViewController)?.shutdown()
+                (reopenedController.window?.contentViewController as? MainSplitViewController)?.shutdown()
+                firstController.close()
+                reopenedController.close()
+            }
+            guard
+                let firstAdapter = tabBarAdapterOwnedByWindowController(firstController),
+                let reopenedAdapter = tabBarAdapterOwnedByWindowController(reopenedController),
+                let firstProjection = firstAdapter.materializedProjections.first,
+                let reopenedProjection = reopenedAdapter.materializedProjections.first
+            else {
+                Issue.record("Window controller did not materialize its tab-bar projection")
+                return
+            }
+
+            firstController.windowWillClose(
+                Notification(name: NSWindow.willCloseNotification, object: firstController.window)
+            )
+
+            #expect(ObjectIdentifier(firstAdapter) != ObjectIdentifier(reopenedAdapter))
+            #expect(ObjectIdentifier(firstProjection) != ObjectIdentifier(reopenedProjection))
+            #expect(firstProjection.freshness == .stopped)
+            #expect(reopenedProjection.freshness != .stopped)
+        }
+
+        await coordinator.shutdown()
     }
 
     @Test("canonical boot exhaustively handles strict SQLite load results")
@@ -625,4 +718,25 @@ private func authoritativeScan(entries: [RepoScanner.ResolvedGitEntry]) -> RepoS
             serviceMetrics: .zero
         )
     )
+}
+
+@MainActor
+private func tabBarAdapterOwnedByWindowController(
+    _ windowController: MainWindowController
+) -> TabBarAdapter? {
+    guard
+        let splitViewController = windowController.window?.contentViewController
+            as? MainSplitViewController
+    else {
+        return nil
+    }
+    splitViewController.loadViewIfNeeded()
+    guard
+        let paneTabViewController = splitViewController.splitViewItems
+            .compactMap({ $0.viewController as? PaneTabViewController })
+            .first
+    else {
+        return nil
+    }
+    return paneTabViewController.makeTabBarHostingView().tabBarAdapter
 }

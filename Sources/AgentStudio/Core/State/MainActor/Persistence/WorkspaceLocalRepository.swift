@@ -31,20 +31,18 @@ package struct WorkspaceLocalRepository: Sendable {
     struct WorkspaceMemoryRecord: Equatable, Sendable {
         var windowState: WindowStateRecord?
         var sidebarState: SidebarStateRecord?
-        var expandedGroups: Set<SidebarGroupKey>
+        var collapsedGroups: Set<SidebarGroupKey>
     }
 
     struct CacheStateRecord: Equatable, Sendable {
         var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
-        var pullRequestCountByWorktreeId: [UUID: Int]
         var sourceRevision: UInt64
         var lastRebuiltAt: Date?
 
         static let empty = Self(
             repoEnrichmentByRepoId: [:],
             worktreeEnrichmentByWorktreeId: [:],
-            pullRequestCountByWorktreeId: [:],
             sourceRevision: 0,
             lastRebuiltAt: nil
         )
@@ -68,11 +66,11 @@ package struct WorkspaceLocalRepository: Sendable {
         private init(
             groupingMode: String,
             sortOrder: String,
-            visibilityMode: String
+            visibilityMode _: String
         ) {
             self.groupingMode = groupingMode
             self.sortOrder = sortOrder
-            self.visibilityMode = visibilityMode
+            self.visibilityMode = SQLiteLocalUXStorage.repoExplorerVisibilityAll
         }
 
         package static let `default` = Self(
@@ -87,13 +85,12 @@ package struct WorkspaceLocalRepository: Sendable {
             visibilityMode: String
         ) -> Self? {
             guard SQLiteLocalUXStorage.isValidRepoExplorerGrouping(groupingMode),
-                SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder),
-                SQLiteLocalUXStorage.isValidRepoExplorerVisibility(visibilityMode)
+                SQLiteLocalUXStorage.isValidRepoExplorerSort(sortOrder)
             else { return nil }
             return Self(
                 groupingMode: groupingMode,
                 sortOrder: sortOrder,
-                visibilityMode: visibilityMode
+                visibilityMode: SQLiteLocalUXStorage.repoExplorerVisibilityAll
             )
         }
     }
@@ -299,26 +296,26 @@ package struct WorkspaceLocalRepository: Sendable {
         }
     }
 
-    func replaceExpandedGroups(_ expandedGroups: Set<SidebarGroupKey>, updatedAt: Date) throws {
+    func replaceCollapsedGroups(_ collapsedGroups: Set<SidebarGroupKey>, updatedAt: Date) throws {
         try databaseWriter.write { database in
-            try WorkspaceLocalRepositoryStorage.replaceExpandedGroupRows(
+            try WorkspaceLocalRepositoryStorage.replaceCollapsedGroupRows(
                 database,
                 workspaceId: workspaceId,
-                expandedGroups: expandedGroups,
+                collapsedGroups: collapsedGroups,
                 updatedAt: updatedAt
             )
         }
     }
 
-    func fetchExpandedGroups() throws -> Set<SidebarGroupKey> {
+    func fetchCollapsedGroups() throws -> Set<SidebarGroupKey> {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.fetchExpandedGroupRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.fetchCollapsedGroupRows(database, workspaceId: workspaceId)
         }
     }
 
-    func hasExpandedGroupsState() throws -> Bool {
+    func hasCollapsedGroupsState() throws -> Bool {
         try databaseWriter.read { database in
-            try WorkspaceLocalRepositoryStorage.hasExpandedGroupStateRows(database, workspaceId: workspaceId)
+            try WorkspaceLocalRepositoryStorage.hasCollapsedGroupStateRows(database, workspaceId: workspaceId)
         }
     }
 

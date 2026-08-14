@@ -5,6 +5,7 @@ import {
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerMetadataInterestUpdateCommand,
 	encodeBridgeWorkerReviewIntakeReadyCommand,
+	encodeBridgeWorkerReviewComparisonUpdateCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import {
@@ -131,6 +132,46 @@ describe('Bridge comm worker runtime protocol', () => {
 				requestId: 'request-mark-viewed',
 				status: 'ready',
 			}),
+		);
+	});
+
+	test('acknowledges a Review comparison update only after product control completes', async () => {
+		const sentCommands: BridgeProductControlCommand[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const productControlCompletion = createDeferredVoid();
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			sendProductControl: async (command): Promise<void> => {
+				sentCommands.push(command);
+				await productControlCompletion.promise;
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerReviewComparisonUpdateCommand({
+				epoch: 3,
+				requestId: 'request-comparison-update',
+				target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
+			}),
+		);
+		await flushBridgeWorkerRuntimeContinuations();
+
+		expect(sentCommands).toEqual([
+			{
+				method: 'review.comparison.update',
+				params: {
+					target: { basis: 'commonCommit', kind: 'branch', name: 'feature/review' },
+				},
+			},
+		]);
+		expect(postedMessages.map(({ message }) => message)).not.toContainEqual(
+			expect.objectContaining({ requestId: 'request-comparison-update', status: 'ready' }),
+		);
+		productControlCompletion.resolve();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(postedMessages.map(({ message }) => message)).toContainEqual(
+			expect.objectContaining({ requestId: 'request-comparison-update', status: 'ready' }),
 		);
 	});
 
@@ -604,7 +645,7 @@ describe('Bridge comm worker runtime protocol', () => {
 		});
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 104,
+			publicationSequence: 103,
 			workerDerivationEpoch: 1,
 			patches: [
 				{
@@ -681,11 +722,9 @@ describe('Bridge comm worker runtime protocol', () => {
 			6,
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
-			'reviewRenderPatch',
 			'reviewDisplayPatch',
 		]);
 		expect(scheduledDrains).toHaveLength(1);
@@ -699,17 +738,16 @@ describe('Bridge comm worker runtime protocol', () => {
 
 		expect(firstDrainResult.completedIds).toEqual(['review-source-reset:1']);
 		expect(secondDrainResult.completedIds).toEqual([
-			'review-content-ready:item-1:review-ledger:item-1:205',
+			'review-content-ready:item-1:review-ledger:item-1:204',
 		]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
-			'reviewRenderPatch',
 			'reviewDisplayPatch',
 			'reviewPierreRenderJob',
 			'reviewRenderPatch',
 		]);
-		expect(postedMessages[4]?.message).toMatchObject({
+		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'reviewPierreRenderJob',
 			job: {
 				itemId: 'item-1',
@@ -717,9 +755,9 @@ describe('Bridge comm worker runtime protocol', () => {
 				budgetClass: 'visible',
 			},
 		});
-		expect(postedMessages[5]?.message).toMatchObject({
+		expect(postedMessages[4]?.message).toMatchObject({
 			kind: 'reviewRenderPatch',
-			publicationSequence: 205,
+			publicationSequence: 204,
 			workerDerivationEpoch: 1,
 			patches: [
 				{

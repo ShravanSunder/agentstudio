@@ -7,9 +7,11 @@ STACK_HELPER="${AI_TOOLS_OBSERVABILITY_STACK_HELPER:-$DEFAULT_STACK_HELPER}"
 COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
 METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 DEFAULT_PROOF_ROOT="/tmp/agentstudio-sidebar-performance"
-WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,app.startup,terminal.startup}"
+WORKLOAD_TRACE_TAGS="${AGENTSTUDIO_TRACE_TAGS:-performance,atoms,app.startup,terminal.startup}"
+KEY_MUTATION_TRACE_TAGS="performance,app.startup"
 WORKLOAD_CYCLES="${AGENTSTUDIO_SIDEBAR_IPC_CYCLES:-100}"
 REQUIRED_SAMPLE_COUNT=100
+REQUIRED_METRIC_READBACK_ATTEMPTS=45
 WORKLOAD_FIXTURE_VERSION=sidebar-workload-v2
 
 usage() {
@@ -68,6 +70,133 @@ fi
 
 canonical_path() {
   /usr/bin/python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+}
+
+decode_identity_value() {
+  local identity="$1"
+  local key="$2"
+  local raw_value
+  raw_value="$(printf '%s\n' "$identity" | sed -n "s/^$key=//p" | tail -1)"
+  /usr/bin/python3 - "$raw_value" <<'PY'
+import shlex
+import sys
+
+parts = shlex.split(sys.argv[1]) if sys.argv[1] else []
+print(parts[0] if parts else "")
+PY
+}
+
+stop_pid() {
+  local pid="$1"
+  [ -n "$pid" ] || return 0
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    kill "$pid" >/dev/null 2>&1 || true
+    wait "$pid" >/dev/null 2>&1 || true
+  fi
+}
+
+owned_zmx_pids() {
+  /bin/ps -axo pid=,command= | /usr/bin/python3 -c '
+import os, shlex, sys
+data_dir = sys.argv[1]
+for line in sys.stdin:
+    process_fields = line.strip().split(maxsplit=1)
+    if len(process_fields) != 2 or not process_fields[0].isdigit():
+        continue
+    command = process_fields[1]
+    try:
+        command_parts = shlex.split(command)
+    except ValueError:
+        continue
+    if not command_parts or os.path.basename(command_parts[0]) != "zmx":
+        continue
+    if data_dir in command:
+        print(process_fields[0])
+' "$RESET_DATA_DIR"
+}
+
+reset_disposable_debug_root() {
+  local expected_bundle_identifier zmx_pid zmx_pids
+  RESET_IDENTITY="$("$PROJECT_ROOT/scripts/run-debug-observability.sh" --print-identity)"
+  RESET_DEBUG_CODE="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE)"
+  RESET_DATA_DIR="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_DATA_DIR)"
+  RESET_BUNDLE_IDENTIFIER="$(decode_identity_value "$RESET_IDENTITY" AGENTSTUDIO_OBSERVABILITY_BUNDLE_IDENTIFIER)"
+
+  case "$RESET_DATA_DIR" in
+    "$HOME/.agentstudio-db/"*) ;;
+    *) echo "refusing to reset debug data root outside $HOME/.agentstudio-db/: $RESET_DATA_DIR" >&2; return 1 ;;
+  esac
+  [ "$RESET_DATA_DIR" != "$HOME/.agentstudio-db" ] || {
+    echo "refusing to reset debug data root container" >&2
+    return 1
+  }
+  case "$RESET_DEBUG_CODE" in
+    ''|*[!a-z0-9]*) echo "refusing reset with unsafe debug code: $RESET_DEBUG_CODE" >&2; return 1 ;;
+  esac
+  expected_bundle_identifier="com.agentstudio.app.debug.d$RESET_DEBUG_CODE"
+  if [ "$RESET_BUNDLE_IDENTIFIER" != "$expected_bundle_identifier" ]; then
+    echo "refusing reset for mismatched debug bundle identifier: $RESET_BUNDLE_IDENTIFIER" >&2
+    return 1
+  fi
+
+  "$PROJECT_ROOT/scripts/run-debug-observability.sh" --preflight-idle
+  zmx_pids="$(owned_zmx_pids)"
+  for zmx_pid in $zmx_pids; do
+    kill "$zmx_pid"
+  done
+  for _ in $(seq 1 40); do
+    local live_zmx_pid=""
+    for zmx_pid in $zmx_pids; do
+      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+        live_zmx_pid="$zmx_pid"
+        break
+      fi
+    done
+    [ -z "$live_zmx_pid" ] && break
+    /bin/sleep 0.25
+  done
+  for zmx_pid in $zmx_pids; do
+    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+      kill -KILL "$zmx_pid"
+    fi
+  done
+  for _ in $(seq 1 20); do
+    local live_zmx_pid=""
+    for zmx_pid in $zmx_pids; do
+      if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+        live_zmx_pid="$zmx_pid"
+        break
+      fi
+    done
+    [ -z "$live_zmx_pid" ] && break
+    /bin/sleep 0.25
+  done
+  for zmx_pid in $zmx_pids; do
+    if kill -0 "$zmx_pid" >/dev/null 2>&1; then
+      echo "refusing to remove debug data root while zmx remains live: pid=$zmx_pid data_dir=$RESET_DATA_DIR" >&2
+      return 1
+    fi
+  done
+
+  echo "sidebar reset: bundle_id=$RESET_BUNDLE_IDENTIFIER data_dir=$RESET_DATA_DIR zmx_pids=${zmx_pids:-none}"
+  /bin/rm -rf -- "$RESET_DATA_DIR"
+}
+
+cleanup() {
+  local cleanup_pid="$APP_PID"
+  if [ -z "$cleanup_pid" ] && [ -f "$STATE_FILE" ] \
+    && [ "$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_MARKER)" = "$TRACE_MARKER" ]
+  then
+    cleanup_pid="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  fi
+  case "$cleanup_pid" in
+    ''|*[!0-9]*) ;;
+    *) stop_pid "$cleanup_pid" ;;
+  esac
+
+  if [ -n "$RESET_DATA_DIR" ]; then
+    reset_disposable_debug_root || true
+  fi
 }
 
 validate_loopback_url() {
@@ -283,7 +412,7 @@ wait_for_required_metric_count() {
   local minimum="$3"
   local attempt
   local value
-  for attempt in $(seq 1 30); do
+  for attempt in $(seq 1 "$REQUIRED_METRIC_READBACK_ATTEMPTS"); do
     value="$(metric_value_or_empty "$query")"
     if [ -n "$value" ]; then
       if /usr/bin/python3 - "$value" "$minimum" <<'PY'
@@ -311,7 +440,7 @@ wait_for_required_metric_value() {
   local query="$2"
   local attempt
   local value
-  for attempt in $(seq 1 30); do
+  for attempt in $(seq 1 "$REQUIRED_METRIC_READBACK_ATTEMPTS"); do
     value="$(metric_value_or_empty "$query")"
     if [ -n "$value" ]; then
       printf '%s\n' "$value"
@@ -385,6 +514,7 @@ record_required_sidebar_metric_matrix() {
     record_required_metric_series "$mode_name" surface_switch not_applicable surface_switch \
       "surface_switch_${mode_name}_end_to_end" "$REQUIRED_SAMPLE_COUNT"
   done
+
 }
 
 metric_env_value() {
@@ -649,25 +779,6 @@ try:
             lambda result: result.get("surface") == surface,
         )
 
-    def set_repo_visibility(mode):
-        result = require_success(
-            session.request(
-                next_id(),
-                "command.execute",
-                {
-                    "commandId": "setRepoSidebarVisibilityMode",
-                    "targetHandle": None,
-                    "arguments": {"mode": mode},
-                },
-            ),
-            f"command.execute setRepoSidebarVisibilityMode {mode}",
-        )
-        if result.get("applied") is not True:
-            print(f"repo visibility command did not apply for {mode}: {result}", file=sys.stderr)
-            sys.exit(1)
-        if step_delay > 0:
-            time.sleep(step_delay)
-
     def set_repo_sort_order(order):
         result = require_success(
             session.request(
@@ -691,8 +802,8 @@ try:
         set_surface("repo")
         set_repo_sort_order("descending")
         set_repo_sort_order("ascending")
-        set_repo_visibility("favoritesOnly")
-        set_repo_visibility("all")
+        set_grouping("repo", "pane")
+        set_grouping("repo", "repo")
         set_grouping("repo", "repo")
         set_grouping("repo", "pane")
         set_grouping("repo", "tab")
@@ -709,6 +820,46 @@ try:
 finally:
     session.close()
 PY
+}
+
+run_repo_explorer_key_mutation_phase() {
+  local first_phase_pid="${APP_PID:?missing first phase app pid}"
+  stop_pid "$first_phase_pid"
+  APP_PID=""
+
+  TRACE_MARKER="$TRACE_MARKER_K"
+  env \
+    AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_TRACE_TAGS="$KEY_MUTATION_TRACE_TAGS" \
+    AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
+    AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-key-mutation-proof \
+    AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    wait_for_debug_observability
+  APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  TRACE_MARKER="$TRACE_MARKER_W"
+}
+
+run_repo_explorer_interaction_phase() {
+  wait_for_required_metric_count keyed_wake_presence \
+    "agentstudio_performance_events_total{agent.proof.marker=\"$(metric_label_selector "$TRACE_MARKER_K")\",event=\"performance.repo_explorer.keyed_wake\"}" \
+    1 >/dev/null
+  local key_phase_pid="${APP_PID:?missing key phase app pid}"
+  stop_pid "$key_phase_pid"
+  APP_PID=""
+  TRACE_MARKER="$TRACE_MARKER_I"
+  env \
+    AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
+    AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
+    AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=repo-explorer-interaction-proof \
+    AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
+    "$PROJECT_ROOT/scripts/run-debug-observability.sh" --detach
+  AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" wait_for_debug_observability
+  APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
+  TRACE_MARKER="$TRACE_MARKER_W"
 }
 
 performance_threshold_check() {
@@ -781,18 +932,65 @@ wait_for_sidebar_metric_value() {
   printf '%s\n%s\n%s\n' "$metrics_count" "$metrics_value" "$metrics_response"
 }
 
+keyed_wake_count() {
+  local key_class="${1:?missing key class}"
+  local stage="${2:?missing stage}"
+  local selector='agent.proof.marker="'"$(metric_label_selector "$TRACE_MARKER_K")"'",event="performance.repo_explorer.keyed_wake",key_class="'"$key_class"'",stage="'"$stage"'"'
+  local response
+  local value
+  response="$(query_victoria_metrics "sum(agentstudio_performance_events_total{$selector})")"
+  value="$(metric_max_value "$response")"
+  printf '%s\n' "${value:-0}"
+}
+
+keyed_wake_outcome_count() {
+  local stage="${1:?missing stage}"
+  local outcome="${2:?missing outcome}"
+  local selector='agent.proof.marker="'"$(metric_label_selector "$TRACE_MARKER_K")"'",event="performance.repo_explorer.keyed_wake",stage="'"$stage"'",outcome="'"$outcome"'"'
+  local response
+  local value
+  response="$(query_victoria_metrics "sum(agentstudio_performance_events_total{$selector})")"
+  value="$(metric_max_value "$response")"
+  printf '%s\n' "${value:-0}"
+}
+
+assert_keyed_wake_contract() {
+  local key_class="${1:?missing key class}"
+  local stage="${2:?missing stage}"
+  local expected="${3:?missing expected count}"
+  local actual
+  actual="$(keyed_wake_count "$key_class" "$stage")"
+  if [ "$expected" = "bounded" ]; then
+    /usr/bin/python3 - "$key_class" "$stage" "$actual" "$WORKLOAD_CYCLES" <<'PY'
+import sys
+key_class, stage, actual, limit = sys.argv[1], sys.argv[2], float(sys.argv[3]), int(sys.argv[4])
+if actual < 1 or actual > limit:
+    raise SystemExit(f"{key_class} {stage} expected 1..{limit}, got {actual:g}")
+PY
+    return
+  fi
+  if [ "$actual" != "$expected" ] && [ "$actual" != "${expected}.0" ]; then
+    echo "$key_class $stage expected $expected, got $actual" >&2
+    exit 1
+  fi
+}
+
 validate_controls
 validate_workload_cycles
 
 PROOF_ROOT="${AGENTSTUDIO_SIDEBAR_PROOF_ROOT:-$DEFAULT_PROOF_ROOT}"
 TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance-$(date +%Y%m%d%H%M%S)-$$}")"
 TRACE_NONCE="$(/usr/bin/uuidgen)"
-TRACE_MARKER="$(opaque_trace_marker "$TRACE_NAME" "$TRACE_NONCE")"
+TRACE_MARKER_W="$(opaque_trace_marker "${TRACE_NAME}-w" "$TRACE_NONCE")"
+TRACE_MARKER_K="$(opaque_trace_marker "${TRACE_NAME}-k" "$(/usr/bin/uuidgen)")"
+TRACE_MARKER_I="$(opaque_trace_marker "${TRACE_NAME}-i" "$(/usr/bin/uuidgen)")"
+TRACE_MARKER="$TRACE_MARKER_W"
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
 REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
 METRIC_VALUES_FILE="$ARTIFACT/metric-values.env"
+KEYED_WAKE_VALUES_FILE="$ARTIFACT/keyed-wake-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 WORKTREE_FIXTURE_KEY="$(hashed_identity "$(canonical_path "$PROJECT_ROOT")")"
 WORKLOAD_FIXTURE_KEY="$(hashed_identity "$WORKLOAD_FIXTURE_VERSION:cycles=$WORKLOAD_CYCLES")"
@@ -824,7 +1022,16 @@ if [ "$mode" = "prepare-only" ]; then
   exit 0
 fi
 
+APP_PID=""
+RESET_IDENTITY=""
+RESET_DEBUG_CODE=""
+RESET_DATA_DIR=""
+RESET_BUNDLE_IDENTIFIER=""
+trap cleanup EXIT INT TERM
+reset_disposable_debug_root
+
 env \
+  AGENTSTUDIO_TRACE_FLUSH=immediate \
   AGENTSTUDIO_TRACE_TAGS="$WORKLOAD_TRACE_TAGS" \
   AGENTSTUDIO_TRACE_NAME="$TRACE_MARKER" \
   AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
@@ -835,6 +1042,7 @@ env \
 
 AGENTSTUDIO_OBSERVABILITY_STATE_FILE="$STATE_FILE" \
   wait_for_debug_observability
+APP_PID="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_PID)"
 
 activation_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)"
 ipc_auth_mode="$(decode_env_file_value "$STATE_FILE" AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)"
@@ -852,6 +1060,37 @@ ipc_metadata_path="${AGENTSTUDIO_OBSERVABILITY_IPC_METADATA:-$state_data_dir/ipc
 ipc_debug_token_path="${AGENTSTUDIO_OBSERVABILITY_IPC_DEBUG_TOKEN:-$state_data_dir/ipc/debug-token}"
 AGENTSTUDIO_SIDEBAR_IPC_CYCLES="$WORKLOAD_CYCLES" \
   run_authenticated_sidebar_ipc_workload "$ipc_metadata_path" "$ipc_debug_token_path"
+record_required_sidebar_metric_matrix
+run_repo_explorer_key_mutation_phase
+run_repo_explorer_interaction_phase
+
+: >"$KEYED_WAKE_VALUES_FILE"
+for key_class in rendered_repo_favorite rendered_worktree_fact unrelated_tab_arrangement_pane observed_tab_title unrendered_attendance relevant missing_declared_key; do
+  for stage in capture_rebuild membership_path affected_row whole_surface atom_slot eager_admission projection_worker mainactor_apply final_projection; do
+    printf '%s=%s\n' \
+      "keyed_wake_${key_class}_${stage}" \
+      "$(keyed_wake_count "$key_class" "$stage")" >>"$KEYED_WAKE_VALUES_FILE"
+  done
+done
+eager_family_admission_count="$(keyed_wake_count relevant eager_admission)"
+assert_keyed_wake_contract rendered_repo_favorite whole_surface 0
+assert_keyed_wake_contract rendered_repo_favorite affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_repo_favorite capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact whole_surface 0
+assert_keyed_wake_contract rendered_worktree_fact affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract rendered_worktree_fact capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract unrelated_tab_arrangement_pane capture_rebuild 0
+assert_keyed_wake_contract unrendered_attendance capture_rebuild 0
+assert_keyed_wake_contract relevant whole_surface 0
+assert_keyed_wake_contract relevant affected_row "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract relevant capture_rebuild "$WORKLOAD_CYCLES"
+assert_keyed_wake_contract missing_declared_key membership_path "$WORKLOAD_CYCLES"
+
+reference_different_count="$(keyed_wake_outcome_count final_projection reference_different)"
+if [ "$reference_different_count" != "0" ] && [ "$reference_different_count" != "0.0" ]; then
+  echo "final_projection reference_different expected 0, got $reference_different_count" >&2
+  exit 1
+fi
 
 metrics_result="$(wait_for_sidebar_metric_count)"
 metrics_count="$(printf '%s\n' "$metrics_result" | sed -n '1p')"
@@ -935,30 +1174,6 @@ inbox_pane_mainactor_apply_elapsed_ms_max="$(
 repo_pane_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
     "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" "$REQUIRED_SAMPLE_COUNT"
-)"
-repo_visibility_projection_worker_elapsed_ms_p95="$(
-  wait_for_required_metric_value repo_visibility_projection_worker_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo projection_worker repo visibility_mode)"
-)"
-repo_visibility_projection_worker_elapsed_ms_max="$(
-  wait_for_required_metric_value repo_visibility_projection_worker_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo projection_worker repo visibility_mode)"
-)"
-repo_visibility_projection_worker_elapsed_ms_count="$(
-  wait_for_required_metric_count repo_visibility_projection_worker_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo projection_worker repo visibility_mode)" "$REQUIRED_SAMPLE_COUNT"
-)"
-repo_visibility_mainactor_apply_elapsed_ms_p95="$(
-  wait_for_required_metric_value repo_visibility_mainactor_apply_elapsed_ms_p95 \
-    "$(metric_event_elapsed_p95_query repo mainactor_apply repo visibility_mode)"
-)"
-repo_visibility_mainactor_apply_elapsed_ms_max="$(
-  wait_for_required_metric_value repo_visibility_mainactor_apply_elapsed_ms_max \
-    "$(metric_event_elapsed_max_query repo mainactor_apply repo visibility_mode)"
-)"
-repo_visibility_mainactor_apply_elapsed_ms_count="$(
-  wait_for_required_metric_count repo_visibility_mainactor_apply_elapsed_ms_count \
-    "$(metric_event_elapsed_count_query repo mainactor_apply repo visibility_mode)" "$REQUIRED_SAMPLE_COUNT"
 )"
 repo_sort_projection_worker_elapsed_ms_p95="$(
   wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_p95 \
@@ -1080,8 +1295,6 @@ surface_switch_inbox_end_to_end_elapsed_ms_count="$(
   wait_for_required_metric_count surface_switch_inbox_end_to_end_elapsed_ms_count \
     "$(metric_event_elapsed_count_query inbox surface_switch not_applicable surface_switch)" "$REQUIRED_SAMPLE_COUNT"
 )"
-record_required_sidebar_metric_matrix
-
 if [ "$mode" = "baseline" ]; then
   {
     echo "trace_name=$TRACE_NAME"
@@ -1092,10 +1305,6 @@ if [ "$mode" = "baseline" ]; then
     echo "inbox_mainactor_apply_elapsed_ms_max=$apply_elapsed_ms"
     echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
     echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
-    echo "repo_visibility_projection_worker_elapsed_ms_p95=$repo_visibility_projection_worker_elapsed_ms_p95"
-    echo "repo_visibility_projection_worker_elapsed_ms_max=$repo_visibility_projection_worker_elapsed_ms_max"
-    echo "repo_visibility_mainactor_apply_elapsed_ms_p95=$repo_visibility_mainactor_apply_elapsed_ms_p95"
-    echo "repo_visibility_mainactor_apply_elapsed_ms_max=$repo_visibility_mainactor_apply_elapsed_ms_max"
     echo "repo_sort_projection_worker_elapsed_ms_p95=$repo_sort_projection_worker_elapsed_ms_p95"
     echo "repo_sort_projection_worker_elapsed_ms_max=$repo_sort_projection_worker_elapsed_ms_max"
     echo "repo_sort_mainactor_apply_elapsed_ms_p95=$repo_sort_mainactor_apply_elapsed_ms_p95"
@@ -1127,10 +1336,6 @@ fi
 if [ "$mode" = "compare" ]; then
   compare_repo_pane_projection_worker_elapsed_ms_p95="$repo_pane_projection_worker_elapsed_ms_p95"
   compare_repo_pane_projection_worker_elapsed_ms_max="$repo_pane_projection_worker_elapsed_ms_max"
-  compare_repo_visibility_projection_worker_elapsed_ms_p95="$repo_visibility_projection_worker_elapsed_ms_p95"
-  compare_repo_visibility_projection_worker_elapsed_ms_max="$repo_visibility_projection_worker_elapsed_ms_max"
-  compare_repo_visibility_mainactor_apply_elapsed_ms_p95="$repo_visibility_mainactor_apply_elapsed_ms_p95"
-  compare_repo_visibility_mainactor_apply_elapsed_ms_max="$repo_visibility_mainactor_apply_elapsed_ms_max"
   compare_repo_sort_projection_worker_elapsed_ms_p95="$repo_sort_projection_worker_elapsed_ms_p95"
   compare_repo_sort_projection_worker_elapsed_ms_max="$repo_sort_projection_worker_elapsed_ms_max"
   compare_repo_sort_mainactor_apply_elapsed_ms_p95="$repo_sort_mainactor_apply_elapsed_ms_p95"
@@ -1162,10 +1367,6 @@ if [ "$mode" = "compare" ]; then
     inbox_mainactor_apply_elapsed_ms_max \
     repo_pane_projection_worker_elapsed_ms_p95 \
     repo_pane_projection_worker_elapsed_ms_max \
-    repo_visibility_projection_worker_elapsed_ms_p95 \
-    repo_visibility_projection_worker_elapsed_ms_max \
-    repo_visibility_mainactor_apply_elapsed_ms_p95 \
-    repo_visibility_mainactor_apply_elapsed_ms_max \
     repo_sort_projection_worker_elapsed_ms_p95 \
     repo_sort_projection_worker_elapsed_ms_max \
     repo_sort_mainactor_apply_elapsed_ms_p95 \
@@ -1208,18 +1409,6 @@ if [ "$mode" = "compare" ]; then
   performance_threshold_check repo_pane_projection_worker_elapsed_ms_max \
     "${repo_pane_projection_worker_elapsed_ms_max:?missing baseline repo pane worker max}" \
     "$compare_repo_pane_projection_worker_elapsed_ms_max"
-  performance_threshold_check repo_visibility_projection_worker_elapsed_ms_p95 \
-    "${repo_visibility_projection_worker_elapsed_ms_p95:?missing baseline repo visibility worker p95}" \
-    "$compare_repo_visibility_projection_worker_elapsed_ms_p95"
-  performance_threshold_check repo_visibility_projection_worker_elapsed_ms_max \
-    "${repo_visibility_projection_worker_elapsed_ms_max:?missing baseline repo visibility worker max}" \
-    "$compare_repo_visibility_projection_worker_elapsed_ms_max"
-  performance_threshold_check repo_visibility_mainactor_apply_elapsed_ms_p95 \
-    "${repo_visibility_mainactor_apply_elapsed_ms_p95:?missing baseline repo visibility apply p95}" \
-    "$compare_repo_visibility_mainactor_apply_elapsed_ms_p95"
-  performance_threshold_check repo_visibility_mainactor_apply_elapsed_ms_max \
-    "${repo_visibility_mainactor_apply_elapsed_ms_max:?missing baseline repo visibility apply max}" \
-    "$compare_repo_visibility_mainactor_apply_elapsed_ms_max"
   performance_threshold_check repo_sort_projection_worker_elapsed_ms_p95 \
     "${repo_sort_projection_worker_elapsed_ms_p95:?missing baseline repo sort worker p95}" \
     "$compare_repo_sort_projection_worker_elapsed_ms_p95"
@@ -1294,10 +1483,6 @@ if [ "$mode" = "compare" ]; then
     "$compare_surface_switch_inbox_end_to_end_elapsed_ms_max"
   repo_pane_projection_worker_elapsed_ms_p95="$compare_repo_pane_projection_worker_elapsed_ms_p95"
   repo_pane_projection_worker_elapsed_ms_max="$compare_repo_pane_projection_worker_elapsed_ms_max"
-  repo_visibility_projection_worker_elapsed_ms_p95="$compare_repo_visibility_projection_worker_elapsed_ms_p95"
-  repo_visibility_projection_worker_elapsed_ms_max="$compare_repo_visibility_projection_worker_elapsed_ms_max"
-  repo_visibility_mainactor_apply_elapsed_ms_p95="$compare_repo_visibility_mainactor_apply_elapsed_ms_p95"
-  repo_visibility_mainactor_apply_elapsed_ms_max="$compare_repo_visibility_mainactor_apply_elapsed_ms_max"
   repo_sort_projection_worker_elapsed_ms_p95="$compare_repo_sort_projection_worker_elapsed_ms_p95"
   repo_sort_projection_worker_elapsed_ms_max="$compare_repo_sort_projection_worker_elapsed_ms_max"
   repo_sort_mainactor_apply_elapsed_ms_p95="$compare_repo_sort_mainactor_apply_elapsed_ms_p95"
@@ -1338,12 +1523,6 @@ fi
   echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
   echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
   echo "repo_pane_projection_worker_elapsed_ms_count=$repo_pane_projection_worker_elapsed_ms_count"
-  echo "repo_visibility_projection_worker_elapsed_ms_p95=$repo_visibility_projection_worker_elapsed_ms_p95"
-  echo "repo_visibility_projection_worker_elapsed_ms_max=$repo_visibility_projection_worker_elapsed_ms_max"
-  echo "repo_visibility_projection_worker_elapsed_ms_count=$repo_visibility_projection_worker_elapsed_ms_count"
-  echo "repo_visibility_mainactor_apply_elapsed_ms_p95=$repo_visibility_mainactor_apply_elapsed_ms_p95"
-  echo "repo_visibility_mainactor_apply_elapsed_ms_max=$repo_visibility_mainactor_apply_elapsed_ms_max"
-  echo "repo_visibility_mainactor_apply_elapsed_ms_count=$repo_visibility_mainactor_apply_elapsed_ms_count"
   echo "repo_sort_projection_worker_elapsed_ms_p95=$repo_sort_projection_worker_elapsed_ms_p95"
   echo "repo_sort_projection_worker_elapsed_ms_max=$repo_sort_projection_worker_elapsed_ms_max"
   echo "repo_sort_projection_worker_elapsed_ms_count=$repo_sort_projection_worker_elapsed_ms_count"
@@ -1382,10 +1561,17 @@ fi
   echo "surface_switch_inbox_end_to_end_elapsed_ms_count=$surface_switch_inbox_end_to_end_elapsed_ms_count"
   echo "sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"
   echo "repo_sort.ipc_sequence=descending,ascending"
-  echo "repo_visibility.ipc_sequence=favoritesOnly,all"
+  echo "eager_family_admission_count=$eager_family_admission_count"
+  echo "marker_w=$TRACE_MARKER_W"
+  echo "marker_k=$TRACE_MARKER_K"
+  echo "marker_i=$TRACE_MARKER_I"
+  echo "repo_explorer_key_mutation_phase=rendered_repo_favorite,rendered_worktree_fact,relevant_key,unrelated_tab_arrangement_pane,observed_tab_title_informational,unrendered_attendance,unread_facet_change,missing_key_insertion"
+  echo "interaction_phase=command_bar_open,command_bar_close,tab_move_program_instrument_gap,cmd_r_program_instrument_gap,divider_program_instrument_gap"
+  echo "divider_frame=program_instrument_gap"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then
     echo "baseline_file=$BASELINE_FILE"
   fi
 } >"$SUMMARY_FILE"
 append_required_metric_values "$SUMMARY_FILE"
+cat "$KEYED_WAKE_VALUES_FILE" >>"$SUMMARY_FILE"
 echo "sidebar performance workload ok: $SUMMARY_FILE"

@@ -6,6 +6,15 @@ import Foundation
 
 @MainActor
 extension WorkspaceSurfaceCoordinator {
+    func registerPreparedTerminalPlaceholders(
+        for descriptor: TerminalActivationDescriptor
+    ) {
+        _ = registerTerminalPlaceholderIfNeeded(
+            for: descriptor.pane,
+            mode: .preparing
+        )
+    }
+
     @discardableResult
     /// Create a pane view using the current trusted terminal container bounds.
     /// Returns nil when bounds are unavailable or when pane-specific frame resolution fails.
@@ -85,7 +94,7 @@ extension WorkspaceSurfaceCoordinator {
 
     func activeTabHasMissingVisibleView(_ activeTab: Tab) -> Bool {
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.paneAtom.panes.keys.map { PaneId(existingUUID: $0) },
+            activeTab.allPaneIds.map { PaneId(existingUUID: $0) },
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }

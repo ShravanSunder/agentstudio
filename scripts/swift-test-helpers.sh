@@ -43,12 +43,35 @@ large_serial_non_webkit_filter_pattern() {
   echo "${patterns[*]}"
 }
 
+aggregate_serial_non_webkit_filter_pattern() {
+  local patterns=(
+    EagerDerivedAtomTests
+    EagerDerivedAtomFamilyTests
+    TabBarAdapterTests
+    TabBarAdapterMaterializationTests
+    TabBarAffectedItemTelemetryTests
+    MainSplitViewControllerSidebarStateTests
+    FlatTabStripContainerAllMinimizedTests
+  )
+  local IFS="|"
+  echo "${patterns[*]}"
+}
+
 prebuild_swift_tests() {
   # shellcheck disable=SC2086
   run_swift_with_timeout \
     "prebuild test bundles" \
     "$PREBUILD_TIMEOUT_SECONDS" \
     swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+}
+
+run_aggregate_serial_non_webkit_swift_tests() {
+  run_swift_with_timeout \
+    "serial aggregate-only non-WebKit suites" \
+    "$TIMEOUT_SECONDS" \
+    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+    --filter "$(aggregate_serial_non_webkit_filter_pattern)" \
+    --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 }
 
 run_non_serialized_swift_tests() {
@@ -60,7 +83,10 @@ run_non_serialized_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel \
-      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
+      --skip "$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+
+    run_aggregate_serial_non_webkit_swift_tests
   else
     run_swift_with_timeout \
       "serial $label" \
@@ -82,24 +108,30 @@ run_fast_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       "${parallel_args[@]}" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+      --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)|$(aggregate_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+
+    run_aggregate_serial_non_webkit_swift_tests
   else
     run_swift_with_timeout \
       "serial fast non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "Benchmark|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+      --skip "GlobalPreferencesBootstrapBenchmarkTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
   fi
 }
 
 run_large_non_webkit_swift_tests() {
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
+    local parallel_args=(--parallel)
+    if [ -n "${SWIFT_TEST_NUM_WORKERS:-}" ]; then
+      parallel_args+=(--num-workers "$SWIFT_TEST_NUM_WORKERS")
+    fi
     run_swift_with_timeout \
       "parallel large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --parallel \
+      "${parallel_args[@]}" \
       --filter "$(large_non_webkit_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
 
@@ -123,10 +155,16 @@ webkit_suite_filters() {
   cat <<'EOF'
 WebKitSerializedTests/BridgePaneControllerTests
 WebKitSerializedTests/BridgePaneControllerContentAuthorityTests
+WebKitSerializedTests/BridgePaneControllerInitialLoadTests
 WebKitSerializedTests/BridgeSchemeHandlerSpikeTests
 WebKitSerializedTests/BridgeContentWorldIsolationTests
 WebKitSerializedTests/BridgePaneControllerIPCProjectionTests
+WebKitSerializedTests/BridgePaneControllerRealGitReviewLoadTests
+WebKitSerializedTests/BridgePaneControllerTelemetryTests
+WebKitSerializedTests/BridgePaneProductActiveViewerModeTests
 WebKitSerializedTests/BridgeProductRealGitFileAndReviewWebKitTests
+WebKitSerializedTests/BridgeReviewComparisonPresentationTests
+WebKitSerializedTests/BridgeReviewContentStreamTransportTests
 WebKitSerializedTests/WorkspaceSurfaceCoordinatorViewFactoryTests
 WebKitSerializedTests/WorkspaceBridgeGitReadActivityOrderingTests
 WebKitSerializedTests/WorkspaceBridgePaneRefreshIntegrationTests
@@ -148,6 +186,7 @@ WebKitSerializedTests/BridgeTransportIntegrationTests/test_handleDiffCommandWith
 WebKitSerializedTests/BridgeTransportIntegrationTests/test_sourceBackedInitialReviewLoad_rendersReviewViewerShell
 WebKitSerializedTests/BridgeWebKitSpikeTests
 WebKitSerializedTests/WebviewPaneControllerTests
+WebKitSerializedTests/PreparedNonterminalContentMountTests
 EOF
 }
 

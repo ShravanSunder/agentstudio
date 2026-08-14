@@ -6,6 +6,7 @@ import Testing
 @testable import AgentStudio
 @testable import AgentStudioCore
 @testable import AgentStudioInboxNotification
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTerminal
 @testable import AgentStudioTestSupport
 
@@ -16,26 +17,166 @@ struct MainWindowControllerInboxToolbarButtonTests {
         installTestCoreAtomsIfNeeded()
     }
 
-    @Test("main window delegates top chrome instead of installing native toolbar controls")
-    func mainWindowDelegatesTopChromeInsteadOfInstallingNativeToolbarControls() throws {
+    @Test("main window installs the native toolbar boundary for top chrome")
+    func mainWindowInstallsNativeToolbarBoundary() throws {
         let source = try sourceFile("Sources/AgentStudio/App/Windows/MainWindowController.swift")
 
-        #expect(source.contains("MainSplitViewController owns the shell-spanning top strip."))
-        #expect(!source.contains("\n        setupToolbar()"))
-        #expect(!source.contains("\n        setupTitlebarAccessory()"))
+        #expect(source.contains("toolbarStyle = .unifiedCompact"))
+        #expect(!source.contains("setupTitlebarAccessory"))
     }
 
-    @Test("top chrome installs worktree and inbox sidebar buttons")
-    func topChromeInstallsWorktreeAndInboxSidebarButtons() throws {
-        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
+    @Test("main window installs native fixed controls before the workspace tabs item")
+    func mainWindowInstallsNativeFixedControlsBeforeWorkspaceTabsItem() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let window = harness.window
+            let toolbar = try #require(window.toolbar)
+            #expect(toolbar.identifier == NSToolbar.Identifier("MainToolbar"))
+            #expect(window.toolbarStyle == .unifiedCompact)
 
-        #expect(source.contains("struct SidebarSurfaceTabBarControls: View"))
-        #expect(source.contains("command: .showWorktreeSidebar"))
-        #expect(source.contains("symbolName: \"square.stack.3d.down.right\""))
-        #expect(source.contains("selectedSymbolName: \"square.stack.3d.down.right.fill\""))
-        #expect(source.contains("command: .showInboxNotifications"))
-        #expect(source.contains("symbolName: \"bell\""))
-        #expect(source.contains("selectedSymbolName: \"bell.fill\""))
+            let expectedItemIdentifiers = [
+                "worktreeSidebar",
+                "inboxSidebar",
+                "sidebarDivider",
+                "watchFolder",
+                "managementLayer",
+                "arrangement",
+                "arrangementDivider",
+                "workspaceTabs",
+                "selectTab",
+                "tabActionsDivider",
+                "newTab",
+            ]
+            #expect(toolbar.items.map(\.itemIdentifier.rawValue) == expectedItemIdentifiers)
+
+            let expectedFixedControlViews = [
+                "watchFolder": "watchFolderToolbarControl",
+                "managementLayer": "managementLayerToolbarControl",
+                "arrangement": "arrangementToolbarControl",
+                "selectTab": "selectTabToolbarControl",
+                "newTab": "newTabToolbarControl",
+            ]
+            for (itemIdentifier, viewIdentifier) in expectedFixedControlViews {
+                let item = try #require(
+                    toolbar.items.first(where: {
+                        $0.itemIdentifier.rawValue == itemIdentifier
+                    })
+                )
+                #expect(item.view?.identifier?.rawValue == viewIdentifier)
+                #expect(!(item.view is MainToolbarChromeView))
+                #expect(!item.isBordered)
+            }
+
+            for itemIdentifier in ["worktreeSidebar", "inboxSidebar"] {
+                let item = try #require(
+                    toolbar.items.first(where: {
+                        $0.itemIdentifier.rawValue == itemIdentifier
+                    })
+                )
+                #expect(item.view == nil)
+                #expect(item.image != nil)
+                #expect(!item.isBordered)
+            }
+
+            let workspaceTabsItem = try #require(
+                toolbar.items.first(where: {
+                    $0.itemIdentifier.rawValue == "workspaceTabs"
+                })
+            )
+            let workspaceTabsView = try #require(workspaceTabsItem.view)
+            #expect(workspaceTabsView.identifier == NSUserInterfaceItemIdentifier("workspaceTabsToolbarControl"))
+            #expect(workspaceTabsView is MainToolbarChromeView)
+            #expect(window.standardWindowButton(.closeButton)?.isHidden == false)
+            #expect(window.standardWindowButton(.miniaturizeButton)?.isHidden == false)
+            #expect(window.standardWindowButton(.zoomButton)?.isHidden == false)
+            #expect(window.collectionBehavior.contains(.fullScreenNone))
+            #expect(window.collectionBehavior.contains(.fullScreenDisallowsTiling))
+
+            let contentView = try #require(window.contentView)
+            let rootView = try #require(window.contentViewController?.view)
+            let splitView = try #require(findDescendant(in: rootView, ofType: ShellSplitView.self))
+            splitView.layoutSubtreeIfNeeded()
+            let splitRect = splitView.convert(splitView.bounds, to: contentView)
+            let nonObscuredRect = contentView.convert(window.contentLayoutRect, from: nil)
+            #expect(splitRect.minY >= nonObscuredRect.minY - 1)
+            #expect(splitRect.maxY <= nonObscuredRect.maxY + 1)
+            #expect(abs(splitRect.maxY - nonObscuredRect.maxY) < 1)
+        }
+    }
+
+    @Test("visible tab pill edges remain hit-testable from the window root")
+    func visibleTabPillEdgesRemainHitTestableFromWindowRoot() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let toolbar = try #require(harness.window.toolbar)
+            let workspaceTabsItem = try #require(
+                toolbar.items.first(where: { $0.itemIdentifier.rawValue == "workspaceTabs" })
+            )
+            let toolbarChromeView = try #require(workspaceTabsItem.view)
+            let tabBarHostingView = try #require(
+                findDescendant(in: toolbarChromeView, ofType: DraggableTabBarHostingView.self)
+            )
+            let pane = harness.store.createPane(title: "Toolbar hit testing")
+            let tab = Tab(paneId: pane.id, name: "Toolbar hit testing")
+            harness.store.appendTab(tab)
+            harness.store.setActiveTab(tab.id)
+
+            await assertEventuallyMain("tab pill should render in the native toolbar") {
+                harness.window.contentView?.layoutSubtreeIfNeeded()
+                return tabBarHostingView.tabFrameInView(for: tab.id) != nil
+            }
+
+            let tabPillFrame = try #require(tabBarHostingView.tabFrameInView(for: tab.id))
+            let windowRootView = try #require(harness.window.contentView?.superview)
+            let pillEdgePoints = [
+                NSPoint(x: tabPillFrame.midX, y: tabPillFrame.minY + 1),
+                NSPoint(x: tabPillFrame.midX, y: tabPillFrame.maxY - 1),
+            ]
+
+            for pointInTabBar in pillEdgePoints {
+                let pointInWindow = tabBarHostingView.convert(pointInTabBar, to: nil)
+                let resolvedHitView = windowRootView.hitTest(pointInWindow)
+                #expect(
+                    resolvedHitView === tabBarHostingView
+                        || resolvedHitView?.isDescendant(of: tabBarHostingView) == true,
+                    "pill=\(tabPillFrame) host=\(tabBarHostingView.frame) point=\(pointInTabBar) hit=\(String(describing: resolvedHitView))"
+                )
+            }
+        }
+    }
+
+    @Test("workspace tabs keep overflow controls but exclude native toolbar controls")
+    func workspaceTabsKeepOverflowControlsButExcludeNativeToolbarControls() throws {
+        let tabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
+        let layoutSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/TabBarChromeLayoutPlan.swift")
+
+        #expect(!tabBarSource.contains("leadingChromeControl"))
+        #expect(!tabBarSource.contains("ToolbarButton.verticalOffset"))
+        #expect(layoutSource.contains("var workspaceTabControls: [TabBarChromeControl]"))
+        #expect(layoutSource.contains(".tabStrip"))
+        #expect(layoutSource.contains(".overflowLeft"))
+        #expect(layoutSource.contains(".overflowRight"))
+        #expect(!layoutSource.contains(".overflowMenu"))
+        #expect(!layoutSource.contains(".newTab"))
+        #expect(!layoutSource.contains(".sidebarSurfaces"))
+        #expect(!layoutSource.contains(".watchFolder"))
+        #expect(!layoutSource.contains(".managementLayer"))
+        #expect(!layoutSource.contains(".arrangement"))
+    }
+
+    @Test("native sidebar toolbar icons follow programmatic sidebar state changes")
+    func nativeSidebarToolbarIconsFollowProgrammaticSidebarStateChanges() async throws {
+        try await withMainWindowControllerHarness { harness in
+            let toolbar = try #require(harness.window.toolbar)
+            let inboxItem = try #require(
+                toolbar.items.first(where: { $0.itemIdentifier.rawValue == "inboxSidebar" })
+            )
+            let initialImage = try #require(inboxItem.image)
+
+            harness.atoms.core.workspaceSidebarState.setSidebarSurface(.inbox)
+
+            await assertEventuallyMain("inbox toolbar icon should follow sidebar atom changes") {
+                inboxItem.image !== initialImage
+            }
+        }
     }
 
     @Test("top chrome sidebar buttons use command specs and dispatch through shared commands")
@@ -46,24 +187,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(source.contains("presentation.perform()"))
         #expect(source.contains(".disabled(!presentation.isEnabled)"))
         #expect(source.contains(".help(presentation.controlToolTip)"))
-    }
-
-    @Test("top chrome sidebar icons track open active surface")
-    func topChromeSidebarIconsTrackOpenActiveSurface() throws {
-        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
-
-        #expect(source.contains("!sidebarState.sidebarCollapsed"))
-        #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .repos"))
-        #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox"))
-    }
-
-    @Test("top chrome inbox badge reads the injected global roll-up count")
-    func topChromeInboxBadgeReadsInjectedGlobalRollUpCount() throws {
-        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
-
-        #expect(source.contains("let inboxAtom: InboxNotificationAtom"))
-        #expect(source.contains("badgeCount: inboxAtom.globalRollUpAlertCount"))
-        #expect(source.contains("badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil"))
     }
 
     @Test("watch folder uses the shared top chrome button")
@@ -91,13 +214,6 @@ struct MainWindowControllerInboxToolbarButtonTests {
     @Test("watch folder presentation is filtered by app toolbar surface and command context")
     func watchFolderPresentationIsFilteredByAppToolbarSurfaceAndCommandContext() {
         expectAppToolbarPresentationFiltering(for: .watchFolder)
-    }
-
-    @Test("bell unread badge text caps at ninety nine plus")
-    func bellUnreadBadgeTextCapsAtNinetyNinePlus() {
-        #expect(InboxToolbarUnreadBadgeText.text(for: 1) == "1")
-        #expect(InboxToolbarUnreadBadgeText.text(for: 99) == "99")
-        #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
     }
 
     @Test("window frame changes update workspace-local memory without legacy defaults")
@@ -295,7 +411,11 @@ private func withMainWindowControllerHarness<T>(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: atoms.core.windowLifecycle
     )
-    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.core.repoCache)
+    let tabBarAdapter = TabBarAdapter(
+        store: store,
+        repoCache: atoms.core.repoCache,
+        inboxAtom: inboxAtom
+    )
 
     var controller: MainWindowController?
     let result = try await withAsyncTestCoreAtoms(using: atoms.core) { _ in
@@ -315,8 +435,8 @@ private func withMainWindowControllerHarness<T>(
             inboxSidebarState: InboxSidebarState(),
             paneInboxPresentationState: atoms.paneInboxPresentationState,
             repoExplorerSidebarPrefs: atoms.repoExplorerSidebarPrefs,
-            bridgeAttendanceSnapshot: {
-                atoms.bridgePaneAttendance.ordinalSnapshot()
+            bridgeAttendanceSnapshot: { paneId in
+                atoms.bridgePaneAttendance.ordinal(for: paneId)
             },
             paneInboxPresenter: paneInboxPresenter
         )
@@ -365,17 +485,20 @@ private func findDescendant(in view: NSView, identifier: String) -> NSView? {
     return nil
 }
 
-private final class InboxToolbarTestSurfaceManager: WorkspaceSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-
-    init() {
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
+@MainActor
+private func findDescendant<T: NSView>(in view: NSView, ofType type: T.Type) -> T? {
+    if let match = view as? T {
+        return match
+    }
+    for subview in view.subviews {
+        if let match = findDescendant(in: subview, ofType: type) {
+            return match
         }
     }
+    return nil
+}
 
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
-
+private final class InboxToolbarTestSurfaceManager: WorkspaceSurfaceManaging {
     func syncFocus(activeSurfaceId: UUID?) {}
 
     func createSurface(

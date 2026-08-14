@@ -3,7 +3,7 @@ import os.log
 
 private let paneDisplayLogger = Logger(subsystem: "com.agentstudio", category: "PaneDisplayDerived")
 
-package struct PaneDisplayParts: Equatable {
+package struct PaneDisplayParts: Equatable, Sendable {
     package let primaryLabel: String
     package let note: String?
     package let repoName: String?
@@ -50,11 +50,23 @@ struct CollapsedBarLabelPart: Equatable {
     var iconTextSpacing: IconTextSpacing = .tight
 }
 
-private struct WorkspaceContextParts {
+package struct PaneDisplayWorkspaceContext: Sendable {
     let repoName: String
     let worktreeName: String
     let worktreeIconName: String
     let branchName: String?
+
+    package init(
+        repoName: String,
+        worktreeName: String,
+        worktreeIconName: String,
+        branchName: String?
+    ) {
+        self.repoName = repoName
+        self.worktreeName = worktreeName
+        self.worktreeIconName = worktreeIconName
+        self.branchName = branchName
+    }
 }
 
 @MainActor
@@ -79,6 +91,16 @@ package struct PaneDisplayDerived {
     }
 
     package func displayParts(for pane: Pane) -> PaneDisplayParts {
+        Self.displayParts(
+            for: pane,
+            workspaceContext: resolvedWorkspaceContext(for: pane)
+        )
+    }
+
+    nonisolated package static func displayParts(
+        for pane: Pane,
+        workspaceContext: PaneDisplayWorkspaceContext?
+    ) -> PaneDisplayParts {
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
         let cwdFolderName: String? = {
@@ -86,7 +108,7 @@ package struct PaneDisplayDerived {
             return cwdFolder.isEmpty ? nil : cwdFolder
         }()
 
-        if let workspaceContext = resolvedWorkspaceContext(for: pane) {
+        if let workspaceContext {
             let primaryLabel = [
                 workspaceContext.repoName,
                 workspaceContext.branchName,
@@ -151,6 +173,13 @@ package struct PaneDisplayDerived {
     }
 
     package func resolvedBranchName(
+        worktree: Worktree,
+        enrichment: WorktreeEnrichment?
+    ) -> String {
+        Self.resolvedBranchName(worktree: worktree, enrichment: enrichment)
+    }
+
+    nonisolated package static func resolvedBranchName(
         worktree _: Worktree,
         enrichment: WorktreeEnrichment?
     ) -> String {
@@ -162,7 +191,7 @@ package struct PaneDisplayDerived {
         return "detached HEAD"
     }
 
-    func accentColorHex(for paneId: UUID) -> String? {
+    package func accentColorHex(for paneId: UUID) -> String? {
         let workspacePane = atom(\.workspacePane)
         let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
         let repoCache = atom(\.repoCache)
@@ -250,62 +279,78 @@ package struct PaneDisplayDerived {
             + [notePart].compactMap { $0 }
     }
 
-    private func resolvedWorkspaceContext(for pane: Pane) -> WorkspaceContextParts? {
+    package func resolvedWorkspaceContext(for pane: Pane) -> PaneDisplayWorkspaceContext? {
         let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
-        let workspaceLookup = atom(\.workspaceLookup)
         let repoCache = atom(\.repoCache)
 
         let explicitRepoId = pane.repoId ?? pane.metadata.repoId
         let explicitWorktreeId = pane.worktreeId ?? pane.metadata.worktreeId
-
-        if let explicitRepoId,
-            let explicitWorktreeId,
-            let repo = workspaceRepositoryTopology.repo(explicitRepoId),
-            let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
-        {
-            return WorkspaceContextParts(
-                repoName: pane.metadata.repoName ?? repo.name,
-                worktreeName: pane.metadata.worktreeName ?? worktree.path.lastPathComponent,
-                worktreeIconName: worktree.isMainWorktree ? "octicon-star-fill" : "octicon-git-worktree",
-                branchName: resolvedBranchName(
-                    worktree: worktree,
-                    enrichment: repoCache.worktreeEnrichment(for: worktree.id)
-                )
-            )
-        }
-
-        if explicitRepoId != nil || explicitWorktreeId != nil {
+        let explicitContext: (repo: Repo, worktree: Worktree)? = {
+            guard let explicitRepoId,
+                let explicitWorktreeId,
+                let repo = workspaceRepositoryTopology.repo(explicitRepoId),
+                let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
+            else { return nil }
+            return (repo, worktree)
+        }()
+        if explicitContext == nil, explicitRepoId != nil || explicitWorktreeId != nil {
             paneDisplayLogger.warning(
                 "resolvedWorkspaceContext: explicit repo/worktree for pane \(pane.id.uuidString, privacy: .public) missing from topology; falling back"
             )
         }
+        let resolvedContext =
+            explicitContext
+            ?? workspaceRepositoryTopology.repoAndWorktree(containing: pane.metadata.cwd)
+        let resolvedWorktreeEnrichment = resolvedContext.flatMap {
+            repoCache.worktreeEnrichment(for: $0.worktree.id)
+        }
+        let metadataWorktreeEnrichment = explicitWorktreeId.flatMap { worktreeId in
+            resolvedContext?.worktree.id == worktreeId
+                ? resolvedWorktreeEnrichment
+                : repoCache.worktreeEnrichment(for: worktreeId)
+        }
+        return Self.workspaceContext(
+            for: pane,
+            resolvedContext: resolvedContext,
+            usesExplicitAssociation: explicitContext != nil,
+            resolvedWorktreeEnrichment: resolvedWorktreeEnrichment,
+            metadataWorktreeEnrichment: metadataWorktreeEnrichment
+        )
+    }
 
-        if let resolvedContext = workspaceLookup.repoAndWorktree(containing: pane.metadata.cwd) {
-            return WorkspaceContextParts(
+    nonisolated package static func workspaceContext(
+        for pane: Pane,
+        resolvedContext: (repo: Repo, worktree: Worktree)?,
+        usesExplicitAssociation: Bool,
+        resolvedWorktreeEnrichment: WorktreeEnrichment?,
+        metadataWorktreeEnrichment: WorktreeEnrichment?
+    ) -> PaneDisplayWorkspaceContext? {
+        if let resolvedContext {
+            let resolvedWorktreeName =
+                usesExplicitAssociation
+                ? resolvedContext.worktree.path.lastPathComponent
+                : resolvedContext.worktree.name
+            return PaneDisplayWorkspaceContext(
                 repoName: pane.metadata.repoName ?? resolvedContext.repo.name,
-                worktreeName: pane.metadata.worktreeName ?? resolvedContext.worktree.name,
+                worktreeName: pane.metadata.worktreeName ?? resolvedWorktreeName,
                 worktreeIconName: resolvedContext.worktree.isMainWorktree
                     ? "octicon-star-fill" : "octicon-git-worktree",
-                branchName: resolvedBranchName(
+                branchName: Self.resolvedBranchName(
                     worktree: resolvedContext.worktree,
-                    enrichment: repoCache.worktreeEnrichment(for: resolvedContext.worktree.id)
+                    enrichment: resolvedWorktreeEnrichment
                 )
             )
         }
 
-        if let repoName = pane.metadata.repoName, let worktreeName = pane.metadata.worktreeName {
-            let branchName = explicitWorktreeId.flatMap { worktreeId in
-                let branch = repoCache.worktreeEnrichment(for: worktreeId)?.branch ?? ""
-                return branch.isEmpty ? nil : branch
-            }
-            return WorkspaceContextParts(
-                repoName: repoName,
-                worktreeName: worktreeName,
-                worktreeIconName: "octicon-git-worktree",
-                branchName: branchName
-            )
-        }
-
-        return nil
+        guard let repoName = pane.metadata.repoName,
+            let worktreeName = pane.metadata.worktreeName
+        else { return nil }
+        let branch = metadataWorktreeEnrichment?.branch ?? ""
+        return PaneDisplayWorkspaceContext(
+            repoName: repoName,
+            worktreeName: worktreeName,
+            worktreeIconName: "octicon-git-worktree",
+            branchName: branch.isEmpty ? nil : branch
+        )
     }
 }

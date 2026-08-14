@@ -14,6 +14,31 @@ func makeCommandBarTestOcticonLoader(from testFilePath: String = #filePath) -> O
     )
 }
 
+private final class CommandBarInteractionTestClock: @unchecked Sendable {
+    var nowNanoseconds: UInt64
+
+    init(nowNanoseconds: UInt64) {
+        self.nowNanoseconds = nowNanoseconds
+    }
+
+    func now() -> UInt64 {
+        nowNanoseconds
+    }
+}
+
+private final class CommandBarInteractionTestRecorder: @unchecked Sendable {
+    struct Record: Equatable {
+        let kind: AgentStudioInteractionKind
+        let duration: Duration
+    }
+
+    private(set) var records: [Record] = []
+
+    func record(kind: AgentStudioInteractionKind, duration: Duration) {
+        records.append(Record(kind: kind, duration: duration))
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct CommandBarPanelControllerTests {
@@ -34,7 +59,9 @@ struct CommandBarPanelControllerTests {
     private func makeController(
         store: WorkspaceStore = WorkspaceStore(),
         dispatcher: any AppCommandDispatching = FakeAppCommandDispatcher(),
-        commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom()
+        commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom(),
+        interactionProbe: AgentStudioInteractionPerformanceProbe? = nil,
+        animatePanelDismissal: Bool = true
     ) -> CommandBarPanelController {
         UserDefaults.standard.removeObject(forKey: "CommandBarRecentItemIds")
         UserDefaults.standard.removeObject(forKey: "CommandBarRecentCommands")
@@ -44,7 +71,9 @@ struct CommandBarPanelControllerTests {
             repoCache: RepoCacheAtom(),
             dispatcher: dispatcher,
             quickOpenDirectoryHandler: { _, _ in },
-            commandBarSurface: commandBarSurface
+            commandBarSurface: commandBarSurface,
+            interactionProbe: interactionProbe,
+            animatePanelDismissal: animatePanelDismissal
         )
     }
 
@@ -74,6 +103,62 @@ struct CommandBarPanelControllerTests {
     }
 
     // MARK: - Show via Public API
+
+    @Test("open settles after results publish and input focus acknowledgements")
+    func openSettlesAfterTerminalAcknowledgements() async {
+        let clock = CommandBarInteractionTestClock(nowNanoseconds: 1_000_000)
+        let recorder = CommandBarInteractionTestRecorder()
+        let controller = makeController(
+            interactionProbe: AgentStudioInteractionPerformanceProbe(
+                nowNanoseconds: clock.now,
+                recordDuration: recorder.record
+            )
+        )
+
+        controller.show(parentWindow: window)
+        #expect(recorder.records.isEmpty)
+        clock.nowNanoseconds = 4_000_000
+        await eventually("command bar open should settle") {
+            recorder.records.count == 1
+        }
+
+        #expect(recorder.records.first?.kind == .commandBarOpen)
+        #expect(recorder.records.first?.duration == .milliseconds(3))
+    }
+
+    @Test("non-executing dismiss records close but selection execution does not")
+    func closeProbeExcludesSelectionExecution() async {
+        let clock = CommandBarInteractionTestClock(nowNanoseconds: 1_000_000)
+        let recorder = CommandBarInteractionTestRecorder()
+        let dispatcher = FakeAppCommandDispatcher()
+        let controller = makeController(
+            dispatcher: dispatcher,
+            interactionProbe: AgentStudioInteractionPerformanceProbe(
+                nowNanoseconds: clock.now,
+                recordDuration: recorder.record
+            ),
+            animatePanelDismissal: false
+        )
+
+        controller.show(parentWindow: window)
+        await eventually("first command bar open should settle") {
+            recorder.records.count == 1
+        }
+        clock.nowNanoseconds = 2_000_000
+        controller.dismiss()
+        await eventually("command bar close should settle") {
+            recorder.records.count == 2
+        }
+        #expect(recorder.records.map(\.kind) == [.commandBarOpen, .commandBarClose])
+
+        controller.show(parentWindow: window)
+        await eventually("second command bar open should settle") {
+            recorder.records.count == 3
+        }
+        controller.executeItem(makeItem(id: "execute", action: .dispatch(.newTab)))
+
+        #expect(recorder.records.map(\.kind) == [.commandBarOpen, .commandBarClose, .commandBarOpen])
+    }
 
     @Test
     func test_show_noPrefix_setsStateVisible() {
@@ -340,6 +425,28 @@ struct CommandBarPanelControllerTests {
             #expect(controller.state.currentLevel?.title == repository.name)
             #expect(controller.state.isVisible)
         }
+    }
+
+    @Test("repository root activation materializes only the selected repository menu")
+    func repositoryRootActivationMaterializesSelectedRepositoryMenu() {
+        let store = WorkspaceStore()
+        let selectedRepository = store.addRepo(at: URL(filePath: "/tmp/command-bar-selected-repository"))
+        _ = store.addRepo(at: URL(filePath: "/tmp/command-bar-unselected-repository"))
+        let dispatcher = FakeAppCommandDispatcher()
+        let controller = makeController(store: store, dispatcher: dispatcher)
+        controller.state.show(defaultScope: .repos)
+
+        let rootItem = CommandBarDataSource.repoRootItem(
+            repo: selectedRepository,
+            store: store,
+            dispatcher: dispatcher
+        )
+        #expect(dispatcher.bridgeTargetLookupCount == 0)
+        controller.executeItem(rootItem)
+
+        #expect(controller.state.currentLevel?.id == "level-repo-\(selectedRepository.id.uuidString)")
+        #expect(dispatcher.bridgeTargetLookupCount > 0)
+        #expect(Set(dispatcher.bridgeTargetLookupWorktreeIds) == Set(selectedRepository.worktrees.map(\.id)))
     }
 
     @Test("recent repository activation re-resolves a replacement with the same stable key")

@@ -1,5 +1,53 @@
+import AgentStudioInfrastructure
 import CoreServices
 import Foundation
+
+package final class DarwinFSEventIngressBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let eventsStream: AsyncStream<FSEventBatch>
+    private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
+    private var coarseRefreshDebt = Set<UUID>()
+
+    package init(capacity: Int) {
+        precondition(capacity > 0)
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: FSEventBatch.self,
+            bufferingPolicy: .bufferingOldest(capacity)
+        )
+        eventsStream = stream
+        eventsContinuation = continuation
+    }
+
+    package func events() -> AsyncStream<FSEventBatch> {
+        eventsStream
+    }
+
+    package func yield(_ batch: FSEventBatch) {
+        lock.withLock {
+            switch eventsContinuation.yield(batch) {
+            case .enqueued:
+                break
+            case .dropped(let droppedBatch):
+                coarseRefreshDebt.insert(droppedBatch.worktreeId)
+            case .terminated:
+                break
+            @unknown default:
+                coarseRefreshDebt.insert(batch.worktreeId)
+            }
+        }
+    }
+
+    package func consumeCoarseRefreshDebt() -> Set<UUID> {
+        lock.withLock {
+            defer { coarseRefreshDebt.removeAll(keepingCapacity: true) }
+            return coarseRefreshDebt
+        }
+    }
+
+    package func finish() {
+        eventsContinuation.finish()
+    }
+}
 
 /// Production filesystem event client wiring point.
 ///
@@ -49,14 +97,12 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
     private let lifecycleLock = NSLock()
     private var hasShutdown = false
     private var streamByWorktreeId: [UUID: StreamRegistration] = [:]
+    private let ingressBuffer: DarwinFSEventIngressBuffer
 
-    private let eventsStream: AsyncStream<FSEventBatch>
-    private let eventsContinuation: AsyncStream<FSEventBatch>.Continuation
-
-    package init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: FSEventBatch.self)
-        self.eventsStream = stream
-        self.eventsContinuation = continuation
+    package init(
+        bufferedFineBatchCapacity: Int = AppPolicies.FilesystemIngress.bufferedFineBatchCapacity
+    ) {
+        ingressBuffer = DarwinFSEventIngressBuffer(capacity: bufferedFineBatchCapacity)
     }
 
     deinit {
@@ -64,7 +110,11 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
     }
 
     package func events() -> AsyncStream<FSEventBatch> {
-        eventsStream
+        ingressBuffer.events()
+    }
+
+    package func consumeCoarseRefreshDebt() -> Set<UUID> {
+        ingressBuffer.consumeCoarseRefreshDebt()
     }
 
     package func register(worktreeId: UUID, repoId _: UUID, rootPath: URL) {
@@ -134,7 +184,7 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
         for registration in registrations {
             Self.teardown(registration)
         }
-        eventsContinuation.finish()
+        ingressBuffer.finish()
     }
 
     private func makeRegistration(worktreeId: UUID, rootPath: URL) -> StreamRegistration? {
@@ -192,12 +242,10 @@ package final class DarwinFSEventStreamClient: FSEventStreamClient, @unchecked S
     private func emitBatch(worktreeId: UUID, paths: [String]) {
         guard !paths.isEmpty else { return }
 
-        lifecycleLock.lock()
-        let shouldEmit = !hasShutdown && streamByWorktreeId[worktreeId] != nil
-        lifecycleLock.unlock()
-        guard shouldEmit else { return }
-
-        eventsContinuation.yield(FSEventBatch(worktreeId: worktreeId, paths: paths))
+        lifecycleLock.withLock {
+            guard !hasShutdown, streamByWorktreeId[worktreeId] != nil else { return }
+            ingressBuffer.yield(FSEventBatch(worktreeId: worktreeId, paths: paths))
+        }
     }
 
     private static func teardown(_ registration: StreamRegistration) {

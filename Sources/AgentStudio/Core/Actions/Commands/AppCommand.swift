@@ -88,7 +88,6 @@ package enum AppCommand: String, CaseIterable {
     case setRepoSidebarGroupingRepo
     case setRepoSidebarGroupingPane
     case setRepoSidebarGroupingTab
-    case setRepoSidebarVisibilityMode
     case setRepoSidebarSortOrder
     case setInboxGroupingTab
     case setInboxGroupingRepo

@@ -20,6 +20,11 @@ import {
 	type BridgeViewerViteProductFixtureOracle,
 	type BridgeViewerViteProductReviewFileOracle,
 } from './bridge-viewer-vite-product-fixture.ts';
+import {
+	observeBrowserRuntimeDiagnostics,
+	waitForSettledReviewComparison,
+	waitForSettledReviewComparisonWithDiagnostics,
+} from './bridge-viewer-vite-review-comparison-proof.ts';
 
 const productJourneyTimeoutMilliseconds = 120_000;
 
@@ -258,7 +263,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 			).toBe(true);
 			expect(proof.paintedCorrelations).toEqual([
 				expect.objectContaining({
-					descriptorId: expect.stringMatching(/^dev-file-/u),
+					descriptorId: expect.stringMatching(/^file-content-[0-9a-f]{32}$/u),
 					disposition: 'painted',
 					itemId: proof.renderedItemId,
 					observedSha256: oracle.largeFileSha256,
@@ -326,12 +331,125 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 					expectedSha256: mutatedContent.sha256,
 				}),
 			);
-			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).not.toBe(
-				readFileDescriptorRootRevisionToken(initialRequest?.descriptor),
+			const initialRootRevisionToken = readFileDescriptorRootRevisionToken(
+				initialRequest?.descriptor,
+			);
+			expect(initialRootRevisionToken).toEqual(expect.stringMatching(/\S/u));
+			expect(readFileDescriptorRootRevisionToken(replacementRequest?.descriptor)).toBe(
+				initialRootRevisionToken,
 			);
 		} finally {
 			await page?.close();
 			await browser.close();
+		}
+	});
+
+	test('restores a UI-committed symbolic comparison across backend restart and resolves the moved Git target', async () => {
+		// Arrange
+		const fixture = await createBridgeViewerViteProductFixture();
+		let serverA: BridgeViewerOwnedViteProductServer | null = null;
+		let serverB: BridgeViewerOwnedViteProductServer | null = null;
+		const browser = await chromium.launch({ channel: 'chrome', headless: true });
+		try {
+			serverA = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+			const pageA = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			const pageADiagnostics = observeBrowserRuntimeDiagnostics(pageA);
+			await pageA.goto(productReviewUrl(serverA.origin), {
+				timeout: productJourneyTimeoutMilliseconds,
+				waitUntil: 'domcontentloaded',
+			});
+			try {
+				await pageA.waitForFunction(
+					(): boolean =>
+						document.querySelector('[data-testid="review-viewer-shell"]') !== null ||
+						(document.body.textContent ?? '').includes('Review metadata is unavailable'),
+					undefined,
+					{
+						timeout: productJourneyTimeoutMilliseconds,
+					},
+				);
+				if ((await pageA.getByTestId('review-viewer-shell').count()) === 0) {
+					throw new Error('Review metadata entered the unavailable state.');
+				}
+			} catch (error: unknown) {
+				throw new Error(
+					`Review shell did not load: ${await pageADiagnostics.describe()} server=${serverA.diagnostics()}`,
+					{
+						cause: error,
+					},
+				);
+			}
+			await waitForSettledReviewComparison({
+				expectedTargetLabel: 'HEAD',
+				expectedTargetOID: fixture.oracle.baseRef,
+				page: pageA,
+				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
+			});
+
+			// Act: process A commits the symbolic target through the real Compare Worktree UI.
+			await pageA.getByTestId(`comparison-branch-${fixture.oracle.comparisonTargetName}`).click();
+			const processAProof = await waitForSettledReviewComparison({
+				expectedTargetLabel: fixture.oracle.comparisonTargetName,
+				expectedTargetOID: fixture.oracle.baseRef,
+				page: pageA,
+				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
+			});
+			await pageA.close();
+
+			const processABackendPid = serverA.backendPid;
+			const processACleanup = await serverA.stop();
+			serverA = null;
+			expect(processACleanup.forcedTerminationRequired).toBe(false);
+			expect(processACleanup.ownedProcessAliveAfterStop).toBe(false);
+
+			const movedTargetOID = await fixture.advanceComparisonTarget();
+			serverB = await startBridgeViewerOwnedViteProductServer(fixture.oracle);
+			const pageB = await browser.newPage({ viewport: { height: 980, width: 1728 } });
+			const pageBDiagnostics = observeBrowserRuntimeDiagnostics(pageB);
+			await pageB.goto(productReviewUrl(serverB.origin), {
+				timeout: productJourneyTimeoutMilliseconds,
+				waitUntil: 'domcontentloaded',
+			});
+			const processBProof = await waitForSettledReviewComparisonWithDiagnostics({
+				diagnostics: pageBDiagnostics,
+				expectedTargetLabel: fixture.oracle.comparisonTargetName,
+				expectedTargetOID: movedTargetOID,
+				failureContext: (): string => `server=${serverB?.diagnostics() ?? '<stopped>'}`,
+				page: pageB,
+				timeoutMilliseconds: productJourneyTimeoutMilliseconds,
+			});
+			await pageB.close();
+
+			const processBBackendPid = serverB.backendPid;
+			const processBCleanup = await serverB.stop();
+			serverB = null;
+
+			// Assert
+			const restartReceipt = {
+				processA: { backendPid: processABackendPid, proof: processAProof },
+				processB: { backendPid: processBBackendPid, proof: processBProof },
+			};
+			expect(restartReceipt.processA.backendPid).toBeGreaterThan(0);
+			expect(restartReceipt.processB.backendPid).toBeGreaterThan(0);
+			expect(restartReceipt.processB.backendPid).not.toBe(restartReceipt.processA.backendPid);
+			expect(processBCleanup.forcedTerminationRequired).toBe(false);
+			expect(processBCleanup.ownedProcessAliveAfterStop).toBe(false);
+			expect(restartReceipt.processA.proof.targetOID).toBe(fixture.oracle.baseRef);
+			expect(restartReceipt.processB.proof.targetOID).toBe(movedTargetOID);
+			expect(restartReceipt.processB.proof.targetOID).not.toBe(
+				restartReceipt.processA.proof.targetOID,
+			);
+			expect(restartReceipt.processB.proof.symbolicTargetLabel).toBe(
+				restartReceipt.processA.proof.symbolicTargetLabel,
+			);
+			expect(restartReceipt.processB.proof.packageId).not.toBe(
+				restartReceipt.processA.proof.packageId,
+			);
+		} finally {
+			await browser.close();
+			if (serverA !== null) await serverA.stop();
+			if (serverB !== null) await serverB.stop();
+			await fixture.dispose();
 		}
 	});
 });

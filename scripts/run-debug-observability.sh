@@ -12,6 +12,12 @@ CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
 SECURITY_BIN="${AGENTSTUDIO_SECURITY_BIN:-/usr/bin/security}"
+DEBUG_LAUNCH_ACTIVATE="${AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE:-0}"
+
+if [ "$DEBUG_LAUNCH_ACTIVATE" != "0" ] && [ "$DEBUG_LAUNCH_ACTIVATE" != "1" ]; then
+  echo "AGENTSTUDIO_DEBUG_LAUNCH_ACTIVATE must be 0 or 1" >&2
+  exit 2
+fi
 
 fail_on_legacy_observability_env() {
   local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
@@ -957,8 +963,13 @@ launch_method=launchservices
 launched_with_direct=false
 direct_launch_pid=""
 if [ "$detach" = true ]; then
+  launch_activation_flag="-g"
   launch_activation_mode=background
-  if ! open_app "$app_path" "$launch_log" "-g" "${open_env_args[@]}"; then
+  if [ "$DEBUG_LAUNCH_ACTIVATE" = "1" ]; then
+    launch_activation_flag=""
+    launch_activation_mode=foreground
+  fi
+  if ! open_app "$app_path" "$launch_log" "$launch_activation_flag" "${open_env_args[@]}"; then
     if ! start_debug_direct_fallback launchservices_open_failed; then
       write_launch_failed_state launchservices_open_failed
       echo "LaunchServices open failed for debug app; GUI observability proof was not started." >&2

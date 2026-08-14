@@ -5,6 +5,115 @@ import Foundation
 private let libGit2NotFoundErrorCode: Int32 = -3
 
 extension AgentStudioGitBridgeReviewDataClient {
+    func loadGitReviewDefaultTarget(
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitReviewComparisonBranchTarget? {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(
+                    domain: "review-comparison-default-target",
+                    request: repositoryPath
+                ),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.resolveReviewDefaultTarget(for: self.repositoryPath)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
+    func loadGitReviewComparisonTargets(
+        _ request: GitReviewComparisonTargetCaptureRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitReviewComparisonTargetCapture {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .selectedVisibleContent,
+                coalescingKey: try gitReadCoalescingKey(
+                    domain: "review-comparison-targets",
+                    request: request
+                ),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.captureReviewComparisonTargets(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
+    func loadGitContributionDiff(
+        _ request: GitContributionDiffRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitContributionDiffSnapshot {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "contribution-diff", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.contributionDiff(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
+    func loadGitDirectReviewComparison(
+        _ request: GitDirectReviewComparisonRequest,
+        freshnessKey: BridgeGitReadFreshnessKey
+    ) async throws -> GitDirectReviewComparisonSnapshot {
+        let client = self.client
+        do {
+            return try await scheduledGitRead(
+                operationClass: .reviewMetadata,
+                coalescingKey: try gitReadCoalescingKey(domain: "direct-review-comparison", request: request),
+                freshnessKey: freshnessKey
+            ) {
+                try await client.directReviewComparison(request)
+            }
+        } catch BridgeGitReadSchedulerError.timedOut {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.timeoutMessage)
+        } catch BridgeGitReadSchedulerError.capacityReached {
+            throw BridgeProviderFailure.providerFailed(message: BridgeGitReadFailure.capacityMessage)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as GitDataPlaneError {
+            throw bridgeFailure(for: error)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+        }
+    }
+
     func loadGitResolvedRevision(
         _ request: GitRevisionResolutionRequest,
         unavailableEndpointId: String,
@@ -215,6 +324,16 @@ extension AgentStudioGitBridgeReviewDataClient {
             return .providerFailed(message: "gitDataPlane:contentTooLarge:sizeBytes=\(sizeBytes)")
         case .pathEscapesRepository:
             return .providerFailed(message: "gitDataPlane:pathEscapesRepository")
+        case .revisionUnavailable:
+            return .providerFailed(message: "gitDataPlane:revisionUnavailable")
+        case .headUnavailable:
+            return .providerFailed(message: "gitDataPlane:headUnavailable")
+        case .requiredObjectNotFound:
+            return .providerFailed(message: "gitDataPlane:requiredObjectNotFound")
+        case .noSharedHistory:
+            return .providerFailed(message: "gitDataPlane:noSharedHistory")
+        case .multipleBestMergeBases:
+            return .providerFailed(message: "gitDataPlane:multipleBestMergeBases")
         case .libgit2Failure(let code, let klass, let message):
             return .providerFailed(
                 message:

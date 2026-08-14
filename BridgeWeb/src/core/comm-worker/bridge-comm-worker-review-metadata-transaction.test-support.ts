@@ -31,6 +31,15 @@ type ReviewInvalidatedEvent = Extract<
 export const workerDerivationEpoch = 31;
 export const activeIdentity = reviewIdentity('active', 7, 11);
 export const candidateIdentity = reviewIdentity('candidate', 8, 21);
+export const reviewComparisonOrigin = {
+	baseOID: 'contribution-base-oid',
+	baseRole: 'commonCommit',
+	comparedRole: 'capturedWorkingTree',
+	kind: 'contribution',
+	resolvedTargetOID: 'resolved-target-oid',
+	reviewedHeadOID: 'reviewed-head-oid',
+	symbolicTarget: { basis: 'commonCommit', kind: 'branch', name: 'integration' },
+} as const;
 
 export function makeApplicatorHarness(
 	props: {
@@ -87,7 +96,13 @@ export function reviewIdentity(
 }
 
 export function reviewReset(identity: ReviewMetadataIdentity): BridgeProductReviewMetadataEvent {
-	return { ...identity, eventKind: 'review.reset', reason: 'sourceChanged' };
+	return {
+		...identity,
+		comparisonOrigin: reviewComparisonOrigin,
+		eventKind: 'review.reset',
+		reason: 'sourceChanged',
+		reviewedSubjectLabel: 'feature/review-comments',
+	};
 }
 
 export function reviewSourceAccepted(
@@ -106,9 +121,11 @@ export function reviewSnapshot(
 	return {
 		...reviewPayload(identity, itemId, startIndex, totalItemCount, finalWindow),
 		baseEndpoint: reviewEndpoint('base', 'gitRef'),
+		comparisonOrigin: reviewComparisonOrigin,
 		eventKind: 'review.snapshot',
 		headEndpoint: reviewEndpoint('head', 'workingTree'),
 		query: reviewQuery(),
+		reviewedSubjectLabel: 'feature/review-comments',
 	};
 }
 
@@ -135,8 +152,10 @@ export function reviewDelta(
 		eventKind: 'review.delta',
 		fromRevision: identity.revision,
 		operations: [],
+		presentationRevision: toRevision,
 		publicationId: reviewPublicationId(toRevision),
 		revision: toRevision,
+		reviewComparison: null,
 		summary: reviewSummary(1),
 		toRevision,
 	};
@@ -189,6 +208,7 @@ function reviewPayload(
 			},
 		],
 		itemWindow: { finalWindow, itemCount: 1, startIndex, totalItemCount },
+		...(finalWindow ? { presentationRevision: identity.revision, reviewComparison: null } : {}),
 		revision: identity.revision,
 		summary: reviewSummary(totalItemCount),
 		treeRows: [{ depth: 0, isDirectory: false, itemId, path, rowId: `row-${itemId}` }],

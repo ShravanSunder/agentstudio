@@ -13,7 +13,9 @@ publication, demand, selection, scroll, and rendering.
 
 For implementation detail, continue with [Bridge Native Runtime
 Architecture](bridge_native_runtime_architecture.md) and [Bridge Web Runtime
-Architecture](bridge_web_runtime_architecture.md).
+Architecture](bridge_web_runtime_architecture.md). For command, metadata,
+content, and demand placement, use [Bridge Product Transport
+Architecture](bridge_product_transport_architecture.md).
 
 ## System Map
 
@@ -109,11 +111,11 @@ sequenceDiagram
         Git-->>Shared: Immutable File or Review product
         Shared-->>Native: New artifact lease
     end
-    Native->>Worker: Publish pane-scoped metadata transaction
+    Native->>Worker: Push compact pane/application metadata
     Worker->>Render: Apply tree/catalog snapshot
-    Render->>Worker: Publish selection, viewport, and hover demand
-    Worker->>Native: Pull authorized content by handle
-    Native-->>Worker: Framed content response
+    Render->>Worker: Publish selection, viewport, hover, or query intent
+    Worker->>Native: Send typed command or pull content by descriptor
+    Native-->>Worker: Typed result or framed content response
     Worker->>Worker: Validate, cache, and prepare Pierre/Shiki job
     Worker->>Render: Transfer bounded render result
     Render-->>Worker: Painted/rejected/stale fulfillment receipt
@@ -124,6 +126,11 @@ after demand. A metadata-complete pane can therefore still show a short
 "Waiting for content" state while a demanded body is fetched and rendered; it
 must not remain wedged after demand changes, invalidation, suspension, or
 failure.
+
+Finite application datasets requested by a control follow the same separation:
+the typed command initiates the query and returns a descriptor; the actual
+dataset arrives through the content route. Such a dataset does not become
+metadata merely because its control is visible in File or Review chrome.
 
 ## Authority And Freshness
 
