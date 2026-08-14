@@ -115,6 +115,8 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
     private var topologyGeneration: UInt64 = 0
     private var appliedPaneUpdateGeneration: UInt64 = 0
     private var canonicalPathByRawPath: [String: String] = [:]
+    private var lastGitSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
+    private var gitSnapshotInputRevisionByWorktreeId: [UUID: UInt64] = [:]
     private var pendingSourceSyncsByRequestGeneration: [UInt64: PendingSourceSyncSnapshot] = [:]
     private var paneUpdateWaiters: [UInt64: [CheckedContinuation<PaneUpdateWaitOutcome, Never>]] = [:]
     private var isShutdown = false
@@ -228,6 +230,10 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         paneIdsByWorktreeId = pending.paneIdsByWorktreeId
         activityByWorktreeId = pending.activityByWorktreeId
         activePaneWorktreeId = pending.activePaneWorktreeId
+        lastGitSnapshotByWorktreeId = lastGitSnapshotByWorktreeId.filter { worktreesById[$0.key] != nil }
+        gitSnapshotInputRevisionByWorktreeId = gitSnapshotInputRevisionByWorktreeId.filter {
+            worktreesById[$0.key] != nil
+        }
         self.topologyGeneration = topologyGeneration
         appliedPaneUpdateGeneration = max(appliedPaneUpdateGeneration, pending.paneContextGeneration)
         pendingSourceSyncsByRequestGeneration = pendingSourceSyncsByRequestGeneration.filter { generation, _ in
@@ -288,13 +294,42 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
         }
 
         let intents: [PaneFilesystemProjectionIntent]
+        let affectedPaneIds: Set<UUID>
+        let affectedWorktreeIds: Set<UUID>
+        let derivedInputCount: Int
+        let skippedUnchangedInputCount: Int
+        let inputRevision: UInt64
         switch PaneFilesystemProjectionAdmission.classify(worktreeEnvelope.event) {
         case .filesystemChanges(let changeset):
             intents = filesystemIntents(for: changeset, envelope: worktreeEnvelope)
+            affectedPaneIds = paneIdsByWorktreeId[changeset.worktreeId] ?? []
+            affectedWorktreeIds = [changeset.worktreeId]
+            derivedInputCount = 1
+            skippedUnchangedInputCount = 0
+            inputRevision = 0
         case .gitSnapshot(let snapshot):
-            intents = gitSnapshotIntents(for: snapshot, envelope: worktreeEnvelope)
+            affectedPaneIds = paneIdsByWorktreeId[snapshot.worktreeId] ?? []
+            affectedWorktreeIds = [snapshot.worktreeId]
+            if lastGitSnapshotByWorktreeId[snapshot.worktreeId] == snapshot {
+                intents = []
+                derivedInputCount = 0
+                skippedUnchangedInputCount = 1
+                inputRevision = gitSnapshotInputRevisionByWorktreeId[snapshot.worktreeId] ?? 0
+            } else {
+                lastGitSnapshotByWorktreeId[snapshot.worktreeId] = snapshot
+                gitSnapshotInputRevisionByWorktreeId[snapshot.worktreeId, default: 0] &+= 1
+                intents = gitSnapshotIntents(for: snapshot, envelope: worktreeEnvelope)
+                derivedInputCount = 1
+                skippedUnchangedInputCount = 0
+                inputRevision = gitSnapshotInputRevisionByWorktreeId[snapshot.worktreeId] ?? 0
+            }
         case .ignored:
             intents = []
+            affectedPaneIds = []
+            affectedWorktreeIds = []
+            derivedInputCount = 0
+            skippedUnchangedInputCount = 0
+            inputRevision = 0
         }
 
         return PaneFilesystemProjectionResult(
@@ -302,6 +337,11 @@ actor FilesystemProjectionIndex: WorkspaceFilesystemProjectionIndexing {
             paneContextGeneration: request.paneContextGeneration,
             topologyGeneration: topologyGeneration,
             intents: intents,
+            affectedPaneIds: affectedPaneIds,
+            affectedWorktreeIds: affectedWorktreeIds,
+            derivedInputCount: derivedInputCount,
+            skippedUnchangedInputCount: skippedUnchangedInputCount,
+            inputRevision: inputRevision,
             worktreeCount: worktreesById.count,
             paneCount: panesById.count
         )

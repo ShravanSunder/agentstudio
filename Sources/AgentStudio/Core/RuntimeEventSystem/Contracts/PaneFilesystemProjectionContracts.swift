@@ -177,6 +177,11 @@ package struct PaneFilesystemProjectionResult: Sendable {
     package let paneContextGeneration: UInt64
     package let topologyGeneration: UInt64
     package let intents: [PaneFilesystemProjectionIntent]
+    package let affectedPaneIds: Set<UUID>
+    package let affectedWorktreeIds: Set<UUID>
+    package let derivedInputCount: Int
+    package let skippedUnchangedInputCount: Int
+    package let inputRevision: UInt64
     package let worktreeCount: Int
     package let paneCount: Int
 
@@ -185,6 +190,11 @@ package struct PaneFilesystemProjectionResult: Sendable {
         paneContextGeneration: UInt64,
         topologyGeneration: UInt64,
         intents: [PaneFilesystemProjectionIntent],
+        affectedPaneIds: Set<UUID> = [],
+        affectedWorktreeIds: Set<UUID> = [],
+        derivedInputCount: Int = 0,
+        skippedUnchangedInputCount: Int = 0,
+        inputRevision: UInt64 = 0,
         worktreeCount: Int,
         paneCount: Int
     ) {
@@ -192,6 +202,11 @@ package struct PaneFilesystemProjectionResult: Sendable {
         self.paneContextGeneration = paneContextGeneration
         self.topologyGeneration = topologyGeneration
         self.intents = intents
+        self.affectedPaneIds = affectedPaneIds
+        self.affectedWorktreeIds = affectedWorktreeIds
+        self.derivedInputCount = derivedInputCount
+        self.skippedUnchangedInputCount = skippedUnchangedInputCount
+        self.inputRevision = inputRevision
         self.worktreeCount = worktreeCount
         self.paneCount = paneCount
     }

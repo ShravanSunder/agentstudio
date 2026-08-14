@@ -115,10 +115,15 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
             projection.attributes["agentstudio.performance.coordinator.filesystem_source_elapsed_ms"]
                 == .double(4.5))
         #expect(projection.attributes["agentstudio.performance.coordinator.index_elapsed_ms"] == .double(5.5))
+        #expect(projection.attributes["agentstudio.performance.coordinator.derived_input.count"] == .int(1))
+        #expect(projection.attributes["agentstudio.performance.coordinator.input_revision.count"] == .int(7))
         #expect(
             projection.attributes["agentstudio.performance.coordinator.mainactor_apply_elapsed_ms"]
                 == .double(0.5))
         #expect(projection.attributes["agentstudio.performance.coordinator.phase"] == .string("source_sync"))
+        #expect(
+            projection.attributes["agentstudio.performance.coordinator.skipped_unchanged_input.count"] == .int(1)
+        )
         #expect(projection.attributes["agentstudio.performance.coordinator.total_elapsed_ms"] == .double(10.5))
         #expect(
             projection.attributes["agentstudio.performance.management_layer.command"]
@@ -347,8 +352,11 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 "agentstudio.performance.coordinator.activity_write.count": .int(3),
                 "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(4.5),
                 "agentstudio.performance.coordinator.index_elapsed_ms": .double(5.5),
+                "agentstudio.performance.coordinator.derived_input.count": .int(1),
+                "agentstudio.performance.coordinator.input_revision.count": .int(7),
                 "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms": .double(0.5),
                 "agentstudio.performance.coordinator.phase": .string("source_sync"),
+                "agentstudio.performance.coordinator.skipped_unchanged_input.count": .int(1),
                 "agentstudio.performance.coordinator.total_elapsed_ms": .double(10.5),
                 "agentstudio.performance.management_layer.command": .string("toggleManagementLayer"),
                 "agentstudio.performance.note_text": .string("raw payload should stay local"),

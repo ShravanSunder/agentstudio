@@ -405,17 +405,6 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.commandbar.repo.count",
         "agentstudio.performance.commandbar.result.count",
         "agentstudio.performance.commandbar.worktree.count",
-        "agentstudio.performance.coordinator.active_pane_write.count",
-        "agentstudio.performance.coordinator.activity_write.count",
-        "agentstudio.performance.coordinator.derived_envelope.count",
-        "agentstudio.performance.coordinator.filesystem_source_elapsed_ms",
-        "agentstudio.performance.coordinator.index_elapsed_ms",
-        "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms",
-        "agentstudio.performance.coordinator.pane.count",
-        "agentstudio.performance.coordinator.registered.count",
-        "agentstudio.performance.coordinator.total_elapsed_ms",
-        "agentstudio.performance.coordinator.unregistered.count",
-        "agentstudio.performance.coordinator.worktree.count",
         "agentstudio.performance.elapsed_ms",
         "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms",
         "agentstudio.performance.filesystem.drain_task.count",
@@ -679,7 +668,8 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.latest_rows",
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
-    ]).union(BridgeProductStreamProjectionKeys.numericKeys)
+    ]).union(AgentStudioCoordinatorProjectionKeys.numericKeys)
+        .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
