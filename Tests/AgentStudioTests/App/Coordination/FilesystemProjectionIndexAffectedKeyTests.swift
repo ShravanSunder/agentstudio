@@ -51,6 +51,110 @@ struct FilesystemProjectionIndexAffectedKeyTests {
         #expect(ignoredGitAdmission.performancePhase == "ignored")
     }
 
+    @Test("unchanged Git snapshot skips its second keyed derivation")
+    func unchangedGitSnapshotSkipsSecondKeyedDerivation() async {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let rootPath = URL(fileURLWithPath: "/tmp/repo")
+        let index = FilesystemProjectionIndex()
+        await seed(
+            index,
+            repoId: repoId,
+            worktrees: [(worktreeId, rootPath)],
+            pane: (paneId, worktreeId, rootPath)
+        )
+        let snapshot = GitWorkingTreeSnapshot(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: rootPath,
+            summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+            branch: "main"
+        )
+
+        let first = await index.projectPaneFilesystem(
+            projectionRequest(generation: 2, envelope: gitEnvelope(snapshot: snapshot))
+        )
+        let second = await index.projectPaneFilesystem(
+            projectionRequest(generation: 3, envelope: gitEnvelope(snapshot: snapshot))
+        )
+
+        #expect(first.derivedInputCount == 1)
+        #expect(first.skippedUnchangedInputCount == 0)
+        #expect(first.inputRevision == 1)
+        #expect(first.intents.count == 1)
+        #expect(second.derivedInputCount == 0)
+        #expect(second.skippedUnchangedInputCount == 1)
+        #expect(second.inputRevision == 1)
+        #expect(second.intents.isEmpty)
+        #expect(second.affectedPaneIds == [paneId])
+        #expect(second.affectedWorktreeIds == [worktreeId])
+    }
+
+    @Test("changed Git snapshot derives only its own keyed input")
+    func changedGitSnapshotDerivesOnlyItsOwnKeyedInput() async {
+        let repoId = UUIDv7.generate()
+        let firstWorktreeId = UUIDv7.generate()
+        let secondWorktreeId = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let firstRoot = URL(fileURLWithPath: "/tmp/repo/first")
+        let secondRoot = URL(fileURLWithPath: "/tmp/repo/second")
+        let index = FilesystemProjectionIndex()
+        await seed(
+            index,
+            repoId: repoId,
+            worktrees: [(firstWorktreeId, firstRoot), (secondWorktreeId, secondRoot)],
+            pane: (paneId, firstWorktreeId, firstRoot)
+        )
+        let firstSnapshot = GitWorkingTreeSnapshot(
+            worktreeId: firstWorktreeId,
+            repoId: repoId,
+            rootPath: firstRoot,
+            summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+            branch: "main"
+        )
+        let secondSnapshot = GitWorkingTreeSnapshot(
+            worktreeId: secondWorktreeId,
+            repoId: repoId,
+            rootPath: secondRoot,
+            summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+            branch: "main"
+        )
+        _ = await index.projectPaneFilesystem(
+            projectionRequest(generation: 2, envelope: gitEnvelope(snapshot: firstSnapshot))
+        )
+        _ = await index.projectPaneFilesystem(
+            projectionRequest(generation: 3, envelope: gitEnvelope(snapshot: secondSnapshot))
+        )
+
+        let changedFirst = await index.projectPaneFilesystem(
+            projectionRequest(
+                generation: 4,
+                envelope: gitEnvelope(
+                    snapshot: GitWorkingTreeSnapshot(
+                        worktreeId: firstWorktreeId,
+                        repoId: repoId,
+                        rootPath: firstRoot,
+                        summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+                        branch: "main"
+                    )
+                )
+            )
+        )
+        let unchangedSecond = await index.projectPaneFilesystem(
+            projectionRequest(generation: 5, envelope: gitEnvelope(snapshot: secondSnapshot))
+        )
+
+        #expect(changedFirst.derivedInputCount == 1)
+        #expect(changedFirst.skippedUnchangedInputCount == 0)
+        #expect(changedFirst.inputRevision == 2)
+        #expect(changedFirst.affectedWorktreeIds == [firstWorktreeId])
+        #expect(unchangedSecond.derivedInputCount == 0)
+        #expect(unchangedSecond.skippedUnchangedInputCount == 1)
+        #expect(unchangedSecond.inputRevision == 1)
+        #expect(unchangedSecond.affectedWorktreeIds == [secondWorktreeId])
+    }
+
     @Test("pane removal reports only the old worktree becoming inactive")
     func paneRemovalReportsOnlyOldWorktreeBecomingInactive() async {
         let repoId = UUID()
@@ -291,6 +395,28 @@ struct FilesystemProjectionIndexAffectedKeyTests {
                     )
                 )
             )
+        )
+    }
+
+    private func gitEnvelope(snapshot: GitWorkingTreeSnapshot) -> RuntimeEnvelope {
+        .worktree(
+            WorktreeEnvelope(
+                source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                seq: 1,
+                timestamp: .now,
+                repoId: snapshot.repoId,
+                worktreeId: snapshot.worktreeId,
+                event: .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot))
+            )
+        )
+    }
+
+    private func projectionRequest(generation: UInt64, envelope: RuntimeEnvelope) -> PaneFilesystemProjectionRequest {
+        PaneFilesystemProjectionRequest(
+            requestGeneration: generation,
+            paneContextGeneration: 1,
+            topologyGeneration: 1,
+            envelope: envelope
         )
     }
 }
