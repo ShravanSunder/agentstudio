@@ -156,7 +156,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
-    func repoAndTabAffectedWorkProjectsOnlyApprovedAggregateCounters() throws {
+    func repoCommandPresentationAndTabWorkProjectsOnlyApprovedAggregateCounters() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 123,
             severityText: .info,
@@ -167,9 +167,10 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
-                "agentstudio.performance.repo_explorer.affected_item.count": .int(2),
                 "agentstudio.performance.repo_explorer.command_resolution.count": .int(12),
-                "agentstudio.performance.repo_explorer.capability_snapshot.count": .int(1),
+                "agentstudio.performance.repo_explorer.command_reused.count": .int(18),
+                "agentstudio.performance.repo_explorer.visible_set.count": .int(3),
+                "agentstudio.performance.repo_explorer.visible_set_delta.count": .int(1),
                 "agentstudio.performance.tabbar.affected_item.count": .int(1),
                 "agentstudio.performance.repo_explorer.private_title": .string("must-not-project"),
             ]
@@ -179,9 +180,10 @@ struct AgentStudioOTLPPerformanceMetricsTests {
 
         #expect(
             metricEvent.samples.map(\.label) == [
-                "agentstudio_performance_repo_explorer_affected_item_count",
-                "agentstudio_performance_repo_explorer_capability_snapshot_count",
                 "agentstudio_performance_repo_explorer_command_resolution_count",
+                "agentstudio_performance_repo_explorer_command_reused_count",
+                "agentstudio_performance_repo_explorer_visible_set_count",
+                "agentstudio_performance_repo_explorer_visible_set_delta_count",
                 "agentstudio_performance_tabbar_affected_item_count",
             ]
         )

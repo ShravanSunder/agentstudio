@@ -429,6 +429,140 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         #expect(window.firstResponder === parentMountedContent)
     }
 
+    @Test("restore tail hands focus from the target pane placeholder to its mounted surface")
+    func restoreTail_handsFocusFromTargetPanePlaceholderToMountedSurface() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            launchDirectory: harness.tempDir,
+            title: "Restored Terminal",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+
+        let paneHost = PaneHostView(paneId: pane.id)
+        let terminalMount = TerminalPaneMountView(paneId: pane.id, title: "Restored Terminal")
+        let placeholder = terminalMount.showPlaceholder(mode: .preparing)
+        paneHost.mountContentView(terminalMount)
+        harness.viewRegistry.register(paneHost, for: pane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(paneHost)
+        #expect(window.makeFirstResponder(placeholder))
+
+        harness.coordinator.focusVisiblePaneHost(pane.id, reason: .restoreTail)
+
+        #expect(window.firstResponder === terminalMount)
+    }
+
+    @Test("restore tail preserves an interactive responder inside mounted pane content")
+    func restoreTail_preservesInteractiveResponderInsideMountedPaneContent() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = makeWebviewPane(harness.store, title: "Restored Webview")
+        harness.store.appendTab(Tab(paneId: pane.id))
+
+        let paneHost = PaneHostView(paneId: pane.id)
+        let mountedContent = FocusableMountedContentView()
+        let interactiveControl = FocusableResponderView()
+        mountedContent.addSubview(interactiveControl)
+        paneHost.mountContentView(mountedContent)
+        harness.viewRegistry.register(paneHost, for: pane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(paneHost)
+        #expect(window.makeFirstResponder(interactiveControl))
+
+        harness.coordinator.focusVisiblePaneHost(pane.id, reason: .restoreTail)
+
+        #expect(window.firstResponder === interactiveControl)
+    }
+
+    @Test("parked restore replay preserves an interactive responder inside mounted pane content")
+    func parkedRestoreReplay_preservesInteractiveResponderInsideMountedPaneContent() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = makeWebviewPane(harness.store, title: "Restored Webview")
+        harness.store.appendTab(Tab(paneId: pane.id))
+
+        let paneHost = PaneHostView(paneId: pane.id)
+        let mountedContent = FocusableMountedContentView()
+        let interactiveControl = FocusableResponderView()
+        mountedContent.addSubview(interactiveControl)
+        paneHost.mountContentView(mountedContent)
+        harness.viewRegistry.register(paneHost, for: pane.id)
+
+        harness.coordinator.focusVisiblePaneHost(pane.id, reason: .restoreTail)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(paneHost)
+        #expect(window.makeFirstResponder(interactiveControl))
+
+        harness.coordinator.handlePaneHostAttachedToWindow(pane.id)
+
+        #expect(window.firstResponder === interactiveControl)
+    }
+
+    @Test("drawer focus park survives unrelated user focus until the host attaches")
+    func drawerFocusPark_survivesUnrelatedUserFocusUntilHostAttaches() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        let parentHost = PaneHostView(paneId: parentPane.id)
+        let parentContent = FocusableMountedContentView()
+        parentHost.mountContentView(parentContent)
+        harness.viewRegistry.register(parentHost, for: parentPane.id)
+
+        let drawerHost = PaneHostView(paneId: drawerPane.id)
+        let drawerContent = FocusableMountedContentView()
+        drawerHost.mountContentView(drawerContent)
+        harness.viewRegistry.register(drawerHost, for: drawerPane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(parentHost)
+        #expect(window.makeFirstResponder(parentContent))
+
+        harness.coordinator.focusVisiblePaneHost(drawerPane.id)
+        harness.coordinator.clearPendingPaneRefocusRequestsAfterUserFocusChange()
+        contentView.addSubview(drawerHost)
+        harness.coordinator.handlePaneHostAttachedToWindow(drawerPane.id)
+
+        #expect(window.firstResponder === drawerContent)
+    }
+
     @Test("removeDrawerPane closing the last drawer pane lands in empty drawer context")
     func removeDrawerPane_lastDrawerPaneClearsResponderToEmptyDrawerContext() throws {
         let harness = makeHarness()
@@ -848,4 +982,8 @@ private final class FocusableMountedContentView: NSView, PaneMountedContent {
     override var acceptsFirstResponder: Bool { true }
 
     func setContentInteractionEnabled(_: Bool) {}
+}
+
+private final class FocusableResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }

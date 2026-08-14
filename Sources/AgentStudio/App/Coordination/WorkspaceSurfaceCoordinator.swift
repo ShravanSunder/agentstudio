@@ -85,7 +85,7 @@ final class WorkspaceSurfaceCoordinator {
     var isObservingActivePaneWorktree = false
     var activePaneWorktreeObservationGeneration: UInt64 = 0
     var lastObservedActivePaneWorktreeId: UUID?
-    var pendingFocusPaneIds: Set<UUID> = []
+    var pendingPaneRefocusReasonsByPaneId: [UUID: PaneRefocusRequestTrigger.Reason] = [:]
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?

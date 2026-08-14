@@ -521,6 +521,13 @@ extension Ghostty {
 
         // MARK: - View Lifecycle
 
+        nonisolated static func focusedStateAfterMovingToWindow(
+            isFocused: Bool,
+            isAttachedToWindow: Bool
+        ) -> Bool {
+            isAttachedToWindow && isFocused
+        }
+
         package override var acceptsFirstResponder: Bool { true }
 
         package override func becomeFirstResponder() -> Bool {
@@ -567,6 +574,13 @@ extension Ghostty {
                 "Ghostty.SurfaceView.viewDidMoveToWindow viewId=\(viewId) window=\(window != nil) reparent=\(isReparent) wasDetached=\(wasDetachedFromWindow) frame=\(NSStringFromRect(frame)) bounds=\(NSStringFromRect(bounds)) superview=\(superviewInfo) hidden=\(isHidden)\(hierarchyDescription)"
             )
             if window == nil {
+                focused = Self.focusedStateAfterMovingToWindow(
+                    isFocused: focused,
+                    isAttachedToWindow: false
+                )
+                if let surface {
+                    ghostty_surface_set_focus(surface, false)
+                }
                 wasDetachedFromWindow = true
             }
             logSurfaceSnapshot(reason: "viewDidMoveToWindow")

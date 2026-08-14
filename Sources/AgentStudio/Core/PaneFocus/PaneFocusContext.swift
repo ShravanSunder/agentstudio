@@ -25,6 +25,11 @@ package struct PaneFocusContext: Sendable, Equatable {
         case key
     }
 
+    package enum CurrentResponderOwnership: Sendable, Equatable {
+        case windowContentDefault
+        case userOwned
+    }
+
     package enum MountedContentState: Sendable, Equatable {
         case unmounted
         case nonTerminal(acceptsFirstResponder: Bool)
@@ -53,6 +58,7 @@ package struct PaneFocusContext: Sendable, Equatable {
     let targetMountedContent: MountedContentState
     let managementLayer: ManagementLayerState
     let windowState: WindowState
+    let currentResponderOwnership: CurrentResponderOwnership
 
     package init(
         activeTabId: UUID?,
@@ -64,7 +70,8 @@ package struct PaneFocusContext: Sendable, Equatable {
         targetPaneIsAlreadyActive: Bool,
         targetMountedContent: MountedContentState,
         managementLayer: ManagementLayerState,
-        windowState: WindowState
+        windowState: WindowState,
+        currentResponderOwnership: CurrentResponderOwnership = .windowContentDefault
     ) {
         assert(targetPaneId == nil || targetTabId != nil || activeTabId == nil || targetPaneIsAlreadyActive)
         self.activeTabId = activeTabId
@@ -77,5 +84,6 @@ package struct PaneFocusContext: Sendable, Equatable {
         self.targetMountedContent = targetMountedContent
         self.managementLayer = managementLayer
         self.windowState = windowState
+        self.currentResponderOwnership = currentResponderOwnership
     }
 }

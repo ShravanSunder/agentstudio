@@ -905,6 +905,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger) {
+        if trigger.isUserFocusInteraction {
+            executor.clearPendingPaneRefocusRequestsAfterUserFocusChange()
+        }
         let bridgeAttendanceEvent = pendingBridgeAttendanceEventForNextFocus ?? bridgeAttendanceEvent(for: trigger)
         pendingBridgeAttendanceEventForNextFocus = nil
         guard let context = makePaneFocusContext(for: trigger) else {
@@ -918,6 +921,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             Self.logger.warning(
                 "Pane focus apply returned false for trigger \(String(describing: trigger), privacy: .public)")
             return
+        }
+        if trigger.isUserFocusInteraction {
+            performanceTraceRecorder?.recordFocusResponderChange(reason: .userClick)
         }
         if let bridgeAttendanceEvent,
             let paneId = context.targetPaneId,
