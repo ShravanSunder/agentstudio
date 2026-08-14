@@ -238,6 +238,11 @@ struct VendorConsumerWiringScriptTests {
         #expect(!setupTask.contains("depends = [\"copy-xcframework\""))
         #expect(setupTask.contains("vendor-worktree.sh\" setup-local"))
         #expect(setupTask.contains("vendor-worktree.sh\" setup-shared"))
+        #expect(!setupTask.contains("normalize-gitdirs"))
+
+        let normalizationTask = try #require(
+            taskBlock(named: "normalize-vendor-gitdirs", in: miseSource))
+        #expect(normalizationTask.contains("vendor-worktree.sh\\\" normalize-gitdirs"))
 
         for taskName in [
             "init-submodules",

@@ -305,6 +305,104 @@ local_inputs_are_hydrated() {
     [[ ! -L "$current_root/$zmx_output_relative" ]]
 }
 
+expected_submodule_git_directory() {
+  git -C "$1" rev-parse \
+    --path-format=absolute \
+    --git-path "modules/$2" 2>/dev/null ||
+    fail "cannot resolve expected Git administrative directory for $2 in $1"
+}
+
+require_no_git_locks() {
+  local git_directory="$1"
+  local first_lock
+
+  first_lock="$(find "$git_directory" -type f -name '*.lock' -print -quit)"
+  [[ -z "$first_lock" ]] || fail "Git lock blocks vendor normalization: $first_lock"
+}
+
+require_vendor_git_pointer() {
+  local current_root="$1"
+  local submodule="$2"
+  local vendor_root="$current_root/$submodule"
+  local git_entry="$vendor_root/.git"
+  local pointer
+  local actual_git_directory
+  local expected_git_directory
+  local expected_git_parent
+
+  [[ ! -L "$git_entry" && -f "$git_entry" ]] ||
+    fail "hydrated $submodule must use a .git pointer file; run: mise run normalize-vendor-gitdirs"
+  pointer="$(cat "$git_entry")"
+  [[ "$pointer" == gitdir:\ * && "$pointer" != *$'\n'* ]] ||
+    fail "hydrated $submodule has an invalid .git pointer file"
+
+  actual_git_directory="$(canonical_directory "$(absolute_git_directory "$vendor_root")")"
+  expected_git_directory="$(expected_submodule_git_directory "$current_root" "$submodule")"
+  expected_git_parent="$(canonical_directory "$(dirname "$expected_git_directory")")"
+  expected_git_directory="$expected_git_parent/$(basename "$expected_git_directory")"
+  [[ "$actual_git_directory" == "$expected_git_directory" ]] ||
+    fail "$submodule .git pointer resolves outside its expected superproject administration path"
+}
+
+preflight_vendor_git_normalization() {
+  local current_root="$1"
+  local submodule="$2"
+  local vendor_root="$current_root/$submodule"
+  local git_entry="$vendor_root/.git"
+  local expected_git_directory
+  local gitlink
+  local checkout
+  local dirty_state
+
+  [[ "$(submodule_state_marker "$current_root" "$submodule")" != "-" ]] ||
+    fail "vendor Git normalization requires hydrated vendor submodules"
+  gitlink="$(gitlink_revision "$current_root" "$submodule")"
+  checkout="$(submodule_checked_out_revision "$current_root" "$submodule")"
+  [[ "$gitlink" == "$checkout" ]] ||
+    fail "$submodule checkout does not match its committed gitlink"
+
+  if [[ -L "$git_entry" ]]; then
+    fail "$submodule .git entry must not be a symlink"
+  elif [[ -d "$git_entry" ]]; then
+    require_no_git_locks "$git_entry"
+    expected_git_directory="$(expected_submodule_git_directory "$current_root" "$submodule")"
+    [[ ! -e "$expected_git_directory" && ! -L "$expected_git_directory" ]] ||
+      fail "$submodule administrative directory collision: $expected_git_directory"
+  elif [[ -f "$git_entry" ]]; then
+    require_vendor_git_pointer "$current_root" "$submodule"
+    require_no_git_locks "$(absolute_git_directory "$vendor_root")"
+  else
+    fail "hydrated $submodule has no usable .git entry"
+  fi
+
+  dirty_state="$(git -C "$vendor_root" status --porcelain --untracked-files=normal 2>/dev/null)" ||
+    fail "cannot inspect $submodule working tree before normalization"
+  [[ -z "$dirty_state" ]] || fail "$submodule working tree is dirty"
+}
+
+normalize_vendor_git_directories() {
+  local current_root="$1"
+  local submodule
+  local -a embedded_submodules=()
+
+  for submodule in "$ghostty_submodule" "$zmx_submodule"; do
+    preflight_vendor_git_normalization "$current_root" "$submodule"
+    if [[ -d "$current_root/$submodule/.git" ]]; then
+      embedded_submodules+=("$submodule")
+    fi
+  done
+
+  if [[ "${#embedded_submodules[@]}" -gt 0 ]]; then
+    git -C "$current_root" submodule absorbgitdirs -- "${embedded_submodules[@]}" ||
+      fail "Git failed to absorb vendor administrative directories"
+  fi
+
+  for submodule in "$ghostty_submodule" "$zmx_submodule"; do
+    require_vendor_git_pointer "$current_root" "$submodule"
+  done
+  printf '[vendor-worktree] vendor Git directories use superproject-managed pointer files\n'
+}
+
 worktree_role() {
   local current_root="$1"
   local primary_root="$2"
@@ -366,6 +464,7 @@ verify_local() {
     checkout="$(submodule_checked_out_revision "$current_root" "$submodule")"
     [[ "$gitlink" == "$checkout" ]] ||
       fail "local $submodule checkout does not match its committed gitlink"
+    require_vendor_git_pointer "$current_root" "$submodule"
   done
   require_prepared_sources "$current_root"
 }
@@ -619,7 +718,7 @@ main() {
   local primary_root
 
   [[ -n "$operation" ]] ||
-    fail "usage: scripts/vendor-worktree.sh role|setup-shared|setup-local|verify|require-producer"
+    fail "usage: scripts/vendor-worktree.sh role|setup-shared|setup-local|normalize-gitdirs|verify|require-producer"
   [[ "$#" -eq 1 ]] || fail "this helper does not accept arbitrary paths"
   current_root="$(canonical_directory "$(repository_root)")"
   primary_root="$(primary_worktree_root "$current_root")"
@@ -633,6 +732,9 @@ main() {
       ;;
     setup-local)
       setup_local "$current_root" "$primary_root"
+      ;;
+    normalize-gitdirs)
+      normalize_vendor_git_directories "$current_root"
       ;;
     verify)
       verify_current "$current_root" "$primary_root"

@@ -120,6 +120,47 @@ struct VendorWorktreeFixture {
         primaryRoot.appending(path: "Sources/AgentStudio/Resources/terminfo/78/xterm-256color")
     }
 
+    func vendorGitEntry(path: String, in worktree: URL) -> URL {
+        worktree.appending(path: path).appending(path: ".git")
+    }
+
+    func expectedVendorGitDirectory(path: String, in worktree: URL) throws -> URL {
+        let result = try Self.runGit(
+            ["rev-parse", "--path-format=absolute", "--git-path", "modules/\(path)"],
+            in: worktree)
+        try requireSuccess(result)
+        return URL(
+            fileURLWithPath: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func vendorGitPointer(path: String, in worktree: URL) throws -> String {
+        try String(contentsOf: vendorGitEntry(path: path, in: worktree), encoding: .utf8)
+    }
+
+    func convertVendorToEmbeddedGitDirectory(path: String, in worktree: URL) throws {
+        let gitEntry = vendorGitEntry(path: path, in: worktree)
+        let pointer = try String(contentsOf: gitEntry, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "gitdir: "
+        guard pointer.hasPrefix(prefix) else {
+            throw CocoaError(
+                .fileReadCorruptFile,
+                userInfo: [NSLocalizedDescriptionKey: "Expected Git pointer at \(gitEntry.path)"])
+        }
+        let referencedPath = String(pointer.dropFirst(prefix.count))
+        let administrativeDirectory = URL(
+            fileURLWithPath: referencedPath,
+            relativeTo: gitEntry.deletingLastPathComponent()
+        ).standardizedFileURL
+        try requireSuccess(
+            Self.runGit(
+                ["--git-dir", administrativeDirectory.path, "config", "--unset-all", "core.worktree"],
+                in: worktree))
+        try fileManager.removeItem(at: gitEntry)
+        try fileManager.moveItem(at: administrativeDirectory, to: gitEntry)
+        _ = try checkedOutRevision(path: path, in: worktree)
+    }
+
     func cleanup() {
         try? fileManager.removeItem(at: temporaryRoot)
     }
@@ -478,6 +519,7 @@ struct VendorWorktreeFixture {
         try requireSuccess(runGit(["config", "user.name", "Fixture"], in: repository))
         try requireSuccess(runGit(["config", "user.email", "fixture@example.invalid"], in: repository))
         try requireSuccess(runGit(["config", "commit.gpgsign", "false"], in: repository))
+        try Data("zig-out\n".utf8).write(to: repository.appending(path: ".gitignore"))
         try Data("\(markerName) revision one".utf8).write(to: repository.appending(path: "build.zig"))
         try requireSuccess(runGit(["add", "."], in: repository))
         try requireSuccess(runGit(["commit", "-m", "first"], in: repository))

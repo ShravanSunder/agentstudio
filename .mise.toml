@@ -277,6 +277,10 @@ echo "Installed pre-push hook: .githooks/pre-push"
 description = "Verify this worktree's prepared Ghostty and zmx inputs"
 run = "bash \"${PROJECT_ROOT}/scripts/vendor-worktree.sh\" verify"
 
+[tasks.normalize-vendor-gitdirs]
+description = "Move hydrated vendor Git administration under the superproject"
+run = "bash \"${PROJECT_ROOT}/scripts/vendor-worktree.sh\" normalize-gitdirs"
+
 [tasks.build]
 description = "Debug build (run mise run setup first time)"
 depends = ["verify-vendors", "bridge-web-build"]

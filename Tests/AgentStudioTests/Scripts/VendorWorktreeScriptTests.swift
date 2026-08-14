@@ -4,6 +4,244 @@ import Testing
 
 @Suite("Vendor worktree helper")
 struct VendorWorktreeScriptTests {
+    @Test("normalization absorbs embedded vendor Git directories and verification requires pointers")
+    func normalizationAbsorbsEmbeddedVendorGitDirectories() throws {
+        // Arrange
+        let fixture = try VendorWorktreeFixture()
+        defer { fixture.cleanup() }
+        try fixture.convertVendorToEmbeddedGitDirectory(
+            path: "vendor/ghostty",
+            in: fixture.primaryRoot)
+        let gitEntry = fixture.vendorGitEntry(
+            path: "vendor/ghostty",
+            in: fixture.primaryRoot)
+        let expectedGitDirectory = try fixture.expectedVendorGitDirectory(
+            path: "vendor/ghostty",
+            in: fixture.primaryRoot)
+
+        // Act
+        let verificationBefore = try fixture.runHelper("verify", in: fixture.primaryRoot)
+        let normalization = try fixture.runHelper("normalize-gitdirs", in: fixture.primaryRoot)
+        let verificationAfter = try fixture.runHelper("verify", in: fixture.primaryRoot)
+
+        // Assert
+        #expect(verificationBefore.exitCode != 0)
+        #expect(normalization.exitCode == 0, Comment(rawValue: normalization.stderr))
+        #expect(verificationAfter.exitCode == 0, Comment(rawValue: verificationAfter.stderr))
+        var gitEntryIsDirectory: ObjCBool = true
+        #expect(FileManager.default.fileExists(atPath: gitEntry.path, isDirectory: &gitEntryIsDirectory))
+        #expect(!gitEntryIsDirectory.boolValue)
+        #expect(FileManager.default.fileExists(atPath: expectedGitDirectory.path))
+        #expect(
+            try fixture.checkedOutRevision(path: "vendor/ghostty", in: fixture.primaryRoot)
+                == fixture.ghosttyFirstCommit)
+    }
+
+    @Test("normalization is idempotent for already absorbed vendor Git pointers")
+    func normalizationPreservesExistingVendorGitPointers() throws {
+        // Arrange
+        let fixture = try VendorWorktreeFixture()
+        defer { fixture.cleanup() }
+        let ghosttyPointerBefore = try fixture.vendorGitPointer(
+            path: "vendor/ghostty",
+            in: fixture.primaryRoot)
+        let zmxPointerBefore = try fixture.vendorGitPointer(
+            path: "vendor/zmx",
+            in: fixture.primaryRoot)
+
+        // Act
+        let normalization = try fixture.runHelper("normalize-gitdirs", in: fixture.primaryRoot)
+
+        // Assert
+        #expect(normalization.exitCode == 0, Comment(rawValue: normalization.stderr))
+        #expect(
+            try fixture.vendorGitPointer(path: "vendor/ghostty", in: fixture.primaryRoot)
+                == ghosttyPointerBefore)
+        #expect(
+            try fixture.vendorGitPointer(path: "vendor/zmx", in: fixture.primaryRoot)
+                == zmxPointerBefore)
+    }
+
+    @Test("verification rejects vendor Git pointers outside the superproject administration path")
+    func verificationRejectsExternalVendorGitPointers() throws {
+        // Arrange
+        let fixture = try VendorWorktreeFixture()
+        defer { fixture.cleanup() }
+        let gitEntry = fixture.vendorGitEntry(
+            path: "vendor/ghostty",
+            in: fixture.primaryRoot)
+        let expectedGitDirectory = try fixture.expectedVendorGitDirectory(
+            path: "vendor/ghostty",
+            in: fixture.primaryRoot)
+        let externalGitDirectory = fixture.temporaryRoot.appending(path: "external ghostty admin")
+        try FileManager.default.moveItem(
+            at: expectedGitDirectory,
+            to: externalGitDirectory)
+        let vendorWorktree = fixture.primaryRoot.appending(path: "vendor/ghostty")
+        let externalConfig = externalGitDirectory.appending(path: "config")
+        let originalConfig = try String(contentsOf: externalConfig, encoding: .utf8)
+        let relocatedConfig = originalConfig.replacingOccurrences(
+            of: #"(?m)^[[:space:]]*worktree = .*$"#,
+            with: "\tworktree = \(vendorWorktree.path)",
+            options: .regularExpression)
+        #expect(relocatedConfig != originalConfig)
+        try relocatedConfig.write(to: externalConfig, atomically: true, encoding: .utf8)
+        try "gitdir: \(externalGitDirectory.path)\n".write(
+            to: gitEntry,
+            atomically: true,
+            encoding: .utf8)
+
+        // Act
+        let verification = try fixture.runHelper("verify", in: fixture.primaryRoot)
+
+        // Assert
+        #expect(verification.exitCode != 0)
+        #expect(verification.stderr.contains("outside its expected superproject administration path"))
+        #expect(
+            try fixture.checkedOutRevision(path: "vendor/ghostty", in: fixture.primaryRoot)
+                == fixture.ghosttyFirstCommit)
+    }
+
+    @Test("normalization refuses mismatched or dirty embedded vendors before mutation")
+    func normalizationRejectsUnsafeVendorStateBeforeMutation() throws {
+        // Arrange: checked-out commit differs from the superproject gitlink.
+        let mismatchFixture = try VendorWorktreeFixture()
+        defer { mismatchFixture.cleanup() }
+        try mismatchFixture.convertVendorToEmbeddedGitDirectory(
+            path: "vendor/ghostty",
+            in: mismatchFixture.primaryRoot)
+        try mismatchFixture.requireSuccess(
+            VendorWorktreeFixture.runGit(
+                ["checkout", mismatchFixture.ghosttySecondCommit],
+                in: mismatchFixture.primaryRoot.appending(path: "vendor/ghostty")))
+
+        // Act
+        let mismatch = try mismatchFixture.runHelper(
+            "normalize-gitdirs",
+            in: mismatchFixture.primaryRoot)
+
+        // Assert
+        #expect(mismatch.exitCode != 0)
+        #expect(mismatch.stderr.contains("committed gitlink"))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: mismatchFixture.vendorGitEntry(
+                    path: "vendor/ghostty",
+                    in: mismatchFixture.primaryRoot
+                ).appending(path: "HEAD").path))
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: try mismatchFixture.expectedVendorGitDirectory(
+                    path: "vendor/ghostty",
+                    in: mismatchFixture.primaryRoot
+                ).path))
+
+        // Arrange: tracked vendor content is dirty.
+        let dirtyFixture = try VendorWorktreeFixture()
+        defer { dirtyFixture.cleanup() }
+        try dirtyFixture.convertVendorToEmbeddedGitDirectory(
+            path: "vendor/ghostty",
+            in: dirtyFixture.primaryRoot)
+        try Data("dirty vendor content".utf8).write(
+            to: dirtyFixture.primaryRoot.appending(path: "vendor/ghostty/build.zig"))
+
+        // Act
+        let dirty = try dirtyFixture.runHelper(
+            "normalize-gitdirs",
+            in: dirtyFixture.primaryRoot)
+
+        // Assert
+        #expect(dirty.exitCode != 0)
+        #expect(dirty.stderr.contains("working tree is dirty"))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: dirtyFixture.vendorGitEntry(
+                    path: "vendor/ghostty",
+                    in: dirtyFixture.primaryRoot
+                ).appending(path: "HEAD").path))
+    }
+
+    @Test("normalization refuses admin collisions and locks before mutation")
+    func normalizationRejectsAdministrativeHazardsBeforeMutation() throws {
+        // Arrange: the absorption destination is already occupied.
+        let collisionFixture = try VendorWorktreeFixture()
+        defer { collisionFixture.cleanup() }
+        try collisionFixture.convertVendorToEmbeddedGitDirectory(
+            path: "vendor/ghostty",
+            in: collisionFixture.primaryRoot)
+        let collisionDestination = try collisionFixture.expectedVendorGitDirectory(
+            path: "vendor/ghostty",
+            in: collisionFixture.primaryRoot)
+        try FileManager.default.createDirectory(
+            at: collisionDestination,
+            withIntermediateDirectories: true)
+        let collisionSentinel = collisionDestination.appending(path: "keep-me")
+        try Data("collision".utf8).write(to: collisionSentinel)
+
+        // Act
+        let collision = try collisionFixture.runHelper(
+            "normalize-gitdirs",
+            in: collisionFixture.primaryRoot)
+
+        // Assert
+        #expect(collision.exitCode != 0)
+        #expect(collision.stderr.contains("administrative directory collision"))
+        #expect(try Data(contentsOf: collisionSentinel) == Data("collision".utf8))
+        #expect(
+            FileManager.default.fileExists(
+                atPath: collisionFixture.vendorGitEntry(
+                    path: "vendor/ghostty",
+                    in: collisionFixture.primaryRoot
+                ).appending(path: "HEAD").path))
+
+        // Arrange: a Git lock exists in the embedded administration directory.
+        let lockFixture = try VendorWorktreeFixture()
+        defer { lockFixture.cleanup() }
+        try lockFixture.convertVendorToEmbeddedGitDirectory(
+            path: "vendor/ghostty",
+            in: lockFixture.primaryRoot)
+        let lock = lockFixture.vendorGitEntry(
+            path: "vendor/ghostty",
+            in: lockFixture.primaryRoot
+        ).appending(path: "index.lock")
+        try Data("lock".utf8).write(to: lock)
+
+        // Act
+        let locked = try lockFixture.runHelper(
+            "normalize-gitdirs",
+            in: lockFixture.primaryRoot)
+
+        // Assert
+        #expect(locked.exitCode != 0)
+        #expect(locked.stderr.contains("Git lock"))
+        #expect(try Data(contentsOf: lock) == Data("lock".utf8))
+    }
+
+    @Test("normalization leaves shared linked-worktree vendor projections unchanged")
+    func normalizationDoesNotHydrateSharedWorktrees() throws {
+        // Arrange
+        let fixture = try VendorWorktreeFixture()
+        defer { fixture.cleanup() }
+        try fixture.requireSuccess(fixture.runHelper("setup-shared", in: fixture.linkedRoot))
+        let projectionBefore = try fixture.sharedProjectionSnapshot()
+
+        // Act
+        let normalization = try fixture.runHelper("normalize-gitdirs", in: fixture.linkedRoot)
+        let verification = try fixture.runHelper("verify", in: fixture.linkedRoot)
+
+        // Assert
+        #expect(normalization.exitCode != 0)
+        #expect(normalization.stderr.contains("requires hydrated vendor submodules"))
+        #expect(verification.exitCode == 0, Comment(rawValue: verification.stderr))
+        #expect(try fixture.sharedProjectionSnapshot() == projectionBefore)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: fixture.vendorGitEntry(
+                    path: "vendor/ghostty",
+                    in: fixture.linkedRoot
+                ).path))
+    }
+
     @Test("primary and shared roles work in registered worktrees whose paths contain spaces")
     func primaryAndSharedRolesWithSpaces() throws {
         // Arrange
