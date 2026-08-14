@@ -145,8 +145,8 @@ final class WorkspaceCacheCoordinator {
     private func makeEnrichmentApplyGovernor()
         -> BackgroundFactApplyGovernor<UUID, PendingWorktreeEnrichment>
     {
-        let apply: @MainActor @Sendable (UUID, PendingWorktreeEnrichment) -> Void = { [weak self] _, pending in
-            self?.applyCoalescedEnrichment(pending)
+        let apply: @MainActor @Sendable (UUID, PendingWorktreeEnrichment) -> Void = { [weak self] worktreeId, pending in
+            self?.applyCoalescedEnrichment(for: worktreeId, pending: pending)
         }
         if let enrichmentApplyClock {
             return BackgroundFactApplyGovernor(
@@ -217,7 +217,18 @@ final class WorkspaceCacheCoordinator {
         _ older: PendingWorktreeEnrichment,
         _ newer: PendingWorktreeEnrichment
     ) -> PendingWorktreeEnrichment {
-        guard case .branch = newer.updateKind else { return newer }
+        guard case .branch = newer.updateKind else {
+            guard case .branch = older.updateKind, newer.enrichment.branch.isEmpty else {
+                return newer
+            }
+            var enrichment = newer.enrichment
+            enrichment.updateBranch(older.enrichment.branch)
+            return PendingWorktreeEnrichment(
+                enrichment: enrichment,
+                shouldRefreshTraceIdentity: older.shouldRefreshTraceIdentity || newer.shouldRefreshTraceIdentity,
+                updateKind: .snapshot
+            )
+        }
         var enrichment = older.enrichment
         enrichment.updateBranch(newer.enrichment.branch)
         return PendingWorktreeEnrichment(
@@ -227,8 +238,19 @@ final class WorkspaceCacheCoordinator {
         )
     }
 
-    private func applyCoalescedEnrichment(_ pending: PendingWorktreeEnrichment) {
-        repoCache.setWorktreeEnrichment(pending.enrichment)
+    private func applyCoalescedEnrichment(for worktreeId: UUID, pending: PendingWorktreeEnrichment) {
+        let enrichment: WorktreeEnrichment
+        switch pending.updateKind {
+        case .snapshot:
+            enrichment = pending.enrichment
+        case .branch:
+            var cachedEnrichment =
+                repoCache.worktreeEnrichment(for: worktreeId)
+                ?? pending.enrichment
+            cachedEnrichment.updateBranch(pending.enrichment.branch)
+            enrichment = cachedEnrichment
+        }
+        repoCache.setWorktreeEnrichment(enrichment)
         if pending.shouldRefreshTraceIdentity {
             refreshTraceIdentity()
         }

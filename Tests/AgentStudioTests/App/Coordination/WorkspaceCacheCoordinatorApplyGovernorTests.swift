@@ -105,4 +105,77 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
         #expect(contents.contains("\"agentstudio.performance.apply_governor.mainactor_held_ms\":"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.max_single_fact_ms\":"))
     }
+
+    @Test
+    func branchChangedAfterCachedSnapshotPreservesSnapshot() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = WorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let clock = TestPushClock()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in },
+            enrichmentApplyTickCadence: .milliseconds(25),
+            enrichmentApplyClock: clock
+        )
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let snapshot = GitWorkingTreeSnapshot(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/repo"),
+            summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 3),
+            branch: "main"
+        )
+
+        await coordinator.startConsuming()
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(.snapshotChanged(snapshot: snapshot)),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )))
+        await eventually("snapshot flush should be scheduled") {
+            clock.pendingSleepCount == 1
+        }
+        #expect(clock.pendingSleepCount == 1)
+        clock.advance(by: .milliseconds(25))
+        await eventually("snapshot should apply before branch update") {
+            repoCache.worktreeEnrichment(for: worktreeId)?.snapshot == snapshot
+        }
+        #expect(repoCache.worktreeEnrichment(for: worktreeId)?.snapshot == snapshot)
+
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .branchChanged(
+                            worktreeId: worktreeId,
+                            repoId: repoId,
+                            from: "main",
+                            to: "feature/new"
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector))
+                )))
+        await eventually("branch flush should be scheduled") {
+            clock.pendingSleepCount == 1
+        }
+        #expect(clock.pendingSleepCount == 1)
+        clock.advance(by: .milliseconds(25))
+        await eventually("branch update should preserve cached snapshot") {
+            repoCache.worktreeEnrichment(for: worktreeId)?.branch == "feature/new"
+        }
+
+        await coordinator.shutdown()
+
+        #expect(repoCache.worktreeEnrichment(for: worktreeId)?.branch == "feature/new")
+        #expect(repoCache.worktreeEnrichment(for: worktreeId)?.snapshot == snapshot)
+    }
 }
