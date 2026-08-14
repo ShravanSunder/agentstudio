@@ -72,9 +72,17 @@ When the comparison picker opens, BridgeWeb MUST issue the typed product call
 `review.comparisonTargets.query` regardless of whether the remembered mode is
 Branch or Commit. This preloads Branch choices for an immediate mode switch
 without moving the catalog into initialization or pushed metadata. A successful
-call MUST return an authorized descriptor for one finite
-`review.comparisonTargets` content response. BridgeWeb MUST obtain the catalog
-by opening that descriptor through the existing content route.
+call MUST return a bounded, single-use authorization descriptor for one finite
+`review.comparisonTargets` content response before catalog production begins.
+BridgeWeb MUST obtain the catalog by opening that descriptor through the
+existing content route. Catalog production MUST begin only after a matching
+`content.open` claims the descriptor.
+
+The authorization descriptor MUST identify the authorized content kind and
+maximum response size. Because its response body has not yet been produced, it
+MUST NOT claim an exact body length, body digest, catalog capture time, or
+catalog cutoff time. The content terminal and decoded catalog MUST report their
+respective exact observed facts after production.
 
 The catalog MUST NOT appear in `pane.presentation`, File metadata, Review
 metadata, or any new metadata subscription. Packaged transport uses
@@ -88,8 +96,9 @@ sequenceDiagram
     participant N as Native Bridge
     UI->>W: open comparison picker
     W->>N: review.comparisonTargets.query (command)
-    N-->>W: content descriptor
+    N-->>W: single-use authorization descriptor
     W->>N: content.open (foreground)
+    Note over N: catalog production begins
     N-->>W: finite catalog frames + terminal
     W-->>UI: validated catalog
 ```
@@ -160,9 +169,9 @@ Traces to: CT-U2, CT-U3.
 ## CT-R5 — Queries are cancellable and latest-request-wins
 
 Closing the picker, replacing the pane session, losing foreground work
-admission, or starting a newer query MUST cancel or supersede the older request.
-Switching between Branch and Commit while the picker remains open MUST preserve
-the in-modal preload.
+admission, or starting a newer query MUST release, cancel, or supersede the
+older unclaimed or claimed request as applicable. Switching between Branch and
+Commit while the picker remains open MUST preserve the in-modal preload.
 
 A cancelled or late result MUST NOT update picker state. Query failure MUST
 leave the current comparison and durable target intent unchanged and MUST offer
@@ -202,9 +211,28 @@ Removing the catalog from metadata MUST NOT change:
 
 Traces to: CT-U4, CT-U5, CT-U6.
 
+## CT-R7 — Control authorization and content production remain independent
+
+After `review.comparisonTargets.query` returns its authorization descriptor,
+that control operation MUST be settled. While the matching `content.open` is
+producing the catalog, unrelated valid control operations for the pane MUST
+remain admissible and able to complete without waiting for catalog production.
+
+Catalog capture, encoding, truncation, delivery, cancellation, or failure MUST
+complete through the content operation. None of those outcomes may reopen or
+continue occupying the completed query control operation. A descriptor may be
+claimed successfully at most once; a stale, replaced, or already claimed
+descriptor MUST be rejected through the existing content failure contract.
+
+Traces to: CT-U5, CT-U7.
+
 ## Catalog contract
 
-One successful content response contains:
+The query authorization descriptor contains only the request-scoped identity,
+authorized content kind, applicable session or surface authority, and maximum
+response bytes needed to open the response once.
+
+One successful decoded content response contains:
 
 ```text
 capture time
@@ -245,9 +273,11 @@ again before producing a Review result.
 | CT-R4 | Browser interaction and manual visual evidence with one query on picker open in either remembered mode, immediate preloaded rows after switching Commit to Branch, preserved row content and accessibility, a production-scale catalog, bounded mounted rows, search, focus, keyboard navigation, selection, and the concise always-visible recency explanation |
 | CT-R5 | Automated cancellation/latest-request evidence showing no comparison mutation or late-result application |
 | CT-R6 | Durable SQLite restart evidence plus existing comparison behavior regression coverage in the Swift development backend and packaged app |
+| CT-R7 | A continuation-gated behavior transcript in which query A returns its descriptor before catalog capture starts, matching `content.open` starts and holds production, and unrelated valid control B completes while A remains held; plus second-open, replacement, teardown, cancellation, retryable failure, and exact terminal length/digest evidence |
 
 ## Negative space
 
 This change adds no cache, pagination protocol, background prefetch, metadata
-subscription, database table, event history, transport route, service, watcher,
-network fetch, or generalized Git browser.
+subscription, database table, event history, transport route, persistent or
+cross-pane service, watcher, network fetch, generalized producer framework,
+dynamic producer plugin system, or generalized Git browser.
