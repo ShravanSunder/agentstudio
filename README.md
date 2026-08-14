@@ -47,7 +47,7 @@ Open a build log, git status, documentation, or a browser beside the agent that 
 
 This is what keeps you oriented. Not a flat list of 30 terminals, but a structured workspace where every pane has a home.
 
-![Agent Studio parent pane with a two-shell drawer attached beneath it](web/images/agent-studio-pane-drawers.png)
+![Agent Studio terminal panes with an expanded multi-tool drawer beneath them](web/images/agent-studio-pane-drawers.png)
 
 ### Stay oriented across repositories and worktrees
 
