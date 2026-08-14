@@ -205,9 +205,9 @@ extension WorkspaceSurfaceCoordinator {
         reason: PaneRefocusRequestTrigger.Reason = .explicit
     ) {
         if applyPaneRefocusIfReady(for: paneId, reason: reason) {
-            pendingFocusPaneIds.remove(paneId)
+            pendingPaneRefocusReasonsByPaneId.removeValue(forKey: paneId)
         } else {
-            pendingFocusPaneIds.insert(paneId)
+            pendingPaneRefocusReasonsByPaneId[paneId] = reason
         }
     }
 
@@ -215,14 +215,16 @@ extension WorkspaceSurfaceCoordinator {
     func clearFirstResponderToWindowContent(for paneId: UUID) -> Bool {
         let window = viewRegistry.view(for: paneId)?.window ?? NSApplication.shared.keyWindow
         guard let window, let contentView = window.contentView else { return false }
-        pendingFocusPaneIds.remove(paneId)
+        pendingPaneRefocusReasonsByPaneId.removeValue(forKey: paneId)
         return window.makeFirstResponder(contentView)
     }
 
     func handlePaneHostAttachedToWindow(_ paneId: UUID) {
-        guard pendingFocusPaneIds.contains(paneId) else { return }
-        if applyPaneRefocusIfReady(for: paneId, reason: .parkedRestoreReplay) {
-            pendingFocusPaneIds.remove(paneId)
+        guard let parkedReason = pendingPaneRefocusReasonsByPaneId[paneId] else { return }
+        let replayReason: PaneRefocusRequestTrigger.Reason =
+            parkedReason == .restoreTail ? .parkedRestoreReplay : parkedReason
+        if applyPaneRefocusIfReady(for: paneId, reason: replayReason) {
+            pendingPaneRefocusReasonsByPaneId.removeValue(forKey: paneId)
         }
     }
 
@@ -232,8 +234,13 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     func clearPendingPaneRefocusRequestsAfterUserFocusChange() {
-        guard !pendingFocusPaneIds.isEmpty else { return }
-        pendingFocusPaneIds.removeAll()
+        let restoreParkedPaneIds = pendingPaneRefocusReasonsByPaneId.compactMap { paneId, reason in
+            reason == .restoreTail || reason == .parkedRestoreReplay ? paneId : nil
+        }
+        guard !restoreParkedPaneIds.isEmpty else { return }
+        for paneId in restoreParkedPaneIds {
+            pendingPaneRefocusReasonsByPaneId.removeValue(forKey: paneId)
+        }
         performanceTraceRecorder?.recordFocusResponderChange(reason: .parkedCleared)
     }
 
@@ -243,9 +250,19 @@ extension WorkspaceSurfaceCoordinator {
         reason: PaneRefocusRequestTrigger.Reason
     ) -> Bool {
         let paneKind = PaneFocusContext.PaneKind(content: store.paneAtom.pane(paneId)?.content)
-        let window = viewRegistry.view(for: paneId)?.window
+        let targetPaneHost = viewRegistry.view(for: paneId)
+        let window = targetPaneHost?.window
+        let firstResponder = window?.firstResponder
+        let responderIsInsideTargetPane =
+            if let responderView = firstResponder as? NSView, let targetPaneHost {
+                responderView === targetPaneHost || responderView.isDescendant(of: targetPaneHost)
+            } else {
+                false
+            }
         let currentResponderOwnership: PaneFocusContext.CurrentResponderOwnership =
-            if window == nil || window?.firstResponder == nil || window?.firstResponder === window?.contentView {
+            if window == nil || firstResponder == nil || firstResponder === window
+                || firstResponder === window?.contentView || responderIsInsideTargetPane
+            {
                 .windowContentDefault
             } else {
                 .userOwned

@@ -429,6 +429,79 @@ struct WorkspaceSurfaceCoordinatorHardeningTests {
         #expect(window.firstResponder === parentMountedContent)
     }
 
+    @Test("restore tail hands focus from the target pane placeholder to its mounted surface")
+    func restoreTail_handsFocusFromTargetPanePlaceholderToMountedSurface() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            launchDirectory: harness.tempDir,
+            title: "Restored Terminal",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+
+        let paneHost = PaneHostView(paneId: pane.id)
+        let mountedSurface = FocusableMountedContentView()
+        let placeholder = FocusableResponderView()
+        mountedSurface.addSubview(placeholder)
+        paneHost.mountContentView(mountedSurface)
+        harness.viewRegistry.register(paneHost, for: pane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(paneHost)
+        #expect(window.makeFirstResponder(placeholder))
+
+        harness.coordinator.focusVisiblePaneHost(pane.id, reason: .restoreTail)
+
+        #expect(window.firstResponder === mountedSurface)
+    }
+
+    @Test("drawer focus park survives unrelated user focus until the host attaches")
+    func drawerFocusPark_survivesUnrelatedUserFocusUntilHostAttaches() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane()
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        let parentHost = PaneHostView(paneId: parentPane.id)
+        let parentContent = FocusableMountedContentView()
+        parentHost.mountContentView(parentContent)
+        harness.viewRegistry.register(parentHost, for: parentPane.id)
+
+        let drawerHost = PaneHostView(paneId: drawerPane.id)
+        let drawerContent = FocusableMountedContentView()
+        drawerHost.mountContentView(drawerContent)
+        harness.viewRegistry.register(drawerHost, for: drawerPane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(parentHost)
+        #expect(window.makeFirstResponder(parentContent))
+
+        harness.coordinator.focusVisiblePaneHost(drawerPane.id)
+        harness.coordinator.clearPendingPaneRefocusRequestsAfterUserFocusChange()
+        contentView.addSubview(drawerHost)
+        harness.coordinator.handlePaneHostAttachedToWindow(drawerPane.id)
+
+        #expect(window.firstResponder === drawerContent)
+    }
+
     @Test("removeDrawerPane closing the last drawer pane lands in empty drawer context")
     func removeDrawerPane_lastDrawerPaneClearsResponderToEmptyDrawerContext() throws {
         let harness = makeHarness()
@@ -848,4 +921,8 @@ private final class FocusableMountedContentView: NSView, PaneMountedContent {
     override var acceptsFirstResponder: Bool { true }
 
     func setContentInteractionEnabled(_: Bool) {}
+}
+
+private final class FocusableResponderView: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }

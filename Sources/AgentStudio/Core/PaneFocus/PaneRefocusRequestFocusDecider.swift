@@ -23,7 +23,9 @@ enum PaneRefocusRequestFocusDecider {
                 responder: shouldPreserveUserOwnedResponder
                     ? .preserveCurrentResponder
                     : .focusPaneHost(paneId: targetPaneId),
-                runtime: .syncTerminalSurface(paneId: targetPaneId),
+                runtime: shouldPreserveUserOwnedResponder
+                    ? .preserveRuntimeFocus
+                    : .syncTerminalSurface(paneId: targetPaneId),
                 reason: .explicitRefocus
             )
 

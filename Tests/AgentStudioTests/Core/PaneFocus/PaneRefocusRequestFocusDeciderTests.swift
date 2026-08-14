@@ -77,7 +77,7 @@ struct PaneRefocusRequestFocusDeciderTests {
         #expect(decision.responder == .focusMountedContent(paneId: paneId))
     }
 
-    @Test("restore settlement preserves a responder chosen after restore began")
+    @Test("restore settlement preserves the responder and runtime focus chosen after restore began")
     func restoreSettlementWithUserResponder_preservesResponder() {
         let paneId = UUIDv7.generate()
 
@@ -90,7 +90,7 @@ struct PaneRefocusRequestFocusDeciderTests {
         )
 
         #expect(decision.responder == .preserveCurrentResponder)
-        #expect(decision.runtime == .syncTerminalSurface(paneId: paneId))
+        #expect(decision.runtime == .preserveRuntimeFocus)
     }
 
     @Test("restore settlement preserves user focus for mounted non-terminal content")
@@ -118,7 +118,7 @@ struct PaneRefocusRequestFocusDeciderTests {
         #expect(decision.runtime == .preserveRuntimeFocus)
     }
 
-    @Test("parked restore replay preserves a responder chosen after restore began")
+    @Test("parked restore replay preserves the responder and runtime focus chosen after restore began")
     func parkedRestoreReplayWithUserResponder_preservesResponder() {
         let paneId = UUIDv7.generate()
 
@@ -131,7 +131,7 @@ struct PaneRefocusRequestFocusDeciderTests {
         )
 
         #expect(decision.responder == .preserveCurrentResponder)
-        #expect(decision.runtime == .syncTerminalSurface(paneId: paneId))
+        #expect(decision.runtime == .preserveRuntimeFocus)
     }
 
     @Test("restore settlement focuses the restored pane while the window still owns default focus")
