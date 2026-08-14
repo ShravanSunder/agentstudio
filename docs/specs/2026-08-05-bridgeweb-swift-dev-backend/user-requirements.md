@@ -1,5 +1,12 @@
 # BridgeWeb Swift Development Backend — Requirements
 
+> **Status:** Substrate for the focused Vite + Swift carrier boundary. PR0
+> Review Comparison supersedes only this document's worktree/base-only and
+> no-persistence assumptions: the standalone server now also needs isolated
+> durable pane intent through production Core owners. The fast no-full-app
+> development requirement remains current. See
+> [`../2026-08-06-worktree-annotations/pr0-user-requirements.md`](../2026-08-06-worktree-annotations/pr0-user-requirements.md).
+
 ## Developer And Job
 
 The affected user is a BridgeWeb developer working on the React frontend and

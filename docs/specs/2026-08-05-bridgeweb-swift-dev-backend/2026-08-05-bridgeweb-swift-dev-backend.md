@@ -2,6 +2,13 @@
 
 Requirements: [BridgeWeb Swift Development Backend — Requirements](user-requirements.md)
 
+> **Status:** Substrate for the focused carrier and restart behavior. PR0
+> Review Comparison supersedes R4's worktree/base authority and the negative
+> no-persistence claim with exact persisted-pane authority in an isolated
+> production Core store. Vite/HMR, loopback HTTP, and no-full-app boot remain
+> current. See
+> [`../2026-08-06-worktree-annotations/pr0-specification.md`](../2026-08-06-worktree-annotations/pr0-specification.md).
+
 ## Observable Outcome
 
 BridgeWeb browser development continues to use Vite for frontend assets and
