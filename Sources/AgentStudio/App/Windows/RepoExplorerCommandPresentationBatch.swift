@@ -9,6 +9,33 @@ import Observation
 @MainActor
 @Observable
 final class RepoExplorerCommandPresentationBatch {
+    private struct LocationCapabilityFacts: Equatable {
+        let tabID: UUID
+        let paneID: UUID
+        let tab: Tab?
+        let zoomPresentation: ZoomPresentation?
+        let paneStructuralFacts: PaneStructuralFacts?
+        let isDrawerExpanded: Bool?
+    }
+
+    private struct CapabilityFactsFingerprint: Equatable {
+        let activeTabID: UUID?
+        let isManagementLayerActive: Bool
+        let locationsByWorktreeID: [UUID: [LocationCapabilityFacts]]
+
+        func matches(
+            _ previous: Self,
+            forWorktreeIDs worktreeIDs: Set<UUID>
+        ) -> Bool {
+            guard activeTabID == previous.activeTabID,
+                isManagementLayerActive == previous.isManagementLayerActive
+            else { return false }
+            return worktreeIDs.allSatisfy { worktreeID in
+                locationsByWorktreeID[worktreeID] == previous.locationsByWorktreeID[worktreeID]
+            }
+        }
+    }
+
     private(set) var snapshot = RepoExplorerCommandPresentationSnapshot.empty
 
     private let store: WorkspaceStore
@@ -19,6 +46,7 @@ final class RepoExplorerCommandPresentationBatch {
     @ObservationIgnored private var observationID: UUID?
     @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
     @ObservationIgnored private var lastRequests: Set<RepoExplorerCommandPresentationRequest> = []
+    @ObservationIgnored private var lastCapabilityFactsFingerprint: CapabilityFactsFingerprint?
 
     init(
         store: WorkspaceStore,
@@ -39,6 +67,7 @@ final class RepoExplorerCommandPresentationBatch {
         self.observationID = observationID
         lastVisibleWorktreeIDs = []
         lastRequests = []
+        lastCapabilityFactsFingerprint = nil
         refresh(observationID: observationID)
     }
 
@@ -51,9 +80,9 @@ final class RepoExplorerCommandPresentationBatch {
         let nextGeneration = snapshot.generation &+ 1
         let capture = withObservationTracking {
             let visibleWorktreeIDs = visibleWorktrees.visibleWorktreeIds
-            observeApprovedCapabilityFacts(visibleWorktreeIDs: visibleWorktreeIDs)
             return (
                 visibleWorktreeIDs,
+                observeApprovedCapabilityFacts(visibleWorktreeIDs: visibleWorktreeIDs),
                 commandPresentationRequests(visibleWorktreeIDs: visibleWorktreeIDs)
             )
         } onChange: { [weak self] in
@@ -62,11 +91,17 @@ final class RepoExplorerCommandPresentationBatch {
             }
         }
         let visibleWorktreeIDs = capture.0
-        let requests = capture.1
+        let capabilityFactsFingerprint = capture.1
+        let requests = capture.2
         let visibleSetDelta = visibleWorktreeIDs.symmetricDifference(lastVisibleWorktreeIDs)
+        let survivingVisibleWorktreeIDs = visibleWorktreeIDs.intersection(lastVisibleWorktreeIDs)
+        let capabilityFactsAreUnchanged =
+            lastCapabilityFactsFingerprint.map {
+                capabilityFactsFingerprint.matches($0, forWorktreeIDs: survivingVisibleWorktreeIDs)
+            } ?? false
         let retainedResults = snapshot.results.filter { requests.contains($0.key) }
         let requestsToResolve: Set<RepoExplorerCommandPresentationRequest>
-        if snapshot.generation == 0 || visibleSetDelta.isEmpty {
+        if snapshot.generation == 0 || visibleSetDelta.isEmpty || !capabilityFactsAreUnchanged {
             requestsToResolve = requests
         } else {
             requestsToResolve = requests.subtracting(lastRequests)
@@ -81,6 +116,7 @@ final class RepoExplorerCommandPresentationBatch {
         )
         lastVisibleWorktreeIDs = visibleWorktreeIDs
         lastRequests = requests
+        lastCapabilityFactsFingerprint = capabilityFactsFingerprint
         let reusedCount = requests.count - requestsToResolve.count
         if snapshot.results != nextSnapshot.results {
             let affectedItemCount = Self.affectedItemCount(
@@ -120,9 +156,11 @@ final class RepoExplorerCommandPresentationBatch {
         }
     }
 
-    private func observeApprovedCapabilityFacts(visibleWorktreeIDs: Set<UUID>) {
-        _ = store.tabLayoutAtom.activeTabId
-        _ = atom(\.managementLayer).isActive
+    private func observeApprovedCapabilityFacts(
+        visibleWorktreeIDs: Set<UUID>
+    ) -> CapabilityFactsFingerprint {
+        let activeTabID = store.tabLayoutAtom.activeTabId
+        let isManagementLayerActive = atom(\.managementLayer).isActive
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
@@ -133,16 +171,32 @@ final class RepoExplorerCommandPresentationBatch {
             workspaceTab: workspaceTab,
             declaredWorktreeIDs: visibleWorktreeIDs
         )
-        for locations in locationsByWorktreeID.values {
-            for location in locations {
-                _ = store.tabLayoutAtom.tab(location.tabId)
-                _ = store.panePresentationAtom.zoomPresentation(forTab: location.tabId)
+        var capabilityFactsByWorktreeID: [UUID: [LocationCapabilityFacts]] = [:]
+        for (worktreeID, locations) in locationsByWorktreeID {
+            capabilityFactsByWorktreeID[worktreeID] = locations.map { location in
                 let structuralFacts = store.paneAtom.graphAtom.paneStructuralFacts(location.paneId)
-                if structuralFacts?.ownedDrawerID != nil {
-                    _ = store.paneAtom.isDrawerExpanded(for: location.paneId)
+                return LocationCapabilityFacts(
+                    tabID: location.tabId,
+                    paneID: location.paneId,
+                    tab: store.tabLayoutAtom.tab(location.tabId),
+                    zoomPresentation: store.panePresentationAtom.zoomPresentation(forTab: location.tabId),
+                    paneStructuralFacts: structuralFacts,
+                    isDrawerExpanded: structuralFacts?.ownedDrawerID == nil
+                        ? nil
+                        : store.paneAtom.isDrawerExpanded(for: location.paneId)
+                )
+            }.sorted { lhs, rhs in
+                if lhs.tabID != rhs.tabID {
+                    return lhs.tabID.uuidString < rhs.tabID.uuidString
                 }
+                return lhs.paneID.uuidString < rhs.paneID.uuidString
             }
         }
+        return CapabilityFactsFingerprint(
+            activeTabID: activeTabID,
+            isManagementLayerActive: isManagementLayerActive,
+            locationsByWorktreeID: capabilityFactsByWorktreeID
+        )
     }
 
     private func commandPresentationRequests(

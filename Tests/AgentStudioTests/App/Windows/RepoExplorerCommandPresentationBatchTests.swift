@@ -10,6 +10,81 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("mixed capability and visible-set wake re-resolves surviving requests")
+    func mixedCapabilityAndVisibleSetWakeReresolvesSurvivingRequests() async throws {
+        let handler = MockCommandHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { coreAtoms in
+                    coreAtoms.managementLayer.deactivate()
+                    defer { coreAtoms.managementLayer.deactivate() }
+
+                    let store = WorkspaceStore()
+                    let firstRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-mixed-first-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let secondRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-mixed-second-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let firstWorktree = try! #require(firstRepo.worktrees.first)
+                    let secondWorktree = try! #require(secondRepo.worktrees.first)
+                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id])
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        visibleWorktrees: visibleWorktrees,
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+
+                    await eventually("initial visible worktree resolution") {
+                        handler.repoExplorerCapabilityRequestBatches.count == 1
+                    }
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+
+                    coreAtoms.managementLayer.toggle()
+                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
+
+                    await eventually("mixed capability and visible-set resolution") {
+                        handler.repoExplorerCapabilityRequestBatches.count == 1
+                    }
+                    let resolvedRequests = try! #require(
+                        handler.repoExplorerCapabilityRequestBatches.first
+                    )
+                    let expectedRequests = RepoExplorerToolbarCommandPresentation.requests(
+                        nextSortOrder: .default.toggled
+                    ).union(
+                        RepoExplorerWorktreeCommandPresentation.requests(
+                            worktreeId: firstWorktree.id,
+                            repoId: firstRepo.id,
+                            isFavorite: firstRepo.isFavorite,
+                            showsFavoriteControl: firstWorktree.isMainWorktree
+                        )
+                    ).union(
+                        RepoExplorerWorktreeCommandPresentation.requests(
+                            worktreeId: secondWorktree.id,
+                            repoId: secondRepo.id,
+                            isFavorite: secondRepo.isFavorite,
+                            showsFavoriteControl: secondWorktree.isMainWorktree
+                        )
+                    )
+                    #expect(resolvedRequests == expectedRequests)
+                }
+            }
+        )
+    }
+
     @Test("visible-set delta resolves only newly visible worktree requests")
     func visibleSetDeltaResolvesOnlyNewlyVisibleWorktreeRequests() async throws {
         let handler = MockCommandHandler()
