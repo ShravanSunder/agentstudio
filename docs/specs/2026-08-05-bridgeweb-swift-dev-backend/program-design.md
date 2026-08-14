@@ -4,6 +4,13 @@ Requirements: [BridgeWeb Swift Development Backend — Requirements](user-requir
 
 Specification: [BridgeWeb Swift Development Backend Specification](2026-08-05-bridgeweb-swift-dev-backend.md)
 
+> **Status:** Substrate, not the current PR0 persistence design. Its thin HTTP
+> carrier, Vite ownership, and exclusion of full Agent Studio boot remain
+> authoritative. PR0 supersedes the synthetic worktree/base source, ephemeral
+> pane identity, and no-cross-process-persistence sections with an isolated
+> `CoreAtoms` + `WorkspaceStore` composition keyed by exact pane UUID. See
+> [`../2026-08-06-worktree-annotations/pr0-program-design.md`](../2026-08-06-worktree-annotations/pr0-program-design.md).
+
 ## Design Decision
 
 Keep Vite as the BridgeWeb asset server and React hot-module-replacement
