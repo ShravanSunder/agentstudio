@@ -10,6 +10,157 @@ import Testing
 @MainActor
 @Suite("Repo Explorer command presentation batch", .serialized)
 struct RepoExplorerCommandPresentationBatchTests {
+    @Test("mixed capability and visible-set wake re-resolves surviving requests")
+    func mixedCapabilityAndVisibleSetWakeReresolvesSurvivingRequests() async throws {
+        let handler = MockCommandHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { coreAtoms in
+                    coreAtoms.managementLayer.deactivate()
+                    defer { coreAtoms.managementLayer.deactivate() }
+
+                    let store = WorkspaceStore()
+                    let firstRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-mixed-first-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let secondRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-mixed-second-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let firstWorktree = try! #require(firstRepo.worktrees.first)
+                    let secondWorktree = try! #require(secondRepo.worktrees.first)
+                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id])
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        visibleWorktrees: visibleWorktrees,
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+
+                    await eventually("initial visible worktree resolution") {
+                        handler.repoExplorerCapabilityRequestBatches.count == 1
+                    }
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+
+                    coreAtoms.managementLayer.toggle()
+                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
+
+                    await eventually("mixed capability and visible-set resolution") {
+                        handler.repoExplorerCapabilityRequestBatches.contains { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
+                    }
+                    let resolvedRequests = try! #require(
+                        handler.repoExplorerCapabilityRequestBatches.first { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
+                    )
+                    let expectedRequests = RepoExplorerToolbarCommandPresentation.requests(
+                        nextSortOrder: .default.toggled
+                    ).union(
+                        RepoExplorerWorktreeCommandPresentation.requests(
+                            worktreeId: firstWorktree.id,
+                            repoId: firstRepo.id,
+                            isFavorite: firstRepo.isFavorite,
+                            showsFavoriteControl: firstWorktree.isMainWorktree
+                        )
+                    ).union(
+                        RepoExplorerWorktreeCommandPresentation.requests(
+                            worktreeId: secondWorktree.id,
+                            repoId: secondRepo.id,
+                            isFavorite: secondRepo.isFavorite,
+                            showsFavoriteControl: secondWorktree.isMainWorktree
+                        )
+                    )
+                    #expect(resolvedRequests == expectedRequests)
+                }
+            }
+        )
+    }
+
+    @Test("visible-set delta resolves only newly visible worktree requests")
+    func visibleSetDeltaResolvesOnlyNewlyVisibleWorktreeRequests() async throws {
+        let handler = MockCommandHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { _ in
+                    let store = WorkspaceStore()
+                    let firstRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-first-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let secondRepo = store.addRepo(
+                        at: FileManager.default.temporaryDirectory.appending(
+                            path: "repo-command-second-\(UUIDv7.generate().uuidString)"
+                        )
+                    )
+                    let firstWorktree = try! #require(firstRepo.worktrees.first)
+                    let secondWorktree = try! #require(secondRepo.worktrees.first)
+                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id])
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        visibleWorktrees: visibleWorktrees,
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+
+                    await eventually("initial visible worktree resolution") {
+                        handler.repoExplorerCapabilityRequestBatches.count == 1
+                    }
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+
+                    visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
+
+                    await eventually("newly visible worktree resolution") {
+                        handler.repoExplorerCapabilityRequestBatches.contains { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
+                    }
+                    let resolvedRequests = try! #require(
+                        handler.repoExplorerCapabilityRequestBatches.first { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
+                    )
+                    let expectedRequests = RepoExplorerWorktreeCommandPresentation.requests(
+                        worktreeId: secondWorktree.id,
+                        repoId: secondRepo.id,
+                        isFavorite: secondRepo.isFavorite,
+                        showsFavoriteControl: secondWorktree.isMainWorktree
+                    )
+                    #expect(resolvedRequests == expectedRequests)
+                }
+            }
+        )
+    }
+
     @Test("accepted batch records bounded command presentation work")
     func acceptedBatchRecordsBoundedCommandPresentationWork() async throws {
         try await withAsyncTestCoreAtoms { _ in
@@ -47,7 +198,6 @@ struct RepoExplorerCommandPresentationBatchTests {
             await eventually("initial command presentation batch") {
                 batch.snapshot.generation == 1
             }
-            let expectedAffectedItemCount = batch.snapshot.results.count
             try await recorder.drain()
 
             let outputFileURL = try #require(runtime.outputFileURL)
@@ -55,17 +205,22 @@ struct RepoExplorerCommandPresentationBatchTests {
             #expect(contents.contains("\"body\":\"performance.repo_explorer.command_presentation\""))
             #expect(
                 contents.contains(
-                    "\"agentstudio.performance.repo_explorer.affected_item.count\":\(expectedAffectedItemCount)"
-                )
-            )
-            #expect(
-                contents.contains(
                     "\"agentstudio.performance.repo_explorer.command_resolution.count\":\(expectedResolutionCount)"
                 )
             )
             #expect(
                 contents.contains(
-                    "\"agentstudio.performance.repo_explorer.capability_snapshot.count\":1"
+                    "\"agentstudio.performance.repo_explorer.visible_set.count\":0"
+                )
+            )
+            #expect(
+                contents.contains(
+                    "\"agentstudio.performance.repo_explorer.visible_set_delta.count\":0"
+                )
+            )
+            #expect(
+                contents.contains(
+                    "\"agentstudio.performance.repo_explorer.command_reused.count\":0"
                 )
             )
         }
@@ -174,13 +329,19 @@ struct RepoExplorerCommandPresentationBatchTests {
                     for _ in 0..<20 { await Task.yield() }
                     #expect(batch.snapshot.generation == managementGeneration)
 
+                    let capabilityBatchCountBeforeActiveTab =
+                        replacementHandler.repoExplorerCapabilityRequestBatches.count
                     let secondPane = store.createPane()
                     store.appendTab(Tab(paneId: secondPane.id))
-                    await eventually("active tab capability generation") {
-                        batch.snapshot.generation > managementGeneration
+                    await eventually("active tab capability recompute") {
+                        replacementHandler.repoExplorerCapabilityRequestBatches.count
+                            > capabilityBatchCountBeforeActiveTab
                     }
-                    let activeTabGeneration = batch.snapshot.generation
+                    #expect(batch.snapshot.generation == managementGeneration)
+                    let activeTabGeneration = managementGeneration
                     let presentationBeforeUnrelatedRepo = batch.snapshot.results
+                    let capabilityBatchCountBeforeUnrelatedRepo =
+                        replacementHandler.repoExplorerCapabilityRequestBatches.count
 
                     _ = store.addRepo(
                         at: FileManager.default.temporaryDirectory.appending(
@@ -190,8 +351,10 @@ struct RepoExplorerCommandPresentationBatchTests {
                     // A path-index rebuild is uncertain for any pane CWD, so recomputation is
                     // required even when equality suppresses a visible presentation change.
                     await eventually("path index capability recompute") {
-                        batch.snapshot.generation > activeTabGeneration
+                        replacementHandler.repoExplorerCapabilityRequestBatches.count
+                            > capabilityBatchCountBeforeUnrelatedRepo
                     }
+                    #expect(batch.snapshot.generation == activeTabGeneration)
                     #expect(batch.snapshot.results == presentationBeforeUnrelatedRepo)
                 }
             }

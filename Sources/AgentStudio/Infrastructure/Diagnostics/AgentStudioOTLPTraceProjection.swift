@@ -1,7 +1,6 @@
 import Foundation
 
-// This exhaustive allowlist is intentionally centralized so every OTLP field
-// is audited through one projection boundary.
+// This exhaustive allowlist centralizes every audited OTLP field projection.
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
@@ -474,10 +473,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.pane.count",
         "agentstudio.performance.pane_view_restore.tab.count",
         "agentstudio.performance.pane_view_restore.visible_pane.count",
-        "agentstudio.performance.repo_explorer.affected_item.count",
-        "agentstudio.performance.repo_explorer.capability_snapshot.count",
         "agentstudio.performance.repo_explorer.command_resolution.count",
+        "agentstudio.performance.repo_explorer.command_reused.count",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count",
+        "agentstudio.performance.repo_explorer.visible_set.count",
+        "agentstudio.performance.repo_explorer.visible_set_delta.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
         "agentstudio.performance.sidebar.group.count", "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",
