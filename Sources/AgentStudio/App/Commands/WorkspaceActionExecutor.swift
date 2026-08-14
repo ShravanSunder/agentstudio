@@ -136,6 +136,10 @@ final class WorkspaceActionExecutor {
         coordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: forceWhenBoundsExist)
     }
 
+    func clearPendingPaneRefocusRequestsAfterUserFocusChange() {
+        coordinator.clearPendingPaneRefocusRequestsAfterUserFocusChange()
+    }
+
     private func drawerParentByPaneId() -> [UUID: UUID] {
         Dictionary(
             uniqueKeysWithValues: store.paneAtom.paneSnapshot().values.compactMap { pane in

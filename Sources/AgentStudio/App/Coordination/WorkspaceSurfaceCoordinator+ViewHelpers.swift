@@ -200,8 +200,11 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    func focusVisiblePaneHost(_ paneId: UUID) {
-        if applyPaneRefocusIfReady(for: paneId) {
+    func focusVisiblePaneHost(
+        _ paneId: UUID,
+        reason: PaneRefocusRequestTrigger.Reason = .explicit
+    ) {
+        if applyPaneRefocusIfReady(for: paneId, reason: reason) {
             pendingFocusPaneIds.remove(paneId)
         } else {
             pendingFocusPaneIds.insert(paneId)
@@ -218,22 +221,38 @@ extension WorkspaceSurfaceCoordinator {
 
     func handlePaneHostAttachedToWindow(_ paneId: UUID) {
         guard pendingFocusPaneIds.contains(paneId) else { return }
-        if applyPaneRefocusIfReady(for: paneId) {
+        if applyPaneRefocusIfReady(for: paneId, reason: .parkedRestoreReplay) {
             pendingFocusPaneIds.remove(paneId)
         }
     }
 
     @discardableResult
     func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
-        applyPaneRefocusIfReady(for: paneId)
+        applyPaneRefocusIfReady(for: paneId, reason: .explicit)
+    }
+
+    func clearPendingPaneRefocusRequestsAfterUserFocusChange() {
+        guard !pendingFocusPaneIds.isEmpty else { return }
+        pendingFocusPaneIds.removeAll()
+        performanceTraceRecorder?.recordFocusResponderChange(reason: .parkedCleared)
     }
 
     @discardableResult
-    private func applyPaneRefocusIfReady(for paneId: UUID) -> Bool {
+    private func applyPaneRefocusIfReady(
+        for paneId: UUID,
+        reason: PaneRefocusRequestTrigger.Reason
+    ) -> Bool {
         let paneKind = PaneFocusContext.PaneKind(content: store.paneAtom.pane(paneId)?.content)
+        let window = viewRegistry.view(for: paneId)?.window
+        let currentResponderOwnership: PaneFocusContext.CurrentResponderOwnership =
+            if window == nil || window?.firstResponder == nil || window?.firstResponder === window?.contentView {
+                .windowContentDefault
+            } else {
+                .userOwned
+            }
 
         let decision = PaneFocusOrchestrator.decide(
-            trigger: .refocusRequest(PaneRefocusRequestTrigger(reason: .explicit)),
+            trigger: .refocusRequest(PaneRefocusRequestTrigger(reason: reason)),
             context: PaneFocusContext(
                 activeTabId: store.tabLayoutAtom.activeTabId,
                 activePaneId: paneId,
@@ -244,7 +263,8 @@ extension WorkspaceSurfaceCoordinator {
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: viewRegistry.view(for: paneId)?.mountedContentStateForPaneFocus ?? .unmounted,
                 managementLayer: atom(\.managementLayer).isActive ? .active(scope: .mainRow) : .inactive,
-                windowState: viewRegistry.view(for: paneId)?.window?.isKeyWindow == true ? .key : .background
+                windowState: window?.isKeyWindow == true ? .key : .background,
+                currentResponderOwnership: currentResponderOwnership
             )
         )
 
@@ -253,7 +273,34 @@ extension WorkspaceSurfaceCoordinator {
             return false
         }
 
-        return makeRefocusOnlyPaneFocusExecutor().apply(.refocusRequest(refocusDecision))
+        let didApply = makeRefocusOnlyPaneFocusExecutor().apply(.refocusRequest(refocusDecision))
+        if didApply,
+            let telemetryReason = focusResponderChangeReason(
+                requestReason: reason,
+                responderOwnership: currentResponderOwnership
+            )
+        {
+            performanceTraceRecorder?.recordFocusResponderChange(
+                reason: telemetryReason
+            )
+        }
+        return didApply
+    }
+
+    private func focusResponderChangeReason(
+        requestReason: PaneRefocusRequestTrigger.Reason,
+        responderOwnership: PaneFocusContext.CurrentResponderOwnership
+    ) -> AgentStudioFocusResponderChangeReason? {
+        switch requestReason {
+        case .restoreTail where responderOwnership == .userOwned:
+            .restoreTailSkippedUserFocus
+        case .restoreTail:
+            .restoreTail
+        case .parkedRestoreReplay:
+            .parkedReplay
+        case .explicit, .windowBecameKey, .managementLayerExited:
+            nil
+        }
     }
 
     private func makeRefocusOnlyPaneFocusExecutor() -> PaneFocusExecutor {

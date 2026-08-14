@@ -2,7 +2,7 @@ import Foundation
 
 enum PaneRefocusRequestFocusDecider {
     static func decide(
-        trigger _: PaneRefocusRequestTrigger,
+        trigger: PaneRefocusRequestTrigger,
         context: PaneFocusContext
     ) -> PaneRefocusRequestDecision {
         guard let targetPaneId = context.activePaneId else {
@@ -13,17 +13,28 @@ enum PaneRefocusRequestFocusDecider {
             )
         }
 
+        let shouldPreserveUserOwnedResponder =
+            (trigger.reason == .restoreTail || trigger.reason == .parkedRestoreReplay)
+            && context.currentResponderOwnership == .userOwned
+
         switch context.targetPaneKind {
         case .terminal:
             return PaneRefocusRequestDecision(
-                responder: .focusPaneHost(paneId: targetPaneId),
+                responder: shouldPreserveUserOwnedResponder
+                    ? .preserveCurrentResponder
+                    : .focusPaneHost(paneId: targetPaneId),
                 runtime: .syncTerminalSurface(paneId: targetPaneId),
                 reason: .explicitRefocus
             )
 
         case .webview, .bridge, .codeViewer:
             return PaneRefocusRequestDecision(
-                responder: nonTerminalResponderAction(for: targetPaneId, mountedContent: context.targetMountedContent),
+                responder: shouldPreserveUserOwnedResponder
+                    ? .preserveCurrentResponder
+                    : nonTerminalResponderAction(
+                        for: targetPaneId,
+                        mountedContent: context.targetMountedContent
+                    ),
                 runtime: .preserveRuntimeFocus,
                 reason: .explicitRefocus
             )
