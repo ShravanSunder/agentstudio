@@ -29,7 +29,7 @@ It is not a terminal with a few agent features added. It is a workspace for keep
 
 Give each worktree, agent session, or task a main pane. Its **drawer** holds the terminals and tools you choose to associate with that work.
 
-```
+```text
 ┌─────────────────────────────────────┐
 │  Claude Code: feature-auth          │  ← main pane (your agent)
 │  > Implementing OAuth flow...       │
