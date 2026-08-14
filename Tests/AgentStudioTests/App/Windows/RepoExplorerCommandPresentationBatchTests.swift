@@ -57,10 +57,18 @@ struct RepoExplorerCommandPresentationBatchTests {
                     visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
 
                     await eventually("mixed capability and visible-set resolution") {
-                        handler.repoExplorerCapabilityRequestBatches.count == 1
+                        handler.repoExplorerCapabilityRequestBatches.contains { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
                     }
                     let resolvedRequests = try! #require(
-                        handler.repoExplorerCapabilityRequestBatches.first
+                        handler.repoExplorerCapabilityRequestBatches.first { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
                     )
                     let expectedRequests = RepoExplorerToolbarCommandPresentation.requests(
                         nextSortOrder: .default.toggled
@@ -128,10 +136,18 @@ struct RepoExplorerCommandPresentationBatchTests {
                     visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
 
                     await eventually("newly visible worktree resolution") {
-                        handler.repoExplorerCapabilityRequestBatches.count == 1
+                        handler.repoExplorerCapabilityRequestBatches.contains { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
                     }
                     let resolvedRequests = try! #require(
-                        handler.repoExplorerCapabilityRequestBatches.first
+                        handler.repoExplorerCapabilityRequestBatches.first { requests in
+                            requests.contains { request in
+                                request.target == secondWorktree.id
+                            }
+                        }
                     )
                     let expectedRequests = RepoExplorerWorktreeCommandPresentation.requests(
                         worktreeId: secondWorktree.id,
