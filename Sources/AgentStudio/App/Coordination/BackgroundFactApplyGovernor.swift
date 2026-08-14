@@ -3,6 +3,8 @@ import Foundation
 
 /// Defers keyed background facts into bounded MainActor drain turns.
 final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable>: @unchecked Sendable {
+    typealias MainActorCommit = @MainActor @Sendable () -> Void
+
     enum AcknowledgementResult: Equatable, Sendable {
         case applied
         case superseded
@@ -40,6 +42,9 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
     private struct DrainResult: Sendable {
         let carriedFacts: [PendingFact]
         let elapsed: Duration
+        let awaited: Duration
+        let mainActorHeld: Duration
+        let maxSingleFact: Duration
     }
 
     private let lock = NSLock()
@@ -50,7 +55,7 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
     private let elapsedSinceOrigin: @Sendable () -> Duration
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private let mergeFacts: @Sendable (Fact, Fact) -> Fact
-    private let applyFact: @MainActor @Sendable (Key, Fact) -> Void
+    private let prepareApply: @Sendable (Key, Fact) async -> MainActorCommit
     private let tickStream: AsyncStream<Void>
     private let tickContinuation: AsyncStream<Void>.Continuation
 
@@ -71,13 +76,33 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         )
     }
 
-    init<ApplyClock: Clock & Sendable>(
+    convenience init<ApplyClock: Clock & Sendable>(
         tickCadence: Duration,
         drainBudget: Duration,
         clock: ApplyClock,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         mergeFacts: @escaping @Sendable (Fact, Fact) -> Fact = { _, newerFact in newerFact },
         apply: @escaping @MainActor @Sendable (Key, Fact) -> Void
+    ) where ApplyClock.Duration == Duration {
+        self.init(
+            tickCadence: tickCadence,
+            drainBudget: drainBudget,
+            clock: clock,
+            performanceTraceRecorder: performanceTraceRecorder,
+            mergeFacts: mergeFacts,
+            prepareApply: { key, fact in
+                { @MainActor in apply(key, fact) }
+            }
+        )
+    }
+
+    init<ApplyClock: Clock & Sendable>(
+        tickCadence: Duration,
+        drainBudget: Duration,
+        clock: ApplyClock,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        mergeFacts: @escaping @Sendable (Fact, Fact) -> Fact = { _, newerFact in newerFact },
+        prepareApply: @escaping @Sendable (Key, Fact) async -> MainActorCommit
     ) where ApplyClock.Duration == Duration {
         precondition(tickCadence >= .zero)
         precondition(drainBudget > .zero)
@@ -88,7 +113,7 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
         self.elapsedSinceOrigin = { clockOrigin.duration(to: clock.now) }
         self.performanceTraceRecorder = performanceTraceRecorder
         self.mergeFacts = mergeFacts
-        self.applyFact = apply
+        self.prepareApply = prepareApply
         let (tickStream, tickContinuation) = AsyncStream.makeStream(
             of: Void.self,
             bufferingPolicy: .bufferingNewest(1)
@@ -185,25 +210,40 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
 
     private func drainOneTick() async {
         guard let snapshot = takeDrainSnapshot() else { return }
-        let drainResult = await MainActor.run { [applyFact, drainBudget, elapsedSinceOrigin] in
-            let drainStart = elapsedSinceOrigin()
-            var appliedCount = 0
-            for pending in snapshot.pendingFacts {
-                applyFact(pending.key, pending.fact)
-                pending.acknowledgement.yield(.applied)
-                pending.acknowledgement.finish()
-                appliedCount += 1
-                if appliedCount < snapshot.pendingFacts.count,
-                    elapsedSinceOrigin() - drainStart >= drainBudget
-                {
-                    break
-                }
+        let drainStart = elapsedSinceOrigin()
+        var appliedCount = 0
+        var awaited = Duration.zero
+        var mainActorHeld = Duration.zero
+        var maxSingleFact = Duration.zero
+        for pending in snapshot.pendingFacts {
+            let awaitStart = elapsedSinceOrigin()
+            let commit = await prepareApply(pending.key, pending.fact)
+            let factAwaited = elapsedSinceOrigin() - awaitStart
+            let mainActorStart = elapsedSinceOrigin()
+            await MainActor.run {
+                commit()
             }
-            return DrainResult(
-                carriedFacts: Array(snapshot.pendingFacts.dropFirst(appliedCount)),
-                elapsed: elapsedSinceOrigin() - drainStart
-            )
+            let factMainActorHeld = elapsedSinceOrigin() - mainActorStart
+            let factElapsed = factAwaited + factMainActorHeld
+            awaited += factAwaited
+            mainActorHeld += factMainActorHeld
+            maxSingleFact = max(maxSingleFact, factElapsed)
+            pending.acknowledgement.yield(.applied)
+            pending.acknowledgement.finish()
+            appliedCount += 1
+            if appliedCount < snapshot.pendingFacts.count,
+                elapsedSinceOrigin() - drainStart >= drainBudget
+            {
+                break
+            }
         }
+        let drainResult = DrainResult(
+            carriedFacts: Array(snapshot.pendingFacts.dropFirst(appliedCount)),
+            elapsed: elapsedSinceOrigin() - drainStart,
+            awaited: awaited,
+            mainActorHeld: mainActorHeld,
+            maxSingleFact: maxSingleFact
+        )
         let carriedOverCount = requeueCarriedFacts(drainResult.carriedFacts)
         performanceTraceRecorder?.recordDuration(
             .applyGovernorDrain,
@@ -212,6 +252,15 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
                 "agentstudio.performance.apply_governor.batch.count": .int(snapshot.pendingFacts.count),
                 "agentstudio.performance.apply_governor.superseded.count": .int(snapshot.supersededCount),
                 "agentstudio.performance.apply_governor.carried_over.count": .int(carriedOverCount),
+                "agentstudio.performance.apply_governor.awaited_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: drainResult.awaited)
+                ),
+                "agentstudio.performance.apply_governor.mainactor_held_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: drainResult.mainActorHeld)
+                ),
+                "agentstudio.performance.apply_governor.max_single_fact_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: drainResult.maxSingleFact)
+                ),
             ]
         )
     }
@@ -268,20 +317,42 @@ final class BackgroundFactApplyGovernor<Key: Hashable & Sendable, Fact: Sendable
 
     private func applyAllFacts(in snapshot: DrainSnapshot) async {
         let flushStart = elapsedSinceOrigin()
-        await MainActor.run { [applyFact] in
-            for pending in snapshot.pendingFacts {
-                applyFact(pending.key, pending.fact)
-                pending.acknowledgement.yield(.applied)
-                pending.acknowledgement.finish()
+        var awaited = Duration.zero
+        var mainActorHeld = Duration.zero
+        var maxSingleFact = Duration.zero
+        for pending in snapshot.pendingFacts {
+            let awaitStart = elapsedSinceOrigin()
+            let commit = await prepareApply(pending.key, pending.fact)
+            let factAwaited = elapsedSinceOrigin() - awaitStart
+            let mainActorStart = elapsedSinceOrigin()
+            await MainActor.run {
+                commit()
             }
+            let factMainActorHeld = elapsedSinceOrigin() - mainActorStart
+            let factElapsed = factAwaited + factMainActorHeld
+            awaited += factAwaited
+            mainActorHeld += factMainActorHeld
+            maxSingleFact = max(maxSingleFact, factElapsed)
+            pending.acknowledgement.yield(.applied)
+            pending.acknowledgement.finish()
         }
+        let elapsed = elapsedSinceOrigin() - flushStart
         performanceTraceRecorder?.recordDuration(
             .applyGovernorDrain,
-            duration: elapsedSinceOrigin() - flushStart,
+            duration: elapsed,
             attributes: [
                 "agentstudio.performance.apply_governor.batch.count": .int(snapshot.pendingFacts.count),
                 "agentstudio.performance.apply_governor.superseded.count": .int(snapshot.supersededCount),
                 "agentstudio.performance.apply_governor.carried_over.count": .int(0),
+                "agentstudio.performance.apply_governor.awaited_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: awaited)
+                ),
+                "agentstudio.performance.apply_governor.mainactor_held_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: mainActorHeld)
+                ),
+                "agentstudio.performance.apply_governor.max_single_fact_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: maxSingleFact)
+                ),
             ]
         )
     }

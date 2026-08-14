@@ -168,7 +168,10 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
                 "agentstudio.performance.apply_governor.batch.count": .int(3),
+                "agentstudio.performance.apply_governor.awaited_ms": .double(8),
                 "agentstudio.performance.apply_governor.carried_over.count": .int(1),
+                "agentstudio.performance.apply_governor.mainactor_held_ms": .double(2),
+                "agentstudio.performance.apply_governor.max_single_fact_ms": .double(6),
                 "agentstudio.performance.apply_governor.superseded.count": .int(9),
                 "agentstudio.performance.repo_explorer.command_resolution.count": .int(12),
                 "agentstudio.performance.repo_explorer.command_reused.count": .int(18),
@@ -183,8 +186,11 @@ struct AgentStudioOTLPPerformanceMetricsTests {
 
         #expect(
             metricEvent.samples.map(\.label) == [
+                "agentstudio_performance_apply_governor_awaited_ms",
                 "agentstudio_performance_apply_governor_batch_count",
                 "agentstudio_performance_apply_governor_carried_over_count",
+                "agentstudio_performance_apply_governor_mainactor_held_ms",
+                "agentstudio_performance_apply_governor_max_single_fact_ms",
                 "agentstudio_performance_apply_governor_superseded_count",
                 "agentstudio_performance_repo_explorer_command_resolution_count",
                 "agentstudio_performance_repo_explorer_command_reused_count",

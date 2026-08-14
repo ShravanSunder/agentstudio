@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @MainActor
@@ -82,5 +83,54 @@ struct BackgroundFactApplyGovernorTests {
         #expect(await acknowledgement.result() == .applied)
         #expect(appliedFacts == ["pending"])
         #expect(clock.pendingSleepCount == 0)
+    }
+
+    @Test("drain telemetry separates awaited preparation from MainActor-held commit")
+    func drainTelemetrySeparatesAwaitedAndMainActorHeldTime() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "apply-governor-decomposition-\(UUIDv7.generate().uuidString)"
+        )
+        defer { try? FileManager.default.removeItem(at: traceDirectory) }
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "apply-governor-decomposition",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 938,
+            timeUnixNano: { 938 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: traceRuntime)
+        let clock = TestPushClock()
+        var appliedFacts: [String] = []
+        let governor = BackgroundFactApplyGovernor<Int, String>(
+            tickCadence: .zero,
+            drainBudget: .milliseconds(20),
+            clock: clock,
+            performanceTraceRecorder: recorder,
+            prepareApply: { _, fact in
+                try? await clock.sleep(for: .milliseconds(10))
+                return { @MainActor in
+                    appliedFacts.append(fact)
+                    clock.advance(by: .milliseconds(2))
+                }
+            }
+        )
+        governor.start()
+        let acknowledgement = governor.enqueue("pending", for: 1)
+
+        await clock.waitForPendingSleepCount(exactly: 1)
+        clock.advance(by: .milliseconds(10))
+        #expect(await acknowledgement.result() == .applied)
+        await governor.shutdown()
+        try await recorder.drain()
+
+        #expect(appliedFacts == ["pending"])
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":10"))
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.mainactor_held_ms\":2"))
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.max_single_fact_ms\":12"))
     }
 }

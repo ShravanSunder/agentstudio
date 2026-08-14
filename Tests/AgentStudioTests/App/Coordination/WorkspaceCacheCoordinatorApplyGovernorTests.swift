@@ -101,5 +101,8 @@ struct WorkspaceCacheCoordinatorApplyGovernorTests {
         #expect(contents.contains("\"agentstudio.performance.apply_governor.batch.count\":3"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.superseded.count\":9"))
         #expect(contents.contains("\"agentstudio.performance.apply_governor.carried_over.count\":0"))
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.awaited_ms\":"))
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.mainactor_held_ms\":"))
+        #expect(contents.contains("\"agentstudio.performance.apply_governor.max_single_fact_ms\":"))
     }
 }

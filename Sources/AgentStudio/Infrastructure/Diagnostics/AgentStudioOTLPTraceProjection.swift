@@ -668,7 +668,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.latest_rows",
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
-    ]).union(AgentStudioCoordinatorProjectionKeys.numericKeys)
+    ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
