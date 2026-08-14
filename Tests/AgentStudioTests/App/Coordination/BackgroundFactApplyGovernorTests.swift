@@ -51,16 +51,13 @@ struct BackgroundFactApplyGovernorTests {
 
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(10))
-        await eventually("first budgeted drain") {
-            appliedKeys.count == 2
-        }
+        #expect(await acknowledgements[0].result() == .applied)
+        #expect(await acknowledgements[1].result() == .applied)
         #expect(appliedKeys == [1, 2])
 
         await clock.waitForPendingSleepCount(exactly: 1)
         clock.advance(by: .milliseconds(10))
-        for acknowledgement in acknowledgements {
-            #expect(await acknowledgement.result() == .applied)
-        }
+        #expect(await acknowledgements[2].result() == .applied)
         await governor.shutdown()
 
         #expect(appliedKeys == [1, 2, 3])
