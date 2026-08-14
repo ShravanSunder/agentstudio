@@ -5,6 +5,12 @@ import os.log
 
 private let launchRestoreLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 
+enum LaunchRestoreFocusTailPolicy {
+    static func shouldRun(for disposition: TerminalPlaceholderPublication.Disposition) -> Bool {
+        disposition == .published
+    }
+}
+
 @MainActor
 extension AppDelegate {
     func finishLaunchRestore(
@@ -66,15 +72,19 @@ extension AppDelegate {
                 outcome: terminalDeferralOutcome
             )
         }
-        syncFocusAfterPreparedContentMount(settlement)
+        if LaunchRestoreFocusTailPolicy.shouldRun(for: placeholderPublication.disposition) {
+            syncFocusAfterPreparedContentMount(settlement)
+        }
         for paneID in preparedMountOwners.coordinator.takeDeferredSteadyStateRepairPaneIDs() {
             workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(
                 paneID.uuid,
                 forceWhenBoundsExist: true
             )
         }
-        if let focusedPaneID = currentWorkspaceFocusedPaneID() {
-            workspaceSurfaceCoordinator.focusVisiblePaneHost(focusedPaneID)
+        if LaunchRestoreFocusTailPolicy.shouldRun(for: placeholderPublication.disposition),
+            let focusedPaneID = currentWorkspaceFocusedPaneID()
+        {
+            workspaceSurfaceCoordinator.focusVisiblePaneHost(focusedPaneID, reason: .restoreTail)
         }
         mainWindowController?.syncVisibleTerminalGeometry(reason: "postLaunchRestore")
         launchRestoreObservationState.complete()

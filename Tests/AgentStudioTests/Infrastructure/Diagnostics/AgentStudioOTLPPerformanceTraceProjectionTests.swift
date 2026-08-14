@@ -5,6 +5,37 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPPerformanceTraceProjectionTests {
+    @Test("focus responder change keeps controlled reason and rejects arbitrary values")
+    func focusResponderChangeKeepsOnlyControlledReason() {
+        let controlled = focusResponderChangeRecord(reason: "parked_cleared")
+        let arbitrary = focusResponderChangeRecord(reason: "pane-123-private")
+
+        #expect(
+            AgentStudioOTLPTraceProjection.project(controlled).attributes[
+                "agentstudio.performance.focus.responder_change.reason"
+            ] == .string("parked_cleared"))
+        #expect(
+            AgentStudioOTLPTraceProjection.project(arbitrary).attributes[
+                "agentstudio.performance.focus.responder_change.reason"
+            ] == nil)
+    }
+
+    private func focusResponderChangeRecord(reason: String) -> AgentStudioTraceRecord {
+        AgentStudioTraceRecord(
+            timeUnixNano: 118,
+            severityText: .info,
+            body: "performance.focus.responder_change",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [:],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.focus.responder_change.reason": .string(reason)
+            ]
+        )
+    }
+
     @Test("startup deferral keeps only bounded gate and outcome values")
     func startupDeferralKeepsBoundedValues() {
         let projection = AgentStudioOTLPTraceProjection.project(

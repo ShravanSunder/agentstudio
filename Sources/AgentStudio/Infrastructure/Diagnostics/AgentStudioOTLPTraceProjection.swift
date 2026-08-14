@@ -124,7 +124,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.action.name",
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
-        "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.interaction.kind", "agentstudio.performance.focus.responder_change.reason",
         "agentstudio.performance.startup.source",
         "agentstudio.performance.startup.deferral.gate",
         "agentstudio.performance.startup.deferral.outcome",
@@ -922,6 +922,8 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.focus.responder_change.reason":
+            return AgentStudioFocusResponderChangeReason(rawValue: value) != nil
         case "agentstudio.performance.startup.source":
             return ["presented", "occluded_fallback"].contains(value)
         case "agentstudio.performance.startup.deferral.gate":
