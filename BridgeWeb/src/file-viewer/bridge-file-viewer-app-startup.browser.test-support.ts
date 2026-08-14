@@ -1,172 +1,188 @@
-import { act } from 'react';
-import { userEvent } from 'vitest/browser';
+import { act } from "react";
 
-import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
+import { findBridgeViewerTreeItemButton } from "../review-viewer/test-support/bridge-viewer-browser-dom.js";
+import { actFrame } from "./bridge-file-viewer-browser-test-harness.js";
 
 interface FileViewerUiTraceEntry {
-	readonly contentStateText: string | null;
-	readonly hasLazyFrame: boolean;
-	readonly hasShell: boolean;
-	readonly initialSurfaceState: string | null;
-	readonly metadataTreeRowCount: string | null;
-	readonly timestampMilliseconds: number;
-	readonly visibleText: string;
+  readonly contentStateText: string | null;
+  readonly hasLazyFrame: boolean;
+  readonly hasShell: boolean;
+  readonly initialSurfaceState: string | null;
+  readonly metadataTreeRowCount: string | null;
+  readonly timestampMilliseconds: number;
+  readonly visibleText: string;
 }
 
 declare global {
-	interface Window {
-		bridgeFileViewerUiTrace?: FileViewerUiTraceEntry[];
-	}
+  interface Window {
+    bridgeFileViewerUiTrace?: FileViewerUiTraceEntry[];
+  }
 }
 
 export function startFileViewerUiTrace(): () => void {
-	window.bridgeFileViewerUiTrace = [];
-	const recordSnapshot = (): void => {
-		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
-		const contentState = document.querySelector('[data-testid="bridge-file-viewer-content-state"]');
-		window.bridgeFileViewerUiTrace?.push({
-			contentStateText: normalizedText(contentState?.textContent ?? null),
-			hasLazyFrame:
-				document.querySelector('[data-testid="bridge-file-viewer-lazy-loading-frame"]') !== null,
-			hasShell: shell !== null,
-			initialSurfaceState: shell?.getAttribute('data-worktree-initial-surface-state') ?? null,
-			metadataTreeRowCount: shell?.getAttribute('data-worktree-metadata-tree-row-count') ?? null,
-			timestampMilliseconds: performance.now(),
-			visibleText: normalizedText(document.body.textContent ?? '') ?? '',
-		});
-	};
-	recordSnapshot();
-	const observer = new MutationObserver(recordSnapshot);
-	observer.observe(document.body, {
-		attributes: true,
-		childList: true,
-		characterData: true,
-		subtree: true,
-	});
-	return (): void => {
-		observer.disconnect();
-		recordSnapshot();
-	};
+  window.bridgeFileViewerUiTrace = [];
+  const recordSnapshot = (): void => {
+    const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+    const contentState = document.querySelector('[data-testid="bridge-file-viewer-content-state"]');
+    window.bridgeFileViewerUiTrace?.push({
+      contentStateText: normalizedText(contentState?.textContent ?? null),
+      hasLazyFrame:
+        document.querySelector('[data-testid="bridge-file-viewer-lazy-loading-frame"]') !== null,
+      hasShell: shell !== null,
+      initialSurfaceState: shell?.getAttribute("data-worktree-initial-surface-state") ?? null,
+      metadataTreeRowCount: shell?.getAttribute("data-worktree-metadata-tree-row-count") ?? null,
+      timestampMilliseconds: performance.now(),
+      visibleText: normalizedText(document.body.textContent ?? "") ?? "",
+    });
+  };
+  recordSnapshot();
+  const observer = new MutationObserver(recordSnapshot);
+  observer.observe(document.body, {
+    attributes: true,
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+  return (): void => {
+    observer.disconnect();
+    recordSnapshot();
+  };
 }
 
 export async function waitForFileViewerTrace(
-	predicate: (entries: readonly FileViewerUiTraceEntry[]) => boolean,
-	attempt = 0,
+  predicate: (entries: readonly FileViewerUiTraceEntry[]) => boolean,
+  attempt = 0,
 ): Promise<void> {
-	if (predicate(fileViewerUiTraceEntries())) {
-		return;
-	}
-	if (attempt >= 60) {
-		throw new Error(
-			`Expected FileView UI trace predicate to pass; entries=${JSON.stringify(
-				fileViewerUiTraceEntries().slice(-5),
-			)}`,
-		);
-	}
-	await actFrame();
-	await waitForFileViewerTrace(predicate, attempt + 1);
+  if (predicate(fileViewerUiTraceEntries())) {
+    return;
+  }
+  if (attempt >= 60) {
+    throw new Error(
+      `Expected FileView UI trace predicate to pass; entries=${JSON.stringify(
+        fileViewerUiTraceEntries().slice(-5),
+      )}`,
+    );
+  }
+  await actFrame();
+  await waitForFileViewerTrace(predicate, attempt + 1);
 }
 
 export function fileViewerUiTraceEntries(): readonly FileViewerUiTraceEntry[] {
-	return window.bridgeFileViewerUiTrace ?? [];
+  return window.bridgeFileViewerUiTrace ?? [];
 }
 
 function normalizedText(text: string | null): string | null {
-	if (text === null) {
-		return null;
-	}
-	return text.replace(/\s+/gu, ' ').trim();
+  if (text === null) {
+    return null;
+  }
+  return text.replace(/\s+/gu, " ").trim();
 }
 
 export function fileViewerPendingCanvasIsVisible(visibleText: string): boolean {
-	return (
-		visibleText.includes('Select a file') ||
-		visibleText.includes('Preparing code viewer') ||
-		visibleText.includes('Code highlighting worker unavailable')
-	);
+  return (
+    visibleText.includes("Select a file") ||
+    visibleText.includes("Preparing code viewer") ||
+    visibleText.includes("Code highlighting worker unavailable")
+  );
 }
 
 export async function waitForFileViewerHTMLElement(props: {
-	readonly selector: string;
-	readonly remainingAttempts?: number;
+  readonly selector: string;
+  readonly remainingAttempts?: number;
 }): Promise<HTMLElement> {
-	const element = document.querySelector(props.selector);
-	if (element instanceof HTMLElement) {
-		return element;
-	}
-	const remainingAttempts = props.remainingAttempts ?? 180;
-	if (remainingAttempts <= 0) {
-		throw new Error(`Expected FileView browser element for selector ${props.selector}.`);
-	}
-	await actFrame();
-	return waitForFileViewerHTMLElement({
-		...props,
-		remainingAttempts: remainingAttempts - 1,
-	});
+  const element = document.querySelector(props.selector);
+  if (element instanceof HTMLElement) {
+    return element;
+  }
+  const remainingAttempts = props.remainingAttempts ?? 180;
+  if (remainingAttempts <= 0) {
+    throw new Error(`Expected FileView browser element for selector ${props.selector}.`);
+  }
+  await actFrame();
+  return waitForFileViewerHTMLElement({
+    ...props,
+    remainingAttempts: remainingAttempts - 1,
+  });
 }
 
 export async function waitForFileViewerTreeItemButtonInAct(props: {
-	readonly path: string;
-	readonly remainingAttempts?: number;
+  readonly path: string;
+  readonly remainingAttempts?: number;
 }): Promise<HTMLButtonElement> {
-	const button = findBridgeViewerTreeItemButton(props.path);
-	if (button !== null) {
-		return button;
-	}
-	const remainingAttempts = props.remainingAttempts ?? 180;
-	if (remainingAttempts <= 0) {
-		throw new Error(`Expected FileView tree item button for ${props.path}.`);
-	}
-	await actFrame();
-	return waitForFileViewerTreeItemButtonInAct({
-		...props,
-		remainingAttempts: remainingAttempts - 1,
-	});
+  const button = findBridgeViewerTreeItemButton(props.path);
+  if (button !== null) {
+    return button;
+  }
+  const remainingAttempts = props.remainingAttempts ?? 180;
+  if (remainingAttempts <= 0) {
+    throw new Error(`Expected FileView tree item button for ${props.path}.`);
+  }
+  await actFrame();
+  return waitForFileViewerTreeItemButtonInAct({
+    ...props,
+    remainingAttempts: remainingAttempts - 1,
+  });
 }
 
 export async function waitForFileViewerMenuOptionContaining(props: {
-	readonly text: string;
-	readonly remainingAttempts?: number;
+  readonly text: string;
+  readonly remainingAttempts?: number;
 }): Promise<HTMLElement> {
-	const matchingOption = [
-		...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
-	]
-		.filter((option): option is HTMLElement => option instanceof HTMLElement)
-		.find((option): boolean => option.textContent?.includes(props.text) ?? false);
-	if (matchingOption !== undefined) {
-		return matchingOption;
-	}
-	const remainingAttempts = props.remainingAttempts ?? 180;
-	if (remainingAttempts <= 0) {
-		throw new Error(`Expected Worktree/File filter option containing ${props.text}.`);
-	}
-	await actFrame();
-	return waitForFileViewerMenuOptionContaining({
-		...props,
-		remainingAttempts: remainingAttempts - 1,
-	});
+  const matchingOption = [
+    ...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
+  ]
+    .filter((option): option is HTMLElement => option instanceof HTMLElement)
+    .find((option): boolean => option.textContent?.includes(props.text) ?? false);
+  if (matchingOption !== undefined) {
+    return matchingOption;
+  }
+  const remainingAttempts = props.remainingAttempts ?? 180;
+  if (remainingAttempts <= 0) {
+    throw new Error(`Expected Worktree/File filter option containing ${props.text}.`);
+  }
+  await actFrame();
+  return waitForFileViewerMenuOptionContaining({
+    ...props,
+    remainingAttempts: remainingAttempts - 1,
+  });
 }
 
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
-	await act(async (): Promise<void> => {
-		await userEvent.click(element);
-		await Promise.resolve();
-		const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
-		if (menuContent instanceof HTMLElement) {
-			await Promise.all(
-				menuContent.getAnimations().map(async (animation): Promise<void> => {
-					try {
-						await animation.finished;
-					} catch {
-						// A replacement menu transition cancels the superseded animation.
-					}
-				}),
-			);
-		}
-		await Promise.resolve();
-	});
-	// Base UI observes the finished transition from an effect, then advances one
-	// frame before committing the popup's mounted-state change.
-	await actFrame();
+  const expectedExpandedState = element.getAttribute("aria-expanded") === "true" ? "false" : "true";
+  await act(async (): Promise<void> => {
+    element.click();
+    await Promise.resolve();
+  });
+  await waitForFileViewerMenuState({ element, expectedExpandedState });
+}
+
+async function waitForFileViewerMenuState(props: {
+  readonly element: HTMLElement;
+  readonly expectedExpandedState: "false" | "true";
+  readonly remainingAttempts?: number;
+}): Promise<void> {
+  const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
+  const contentMatches =
+    props.expectedExpandedState === "true"
+      ? menuContent instanceof HTMLElement && menuContent.hasAttribute("data-open")
+      : menuContent === null;
+  if (
+    props.element.getAttribute("aria-expanded") === props.expectedExpandedState &&
+    contentMatches
+  ) {
+    return;
+  }
+
+  const remainingAttempts = props.remainingAttempts ?? 180;
+  if (remainingAttempts <= 0) {
+    throw new Error(
+      `Expected FileView menu state aria-expanded=${props.expectedExpandedState}; ` +
+        `actual=${props.element.getAttribute("aria-expanded") ?? "missing"}.`,
+    );
+  }
+  await actFrame();
+  await waitForFileViewerMenuState({
+    ...props,
+    remainingAttempts: remainingAttempts - 1,
+  });
 }
