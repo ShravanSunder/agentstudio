@@ -253,15 +253,24 @@ extension WorkspaceSurfaceCoordinator {
         let targetPaneHost = viewRegistry.view(for: paneId)
         let window = targetPaneHost?.window
         let firstResponder = window?.firstResponder
-        let responderIsInsideTargetPane =
+        let responderIsHandoffEligibleInsideTargetPane =
             if let responderView = firstResponder as? NSView, let targetPaneHost {
-                responderView === targetPaneHost || responderView.isDescendant(of: targetPaneHost)
+                if responderView === targetPaneHost {
+                    true
+                } else if let terminalMount = targetPaneHost.mountedContent(as: TerminalPaneMountView.self) {
+                    responderView === terminalMount
+                        || terminalMount.currentPlaceholderView.map {
+                            responderView === $0 || responderView.isDescendant(of: $0)
+                        } == true
+                } else {
+                    false
+                }
             } else {
                 false
             }
         let currentResponderOwnership: PaneFocusContext.CurrentResponderOwnership =
             if window == nil || firstResponder == nil || firstResponder === window
-                || firstResponder === window?.contentView || responderIsInsideTargetPane
+                || firstResponder === window?.contentView || responderIsHandoffEligibleInsideTargetPane
             {
                 .windowContentDefault
             } else {
