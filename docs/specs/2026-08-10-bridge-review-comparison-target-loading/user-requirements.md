@@ -2,14 +2,16 @@
 
 ## Why this correction exists
 
-The Review comparison picker currently obtains every local and remote-tracking
-branch while Review View initializes, publishes that complete catalog as pane
-metadata, and renders every matching row. In repositories with substantial
-branch history, opening or refreshing Review can therefore spend Git, transport,
-worker, and browser work on a picker the reviewer may never open.
+The comparison-target correction already moved the branch catalog out of Review
+initialization and into an on-demand picker query. The remaining query currently
+captures Git data and materializes the complete response before its control
+operation finishes. While that production is slow, the pane's single control
+sequence can reject an unrelated command even though the catalog is delivered
+through a separate content operation.
 
-The reviewer needs comparison selection to remain responsive without making
-ordinary Review loading depend on the size of the repository's branch catalog.
+The reviewer needs both guarantees: ordinary Review loading must remain
+independent from repository catalog size, and producing a requested catalog
+must not monopolize unrelated pane control.
 
 ```text
 reviewer opens Review View
@@ -17,10 +19,12 @@ reviewer opens Review View
         ├─ current comparison appears from compact current state
         │
         └─ reviewer opens Compare Worktree
-                 ├─ recent branch choices preload on demand
+                 ├─ query authorization completes promptly
+                 ├─ recent branch choices produce on content demand
                  ├─ remembered Commit mode → focus commit input
                  └─ remembered Branch mode → focus branch search
-                    without freezing Review or losing the current comparison
+                    while unrelated pane controls remain responsive
+                    and the current comparison remains intact
 ```
 
 ## Consumers and authority
@@ -29,7 +33,7 @@ reviewer opens Review View
 - Bridge maintainers: need one reusable transport boundary that remains safe as
   repositories and future on-demand product queries grow.
 - Decision authority: Agent Studio owner decisions in this session.
-- Current-system evidence: the PR0 branch implementation and the Bridge transport
+- Current-system evidence: the merged comparison-target implementation and Bridge transport
   sources cited by the companion Program Design.
 
 ## Authorized needs
@@ -97,6 +101,19 @@ may change only the physical URL mapping used to reach those contracts.
 
 Priority: must.
 
+### CT-U7 — Catalog production does not monopolize pane control
+
+After the picker has been authorized to load its catalog, producing that
+catalog must not prevent unrelated valid pane controls from completing. The
+reviewer must remain able to use the current comparison and other pane controls
+while branch choices are being produced, even when Git discovery or catalog
+materialization is slow.
+
+A catalog-production failure remains local to that picker load. It must not
+occupy or reopen the query control operation after authorization has completed.
+
+Priority: must.
+
 ## Confirmed boundary
 
 In scope:
@@ -112,7 +129,9 @@ Out of scope:
 
 - changing comparison semantics or the current Base Branch presentation;
 - changing durable comparison intent in `core.sqlite`;
-- a target cache, new service, new transport, or new metadata subscription;
+- a target cache, persistent or cross-pane service, generalized producer
+  framework, new transport, or new metadata subscription;
+- dynamic producer plugins or runtime producer registration;
 - network fetch, full Git history browsing, pagination, or a general Git client;
 - annotation storage, comments, delivery, or agent IPC;
 - staged/unstaged comparison redesign.
@@ -124,4 +143,5 @@ the comparison picker performs one bounded foreground query through the
 established command/content path regardless of remembered mode, switching to
 Branch can use the preloaded result immediately, a production-scale catalog
 remains searchable and keyboard operable without rendering the complete list,
-and cancellation or failure leaves the displayed comparison untouched.
+unrelated pane controls can complete while catalog production is in flight, and
+cancellation or failure leaves the displayed comparison untouched.
