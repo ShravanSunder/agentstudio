@@ -17,6 +17,8 @@ final class RepoExplorerCommandPresentationBatch {
     private let dispatcher: AppCommandDispatcher
     private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     @ObservationIgnored private var observationID: UUID?
+    @ObservationIgnored private var lastVisibleWorktreeIDs: Set<UUID> = []
+    @ObservationIgnored private var lastRequests: Set<RepoExplorerCommandPresentationRequest> = []
 
     init(
         store: WorkspaceStore,
@@ -35,6 +37,8 @@ final class RepoExplorerCommandPresentationBatch {
     func start() {
         let observationID = UUID()
         self.observationID = observationID
+        lastVisibleWorktreeIDs = []
+        lastRequests = []
         refresh(observationID: observationID)
     }
 
@@ -45,20 +49,40 @@ final class RepoExplorerCommandPresentationBatch {
     private func refresh(observationID: UUID) {
         guard self.observationID == observationID else { return }
         let nextGeneration = snapshot.generation &+ 1
-        let requests = withObservationTracking {
+        let capture = withObservationTracking {
             let visibleWorktreeIDs = visibleWorktrees.visibleWorktreeIds
             observeApprovedCapabilityFacts(visibleWorktreeIDs: visibleWorktreeIDs)
-            return commandPresentationRequests(visibleWorktreeIDs: visibleWorktreeIDs)
+            return (
+                visibleWorktreeIDs,
+                commandPresentationRequests(visibleWorktreeIDs: visibleWorktreeIDs)
+            )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refresh(observationID: observationID)
             }
         }
-        let nextSnapshot = dispatcher.repoExplorerCommandPresentationSnapshot(
-            requests: requests,
+        let visibleWorktreeIDs = capture.0
+        let requests = capture.1
+        let visibleSetDelta = visibleWorktreeIDs.symmetricDifference(lastVisibleWorktreeIDs)
+        let retainedResults = snapshot.results.filter { requests.contains($0.key) }
+        let requestsToResolve: Set<RepoExplorerCommandPresentationRequest>
+        if snapshot.generation == 0 || visibleSetDelta.isEmpty {
+            requestsToResolve = requests
+        } else {
+            requestsToResolve = requests.subtracting(lastRequests)
+        }
+        let resolvedSnapshot = dispatcher.repoExplorerCommandPresentationSnapshot(
+            requests: requestsToResolve,
             generation: nextGeneration
         )
-        if snapshot != nextSnapshot {
+        let nextSnapshot = RepoExplorerCommandPresentationSnapshot(
+            generation: nextGeneration,
+            results: retainedResults.merging(resolvedSnapshot.results) { _, resolved in resolved }
+        )
+        lastVisibleWorktreeIDs = visibleWorktreeIDs
+        lastRequests = requests
+        let reusedCount = requests.count - requestsToResolve.count
+        if snapshot.results != nextSnapshot.results {
             let affectedItemCount = Self.affectedItemCount(
                 previous: snapshot.results,
                 next: nextSnapshot.results
@@ -75,15 +99,16 @@ final class RepoExplorerCommandPresentationBatch {
                 )
             }
             snapshot = nextSnapshot
-            performanceTraceRecorder?.record(
-                .repoExplorerCommandPresentation,
-                attributes: [
-                    "agentstudio.performance.repo_explorer.affected_item.count": .int(affectedItemCount),
-                    "agentstudio.performance.repo_explorer.command_resolution.count": .int(requests.count),
-                    "agentstudio.performance.repo_explorer.capability_snapshot.count": .int(1),
-                ]
-            )
         }
+        performanceTraceRecorder?.record(
+            .repoExplorerCommandPresentation,
+            attributes: [
+                "agentstudio.performance.repo_explorer.visible_set.count": .int(visibleWorktreeIDs.count),
+                "agentstudio.performance.repo_explorer.visible_set_delta.count": .int(visibleSetDelta.count),
+                "agentstudio.performance.repo_explorer.command_resolution.count": .int(requestsToResolve.count),
+                "agentstudio.performance.repo_explorer.command_reused.count": .int(reusedCount),
+            ]
+        )
     }
 
     private static func affectedItemCount(
