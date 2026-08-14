@@ -1,7 +1,5 @@
 import Foundation
 
-// This exhaustive allowlist is intentionally centralized so every OTLP field
-// is audited through one projection boundary.
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
@@ -126,7 +124,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.action.name",
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
-        "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.interaction.kind", "agentstudio.performance.focus.responder_change.reason",
         "agentstudio.performance.startup.source",
         "agentstudio.performance.startup.deferral.gate",
         "agentstudio.performance.startup.deferral.outcome",
@@ -474,10 +472,11 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.pane.count",
         "agentstudio.performance.pane_view_restore.tab.count",
         "agentstudio.performance.pane_view_restore.visible_pane.count",
-        "agentstudio.performance.repo_explorer.affected_item.count",
-        "agentstudio.performance.repo_explorer.capability_snapshot.count",
         "agentstudio.performance.repo_explorer.command_resolution.count",
+        "agentstudio.performance.repo_explorer.command_reused.count",
         "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count",
+        "agentstudio.performance.repo_explorer.visible_set.count",
+        "agentstudio.performance.repo_explorer.visible_set_delta.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
         "agentstudio.performance.sidebar.group.count", "agentstudio.performance.sidebar.input.count",
         "agentstudio.performance.sidebar.loading_repo.count",
@@ -810,7 +809,6 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 }
-// MARK: - Value Validation
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(
         key: String,
@@ -932,6 +930,8 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.focus.responder_change.reason":
+            return AgentStudioFocusResponderChangeReason(rawValue: value) != nil
         case "agentstudio.performance.startup.source":
             return ["presented", "occluded_fallback"].contains(value)
         case "agentstudio.performance.startup.deferral.gate":
