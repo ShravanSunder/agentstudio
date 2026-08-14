@@ -10,6 +10,17 @@ package enum PaneFocusTrigger: Sendable, Equatable {
     case command(PaneCommandFocusTrigger)
 }
 
+extension PaneFocusTrigger {
+    package var isUserFocusInteraction: Bool {
+        switch self {
+        case .refocusRequest:
+            false
+        case .contentClick, .tabClick, .drawer, .keyboard, .mode, .command:
+            true
+        }
+    }
+}
+
 package struct PaneContentClickFocusTrigger: Sendable, Equatable {
     package enum Location: Sendable, Equatable {
         case content
@@ -73,6 +84,8 @@ package struct PaneRefocusRequestTrigger: Sendable, Equatable {
         case explicit
         case windowBecameKey
         case managementLayerExited
+        case restoreTail
+        case parkedRestoreReplay
     }
 
     let reason: Reason

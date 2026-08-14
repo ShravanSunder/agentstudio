@@ -35,6 +35,13 @@ enum GhosttyMouseVisibilityCoordinator {
 extension Ghostty.SurfaceView {
     // MARK: - Input Handling
 
+    nonisolated static func shouldAcceptKeyEquivalent(
+        isFocused: Bool,
+        isWindowFirstResponder: Bool
+    ) -> Bool {
+        isFocused && isWindowFirstResponder
+    }
+
     package override func keyDown(with event: NSEvent) {
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
@@ -107,7 +114,12 @@ extension Ghostty.SurfaceView {
 
     package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
-        guard focused else { return false }
+        guard
+            Self.shouldAcceptKeyEquivalent(
+                isFocused: focused,
+                isWindowFirstResponder: window?.firstResponder === self
+            )
+        else { return false }
 
         if let trigger = ShortcutDecoder.decode(event: event) {
             if Self.shouldSuppressTerminalHostTrigger(trigger) {
