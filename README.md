@@ -29,25 +29,23 @@ It is not a terminal with a few agent features added. It is a workspace for keep
 
 Give each worktree, agent session, or task a main pane. Its **drawer** holds the terminals and tools you choose to associate with that work.
 
+![Agent Studio terminal panes with an expanded multi-tool drawer beneath them](web/images/agent-studio-pane-drawers.png)
+
+The relationship stays simple:
+
 ```text
-┌─────────────────────────────────────┐
-│  Claude Code: feature-auth          │  ← main pane (your agent)
-│  > Implementing OAuth flow...       │
-│                                     │
-├─────────────────────────────────────┤
-│ [shell] [git log] [build] [+]       │  ← drawer (associated context)
-│ ┌─────────────────────────────────┐ │
-│ │ $ git diff --stat               │ │
-│ │  src/auth.swift | 42 +++---     │ │
-│ └─────────────────────────────────┘ │
-└─────────────────────────────────────┘
+┌─ MAIN PANE ─────────────────────────────────────┐
+│  Agent session for feature-auth                 │
+│  The primary unit of work                       │
+├─ DRAWER ────────────────────────────────────────┤
+│  [ Shell ]  [ Diff ]  [ Build ]  [ Browser ]    │
+│  Related terminals and tools stay attached      │
+└─────────────────────────────────────────────────┘
 ```
 
 Open a build log, git status, documentation, or a browser beside the agent that prompted it. The drawer travels with its main pane when you move it and closes with that pane when the work is finished.
 
 This is what keeps you oriented. Not a flat list of 30 terminals, but a structured workspace where every pane has a home.
-
-![Agent Studio terminal panes with an expanded multi-tool drawer beneath them](web/images/agent-studio-pane-drawers.png)
 
 ### Stay oriented across repositories and worktrees
 
@@ -71,7 +69,9 @@ The command bar is one keyboard interaction model for the workspace. Press Cmd+P
 
 ### Review changes in a diff viewer built to stay fast
 
-Agent Studio presents every changed file as one continuous, read-only diff with file-tree navigation and syntax highlighting. It does not render the whole change at once: metadata streams separately, visible files hydrate from viewport demand, and a worker prepares bounded render windows before budgeted main-thread updates. That keeps large reviews responsive while you scroll, without leaving the workspace. Editing stays in your editor.
+Agent Studio presents every changed file as one continuous, read-only diff with file-tree navigation and syntax highlighting. The viewer is built on [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) and [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees), then adds a demand-driven data path designed to stay responsive when a review spans thousands of changed files.
+
+It does not render the whole change at once: metadata streams separately, visible files hydrate from viewport demand, and a worker prepares bounded render windows before budgeted main-thread updates. Scroll through large reviews without leaving the workspace. Editing stays in your editor.
 
 ![Agent Studio's file tree and continuous diff viewer beside an agent terminal](web/images/agent-studio-file-diff-review.png)
 
