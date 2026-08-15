@@ -38,6 +38,22 @@ struct RepoExplorerViewTests {
         #expect(equal.outcome == .equal)
     }
 
+    @Test("row body proxy spans content resolution and keeps row kind bounded")
+    func rowBodyProxySpansContentResolutionAndKeepsRowKindBounded() {
+        var clockValues: [UInt64] = [2_000_000, 7_000_000]
+
+        let measurement = RepoExplorerView.measureRowBodyEvaluationProxy(
+            rowKind: .resolvedWorktree,
+            nowNanoseconds: { clockValues.removeFirst() },
+            resolve: { "resolved-content" }
+        )
+
+        #expect(measurement.content == "resolved-content")
+        #expect(measurement.duration == .milliseconds(5))
+        #expect(measurement.rowKind.rawValue == "resolved_worktree")
+        #expect(measurement.outcome == .success)
+    }
+
     @Test("pull request chip distinguishes not-fetched, confirmed zero, and positive facts")
     func pullRequestChipPresentationDistinguishesFactStates() {
         let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)

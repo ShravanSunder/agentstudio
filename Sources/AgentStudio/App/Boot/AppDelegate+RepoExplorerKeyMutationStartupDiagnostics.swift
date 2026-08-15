@@ -184,6 +184,7 @@ import Foundation
             action: AgentStudioStartupDiagnosticAction
         ) async -> Bool {
             AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: "diagnostic_settle")
+            defer { AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: nil) }
             let fixtureApplySequence = AtomPerformanceTelemetry.shared.repoExplorerKeyedWakeSequence(
                 for: "mainactor_apply"
             )
@@ -197,7 +198,6 @@ import Foundation
                 recordRepoExplorerKeyMutationBlocked(action: action, reason: "repo_explorer_projection_not_settled")
                 return false
             }
-            AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: nil)
             return true
         }
 

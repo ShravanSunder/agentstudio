@@ -28,6 +28,9 @@ package final class AtomPerformanceTelemetry {
         eventQueue?.cancel()
         traceRuntime = nil
         eventQueue = nil
+        repoExplorerKeyClass = nil
+        repoExplorerFacet = nil
+        repoExplorerRowRelation = nil
         repoExplorerStageSequence = [:]
     }
 
@@ -57,13 +60,11 @@ package final class AtomPerformanceTelemetry {
     }
 
     package func recordRepoExplorerKeyedWake(stage: String, outcome: String) {
-        guard let traceRuntime, traceRuntime.isEnabled(.performance), let eventQueue,
-            let repoExplorerKeyClass
-        else { return }
+        guard let traceRuntime, traceRuntime.isEnabled(.performance), let eventQueue else { return }
         repoExplorerStageSequence[stage, default: 0] &+= 1
         var attributes: [String: AgentStudioTraceValue] = [
             "agentstudio.performance.repo_explorer.stage": .string(stage),
-            "agentstudio.performance.repo_explorer.key_class": .string(repoExplorerKeyClass),
+            "agentstudio.performance.repo_explorer.key_class": .string(repoExplorerKeyClass ?? "ordinary_run"),
             "agentstudio.performance.repo_explorer.outcome": .string(outcome),
         ]
         if let repoExplorerFacet {

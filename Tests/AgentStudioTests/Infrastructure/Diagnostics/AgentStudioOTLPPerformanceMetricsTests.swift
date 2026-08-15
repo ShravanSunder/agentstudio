@@ -43,10 +43,10 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
-                "agentstudio.performance.repo_explorer.stage": .string("affected_row"),
+                "agentstudio.performance.repo_explorer.stage": .string("mainactor_apply"),
                 "agentstudio.performance.repo_explorer.key_class": .string("relevant"),
-                "agentstudio.performance.repo_explorer.outcome": .string("changed"),
-                "agentstudio.performance.repo_explorer.facet": .string("zoom"),
+                "agentstudio.performance.repo_explorer.outcome": .string("published"),
+                "agentstudio.performance.repo_explorer.facet": .string("unread"),
                 "agentstudio.performance.repo_explorer.row_relation": .string("owning"),
             ]
         )

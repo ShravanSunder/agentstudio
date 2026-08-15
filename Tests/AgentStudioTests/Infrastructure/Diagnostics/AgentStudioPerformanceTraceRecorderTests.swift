@@ -291,6 +291,54 @@ struct AgentStudioPerformanceTraceRecorderTests {
         #expect(contents.contains("\"agentstudio.performance.atom.slot.count\":2"))
     }
 
+    @Test("Repo Explorer row and scroll instruments emit bounded JSONL receipts")
+    func repoExplorerRowAndScrollInstrumentsEmitBoundedJSONLReceipts() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "repo-explorer-row-scroll",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 923,
+            timeUnixNano: { 783 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordDuration(
+            .repoExplorerRowBodyEvaluation,
+            duration: .milliseconds(3),
+            attributes: [
+                "agentstudio.performance.repo_explorer.row_body_evaluation.outcome": .string("success"),
+                "agentstudio.performance.repo_explorer.row_kind": .string("resolved_worktree"),
+                "agentstudio.performance.repo_explorer.surface": .string("repo"),
+                "agentstudio.performance.repo_explorer.scroll_active": .bool(true),
+                "agentstudio.performance.repo_explorer.visible_row_count_bucket": .string("9_16"),
+            ]
+        )
+        recorder.recordDuration(
+            .repoExplorerScrollFrameGap,
+            duration: .milliseconds(16),
+            attributes: [
+                "agentstudio.performance.repo_explorer.scroll_frame_gap.outcome": .string("sampled"),
+                "agentstudio.performance.repo_explorer.surface": .string("repo"),
+                "agentstudio.performance.repo_explorer.scroll_burst.sequence": .int(7),
+                "agentstudio.performance.repo_explorer.frame_sample.sequence": .int(2),
+                "agentstudio.performance.repo_explorer.visible_row_count_bucket": .string("9_16"),
+            ]
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.repo_explorer.row_body_evaluation\""))
+        #expect(contents.contains("\"body\":\"performance.repo_explorer.scroll_frame_gap\""))
+        #expect(contents.contains("\"agentstudio.performance.repo_explorer.row_kind\":\"resolved_worktree\""))
+        #expect(contents.contains("\"agentstudio.performance.repo_explorer.scroll_burst.sequence\":7"))
+        #expect(contents.contains("\"agentstudio.performance.repo_explorer.frame_sample.sequence\":2"))
+    }
+
     @Test
     func recorderStaysSilentWhenPerformanceTagIsDisabled() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()
