@@ -4,6 +4,102 @@ import Testing
 @testable import AgentStudioBridge
 
 extension BridgeComparisonTargetContentLifecycleTests {
+    @Test("claimed comparison invalidated before production records one cancelled terminal")
+    @MainActor
+    func claimedComparisonInvalidatedBeforeProductionRecordsOneCancelledTerminal() async throws {
+        let capture = try makeCapture(
+            body: Data("comparison-target-body".utf8),
+            suffix: "claimed-before-production"
+        )
+        let catalogSource = ComparisonTargetFixtureSource(fixtures: [capture])
+        let traceProbe = ComparisonTargetCatalogTraceProbe()
+        let admissionCoordinator = BridgePaneRefreshAdmissionCoordinator(
+            initialActivity: .foreground
+        )
+        let provider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            authorizeReviewComparisonTargets: { await catalogSource.nextAuthorization() },
+            reviewComparisonTargetCatalogProducer: catalogSource,
+            comparisonTargetCatalogTraceRecorder: traceProbe,
+            refreshWorkAdmissionSource: admissionCoordinator.workAdmissionSource
+        )
+        _ = await provider.response(for: try queryRequest())
+        admissionCoordinator.applyActivity(.loadedHidden)
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+
+        await provider.runContentProducer(
+            request: try contentRequest(
+                descriptor: capture.descriptor,
+                suffix: "claimed-before-production"
+            ),
+            lease: BridgeProductProducerLease(
+                id: try #require(UUID(uuidString: "019FEEC5-A29D-7858-A3BD-AB969E228489"))
+            ),
+            productAdmission: harness.productAdmission.context,
+            session: harness.session
+        )
+
+        await traceProbe.waitForEventCount(3)
+        let traceEvents = await traceProbe.events
+        let terminalEvents = traceEvents.filter { $0.stage == .terminal }
+        #expect(traceEvents.first { $0.stage == .reservationClaim }?.outcome == .claimed)
+        #expect(terminalEvents.count == 1)
+        #expect(terminalEvents.first?.outcome == .cancelled)
+        #expect(await catalogSource.productionAttemptCount == 0)
+        #expect(await provider.pendingComparisonTargetReservation == nil)
+        #expect((await harness.session.producerSnapshot()).hasZeroResidue)
+    }
+
+    @Test("ordinary producer error after task cancellation records one cancelled terminal")
+    func ordinaryProducerErrorAfterTaskCancellationRecordsOneCancelledTerminal() async throws {
+        let capture = try makeCapture(
+            body: Data("comparison-target-body".utf8),
+            suffix: "ordinary-error-after-cancellation"
+        )
+        let producer = CancelledErrorCatalogProducer()
+        let traceProbe = ComparisonTargetCatalogTraceProbe()
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let provider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            reviewComparisonTargetCatalogProducer: producer,
+            comparisonTargetCatalogTraceRecorder: traceProbe,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        let reservation = try #require(
+            BridgeProductReviewComparisonTargetsReservation(
+                authorization: capture.authorization,
+                issuing: try queryRequest()
+            )
+        )
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+
+        let productionTask = Task {
+            try await provider.runComparisonTargetContentProducer(
+                reservation: reservation,
+                lease: BridgeProductProducerLease(
+                    id: try #require(UUID(uuidString: "019FEEC5-A29D-7858-A3BD-AB969E22848A"))
+                ),
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission,
+                session: harness.session
+            )
+        }
+        try await productionTask.value
+
+        await traceProbe.waitForEventCount(1)
+        let terminalEvents = await traceProbe.events.filter { $0.stage == .terminal }
+        #expect(terminalEvents.count == 1)
+        #expect(terminalEvents.first?.outcome == .cancelled)
+        #expect(await producer.productionAttemptCount == 1)
+        #expect((await harness.session.producerSnapshot()).hasZeroResidue)
+    }
+
     @Test("cancelled buffered delivery returns a cancelled disposition")
     func cancelledBufferedDeliveryReturnsCancelledDisposition() async throws {
         let capture = try makeCapture(
@@ -112,5 +208,20 @@ extension BridgeComparisonTargetContentLifecycleTests {
         )
         #expect(terminalEvent.outcome == .cancelled)
         #expect(terminalEvent.observedByteCount == nil)
+    }
+}
+
+private actor CancelledErrorCatalogProducer: BridgeReviewComparisonTargetCatalogProducing {
+    private(set) var productionAttemptCount = 0
+
+    func produceComparisonTargetCatalog(
+        for reservation: BridgeProductReviewComparisonTargetsReservation
+    ) throws -> BridgeReviewComparisonTargetProducedCatalog {
+        _ = reservation
+        productionAttemptCount += 1
+        withUnsafeCurrentTask { task in
+            task?.cancel()
+        }
+        throw BridgeReviewComparisonTargetCatalogProducerError.unavailable
     }
 }

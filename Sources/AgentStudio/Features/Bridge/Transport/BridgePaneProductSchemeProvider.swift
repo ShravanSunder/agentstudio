@@ -9,17 +9,6 @@ enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
 
 // swiftlint:disable type_body_length
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
-    struct BufferedContentBody: Sendable {
-        let data: Data
-        let endOfSource: Bool
-        let sha256: String
-    }
-
-    private struct FileContentStreamDigest: Sendable {
-        let byteCount: Int
-        let sha256: String
-    }
-
     private let applyActiveViewerModeUpdate:
         @MainActor @Sendable (
             BridgeProductCallRequest,
@@ -372,6 +361,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         comparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation? = nil
     ) async {
         guard let foregroundWorkAdmission = contentWorkAdmission else {
+            recordClaimedComparisonTargetCancellation(comparisonTargetReservation)
             _ = await beginActivityInvalidatedProducerRetirement(
                 lease: lease,
                 session: session
@@ -390,6 +380,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 }
             })
         else {
+            recordClaimedComparisonTargetCancellation(comparisonTargetReservation)
             _ = await beginActivityInvalidatedProducerRetirement(
                 lease: lease,
                 session: session
@@ -404,21 +395,26 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             productAdmission: productAdmission
         )
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            recordClaimedComparisonTargetCancellation(comparisonTargetReservation)
             _ = await beginActivityInvalidatedProducerRetirement(
                 lease: lease,
                 session: session
             )
             return
         }
-        _ = try? await contentDemandAdmission.withAdmission(for: interest) {
-            try await self.runAdmittedContentProducer(
-                request: request,
-                lease: lease,
-                productAdmission: productAdmission,
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                comparisonTargetReservation: comparisonTargetReservation,
-                session: session
-            )
+        do {
+            _ = try await contentDemandAdmission.withAdmission(for: interest) {
+                try await self.runAdmittedContentProducer(
+                    request: request,
+                    lease: lease,
+                    productAdmission: productAdmission,
+                    foregroundWorkAdmission: foregroundWorkAdmission,
+                    comparisonTargetReservation: comparisonTargetReservation,
+                    session: session
+                )
+            }
+        } catch {
+            recordClaimedComparisonTargetFailure(error, reservation: comparisonTargetReservation)
         }
         // Join only retirement start: it abandons delivery before this producer may
         // finish, while the retirement task remains free to wait for that finish.
@@ -430,18 +426,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         }
     }
 
-    private func beginActivityInvalidatedProducerRetirement(
-        lease: BridgeProductProducerLease,
-        session: BridgeProductSession
-    ) async -> BridgeProductProducerRetirementBarrier {
-        await session.beginProducerRetirement(
-            lease,
-            acknowledgeLifecycle: acknowledgeLifecycle,
-            stopRequest: nil,
-            abandonOutstandingDelivery: true
-        )
-    }
-
     private func runAdmittedContentProducer(
         request: BridgeProductContentRequest,
         lease: BridgeProductProducerLease,
@@ -450,7 +434,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         comparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation?,
         session: BridgeProductSession
     ) async throws {
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
+        guard
+            isContentAdmissionValid(
+                foregroundWorkAdmission,
+                reservation: comparisonTargetReservation
+            )
+        else { return }
         let openingResult = try await session.enqueueRequiredContentOpeningFrame(
             for: lease,
             productAdmission: productAdmission,
@@ -465,15 +454,28 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             }
         )
         guard
-            foregroundWorkAdmission.withValidAdmission({ true }) == true,
+            isContentAdmissionValid(
+                foregroundWorkAdmission,
+                reservation: comparisonTargetReservation
+            )
+        else { return }
+        guard
             await waitForExactWorkerObservation(
                 openingResult,
                 lease: lease,
                 productAdmission: productAdmission,
                 session: session
             )
+        else {
+            recordClaimedComparisonTargetCancellation(comparisonTargetReservation)
+            return
+        }
+        guard
+            isContentAdmissionValid(
+                foregroundWorkAdmission,
+                reservation: comparisonTargetReservation
+            )
         else { return }
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
         switch request {
         case .fileContent(let fileRequest):
             await runFileContentProducer(
@@ -858,11 +860,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         pendingComparisonTargetReservation = nil
         await metadataCoordinator.closeAndDrain()
         await contentDemandAdmission.closeAndDrain()
-    }
-
-    private func waitForProducerCancellation() async {
-        let stream = AsyncStream<Void> { _ in }
-        for await _ in stream {}
     }
 
     private func metadataStreamRequiredError(

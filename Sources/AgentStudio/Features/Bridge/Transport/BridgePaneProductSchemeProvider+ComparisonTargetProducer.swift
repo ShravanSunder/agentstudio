@@ -36,35 +36,15 @@ extension BridgePaneProductSchemeProvider {
             )
             return
         }
-        let producedCatalog: BridgeReviewComparisonTargetProducedCatalog
-        do {
-            try Task.checkCancellation()
-            producedCatalog =
-                try await reviewComparisonTargetCatalogProducer
-                .produceComparisonTargetCatalog(for: reservation)
-            try Task.checkCancellation()
-        } catch is CancellationError {
-            recordComparisonTargetTerminal(
-                outcome: .cancelled,
-                reservation: reservation,
-                observedByteCount: nil
-            )
-            return
-        } catch {
-            guard !Task.isCancelled else { return }
-            try await enqueueComparisonTargetProductionFailureTerminal(
-                for: lease,
+        guard
+            let producedCatalog = try await produceComparisonTargetCatalog(
+                for: reservation,
+                lease: lease,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
                 session: session
             )
-            recordComparisonTargetTerminal(
-                outcome: .productionFailed,
-                reservation: reservation,
-                observedByteCount: nil
-            )
-            return
-        }
+        else { return }
         let deliveryDisposition: BufferedContentDeliveryDisposition
         do {
             deliveryDisposition = try await runBufferedContentProducer(
@@ -113,6 +93,93 @@ extension BridgePaneProductSchemeProvider {
                 observedByteCount: nil
             )
         }
+    }
+
+    private func produceComparisonTargetCatalog(
+        for reservation: BridgeProductReviewComparisonTargetsReservation,
+        lease: BridgeProductProducerLease,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        session: BridgeProductSession
+    ) async throws -> BridgeReviewComparisonTargetProducedCatalog? {
+        do {
+            try Task.checkCancellation()
+            let producedCatalog =
+                try await reviewComparisonTargetCatalogProducer
+                .produceComparisonTargetCatalog(for: reservation)
+            try Task.checkCancellation()
+            return producedCatalog
+        } catch is CancellationError {
+            recordComparisonTargetTerminal(
+                outcome: .cancelled,
+                reservation: reservation,
+                observedByteCount: nil
+            )
+            return nil
+        } catch {
+            guard !Task.isCancelled else {
+                recordComparisonTargetTerminal(
+                    outcome: .cancelled,
+                    reservation: reservation,
+                    observedByteCount: nil
+                )
+                return nil
+            }
+            try await enqueueComparisonTargetProductionFailureTerminal(
+                for: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
+            recordComparisonTargetTerminal(
+                outcome: .productionFailed,
+                reservation: reservation,
+                observedByteCount: nil
+            )
+            return nil
+        }
+    }
+
+    func isContentAdmissionValid(
+        _ foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        reservation: BridgeProductReviewComparisonTargetsReservation?
+    ) -> Bool {
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
+            recordClaimedComparisonTargetCancellation(reservation)
+            return false
+        }
+        return true
+    }
+
+    func recordClaimedComparisonTargetFailure(
+        _ error: any Error,
+        reservation: BridgeProductReviewComparisonTargetsReservation?
+    ) {
+        recordClaimedComparisonTargetTerminal(
+            outcome: error is CancellationError || Task.isCancelled ? .cancelled : .productionFailed,
+            reservation: reservation
+        )
+    }
+
+    func recordClaimedComparisonTargetCancellation(
+        _ reservation: BridgeProductReviewComparisonTargetsReservation?
+    ) {
+        recordClaimedComparisonTargetTerminal(
+            outcome: .cancelled,
+            reservation: reservation
+        )
+    }
+
+    func recordClaimedComparisonTargetTerminal(
+        outcome: BridgeReviewComparisonTargetCatalogTraceEvent.Outcome,
+        reservation: BridgeProductReviewComparisonTargetsReservation?
+    ) {
+        guard let reservation else { return }
+        recordComparisonTargetTerminal(
+            outcome: outcome,
+            reservation: reservation,
+            observedByteCount: nil
+        )
     }
 
     private func recordComparisonTargetTerminal(

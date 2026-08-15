@@ -755,7 +755,7 @@ extension BridgeComparisonTargetContentLifecycleTests {
         )
     }
 
-    private func contentRequest(
+    func contentRequest(
         descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
         suffix: String,
         paneSessionId: String = "pane-session-1",
