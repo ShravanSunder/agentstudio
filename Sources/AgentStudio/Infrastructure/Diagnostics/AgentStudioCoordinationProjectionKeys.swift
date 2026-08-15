@@ -3,6 +3,7 @@ enum AgentStudioCoordinationProjectionKeys {
         "agentstudio.performance.apply_governor.awaited_ms",
         "agentstudio.performance.apply_governor.mainactor_held_ms",
         "agentstudio.performance.apply_governor.max_single_fact_ms",
+        "agentstudio.performance.apply_governor.queue_wait_ms",
         "agentstudio.performance.coordinator.active_pane_write.count",
         "agentstudio.performance.coordinator.activity_write.count",
         "agentstudio.performance.coordinator.derived_envelope.count",
