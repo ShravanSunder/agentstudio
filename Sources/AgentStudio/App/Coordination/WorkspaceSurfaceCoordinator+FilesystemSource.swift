@@ -150,7 +150,11 @@ extension WorkspaceSurfaceCoordinator {
         )
         let indexDuration = indexStart.duration(to: clock.now)
 
-        let affectedKeys = Self.affectedKeys(from: projectionResult.intents)
+        let affectedKeys = Self.affectedKeys(
+            from: projectionResult.intents,
+            affectedPaneIds: projectionResult.affectedPaneIds,
+            affectedWorktreeIds: projectionResult.affectedWorktreeIds
+        )
         await publishProductFileEnvelopeIfNeeded(
             envelope,
             affectedKeys: affectedKeys
@@ -173,13 +177,20 @@ extension WorkspaceSurfaceCoordinator {
             attributes: [
                 "agentstudio.performance.coordinator.phase": .string(Self.projectionPhase(for: envelope)),
                 "agentstudio.performance.coordinator.derived_envelope.count": .int(derivedEnvelopes.count),
+                "agentstudio.performance.coordinator.derived_input.count": .int(projectionResult.derivedInputCount),
                 "agentstudio.performance.coordinator.index_elapsed_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: indexDuration)
                 ),
                 "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: applyDuration)
                 ),
+                "agentstudio.performance.coordinator.input_revision.count": .int(
+                    Int(clamping: projectionResult.inputRevision)
+                ),
                 "agentstudio.performance.coordinator.pane.count": .int(projectionResult.paneCount),
+                "agentstudio.performance.coordinator.skipped_unchanged_input.count": .int(
+                    projectionResult.skippedUnchangedInputCount
+                ),
                 "agentstudio.performance.coordinator.total_elapsed_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: totalStart.duration(to: clock.now))
                 ),
@@ -209,10 +220,12 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     nonisolated private static func affectedKeys(
-        from intents: [PaneFilesystemProjectionIntent]
+        from intents: [PaneFilesystemProjectionIntent],
+        affectedPaneIds: Set<UUID> = [],
+        affectedWorktreeIds: Set<UUID> = []
     ) -> FilesystemProjectionAffectedKeys {
-        var paneIds: Set<UUID> = []
-        var worktreeIds: Set<UUID> = []
+        var paneIds = affectedPaneIds
+        var worktreeIds = affectedWorktreeIds
         for intent in intents {
             switch intent {
             case .cwdSubtreeChanged(let projection):

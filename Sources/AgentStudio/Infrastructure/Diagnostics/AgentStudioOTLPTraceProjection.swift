@@ -124,7 +124,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.ghostty.action.name",
         "agentstudio.ghostty.route.reason",
         "agentstudio.ghostty.signal.class",
-        "agentstudio.performance.interaction.kind",
+        "agentstudio.performance.interaction.kind", "agentstudio.performance.focus.responder_change.reason",
         "agentstudio.performance.startup.source",
         "agentstudio.performance.startup.deferral.gate",
         "agentstudio.performance.startup.deferral.outcome",
@@ -396,23 +396,15 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.atom.input_revision.count",
         "agentstudio.performance.atom.slot.count",
         "agentstudio.performance.commandbar.input.count",
+        "agentstudio.performance.apply_governor.batch.count",
+        "agentstudio.performance.apply_governor.carried_over.count",
+        "agentstudio.performance.apply_governor.superseded.count",
         "agentstudio.performance.commandbar.item.count",
         "agentstudio.performance.commandbar.pane.count",
         "agentstudio.performance.commandbar.query_character.count",
         "agentstudio.performance.commandbar.repo.count",
         "agentstudio.performance.commandbar.result.count",
         "agentstudio.performance.commandbar.worktree.count",
-        "agentstudio.performance.coordinator.active_pane_write.count",
-        "agentstudio.performance.coordinator.activity_write.count",
-        "agentstudio.performance.coordinator.derived_envelope.count",
-        "agentstudio.performance.coordinator.filesystem_source_elapsed_ms",
-        "agentstudio.performance.coordinator.index_elapsed_ms",
-        "agentstudio.performance.coordinator.mainactor_apply_elapsed_ms",
-        "agentstudio.performance.coordinator.pane.count",
-        "agentstudio.performance.coordinator.registered.count",
-        "agentstudio.performance.coordinator.total_elapsed_ms",
-        "agentstudio.performance.coordinator.unregistered.count",
-        "agentstudio.performance.coordinator.worktree.count",
         "agentstudio.performance.elapsed_ms",
         "agentstudio.performance.startup.layout_settle_to_usable_elapsed_ms",
         "agentstudio.performance.filesystem.drain_task.count",
@@ -676,7 +668,8 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.latest_rows",
         "terminal.activity.rows_added",
         "terminal.activity.threshold_rows",
-    ]).union(BridgeProductStreamProjectionKeys.numericKeys)
+    ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
+        .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
         .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
@@ -812,10 +805,9 @@ package enum AgentStudioOTLPTraceProjection {
     }
 }
 extension AgentStudioOTLPTraceProjection {
-    private static func projectedAttributeValue(
-        key: String,
-        value: AgentStudioTraceValue
-    ) -> AgentStudioTraceValue? {
+    private static func projectedAttributeValue(key: String, value: AgentStudioTraceValue)
+        -> AgentStudioTraceValue?
+    {
         guard !isIdentifierKey(key), !isErrorKey(key) else {
             return nil
         }
@@ -932,6 +924,8 @@ extension AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.interaction.kind":
             return ["command_bar_open", "command_bar_close", "tab_move", "divider_frame", "cmd_r"]
                 .contains(value)
+        case "agentstudio.performance.focus.responder_change.reason":
+            return AgentStudioFocusResponderChangeReason(rawValue: value) != nil
         case "agentstudio.performance.startup.source":
             return ["presented", "occluded_fallback"].contains(value)
         case "agentstudio.performance.startup.deferral.gate":

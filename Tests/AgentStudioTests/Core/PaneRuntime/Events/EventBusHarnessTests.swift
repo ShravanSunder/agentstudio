@@ -51,4 +51,35 @@ struct EventBusHarnessTests {
         await subscriber.shutdown()
         await assertBusDrained(harness.bus)
     }
+
+    @Test("subscriber registration helper acknowledges the named registration event")
+    func subscriberRegistrationHelperAcknowledgesNamedRegistration() async {
+        let harness = EventBusHarness<Int>()
+        let registration = Task {
+            await waitForBusSubscriberRegistration(
+                harness.bus,
+                subscriberName: "target subscriber"
+            )
+        }
+
+        let subscriber = await harness.makeSubscriber(subscriberName: "target subscriber")
+        await registration.value
+
+        await subscriber.shutdown()
+        await assertBusDrained(harness.bus)
+    }
+
+    @Test("subscriber registration helper observes an existing named subscriber")
+    func subscriberRegistrationHelperObservesExistingNamedSubscriber() async {
+        let harness = EventBusHarness<Int>()
+        let subscriber = await harness.makeSubscriber(subscriberName: "existing subscriber")
+
+        await waitForBusSubscriberRegistration(
+            harness.bus,
+            subscriberName: "existing subscriber"
+        )
+
+        await subscriber.shutdown()
+        await assertBusDrained(harness.bus)
+    }
 }

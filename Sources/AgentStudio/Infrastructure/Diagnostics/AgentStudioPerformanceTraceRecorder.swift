@@ -104,6 +104,14 @@ package struct TraceIdentityPerformanceSnapshot: Equatable, Sendable {
     }
 }
 
+package enum AgentStudioFocusResponderChangeReason: String, Sendable {
+    case userClick = "user_click"
+    case restoreTail = "restore_tail"
+    case restoreTailSkippedUserFocus = "restore_tail_skipped_user_focus"
+    case parkedReplay = "parked_replay"
+    case parkedCleared = "parked_cleared"
+}
+
 package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     package struct TopologyLookupFact: Hashable, Sendable {
         let normalizedCWD: String
@@ -128,6 +136,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case atomDerived = "performance.atom.derived"
         case atomMutation = "performance.atom.mutation"
         case atomRead = "performance.atom.read"
+        case applyGovernorDrain = "performance.apply_governor.drain"
         case bridgeGitReadScheduler = "performance.bridge.git_read_scheduler"
         case bridgeWorktreeProductConstruction = "performance.bridge.worktree_product_construction"
         case commandBarFilter = "performance.commandbar.filter"
@@ -136,6 +145,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case coordinatorWrite = "performance.coordinator.write"
         case filesystemEffectSnapshot = "performance.filesystem.effect_snapshot"
         case filesystemLogicalDebt = "performance.filesystem.logical_debt"
+        case focusResponderChange = "performance.focus.responder_change"
         case forgeRefresh = "performance.forge.refresh"
         case gitAdmission = "performance.git.admission"
         case gitBackoff = "performance.git.backoff"
@@ -315,6 +325,15 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             attributes: [
                 "agentstudio.performance.startup.deferral.gate": .string(gate),
                 "agentstudio.performance.startup.deferral.outcome": .string(outcome.rawValue),
+            ]
+        )
+    }
+
+    package func recordFocusResponderChange(reason: AgentStudioFocusResponderChangeReason) {
+        record(
+            .focusResponderChange,
+            attributes: [
+                "agentstudio.performance.focus.responder_change.reason": .string(reason.rawValue)
             ]
         )
     }

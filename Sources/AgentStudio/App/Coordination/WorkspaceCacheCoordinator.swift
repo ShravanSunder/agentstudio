@@ -22,8 +22,14 @@ final class WorkspaceCacheCoordinator {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceCacheCoordinator")
 
     private struct PendingWorktreeEnrichment: Sendable {
+        enum UpdateKind: Sendable {
+            case snapshot
+            case branch
+        }
+
         var enrichment: WorktreeEnrichment
         var shouldRefreshTraceIdentity: Bool
+        var updateKind: UpdateKind
     }
 
     private let bus: EventBus<RuntimeEnvelope>
@@ -33,8 +39,10 @@ final class WorkspaceCacheCoordinator {
     private let topologyEffectHandler: (any TopologyEffectHandler)?
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private let traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)?
-    private let enrichmentApplierFlushInterval: Duration
-    private let enrichmentApplierDelay: AsyncDelay
+    private let enrichmentApplyTickCadence: Duration
+    private let enrichmentApplyDrainBudget: Duration
+    private let enrichmentApplyClock: (any Clock<Duration> & Sendable)?
+    private let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     private var consumeTask: Task<Void, Never>?
     private var pendingConsumeStartGeneration: UInt64?
     private var nextConsumeStartGeneration: UInt64 = 0
@@ -47,8 +55,10 @@ final class WorkspaceCacheCoordinator {
         topologyEffectHandler: (any TopologyEffectHandler)? = nil,
         scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil,
-        enrichmentApplierFlushInterval: Duration = .milliseconds(16),
-        enrichmentApplierClock: (any Clock<Duration> & Sendable)? = nil
+        enrichmentApplyTickCadence: Duration = AppPolicies.BackgroundFactApplyGovernor.tickCadence,
+        enrichmentApplyDrainBudget: Duration = AppPolicies.BackgroundFactApplyGovernor.drainBudget,
+        enrichmentApplyClock: (any Clock<Duration> & Sendable)? = nil,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil
     ) {
         self.bus = bus
         self.workspaceStore = workspaceStore
@@ -57,8 +67,10 @@ final class WorkspaceCacheCoordinator {
         self.topologyEffectHandler = topologyEffectHandler
         self.scopeSyncHandler = scopeSyncHandler
         self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
-        self.enrichmentApplierFlushInterval = enrichmentApplierFlushInterval
-        self.enrichmentApplierDelay = enrichmentApplierClock.map(AsyncDelay.clock) ?? .taskSleep
+        self.enrichmentApplyTickCadence = enrichmentApplyTickCadence
+        self.enrichmentApplyDrainBudget = enrichmentApplyDrainBudget
+        self.enrichmentApplyClock = enrichmentApplyClock
+        self.performanceTraceRecorder = performanceTraceRecorder
     }
 
     deinit {
@@ -82,23 +94,23 @@ final class WorkspaceCacheCoordinator {
         )
         guard pendingConsumeStartGeneration == startGeneration else { return }
         pendingConsumeStartGeneration = nil
-        let applier = makeEnrichmentApplier()
-        let flushTask = applier.startFlushTask()
+        let applyGovernor = makeEnrichmentApplyGovernor()
+        applyGovernor.start()
         let consumeDirect: @MainActor @Sendable (RuntimeEnvelope) -> Void = { [weak self] envelope in
             self?.consume(envelope)
         }
         // swiftlint:disable:next no_task_detached
-        consumeTask = Task.detached { [subscription, applier, consumeDirect] in
+        consumeTask = Task.detached { [subscription, applyGovernor, consumeDirect] in
             for await envelope in subscription {
                 if Task.isCancelled { break }
                 if Self.canCoalesce(envelope) {
-                    applier.accumulate(envelope)
+                    Self.enqueueCoalescedEnrichment(envelope, on: applyGovernor)
                 } else {
-                    await applier.flushPending()
+                    await applyGovernor.flushPending()
                     await consumeDirect(envelope)
                 }
             }
-            await applier.finish(flushTask: flushTask)
+            await applyGovernor.shutdown()
         }
     }
 
@@ -130,16 +142,28 @@ final class WorkspaceCacheCoordinator {
         }
     }
 
-    private func makeEnrichmentApplier()
-        -> CoalescingBusApplier<UUID, PendingWorktreeEnrichment, RuntimeEnvelope>
+    private func makeEnrichmentApplyGovernor()
+        -> BackgroundFactApplyGovernor<UUID, PendingWorktreeEnrichment>
     {
-        CoalescingBusApplier(
-            flushInterval: enrichmentApplierFlushInterval,
-            delay: enrichmentApplierDelay,
-            accumulate: Self.accumulateCoalescedEnrichment,
-            apply: { [weak self] batch in
-                self?.applyCoalescedEnrichment(batch)
-            }
+        let apply: @MainActor @Sendable (UUID, PendingWorktreeEnrichment) -> Void = { [weak self] worktreeId, pending in
+            self?.applyCoalescedEnrichment(for: worktreeId, pending: pending)
+        }
+        if let enrichmentApplyClock {
+            return BackgroundFactApplyGovernor(
+                tickCadence: enrichmentApplyTickCadence,
+                drainBudget: enrichmentApplyDrainBudget,
+                clock: enrichmentApplyClock,
+                performanceTraceRecorder: performanceTraceRecorder,
+                mergeFacts: Self.mergePendingEnrichment,
+                apply: apply
+            )
+        }
+        return BackgroundFactApplyGovernor(
+            tickCadence: enrichmentApplyTickCadence,
+            drainBudget: enrichmentApplyDrainBudget,
+            performanceTraceRecorder: performanceTraceRecorder,
+            mergeFacts: Self.mergePendingEnrichment,
+            apply: apply
         )
     }
 
@@ -154,50 +178,80 @@ final class WorkspaceCacheCoordinator {
         }
     }
 
-    nonisolated private static func accumulateCoalescedEnrichment(
-        pendingByWorktreeId: inout [UUID: PendingWorktreeEnrichment],
-        envelope: RuntimeEnvelope
+    nonisolated private static func enqueueCoalescedEnrichment(
+        _ envelope: RuntimeEnvelope,
+        on governor: BackgroundFactApplyGovernor<UUID, PendingWorktreeEnrichment>
     ) {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
         guard case .gitWorkingDirectory(let gitEvent) = worktreeEnvelope.event else { return }
         switch gitEvent {
         case .snapshotChanged(let snapshot):
-            pendingByWorktreeId[snapshot.worktreeId] = PendingWorktreeEnrichment(
+            let pending = PendingWorktreeEnrichment(
                 enrichment: WorktreeEnrichment(
                     worktreeId: snapshot.worktreeId,
                     repoId: snapshot.repoId,
                     branch: snapshot.branch ?? "",
                     snapshot: snapshot
                 ),
-                shouldRefreshTraceIdentity: true
+                shouldRefreshTraceIdentity: true,
+                updateKind: .snapshot
             )
+            _ = governor.enqueue(pending, for: snapshot.worktreeId)
         case .branchChanged(let worktreeId, let repoId, _, let to):
-            let previous = pendingByWorktreeId[worktreeId]
-            var enrichment =
-                previous?.enrichment
-                ?? WorktreeEnrichment(
+            let pending = PendingWorktreeEnrichment(
+                enrichment: WorktreeEnrichment(
                     worktreeId: worktreeId,
                     repoId: repoId,
                     branch: to
-                )
-            enrichment.updateBranch(to)
-            pendingByWorktreeId[worktreeId] = PendingWorktreeEnrichment(
-                enrichment: enrichment,
-                shouldRefreshTraceIdentity: true
+                ),
+                shouldRefreshTraceIdentity: true,
+                updateKind: .branch
             )
+            _ = governor.enqueue(pending, for: worktreeId)
         case .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
     }
 
-    private func applyCoalescedEnrichment(_ batch: [UUID: PendingWorktreeEnrichment]) {
-        var shouldRefreshTraceIdentity = false
-        for worktreeId in batch.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
-            guard let pending = batch[worktreeId] else { continue }
-            repoCache.setWorktreeEnrichment(pending.enrichment)
-            shouldRefreshTraceIdentity = shouldRefreshTraceIdentity || pending.shouldRefreshTraceIdentity
+    nonisolated private static func mergePendingEnrichment(
+        _ older: PendingWorktreeEnrichment,
+        _ newer: PendingWorktreeEnrichment
+    ) -> PendingWorktreeEnrichment {
+        guard case .branch = newer.updateKind else {
+            guard case .branch = older.updateKind, newer.enrichment.branch.isEmpty else {
+                return newer
+            }
+            var enrichment = newer.enrichment
+            enrichment.updateBranch(older.enrichment.branch)
+            return PendingWorktreeEnrichment(
+                enrichment: enrichment,
+                shouldRefreshTraceIdentity: older.shouldRefreshTraceIdentity || newer.shouldRefreshTraceIdentity,
+                updateKind: .snapshot
+            )
         }
-        if shouldRefreshTraceIdentity {
+        var enrichment = older.enrichment
+        enrichment.updateBranch(newer.enrichment.branch)
+        return PendingWorktreeEnrichment(
+            enrichment: enrichment,
+            shouldRefreshTraceIdentity: older.shouldRefreshTraceIdentity || newer.shouldRefreshTraceIdentity,
+            updateKind: .branch
+        )
+    }
+
+    private func applyCoalescedEnrichment(for worktreeId: UUID, pending: PendingWorktreeEnrichment) {
+        let enrichment: WorktreeEnrichment
+        switch pending.updateKind {
+        case .snapshot:
+            enrichment = pending.enrichment
+        case .branch:
+            var cachedEnrichment =
+                repoCache.worktreeEnrichment(for: worktreeId)
+                ?? pending.enrichment
+            cachedEnrichment.updateBranch(pending.enrichment.branch)
+            enrichment = cachedEnrichment
+        }
+        repoCache.setWorktreeEnrichment(enrichment)
+        if pending.shouldRefreshTraceIdentity {
             refreshTraceIdentity()
         }
     }

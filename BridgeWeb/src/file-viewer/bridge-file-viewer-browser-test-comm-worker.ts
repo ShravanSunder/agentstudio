@@ -68,7 +68,6 @@ const activeBridgeFileViewerBrowserQueryCompletions =
 const pendingBridgeFileViewerBrowserWorkerQueueJoins = new Set<Promise<void>>();
 const bridgeFileViewerBrowserWorkerDrainRequestPrefix = 'browser-file-worker-drain-';
 let activeBridgeFileViewerBrowserInteractionActCount = 0;
-let activeBridgeFileViewerBrowserPublicationActCount = 0;
 let resolveBridgeFileViewerBrowserInteractionActs: (() => void) | null = null;
 let bridgeFileViewerBrowserInteractionActs = Promise.resolve();
 
@@ -87,16 +86,6 @@ export function beginBridgeFileViewerBrowserInteractionAct(): () => void {
 		if (activeBridgeFileViewerBrowserInteractionActCount !== 0) return;
 		resolveBridgeFileViewerBrowserInteractionActs?.();
 		resolveBridgeFileViewerBrowserInteractionActs = null;
-	};
-}
-
-export function beginBridgeFileViewerBrowserPublicationAct(): () => void {
-	activeBridgeFileViewerBrowserPublicationActCount += 1;
-	let hasEnded = false;
-	return (): void => {
-		if (hasEnded) return;
-		hasEnded = true;
-		activeBridgeFileViewerBrowserPublicationActCount -= 1;
 	};
 }
 
@@ -201,11 +190,6 @@ export function createBridgeFileViewerBrowserTestPaneSessionFactory(props: {
 	}): void => {
 		const publishCompletion = workerMessageActQueue.then(async (): Promise<void> => {
 			await bridgeFileViewerBrowserInteractionActs;
-			if (activeBridgeFileViewerBrowserPublicationActCount > 0) {
-				publishProps.publishWorkerMessages(publishProps.messages);
-				await Promise.resolve();
-				return;
-			}
 			await act(async (): Promise<void> => {
 				publishProps.publishWorkerMessages(publishProps.messages);
 				await Promise.resolve();

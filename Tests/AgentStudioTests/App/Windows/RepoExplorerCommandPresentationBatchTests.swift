@@ -12,7 +12,7 @@ import Testing
 struct RepoExplorerCommandPresentationBatchTests {
     @Test("mixed capability and visible-set wake re-resolves surviving requests")
     func mixedCapabilityAndVisibleSetWakeReresolvesSurvivingRequests() async throws {
-        let handler = MockCommandHandler()
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -48,19 +48,15 @@ struct RepoExplorerCommandPresentationBatchTests {
                     batch.start()
                     defer { batch.stop() }
 
-                    await eventually("initial visible worktree resolution") {
-                        handler.repoExplorerCapabilityRequestBatches.count == 1
-                    }
+                    _ = await handler.batchArrivals.wait { _ in true }
                     handler.repoExplorerCapabilityRequestBatches.removeAll()
 
                     coreAtoms.managementLayer.toggle()
                     visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
 
-                    await eventually("mixed capability and visible-set resolution") {
-                        handler.repoExplorerCapabilityRequestBatches.contains { requests in
-                            requests.contains { request in
-                                request.target == secondWorktree.id
-                            }
+                    _ = await handler.batchArrivals.wait { requests in
+                        requests.contains { request in
+                            request.target == secondWorktree.id
                         }
                     }
                     let resolvedRequests = try! #require(
@@ -95,7 +91,7 @@ struct RepoExplorerCommandPresentationBatchTests {
 
     @Test("visible-set delta resolves only newly visible worktree requests")
     func visibleSetDeltaResolvesOnlyNewlyVisibleWorktreeRequests() async throws {
-        let handler = MockCommandHandler()
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -128,18 +124,14 @@ struct RepoExplorerCommandPresentationBatchTests {
                     batch.start()
                     defer { batch.stop() }
 
-                    await eventually("initial visible worktree resolution") {
-                        handler.repoExplorerCapabilityRequestBatches.count == 1
-                    }
+                    _ = await handler.batchArrivals.wait { _ in true }
                     handler.repoExplorerCapabilityRequestBatches.removeAll()
 
                     visibleWorktrees.setVisibleWorktreeIds([firstWorktree.id, secondWorktree.id])
 
-                    await eventually("newly visible worktree resolution") {
-                        handler.repoExplorerCapabilityRequestBatches.contains { requests in
-                            requests.contains { request in
-                                request.target == secondWorktree.id
-                            }
+                    _ = await handler.batchArrivals.wait { requests in
+                        requests.contains { request in
+                            request.target == secondWorktree.id
                         }
                     }
                     let resolvedRequests = try! #require(
@@ -392,5 +384,31 @@ struct RepoExplorerCommandPresentationBatchTests {
             #expect(batch.snapshot.generation == collapsedGeneration)
             #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
         }
+    }
+}
+
+@MainActor
+private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCommandHandling {
+    let batchArrivals = ExactEventAcknowledgement<Set<RepoExplorerCommandPresentationRequest>>()
+    var repoExplorerCapabilityRequestBatches: [Set<RepoExplorerCommandPresentationRequest>] = []
+
+    func execute(_: AppCommand) {}
+
+    func execute(_: AppCommand, target _: UUID, targetType _: SearchItemType) {}
+
+    func canExecute(_: AppCommand) -> Bool {
+        true
+    }
+
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+
+    func repoExplorerCommandCapabilities(
+        _ requests: Set<RepoExplorerCommandPresentationRequest>
+    ) -> [RepoExplorerCommandPresentationRequest: Bool] {
+        repoExplorerCapabilityRequestBatches.append(requests)
+        batchArrivals.record(requests)
+        return Dictionary(uniqueKeysWithValues: requests.map { ($0, true) })
     }
 }

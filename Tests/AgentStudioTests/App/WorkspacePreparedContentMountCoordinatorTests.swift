@@ -108,7 +108,14 @@ struct WorkspacePreparedContentMountCoordinatorTests {
 
     @Test("terminal activation deferral returns cancelled when its caller is cancelled")
     func terminalActivationDeferralReturnsCancelled() async {
-        let gate = TerminalActivationReleaseGate(isReleased: false)
+        let timeout = AsyncStream<Void>.makeStream()
+        let gate = TerminalActivationReleaseGate(
+            isReleased: false,
+            deferralDelay: AsyncDelay { _ in
+                var iterator = timeout.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+        )
         let waiter = Task {
             await gate.waitUntilReleased()
         }
