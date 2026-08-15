@@ -44,6 +44,7 @@ private func observeRepoARevision(
     }
 }
 
+@Suite(.serialized)
 @MainActor
 struct AtomFamilyObservationTests {
     @Test
@@ -502,6 +503,38 @@ struct AtomFamilyObservationTests {
         #expect(contents.contains("\"body\":\"performance.repo_explorer.keyed_wake\""))
         #expect(contents.contains("\"agentstudio.trace.tag\":\"performance\""))
         #expect(!contents.contains("\"body\":\"performance.atom."))
+    }
+
+    @Test("Repo Explorer keyed wakes emit during ordinary performance tracing")
+    func repoExplorerKeyedWakesEmitWithoutDiagnosticContext() async throws {
+        let traceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("repo-explorer-ordinary-keyed-wake-\(UUID().uuidString)", isDirectory: true)
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "repo-explorer-ordinary-keyed-wake",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 921,
+            timeUnixNano: { 781 }
+        )
+        AtomPerformanceTelemetry.shared.configure(traceRuntime: runtime)
+        defer {
+            AtomPerformanceTelemetry.shared.resetForTests()
+            try? FileManager.default.removeItem(at: traceDirectory)
+        }
+
+        AtomPerformanceTelemetry.shared.recordRepoExplorerKeyedWake(
+            stage: "capture_rebuild",
+            outcome: "admitted"
+        )
+        try await AtomPerformanceTelemetry.shared.drainForTests()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = (try? String(contentsOf: outputFileURL, encoding: .utf8)) ?? ""
+        #expect(contents.contains("\"body\":\"performance.repo_explorer.keyed_wake\""))
+        #expect(contents.contains("\"agentstudio.performance.repo_explorer.key_class\":\"ordinary_run\""))
     }
 
     @Test

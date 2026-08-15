@@ -403,6 +403,20 @@ extension WorkspaceSurfaceCoordinator {
 
         for paneUpdate in paneUpdates {
             let outcome = await filesystemProjectionIndex.applyPaneUpdate(paneUpdate)
+            let telemetryOutcome: String
+            switch outcome {
+            case .applied:
+                telemetryOutcome = "applied"
+            case .stale, .inapplicable:
+                telemetryOutcome = "rejected"
+            }
+            performanceTraceRecorder?.record(
+                .filesystemStageOutcome,
+                attributes: [
+                    "agentstudio.performance.filesystem.stage": .string("affected_key_apply"),
+                    "agentstudio.performance.filesystem.outcome": .string(telemetryOutcome),
+                ]
+            )
             guard case .applied(let affectedActivity) = outcome else { continue }
             didApplyPaneEffect = true
             for activityUpdate in affectedActivity.updates {

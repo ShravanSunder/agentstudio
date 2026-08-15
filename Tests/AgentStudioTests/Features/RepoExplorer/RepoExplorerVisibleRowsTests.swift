@@ -17,6 +17,43 @@ private final class VisibleWorktreeCallbackRecorder {
 @MainActor
 @Suite("RepoExplorer visible rows")
 struct RepoExplorerVisibleRowsTests {
+    @Test("scroll gap samples use bounded burst and frame sequences")
+    func scrollGapSamplesUseBoundedBurstAndFrameSequences() {
+        var state = RepoExplorerScrollGapState()
+
+        let first = state.sample(atNanoseconds: 1_000_000_000, visibleRowCount: 3)
+        let second = state.sample(atNanoseconds: 1_016_000_000, visibleRowCount: 9)
+        let nextBurst = state.sample(atNanoseconds: 1_300_000_000, visibleRowCount: 33)
+
+        #expect(first.outcome == .incomplete)
+        #expect(first.scrollBurstSequence == 1)
+        #expect(first.frameSampleSequence == 1)
+        #expect(first.visibleRowCountBucket.rawValue == "1_8")
+        #expect(first.traceAttributes["agentstudio.performance.repo_explorer.scroll_active"] == .bool(true))
+        #expect(second.outcome == .sampled)
+        #expect(second.gapDuration == .milliseconds(16))
+        #expect(second.scrollBurstSequence == 1)
+        #expect(second.frameSampleSequence == 2)
+        #expect(second.visibleRowCountBucket.rawValue == "9_16")
+        #expect(nextBurst.outcome == .incomplete)
+        #expect(nextBurst.scrollBurstSequence == 2)
+        #expect(nextBurst.frameSampleSequence == 1)
+        #expect(nextBurst.visibleRowCountBucket.rawValue == "33_plus")
+    }
+
+    @Test("scroll-active classification expires at the bounded burst threshold")
+    func scrollActiveClassificationExpiresAtBoundedBurstThreshold() {
+        let state = RepoExplorerScrollInstrumentationState()
+
+        #expect(state.latestVisibleRowCountBucket == nil)
+
+        _ = state.recordBoundsChange(atNanoseconds: 1_000_000_000, visibleRowCount: 4)
+
+        #expect(state.latestVisibleRowCountBucket == .oneToEight)
+        #expect(state.isScrollActive(atNanoseconds: 1_250_000_000))
+        #expect(!state.isScrollActive(atNanoseconds: 1_250_000_001))
+    }
+
     @Test("visible row range ignores section and loading entries while retaining worktree leaves")
     func visibleRowRangeIgnoresSectionAndLoadingEntriesWhileRetainingWorktreeLeaves() {
         let groupId = "tab:\(UUIDv7.generate().uuidString)"

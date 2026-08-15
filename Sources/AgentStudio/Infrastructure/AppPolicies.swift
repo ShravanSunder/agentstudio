@@ -36,6 +36,7 @@ package enum AppPolicies {
 
     package enum Diagnostics {
         package static let traceEventQueueBufferLimit: Int = 4096
+        package static let repoExplorerScrollBurstSeparationNanoseconds: UInt64 = 250_000_000
         /// Native hot-path performance facts must shed before reaching
         /// swift-otel. Topology lookup telemetry is informational, so repeated
         /// derived/UI reads should never be able to saturate the exporter.

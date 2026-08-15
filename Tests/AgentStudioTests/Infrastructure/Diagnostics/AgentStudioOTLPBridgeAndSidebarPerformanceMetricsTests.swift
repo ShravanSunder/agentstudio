@@ -5,6 +5,73 @@ import Testing
 @Suite
 struct AgentStudioOTLPBridgeSidebarMetricTests {
     @Test
+    func repoExplorerRowAndScrollReceiptsProjectBoundedDimensions() throws {
+        let rowRecord = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 141,
+            severityText: .info,
+            body: "performance.repo_explorer.row_body_evaluation",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(2.5),
+                "agentstudio.performance.repo_explorer.row_body_evaluation.outcome": .string("success"),
+                "agentstudio.performance.repo_explorer.row_kind": .string("resolved_worktree"),
+                "agentstudio.performance.repo_explorer.surface": .string("repo"),
+                "agentstudio.performance.repo_explorer.visible_row_count_bucket": .string("9_16"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: rowRecord))
+
+        #expect(metricEvent.dimensionTuples.contains { $0 == ("row_kind", "resolved_worktree") })
+        #expect(metricEvent.dimensionTuples.contains { $0 == ("outcome", "success") })
+        #expect(metricEvent.dimensionTuples.contains { $0 == ("visible_row_count_bucket", "9_16") })
+    }
+
+    @Test
+    func stageOutcomeReceiptsProjectTruthfulDimensions() throws {
+        let filesystemRecord = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 142,
+            severityText: .info,
+            body: "performance.filesystem.stage_outcome",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.filesystem.stage": .string("coarse_refresh_debt"),
+                "agentstudio.performance.filesystem.outcome": .string("overflow_coarse"),
+            ]
+        )
+        let forgeRecord = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 143,
+            severityText: .info,
+            body: "performance.forge.refresh",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.forge.stage": .string("follow_up"),
+                "agentstudio.performance.forge.outcome": .string("deferred"),
+            ]
+        )
+
+        let filesystemMetric = try #require(AgentStudioOTLPPerformanceMetricEvent(record: filesystemRecord))
+        let forgeMetric = try #require(AgentStudioOTLPPerformanceMetricEvent(record: forgeRecord))
+
+        #expect(filesystemMetric.dimensionTuples.contains { $0 == ("stage", "coarse_refresh_debt") })
+        #expect(filesystemMetric.dimensionTuples.contains { $0 == ("outcome", "overflow_coarse") })
+        #expect(forgeMetric.dimensionTuples.contains { $0 == ("stage", "follow_up") })
+        #expect(forgeMetric.dimensionTuples.contains { $0 == ("outcome", "deferred") })
+    }
+
+    @Test
     func outlineApplyProxyProjectsOutcomeAndRowCount() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 140,

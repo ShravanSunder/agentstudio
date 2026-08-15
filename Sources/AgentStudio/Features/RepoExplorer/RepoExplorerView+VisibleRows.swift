@@ -72,17 +72,23 @@ enum RepoExplorerFocusPublisher {
 
 struct RepoExplorerVisibleRowsBridge: NSViewRepresentable {
     let entries: [RepoExplorerListEntry]
+    let scrollInstrumentationState: RepoExplorerScrollInstrumentationState
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onVisibleWorktreeIdsChange: @MainActor @Sendable (Set<UUID>) -> Void
 
     func makeNSView(context: Context) -> RepoExplorerVisibleRowsObserverView {
         let view = RepoExplorerVisibleRowsObserverView()
         view.entries = entries
+        view.scrollInstrumentationState = scrollInstrumentationState
+        view.performanceTraceRecorder = performanceTraceRecorder
         view.onVisibleWorktreeIdsChange = onVisibleWorktreeIdsChange
         return view
     }
 
     func updateNSView(_ nsView: RepoExplorerVisibleRowsObserverView, context: Context) {
         nsView.entries = entries
+        nsView.scrollInstrumentationState = scrollInstrumentationState
+        nsView.performanceTraceRecorder = performanceTraceRecorder
         nsView.onVisibleWorktreeIdsChange = onVisibleWorktreeIdsChange
         nsView.scheduleVisibleRowsReport()
     }
@@ -96,6 +102,8 @@ struct RepoExplorerVisibleRowsBridge: NSViewRepresentable {
 final class RepoExplorerVisibleRowsObserverView: NSView {
     var entries: [RepoExplorerListEntry] = []
     var onVisibleWorktreeIdsChange: @MainActor @Sendable (Set<UUID>) -> Void = { _ in }
+    var scrollInstrumentationState = RepoExplorerScrollInstrumentationState()
+    var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
 
     private weak var observedTableView: NSTableView?
     private var boundsObserver: NSObjectProtocol?
@@ -153,6 +161,7 @@ final class RepoExplorerVisibleRowsObserverView: NSView {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.recordScrollBoundsChange()
                 self?.scheduleVisibleRowsReport()
             }
         }
@@ -180,6 +189,169 @@ final class RepoExplorerVisibleRowsObserverView: NSView {
         guard visibleWorktreeIds != lastReportedWorktreeIds else { return }
         lastReportedWorktreeIds = visibleWorktreeIds
         onVisibleWorktreeIdsChange(visibleWorktreeIds)
+    }
+
+    private func recordScrollBoundsChange() {
+        guard let tableView = observedTableView else { return }
+        let sample = scrollInstrumentationState.recordBoundsChange(
+            visibleRowCount: tableView.rows(in: tableView.visibleRect).length
+        )
+        if let gapDuration = sample.gapDuration {
+            performanceTraceRecorder?.recordDuration(
+                .repoExplorerScrollFrameGap,
+                duration: gapDuration,
+                attributes: sample.traceAttributes
+            )
+        } else {
+            performanceTraceRecorder?.record(.repoExplorerScrollFrameGap, attributes: sample.traceAttributes)
+        }
+    }
+}
+
+enum RepoExplorerVisibleRowCountBucket: String, Equatable, Sendable {
+    case zero
+    case oneToEight = "1_8"
+    case nineToSixteen = "9_16"
+    case seventeenToThirtyTwo = "17_32"
+    case thirtyThreePlus = "33_plus"
+
+    init(rowCount: Int) {
+        switch rowCount {
+        case ...0: self = .zero
+        case 1...8: self = .oneToEight
+        case 9...16: self = .nineToSixteen
+        case 17...32: self = .seventeenToThirtyTwo
+        default: self = .thirtyThreePlus
+        }
+    }
+}
+
+enum RepoExplorerScrollGapOutcome: String, Equatable, Sendable {
+    case sampled
+    case incomplete
+}
+
+struct RepoExplorerScrollGapSample: Equatable, Sendable {
+    let gapDuration: Duration?
+    let scrollBurstSequence: UInt64
+    let frameSampleSequence: UInt64
+    let visibleRowCountBucket: RepoExplorerVisibleRowCountBucket
+    let outcome: RepoExplorerScrollGapOutcome
+
+    var traceAttributes: [String: AgentStudioTraceValue] {
+        [
+            "agentstudio.performance.repo_explorer.surface": .string("repo"),
+            "agentstudio.performance.repo_explorer.scroll_frame_gap.outcome": .string(outcome.rawValue),
+            "agentstudio.performance.repo_explorer.visible_row_count_bucket": .string(
+                visibleRowCountBucket.rawValue),
+            "agentstudio.performance.repo_explorer.scroll_burst.sequence": .int(
+                Int(clamping: scrollBurstSequence)),
+            "agentstudio.performance.repo_explorer.frame_sample.sequence": .int(
+                Int(clamping: frameSampleSequence)),
+            "agentstudio.performance.repo_explorer.scroll_active": .bool(true),
+        ]
+    }
+}
+
+struct RepoExplorerScrollGapState: Sendable {
+    private var previousSampleNanoseconds: UInt64?
+    private(set) var scrollBurstSequence: UInt64 = 0
+    private var frameSampleSequence: UInt64 = 0
+
+    mutating func sample(atNanoseconds: UInt64, visibleRowCount: Int) -> RepoExplorerScrollGapSample {
+        let gapNanoseconds = previousSampleNanoseconds.map {
+            atNanoseconds - min(atNanoseconds, $0)
+        }
+        let startsBurst =
+            gapNanoseconds.map {
+                $0 > AppPolicies.Diagnostics.repoExplorerScrollBurstSeparationNanoseconds
+            } ?? true
+        if startsBurst {
+            scrollBurstSequence &+= 1
+            frameSampleSequence = 0
+        }
+        frameSampleSequence &+= 1
+        previousSampleNanoseconds = atNanoseconds
+        return RepoExplorerScrollGapSample(
+            gapDuration: startsBurst ? nil : gapNanoseconds.map { .nanoseconds(Int64(clamping: $0)) },
+            scrollBurstSequence: scrollBurstSequence,
+            frameSampleSequence: frameSampleSequence,
+            visibleRowCountBucket: RepoExplorerVisibleRowCountBucket(rowCount: visibleRowCount),
+            outcome: startsBurst ? .incomplete : .sampled
+        )
+    }
+}
+
+@MainActor
+final class RepoExplorerScrollInstrumentationState {
+    private var gapState = RepoExplorerScrollGapState()
+    private(set) var latestSample: RepoExplorerScrollGapSample?
+    private var latestSampleNanoseconds: UInt64?
+
+    var latestVisibleRowCountBucket: RepoExplorerVisibleRowCountBucket? {
+        latestSample?.visibleRowCountBucket
+    }
+
+    func recordBoundsChange(
+        atNanoseconds: UInt64 = DispatchTime.now().uptimeNanoseconds,
+        visibleRowCount: Int
+    ) -> RepoExplorerScrollGapSample {
+        let sample = gapState.sample(atNanoseconds: atNanoseconds, visibleRowCount: visibleRowCount)
+        latestSample = sample
+        latestSampleNanoseconds = atNanoseconds
+        return sample
+    }
+
+    func isScrollActive(atNanoseconds: UInt64 = DispatchTime.now().uptimeNanoseconds) -> Bool {
+        guard let latestSampleNanoseconds else { return false }
+        let elapsedNanoseconds = atNanoseconds - min(atNanoseconds, latestSampleNanoseconds)
+        return elapsedNanoseconds <= AppPolicies.Diagnostics.repoExplorerScrollBurstSeparationNanoseconds
+    }
+}
+
+struct RepoExplorerRowBodyEvaluationProxy<Content: View>: View {
+    let entry: RepoExplorerListEntry
+    let scrollInstrumentationState: RepoExplorerScrollInstrumentationState
+    let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let measurement = RepoExplorerView.measureRowBodyEvaluationProxy(
+            rowKind: entry.rowKind,
+            resolve: content
+        )
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.performance.repo_explorer.row_body_evaluation.outcome": .string(
+                measurement.outcome.rawValue),
+            "agentstudio.performance.repo_explorer.row_kind": .string(measurement.rowKind.rawValue),
+            "agentstudio.performance.repo_explorer.surface": .string("repo"),
+            "agentstudio.performance.repo_explorer.scroll_active": .bool(
+                scrollInstrumentationState.isScrollActive()),
+        ]
+        if let visibleRowCountBucket = scrollInstrumentationState.latestVisibleRowCountBucket {
+            attributes["agentstudio.performance.repo_explorer.visible_row_count_bucket"] = .string(
+                visibleRowCountBucket.rawValue)
+        }
+        performanceTraceRecorder?.recordDuration(
+            .repoExplorerRowBodyEvaluation,
+            duration: measurement.duration,
+            attributes: attributes
+        )
+        return measurement.content
+    }
+}
+
+extension RepoExplorerListEntry {
+    fileprivate var rowKind: RepoExplorerRowKind {
+        switch self {
+        case .sectionHeader: .sectionHeader
+        case .loadingSectionHeader: .loadingSectionHeader
+        case .loadingRepoRow: .loadingRepo
+        case .resolvedGroupHeader: .resolvedGroupHeader
+        case .resolvedWorktreeRow: .resolvedWorktree
+        case .resolvedPaneRow: .resolvedPane
+        case .topologyFault: .topologyFault
+        }
     }
 }
 
