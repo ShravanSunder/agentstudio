@@ -458,6 +458,8 @@ extension WorktreeScopedEvent {
 extension GitWorkingDirectoryEvent {
     var traceName: String {
         switch self {
+        case .statusOutcome:
+            return "gitWorkingDirectory.statusOutcome"
         case .snapshotChanged:
             return "gitWorkingDirectory.snapshotChanged"
         case .branchChanged:

@@ -26,6 +26,8 @@ struct RepoExplorerTopologyFaultRow: View {
 }
 
 struct RepoExplorerLoadingSectionHeaderRow: View {
+    let state: RepoExplorerLoadingSectionState
+
     var body: some View {
         HStack(spacing: AppStyles.General.Spacing.standard) {
             Rectangle()
@@ -33,10 +35,15 @@ struct RepoExplorerLoadingSectionHeaderRow: View {
                 .frame(height: 1)
 
             HStack(spacing: AppStyles.General.Spacing.tight) {
-                ProgressView()
-                    .controlSize(.small)
+                if state == .scanning {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                }
 
-                Text("Scanning...")
+                Text(title)
                     .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -54,18 +61,36 @@ struct RepoExplorerLoadingSectionHeaderRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private var title: String {
+        switch state {
+        case .scanning: "Scanning..."
+        case .statusUnavailable: "Status unavailable"
+        case .mixed: "Scanning; some status unavailable"
+        }
+    }
 }
 
 struct RepoExplorerLoadingRepoRow: View {
     let repoName: String
+    let isStatusUnavailable: Bool
 
     var body: some View {
         HStack(spacing: AppStyles.General.Spacing.standard) {
-            Text(repoName)
-                .font(.system(size: AppStyles.General.Typography.textBase))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: AppStyles.General.Spacing.tight) {
+                Text(repoName)
+                    .font(.system(size: AppStyles.General.Typography.textBase))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.secondary)
+                if isStatusUnavailable {
+                    Text("Status unavailable; retrying")
+                        .font(.system(size: AppStyles.General.Typography.textXs))
+                        .foregroundStyle(
+                            .secondary.opacity(AppStyles.Shell.Sidebar.statusUnavailableForegroundOpacity)
+                        )
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(0.55)

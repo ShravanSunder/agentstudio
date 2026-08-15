@@ -24,6 +24,12 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
     }
 }
 
+enum RepoExplorerLoadingSectionState: Equatable, Sendable {
+    case scanning
+    case statusUnavailable
+    case mixed
+}
+
 struct RepoExplorerSidebarSection: Identifiable, Equatable, Sendable {
     let kind: RepoExplorerSidebarSectionKind
     let resolvedGroups: [RepoPresentationGroup]
@@ -31,6 +37,25 @@ struct RepoExplorerSidebarSection: Identifiable, Equatable, Sendable {
 
     var id: String { "section:\(kind.rawValue)" }
     var title: String { kind.title }
+
+    func loadingState(enrichmentByRepoId: [UUID: RepoEnrichment]) -> RepoExplorerLoadingSectionState {
+        var hasScanningRepos = false
+        var hasStatusUnavailableRepos = false
+        for repo in loadingRepos {
+            switch enrichmentByRepoId[repo.id] {
+            case .statusUnavailable:
+                hasStatusUnavailableRepos = true
+            case .awaitingOrigin, .none:
+                hasScanningRepos = true
+            case .resolvedLocal, .resolvedRemote:
+                break
+            }
+        }
+        if hasScanningRepos && hasStatusUnavailableRepos {
+            return .mixed
+        }
+        return hasStatusUnavailableRepos ? .statusUnavailable : .scanning
+    }
 }
 
 struct RepoExplorerSidebarContent: Equatable, Sendable {
@@ -161,6 +186,17 @@ enum RepoExplorerSidebarProjection: Equatable, Sendable {
         }
     }
 
+    func scanningRepoCount(enrichmentByRepoId: [UUID: RepoEnrichment]) -> Int {
+        loadingRepos.count { repo in
+            switch enrichmentByRepoId[repo.id] {
+            case .awaitingOrigin, .none:
+                return true
+            case .resolvedLocal, .resolvedRemote, .statusUnavailable:
+                return false
+            }
+        }
+    }
+
     var worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] {
         switch self {
         case .ready(let content): content.worktreeRowsByGroupId
@@ -264,10 +300,9 @@ enum RepoExplorerProjection {
             return .degraded(topologyFault)
         }
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
-        let loadingRepos = loadingRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: snapshot.query)
         let filteredLoadingRepos = filterLoadingRepos(
-            loadingRepos,
+            unresolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId),
             query: snapshot.query,
             sortOrder: snapshot.sortOrder
         )
@@ -489,7 +524,7 @@ enum RepoExplorerProjection {
             switch enrichmentByRepoId[repo.id] {
             case .resolvedLocal, .resolvedRemote:
                 return true
-            case .awaitingOrigin, .none:
+            case .awaitingOrigin, .statusUnavailable, .none:
                 return false
             }
         }
@@ -505,7 +540,27 @@ enum RepoExplorerProjection {
                 return false
             case .awaitingOrigin, .none:
                 return true
+            case .statusUnavailable:
+                return false
             }
+        }
+    }
+
+    private static func unresolvedRepos(
+        _ repos: [RepoPresentationItem],
+        enrichmentByRepoId: [UUID: RepoEnrichment]
+    ) -> [RepoPresentationItem] {
+        loadingRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
+            + statusUnavailableRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
+    }
+
+    static func statusUnavailableRepos(
+        _ repos: [RepoPresentationItem],
+        enrichmentByRepoId: [UUID: RepoEnrichment]
+    ) -> [RepoPresentationItem] {
+        repos.filter { repo in
+            if case .statusUnavailable = enrichmentByRepoId[repo.id] { return true }
+            return false
         }
     }
 

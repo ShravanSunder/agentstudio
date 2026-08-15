@@ -291,6 +291,8 @@ package actor ForgeActor {
         correlationId: UUID?
     ) async {
         switch event {
+        case .statusOutcome:
+            return
         case .snapshotChanged(let snapshot):
             await updateMembershipBranch(
                 worktreeId: snapshot.worktreeId,

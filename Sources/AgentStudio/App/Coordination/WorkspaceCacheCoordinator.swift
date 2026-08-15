@@ -173,7 +173,7 @@ final class WorkspaceCacheCoordinator {
         switch gitEvent {
         case .snapshotChanged, .branchChanged:
             return true
-        case .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
+        case .statusOutcome, .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return false
         }
     }
@@ -208,7 +208,7 @@ final class WorkspaceCacheCoordinator {
                 updateKind: .branch
             )
             _ = governor.enqueue(pending, for: worktreeId)
-        case .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
+        case .statusOutcome, .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
     }
@@ -540,6 +540,24 @@ final class WorkspaceCacheCoordinator {
         switch envelope.event {
         case .gitWorkingDirectory(let gitEvent):
             switch gitEvent {
+            case .statusOutcome(_, let repoId, let outcome, let consecutiveTimeoutCount):
+                switch outcome {
+                case .completed:
+                    if case .statusUnavailable = repoCache.repoEnrichment(for: repoId) {
+                        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+                    }
+                case .timeout:
+                    guard consecutiveTimeoutCount >= AppPolicies.GitRefresh.statusUnavailableConsecutiveTimeoutThreshold
+                    else { break }
+                    switch repoCache.repoEnrichment(for: repoId) {
+                    case .none, .some(.awaitingOrigin):
+                        repoCache.setRepoEnrichment(.statusUnavailable(repoId: repoId, reason: "timeout"))
+                    case .some(.statusUnavailable), .some(.resolvedLocal), .some(.resolvedRemote):
+                        break
+                    }
+                case .unavailable:
+                    break
+                }
             case .snapshotChanged(let snapshot):
                 let enrichment = WorktreeEnrichment(
                     worktreeId: snapshot.worktreeId,
