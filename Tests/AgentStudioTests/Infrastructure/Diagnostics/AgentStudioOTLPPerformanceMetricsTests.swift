@@ -216,6 +216,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.elapsed_ms": .double(15.5),
                 "agentstudio.performance.git.pending.count": .int(64),
                 "agentstudio.performance.git.running.count": .int(4),
+                "agentstudio.performance.git.status.last_outcome": .string("completed"),
                 "agentstudio.performance.git.has_git_internal_changes": .bool(true),
                 "agentstudio.performance.git.root_path": .string("/Users/private/repo"),
                 "agentstudio.trace.tag": .string("performance"),
@@ -227,7 +228,8 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(metricEvent.eventName == "performance.git.status")
         #expect(metricEvent.elapsedMilliseconds == 15.5)
         let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status")
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: "completed"),
         ]
         #expect(
             metricEvent.samples == [
@@ -266,6 +268,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(21.5),
                 "agentstudio.performance.git.status_unavailable.reason": .string("timeout"),
+                "agentstudio.performance.git.status.last_outcome": .string("timeout"),
                 "agentstudio.trace.tag": .string("performance"),
             ]
         )
@@ -280,6 +283,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                     value: "performance.git.status_unavailable"
                 ),
                 AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: "timeout"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: "timeout"),
             ])
         #expect(metricEvent.elapsedMilliseconds == 21.5)
     }

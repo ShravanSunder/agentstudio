@@ -70,8 +70,8 @@ enum PaneFilesystemProjectionAdmission: Sendable {
         switch event {
         case .snapshotChanged(let snapshot):
             return .gitSnapshot(snapshot)
-        case .branchChanged, .originChanged, .originUnavailable, .worktreeDiscovered, .worktreeRemoved,
-            .diffAvailable:
+        case .statusOutcome, .branchChanged, .originChanged, .originUnavailable, .worktreeDiscovered,
+            .worktreeRemoved, .diffAvailable:
             return .ignored
         }
     }
