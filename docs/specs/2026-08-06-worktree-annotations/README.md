@@ -33,16 +33,21 @@ against a visible, reviewer-selectable target. It also exposes trustworthy
 comparison provenance for later annotation origins. PR0 does not implement
 annotations.
 
-The later sequence remains:
+The delivery sequence is:
 
 ```text
 PR1  durable human Worktree Annotations in File View and Review View
 PR2  bidirectional agent participation and automated delivery
 ```
 
-PR1 and PR2 require their own current Requirements identities and bounded
-design cycles. The deprecated drafts below remain source material until those
-cycles create new authoritative records.
+PR1's current design artifacts are:
+
+- [`pr1-user-requirements.md`](./pr1-user-requirements.md) →
+  [`pr1-specification.md`](./pr1-specification.md) →
+  [`pr1-program-design.md`](./pr1-program-design.md)
+
+PR2 still requires its own current Requirements identity and bounded design
+cycle. The deprecated drafts below remain source material only.
 
 ## Comparison-selector loading boundary
 
