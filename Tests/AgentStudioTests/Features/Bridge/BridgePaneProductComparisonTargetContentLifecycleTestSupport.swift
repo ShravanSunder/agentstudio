@@ -1,9 +1,64 @@
+import CryptoKit
 import Foundation
 import Testing
 
 @testable import AgentStudioBridge
 
 extension BridgeComparisonTargetContentLifecycleTests {
+    func makeProvider(
+        capture: ComparisonTargetFixture,
+        traceRecorder: (any BridgeReviewComparisonTargetCatalogTraceRecording)? = nil
+    ) async -> BridgePaneProductSchemeProvider {
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        return BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            authorizeReviewComparisonTargets: { capture.authorization },
+            reviewComparisonTargetCatalogProducer: ComparisonTargetFixtureSource(
+                fixtures: [capture]
+            ),
+            comparisonTargetCatalogTraceRecorder: traceRecorder,
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+    }
+
+    func makeCapture(
+        body: Data,
+        suffix: String
+    ) throws -> ComparisonTargetFixture {
+        let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+        let descriptor = try BridgeProductReviewComparisonTargetsContentDescriptor(
+            descriptorId: suffix == "other"
+                ? "019FEEC5-A29D-7858-A3BD-AB969E228485"
+                : "019FEEC5-A29D-7858-A3BD-AB969E228484",
+            maximumBytes: 1024 * 1024
+        )
+        return ComparisonTargetFixture(
+            descriptor: descriptor,
+            body: body,
+            sha256: digest
+        )
+    }
+
+    func queryRequest(
+        suffix: String = "1",
+        sequence: Int = 1,
+        paneSessionId: String = "pane-session-1",
+        workerDerivationEpoch: Int = 0,
+        workerInstanceId: String = "worker-instance-1"
+    ) throws -> BridgeProductControlRequest {
+        try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: Data(
+                """
+                {"call":{"method":"review.comparisonTargets.query","request":{}},"kind":"product.call","paneSessionId":"\(paneSessionId)","requestId":"query-\(suffix)","requestSequence":\(sequence),"wireVersion":2,"workerDerivationEpoch":\(workerDerivationEpoch),"workerInstanceId":"\(workerInstanceId)"}
+                """.utf8
+            )
+        )
+    }
+
     func acknowledgeRemainingFramesAndRetire(
         lease: BridgeProductProducerLease,
         request: BridgeProductContentRequest,

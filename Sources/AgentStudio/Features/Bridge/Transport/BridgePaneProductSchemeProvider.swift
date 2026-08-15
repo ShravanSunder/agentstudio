@@ -501,7 +501,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 return
             }
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-            try await runBufferedContentProducer(
+            _ = try await runBufferedContentProducer(
                 BufferedContentBody(
                     data: body.data,
                     endOfSource: body.isFinalRange,
@@ -522,18 +522,17 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             )
         }
     }
-
     func runBufferedContentProducer(
         _ body: BufferedContentBody,
         lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
         session: BridgeProductSession
-    ) async throws {
+    ) async throws -> BufferedContentDeliveryDisposition {
         var offsetBytes = 0
         while offsetBytes < body.data.count {
             try Task.checkCancellation()
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
             let endOffset = min(
                 offsetBytes + BridgeProductWireContract.maximumContentDataPayloadBytes,
                 body.data.count
@@ -567,12 +566,12 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                     )
                 }
             )
-            guard case .enqueued = result else { return }
-            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
+            guard case .enqueued = result else { return .deliveryFailed }
+            guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
             offsetBytes = endOffset
         }
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
-        _ = try await session.enqueueTerminalContentFrame(
+        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
+        let terminalResult = try await session.enqueueTerminalContentFrame(
             for: lease,
             productAdmission: productAdmission,
             foregroundWorkAdmission: foregroundWorkAdmission,
@@ -590,8 +589,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 )
             }
         )
+        guard case .enqueued = terminalResult else { return .deliveryFailed }
+        return .complete
     }
-
     private func runFileContentProducer(
         request: BridgeProductFileContentRequest,
         lease: BridgeProductProducerLease,

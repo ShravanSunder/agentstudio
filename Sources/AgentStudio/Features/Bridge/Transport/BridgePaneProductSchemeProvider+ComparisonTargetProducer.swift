@@ -1,6 +1,12 @@
 import Foundation
 
 extension BridgePaneProductSchemeProvider {
+    enum BufferedContentDeliveryDisposition: Equatable, Sendable {
+        case cancelled
+        case complete
+        case deliveryFailed
+    }
+
     func runComparisonTargetContentProducer(
         reservation: BridgeProductReviewComparisonTargetsReservation?,
         lease: BridgeProductProducerLease,
@@ -59,7 +65,7 @@ extension BridgePaneProductSchemeProvider {
             )
             return
         }
-        try await runBufferedContentProducer(
+        let deliveryDisposition = try await runBufferedContentProducer(
             BufferedContentBody(
                 data: producedCatalog.body,
                 endOfSource: true,
@@ -70,11 +76,26 @@ extension BridgePaneProductSchemeProvider {
             foregroundWorkAdmission: foregroundWorkAdmission,
             session: session
         )
-        recordComparisonTargetTerminal(
-            outcome: .complete,
-            reservation: reservation,
-            observedByteCount: producedCatalog.body.count
-        )
+        switch deliveryDisposition {
+        case .cancelled:
+            recordComparisonTargetTerminal(
+                outcome: .cancelled,
+                reservation: reservation,
+                observedByteCount: nil
+            )
+        case .complete:
+            recordComparisonTargetTerminal(
+                outcome: .complete,
+                reservation: reservation,
+                observedByteCount: producedCatalog.body.count
+            )
+        case .deliveryFailed:
+            recordComparisonTargetTerminal(
+                outcome: .productionFailed,
+                reservation: reservation,
+                observedByteCount: nil
+            )
+        }
     }
 
     private func recordComparisonTargetTerminal(
