@@ -1,6 +1,5 @@
 import Foundation
 
-// This exhaustive allowlist centralizes every audited OTLP field projection.
 package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
     let timeUnixNano: UInt64
     let severityText: AgentStudioTraceSeverity
@@ -679,6 +678,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.threshold_rows",
     ]).union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
+        .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
         "agentstudio.bridge.cache_hit",
@@ -788,6 +788,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_pinned_to_bottom",
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
+        .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
     private static func projectedResource(_ safeResource: [String: String]) -> [String: String] {
         safeResource.filter { key, _ in
             allowedResourceKeys.contains(key)
@@ -810,7 +811,6 @@ package enum AgentStudioOTLPTraceProjection {
         return projected
     }
 }
-// MARK: - Value Validation
 extension AgentStudioOTLPTraceProjection {
     private static func projectedAttributeValue(
         key: String,

@@ -392,6 +392,28 @@ struct RuleParityTests {
             ])
     }
 
+    @Test("comparison-target query control rule rejects catalog production calls")
+    func comparisonTargetQueryControlRuleRejectsCatalogProductionCalls() throws {
+        let fixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("Features")
+            .appendingPathComponent("Bridge")
+            .appendingPathComponent("Transport")
+            .appendingPathComponent("BadComparisonTargetQueryControlProduction.swift")
+            .path
+
+        let diagnostics = try lint(files: [fixture])
+            .filter { $0.ruleID == "agentstudio_comparison_target_query_control_production" }
+
+        #expect(diagnostics.map(\.line) == [7, 8, 9, 10, 11, 12, 13])
+        #expect(
+            Set(diagnostics.map(\.message)) == [
+                "Comparison-target query control must only authorize and reserve content; catalog production belongs to the content task producer"
+            ])
+    }
+
     @Test("tooltip source rule scopes raw help to migrated dense controls")
     func tooltipSourceRuleScopesRawHelpToMigratedDenseControls() {
         let migratedDiagnostics = TooltipSourceRule().validate(

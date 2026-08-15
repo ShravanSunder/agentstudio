@@ -77,6 +77,7 @@ struct BridgePaneProductSessionOwnerTests {
                 == candidate.bootstrap.workerInstanceId
         )
         #expect((await oldInstallation.session.producerSnapshot()).hasZeroResidue)
+        #expect(await provider.comparisonTargetReservationInvalidationCount == 1)
         _ = try? await oldReply.value
     }
 
@@ -763,6 +764,11 @@ actor BridgePaneProductSessionProviderGate: BridgeProductSchemeProvider {
     private var shouldHoldProductCallResponses = false
     private(set) var lifecycleAcknowledgements: [BridgeProductProducerLifecycleAcknowledgement] = []
     private(set) var lifecycleAcknowledgementsWereReleased = false
+    private(set) var comparisonTargetReservationInvalidationCount = 0
+
+    func invalidatePendingComparisonTargetReservation() {
+        comparisonTargetReservationInvalidationCount += 1
+    }
 
     func response(
         for request: BridgeProductControlRequest

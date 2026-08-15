@@ -145,6 +145,7 @@ export function createSharedBridgeWorkerReviewContentResourceFetch(props: {
 					descriptorId: descriptor.descriptorId,
 					endOfSource: resource.sourcePosition === 'whole',
 					kind: 'complete',
+					observedByteLength: resource.byteLength,
 					observedSha256: resource.observedSha256,
 				},
 			};

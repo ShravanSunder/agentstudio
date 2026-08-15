@@ -316,12 +316,13 @@ The query command performs only bounded authorization and reservation work.
 The request task created through the existing producer registry owns the
 content request lifetime. Registration creates that task before provider state
 is touched. As its first operation, the task consumes the exact pending
-reservation; only successful consumption permits accepted framing and producer
-invocation. A registration rejection therefore cannot strand claimed provider
-state. The task propagates cancellation into production. The actor is the
-computation owner; the task is the sole post-consumption lifetime owner. Neither
-replaces the existing Git scheduler, which continues to own Git capacity and
-fairness.
+reservation. Successful consumption permits producer invocation. Failed
+consumption still emits accepted framing followed by the exact non-retryable
+unsupported-content terminal, and never invokes production. A registration
+rejection therefore cannot strand claimed provider state. The task propagates
+cancellation into production. The actor is the computation owner; the task is
+the sole post-consumption lifetime owner. Neither replaces the existing Git
+scheduler, which continues to own Git capacity and fairness.
 
 ### Product call
 
@@ -348,9 +349,12 @@ descriptor:
 content kind
 descriptor identity
 maximum bytes
-pane session / Review surface authority
 ```
 
+The existing control and `content.open` envelopes carry pane, session,
+Review-surface, and worker authority on the wire. The provider-owned reservation
+records the issuing envelope authority and matches it against the existing
+`content.open` fields. No authority fields are added to the descriptor itself.
 The descriptor can be consumed once. It does not contain capture time, cutoff,
 declared byte length, or expected SHA-256 because production has not occurred.
 The accepted content header therefore uses the transport's existing unknown
@@ -530,6 +534,10 @@ Rules:
    worker/session authority, then atomically consume the pending reservation as
    its first comparison-target operation. Consumption precedes accepted framing
    and producer invocation. A descriptor cannot be consumed twice.
+   `content.accepted` establishes transport admission for the registered
+   operation; it does not assert successful reservation consumption. A failed
+   consumption therefore enters accepted framing only to carry the existing
+   typed terminal content failure and never invokes the catalog producer.
 5. After consumption, the provider is empty. The immutable request value belongs
    only to the registry task, which owns cancellation, framing, terminal cleanup,
    and producer invocation.
@@ -703,7 +711,8 @@ content registration rejection
   → pending reservation remains bounded until replacement/session invalidation
 
 reservation consumption mismatch / replacement / second open
-  → task emits existing content failure before accepted framing
+  → task emits content.accepted and waits for exact worker observation
+  → task emits terminal content.error(unsupported_content, retryable: false)
   → no production begins and provider retains no claimed state
   → picker failure; comparison unchanged
 
@@ -815,18 +824,37 @@ The separation is enforced at three layers without a capability-token system:
    Swift/TypeScript contract parity proves the authorization descriptor cannot
    carry precomputed-body facts.
 
-Telemetry follows the same ownership split:
+Telemetry follows the same ownership split under the existing `performance`
+trace tag and `performance.bridge.swift.comparison_target_catalog` event
+namespace. It adds no environment selector, exporter, service, or parallel
+per-frame event stream:
 
-```text
-query authorization duration + outcome
-reservation consumption age
-Git scheduler queue duration + capture duration
-encode/truncate duration + row/byte count + truncation
-content terminal outcome + observed bytes
-```
+| Stage | Emitting owner | Safe observation |
+| --- | --- | --- |
+| query authorization | `BridgePaneProductSchemeProvider` around the existing authorization closure | duration plus controlled `success \| unavailable` outcome |
+| reservation consumption | the comparison-specific registered request task immediately after its provider claim attempt | reservation age when claim succeeds plus controlled `claimed \| inactive` outcome |
+| Git scheduling | existing `BridgeGitReadScheduler` capacity telemetry for `.selectedVisibleContent` | existing queue-wait duration; no duplicate scheduler event |
+| scheduled capture | `BridgeReviewComparisonTargetCatalogProducer` around `captureReviewComparisonTargets` | end-to-end scheduled-capture duration plus controlled `success \| cancelled \| failed` outcome |
+| encode and truncate | the same focused producer around `produceCatalog` | duration, input/output row counts, observed encoded bytes, and truncation boolean |
+| content terminal | the comparison-specific request task at its existing terminal decision | controlled `complete \| unsupported_content \| production_failed \| cancelled` outcome and observed bytes when complete |
 
-Existing transport frame telemetry remains authoritative for delivery. The
-producer adds stage outcomes, not duplicate per-frame events.
+Stage samples emitted while a native reservation is available use its query
+request sequence as a controlled numeric correlation value. An inactive claim
+with no reservation emits no sequence: the wire descriptor does not carry it,
+and the provider does not retain a correlation tombstone after consumption.
+The current debug-run marker and worktree resource identity provide run scope.
+Events and OTLP attributes MUST NOT contain raw repository paths, Git refs,
+descriptor IDs, pane/session/worker IDs, payloads, digests, errors, or
+safe-message text.
+Existing transport frame telemetry remains authoritative for delivery; the
+terminal stage records only the application outcome and aggregate byte count.
+
+Focused recorder tests prove the event names, controlled outcomes, durations,
+counts, correlation value, and forbidden-field absence. Marker-scoped debug
+proof queries VictoriaLogs for each new stage under one request sequence and
+the current launch marker, and uses the existing scheduler event to observe its
+queue wait. VictoriaMetrics proof is required only for an existing mapped
+metric series; these stage events do not create a new metrics projection.
 
 ## Hard cutover and documentation invariants
 
@@ -875,7 +903,7 @@ interest rather than implying all content priority is subscription-derived.
 | CT-R4 | owned Combobox plus external virtualizer and picker state | browser and visual proof cover one query on picker open in either remembered mode, immediate preloaded rows after switching Commit to Branch, focus, row labels/kinds/revisions/accessibility, mounted-row bound, search, keyboard, selection, always-visible concise recency text, and empty state |
 | CT-R5 | worker request/work-admission identity and abort plus provider pending-reservation replacement/invalidation and producer-task cancellation | interleaving tests cover registration rejection without consumption, close, mode switches that preserve the in-modal preload, foreground loss before open and during production, supersession, late command/content results, worker replacement, and teardown residue |
 | CT-R6 | live current-target projection plus explicit packaged/development compact-current paths and unchanged pane intent, comparison update, publication, and origin owners | both-host initialization and mutation-after-construction coverage, SQLite restart, development-server transcript, and packaged-app regression proof |
-| CT-R7 | bounded provider authorization, registration-before-consumption ordering, task-first atomic reservation consumption, existing producer-registry lifetime, injected focused producer actor, and unchanged session control sequencing | continuation-gated transcript proves query A settles before capture, content A consumes exactly once before accepted framing, unrelated control B completes while A is held, and A terminal/cancel/error leaves zero provider/task residue |
+| CT-R7 | bounded provider authorization, registration-before-consumption ordering, task-first atomic reservation consumption, existing producer-registry lifetime, injected focused producer actor, and unchanged session control sequencing | continuation-gated transcript proves query A settles before capture; content A attempts consumption before accepted framing; successful consumption invokes production exactly once; stale, replaced, and second-open failures emit sequence 0 `content.accepted` then terminal `unsupported_content` with `retryable: false` and zero producer invocation; unrelated control B completes while A is held; every terminal/cancel/error path leaves zero provider/task residue |
 
 The `agentstudio-git` repository owns public-contract and real-libgit2 proof for
 its two reads. Agent Studio must use the published pinned revision in its

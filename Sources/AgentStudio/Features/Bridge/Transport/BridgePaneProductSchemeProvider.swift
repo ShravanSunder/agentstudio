@@ -9,7 +9,7 @@ enum BridgePaneSurfaceSelectionStreamAbsenceDisposition: Equatable, Sendable {
 
 // swiftlint:disable type_body_length
 actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
-    private struct BufferedContentBody: Sendable {
+    struct BufferedContentBody: Sendable {
         let data: Data
         let endOfSource: Bool
         let sha256: String
@@ -31,7 +31,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
             BridgeProductReviewComparisonUpdateRequest,
             BridgeProductAdmissionContext
         ) async -> Void
-    private let queryReviewComparisonTargets: @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture?
+    private let authorizeReviewComparisonTargets:
+        @Sendable () async -> BridgeProductReviewComparisonTargetsAuthorization?
     private let contentDemandAdmission: BridgeContentDemandAdmission
     private let fileContentReaderFactory: BridgePaneProductFileContentReaderFactory
     private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
@@ -42,7 +43,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     private let recordReviewPublicationApplication: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
     private nonisolated let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     private let reviewContentSource: any BridgePaneProductReviewContentProducing
-    package var pendingComparisonTargetQuery: BridgeProductReviewComparisonTargetsQueryCapture?
+    let reviewComparisonTargetCatalogProducer: any BridgeReviewComparisonTargetCatalogProducing
+    let comparisonTargetCatalogTraceRecorder: (any BridgeReviewComparisonTargetCatalogTraceRecording)?
+    package var pendingComparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation?
 
     init(
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
@@ -72,9 +75,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 BridgeProductReviewComparisonUpdateRequest,
                 BridgeProductAdmissionContext
             ) async -> Void = { _, _ in },
-        queryReviewComparisonTargets:
+        authorizeReviewComparisonTargets:
             @escaping @Sendable () async ->
-            BridgeProductReviewComparisonTargetsQueryCapture? = { nil },
+            BridgeProductReviewComparisonTargetsAuthorization? = { nil },
+        reviewComparisonTargetCatalogProducer:
+            any BridgeReviewComparisonTargetCatalogProducing =
+            BridgeUnavailableComparisonTargetCatalogProducer(),
+        comparisonTargetCatalogTraceRecorder:
+            (any BridgeReviewComparisonTargetCatalogTraceRecording)? = nil,
         initialPanePresentation: BridgePaneProductPresentationSnapshot? = nil,
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil,
@@ -102,7 +110,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         self.reviewContentSource = reviewContentSource
         self.applyActiveViewerModeUpdate = applyActiveViewerModeUpdate
         self.applyReviewComparisonUpdate = applyReviewComparisonUpdate
-        self.queryReviewComparisonTargets = queryReviewComparisonTargets
+        self.authorizeReviewComparisonTargets = authorizeReviewComparisonTargets
+        self.reviewComparisonTargetCatalogProducer = reviewComparisonTargetCatalogProducer
+        self.comparisonTargetCatalogTraceRecorder = comparisonTargetCatalogTraceRecorder
     }
 
     // swiftlint:disable:next function_body_length
@@ -136,13 +146,14 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                         result: .reviewComparisonUpdate
                     )
                 case .reviewComparisonTargetsQuery:
-                    guard
-                        let capture = await queryReviewComparisonTargets(),
-                        capture.foregroundWorkAdmission.withValidAdmission({
-                            pendingComparisonTargetQuery = capture
-                            return true
-                        }) == true
-                    else {
+                    let authorizationStartedAt = ContinuousClock.now
+                    guard let authorization = await authorizeReviewComparisonTargets() else {
+                        recordComparisonTargetCatalogTrace(
+                            stage: .authorization,
+                            outcome: .unavailable,
+                            queryRequestSequence: request.requestSequence,
+                            duration: authorizationStartedAt.duration(to: ContinuousClock.now)
+                        )
                         return try .requestError(
                             correlating: request,
                             code: .internal,
@@ -152,11 +163,39 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                             safeMessage: "Comparison targets are unavailable"
                         )
                     }
+                    guard
+                        let reservation = BridgeProductReviewComparisonTargetsReservation(
+                            authorization: authorization,
+                            issuing: request
+                        )
+                    else {
+                        recordComparisonTargetCatalogTrace(
+                            stage: .authorization,
+                            outcome: .unavailable,
+                            queryRequestSequence: request.requestSequence,
+                            duration: authorizationStartedAt.duration(to: ContinuousClock.now)
+                        )
+                        return try .requestError(
+                            correlating: request,
+                            code: .internal,
+                            nextExpectedRequestSequence: request.requestSequence + 1,
+                            retryAfterMilliseconds: nil,
+                            retryable: true,
+                            safeMessage: "Comparison targets are unavailable"
+                        )
+                    }
+                    pendingComparisonTargetReservation = reservation
+                    recordComparisonTargetCatalogTrace(
+                        stage: .authorization,
+                        outcome: .success,
+                        queryRequestSequence: reservation.queryRequestSequence,
+                        duration: authorizationStartedAt.duration(to: ContinuousClock.now)
+                    )
                     return try .callCompleted(
                         correlating: request,
                         result: .reviewComparisonTargetsQuery(
                             BridgeProductReviewComparisonTargetsQueryResult(
-                                descriptor: capture.descriptor
+                                descriptor: reservation.descriptor
                             )
                         )
                     )
@@ -329,7 +368,8 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession,
-        contentWorkAdmission: BridgePaneRefreshWorkAdmission?
+        contentWorkAdmission: BridgePaneRefreshWorkAdmission?,
+        comparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation? = nil
     ) async {
         guard let foregroundWorkAdmission = contentWorkAdmission else {
             _ = await beginActivityInvalidatedProducerRetirement(
@@ -376,6 +416,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 lease: lease,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
+                comparisonTargetReservation: comparisonTargetReservation,
                 session: session
             )
         }
@@ -406,6 +447,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
         foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        comparisonTargetReservation: BridgeProductReviewComparisonTargetsReservation?,
         session: BridgeProductSession
     ) async throws {
         guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return }
@@ -470,22 +512,9 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
                 foregroundWorkAdmission: foregroundWorkAdmission,
                 session: session
             )
-        case .reviewComparisonTargets(let queryRequest):
-            guard let capture = consumeComparisonTargetCapture(queryRequest.descriptor) else {
-                try? await enqueueUnavailableContentTerminal(
-                    for: lease,
-                    productAdmission: productAdmission,
-                    foregroundWorkAdmission: foregroundWorkAdmission,
-                    session: session
-                )
-                return
-            }
-            try await runBufferedContentProducer(
-                BufferedContentBody(
-                    data: capture.body,
-                    endOfSource: true,
-                    sha256: capture.descriptor.expectedSha256
-                ),
+        case .reviewComparisonTargets:
+            try await runComparisonTargetContentProducer(
+                reservation: comparisonTargetReservation,
                 lease: lease,
                 productAdmission: productAdmission,
                 foregroundWorkAdmission: foregroundWorkAdmission,
@@ -494,7 +523,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         }
     }
 
-    private func runBufferedContentProducer(
+    func runBufferedContentProducer(
         _ body: BufferedContentBody,
         lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
@@ -760,32 +789,6 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
         )
     }
 
-    private func enqueueUnavailableContentTerminal(
-        for lease: BridgeProductProducerLease,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
-        session: BridgeProductSession
-    ) async throws {
-        _ = try await session.enqueueTerminalContentFrame(
-            for: lease,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            build: { sequence in
-                .content(
-                    .init(
-                        header: try .error(
-                            contentSequence: sequence,
-                            code: .unsupportedContent,
-                            retryable: false,
-                            safeMessage: "Content descriptor is not active"
-                        ),
-                        payload: Data()
-                    )
-                )
-            }
-        )
-    }
-
     private func enqueueStaleSourceReset(
         for lease: BridgeProductProducerLease,
         productAdmission: BridgeProductAdmissionContext,
@@ -852,7 +855,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     }
 
     func closeAndDrain() async {
-        pendingComparisonTargetQuery = nil
+        pendingComparisonTargetReservation = nil
         await metadataCoordinator.closeAndDrain()
         await contentDemandAdmission.closeAndDrain()
     }
@@ -936,6 +939,7 @@ extension BridgePaneProductSchemeProvider {
         productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
+        let comparisonTargetReservation = claimComparisonTargetReservation(for: request)
         let contentWorkAdmission: BridgePaneRefreshWorkAdmission?
         switch request {
         case .fileContent:
@@ -950,7 +954,8 @@ extension BridgePaneProductSchemeProvider {
             lease: lease,
             productAdmission: productAdmission,
             session: session,
-            contentWorkAdmission: contentWorkAdmission
+            contentWorkAdmission: contentWorkAdmission,
+            comparisonTargetReservation: comparisonTargetReservation
         )
     }
 
@@ -987,8 +992,7 @@ extension BridgePaneProductSchemeProvider {
                     request: request,
                     lease: lease,
                     productAdmission: productAdmission,
-                    session: session,
-                    contentWorkAdmission: self.refreshWorkAdmissionSource.acquire()
+                    session: session
                 )
             }
         }

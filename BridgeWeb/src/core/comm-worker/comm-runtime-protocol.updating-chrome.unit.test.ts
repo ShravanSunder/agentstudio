@@ -482,40 +482,37 @@ function createPanePresentationTestTransport(props: {
 
 function comparisonTargetsDescriptor(): BridgeProductReviewComparisonTargetsContentDescriptor {
 	return {
-		capturedAtUnixMilliseconds: 1_700_000_000_000,
 		contentKind: 'review.comparisonTargets',
-		cutoffUnixMilliseconds: 1_697_408_000_000,
-		declaredByteLength: 190,
 		descriptorId: 'comparison-targets-updating-chrome',
-		encoding: 'utf-8',
-		expectedSha256: 'a'.repeat(64),
-		maximumBytes: 190,
+		maximumBytes: 1024 * 1024,
 	};
 }
 
 function comparisonTargetsContentStream(
 	descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
 ): BridgeProductContentStream<'review.comparisonTargets'> {
+	const bytes = new TextEncoder().encode(
+		JSON.stringify({
+			branches: [],
+			capturedAtUnixMilliseconds: 1_700_000_000_000,
+			cutoffUnixMilliseconds: 1_697_408_000_000,
+			currentTarget: null,
+			defaultTarget: null,
+			isTruncated: false,
+		}),
+	);
 	return {
 		contentKind: 'review.comparisonTargets',
 		contentRequestId: 'comparison-targets-updating-chrome-content',
 		frames: emptyComparisonTargetFrames(),
 		terminal: Promise.resolve({
-			bytes: new TextEncoder().encode(
-				JSON.stringify({
-					branches: [],
-					capturedAtUnixMilliseconds: descriptor.capturedAtUnixMilliseconds,
-					cutoffUnixMilliseconds: descriptor.cutoffUnixMilliseconds,
-					currentTarget: null,
-					defaultTarget: null,
-					isTruncated: false,
-				}),
-			).buffer,
+			bytes: bytes.buffer,
 			contentKind: 'review.comparisonTargets',
 			descriptorId: descriptor.descriptorId,
 			endOfSource: true,
 			kind: 'complete',
-			observedSha256: descriptor.expectedSha256,
+			observedByteLength: bytes.byteLength,
+			observedSha256: 'a'.repeat(64),
 		}),
 	};
 }

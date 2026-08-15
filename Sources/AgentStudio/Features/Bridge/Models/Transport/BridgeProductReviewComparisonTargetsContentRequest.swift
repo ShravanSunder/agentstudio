@@ -25,8 +25,8 @@ struct BridgeProductReviewComparisonTargetsContentRequest: Codable, Equatable, S
         .init(
             contentKind: .reviewComparisonTargets,
             contentRequestId: contentRequestId,
-            declaredByteLength: descriptor.declaredByteLength,
-            expectedSha256: descriptor.expectedSha256,
+            declaredByteLength: nil,
+            expectedSha256: nil,
             identity: .reviewComparisonTargets(.init(descriptor: descriptor)),
             leaseId: leaseId,
             maximumBytes: descriptor.maximumBytes,

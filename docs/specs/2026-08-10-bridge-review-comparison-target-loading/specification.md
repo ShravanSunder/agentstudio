@@ -224,13 +224,24 @@ continue occupying the completed query control operation. A descriptor may be
 claimed successfully at most once; a stale, replaced, or already claimed
 descriptor MUST be rejected through the existing content failure contract.
 
+For a registered content operation, `content.accepted` reports transport
+admission and establishes the framed response identity; it does not assert that
+the request-scoped descriptor remains semantically claimable. When reservation
+consumption detects a stale, replaced, or already claimed comparison-target
+descriptor, the observable response MUST be `content.accepted` followed by
+terminal `content.error(unsupported_content, retryable: false)`. No catalog
+production may begin on that path.
+
 Traces to: CT-U5, CT-U7.
 
 ## Catalog contract
 
-The query authorization descriptor contains only the request-scoped identity,
-authorized content kind, applicable session or surface authority, and maximum
-response bytes needed to open the response once.
+The query authorization descriptor contains only the request-scoped descriptor
+identity, authorized content kind, and maximum response bytes needed to open
+the response once. Existing control and `content.open` envelope fields carry
+pane, session, Review-surface, and worker authority on the wire. The native
+provider-owned reservation records the issuing authority and matches it against
+those existing envelope fields when the request task attempts consumption.
 
 One successful decoded content response contains:
 

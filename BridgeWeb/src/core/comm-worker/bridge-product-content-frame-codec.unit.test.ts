@@ -2,7 +2,16 @@ import { createHash } from 'node:crypto';
 
 import { describe, expect, test, vi } from 'vitest';
 
-import type { BridgeProductContentFrame } from './bridge-product-content-contracts.js';
+import type {
+	BridgeProductContentFrame,
+	BridgeProductContentRequestFor,
+	BridgeProductReviewComparisonTargetsContentIdentity,
+} from './bridge-product-content-contracts.js';
+import {
+	BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES,
+	bridgeProductContentAcceptedBodySchema,
+	bridgeProductContentAcceptedHeaderSchema,
+} from './bridge-product-content-contracts.js';
 import {
 	BridgeProductContentFrameEncoder,
 	BridgeProductContentStreamValidator,
@@ -112,6 +121,7 @@ describe('Bridge product content frame encoder and validator', () => {
 			descriptorId: 'file-descriptor-1',
 			endOfSource: true,
 			kind: 'complete',
+			observedByteLength: 0,
 			observedSha256: emptySha256,
 		});
 	});
@@ -174,6 +184,7 @@ describe('Bridge product content frame encoder and validator', () => {
 			descriptorId: 'file-descriptor-1',
 			endOfSource: true,
 			kind: 'complete',
+			observedByteLength: sourceBytes.byteLength,
 			observedSha256: sourceSha256,
 		});
 	});
@@ -273,9 +284,93 @@ describe('Bridge product content frame encoder and validator', () => {
 			descriptorId: 'file-descriptor-1',
 			endOfSource: true,
 			kind: 'complete',
+			observedByteLength: 3,
 			observedSha256: abcSha256,
 		});
 		await expect(validator.accept(contentDataFrame())).rejects.toThrow(/terminal/iu);
+	});
+
+	test('keeps comparison exact facts unknown until the terminal frame', async () => {
+		const request = comparisonTargetsContentRequest();
+		const acceptedFrame = comparisonTargetsAcceptedFrame();
+		const validator = new BridgeProductContentStreamValidator(request);
+
+		expect(await validator.accept(acceptedFrame)).toBeNull();
+		expect(await validator.accept(contentDataFrame())).toBeNull();
+		const completion = await validator.accept(contentEndFrame());
+
+		expect(acceptedFrame.header.declaredByteLength).toBeNull();
+		expect(acceptedFrame.header.expectedSha256).toBeNull();
+		expect(completion).toEqual({
+			bytes: Uint8Array.from([97, 98, 99]).buffer,
+			contentKind: 'review.comparisonTargets',
+			descriptorId: 'comparison-targets-descriptor-1',
+			endOfSource: true,
+			kind: 'complete',
+			observedByteLength: 3,
+			observedSha256: abcSha256,
+		});
+
+		const invalidValidator = new BridgeProductContentStreamValidator(request);
+		await expect(
+			invalidValidator.accept({
+				...acceptedFrame,
+				header: {
+					...acceptedFrame.header,
+					declaredByteLength: 3,
+					expectedSha256: abcSha256,
+				},
+			}),
+		).rejects.toThrow(/acceptance|issued request|unknown/iu);
+	});
+
+	test('rejects a comparison accepted identity above the product byte bound', async () => {
+		const overMaximumBytes = BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES + 1;
+		const acceptedFrame = comparisonTargetsAcceptedFrame();
+		const validator = new BridgeProductContentStreamValidator(comparisonTargetsContentRequest());
+
+		await expect(
+			validator.accept({
+				...acceptedFrame,
+				header: {
+					...acceptedFrame.header,
+					identity: {
+						...acceptedFrame.header.identity,
+						maximumBytes: overMaximumBytes,
+					},
+					maximumBytes: overMaximumBytes,
+				},
+			}),
+		).rejects.toThrow(/maximum|less than or equal/iu);
+	});
+
+	test('strict accepted schemas reject precomputed comparison exact facts', () => {
+		const acceptedHeader = comparisonTargetsAcceptedFrame().header;
+		const malformedExactFacts = {
+			declaredByteLength: 3,
+			expectedSha256: abcSha256,
+		};
+		const malformedAcceptedBody = {
+			contentRequestId: acceptedHeader.contentRequestId,
+			identity: acceptedHeader.identity,
+			leaseId: acceptedHeader.leaseId,
+			maximumBytes: acceptedHeader.maximumBytes,
+			paneSessionId: acceptedHeader.paneSessionId,
+			wireVersion: acceptedHeader.wireVersion,
+			workerDerivationEpoch: acceptedHeader.workerDerivationEpoch,
+			workerInstanceId: acceptedHeader.workerInstanceId,
+			...malformedExactFacts,
+		};
+
+		expect(bridgeProductContentAcceptedBodySchema.safeParse(malformedAcceptedBody).success).toBe(
+			false,
+		);
+		expect(
+			bridgeProductContentAcceptedHeaderSchema.safeParse({
+				...acceptedHeader,
+				...malformedExactFacts,
+			}).success,
+		).toBe(false);
 	});
 
 	test('rejects a non-final terminal for complete File content', async () => {
@@ -426,3 +521,53 @@ describe('Bridge product content frame encoder and validator', () => {
 		expect(() => resetValidator.finish()).not.toThrow();
 	});
 });
+
+function comparisonTargetsContentRequest(): BridgeProductContentRequestFor<'review.comparisonTargets'> {
+	return {
+		contentKind: 'review.comparisonTargets',
+		contentRequestId: 'comparison-targets-content-request-1',
+		descriptor: {
+			contentKind: 'review.comparisonTargets',
+			descriptorId: 'comparison-targets-descriptor-1',
+			maximumBytes: 1024 * 1024,
+		},
+		kind: 'content.open',
+		leaseId: 'comparison-targets-lease-1',
+		paneSessionId: 'pane-session-1',
+		wireVersion: 2,
+		workerDerivationEpoch: 2,
+		workerInstanceId: 'worker-instance-1',
+	};
+}
+
+type ComparisonTargetsAcceptedFrame = {
+	readonly header: Extract<
+		BridgeProductContentFrame['header'],
+		{ readonly kind: 'content.accepted' }
+	> & { readonly identity: BridgeProductReviewComparisonTargetsContentIdentity };
+	readonly payload: Uint8Array;
+};
+
+function comparisonTargetsAcceptedFrame(): ComparisonTargetsAcceptedFrame {
+	return {
+		header: {
+			contentRequestId: 'comparison-targets-content-request-1',
+			contentSequence: 0,
+			declaredByteLength: null,
+			expectedSha256: null,
+			identity: {
+				contentKind: 'review.comparisonTargets',
+				descriptorId: 'comparison-targets-descriptor-1',
+				maximumBytes: 1024 * 1024,
+			},
+			kind: 'content.accepted',
+			leaseId: 'comparison-targets-lease-1',
+			maximumBytes: 1024 * 1024,
+			paneSessionId: 'pane-session-1',
+			wireVersion: 2,
+			workerDerivationEpoch: 2,
+			workerInstanceId: 'worker-instance-1',
+		},
+		payload: new Uint8Array(),
+	} satisfies BridgeProductContentFrame;
+}
