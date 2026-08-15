@@ -240,6 +240,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 "agentstudio.performance.tabbar.pane.count": .int(8),
                 "agentstudio.performance.tabbar.terminal.outcome": .string("published"),
                 "agentstudio.performance.tabbar.active_tab.present": .bool(true),
+                "agentstudio.performance.tabbar.queue_wait_ms": .double(12.5),
+                "agentstudio.performance.tabbar.mainactor_held_ms": .double(0.75),
                 "agentstudio.performance.trace_queue.dropped_record.count": .int(0),
                 "agentstudio.performance.trace_queue.high_watermark": .int(7),
                 "agentstudio.performance.tabbar.tab.id": .string("01987654-3210-7abc-8def-0123456789ab"),
@@ -274,6 +276,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 == .string("published")
         )
         #expect(projection.attributes["agentstudio.performance.tabbar.active_tab.present"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.tabbar.queue_wait_ms"] == .double(12.5))
+        #expect(projection.attributes["agentstudio.performance.tabbar.mainactor_held_ms"] == .double(0.75))
         #expect(
             projection.attributes["agentstudio.performance.trace_queue.dropped_record.count"] == .int(0)
         )

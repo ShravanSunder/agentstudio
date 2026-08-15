@@ -62,6 +62,17 @@ struct TabBarAffectedItemTelemetryTests {
             #expect(refreshLines.count == 2)
             let finalLine = try #require(refreshLines.last)
             #expect(finalLine.contains("\"agentstudio.performance.tabbar.affected_item.count\":1"))
+            #expect(finalLine.contains("\"agentstudio.performance.tabbar.queue_wait_ms\":"))
+            #expect(finalLine.contains("\"agentstudio.performance.tabbar.mainactor_held_ms\":"))
+
+            let terminalLine = try #require(
+                finalContents.split(separator: "\n").last { line in
+                    line.contains("\"body\":\"performance.tabbar.terminal\"")
+                        && line.contains("\"agentstudio.performance.tabbar.terminal.outcome\":\"published\"")
+                }
+            )
+            #expect(terminalLine.contains("\"agentstudio.performance.tabbar.queue_wait_ms\":"))
+            #expect(terminalLine.contains("\"agentstudio.performance.tabbar.mainactor_held_ms\":"))
             _ = adapter
         }
     }
