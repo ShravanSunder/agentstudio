@@ -239,12 +239,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
 						return content;
 					},
-					onMetadataInterestUpdate: (request) => {
+					onMetadataInterestUpdate: async (request) => {
 						metadataInterestUpdates.push(request);
 						const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
-						publishRequiredMetadataEvents(
-							makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
-						);
+						await actUpdate((): void => {
+							publishRequiredMetadataEvents(
+								makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
+							);
+						});
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
@@ -339,11 +341,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
 						return content;
 					},
-					onMetadataInterestUpdate: (request) => {
+					onMetadataInterestUpdate: async (request) => {
 						metadataInterestUpdates.push(request);
-						requireMetadataPublisher(publishMetadataEvents)(
-							makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
-						);
+						await actUpdate((): void => {
+							requireMetadataPublisher(publishMetadataEvents)(
+								makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
+							);
+						});
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;

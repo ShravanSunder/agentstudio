@@ -12,6 +12,7 @@ import {
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import {
+	actInteractAndSettleFileViewerCheckedMenuOption,
 	actClickAndSettleFileViewerMenu,
 	waitForFileViewerHTMLElement,
 	waitForFileViewerMenuOptionContaining,
@@ -428,10 +429,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			),
 		);
 		const sourceFilterOption = await waitForFileViewerMenuOptionContaining({ text: 'Source' });
-		await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
-			sourceFilterOption.click();
+		await actInteractAndSettleFileViewerCheckedMenuOption({
+			interaction: async (): Promise<void> => {
+				await interactAndWaitForBridgeFileViewerQueryCompletion((): void => {
+					sourceFilterOption.click();
+				});
+			},
+			option: sourceFilterOption,
 		});
-		await actFrame();
 		await waitForFileFilterCount('1/6');
 		await waitForFileViewerTreeItemButtonInAct({
 			path: 'Sources/AgentStudio/App/AppDelegate.swift',
@@ -780,12 +785,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						openedDescriptorIds.push(props.descriptor.descriptorId);
 						return content;
 					},
-					onMetadataInterestUpdate: (request) => {
+					onMetadataInterestUpdate: async (request) => {
 						metadataInterestUpdates.push(request);
 						const publishRequiredMetadataEvents = requireMetadataPublisher(publishMetadataEvents);
-						publishRequiredMetadataEvents(
-							makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
-						);
+						await actUpdate((): void => {
+							publishRequiredMetadataEvents(
+								makeDescriptorReadyMetadataEvents(descriptor, { sequence: 1 }),
+							);
+						});
 					},
 					onMetadataSubscription: (handler): (() => void) => {
 						publishMetadataEvents = handler;
