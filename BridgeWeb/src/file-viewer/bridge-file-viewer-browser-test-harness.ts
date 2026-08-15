@@ -10,7 +10,6 @@ import {
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import {
 	beginBridgeFileViewerBrowserInteractionAct,
-	beginBridgeFileViewerBrowserPublicationAct,
 	createBridgeFileViewerBrowserTestPaneSessionFactory,
 	prepareNextBridgeFileViewerBrowserQueryCompletion,
 	type BridgeFileViewerBrowserTestPaneSessionFactory,
@@ -55,13 +54,8 @@ export async function interactAndWaitForBridgeFileViewerQueryCompletion(
 		});
 		endInteractionAct();
 		await act(async (): Promise<void> => {
-			const endPublicationAct = beginBridgeFileViewerBrowserPublicationAct();
-			try {
-				await completion.promise;
-				await waitForBridgeFileViewerWorkerPublicationQueue();
-			} finally {
-				endPublicationAct();
-			}
+			await completion.promise;
+			await waitForBridgeFileViewerWorkerPublicationQueue();
 		});
 	} catch (error: unknown) {
 		endInteractionAct();

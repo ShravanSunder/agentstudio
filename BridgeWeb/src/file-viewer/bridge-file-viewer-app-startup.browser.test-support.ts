@@ -1,6 +1,9 @@
 import { act } from 'react';
 
-import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import {
+	findBridgeViewerTreeItemButton,
+	waitForBridgeViewerAnimationFrame,
+} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
@@ -147,13 +150,49 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 	});
 }
 
+export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
+	readonly interaction: () => Promise<void>;
+	readonly option: HTMLElement;
+}): Promise<void> {
+	await act(async (): Promise<void> => {
+		await props.interaction();
+		await settleBaseUiTransitionMachineInsideAct();
+	});
+
+	const checkedIndicator = props.option.querySelector(
+		'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
+	);
+	if (!(checkedIndicator instanceof HTMLElement)) {
+		throw new Error(
+			'Expected FileView checkbox option transition to finish with a mounted data-checked indicator.',
+		);
+	}
+	if (
+		props.option.getAttribute('aria-checked') !== 'true' ||
+		checkedIndicator.hasAttribute('data-starting-style') ||
+		checkedIndicator.hasAttribute('data-ending-style')
+	) {
+		throw new Error(
+			'Expected FileView checkbox option transition to finish with aria-checked=true and no transition style.',
+		);
+	}
+}
+
 export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
 		element.click();
-		await Promise.resolve();
+		await settleBaseUiTransitionMachineInsideAct();
 	});
 	await waitForFileViewerMenuState({ element, expectedExpandedState });
+}
+
+async function settleBaseUiTransitionMachineInsideAct(): Promise<void> {
+	// Base UI schedules transitionStatus='starting' cleanup on an animation frame. Its
+	// animation-complete hook starts on another frame and can synchronously unmount an
+	// ending indicator. Keep both frame boundaries inside the interaction's act scope.
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerAnimationFrame();
 }
 
 async function waitForFileViewerMenuState(props: {
