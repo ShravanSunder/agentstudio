@@ -532,10 +532,18 @@ private final class TabBarProjectionTelemetry: Sendable {
             return admission
         }
         guard let admission else { return }
+        let completedAt = clock.now
         recorder.recordDuration(
             .tabBarCapture,
-            duration: admission.captureStartedAt.duration(to: clock.now),
-            attributes: Self.attributes(for: admission)
+            duration: admission.captureStartedAt.duration(to: completedAt),
+            attributes: Self.attributes(for: admission).merging(
+                Self.mainActorTimingAttributes(
+                    interactionStartedAt: admission.interactionStartedAt,
+                    mainActorStartedAt: admission.captureStartedAt,
+                    mainActorCompletedAt: completedAt
+                ),
+                uniquingKeysWith: { _, timingValue in timingValue }
+            )
         )
     }
 

@@ -143,6 +143,15 @@ struct TabBarAffectedItemTelemetryTests {
 
             let outputFileURL = try #require(runtime.outputFileURL)
             let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+            let captureLines = contents.split(separator: "\n").filter { line in
+                line.contains("\"body\":\"performance.tabbar.capture\"")
+            }
+            #expect(captureLines.count == 5)
+            #expect(
+                captureLines.allSatisfy { line in
+                    line.contains("\"agentstudio.performance.tabbar.queue_wait_ms\":")
+                        && line.contains("\"agentstudio.performance.tabbar.mainactor_held_ms\":")
+                })
             let eventBodies = [
                 "performance.tabbar.refresh",
                 "performance.tabbar.current",
