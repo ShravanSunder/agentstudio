@@ -126,16 +126,20 @@ struct WorkspaceSQLiteDatastoreActorTests {
             label: "AgentStudio.sqlite.datastore.local-open-failure-trace.core")
         try WorkspaceCoreMigrations.migrate(coreQueue)
         let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.recovery,persistence.snapshot")
+        let recorder = DatastoreProbeRecorder()
         let localUnavailableFailure = WorkspaceSQLiteDatastoreFailure(CocoaError(.fileNoSuchFile))
         let datastore = try await preparedWorkspaceSQLiteDatastore(
             coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
             localUnavailable: localUnavailableFailure,
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            probe: { event in await recorder.record(event) }
         )
 
-        try await datastore.saveWorkspaceSnapshotBundle(
-            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Open Failure"))
-        )
+        await #expect(throws: localUnavailableFailure) {
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Open Failure"))
+            )
+        }
         try await traceRuntime.flush()
 
         guard
@@ -148,6 +152,8 @@ struct WorkspaceSQLiteDatastoreActorTests {
         }
         #expect(authoritativeSnapshot.workspace.id == workspaceId)
         #expect(authoritativeSnapshot.workspace.name == "Local Open Failure")
+        #expect(await recorder.events.contains(.saveWorkspaceSnapshotFailed))
+        #expect(!(await recorder.events.contains(.saveWorkspaceSnapshotSucceeded)))
         let contents = try persistenceTraceContents(from: traceRuntime)
         #expect(!contents.contains("\"body\":\"persistence.snapshot.failed\""))
     }
@@ -318,8 +324,12 @@ struct WorkspaceSQLiteDatastoreActorTests {
         }
 
         await saveGate.releaseFirstSave()
-        try await firstSave.value
-        try await secondSave.value
+        await #expect(throws: localUnavailableFailure) {
+            try await firstSave.value
+        }
+        await #expect(throws: localUnavailableFailure) {
+            try await secondSave.value
+        }
         let loaded = await datastore.loadWorkspaceSnapshot()
 
         guard case .loaded(let snapshot) = loaded else {

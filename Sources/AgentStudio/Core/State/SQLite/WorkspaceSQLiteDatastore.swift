@@ -235,7 +235,8 @@ package actor WorkspaceSQLiteDatastore {
                 phase: failurePhase,
                 error: error
             )
-            await recordProbe(.saveWorkspaceSnapshotSucceeded)
+            await recordProbe(.saveWorkspaceSnapshotFailed)
+            throw error
         }
     }
 
