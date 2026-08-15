@@ -4,6 +4,42 @@ import Testing
 @testable import AgentStudioBridge
 
 extension BridgeComparisonTargetContentLifecycleTests {
+    @Test("cancelled buffered delivery returns a cancelled disposition")
+    func cancelledBufferedDeliveryReturnsCancelledDisposition() async throws {
+        let capture = try makeCapture(
+            body: Data("comparison-target-body".utf8),
+            suffix: "delivery-cancelled"
+        )
+        let provider = await makeProvider(capture: capture)
+        let harness = try await BridgeProductSessionLifecycleHarness.opened()
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+
+        let deliveryTask = Task {
+            withUnsafeCurrentTask { task in
+                task?.cancel()
+            }
+            return try await provider.runBufferedContentProducer(
+                BridgePaneProductSchemeProvider.BufferedContentBody(
+                    data: capture.body,
+                    endOfSource: true,
+                    sha256: capture.sha256
+                ),
+                lease: BridgeProductProducerLease(
+                    id: try #require(
+                        UUID(uuidString: "019FEEC5-A29D-7858-A3BD-AB969E228488")
+                    )
+                ),
+                productAdmission: harness.productAdmission.context,
+                foregroundWorkAdmission: refreshWorkAdmission.admission,
+                session: harness.session
+            )
+        }
+
+        let deliveryDisposition = try await deliveryTask.value
+
+        #expect(deliveryDisposition == .cancelled)
+    }
+
     @Test("rejected catalog terminal delivery does not report complete")
     func rejectedCatalogTerminalDeliveryDoesNotReportComplete() async throws {
         let capture = try makeCapture(body: Data(), suffix: "delivery-rejected")

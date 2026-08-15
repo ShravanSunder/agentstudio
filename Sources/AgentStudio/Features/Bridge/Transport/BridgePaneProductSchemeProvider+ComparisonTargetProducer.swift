@@ -65,17 +65,34 @@ extension BridgePaneProductSchemeProvider {
             )
             return
         }
-        let deliveryDisposition = try await runBufferedContentProducer(
-            BufferedContentBody(
-                data: producedCatalog.body,
-                endOfSource: true,
-                sha256: producedCatalog.sha256
-            ),
-            lease: lease,
-            productAdmission: productAdmission,
-            foregroundWorkAdmission: foregroundWorkAdmission,
-            session: session
-        )
+        let deliveryDisposition: BufferedContentDeliveryDisposition
+        do {
+            deliveryDisposition = try await runBufferedContentProducer(
+                BufferedContentBody(
+                    data: producedCatalog.body,
+                    endOfSource: true,
+                    sha256: producedCatalog.sha256
+                ),
+                lease: lease,
+                productAdmission: productAdmission,
+                foregroundWorkAdmission: foregroundWorkAdmission,
+                session: session
+            )
+        } catch is CancellationError {
+            recordComparisonTargetTerminal(
+                outcome: .cancelled,
+                reservation: reservation,
+                observedByteCount: nil
+            )
+            return
+        } catch {
+            recordComparisonTargetTerminal(
+                outcome: Task.isCancelled ? .cancelled : .productionFailed,
+                reservation: reservation,
+                observedByteCount: nil
+            )
+            return
+        }
         switch deliveryDisposition {
         case .cancelled:
             recordComparisonTargetTerminal(

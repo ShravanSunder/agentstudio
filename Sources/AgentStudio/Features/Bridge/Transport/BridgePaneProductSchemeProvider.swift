@@ -531,7 +531,7 @@ actor BridgePaneProductSchemeProvider: BridgeProductSchemeProvider {
     ) async throws -> BufferedContentDeliveryDisposition {
         var offsetBytes = 0
         while offsetBytes < body.data.count {
-            try Task.checkCancellation()
+            guard !Task.isCancelled else { return .cancelled }
             guard foregroundWorkAdmission.withValidAdmission({ true }) == true else { return .cancelled }
             let endOffset = min(
                 offsetBytes + BridgeProductWireContract.maximumContentDataPayloadBytes,
