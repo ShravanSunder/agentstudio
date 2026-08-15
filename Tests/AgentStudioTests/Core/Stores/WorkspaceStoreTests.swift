@@ -914,7 +914,7 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func debouncedAutosaveTreatsPreparedLocalUnavailabilityAsCommittedCoreSavesWithoutRetry()
+    func debouncedAutosaveReportsPreparedLocalUnavailabilityWhileContinuingCoreSaves()
         async throws
     {
         let workspaceId = UUID()
@@ -975,55 +975,47 @@ final class WorkspaceStoreTests {
             clock.advance(by: .milliseconds(10))
         }
 
-        func waitForStoreToClearDirtyState() async {
-            for _ in 0..<80 where store.isDirty {
-                await Task.yield()
-            }
-        }
-
         for attempt in 1...3 {
             await advanceNextDebouncedSave {
                 store.setSidebarWidth(CGFloat(300 + attempt))
             }
             await saveProbe.waitForSaveCount(atLeast: attempt)
-            await saveProbe.waitForSucceededSaveCount(atLeast: attempt)
-            await waitForStoreToClearDirtyState()
-            #expect(!store.isDirty)
+            await saveProbe.waitForFailedSaveCount(atLeast: attempt)
+            #expect(store.isDirty)
         }
         #expect(await saveProbe.saveCount == 3)
-        #expect(await saveProbe.succeededSaveCount == 3)
-        #expect(await saveProbe.failedSaveCount == 0)
+        #expect(await saveProbe.succeededSaveCount == 0)
+        #expect(await saveProbe.failedSaveCount == 3)
         #expect(localRepositoryFactory.openAttemptCount == 1)
-        #expect(recoveryEvents.isEmpty)
-        #expect(!store.isDirty)
+        #expect(recoveryEvents.count == 3)
+        #expect(recoveryEvents.allSatisfy { $0.store == .workspace && $0.recovery == .saveFailed })
+        #expect(store.isDirty)
 
         await advanceNextDebouncedSave {
             store.setSidebarWidth(304)
         }
         await saveProbe.waitForSaveCount(atLeast: 4)
-        await saveProbe.waitForSucceededSaveCount(atLeast: 4)
-        await waitForStoreToClearDirtyState()
+        await saveProbe.waitForFailedSaveCount(atLeast: 4)
 
         #expect(await saveProbe.saveCount == 4)
-        #expect(await saveProbe.failedSaveCount == 0)
-        #expect(await saveProbe.succeededSaveCount == 4)
+        #expect(await saveProbe.failedSaveCount == 4)
+        #expect(await saveProbe.succeededSaveCount == 0)
         #expect(localRepositoryFactory.openAttemptCount == 1)
-        #expect(recoveryEvents.isEmpty)
-        #expect(!store.isDirty)
+        #expect(recoveryEvents.count == 3)
+        #expect(store.isDirty)
 
         await advanceNextDebouncedSave {
             store.setSidebarWidth(305)
         }
         await saveProbe.waitForSaveCount(atLeast: 5)
-        await saveProbe.waitForSucceededSaveCount(atLeast: 5)
-        await waitForStoreToClearDirtyState()
+        await saveProbe.waitForFailedSaveCount(atLeast: 5)
 
         #expect(await saveProbe.saveCount == 5)
-        #expect(await saveProbe.succeededSaveCount == 5)
-        #expect(await saveProbe.failedSaveCount == 0)
+        #expect(await saveProbe.succeededSaveCount == 0)
+        #expect(await saveProbe.failedSaveCount == 5)
         #expect(localRepositoryFactory.openAttemptCount == 1)
-        #expect(recoveryEvents.isEmpty)
-        #expect(!store.isDirty)
+        #expect(recoveryEvents.count == 3)
+        #expect(store.isDirty)
     }
 
     @Test
