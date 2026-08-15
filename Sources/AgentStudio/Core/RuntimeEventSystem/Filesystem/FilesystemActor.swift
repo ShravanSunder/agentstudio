@@ -344,6 +344,13 @@ package actor FilesystemActor {
 
     private func consumeCoarseRefreshDebt() async {
         for worktreeId in fseventStreamClient.consumeCoarseRefreshDebt() {
+            performanceTraceRecorder?.record(
+                .filesystemStageOutcome,
+                attributes: [
+                    "agentstudio.performance.filesystem.stage": .string("coarse_refresh_debt"),
+                    "agentstudio.performance.filesystem.outcome": .string("overflow_coarse"),
+                ]
+            )
             if isWatchedFolderBatch(worktreeId) {
                 await handleCoarseWatchedFolderFSEvent(worktreeId: worktreeId)
                 continue

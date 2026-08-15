@@ -1,7 +1,9 @@
 import { act } from 'react';
-import { userEvent } from 'vitest/browser';
 
-import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import {
+	findBridgeViewerTreeItemButton,
+	waitForBridgeViewerAnimationFrame,
+} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
@@ -148,25 +150,78 @@ export async function waitForFileViewerMenuOptionContaining(props: {
 	});
 }
 
-export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
+export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
+	readonly interaction: () => Promise<void>;
+	readonly option: HTMLElement;
+}): Promise<void> {
 	await act(async (): Promise<void> => {
-		await userEvent.click(element);
-		await Promise.resolve();
-		const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
-		if (menuContent instanceof HTMLElement) {
-			await Promise.all(
-				menuContent.getAnimations().map(async (animation): Promise<void> => {
-					try {
-						await animation.finished;
-					} catch {
-						// A replacement menu transition cancels the superseded animation.
-					}
-				}),
-			);
-		}
-		await Promise.resolve();
+		await props.interaction();
+		await settleBaseUiTransitionMachineInsideAct();
 	});
-	// Base UI observes the finished transition from an effect, then advances one
-	// frame before committing the popup's mounted-state change.
+
+	const checkedIndicator = props.option.querySelector(
+		'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
+	);
+	if (!(checkedIndicator instanceof HTMLElement)) {
+		throw new Error(
+			'Expected FileView checkbox option transition to finish with a mounted data-checked indicator.',
+		);
+	}
+	if (
+		props.option.getAttribute('aria-checked') !== 'true' ||
+		checkedIndicator.hasAttribute('data-starting-style') ||
+		checkedIndicator.hasAttribute('data-ending-style')
+	) {
+		throw new Error(
+			'Expected FileView checkbox option transition to finish with aria-checked=true and no transition style.',
+		);
+	}
+}
+
+export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Promise<void> {
+	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
+	await act(async (): Promise<void> => {
+		element.click();
+		await settleBaseUiTransitionMachineInsideAct();
+	});
+	await waitForFileViewerMenuState({ element, expectedExpandedState });
+}
+
+async function settleBaseUiTransitionMachineInsideAct(): Promise<void> {
+	// Base UI schedules transitionStatus='starting' cleanup on an animation frame. Its
+	// animation-complete hook starts on another frame and can synchronously unmount an
+	// ending indicator. Keep both frame boundaries inside the interaction's act scope.
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerAnimationFrame();
+}
+
+async function waitForFileViewerMenuState(props: {
+	readonly element: HTMLElement;
+	readonly expectedExpandedState: 'false' | 'true';
+	readonly remainingAttempts?: number;
+}): Promise<void> {
+	const menuContent = document.querySelector('[data-slot="dropdown-menu-content"]');
+	const contentMatches =
+		props.expectedExpandedState === 'true'
+			? menuContent instanceof HTMLElement && menuContent.hasAttribute('data-open')
+			: menuContent === null;
+	if (
+		props.element.getAttribute('aria-expanded') === props.expectedExpandedState &&
+		contentMatches
+	) {
+		return;
+	}
+
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`Expected FileView menu state aria-expanded=${props.expectedExpandedState}; ` +
+				`actual=${props.element.getAttribute('aria-expanded') ?? 'missing'}.`,
+		);
+	}
 	await actFrame();
+	await waitForFileViewerMenuState({
+		...props,
+		remainingAttempts: remainingAttempts - 1,
+	});
 }

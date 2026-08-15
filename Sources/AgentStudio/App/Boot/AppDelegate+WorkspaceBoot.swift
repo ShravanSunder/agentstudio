@@ -357,7 +357,8 @@ extension AppDelegate {
             },
             traceIdentityRefreshHandler: { [weak self] in
                 self?.requestTraceIdentityRefresh()
-            }
+            },
+            performanceTraceRecorder: performanceTraceRecorder
         )
         workspaceSurfaceCoordinator.removeRepoHandler = { [weak self] repoId in
             self?.workspaceCacheCoordinator.handleRepoRemoval(repoId: repoId)

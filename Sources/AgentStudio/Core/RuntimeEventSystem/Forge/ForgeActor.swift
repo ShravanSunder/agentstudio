@@ -496,6 +496,9 @@ package actor ForgeActor {
             )
             let factsChanged = state.lastPublishedFactsByBranch != factsByBranch
             state.lastPublishedFactsByBranch = factsByBranch
+            if !factsChanged {
+                recordForgeOutcome(stage: "facts_publication", outcome: "equal")
+            }
             event =
                 factsChanged
                 ? .pullRequestsChanged(repoId: request.repoId, factsByBranch: factsByBranch)
@@ -645,10 +648,14 @@ package actor ForgeActor {
     }
 
     private func recordFollowUpOutcome(_ outcome: String) {
+        recordForgeOutcome(stage: "follow_up", outcome: outcome)
+    }
+
+    private func recordForgeOutcome(stage: String, outcome: String) {
         performanceTraceRecorder?.record(
             .forgeRefresh,
             attributes: [
-                "agentstudio.performance.forge.stage": .string("follow_up"),
+                "agentstudio.performance.forge.stage": .string(stage),
                 "agentstudio.performance.forge.outcome": .string(outcome),
             ]
         )

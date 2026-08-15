@@ -165,6 +165,11 @@ package actor EventBus<Envelope: Sendable> {
         var failureClasses: Set<EventBusFailureClass> = []
     }
 
+    private struct SubscriberRegistrationWaiter {
+        let subscriberName: String
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private enum DeliveryPhase {
         case live
         case replay
@@ -179,6 +184,7 @@ package actor EventBus<Envelope: Sendable> {
     private var replayBySource: [String: [ReplayRecord]] = [:]
     private var truncatedReplaySourceKeys: Set<String> = []
     private var nextReplayOrder: UInt64 = 0
+    private var subscriberRegistrationWaiters: [UUID: SubscriberRegistrationWaiter] = [:]
 
     package init(
         name: String = "eventBus",
@@ -198,6 +204,10 @@ package actor EventBus<Envelope: Sendable> {
             subscriber.continuation.finish()
         }
         subscribers.removeAll(keepingCapacity: false)
+        for waiter in subscriberRegistrationWaiters.values {
+            waiter.continuation.resume()
+        }
+        subscriberRegistrationWaiters.removeAll(keepingCapacity: false)
     }
 
     package func subscribe(
@@ -218,6 +228,7 @@ package actor EventBus<Envelope: Sendable> {
                 replayStatus: replaySnapshot.status,
                 factInterest: factInterest
             )
+            self.resolveSubscriberRegistrationWaiters(subscriberName: subscriberName)
             self.performanceReporter?.recordEventBusSubscriberAdded()
             replayLoop: for envelope in replaySnapshot.envelopes {
                 guard self.shouldDeliver(envelope, to: factInterest) else { continue replayLoop }
@@ -333,6 +344,19 @@ package actor EventBus<Envelope: Sendable> {
         subscribers.count
     }
 
+    package func waitForSubscriberRegistration(subscriberName: String) async {
+        if subscribers.values.contains(where: { $0.subscriberName == subscriberName }) {
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            subscriberRegistrationWaiters[UUID()] = SubscriberRegistrationWaiter(
+                subscriberName: subscriberName,
+                continuation: continuation
+            )
+        }
+    }
+
     func totalDroppedEvents() -> UInt64 {
         droppedEventCount
     }
@@ -368,6 +392,15 @@ package actor EventBus<Envelope: Sendable> {
         )
         if diagnostics.requiresRecovery {
             retainedRecoveryDiagnostics.append(diagnostics)
+        }
+    }
+
+    private func resolveSubscriberRegistrationWaiters(subscriberName: String) {
+        let matchingWaiterIDs = subscriberRegistrationWaiters.compactMap { waiterID, waiter in
+            waiter.subscriberName == subscriberName ? waiterID : nil
+        }
+        for waiterID in matchingWaiterIDs {
+            subscriberRegistrationWaiters.removeValue(forKey: waiterID)?.continuation.resume()
         }
     }
 

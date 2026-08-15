@@ -12,6 +12,24 @@ struct RepoExplorerProjectionRequestKey: Equatable {
 }
 
 extension RepoExplorerView {
+    static func measureRowBodyEvaluationProxy<Content>(
+        rowKind: RepoExplorerRowKind,
+        nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+        resolve: () -> Content
+    ) -> RepoExplorerRowBodyEvaluationMeasurement<Content> {
+        let startedAtNanoseconds = nowNanoseconds()
+        let content = resolve()
+        let completedAtNanoseconds = nowNanoseconds()
+        return RepoExplorerRowBodyEvaluationMeasurement(
+            content: content,
+            duration: .nanoseconds(
+                Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
+            ),
+            rowKind: rowKind,
+            outcome: .success
+        )
+    }
+
     static func measureOutlineApplyProxy(
         previousRowIDs: [String],
         nextRowIDs: [String],
