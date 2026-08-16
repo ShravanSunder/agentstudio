@@ -21,9 +21,10 @@ BY REPO CHIPS
 9 PR: "⑂N" whenever N>0. Must never disappear when PRs exist.
 
 TOOLBAR
-10 toggle: 3 icon-only buttons; NO borders/labels; selected =
-   accentColor icon + subtle standard fill; unselected secondary;
-   tooltips all three.
+10 toggle: 3 buttons, NO borders/outlines anywhere. Selected segment =
+   accentColor ICON + its TEXT label ("By Repo"/"All Panes"/"By Tab") in
+   accentColor + subtle standard fill. Unselected = secondary icon only,
+   no text. Tooltips all three.
 11 sort: rotation animates, no flicker (stable identity; inbox works).
 
 BEHAVIOR
