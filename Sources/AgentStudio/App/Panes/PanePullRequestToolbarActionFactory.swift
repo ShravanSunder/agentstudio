@@ -6,7 +6,7 @@ import Foundation
 enum PanePullRequestToolbarActionFactory {
     private struct Presentation {
         let accessibilityLabel: String
-        let tooltip: String
+        let tooltip: ControlTooltipRenderValue
         let icon: CommandIcon
         let iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone?
     }
@@ -24,23 +24,21 @@ enum PanePullRequestToolbarActionFactory {
             )
         else { return nil }
 
+        let actionSpec = LocalActionSpec.openPullRequest.actionSpec
         let pullRequestFacts = GitHubWebviewLaunchResolver.pullRequestFacts(
             for: paneId,
             store: store,
             repoCache: repoCache
         )
         let exactPullRequestURL = pullRequestFacts?.exactOpenURL
-        let presentation = presentation(for: pullRequestFacts)
+        let presentation = presentation(for: pullRequestFacts, actionSpec: actionSpec)
         let isEnabled = exactPullRequestURL != nil
         return PaneSurfaceToolbarAction(
             state: PaneSurfaceToolbarAction.State(
                 label: presentation.accessibilityLabel,
                 accessibilityIdentifier: "paneSurfaceToolbar.pullRequest",
                 icon: presentation.icon,
-                tooltip: ControlTooltipRenderValue(
-                    text: presentation.tooltip,
-                    shortcutDisplayText: nil
-                ),
+                tooltip: presentation.tooltip,
                 isEnabled: isEnabled,
                 isSelected: false,
                 selectionEmphasis: .standard,
@@ -54,15 +52,15 @@ enum PanePullRequestToolbarActionFactory {
     }
 
     private static func presentation(
-        for pullRequestFacts: PullRequestFacts?
+        for pullRequestFacts: PullRequestFacts?,
+        actionSpec: ActionSpec
     ) -> Presentation {
         guard pullRequestFacts?.exactOpenURL != nil else {
-            let actionSpec = LocalActionSpec.openPullRequest.actionSpec
             return Presentation(
                 accessibilityLabel: actionSpec.label,
                 tooltip: actionSpec.controlTooltipRenderValue(
                     provenance: .localAction(rawValue: "openPullRequest")
-                ).text,
+                ),
                 icon: actionSpec.icon,
                 iconStatusTone: nil
             )
@@ -115,14 +113,19 @@ enum PanePullRequestToolbarActionFactory {
             }
         }
 
+        let baseIcon = actionSpec.icon
         let icon: CommandIcon =
             readiness?.isDraft == true
             ? .octicon(.gitPullRequestDraft)
-            : .octicon(.gitPullRequest)
+            : baseIcon
+        let tooltipText = ([actionSpec.label] + statusDescriptions).joined(separator: " — ")
         return Presentation(
-            accessibilityLabel: (["Open PR"] + statusDescriptions.map { $0.lowercased() })
+            accessibilityLabel: ([actionSpec.label] + statusDescriptions.map { $0.lowercased() })
                 .joined(separator: ", "),
-            tooltip: (["Open PR"] + statusDescriptions).joined(separator: " — "),
+            tooltip: actionSpec.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "openPullRequest"),
+                textOverride: tooltipText
+            ),
             icon: icon,
             iconStatusTone: iconStatusTone
         )

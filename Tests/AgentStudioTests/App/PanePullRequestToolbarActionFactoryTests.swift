@@ -3,10 +3,25 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioTestSupport
 
 @MainActor
 @Suite("PanePullRequestToolbarActionFactory")
 struct PanePullRequestToolbarActionFactoryTests {
+    @Test("enabled and disabled states share the local action presentation authority")
+    func presentationDerivesFromLocalActionSpec() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let sourceURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Panes/PanePullRequestToolbarActionFactory.swift"
+        )
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        #expect(source.contains("let actionSpec = LocalActionSpec.openPullRequest.actionSpec"))
+        #expect(source.contains("tooltip: actionSpec.controlTooltipRenderValue("))
+        #expect(source.contains("let baseIcon = actionSpec.icon"))
+        #expect(!source.contains("[\"Open PR\"]"))
+    }
+
     @Test("resolvable worktree without an exact PR keeps a neutral disabled control")
     func noExactPullRequestIsVisibleAndDisabled() throws {
         let fixture = try makeFixture()
