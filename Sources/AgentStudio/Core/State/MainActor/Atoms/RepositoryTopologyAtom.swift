@@ -16,6 +16,35 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
     fileprivate let repositoriesByID: [UUID: Repo]
     fileprivate let worktreesByID: [UUID: Worktree]
     fileprivate let worktreePathIndex: [RepositoryTopologyPathIndexEntry]
+    fileprivate let unavailableRepositoryIDs: Set<UUID>
+
+    fileprivate nonisolated init(
+        repositoriesByID: [UUID: Repo],
+        worktreesByID: [UUID: Worktree],
+        worktreePathIndex: [RepositoryTopologyPathIndexEntry],
+        unavailableRepositoryIDs: Set<UUID>
+    ) {
+        self.repositoriesByID = repositoriesByID
+        self.worktreesByID = worktreesByID
+        self.worktreePathIndex = worktreePathIndex
+        self.unavailableRepositoryIDs = unavailableRepositoryIDs
+    }
+
+    nonisolated init(replacement: RepositoryTopologyReplacement) {
+        self.init(
+            repositoriesByID: Dictionary(
+                uniqueKeysWithValues: replacement.repositories.map { ($0.id, $0) }
+            ),
+            worktreesByID: Dictionary(
+                uniqueKeysWithValues: replacement.repositories.flatMap(\.worktrees).map { ($0.id, $0) }
+            ),
+            worktreePathIndex: makeRepositoryTopologyPathIndex(
+                repositories: replacement.repositories,
+                unavailableRepositoryIDs: replacement.unavailableRepositoryIDs
+            ),
+            unavailableRepositoryIDs: replacement.unavailableRepositoryIDs
+        )
+    }
 
     package func repo(_ id: UUID) -> Repo? {
         repositoriesByID[id]
@@ -23,6 +52,34 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
 
     package func worktree(_ id: UUID) -> Worktree? {
         worktreesByID[id]
+    }
+
+    package func validatedAssociation(
+        repoId: UUID?,
+        worktreeId: UUID?
+    ) -> (repo: Repo, worktree: Worktree)? {
+        guard
+            let repoId,
+            let worktreeId,
+            !unavailableRepositoryIDs.contains(repoId),
+            let repository = repo(repoId),
+            let worktree = worktree(worktreeId),
+            worktree.repoId == repository.id
+        else { return nil }
+        return (repository, worktree)
+    }
+
+    package func isKnownAssociationTemporarilyUnavailable(
+        repoId: UUID?,
+        worktreeId: UUID?
+    ) -> Bool {
+        guard
+            let repoId,
+            worktreeId != nil,
+            unavailableRepositoryIDs.contains(repoId),
+            repo(repoId) != nil
+        else { return false }
+        return true
     }
 
     package func repoAndWorktree(
@@ -54,6 +111,19 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
             return try repoAndWorktree(containing: cwd, cancellationCheck: {})
         } catch {
             return nil
+        }
+    }
+
+    package func hasUnavailableWorktree(containing cwd: URL?) -> Bool {
+        guard let cwd else { return false }
+        let normalizedCWD = cwd.standardizedFileURL.path
+        return unavailableRepositoryIDs.contains { repositoryID in
+            guard let repository = repositoriesByID[repositoryID] else { return false }
+            return repository.worktrees.contains { worktree in
+                let normalizedWorktreePath = worktree.path.standardizedFileURL.path
+                return normalizedCWD == normalizedWorktreePath
+                    || normalizedCWD.hasPrefix(normalizedWorktreePath + "/")
+            }
         }
     }
 }
@@ -172,6 +242,21 @@ package final class RepositoryTopologyAtom {
         worktreeFamily.value(for: id)
     }
 
+    package func validatedAssociation(
+        repoId: UUID?,
+        worktreeId: UUID?
+    ) -> (repo: Repo, worktree: Worktree)? {
+        guard
+            let repoId,
+            let worktreeId,
+            !isRepoUnavailable(repoId),
+            let repository = repo(repoId),
+            let worktree = worktree(worktreeId),
+            worktree.repoId == repository.id
+        else { return nil }
+        return (repository, worktree)
+    }
+
     package func repo(stableKey: String) -> Repo? {
         _ = orderedMembershipRevisionAtom.value
         guard let repositoryID = repositoryIDsByStableKey[stableKey] else { return nil }
@@ -252,7 +337,8 @@ package final class RepositoryTopologyAtom {
         return RepositoryTopologyReadSnapshot(
             repositoriesByID: repositoriesByID,
             worktreesByID: worktreesByID,
-            worktreePathIndex: worktreePathIndex
+            worktreePathIndex: worktreePathIndex,
+            unavailableRepositoryIDs: unavailableRepoIds
         )
     }
 
@@ -337,30 +423,10 @@ package final class RepositoryTopologyAtom {
     }
 
     private func rebuildWorktreePathIndexAndBumpGeneration() {
-        worktreePathIndex = repos.flatMap { repo -> [RepositoryTopologyPathIndexEntry] in
-            guard !unavailableRepoIds.contains(repo.id) else { return [] }
-            let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
-            let normalizedWorktrees = repo.worktrees.map { worktree in
-                (worktree: worktree, normalizedPath: worktree.path.standardizedFileURL.path)
-            }
-            let repoPathMatchesAnyWorktree = normalizedWorktrees.contains {
-                $0.normalizedPath == normalizedRepoPath
-            }
-
-            return normalizedWorktrees.map { item in
-                RepositoryTopologyPathIndexEntry(
-                    repoId: repo.id,
-                    worktreeId: item.worktree.id,
-                    normalizedWorktreePath: item.normalizedPath,
-                    repoWorktreeCount: repo.worktrees.count,
-                    repoPathMatchesWorktree: repoPathMatchesAnyWorktree
-                        && normalizedRepoPath == item.normalizedPath,
-                    isMainWorktree: item.worktree.isMainWorktree,
-                    stableTieBreaker: "\(repo.id.uuidString)|\(item.worktree.id.uuidString)"
-                )
-            }
-        }
-        .sorted(by: Self.worktreePathIndexEntryPrecedes)
+        worktreePathIndex = makeRepositoryTopologyPathIndex(
+            repositories: repos,
+            unavailableRepositoryIDs: unavailableRepoIds
+        )
 
         worktreePathIndexGeneration &+= 1
         let stableKeyCounts = Dictionary(grouping: repos.flatMap(\.worktrees), by: \.stableKey)
@@ -369,22 +435,53 @@ package final class RepositoryTopologyAtom {
         }
     }
 
-    private static func worktreePathIndexEntryPrecedes(
-        lhs: RepositoryTopologyPathIndexEntry,
-        rhs: RepositoryTopologyPathIndexEntry
-    ) -> Bool {
-        if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
-            return lhs.normalizedWorktreePath.count > rhs.normalizedWorktreePath.count
+}
+
+private nonisolated func makeRepositoryTopologyPathIndex(
+    repositories: [Repo],
+    unavailableRepositoryIDs: Set<UUID>
+) -> [RepositoryTopologyPathIndexEntry] {
+    repositories.flatMap { repository -> [RepositoryTopologyPathIndexEntry] in
+        guard !unavailableRepositoryIDs.contains(repository.id) else { return [] }
+        let normalizedRepositoryPath = repository.repoPath.standardizedFileURL.path
+        let normalizedWorktrees = repository.worktrees.map { worktree in
+            (worktree: worktree, normalizedPath: worktree.path.standardizedFileURL.path)
         }
-        if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
-            return lhs.repoWorktreeCount < rhs.repoWorktreeCount
+        let repositoryPathMatchesAnyWorktree = normalizedWorktrees.contains {
+            $0.normalizedPath == normalizedRepositoryPath
         }
-        if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
-            return lhs.repoPathMatchesWorktree && !rhs.repoPathMatchesWorktree
+
+        return normalizedWorktrees.map { item in
+            RepositoryTopologyPathIndexEntry(
+                repoId: repository.id,
+                worktreeId: item.worktree.id,
+                normalizedWorktreePath: item.normalizedPath,
+                repoWorktreeCount: repository.worktrees.count,
+                repoPathMatchesWorktree: repositoryPathMatchesAnyWorktree
+                    && normalizedRepositoryPath == item.normalizedPath,
+                isMainWorktree: item.worktree.isMainWorktree,
+                stableTieBreaker: "\(repository.id.uuidString)|\(item.worktree.id.uuidString)"
+            )
         }
-        if lhs.isMainWorktree != rhs.isMainWorktree {
-            return !lhs.isMainWorktree && rhs.isMainWorktree
-        }
-        return lhs.stableTieBreaker < rhs.stableTieBreaker
     }
+    .sorted(by: repositoryTopologyPathIndexEntryPrecedes)
+}
+
+private nonisolated func repositoryTopologyPathIndexEntryPrecedes(
+    lhs: RepositoryTopologyPathIndexEntry,
+    rhs: RepositoryTopologyPathIndexEntry
+) -> Bool {
+    if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
+        return lhs.normalizedWorktreePath.count > rhs.normalizedWorktreePath.count
+    }
+    if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
+        return lhs.repoWorktreeCount < rhs.repoWorktreeCount
+    }
+    if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
+        return lhs.repoPathMatchesWorktree && !rhs.repoPathMatchesWorktree
+    }
+    if lhs.isMainWorktree != rhs.isMainWorktree {
+        return !lhs.isMainWorktree && rhs.isMainWorktree
+    }
+    return lhs.stableTieBreaker < rhs.stableTieBreaker
 }

@@ -699,6 +699,14 @@ final class WorkspaceCacheCoordinator {
     /// Called for user-initiated removal (not filesystem disappearance).
     func handleRepoRemoval(repoId: UUID) {
         guard let repo = workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId }) else { return }
+        let removalDelta = WorktreeTopologyDelta(
+            repoId: repo.id,
+            addedWorktreeIds: [],
+            removedWorktrees: repo.worktrees.map { RemovedWorktreeEntry(id: $0.id, path: $0.path) },
+            preservedWorktreeIds: [],
+            didChange: true,
+            traceId: nil
+        )
 
         // 1. Prune all worktree-level cache entries for this repo
         for worktree in repo.worktrees {
@@ -715,6 +723,7 @@ final class WorkspaceCacheCoordinator {
 
         // 4. Hard-delete from store (removes from repos array + persistence)
         workspaceStore.mutationCoordinator.removeRepo(repoId)
+        topologyEffectHandler?.topologyDidChange(removalDelta)
         refreshTraceIdentity()
     }
 
