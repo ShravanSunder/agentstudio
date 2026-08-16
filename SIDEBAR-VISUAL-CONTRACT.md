@@ -39,12 +39,14 @@ EXIT: screenshot proof per item, all 16 in ONE build.
    name) must use the SAME spacing token as row lines (star/branch icon
    to text). No larger gap on headers.
 18 chips row alignment: left, By Repo parity (user default 2026-08-16).
-19 reload chip replaced (By Repo chips row): stale/needs-refresh =
-   STATIC hollow-dot chip, no animation. The stale fact is "pull-request
-   facts not yet fetched for this branch" (prCount == nil), a cached
-   keyed read. NO rotationEffect/repeatForever/symbolEffect animation
-   anywhere in rows.
-   DEFERRED: the actively-refreshing animated state. The app owns no
-   keyed refresh-lifecycle fact, and a locally inferred one would be a
-   lie. Revisit only once such a fact exists; do not add runtime
-   plumbing for it under this contract.
+19 stale/needs-refresh (prCount == nil) = a BARE small hollow-dot SF
+   Symbol glyph at the end of the By Repo chips line. It uses the chip-line
+   height and quiet secondary color, with NO pill, background, or border.
+   Chips carry facts with values; freshness is metadata and must not wear
+   a chip. The stale fact remains a cached keyed read: "pull-request facts
+   not yet fetched for this branch."
+   DEFERRED: the actively-refreshing state. Once the app owns a real keyed
+   refresh-lifecycle fact, animate this same bare glyph in place via
+   symbolEffect; it must still have no chip, background, or border. Until
+   then the glyph is static. Do not infer refresh state locally or add
+   runtime plumbing under this contract.

@@ -123,6 +123,7 @@ package enum AppStyles {
             package static let chipVerticalPadding: CGFloat = 2
             package static let chipFontSize: CGFloat = AppStyles.General.Typography.textXs
             package static let chipIconSize: CGFloat = 8
+            package static let chipLineHeight: CGFloat = chipFontSize + (chipVerticalPadding * 2)
             package static let syncChipIconSize: CGFloat = 7
             package static let chipBackgroundOpacity: CGFloat = AppStyles.General.Fill.hover
             package static let chipBorderOpacity: CGFloat = AppStyles.General.Fill.muted

@@ -86,17 +86,8 @@ struct RepoExplorerWorktreeRowContent: View {
         (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
     }
 
-    /// A `nil` count means pull-request facts have not been fetched for this branch yet. That state is a
-    /// static hollow dot; it must not animate, because the app has no refresh-lifecycle fact to drive one.
-    static func pullRequestChipPresentation(prCount: Int?) -> PullRequestChipPresentation {
-        guard let prCount else {
-            return PullRequestChipPresentation(
-                icon: .system(.circle),
-                text: nil,
-                usesAccent: false
-            )
-        }
-        return PullRequestChipPresentation(
+    static func pullRequestChipPresentation(prCount: Int) -> PullRequestChipPresentation {
+        PullRequestChipPresentation(
             icon: .octicon("octicon-git-pull-request"),
             text: "\(prCount)",
             usesAccent: prCount > 0
@@ -237,8 +228,10 @@ struct RepoExplorerWorktreeRowContent: View {
                         )
                     }
 
-                    if Self.shouldShowPullRequestChip(branchStatus: branchStatus) {
-                        let pullRequestChip = Self.pullRequestChipPresentation(prCount: branchStatus.prCount)
+                    if branchStatus.prCount == nil {
+                        stalePullRequestGlyph
+                    } else if let prCount = branchStatus.prCount, prCount > 0 {
+                        let pullRequestChip = Self.pullRequestChipPresentation(prCount: prCount)
                         SidebarChip(
                             icon: pullRequestChip.icon,
                             octiconLoader: octiconLoader,
@@ -263,6 +256,17 @@ struct RepoExplorerWorktreeRowContent: View {
                 .sidebarTextColumnGuide()
             }
         }
+    }
+
+    /// A `nil` PR count means facts have not been fetched for this branch. Freshness is metadata, so it
+    /// uses a bare static glyph rather than the value-bearing chip treatment.
+    private var stalePullRequestGlyph: some View {
+        Image(systemName: SystemSymbol.circle.rawValue)
+            .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
+            .fixedSize(horizontal: true, vertical: true)
+            .accessibilityLabel("Pull request facts not fetched")
     }
 
     @ViewBuilder

@@ -142,6 +142,29 @@ struct RepoExplorerWorktreeRowTests {
         }
     }
 
+    @Test("stale pull request metadata renders as a bare chip-height glyph")
+    func stalePullRequestMetadataRendersAsBareGlyph() throws {
+        let rowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        let glyphStart = try #require(rowSource.range(of: "private var stalePullRequestGlyph: some View"))
+        let glyphEnd = try #require(
+            rowSource.range(
+                of: "private var checkoutTypeIcon: some View", range: glyphStart.upperBound..<rowSource.endIndex)
+        )
+        let glyphSource = String(rowSource[glyphStart.lowerBound..<glyphEnd.lowerBound])
+
+        #expect(glyphSource.contains("Image(systemName: SystemSymbol.circle.rawValue)"))
+        #expect(glyphSource.contains(".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)"))
+        #expect(glyphSource.contains(".foregroundStyle(.secondary)"))
+        #expect(!glyphSource.contains("SidebarChip("))
+        #expect(!glyphSource.contains(".background("))
+        #expect(!glyphSource.contains(".overlay("))
+        #expect(!glyphSource.contains(".symbolEffect("))
+    }
+
     @Test("pane trailing metadata suppresses zero pull requests")
     func paneTrailingMetadataSuppressesZeroPullRequests() {
         #expect(RepoExplorerPaneRow.normalizedPullRequestCount(nil) == nil)

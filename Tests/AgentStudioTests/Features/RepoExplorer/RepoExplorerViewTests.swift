@@ -28,15 +28,11 @@ struct RepoExplorerViewTests {
         #expect(measurement.outcome == .success)
     }
 
-    @Test("pull request chip distinguishes not-fetched, confirmed zero, and positive facts")
+    @Test("pull request chip distinguishes confirmed zero and positive facts")
     func pullRequestChipPresentationDistinguishesFactStates() {
-        let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
         let confirmedZero = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 0)
         let positive = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
 
-        #expect(unknown.icon == .system(.circle))
-        #expect(unknown.text == nil)
-        #expect(unknown.usesAccent == false)
         #expect(confirmedZero.icon == .octicon("octicon-git-pull-request"))
         #expect(confirmedZero.text == "0")
         #expect(confirmedZero.usesAccent == false)
