@@ -7,6 +7,7 @@ import {
 	bridgeViewerChromeSegmentedControlClassName,
 } from '../../app/bridge-viewer-chrome.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
+import { cn } from '../../lib/utils.js';
 
 export type BridgeCodeViewFilePresentation = 'diff' | 'open';
 
@@ -21,7 +22,7 @@ export function BridgeCodeViewFilePresentationToggle(props: {
 	return (
 		<ToggleGroup
 			aria-label="File presentation"
-			className={bridgeViewerChromeSegmentedControlClassName}
+			className={cn(bridgeViewerChromeSegmentedControlClassName, 'h-8')}
 			data-testid="bridge-code-view-header-presentation-toggle"
 			onValueChange={(presentations): void => {
 				const presentation = presentations.at(-1);
@@ -35,7 +36,7 @@ export function BridgeCodeViewFilePresentationToggle(props: {
 		>
 			<ToggleGroupItem
 				aria-label="Diff"
-				className={bridgeViewerChromeSegmentIconButtonClassName}
+				className={cn(bridgeViewerChromeSegmentIconButtonClassName, 'h-7 min-h-7 w-7 min-w-7')}
 				onClick={(event): void => {
 					event.stopPropagation();
 				}}
@@ -46,7 +47,7 @@ export function BridgeCodeViewFilePresentationToggle(props: {
 			</ToggleGroupItem>
 			<ToggleGroupItem
 				aria-label="Open"
-				className={bridgeViewerChromeSegmentIconButtonClassName}
+				className={cn(bridgeViewerChromeSegmentIconButtonClassName, 'h-7 min-h-7 w-7 min-w-7')}
 				onClick={(event): void => {
 					event.stopPropagation();
 				}}
