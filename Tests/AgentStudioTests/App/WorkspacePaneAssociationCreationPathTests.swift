@@ -91,6 +91,38 @@ struct WorkspacePaneAssociationCreationPathTests {
         expectDurablyUnassociated(pane.id, expectedCWD: freeDirectory, store: harness.store)
     }
 
+    @Test("creation replaces a stale explicit association when CWD identifies another worktree")
+    func creationReplacesStaleExplicitAssociation() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let (sourceRepo, sourceWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let (destinationRepo, destinationWorktree) = makeRepoAndWorktree(
+            harness.store,
+            root: harness.tempDir
+        )
+        let destinationDirectory = destinationWorktree.path.appending(
+            path: "Sources",
+            directoryHint: .isDirectory
+        )
+
+        let pane = harness.store.createPane(
+            launchDirectory: sourceWorktree.path,
+            facets: PaneContextFacets(
+                repoId: sourceRepo.id,
+                worktreeId: sourceWorktree.id,
+                cwd: destinationDirectory
+            )
+        )
+
+        expectDurableAssociation(
+            pane.id,
+            repo: destinationRepo,
+            worktree: destinationWorktree,
+            expectedCWD: destinationDirectory,
+            store: harness.store
+        )
+    }
+
     @Test("drawer creation inherits the parent pane association")
     func drawerCreationPersistsParentAssociation() throws {
         let harness = makeHarness()
