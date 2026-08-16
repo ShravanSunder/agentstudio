@@ -10,11 +10,14 @@ Status: implementation, automated proof, native gallery, measured spacing compar
 - By Repo suppresses zero-value diff, ahead/behind, and PR chips, including no-upstream placeholders.
 - The sort-button spinner regression came from resolving only one of the two sort command destinations during asynchronous presentation refresh. The request now retains both destinations and resolves the next current command from the completed batch, eliminating the transient empty/flickering state while preserving the shared spinning presentation.
 - By Tab group headers use the new `AppStyles` muted-primary blue token (RGB `0.38, 0.57, 0.78`). It is neither yellow nor secondary gray; pane leaf glyphs remain monochrome.
+- Pane display and ordering now share one nonoptional effective recency date. A never-focused pane falls back to its creation date for both the visible time and All Panes ordering instead of displaying `Now` while sorting as infinitely old.
 
 ## Source delivery
 
 - Branch: `feat/sidebar-grouping-rows`
-- Current implementation commit: `2edc3c77d` — `Polish sidebar grouping controls and activity rows`
+- Current remediation commit: `4abb00448` — `Align pane sorting with displayed recency`
+- Main implementation commit: `2edc3c77d` — `Polish sidebar grouping controls and activity rows`
+- Final gallery commit: `8fa7a3641` — `Add final sidebar grouping proof gallery`
 - Earlier feature commits retained in the branch:
   - `c66c12a41` — persisted sidebar grouping in window UI state
   - `c5522513c` — All Panes and By Tab activity projections
@@ -27,15 +30,15 @@ Status: implementation, automated proof, native gallery, measured spacing compar
 
 - Focused Swift gate:
   - Command: `swift test --build-path .build-agent-1 --filter 'RepoExplorerViewProjectionHelperTests|RepoExplorerCommandPresentationBatchTests|RepoExplorerPaneProjectionTests|RepoExplorerWorktreeRowTests|SidebarSourceGroupHeaderTests|SidebarSurfaceConvergenceTests|RepoExplorerHotPathArchitectureTests' --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests`
-  - Result: exit 0; 68 tests in 7 suites passed.
+  - Result: exit 0; 69 tests in 7 suites passed.
 - Lint gate:
   - Command: `mise run lint`
   - Result: exit 0; swift-format passed, SwiftLint reported 0 violations across 2,032 files, architecture lint passed, and release-script verification passed.
 - Full local PR gate:
   - Command: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test`
-  - Result: exit 0 in 295.72 seconds.
+  - Result: exit 0 in 308.73 seconds.
   - BridgeWeb: 1,713 unit, 22 integration, 194 browser passed with 5 skipped, and 4 Vite E2E tests passed.
-  - Swift: 5,953 fast-lane tests in 781 suites, 477 aggregate tests in 70 suites, 4 serial process tests, all serialized WebKit tests, and all general E2E tests passed.
+  - Swift: 5,954 fast-lane tests in 781 suites, 477 aggregate tests in 70 suites, 4 serial process tests, all serialized WebKit tests, and all general E2E tests passed.
 - Diff integrity: `git diff --check` exited 0.
 - One prior unchanged full-gate attempt hit an unrelated transient BridgeWeb comparison-control browser-test timeout. The exact focused file immediately passed 14/14, and the required complete command above then passed without source changes.
 
@@ -48,6 +51,7 @@ Status: implementation, automated proof, native gallery, measured spacing compar
 - By Tab exposed the same positive PR count on its pane row beneath the muted-blue tab header.
 - By Repo showed both clean/synced rows without zero chips and dirty rows with non-zero chips; the positive fixture rendered PR count 1.
 - The title decision is visible across the pane modes: path-only titles render shell/cwd-leaf fallbacks rather than raw or abbreviated paths.
+- Sort interaction was exercised twice on exact jp6s PID `69452`; the same accessible `repoSidebarSortButton` remained mounted while its typed help value changed `Sort descending` → `Sort ascending` → `Sort descending`, with no empty/flickering control state observed. That exact PID was then terminated and confirmed absent.
 - Persistence restart: By Tab was selected on PID `35491`; that exact PID was terminated, the same jp6s app relaunched as PID `61978`, and accessibility still reported the By Tab segment selected before any mode interaction.
 - Fresh runtime marker: `debug-observability-jp6s-1786888500-52189`.
 - `mise run verify-debug-observability` exited 0 for PID `61978`, launch method LaunchServices, background activation, authenticated IPC, and `app.did_finish_launching.succeeded` from VictoriaLogs.
@@ -83,6 +87,7 @@ All files are under `tmp-screenshots/final/`. `tmp-screenshots/initial-capture/`
 
 - Accepted and fixed: abbreviated `.../` and `…/` path-shaped titles now take the fallback path, with permanent tests.
 - Accepted and proven: positive PR chips are present in native All Panes and By Tab captures using a real count of 1.
+- Accepted and fixed red-first: never-focused panes now use the same effective recency date for display and activity ordering. The new test failed against the nullable sort fact and passed after the nonoptional fact cutover.
 - Rejected as outside the agreed contract: rewriting the already keyed, cached, equality-suppressed projection into a new single-row recomputation owner. The named hot-path architecture tests pass and the brief did not require a new ownership seam.
 - Rejected as contrary to the repository hard-cut rule: migrating the retired repository-scoped grouping preference into the new window-scoped owner. The new owner persists steady-state selection and the restart proof passes; there is no compatibility lane.
 
