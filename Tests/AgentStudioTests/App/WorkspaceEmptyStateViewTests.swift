@@ -54,6 +54,18 @@ struct WorkspaceEmptyStateViewTests {
         #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit == 6)
     }
 
+    @Test("recent projects use compact contiguous rows")
+    func recentProjectsUseCompactContiguousRows() {
+        #expect((54...60).contains(AppStyles.Welcome.recentRowMinHeight))
+        #expect(AppStyles.Welcome.recentRowSpacing == 0)
+        #expect(AppStyles.Welcome.recentListCornerRadius == 12)
+    }
+
+    @Test("recent projects and shortcuts have generous divider breathing room")
+    func recentProjectsAndShortcutsHaveGenerousDividerBreathingRoom() {
+        #expect(AppStyles.Welcome.launcherSectionGap >= 36)
+    }
+
     // MARK: - Typography scale (semantic hierarchy)
 
     @Test("typography scale symbols exist for every role")

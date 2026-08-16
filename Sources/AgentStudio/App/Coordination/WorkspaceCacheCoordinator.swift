@@ -540,23 +540,25 @@ final class WorkspaceCacheCoordinator {
         switch envelope.event {
         case .gitWorkingDirectory(let gitEvent):
             switch gitEvent {
-            case .statusOutcome(_, let repoId, let outcome, let consecutiveTimeoutCount):
-                switch outcome {
+            case .statusOutcome(let statusOutcome):
+                switch statusOutcome.outcome {
                 case .completed:
-                    if case .statusUnavailable = repoCache.repoEnrichment(for: repoId) {
-                        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+                    if case .statusUnavailable = repoCache.repoEnrichment(for: statusOutcome.repoId) {
+                        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: statusOutcome.repoId))
                     }
-                case .timeout:
-                    guard consecutiveTimeoutCount >= AppPolicies.GitRefresh.statusUnavailableConsecutiveTimeoutThreshold
+                case .timeout, .unavailable:
+                    guard let reason = statusOutcome.reason,
+                        statusOutcome.consecutiveFailureCount
+                            >= AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold
                     else { break }
-                    switch repoCache.repoEnrichment(for: repoId) {
+                    switch repoCache.repoEnrichment(for: statusOutcome.repoId) {
                     case .none, .some(.awaitingOrigin):
-                        repoCache.setRepoEnrichment(.statusUnavailable(repoId: repoId, reason: "timeout"))
+                        repoCache.setRepoEnrichment(
+                            .statusUnavailable(repoId: statusOutcome.repoId, reason: reason.rawValue)
+                        )
                     case .some(.statusUnavailable), .some(.resolvedLocal), .some(.resolvedRemote):
                         break
                     }
-                case .unavailable:
-                    break
                 }
             case .snapshotChanged(let snapshot):
                 let enrichment = WorktreeEnrichment(
