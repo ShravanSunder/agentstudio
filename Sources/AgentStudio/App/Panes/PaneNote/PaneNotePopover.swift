@@ -84,7 +84,7 @@ struct PaneNotePopover: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
-                        isNoteFieldFocused ? Color.accentColor : Color.white.opacity(0.12),
+                        isNoteFieldFocused ? AppStyles.General.Accent.primaryColor : Color.white.opacity(0.12),
                         lineWidth: isNoteFieldFocused ? 2 : 1
                     )
             }

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import type { BridgeMermaidRenderer } from '../app/markdown/bridge-mermaid-renderer.js';
+import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
 import type { BridgeProductNavigationCommand } from '../core/comm-worker/bridge-product-session-contracts.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
@@ -11,6 +13,8 @@ export interface BridgeFileViewerAppProps {
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly controlTarget?: EventTarget;
 	readonly isActive?: boolean;
+	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
+	readonly mermaidRenderer?: BridgeMermaidRenderer;
 	readonly isNavigationCommandStillEligible?: (
 		command: Extract<
 			BridgeProductNavigationCommand,

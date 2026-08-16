@@ -74,9 +74,9 @@ package enum AppEntityIcon: Equatable {
     var foregroundStyle: Color {
         switch self {
         case .coloredRepo(let colorHex), .checkout(let colorHex, _):
-            return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+            return Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
         case .tabGroup:
-            return AppStyles.Shell.Sidebar.mutedPrimaryAccentColor
+            return AppStyles.Shell.Sidebar.tabGroupIconColor
         case .repo, .pane, .paneGroup, .tab, .workspace, .otherSources:
             return .secondary
         }

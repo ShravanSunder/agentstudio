@@ -17,7 +17,7 @@ package struct SidebarGroupRow: View {
     }
 
     package var body: some View {
-        HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
             AppEntityIcon.repo.swiftUIImage(
                 loader: octiconLoader,
                 size: AppStyles.Shell.Sidebar.groupIconSize

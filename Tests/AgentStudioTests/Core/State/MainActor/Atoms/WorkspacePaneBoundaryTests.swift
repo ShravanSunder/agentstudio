@@ -158,8 +158,8 @@ struct WorkspacePaneBoundaryTests {
         #expect(graphAtom.paneAcceptedCommitRevision == revisionBeforeReplacement)
     }
 
-    @Test("Pane graph state strips drawer expansion and display facets")
-    func paneGraphStateStripsCursorAndDisplayFields() throws {
+    @Test("Pane graph state preserves durable association and strips drawer expansion and display facets")
+    func paneGraphStatePreservesDurableAssociationAndStripsCursorAndDisplayFields() throws {
         let repoId = UUID()
         let worktreeId = UUID()
         let paneId = UUIDv7.generate()
@@ -203,8 +203,8 @@ struct WorkspacePaneBoundaryTests {
         )
 
         let state = try #require(graphAtom.paneState(pane.id))
-        #expect(state.metadata.facets.paneContextFacets.repoId == nil)
-        #expect(state.metadata.facets.paneContextFacets.worktreeId == nil)
+        #expect(state.metadata.facets.paneContextFacets.repoId == repoId)
+        #expect(state.metadata.facets.paneContextFacets.worktreeId == worktreeId)
         #expect(
             state.metadata.facets.cwd
                 == URL(filePath: "/tmp/agent-studio/Sources", directoryHint: .isDirectory)
@@ -216,6 +216,108 @@ struct WorkspacePaneBoundaryTests {
         #expect(state.metadata.facets.paneContextFacets.origin == nil)
         #expect(state.metadata.facets.paneContextFacets.upstream == nil)
         #expect(state.drawer?.paneIds.isEmpty == true)
+    }
+
+    @Test("Pane graph normalizes a partial durable association to unassociated")
+    func paneGraphNormalizesPartialDurableAssociationToUnassociated() throws {
+        let graphAtom = WorkspacePaneGraphAtom()
+
+        let pane = graphAtom.createPane(
+            launchDirectory: URL(filePath: "/tmp/partial-association", directoryHint: .isDirectory),
+            zmxSessionID: .generateUUIDv7(),
+            facets: PaneContextFacets(
+                repoId: UUIDv7.generate(),
+                cwd: URL(filePath: "/tmp/partial-association", directoryHint: .isDirectory)
+            )
+        )
+
+        let facets = try #require(graphAtom.paneState(pane.id)?.durableContextFacets)
+        #expect(facets.repoId == nil)
+        #expect(facets.worktreeId == nil)
+    }
+
+    @Test("Pane association revisions reject stale and equal completions without publication")
+    func paneAssociationRevisionsRejectStaleAndEqualCompletions() throws {
+        let graphAtom = WorkspacePaneGraphAtom()
+        let originalRepoID = UUIDv7.generate()
+        let originalWorktreeID = UUIDv7.generate()
+        let pane = graphAtom.createPane(
+            launchDirectory: URL(filePath: "/tmp/revision-original", directoryHint: .isDirectory),
+            zmxSessionID: .generateUUIDv7(),
+            facets: PaneContextFacets(
+                repoId: originalRepoID,
+                worktreeId: originalWorktreeID,
+                cwd: URL(filePath: "/tmp/revision-original", directoryHint: .isDirectory)
+            )
+        )
+        let staleRevision = try #require(graphAtom.reservePaneAssociationRevision(pane.id))
+        let currentRevision = try #require(graphAtom.reservePaneAssociationRevision(pane.id))
+        let currentRepoID = UUIDv7.generate()
+        let currentWorktreeID = UUIDv7.generate()
+        let currentCWD = URL(filePath: "/tmp/revision-current", directoryHint: .isDirectory)
+
+        #expect(
+            graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: currentCWD,
+                resolution: .matched(repoId: currentRepoID, worktreeId: currentWorktreeID),
+                revision: currentRevision
+            ) == .applied
+        )
+        let canonicalObservation = observe { _ = graphAtom.paneState(pane.id) }
+        let structuralObservation = observe { _ = graphAtom.paneStructuralFacts(pane.id) }
+
+        #expect(
+            graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: URL(filePath: "/tmp/revision-stale", directoryHint: .isDirectory),
+                resolution: .confidentNoMatch,
+                revision: staleRevision
+            ) == .staleRevision
+        )
+        #expect(
+            graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: currentCWD,
+                resolution: .matched(repoId: currentRepoID, worktreeId: currentWorktreeID),
+                revision: currentRevision
+            ) == .staleRevision
+        )
+
+        let facets = try #require(graphAtom.paneState(pane.id)?.durableContextFacets)
+        #expect(facets.repoId == currentRepoID)
+        #expect(facets.worktreeId == currentWorktreeID)
+        #expect(facets.cwd == currentCWD)
+        #expect(canonicalObservation.invalidationCount == 0)
+        #expect(structuralObservation.invalidationCount == 0)
+    }
+
+    @Test("Uncertain association resolution retains the known pair while accepting CWD")
+    func uncertainAssociationResolutionRetainsKnownPair() throws {
+        let graphAtom = WorkspacePaneGraphAtom()
+        let repoID = UUIDv7.generate()
+        let worktreeID = UUIDv7.generate()
+        let pane = graphAtom.createPane(
+            launchDirectory: URL(filePath: "/tmp/uncertain-original", directoryHint: .isDirectory),
+            zmxSessionID: .generateUUIDv7(),
+            facets: PaneContextFacets(repoId: repoID, worktreeId: worktreeID)
+        )
+        let revision = try #require(graphAtom.reservePaneAssociationRevision(pane.id))
+        let updatedCWD = URL(filePath: "/tmp/uncertain-updated", directoryHint: .isDirectory)
+
+        #expect(
+            graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: updatedCWD,
+                resolution: .uncertain,
+                revision: revision
+            ) == .deferredUncertain
+        )
+
+        let facets = try #require(graphAtom.paneState(pane.id)?.durableContextFacets)
+        #expect(facets.repoId == repoID)
+        #expect(facets.worktreeId == worktreeID)
+        #expect(facets.cwd == updatedCWD)
     }
 
     @Test("Pane graph projection preserves explicitly cleared live worktree facets")
@@ -460,7 +562,11 @@ struct WorkspacePaneBoundaryTests {
         )
         let graphAtom = WorkspacePaneGraphAtom()
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
-        let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
+        let paneAtom = WorkspacePaneAtom(
+            graphAtom: graphAtom,
+            drawerCursorAtom: drawerCursorAtom,
+            repositoryTopologyAtom: topologyAtom
+        )
         let derived = WorkspacePaneDerived(
             graphAtom: graphAtom,
             drawerCursorAtom: drawerCursorAtom,
@@ -521,7 +627,11 @@ struct WorkspacePaneBoundaryTests {
         )
         let graphAtom = WorkspacePaneGraphAtom()
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
-        let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
+        let paneAtom = WorkspacePaneAtom(
+            graphAtom: graphAtom,
+            drawerCursorAtom: drawerCursorAtom,
+            repositoryTopologyAtom: topologyAtom
+        )
         let derived = WorkspacePaneDerived(
             graphAtom: graphAtom,
             drawerCursorAtom: drawerCursorAtom,
@@ -575,7 +685,11 @@ struct WorkspacePaneBoundaryTests {
         )
         let graphAtom = WorkspacePaneGraphAtom()
         let drawerCursorAtom = WorkspaceDrawerCursorAtom()
-        let paneAtom = WorkspacePaneAtom(graphAtom: graphAtom, drawerCursorAtom: drawerCursorAtom)
+        let paneAtom = WorkspacePaneAtom(
+            graphAtom: graphAtom,
+            drawerCursorAtom: drawerCursorAtom,
+            repositoryTopologyAtom: topologyAtom
+        )
         let pane = paneAtom.createPane(
             launchDirectory: paneCWD,
             zmxSessionID: .generateUUIDv7(),
@@ -600,7 +714,8 @@ struct WorkspacePaneBoundaryTests {
                 )
             ]
         )
-        #expect(liveDerived.pane(pane.id)?.worktreeId == mainWorktree.id)
+        #expect(liveDerived.pane(pane.id)?.repoId == nil)
+        #expect(liveDerived.pane(pane.id)?.worktreeId == nil)
 
         let replacementWorktree = Worktree(
             id: replacementWorktreeId,
@@ -617,6 +732,15 @@ struct WorkspacePaneBoundaryTests {
             )
         ]
         try replaceTopology(topologyAtom, repositories: finalRepositories)
+        let adoptionRevision = try #require(graphAtom.reservePaneAssociationRevision(pane.id))
+        #expect(
+            graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: paneCWD,
+                resolution: .matched(repoId: repoId, worktreeId: replacementWorktreeId),
+                revision: adoptionRevision
+            ) == .applied
+        )
         let liveFacets = try #require(liveDerived.pane(pane.id)?.metadata.facets)
 
         let coldTopologyAtom = RepositoryTopologyAtom()
@@ -628,10 +752,11 @@ struct WorkspacePaneBoundaryTests {
         )
         let coldFacets = try #require(coldDerived.pane(pane.id)?.metadata.facets)
 
-        #expect(replacementWorktreeId != originalWorktreeId)
         #expect(liveFacets.worktreeId == replacementWorktreeId)
         #expect(coldFacets == liveFacets)
-        #expect(graphAtom.paneState(pane.id)?.durableContextFacets == PaneContextFacets(cwd: paneCWD))
+        expectDurablePaneAssociation(
+            graphAtom, pane.id, PaneContextFacets(repoId: repoId, worktreeId: replacementWorktreeId, cwd: paneCWD)
+        )
     }
 
     @Test("Pane count derives current worktree membership from CWD and topology")
@@ -721,4 +846,13 @@ struct WorkspacePaneBoundaryTests {
 private enum WorkspacePaneBoundaryTestError: Error {
     case paneGraphReplacementRejected
     case topologyReplacementRejected
+}
+
+@MainActor
+private func expectDurablePaneAssociation(
+    _ graphAtom: WorkspacePaneGraphAtom,
+    _ paneId: UUID,
+    _ expected: PaneContextFacets
+) {
+    #expect(graphAtom.paneState(paneId)?.durableContextFacets == expected)
 }

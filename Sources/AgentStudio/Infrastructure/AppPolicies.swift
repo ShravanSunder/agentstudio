@@ -43,6 +43,11 @@ package enum AppPolicies {
         /// derived/UI reads should never be able to saturate the exporter.
         package static let topologyLookupTraceAdmissionWindow: Duration = .seconds(1)
         package static let topologyLookupTraceAdmissionLimit: Int = 32
+        /// Pane association maintenance is an often lane because terminal CWD
+        /// facts can arrive repeatedly. Shed before the trace queue while
+        /// retaining enough outcome samples to diagnose association churn.
+        package static let paneAssociationTraceAdmissionWindow: Duration = .seconds(1)
+        package static let paneAssociationTraceAdmissionLimit: Int = 64
         /// Downstream swift-otel log batch queue. swift-otel drops newly
         /// emitted logs once this fills, so keep it above the app trace event
         /// queue and let the app-side queue remain the oldest-shedding layer.
@@ -138,7 +143,7 @@ package enum AppPolicies {
     }
 
     package enum GitRefresh {
-        package static let statusUnavailableConsecutiveTimeoutThreshold: Int = 2
+        package static let statusUnavailableConsecutiveFailureThreshold: Int = 2
         package static let defaultPolicy = Policy()
         package static let defaultStatusReadTimeout: Duration = .seconds(1)
         package static let defaultDiscoveryReadTimeout: Duration = .seconds(2)
@@ -147,6 +152,8 @@ package enum AppPolicies {
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
         package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
+        package static let registrationValidationMaximumAttempts: Int = 3
+        package static let registrationValidationRetryDelay: Duration = .milliseconds(250)
 
         package struct Policy: Equatable, Sendable {
             package let activePaneCadence: Duration

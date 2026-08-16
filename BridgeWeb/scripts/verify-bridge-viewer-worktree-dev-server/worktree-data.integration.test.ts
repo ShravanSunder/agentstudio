@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -15,11 +17,16 @@ import {
 
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
 const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
-const worktreeDataTestTimeoutMilliseconds = 15_000;
+const execFileAsync = promisify(execFile);
+
+// Vitest still needs a process-level deadlock guard around the real Swift/Vite boundary.
+// Every behavioral wait inside the test resolves from a protocol response, frame, or stream close.
+const worktreeDataDeadlockGuardMilliseconds = 60_000;
 
 describe('Bridge viewer typed product File worktree data', () => {
 	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
 	let bridgeDevelopmentServerDataRootPath: string | null = null;
+	let bridgeDevelopmentServerWorktreeRootPath: string | null = null;
 	let viteServer: ViteDevServer | null = null;
 	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 	const initialDevServerUrl = process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'];
@@ -28,9 +35,11 @@ describe('Bridge viewer typed product File worktree data', () => {
 		const ownedViteServer = viteServer;
 		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
 		const ownedBridgeDevelopmentServerDataRootPath = bridgeDevelopmentServerDataRootPath;
+		const ownedBridgeDevelopmentServerWorktreeRootPath = bridgeDevelopmentServerWorktreeRootPath;
 		viteServer = null;
 		bridgeDevelopmentServer = null;
 		bridgeDevelopmentServerDataRootPath = null;
+		bridgeDevelopmentServerWorktreeRootPath = null;
 		try {
 			await runAllOwnedCleanupOperations({
 				operations: [
@@ -44,6 +53,17 @@ describe('Bridge viewer typed product File worktree data', () => {
 						name: 'integration Swift development backend',
 						run: async (): Promise<void> => {
 							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+					{
+						name: 'integration Swift development backend worktree fixture',
+						run: async (): Promise<void> => {
+							if (ownedBridgeDevelopmentServerWorktreeRootPath !== null) {
+								await rm(ownedBridgeDevelopmentServerWorktreeRootPath, {
+									force: true,
+									recursive: true,
+								});
+							}
 						},
 					},
 					{
@@ -81,12 +101,45 @@ describe('Bridge viewer typed product File worktree data', () => {
 			bridgeDevelopmentServerDataRootPath = await mkdtemp(
 				join(tmpdir(), 'bridge-worktree-data-development-server-'),
 			);
+			bridgeDevelopmentServerWorktreeRootPath = await mkdtemp(
+				join(tmpdir(), 'bridge-worktree-data-fixture-'),
+			);
+			await writeFile(
+				join(bridgeDevelopmentServerWorktreeRootPath, 'README.md'),
+				'# Agent Studio\n\nDeterministic Bridge File integration fixture.\n',
+			);
+			await writeFile(
+				join(bridgeDevelopmentServerWorktreeRootPath, 'fixture.txt'),
+				'bounded fixture content\n',
+			);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'init',
+				'--initial-branch=main',
+			]);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'config',
+				'user.name',
+				'Bridge Worktree Data Integration',
+			]);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'config',
+				'user.email',
+				'bridge-worktree-data@example.invalid',
+			]);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, ['add', '--all']);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'-c',
+				'commit.gpgsign=false',
+				'commit',
+				'-m',
+				'fixture base',
+			]);
 			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
 				dataRootPath: bridgeDevelopmentServerDataRootPath,
 				initialTarget: 'HEAD',
 				paneId: randomUUID(),
 				repoRootPath,
-				worktreeRoot: repoRootPath,
+				worktreeRoot: bridgeDevelopmentServerWorktreeRootPath,
 			});
 			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = bridgeDevelopmentServer.origin;
 			let observedMetadataStreamCloseCount = 0;
@@ -153,6 +206,13 @@ describe('Bridge viewer typed product File worktree data', () => {
 			);
 			expect(content).toContain('Agent Studio');
 		},
-		worktreeDataTestTimeoutMilliseconds,
+		worktreeDataDeadlockGuardMilliseconds,
 	);
 });
+
+async function runFixtureGit(
+	worktreeRootPath: string,
+	arguments_: readonly string[],
+): Promise<void> {
+	await execFileAsync('git', ['-C', worktreeRootPath, ...arguments_]);
+}

@@ -21,7 +21,6 @@ import {
 import type { BridgeViewerSearchError } from '../../app/bridge-viewer-search-state.js';
 import { cn } from '../../app/class-name.js';
 import { useBridgeViewerSearchFocusRestoration } from '../../app/use-bridge-viewer-search-focus-restoration.js';
-import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../../core/comm-worker/bridge-worker-contracts.js';
 import { compileBridgeFileTreeSearchPattern } from '../../core/models/bridge-file-tree-search.js';
@@ -46,7 +45,6 @@ import {
 } from '../code-view/bridge-code-view-panel.js';
 import type { BridgeCodeViewRenderFulfillmentCoordinator } from '../code-view/bridge-code-view-render-fulfillment.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
-import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
 	BridgeReviewProjectionMode,
 	BridgeReviewProjectionResult,
@@ -80,8 +78,6 @@ export interface ReviewViewerShellProps {
 	readonly selectedCanvasLoadingReason?: BridgeReviewCanvasLoadingReason | null;
 	readonly lastSelectedDemandTelemetry?: ReviewContentDemandTelemetry | null;
 	readonly lastVisibleDemandTelemetry?: ReviewContentDemandTelemetry | null;
-	readonly selectedMarkdownPreviewHtml?: string | null;
-	readonly selectedMarkdownPreviewSourcePath?: string | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly projectionMode?: BridgeReviewProjectionMode;
@@ -118,7 +114,7 @@ export interface ReviewViewerShellProps {
 	readonly viewerHeaderControls?: ReactNode;
 }
 
-export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
+export type BridgeReviewCanvasLoadingReason = 'content';
 
 const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, string>();
 
@@ -188,12 +184,9 @@ export function renderReviewViewerShellPresentation(presentation: {
 		selectedCanvasLoadingReason: props.selectedCanvasLoadingReason ?? null,
 		selectedCodeViewItem: props.selectedCodeViewItem ?? null,
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
-		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
 	});
 	const canvasBranch = reviewCanvasBranchForShell({
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
-		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
-		selectedMarkdownPreviewSourcePath: props.selectedMarkdownPreviewSourcePath ?? null,
 	});
 	const selectedDemandTelemetry = props.lastSelectedDemandTelemetry ?? null;
 	const visibleDemandTelemetry = props.lastVisibleDemandTelemetry ?? null;
@@ -334,7 +327,7 @@ export function renderReviewViewerShellPresentation(presentation: {
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
 				// The loaded review shell keeps its resizable frame mounted across activation so the
-				// CodeView/markdown canvas and tree are never remounted when Review goes hidden.
+				// CodeView and tree are never remounted when Review goes hidden.
 				// Rail-frame gating stays on the lightweight fallback shells, not real content.
 				isActive={true}
 				content={
@@ -365,14 +358,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 						>
 							{!hasChangedFiles ? (
 								<BridgeReviewEmptyCanvas />
-							) : props.selectedMarkdownPreviewHtml !== undefined &&
-							  props.selectedMarkdownPreviewHtml !== null &&
-							  props.selectedMarkdownPreviewSourcePath !== undefined &&
-							  props.selectedMarkdownPreviewSourcePath !== null ? (
-								<BridgeMarkdownPreview
-									html={props.selectedMarkdownPreviewHtml}
-									sourcePath={props.selectedMarkdownPreviewSourcePath}
-								/>
 							) : props.selectedContentUnavailablePath !== undefined &&
 							  props.selectedContentUnavailablePath !== null ? (
 								<BridgeReviewContentUnavailableState
@@ -414,11 +399,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 										? {}
 										: { telemetryRecorder: props.telemetryRecorder })}
 								/>
-							)}
-							{props.selectedCanvasLoadingReason === undefined ||
-							props.selectedCanvasLoadingReason === null ||
-							props.selectedCanvasLoadingReason === 'content' ? null : (
-								<BridgeReviewCanvasLoadingState reason={props.selectedCanvasLoadingReason} />
 							)}
 						</section>
 					</section>
@@ -571,32 +551,6 @@ function hiddenVisiblePathTextForRegistry(registry: BridgeReviewItemRegistry): s
 	return text;
 }
 
-export function BridgeReviewCanvasLoadingState(props: {
-	readonly reason: BridgeReviewCanvasLoadingReason;
-}): ReactElement {
-	return (
-		<div
-			aria-hidden="true"
-			className="pointer-events-none absolute left-8 top-12 z-20 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[var(--bridge-floating-panel-shadow)] backdrop-blur"
-			data-bridge-review-canvas-loading-reason={props.reason}
-			data-testid="bridge-review-canvas-loading-state"
-		>
-			<Skeleton
-				className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]"
-				data-testid="bridge-review-canvas-loading-line"
-			/>
-			<Skeleton
-				className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]"
-				data-testid="bridge-review-canvas-loading-line"
-			/>
-			<Skeleton
-				className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]"
-				data-testid="bridge-review-canvas-loading-line"
-			/>
-		</div>
-	);
-}
-
 function bridgeReviewViewerHeaderTitle(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedDisplayPath: string | null;
@@ -647,12 +601,11 @@ function selectedContentStateForShell(props: {
 	readonly selectedCanvasLoadingReason: BridgeReviewCanvasLoadingReason | null;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentUnavailablePath: string | null;
-	readonly selectedMarkdownPreviewHtml: string | null;
 }): 'failed' | 'loading' | 'ready' | 'unavailable' {
 	if (props.selectedContentUnavailablePath !== null) {
 		return 'failed';
 	}
-	if (props.selectedMarkdownPreviewHtml !== null || props.selectedCodeViewItem !== null) {
+	if (props.selectedCodeViewItem !== null) {
 		return 'ready';
 	}
 	if (props.selectedCanvasLoadingReason === 'content') {
@@ -663,15 +616,7 @@ function selectedContentStateForShell(props: {
 
 function reviewCanvasBranchForShell(props: {
 	readonly selectedContentUnavailablePath: string | null;
-	readonly selectedMarkdownPreviewHtml: string | null;
-	readonly selectedMarkdownPreviewSourcePath: string | null;
-}): 'code' | 'markdown' | 'unavailable' {
-	if (
-		props.selectedMarkdownPreviewHtml !== null &&
-		props.selectedMarkdownPreviewSourcePath !== null
-	) {
-		return 'markdown';
-	}
+}): 'code' | 'unavailable' {
 	if (props.selectedContentUnavailablePath !== null) {
 		return 'unavailable';
 	}

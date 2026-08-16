@@ -19,7 +19,8 @@ package struct SectionSubheadingLabel: View {
                     .smallCaps()
             )
             .foregroundStyle(
-                Color.accentColor.opacity(AppStyles.Components.SectionSubheading.foregroundOpacity)
+                AppStyles.General.Accent.primaryColor.opacity(
+                    AppStyles.Components.SectionSubheading.foregroundOpacity)
             )
             .lineLimit(1)
             .truncationMode(.tail)

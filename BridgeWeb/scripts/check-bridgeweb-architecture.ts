@@ -518,7 +518,7 @@ function checkWorkerUsage(context: SourceContext, node: ts.Node): void {
 			ruleId: 'worker-boundary',
 			node,
 			message:
-				'Worker construction belongs under review-viewer/workers/projection, workers/pierre, workers/markdown, or workers/shared-rpc',
+				'Worker construction belongs under app/markdown/worker, review-viewer/workers/projection, workers/pierre, or workers/shared-rpc',
 		});
 	}
 
@@ -756,7 +756,7 @@ function isAllowedWorkerConstructionPath(relativePath: string): boolean {
 		isPathInside(relativePath, 'src/core/telemetry-worker/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/projection/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/pierre/') ||
-		isPathInside(relativePath, 'src/review-viewer/workers/markdown/') ||
+		isPathInside(relativePath, 'src/app/markdown/worker/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/shared-rpc/')
 	);
 }
@@ -779,7 +779,7 @@ function isMarkdownRenderImport(importSource: string): boolean {
 function isAllowedMarkdownRenderImportPath(relativePath: string): boolean {
 	return (
 		relativePath === 'src/review-viewer/workers/pierre/bridge-pierre-language-normalization.ts' ||
-		relativePath === 'src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.ts'
+		relativePath === 'src/app/markdown/worker/bridge-markdown-render-worker-renderer.ts'
 	);
 }
 

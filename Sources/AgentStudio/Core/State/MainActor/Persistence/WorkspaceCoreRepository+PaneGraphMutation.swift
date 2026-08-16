@@ -98,11 +98,12 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
             INSERT INTO pane(
                 id, workspace_id, content_type, execution_backend,
                 launch_directory, title, note,
-                cwd, checkout_ref, residency_kind, pending_undo_expires_at,
+                cwd, facet_repo_id, facet_worktree_id,
+                checkout_ref, residency_kind, pending_undo_expires_at,
                 orphan_reason_kind, orphan_worktree_path, kind, parent_pane_id,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 content_type = excluded.content_type,
                 execution_backend = excluded.execution_backend,
@@ -110,6 +111,8 @@ private func upsertPane(_ database: Database, workspaceId: UUID, pane: Workspace
                 title = excluded.title,
                 note = excluded.note,
                 cwd = excluded.cwd,
+                facet_repo_id = excluded.facet_repo_id,
+                facet_worktree_id = excluded.facet_worktree_id,
                 checkout_ref = excluded.checkout_ref,
                 residency_kind = excluded.residency_kind,
                 pending_undo_expires_at = excluded.pending_undo_expires_at,
@@ -251,6 +254,8 @@ private func paneStatementArguments(
         pane.metadata.title,
         pane.metadata.note,
         pane.metadata.durableFacets.cwd?.path,
+        pane.metadata.durableFacets.repoId?.uuidString,
+        pane.metadata.durableFacets.worktreeId?.uuidString,
         pane.metadata.checkoutRef,
         residency.kind,
         residency.pendingUndoExpiresAt,

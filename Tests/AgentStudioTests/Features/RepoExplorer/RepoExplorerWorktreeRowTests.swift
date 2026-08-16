@@ -359,7 +359,7 @@ struct RepoExplorerWorktreeRowTests {
         #expect(explorerViewSource.contains("leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
         #expect(explorerViewSource.contains("pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
-        #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.mutedPrimaryAccentColor"))
+        #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.tabGroupIconColor"))
     }
 
     @Test("pane and By Repo rows align all text and chips on one shared guide")
@@ -372,14 +372,19 @@ struct RepoExplorerWorktreeRowTests {
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
             encoding: .utf8
         )
+        let alignmentSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarTextColumnAlignment.swift",
+            encoding: .utf8
+        )
 
         for source in [paneRowSource, worktreeRowSource] {
             #expect(source.contains("VStack(alignment: .sidebarTextColumn"))
             #expect(source.contains(".sidebarIconLineTextColumnGuide()"))
             #expect(source.contains(".sidebarTextColumnGuide()"))
-            #expect(!source.contains("statusRowLeadingIndent"))
             #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         }
+        #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
+        #expect(!alignmentSource.contains("textColumnLeadingInset"))
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

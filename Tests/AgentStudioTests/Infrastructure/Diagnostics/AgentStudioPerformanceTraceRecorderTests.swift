@@ -5,6 +5,91 @@ import Testing
 
 @Suite
 struct AgentStudioPerformanceTraceRecorderTests {
+    @Test("pane association boot reconciliation records only aggregate counts")
+    func paneAssociationBootReconciliationRecordsScrubbedCounts() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "pane-association-boot",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 909,
+            timeUnixNano: { 117 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+
+        recorder.recordPaneAssociationBootReconciliation(
+            PaneAssociationBootReconciliationSummary(
+                paneCount: 5,
+                retainedKnownCount: 2,
+                backfilledCount: 1,
+                danglingClearedCount: 1,
+                freeNilCount: 1,
+                changedCount: 2
+            )
+        )
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"performance.pane.association_boot_reconciliation\""))
+        #expect(contents.contains("\"agentstudio.performance.pane.association_boot.pane.count\":5"))
+        #expect(contents.contains("\"agentstudio.performance.pane.association_boot.changed.count\":2"))
+        #expect(!contents.contains("pane_id"))
+        #expect(!contents.contains("worktree_id"))
+        #expect(!contents.contains("cwd_path"))
+    }
+
+    @Test("pane association outcomes are bounded and admitted at the often-lane policy")
+    func paneAssociationOutcomesAreControlledAndRateLimited() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "pane-association-outcomes",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 910,
+            timeUnixNano: { 118 }
+        )
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        let controlledOutcomes: [PaneAssociationOutcome] = [
+            .stampedKnown,
+            .resolvedChanged,
+            .resolvedEqual,
+            .clearedNoMatch,
+            .topologyRemoved,
+            .deferredUncertain,
+            .freeNil,
+        ]
+
+        for outcome in controlledOutcomes {
+            recorder.recordPaneAssociationOutcome(outcome)
+        }
+        for _ in controlledOutcomes.count..<AppPolicies.Diagnostics.paneAssociationTraceAdmissionLimit + 1 {
+            recorder.recordPaneAssociationOutcome(.resolvedEqual)
+        }
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        for outcome in controlledOutcomes {
+            #expect(
+                contents.contains(
+                    "\"agentstudio.performance.pane.association_outcome\":\"\(outcome.rawValue)\""
+                )
+            )
+        }
+        let emittedEventCount =
+            contents.components(
+                separatedBy: "\"body\":\"performance.pane.association\""
+            ).count - 1
+        #expect(emittedEventCount == AppPolicies.Diagnostics.paneAssociationTraceAdmissionLimit)
+    }
+
     @Test("focus responder changes record only the bounded reason")
     func focusResponderChangeRecordsBoundedReason() async throws {
         let traceDirectory = temporaryTraceDirectoryURL()

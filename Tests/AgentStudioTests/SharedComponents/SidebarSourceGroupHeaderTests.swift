@@ -42,7 +42,7 @@ struct SidebarSourceGroupHeaderTests {
         #expect(AppEntityIcon.paneGroup.foregroundStyle == Color.secondary)
         #expect(
             AppEntityIcon.tabGroup.foregroundStyle
-                == AppStyles.Shell.Sidebar.mutedPrimaryAccentColor
+                == AppStyles.Shell.Sidebar.tabGroupIconColor
         )
     }
 
@@ -83,7 +83,7 @@ struct SidebarSourceGroupHeaderTests {
 
         #expect(
             appStylesSource.contains(
-                "iconTextSpacing: CGFloat = AppStyles.General.Spacing.tight"
+                "groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight"
             )
         )
         for source in [
@@ -95,9 +95,7 @@ struct SidebarSourceGroupHeaderTests {
             paneRowSource,
             statusRowsSource,
         ] {
-            #expect(source.contains("AppStyles.Shell.Sidebar.iconTextSpacing"))
-            #expect(!source.contains("groupIconTitleSpacing"))
-            #expect(!source.contains("sectionHeaderChevronLabelSpacing"))
+            #expect(source.contains("AppStyles.Shell.Sidebar.groupIconTitleSpacing"))
         }
     }
 }

@@ -1,7 +1,21 @@
+// Native design-system source of truth. Keep its convention-based correlation with
+// BridgeWeb/src/app/bridge-app.css aligned through
+// docs/architecture/bridgeweb_design_token_architecture.md.
+
 import SwiftUI
 
 package enum AppStyles {
     package enum General {
+        package enum Accent {
+            // Exact-class token: must be sRGB and value-identical to BridgeWeb --primary.
+            // Owner-chosen product primary (2026-08-16): #409CFF.
+            // NSColor(hex:) constructs in Generic RGB and shifts the rendered color — do not use it here.
+            package static let primaryHex = "#409CFF"
+            package static let primaryNSColor = NSColor(
+                srgbRed: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0, alpha: 1.0)
+            package static let primaryColor = Color(.sRGB, red: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0)
+        }
+
         package enum Icon {
             package static let compact: CGFloat = 12
             package static let toolbar: CGFloat = 16
@@ -94,9 +108,10 @@ package enum AppStyles {
             package static let listRowLeadingInset: CGFloat = 2
             package static let groupIconSize: CGFloat = 14
             package static let groupIconColumnWidth: CGFloat = 18
-            package static let iconTextSpacing: CGFloat = AppStyles.General.Spacing.tight
+            package static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
             package static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            package static let sectionHeaderChevronLabelSpacing: CGFloat = groupIconTitleSpacing
             package static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
             package static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             package static let groupOrganizationMaxWidth: CGFloat = 120
@@ -110,7 +125,6 @@ package enum AppStyles {
             package static let countBadgeVerticalPadding: CGFloat = 2
             package static let countBadgeBackgroundOpacity: CGFloat = 0.15
             package static let notificationRowUnreadDotSize: CGFloat = 6
-            package static let activePaneMarkerSize: CGFloat = 6
             package static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
             package static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
             package static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm
@@ -184,14 +198,15 @@ package enum AppStyles {
                 + AppStyles.General.Typography.textBase
                 + AppStyles.General.Spacing.tight
 
-            package static let textColumnLeadingInset: CGFloat =
+            package static let statusRowLeadingIndent: CGFloat =
                 rowLeadingIconColumnWidth + AppStyles.General.Spacing.tight
 
             package static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
             package static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             package static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             package static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
-            package static let mutedPrimaryAccentColor = Color(red: 0.38, green: 0.57, blue: 0.78)
+            package static let tabGroupIconColor = AppStyles.General.Accent.primaryColor.opacity(
+                AppStyles.General.Foreground.muted)
             package static let accentPaletteHexes: [String] = [
                 "#F5C451",
                 "#58C4FF",
@@ -205,7 +220,7 @@ package enum AppStyles {
                     accentPaletteHexes.indices.contains(index)
                     ? accentPaletteHexes[index]
                     : accentPaletteHexes.first ?? ""
-                return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
+                return Color(nsColor: NSColor(hex: hex) ?? AppStyles.General.Accent.primaryNSColor)
             }
         }
 
@@ -454,8 +469,11 @@ package enum AppStyles {
         package static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
         package static let titleBodyGap: CGFloat = 8
 
-        package static let recentCardMinWidth: CGFloat = 260
-        package static let recentCardGap: CGFloat = 20
+        package static let recentListCornerRadius: CGFloat = 12
+        package static let recentRowMinHeight: CGFloat = 56
+        package static let recentRowSpacing: CGFloat = 0
+        package static let recentListSeparatorOpacity: CGFloat =
+            AppStyles.CommandBar.Panel.nestedDividerOpacity
 
         package static let previewWidth: CGFloat = 500
         package static let previewCornerRadius: CGFloat = 16
@@ -511,7 +529,7 @@ package enum AppStyles {
         package static let launcherContentMaxWidth: CGFloat = 900
         package static let launcherPageTopPadding: CGFloat = 72
         package static let launcherRowGap: CGFloat = 20
-        package static let launcherSectionGap: CGFloat = 28
+        package static let launcherSectionGap: CGFloat = 36
         package static let launcherShortcutsColumnsGap: CGFloat = 40
         package static let launcherDividerOpacity: CGFloat =
             AppStyles.CommandBar.Panel.nestedDividerOpacity

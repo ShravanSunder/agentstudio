@@ -101,6 +101,7 @@ struct WorkspaceCoreMigrationTests {
                 "013_globalize_repository_topology",
                 "014_drop_shows_minimized_panes",
                 "015_drop_pane_topology_facets",
+                "016_add_pane_association_facets",
             ]
         )
     }

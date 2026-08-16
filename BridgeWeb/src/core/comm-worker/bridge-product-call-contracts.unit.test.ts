@@ -163,16 +163,11 @@ describe('Bridge product call contracts', () => {
 		}
 	});
 
-	test('uses the bounded canonical descriptor for comparison-target query results', () => {
+	test('uses an authorization-only descriptor for comparison-target query results', () => {
 		const descriptor = {
-			capturedAtUnixMilliseconds: 2_000,
 			contentKind: 'review.comparisonTargets',
-			cutoffUnixMilliseconds: 1_000,
-			declaredByteLength: 7,
 			descriptorId: '00000000-0000-7000-8000-000000000017',
-			encoding: 'utf-8',
-			expectedSha256: 'a'.repeat(64),
-			maximumBytes: 7,
+			maximumBytes: BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES,
 		} as const;
 
 		expect(
@@ -180,14 +175,33 @@ describe('Bridge product call contracts', () => {
 		).toBe(true);
 		expect(
 			bridgeProductReviewComparisonTargetsQueryResultSchema.safeParse({
-				descriptor: { ...descriptor, maximumBytes: 8 },
+				descriptor: { ...descriptor, capturedAtUnixMilliseconds: 2_000 },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductReviewComparisonTargetsQueryResultSchema.safeParse({
+				descriptor: { ...descriptor, declaredByteLength: descriptor.maximumBytes },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductReviewComparisonTargetsQueryResultSchema.safeParse({
+				descriptor: { ...descriptor, cutoffUnixMilliseconds: 1_000 },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductReviewComparisonTargetsQueryResultSchema.safeParse({
+				descriptor: { ...descriptor, encoding: 'utf-8' },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeProductReviewComparisonTargetsQueryResultSchema.safeParse({
+				descriptor: { ...descriptor, expectedSha256: 'a'.repeat(64) },
 			}).success,
 		).toBe(false);
 		expect(
 			bridgeProductReviewComparisonTargetsQueryResultSchema.safeParse({
 				descriptor: {
 					...descriptor,
-					declaredByteLength: BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES + 1,
 					maximumBytes: BRIDGE_PRODUCT_MAXIMUM_REVIEW_COMPARISON_TARGET_BYTES + 1,
 				},
 			}).success,

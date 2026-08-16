@@ -14,7 +14,7 @@ extension HorizontalAlignment {
 extension View {
     package func sidebarIconLineTextColumnGuide() -> some View {
         alignmentGuide(.sidebarTextColumn) { dimensions in
-            dimensions[.leading] + AppStyles.Shell.Sidebar.textColumnLeadingInset
+            dimensions[.leading] + AppStyles.Shell.Sidebar.statusRowLeadingIndent
         }
     }
 

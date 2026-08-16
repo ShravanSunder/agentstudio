@@ -2,6 +2,13 @@
 
 Requirements: [BridgeWeb Swift Development Backend — Requirements](user-requirements.md)
 
+> **Status:** Substrate for the focused carrier and restart behavior. PR0
+> Review Comparison supersedes R4's worktree/base authority and the negative
+> no-persistence claim with exact persisted-pane authority in an isolated
+> production Core store. Vite/HMR, loopback HTTP, and no-full-app boot remain
+> current. See
+> [`../2026-08-06-worktree-annotations/pr0-specification.md`](../2026-08-06-worktree-annotations/pr0-specification.md).
+
 ## Observable Outcome
 
 BridgeWeb browser development continues to use Vite for frontend assets and
@@ -96,20 +103,33 @@ source.
 
 ### R5 — Backend restart has a simple recovery boundary
 
-The Debug Swift backend SHOULD be buildable and restartable without rebuilding
-or relaunching AgentStudio. If the initial bootstrap cannot reach the Swift
-backend, the development page MUST wait for the restarted backend's explicit
-health signal, reload exactly once, obtain a fresh product bootstrap, and
-render the selected worktree again. A bootstrap request rejected by a live
-Swift backend MUST remain an explicit failure and MUST NOT enter this reload
-path.
+The Vite development process MUST supervise the Debug Swift backend without
+rebuilding or relaunching AgentStudio. It MUST watch only the explicit source,
+manifest, and build-script dependency closure of the backend. After a relevant
+change, it MUST wait until no further relevant change has occurred for ten
+seconds before starting one serialized build.
 
-In-place session reconnection, zero-downtime handoff, continuous background
-watching, and a numeric restart-time guarantee are not required.
+The current backend MUST remain running while its replacement builds. A
+failed or timed-out build MUST leave it running. A successful build whose
+source generation became stale during compilation MUST NOT trigger a restart.
+A current successful build MUST gracefully terminate only the backend PID
+owned by the Vite process, observe its exit, launch the replacement with the
+same development data root, and require the explicit health response before
+declaring it ready. The build deadline MUST be 300 seconds.
+
+If the initial bootstrap cannot reach the Swift backend, the development page
+MUST wait for the restarted backend's explicit health signal, reload exactly
+once, obtain a fresh product bootstrap, and render the selected worktree again.
+A bootstrap request rejected by a live Swift backend MUST remain an explicit
+failure and MUST NOT enter this reload path. In-place session reconnection,
+zero-downtime handoff, and a numeric end-to-end restart guarantee are not
+required.
 
 - **Basis:** U3
-- **Success:** Stop backend, restart backend, observe one automatic page reload,
-  and complete File and Review journeys without launching AgentStudio.
+- **Success:** Make one relevant Swift edit, observe one debounced build and
+  graceful backend replacement, observe one automatic page reload, and
+  complete File and Review journeys without launching AgentStudio. A failed or
+  stale build leaves the prior backend serving.
 - **Failure:** Recovery requires the full application, reuses a capability
   issued by the retired backend process, or reloads after a live backend
   rejects bootstrap.
@@ -190,7 +210,7 @@ belong to Program Design.
 | --- | --- | --- | --- | --- | --- |
 | U1 | Vite is conflated with its duplicate backend | Preserve frontend loop | R1 | Vite assets and HMR remain | V1 |
 | U2 | Browser proves TypeScript rather than shipped behavior | One Swift product authority | R2, R3, R4, R6, R7 | Shared protocol with Swift-produced worktree results | V2, V3, V4, V6, V7 |
-| U3 | Full-app loop is too broad for focused Bridge work | Independent backend restart | R1, R5, R6 | Restart then one automatic page reload creates fresh authority | V1, V5, V6 |
+| U3 | Full-app loop is too broad for focused Bridge work | Vite-supervised backend rebuild and restart | R1, R5, R6 | Debounced build, graceful replacement, then one automatic page reload creates fresh authority | V1, V5, V6 |
 
 ## Proof Obligations
 
@@ -200,6 +220,6 @@ belong to Program Design.
 | V2 | Runtime evidence and source/data inspection | Live results pass through the packaged app's existing Swift product/session owners, with no parallel development implementation |
 | V3 | Automated behavior plus two runtime surfaces | One frontend protocol works in browser development and packaged WebKit |
 | V4 | Controlled-worktree browser behavior | File/Review data matches the selected worktree and base |
-| V5 | Process and browser runtime evidence | Backend restart triggers one page reload and succeeds independently |
+| V5 | Automated lifecycle tests plus process and browser runtime evidence | Relevant changes debounce; failed/stale builds preserve the backend; successful current builds gracefully replace it and trigger one page reload |
 | V6 | Failure-path browser behavior and state inspection | Absence is explicit and retired session data is not current |
 | V7 | Security/runtime and artifact inspection | Loopback Debug access succeeds; remote/release exposure does not exist |

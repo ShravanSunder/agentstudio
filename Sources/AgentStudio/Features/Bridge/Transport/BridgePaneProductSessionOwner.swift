@@ -279,7 +279,9 @@ package actor BridgePaneProductSessionOwner {
             let barrier = await retiringInstallation.session.revoke(
                 acknowledgeLifecycle: provider.acknowledgeLifecycle
             )
-            guard await barrier.wait() else {
+            let didRevoke = await barrier.wait()
+            await provider.invalidatePendingComparisonTargetReservation()
+            guard didRevoke else {
                 await schemeRouter.waitForDrain()
                 return .revocationFailed
             }
@@ -330,6 +332,7 @@ package actor BridgePaneProductSessionOwner {
     private func performRetirement() async -> BridgePaneProductSessionRetirementResult {
         let retiringInstallation = installationAwaitingRetirementRetry ?? activeInstallation
         activeInstallation = nil
+        await provider.invalidatePendingComparisonTargetReservation()
         await schemeRouter.clear()
         guard let retiringInstallation else {
             await schemeRouter.waitForDrain()
@@ -342,7 +345,9 @@ package actor BridgePaneProductSessionOwner {
         let barrier = await retiringInstallation.session.revoke(
             acknowledgeLifecycle: provider.acknowledgeLifecycle
         )
-        guard await barrier.wait() else {
+        let didRevoke = await barrier.wait()
+        await provider.invalidatePendingComparisonTargetReservation()
+        guard didRevoke else {
             await schemeRouter.waitForDrain()
             return .revocationFailed
         }

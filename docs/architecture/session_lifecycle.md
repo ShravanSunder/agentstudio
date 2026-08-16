@@ -32,10 +32,10 @@ daemon inventory never participate in session identity.
 3. Repository decode/write boundaries require the strong non-optional type and
    round-trip the existing SQLite text exactly. This cut adds no schema or data
    migration.
-4. Restore is read-only: strict decode, one composition apply, activation, then
-   attach with the exact stored ID.
-5. No repair, hydration, adoption, discovery, inference, backfill, fallback, or
-   identity mutation exists during restore or startup.
+4. Restore is read-only with respect to session identity: strict decode, one
+   composition apply, activation, then attach with the exact stored ID.
+5. No session-identity repair, hydration, adoption, discovery, inference,
+   backfill, fallback, or mutation exists during restore or startup.
 6. No migration rewrites an existing session identity.
 7. The zmx subprocess boundary accepts only the strong `ZmxSessionID` type,
    never caller-supplied raw text. This is a security boundary as well as a
@@ -67,7 +67,8 @@ Persist (core.sqlite)
     v   app relaunch
 Restore (WorkspaceStore.restore)
     -> strict SQLite decode of a complete valid composition
-    -> one composition apply; no normalization, repair, or persistence write
+    -> narrow pane-association soft-reference reconciliation against topology
+    -> one composition apply; no session-identity or layout repair
     |
     v
 WorkspaceSurfaceCoordinator.restoreAllViews()
@@ -90,12 +91,12 @@ SQLite strict decode
   - reject missing or empty identity; preserve existing text exactly
                   |
                   v
-one composition apply
+pane-association soft-reference reconciliation, then one composition apply
                   |
                   v
 terminal activation
   - zmx attach receives the exact stored ZmxSessionID
-  - no discovery, inference, adoption, fallback, backfill, or write
+  - no session-identity discovery, inference, adoption, fallback, backfill, or write
 ```
 
 ### Lookup Ownership Table
@@ -290,7 +291,9 @@ sequenceDiagram
     AD->>Store: restore()
     Store->>DB: strict decode of core/local SQLite composition
     DB-->>Store: complete immutable WorkspaceSQLiteSnapshot
+    Store->>Store: reconcile pane association soft references against decoded topology
     Store->>Store: apply composition once
+    Store-->>DB: best-effort persist only when association references changed
 
     AD->>Coord: activate accepted terminal composition
     loop each scheduled terminal pane
@@ -300,12 +303,19 @@ sequenceDiagram
     AD->>AD: Create MainWindowController
 ```
 
-Restore is a read-only DAG: strict SQLite decode, one composition apply,
-terminal activation, then exact-ID zmx attach. Missing or invalid required state
-is a decode/restore failure; startup does not normalize the graph, prune or
-invent references, repair cursors, infer session identities, or write a
-corrected snapshot. Repository/topology startup proceeds independently and
-never gates or mutates composition or session identity.
+Restore is read-only for session identity and layout: strict SQLite decode,
+one composition apply, terminal activation, then exact-ID zmx attach. After
+repository topology is independently decoded, `WorkspaceStore` performs one
+narrow pane-association housekeeping pass: a missing soft-reference pair may
+be backfilled from CWD, and a pair that does not resolve in the decoded topology
+is cleared unless its repository is known to be temporarily unavailable. If that
+pass changes a pair, the corrected snapshot is persisted best-effort;
+persistence failure is non-fatal to the already accepted in-memory composition.
+Missing or invalid required state remains a decode/restore failure.
+Startup does not otherwise normalize the graph, prune or invent layout
+references, repair cursors, infer session identities, or mutate a stored
+`ZmxSessionID`. Repository/topology startup never gates or mutates session
+identity.
 
 ---
 

@@ -13,7 +13,7 @@ package final class WebviewPaneMountView: NSView, PaneMountedContent {
     package let paneId: UUID
     package let controller: WebviewPaneController
     package let runtime: WebviewRuntime
-    private var hostingView: NSHostingView<WebviewPaneContentView>?
+    private var hostingView: NSHostingView<AnyView>?
 
     package init(paneId: UUID, state: WebviewState) {
         self.paneId = paneId
@@ -63,7 +63,8 @@ package final class WebviewPaneMountView: NSView, PaneMountedContent {
 
     private func setupHostingView() {
         let contentView = WebviewPaneContentView(controller: controller)
-        let hosting = NSHostingView(rootView: contentView)
+        let hosting = NSHostingView(
+            rootView: AnyView(contentView.tint(AppStyles.General.Accent.primaryColor)))
         hosting.frame = bounds
         hosting.autoresizingMask = [.width, .height]
         addSubview(hosting)

@@ -5,6 +5,113 @@ import Testing
 
 @Suite
 struct AgentStudioOTLPBridgeTelemetryProjectionTests {
+    @Test(arguments: [
+        ("agentstudio.bridge.phase", "authorization"),
+        ("agentstudio.bridge.phase", "reservation_claim"),
+        ("agentstudio.bridge.phase", "scheduled_capture"),
+        ("agentstudio.bridge.phase", "encode"),
+        ("agentstudio.bridge.phase", "terminal"),
+        ("agentstudio.bridge.result", "unavailable"),
+        ("agentstudio.bridge.result", "claimed"),
+        ("agentstudio.bridge.result", "inactive"),
+        ("agentstudio.bridge.result", "cancelled"),
+        ("agentstudio.bridge.result", "complete"),
+        ("agentstudio.bridge.result", "unsupported_content"),
+        ("agentstudio.bridge.result", "production_failed"),
+    ])
+    func projectionPreservesComparisonCatalogControlledVocabulary(
+        key: String,
+        value: String
+    ) {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 774,
+            severityText: .info,
+            body: "performance.bridge.swift.comparison_target_catalog",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [key: .string(value)]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes[key] == .string(value))
+    }
+
+    @Test
+    func projectionPreservesComparisonCatalogAggregatesWithoutRawIdentityOrContent() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 773,
+            severityText: .info,
+            body: "performance.bridge.swift.comparison_target_catalog",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("encode"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.review.comparison_targets.query_request.sequence": .int(7),
+                "agentstudio.bridge.review.comparison_targets.reservation_age_ms": .double(12.5),
+                "agentstudio.bridge.review.comparison_targets.input_row.count": .int(5),
+                "agentstudio.bridge.review.comparison_targets.output_row.count": .int(3),
+                "agentstudio.bridge.review.comparison_targets.is_truncated": .bool(true),
+                "agentstudio.bridge.review.comparison_targets.path": .string("/private/repo"),
+                "agentstudio.bridge.review.comparison_targets.ref": .string("private-branch"),
+                "agentstudio.bridge.review.comparison_targets.descriptor_id": .string("descriptor"),
+                "agentstudio.bridge.review.comparison_targets.pane_id": .string("pane"),
+                "agentstudio.bridge.review.comparison_targets.session_id": .string("session"),
+                "agentstudio.bridge.review.comparison_targets.worker_id": .string("worker"),
+                "agentstudio.bridge.review.comparison_targets.payload": .string("payload"),
+                "agentstudio.bridge.review.comparison_targets.digest": .string("digest"),
+                "agentstudio.bridge.review.comparison_targets.error": .string("error"),
+                "agentstudio.bridge.review.comparison_targets.message": .string("message"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("encode"))
+        #expect(projection.attributes["agentstudio.bridge.result"] == .string("success"))
+        #expect(
+            projection.attributes[
+                "agentstudio.bridge.review.comparison_targets.query_request.sequence"
+            ] == .int(7)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.bridge.review.comparison_targets.reservation_age_ms"
+            ] == .double(12.5)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.bridge.review.comparison_targets.input_row.count"
+            ] == .int(5)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.bridge.review.comparison_targets.output_row.count"
+            ] == .int(3)
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.bridge.review.comparison_targets.is_truncated"
+            ] == .bool(true)
+        )
+        let forbiddenKeyFragments = [
+            "path", "ref", "descriptor", "pane", "session", "worker", "payload", "digest",
+            "error", "message",
+        ]
+        #expect(
+            !projection.attributes.keys.contains { key in
+                forbiddenKeyFragments.contains { key.contains($0) }
+            }
+        )
+    }
+
     @Test
     func projectionPreservesNativePanePresentationOutcomeVocabulary() {
         let record = AgentStudioTraceRecord(

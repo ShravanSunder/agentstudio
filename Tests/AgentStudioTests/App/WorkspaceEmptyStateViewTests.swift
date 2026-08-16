@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceEmptyStateView")
@@ -51,6 +52,18 @@ struct WorkspaceEmptyStateViewTests {
     @Test("recent card limit stays at 6")
     func recentCardLimitStaysAt6() {
         #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit == 6)
+    }
+
+    @Test("recent projects use compact contiguous rows")
+    func recentProjectsUseCompactContiguousRows() {
+        #expect((54...60).contains(AppStyles.Welcome.recentRowMinHeight))
+        #expect(AppStyles.Welcome.recentRowSpacing == 0)
+        #expect(AppStyles.Welcome.recentListCornerRadius == 12)
+    }
+
+    @Test("recent projects and shortcuts have generous divider breathing room")
+    func recentProjectsAndShortcutsHaveGenerousDividerBreathingRoom() {
+        #expect(AppStyles.Welcome.launcherSectionGap >= 36)
     }
 
     // MARK: - Typography scale (semantic hierarchy)
@@ -211,6 +224,26 @@ struct WorkspaceEmptyStateViewTests {
         // range; over 200ms starts feeling laggy.
         #expect(AppStyles.Welcome.launcherPreviewScopeCrossfadeDuration <= 0.15)
         #expect(AppStyles.Welcome.launcherPreviewScopeCrossfadeDuration > 0)
+    }
+
+    @Test("launcher shortcut leading content prefers a keyboard shortcut")
+    func launcherShortcutLeadingContentPrefersKeyboardShortcut() {
+        let leadingContent = LauncherShortcutLeadingContent.preferred(
+            keyBindingDisplayString: "⌘P",
+            icon: .system(.folder)
+        )
+
+        #expect(leadingContent == .keyboardShortcut("⌘P"))
+    }
+
+    @Test("launcher shortcut leading content falls back to the command icon")
+    func launcherShortcutLeadingContentFallsBackToCommandIcon() {
+        let leadingContent = LauncherShortcutLeadingContent.preferred(
+            keyBindingDisplayString: nil,
+            icon: .system(.folder)
+        )
+
+        #expect(leadingContent == .commandIcon(.system(.folder)))
     }
 
     // MARK: - Folder-intake layout tokens (noFolders/scanning/scanEmpty share)

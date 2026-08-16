@@ -392,8 +392,8 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
             targetType: .pane
         )
 
-        #expect(harness.launchRecorder.revealedPaths == [drawerDirectory])
-        #expect(harness.launchRecorder.copiedPaths == [drawerDirectory])
+        #expect(harness.launchRecorder.revealedPaths.map(\.path) == [drawerDirectory.path])
+        #expect(harness.launchRecorder.copiedPaths.map(\.path) == [drawerDirectory.path])
         #expect(harness.atomRegistry.editorChooser.openForPaneId == drawerPane.id)
         #expect(harness.atomRegistry.editorChooser.availableTargets.map(\.id) == ["cursor", "vscode"])
     }
@@ -429,6 +429,64 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
         #expect(harness.launchRecorder.revealedPaths.isEmpty)
         #expect(harness.launchRecorder.copiedPaths.isEmpty)
         #expect(harness.atomRegistry.editorChooser.openForPaneId == nil)
+    }
+
+    @Test("targeted Open PR opens only the exact PR URL for that pane")
+    func openPullRequest_exactPane_opensExactURL() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let repo = harness.store.addRepo(at: harness.tempDir.appending(path: "repo"))
+        let worktree = try #require(
+            harness.store.repos.first(where: { $0.id == repo.id })?.worktrees.first
+        )
+        let pane = harness.store.createPane(
+            launchDirectory: worktree.path,
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                worktreeId: worktree.id,
+                cwd: worktree.path
+            )
+        )
+        harness.store.appendTab(Tab(paneId: pane.id))
+        harness.repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                branch: "feature/pr-command"
+            )
+        )
+        let branchKey = try #require(
+            RepoBranchKey(repoId: repo.id, branch: "feature/pr-command")
+        )
+        let exactURL = try #require(
+            URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")
+        )
+        harness.repoCache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(openCount: 1, exactOpenURL: exactURL)
+        ])
+
+        #expect(
+            harness.controller.canExecute(
+                .openPullRequest,
+                target: pane.id,
+                targetType: .pane
+            )
+        )
+
+        harness.controller.execute(
+            .openPullRequest,
+            target: pane.id,
+            targetType: .pane
+        )
+
+        #expect(harness.launchRecorder.openedExternalURLs == [exactURL])
+        #expect(
+            !harness.controller.canExecute(
+                .openPullRequest,
+                target: UUID(),
+                targetType: .pane
+            )
+        )
     }
 
     @Test("targeted Move Pane capability requires an owned source and nonempty alternate tab")

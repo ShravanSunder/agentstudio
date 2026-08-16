@@ -684,6 +684,15 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
+        case .openPullRequest:
+            return AppCommandSpec(
+                command: self,
+                label: "Open PR",
+                icon: .octicon(.gitPullRequest),
+                helpText: "Open PR in Browser",
+                surfacePolicy: .exposed([.toolbar(.pane), .toolbar(.terminalZoom)]),
+                targeting: .targeted([.pane])
+            )
         case .toggleManagementLayer:
             return windowDefinition(
                 shortcut: .toggleManagementLayer,

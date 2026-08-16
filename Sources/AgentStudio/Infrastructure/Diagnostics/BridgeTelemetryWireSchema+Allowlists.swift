@@ -1,5 +1,18 @@
 import Foundation
 
+enum BridgeComparisonTargetCatalogTelemetryKeys {
+    static let numericAttributeKeys: Set<String> = [
+        "agentstudio.bridge.review.comparison_targets.input_row.count",
+        "agentstudio.bridge.review.comparison_targets.output_row.count",
+        "agentstudio.bridge.review.comparison_targets.query_request.sequence",
+        "agentstudio.bridge.review.comparison_targets.reservation_age_ms",
+    ]
+
+    static let booleanAttributeKeys: Set<String> = [
+        "agentstudio.bridge.review.comparison_targets.is_truncated"
+    ]
+}
+
 extension BridgeTelemetryWireSchema {
     static let requiredStringAttributeKeys: Set<String> = [
         "agentstudio.bridge.phase",
@@ -278,10 +291,12 @@ extension BridgeTelemetryWireSchema {
             "active_viewer_mode_suppression_catch_up",
             "active_viewer_mode_signal_rejected",
             "apply",
+            "authorization",
             "content_register",
             "delta_build",
             "dispatch",
             "dropped",
+            "encode",
             "error",
             "file_open_ready",
             "fetch",
@@ -295,8 +310,11 @@ extension BridgeTelemetryWireSchema {
             "panel_chrome_applied",
             "panel_chrome_published",
             "render",
+            "reservation_claim",
+            "scheduled_capture",
             "send",
             "success",
+            "terminal",
             "transport",
             "worktree_product_construction",
             "content_queue",
@@ -430,18 +448,25 @@ extension BridgeTelemetryWireSchema {
         ],
         "agentstudio.bridge.result": [
             "added",
+            "cancelled",
+            "claimed",
+            "complete",
             "deferred",
             "dropped",
             "error",
             "failed",
             "failure",
             "fallback",
+            "inactive",
+            "production_failed",
             "queued",
             "skipped",
             "stale",
             "started",
             "success",
             "unchanged",
+            "unavailable",
+            "unsupported_content",
             "updated",
         ],
         "agentstudio.bridge.result_reason": [
@@ -637,6 +662,7 @@ extension BridgeTelemetryWireSchema {
             "markdown_render",
             "message_handler",
             "pool_init",
+            "product_control",
             "projection",
             "store_action",
         ],
@@ -656,6 +682,7 @@ extension BridgeTelemetryWireSchema {
             "activeViewerModeUpdate",
             "fileDisplayResync",
             "fileQueryUpdate",
+            "fileSourceDiscovery",
             "hover",
             "markFileViewed",
             "metadataInterestUpdate",
@@ -678,7 +705,7 @@ extension BridgeTelemetryWireSchema {
         ],
     ]
 
-    static let allowedNumericAttributeKeys: Set<String> = [
+    static let allowedNumericAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.active_viewer.signal_rejected.count",
         "agentstudio.bridge.content.byte_count",
@@ -781,9 +808,9 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_file_row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence",
-    ]
+    ]).union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
 
-    static let allowedBooleanAttributeKeys: Set<String> = [
+    static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.bridge.cache_hit",
         "agentstudio.bridge.content.binary",
         "agentstudio.bridge.content.stale",
@@ -799,5 +826,5 @@ extension BridgeTelemetryWireSchema {
         "agentstudio.bridge.stream_id_matches",
         "agentstudio.bridge.viewer.active",
         "agentstudio.bridge.worker.file_metadata_selected_path_resolved",
-    ]
+    ]).union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
 }

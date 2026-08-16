@@ -23,6 +23,7 @@ struct RepoExplorerOutlineApplyMeasurementTests {
             nowNanoseconds: { clockValues.removeFirst() },
             apply: { applyCount += 1 }
         )
+        let suppressed = RepoExplorerView.measureSuppressedOutlineApplyProxy(rowCount: 3)
 
         #expect(applyCount == 2)
         #expect(
@@ -35,5 +36,10 @@ struct RepoExplorerOutlineApplyMeasurementTests {
                 == RepoExplorerOutlineApplyMeasurement(
                     duration: .milliseconds(2), totalRowCount: 3, changedRowCount: 0, equalPublishCount: 1,
                     outcome: .equal))
+        #expect(
+            suppressed
+                == RepoExplorerOutlineApplyMeasurement(
+                    duration: .zero, totalRowCount: 3, changedRowCount: 0, equalPublishCount: 1,
+                    outcome: .suppressed))
     }
 }

@@ -540,23 +540,25 @@ final class WorkspaceCacheCoordinator {
         switch envelope.event {
         case .gitWorkingDirectory(let gitEvent):
             switch gitEvent {
-            case .statusOutcome(_, let repoId, let outcome, let consecutiveTimeoutCount):
-                switch outcome {
+            case .statusOutcome(let statusOutcome):
+                switch statusOutcome.outcome {
                 case .completed:
-                    if case .statusUnavailable = repoCache.repoEnrichment(for: repoId) {
-                        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repoId))
+                    if case .statusUnavailable = repoCache.repoEnrichment(for: statusOutcome.repoId) {
+                        repoCache.setRepoEnrichment(.awaitingOrigin(repoId: statusOutcome.repoId))
                     }
-                case .timeout:
-                    guard consecutiveTimeoutCount >= AppPolicies.GitRefresh.statusUnavailableConsecutiveTimeoutThreshold
+                case .timeout, .unavailable:
+                    guard let reason = statusOutcome.reason,
+                        statusOutcome.consecutiveFailureCount
+                            >= AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold
                     else { break }
-                    switch repoCache.repoEnrichment(for: repoId) {
+                    switch repoCache.repoEnrichment(for: statusOutcome.repoId) {
                     case .none, .some(.awaitingOrigin):
-                        repoCache.setRepoEnrichment(.statusUnavailable(repoId: repoId, reason: "timeout"))
+                        repoCache.setRepoEnrichment(
+                            .statusUnavailable(repoId: statusOutcome.repoId, reason: reason.rawValue)
+                        )
                     case .some(.statusUnavailable), .some(.resolvedLocal), .some(.resolvedRemote):
                         break
                     }
-                case .unavailable:
-                    break
                 }
             case .snapshotChanged(let snapshot):
                 let enrichment = WorktreeEnrichment(
@@ -699,6 +701,14 @@ final class WorkspaceCacheCoordinator {
     /// Called for user-initiated removal (not filesystem disappearance).
     func handleRepoRemoval(repoId: UUID) {
         guard let repo = workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId }) else { return }
+        let removalDelta = WorktreeTopologyDelta(
+            repoId: repo.id,
+            addedWorktreeIds: [],
+            removedWorktrees: repo.worktrees.map { RemovedWorktreeEntry(id: $0.id, path: $0.path) },
+            preservedWorktreeIds: [],
+            didChange: true,
+            traceId: nil
+        )
 
         // 1. Prune all worktree-level cache entries for this repo
         for worktree in repo.worktrees {
@@ -715,6 +725,7 @@ final class WorkspaceCacheCoordinator {
 
         // 4. Hard-delete from store (removes from repos array + persistence)
         workspaceStore.mutationCoordinator.removeRepo(repoId)
+        topologyEffectHandler?.topologyDidChange(removalDelta)
         refreshTraceIdentity()
     }
 

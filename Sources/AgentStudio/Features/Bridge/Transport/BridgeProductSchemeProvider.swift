@@ -27,6 +27,8 @@ protocol BridgeProductSchemeProvider: Sendable {
         _ acknowledgement: BridgeProductProducerLifecycleAcknowledgement
     ) async -> Bool
 
+    func invalidatePendingComparisonTargetReservation() async
+
     func applyCommittedControlEffect(
         _ effect: BridgeProductSessionCompletionEffect,
         for request: BridgeProductControlRequest,
@@ -35,6 +37,8 @@ protocol BridgeProductSchemeProvider: Sendable {
 }
 
 extension BridgeProductSchemeProvider {
+    func invalidatePendingComparisonTargetReservation() async {}
+
     nonisolated func makeContentProducerOperation(
         request: BridgeProductContentRequest,
         productAdmission: BridgeProductAdmissionContext,

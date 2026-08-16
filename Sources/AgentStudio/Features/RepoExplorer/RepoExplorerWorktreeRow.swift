@@ -133,7 +133,7 @@ struct RepoExplorerWorktreeRowContent: View {
 
     var body: some View {
         VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
+            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
@@ -174,7 +174,7 @@ struct RepoExplorerWorktreeRowContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .sidebarIconLineTextColumnGuide()
 
-            HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
+            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                 OcticonImage(
                     name: "octicon-git-branch",
                     size: AppStyles.Shell.Sidebar.branchIconSize,
@@ -195,7 +195,7 @@ struct RepoExplorerWorktreeRowContent: View {
             .sidebarIconLineTextColumnGuide()
 
             if !placementText.isEmpty {
-                HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
+                HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                     Image(systemName: "square.split.2x1")
                         .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
                         .foregroundStyle(.secondary)

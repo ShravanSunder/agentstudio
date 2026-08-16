@@ -513,23 +513,7 @@ extension BridgePaneController {
             } else {
                 BridgeUnavailablePaneProductFileMetadataSource()
             }
-        let reviewContentSource = BridgePaneProductReviewContentSource(
-            loaderCache: input.reviewContentLoaderCache,
-            acquireContentLease: { descriptor, productAdmission in
-                input.reviewPublicationCoordinator.acquireContentLease(
-                    handleId: descriptor.descriptorId,
-                    packageId: descriptor.packageId,
-                    requestedGeneration: BridgeReviewGeneration(
-                        descriptor.reviewGeneration
-                    ),
-                    sourceIdentity: descriptor.sourceIdentity,
-                    productAdmission: productAdmission
-                )
-            },
-            settleContentLease: { lease in
-                input.reviewPublicationCoordinator.settleContentLease(lease)
-            }
-        )
+        let reviewContentSource = makeReviewContentSource(input)
         let provider = BridgePaneProductSchemeProvider(
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
@@ -570,7 +554,16 @@ extension BridgePaneController {
                 )
             },
             applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
-            queryReviewComparisonTargets: makeReviewComparisonTargetsQuery(input),
+            authorizeReviewComparisonTargets: makeReviewComparisonTargetsAuthorization(input),
+            reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
+                reviewSourceProvider: input.reviewSourceProvider,
+                traceRecorder: input.telemetryRecorder.map { recorder in
+                    BridgeReviewComparisonTargetCatalogTraceRecorder(recorder: recorder)
+                }
+            ),
+            comparisonTargetCatalogTraceRecorder: input.telemetryRecorder.map { recorder in
+                BridgeReviewComparisonTargetCatalogTraceRecorder(recorder: recorder)
+            },
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
             lifecycleTraceRecorder: input.telemetryRecorder.map(
@@ -597,11 +590,32 @@ extension BridgePaneController {
         )
     }
 
-    private static func makeReviewComparisonTargetsQuery(
+    private static func makeReviewContentSource(
         _ input: BridgeProductSessionDependencyInput
-    ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture? {
-        BridgePaneProductComparisonTargetQuerySource.makeQuery(
-            reviewSourceProvider: input.reviewSourceProvider,
+    ) -> BridgePaneProductReviewContentSource {
+        BridgePaneProductReviewContentSource(
+            loaderCache: input.reviewContentLoaderCache,
+            acquireContentLease: { descriptor, productAdmission in
+                input.reviewPublicationCoordinator.acquireContentLease(
+                    handleId: descriptor.descriptorId,
+                    packageId: descriptor.packageId,
+                    requestedGeneration: BridgeReviewGeneration(
+                        descriptor.reviewGeneration
+                    ),
+                    sourceIdentity: descriptor.sourceIdentity,
+                    productAdmission: productAdmission
+                )
+            },
+            settleContentLease: { lease in
+                input.reviewPublicationCoordinator.settleContentLease(lease)
+            }
+        )
+    }
+
+    private static func makeReviewComparisonTargetsAuthorization(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsAuthorization? {
+        BridgePaneProductComparisonTargetQuerySource.makeAuthorization(
             targetProjection: input.reviewComparisonTargetProjection,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource
         )

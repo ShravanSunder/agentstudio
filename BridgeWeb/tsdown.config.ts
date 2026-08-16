@@ -43,7 +43,7 @@ export default defineConfig([
 		name: 'bridge-markdown-render-worker',
 		entry: {
 			'bridge-markdown-render-worker':
-				'./src/review-viewer/workers/markdown/bridge-markdown-render-worker-entry.ts',
+				'./src/app/markdown/worker/bridge-markdown-render-worker-entry.ts',
 		},
 		outputOptions: {
 			codeSplitting: false,

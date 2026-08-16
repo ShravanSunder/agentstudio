@@ -17,6 +17,14 @@ import {
 	BridgeCommWorkerPanePresentationAuthority,
 	type BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
+import {
+	bridgeCommWorkerProductControlFailureMessage,
+	callCurrentFileSourceWithTelemetry,
+	rejectUninstalledBridgeFileContentOpen,
+	rejectUninstalledBridgeProductControl,
+	rejectUninstalledReviewMetadataInterestUpdate,
+	sendBridgeCommWorkerActionWithTimeout,
+} from './bridge-comm-worker-product-control-runtime.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import {
 	bridgeWorkerComparisonTargetsContentOpen,
@@ -624,6 +632,14 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			publishDisplayPatches: publishReviewDisplayPatches,
 		});
 		const installedProductController = new BridgeCommWorkerProductController({
+			callCurrentFileSource: () =>
+				callCurrentFileSourceWithTelemetry({
+					productTransport,
+					...(props.now === undefined ? {} : { now: props.now }),
+					...(props.telemetryClient === undefined
+						? {}
+						: { telemetryClient: props.telemetryClient }),
+				}),
 			onFileMetadataDemandFailure: (): void => {
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
@@ -941,58 +957,4 @@ function scheduleDefaultBridgeRenderFulfillmentWake(
 ): () => void {
 	const timeoutId = globalThis.setTimeout(wake, delayMilliseconds);
 	return (): void => globalThis.clearTimeout(timeoutId);
-}
-
-async function rejectUninstalledBridgeProductControl(
-	command: BridgeProductControlCommand,
-): Promise<never> {
-	throw new Error(`Bridge product-control sender is not installed for ${command.method}.`);
-}
-
-async function rejectUninstalledReviewMetadataInterestUpdate(): Promise<never> {
-	throw new Error('Bridge Review metadata product subscription is not installed.');
-}
-
-function rejectUninstalledBridgeFileContentOpen(): never {
-	throw new Error('Bridge File content transport is not installed.');
-}
-
-function bridgeCommWorkerProductControlFailureMessage(props: {
-	readonly command: BridgeProductControlCommand;
-}): string {
-	return `Bridge comm worker failed to forward ${props.command.method}.`;
-}
-
-function sendBridgeCommWorkerActionWithTimeout(props: {
-	readonly send: () => Promise<unknown>;
-	readonly timeoutMilliseconds: number;
-}): Promise<unknown> {
-	return new Promise<unknown>((resolve, reject): void => {
-		let didSettle = false;
-		const timeoutId = globalThis.setTimeout((): void => {
-			if (didSettle) {
-				return;
-			}
-			didSettle = true;
-			reject(new Error('Bridge comm worker command action timed out.'));
-		}, props.timeoutMilliseconds);
-		void props.send().then(
-			(actionResult: unknown): void => {
-				if (didSettle) {
-					return;
-				}
-				didSettle = true;
-				globalThis.clearTimeout(timeoutId);
-				resolve(actionResult);
-			},
-			(error: unknown): void => {
-				if (didSettle) {
-					return;
-				}
-				didSettle = true;
-				globalThis.clearTimeout(timeoutId);
-				reject(error);
-			},
-		);
-	});
 }

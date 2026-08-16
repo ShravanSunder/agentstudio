@@ -685,6 +685,7 @@ function completedContentStream(
 			descriptorId: descriptor.descriptorId,
 			endOfSource: true,
 			kind: 'complete',
+			observedByteLength: new TextEncoder().encode(text).byteLength,
 			observedSha256: 'a'.repeat(64),
 		}),
 	};

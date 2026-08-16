@@ -127,6 +127,7 @@ struct DrawerEditorChooserFactoryTests {
             openEditorMenu: makeCommandAction(.openPaneLocationInEditorMenu),
             openFinder: makeCommandAction(.openPaneLocationInFinder),
             copyPath: makeCommandAction(.copyCurrentPanePath),
+            openPullRequest: makeCommandAction(.openPullRequest),
             showPaneInbox: nil
         )
     }

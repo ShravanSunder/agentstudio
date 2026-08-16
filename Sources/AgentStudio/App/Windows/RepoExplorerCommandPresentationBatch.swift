@@ -23,16 +23,19 @@ final class RepoExplorerCommandPresentationBatch {
         let isManagementLayerActive: Bool
         let locationsByWorktreeID: [UUID: [LocationCapabilityFacts]]
 
-        func matches(
-            _ previous: Self,
-            forWorktreeIDs worktreeIDs: Set<UUID>
-        ) -> Bool {
-            guard activeTabID == previous.activeTabID,
-                isManagementLayerActive == previous.isManagementLayerActive
-            else { return false }
-            return worktreeIDs.allSatisfy { worktreeID in
-                locationsByWorktreeID[worktreeID] == previous.locationsByWorktreeID[worktreeID]
-            }
+        func changedWorktreeIDs(
+            comparedTo previous: Self,
+            among worktreeIDs: Set<UUID>
+        ) -> Set<UUID> {
+            Set(
+                worktreeIDs.filter { worktreeID in
+                    locationsByWorktreeID[worktreeID] != previous.locationsByWorktreeID[worktreeID]
+                })
+        }
+
+        func globalCapabilitiesMatch(_ previous: Self) -> Bool {
+            activeTabID == previous.activeTabID
+                && isManagementLayerActive == previous.isManagementLayerActive
         }
     }
 
@@ -95,24 +98,40 @@ final class RepoExplorerCommandPresentationBatch {
         let requests = capture.2
         let visibleSetDelta = visibleWorktreeIDs.symmetricDifference(lastVisibleWorktreeIDs)
         let survivingVisibleWorktreeIDs = visibleWorktreeIDs.intersection(lastVisibleWorktreeIDs)
-        let capabilityFactsAreUnchanged =
-            lastCapabilityFactsFingerprint.map {
-                capabilityFactsFingerprint.matches($0, forWorktreeIDs: survivingVisibleWorktreeIDs)
+        let previousFingerprint = lastCapabilityFactsFingerprint
+        let globalCapabilitiesMatch =
+            previousFingerprint.map {
+                capabilityFactsFingerprint.globalCapabilitiesMatch($0)
             } ?? false
+        let changedWorktreeIDs =
+            previousFingerprint.map {
+                capabilityFactsFingerprint.changedWorktreeIDs(
+                    comparedTo: $0,
+                    among: survivingVisibleWorktreeIDs
+                )
+            } ?? survivingVisibleWorktreeIDs
         let retainedResults = snapshot.results.filter { requests.contains($0.key) }
         let requestsToResolve: Set<RepoExplorerCommandPresentationRequest>
-        if snapshot.generation == 0 || visibleSetDelta.isEmpty || !capabilityFactsAreUnchanged {
+        if snapshot.generation == 0 || !globalCapabilitiesMatch {
             requestsToResolve = requests
         } else {
-            requestsToResolve = requests.subtracting(lastRequests)
+            var affectedRequests = requests.subtracting(lastRequests)
+            affectedRequests.formUnion(
+                worktreeCommandPresentationRequests(worktreeIDs: changedWorktreeIDs)
+                    .intersection(requests)
+            )
+            requestsToResolve = affectedRequests
         }
-        let resolvedSnapshot = dispatcher.repoExplorerCommandPresentationSnapshot(
-            requests: requestsToResolve,
-            generation: nextGeneration
-        )
+        let resolvedResults =
+            requestsToResolve.isEmpty
+            ? [:]
+            : dispatcher.repoExplorerCommandPresentationSnapshot(
+                requests: requestsToResolve,
+                generation: nextGeneration
+            ).results
         let nextSnapshot = RepoExplorerCommandPresentationSnapshot(
             generation: nextGeneration,
-            results: retainedResults.merging(resolvedSnapshot.results) { _, resolved in resolved }
+            results: retainedResults.merging(resolvedResults) { _, resolved in resolved }
         )
         lastVisibleWorktreeIDs = visibleWorktreeIDs
         lastRequests = requests
@@ -208,6 +227,26 @@ final class RepoExplorerCommandPresentationBatch {
         )
 
         for worktreeID in visibleWorktreeIDs {
+            guard let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
+                let repo = store.repositoryTopologyAtom.repo(worktree.repoId)
+            else { continue }
+            requests.formUnion(
+                RepoExplorerWorktreeCommandPresentation.requests(
+                    worktreeId: worktree.id,
+                    repoId: repo.id,
+                    isFavorite: repo.isFavorite,
+                    showsFavoriteControl: worktree.isMainWorktree
+                )
+            )
+        }
+        return requests
+    }
+
+    private func worktreeCommandPresentationRequests(
+        worktreeIDs: Set<UUID>
+    ) -> Set<RepoExplorerCommandPresentationRequest> {
+        var requests: Set<RepoExplorerCommandPresentationRequest> = []
+        for worktreeID in worktreeIDs {
             guard let worktree = store.repositoryTopologyAtom.worktree(worktreeID),
                 let repo = store.repositoryTopologyAtom.repo(worktree.repoId)
             else { continue }

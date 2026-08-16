@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import Observation
 import os.log
@@ -7,7 +8,23 @@ private let workspacePaneLogger = Logger(subsystem: "com.agentstudio", category:
 package enum PaneCWDContextUpdateResult: Equatable {
     case applied
     case unchanged
+    case deferredUncertain
+    case staleRevision
     case paneMissing
+}
+
+package struct PaneAssociationRevision: Equatable, Sendable {
+    package let rawValue: UInt64
+
+    package init(rawValue: UInt64) {
+        self.rawValue = rawValue
+    }
+}
+
+package enum PaneAssociationResolution: Equatable, Sendable {
+    case matched(repoId: UUID, worktreeId: UUID)
+    case confidentNoMatch
+    case uncertain
 }
 
 @MainActor
@@ -17,6 +34,7 @@ package final class WorkspacePaneAtom {
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
     private let repositoryTopologyAtom: RepositoryTopologyAtom?
     private let repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom?
+    @ObservationIgnored private var associationOutcomeRecorder: ((PaneAssociationOutcome) -> Void)?
 
     package init(
         graphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
@@ -39,6 +57,12 @@ package final class WorkspacePaneAtom {
         )
     }
 
+    package func setAssociationOutcomeRecorder(
+        _ recorder: ((PaneAssociationOutcome) -> Void)?
+    ) {
+        associationOutcomeRecorder = recorder
+    }
+
     package func pane(_ id: UUID) -> Pane? {
         guard let pane = derived.pane(id) else {
             workspacePaneLogger.warning("pane(\(id)): not found in store")
@@ -56,7 +80,14 @@ package final class WorkspacePaneAtom {
     }
 
     package func addPane(_ pane: Pane) {
-        graphAtom.addPane(pane)
+        var admittedPane = pane
+        admittedPane.metadata.updateFacets(
+            admittedCreationFacets(
+                pane.metadata.facets,
+                fallbackCWD: pane.metadata.launchDirectory
+            )
+        )
+        graphAtom.addPane(admittedPane)
         drawerCursorAtom.prune(validDrawerIds: graphAtom.drawerIds)
     }
 
@@ -86,6 +117,7 @@ package final class WorkspacePaneAtom {
         residency: SessionResidency = .active,
         facets: PaneContextFacets = .empty
     ) -> Pane {
+        let admittedFacets = admittedCreationFacets(facets, fallbackCWD: launchDirectory)
         let state = graphAtom.createPane(
             launchDirectory: launchDirectory,
             title: title,
@@ -93,7 +125,7 @@ package final class WorkspacePaneAtom {
             lifetime: lifetime,
             zmxSessionID: zmxSessionID,
             residency: residency,
-            facets: facets
+            facets: admittedFacets
         )
         return pane(state.id)!
     }
@@ -104,7 +136,12 @@ package final class WorkspacePaneAtom {
         metadata: PaneMetadata,
         residency: SessionResidency = .active
     ) -> Pane? {
-        guard let state = graphAtom.createPane(content: content, metadata: metadata, residency: residency) else {
+        var admittedMetadata = metadata
+        admittedMetadata.updateFacets(
+            admittedCreationFacets(metadata.facets, fallbackCWD: metadata.launchDirectory)
+        )
+        guard let state = graphAtom.createPane(content: content, metadata: admittedMetadata, residency: residency)
+        else {
             return nil
         }
         return pane(state.id)
@@ -149,7 +186,19 @@ package final class WorkspacePaneAtom {
         cwd: URL?,
         resolvedContext: (repo: Repo, worktree: Worktree)?
     ) -> PaneCWDContextUpdateResult {
-        graphAtom.updatePaneCWDAndResolvedContext(paneId, cwd: cwd, resolvedContext: resolvedContext)
+        guard let revision = graphAtom.reservePaneAssociationRevision(paneId) else {
+            return .paneMissing
+        }
+        let resolution =
+            resolvedContext.map {
+                PaneAssociationResolution.matched(repoId: $0.repo.id, worktreeId: $0.worktree.id)
+            } ?? .confidentNoMatch
+        return graphAtom.applyPaneAssociationUpdate(
+            paneId,
+            cwd: cwd,
+            resolution: resolution,
+            revision: revision
+        )
     }
 
     package func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
@@ -230,7 +279,17 @@ package final class WorkspacePaneAtom {
         content: PaneContent,
         metadata: PaneMetadata
     ) -> Pane? {
-        guard let drawerPane = graphAtom.addDrawerPane(to: parentPaneId, content: content, metadata: metadata) else {
+        var admittedMetadata = metadata
+        admittedMetadata.updateFacets(
+            admittedCreationFacets(metadata.facets, fallbackCWD: metadata.launchDirectory)
+        )
+        guard
+            let drawerPane = graphAtom.addDrawerPane(
+                to: parentPaneId,
+                content: content,
+                metadata: admittedMetadata
+            )
+        else {
             return nil
         }
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
@@ -277,12 +336,16 @@ package final class WorkspacePaneAtom {
         content: PaneContent,
         metadata: PaneMetadata
     ) -> Pane? {
+        var admittedMetadata = metadata
+        admittedMetadata.updateFacets(
+            admittedCreationFacets(metadata.facets, fallbackCWD: metadata.launchDirectory)
+        )
         guard
             let drawerPane = graphAtom.insertDrawerPane(
                 in: parentPaneId,
                 at: targetDrawerPaneId,
                 content: content,
-                metadata: metadata
+                metadata: admittedMetadata
             )
         else { return nil }
         if let drawerId = graphAtom.paneState(parentPaneId)?.drawer?.drawerId {
@@ -364,14 +427,19 @@ package final class WorkspacePaneAtom {
     }
 
     private func inheritedDrawerMetadata(from parentPaneId: UUID, parentFallbackCWD: URL?) -> PaneMetadata? {
-        guard let parentPane = pane(parentPaneId) else { return nil }
+        guard
+            let parentPane = pane(parentPaneId),
+            let parentPaneState = graphAtom.paneState(parentPaneId)
+        else { return nil }
+
+        let durableFacets = parentPaneState.durableContextFacets
 
         let inheritedCWD =
-            parentPane.metadata.facets.cwd
+            durableFacets.cwd
             ?? parentPane.metadata.launchDirectory
             ?? parentFallbackCWD
 
-        let inheritedFacets = parentPane.metadata.facets.fillingNilFields(
+        let inheritedFacets = durableFacets.fillingNilFields(
             from: PaneContextFacets(cwd: inheritedCWD)
         )
 
@@ -380,6 +448,39 @@ package final class WorkspacePaneAtom {
             title: "Drawer",
             facets: inheritedFacets
         )
+    }
+
+    private func admittedCreationFacets(
+        _ proposedFacets: PaneContextFacets,
+        fallbackCWD: URL?
+    ) -> PaneContextFacets {
+        var admittedFacets = proposedFacets
+        let associationIsComplete = proposedFacets.repoId != nil && proposedFacets.worktreeId != nil
+        guard let repositoryTopologyAtom else {
+            if !associationIsComplete {
+                admittedFacets.repoId = nil
+                admittedFacets.worktreeId = nil
+            }
+            associationOutcomeRecorder?(associationIsComplete ? .stampedKnown : .freeNil)
+            return admittedFacets
+        }
+
+        if let repoId = proposedFacets.repoId,
+            let worktreeId = proposedFacets.worktreeId,
+            repositoryTopologyAtom.repo(repoId) != nil,
+            repositoryTopologyAtom.worktree(worktreeId)?.repoId == repoId
+        {
+            associationOutcomeRecorder?(.stampedKnown)
+            return admittedFacets
+        }
+
+        let resolvedContext = repositoryTopologyAtom.repoAndWorktree(
+            containing: proposedFacets.cwd ?? fallbackCWD
+        )
+        admittedFacets.repoId = resolvedContext?.repo.id
+        admittedFacets.worktreeId = resolvedContext?.worktree.id
+        associationOutcomeRecorder?(resolvedContext == nil ? .freeNil : .resolvedChanged)
+        return admittedFacets
     }
 
 }

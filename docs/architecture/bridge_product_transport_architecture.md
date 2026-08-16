@@ -87,6 +87,13 @@ finite accepted/data/end, reset, or error stream. Current content kinds include
 File and Review bodies. Other finite requested datasets use the same route by
 adding an application-specific content kind—not another physical transport.
 
+`content.accepted` establishes transport admission and the framed response
+identity for a registered content operation. It does not assert that every
+application-specific semantic check has succeeded. A request-scoped descriptor
+that becomes stale, replaced, or already claimed after registration therefore
+completes as `content.accepted` followed by terminal `content.error`; it does
+not produce application data.
+
 ```mermaid
 sequenceDiagram
     participant W as Comm worker
@@ -153,11 +160,19 @@ The Review comparison branch catalog follows the finite requested-dataset path.
 Opening the comparison picker issues the typed
 `review.comparisonTargets.query` product call, even when Commit is the
 remembered mode, so Branch choices are ready for an immediate mode switch.
-Native code captures the bounded catalog through `agentstudio-git` and returns
-a descriptor; the worker opens that descriptor through the product content
-route, validates and decodes the complete catalog, and publishes it to the
-picker. Newer requests supersede older ones, and foreground/session loss
-cancels the pending request.
+Native authorization returns a single-use request-scoped descriptor before
+catalog production. The worker opens that descriptor through the product
+content route; the registered producer task atomically consumes its reservation
+and only a successful claim invokes bounded `agentstudio-git` capture,
+encoding, and terminal integrity production. The worker validates and decodes
+the complete catalog and publishes it to the picker. Newer requests supersede
+older ones, and foreground/session loss cancels the pending request.
+
+The wire descriptor contains only content kind, descriptor identity, and the
+maximum response bytes. Existing command and `content.open` envelope fields
+carry pane, session, Review-surface, and worker authority. The provider-owned
+reservation records the issuing authority and matches it against those existing
+fields; the transport does not duplicate authority inside the descriptor.
 
 `pane.presentation` carries only the compact active target, attempt state,
 displayed snapshot identity, and repository-default identity needed before a

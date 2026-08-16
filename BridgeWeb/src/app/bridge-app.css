@@ -1,3 +1,11 @@
+/*
+ * BridgeWeb design-token source of truth. It is correlated by convention with
+ * Sources/AgentStudio/Infrastructure/AppStyles.swift; see
+ * docs/architecture/bridgeweb_design_token_architecture.md for the tri-system map.
+ * Layers flow primitives -> roles -> contexts. To add a token, add its canonical
+ * :root value, register a semantic role in @theme inline when utilities consume it,
+ * and place a one-line meaning comment beside the definition.
+ */
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
@@ -36,6 +44,12 @@
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+	--color-surface: var(--surface);
+	--color-surface-foreground: var(--surface-foreground);
+	--color-selection: var(--selection);
+	--color-success: var(--success);
+	--color-warning: var(--warning);
+	--color-faint-foreground: var(--faint-foreground);
 	--color-chart-1: var(--chart-1);
 	--color-chart-2: var(--chart-2);
 	--color-chart-3: var(--chart-3);
@@ -54,107 +68,241 @@
 :root {
 	color-scheme: dark;
 	--radius: 0.45rem;
-	--background: #101010;
-	--foreground: #cdd6f4;
-	--card: #1e1e2e;
-	--card-foreground: #cdd6f4;
+
+	/* @design-primitives:start */
+	/* Neutral ramp: darkest chrome through strongest selected surface. */
+	--palette-neutral-n0: #1d2026;
+	--palette-neutral-n1: #282c34;
+	--palette-neutral-n2: #30343d;
+	--palette-neutral-n3: #323641;
+	--palette-neutral-n4: #343842;
+	--palette-neutral-n5: #464b57;
+	/* Text tiers: primary through deliberately faint supporting text. */
+	--palette-text-primary: #ffffff;
+	--palette-text-secondary: #eaeaea;
+	--palette-text-muted: #c5c8c6;
+	--palette-text-faint: #9ba1ad;
+	/* Accent hues: product identity, status, syntax, and focus colors. */
+	--palette-primary-blue: #409cff;
+	--palette-blue: #89b4fa;
+	--palette-green: #a6e3a1;
+	--palette-yellow: #f9e2af;
+	--palette-red: #f38ba8;
+	--palette-mauve: #cba6f7;
+	--palette-peach: #fab387;
+	--palette-teal: #94e2d5;
+	--palette-lavender: #b4befe;
+	--palette-subtext: #bac2de;
+	/* Washes mirror AppStyles.General.Fill for new translucent surfaces. */
+	--palette-wash-subtle: rgb(255 255 255 / 0.04);
+	--palette-wash-muted: rgb(255 255 255 / 0.06);
+	--palette-wash-hover: rgb(255 255 255 / 0.08);
+	--palette-wash-pressed: rgb(255 255 255 / 0.1);
+	--palette-wash-active: rgb(255 255 255 / 0.12);
+	--palette-wash-selected: rgb(255 255 255 / 0.15);
+	/* Strokes mirror AppStyles.General.Stroke for separators and outlines. */
+	--palette-stroke-subtle: rgb(255 255 255 / 0.1);
+	--palette-stroke-muted: rgb(255 255 255 / 0.15);
+	--palette-stroke-hover: rgb(255 255 255 / 0.2);
+	--palette-stroke-visible: rgb(255 255 255 / 0.25);
+	/* ANSI palette: Pierre's fixed 16-color terminal contract. */
+	--palette-ansi-black: #1d1f21;
+	--palette-ansi-red: #cc6666;
+	--palette-ansi-green: #b5bd68;
+	--palette-ansi-yellow: #f0c674;
+	--palette-ansi-blue: #81a2be;
+	--palette-ansi-magenta: #b294bb;
+	--palette-ansi-cyan: #8abeb7;
+	--palette-ansi-white: #c5c8c6;
+	--palette-ansi-bright-black: #666666;
+	--palette-ansi-bright-red: #d54e53;
+	--palette-ansi-bright-green: #b9ca4a;
+	--palette-ansi-bright-yellow: #e7c547;
+	--palette-ansi-bright-blue: #7aa6da;
+	--palette-ansi-bright-magenta: #c397d8;
+	--palette-ansi-bright-cyan: #70c0b1;
+	--palette-ansi-bright-white: #eaeaea;
+	/* Black is the composition base for translucent shadows. */
+	--palette-black: #000000;
+	/* @design-primitives:end */
+
+	/* App and code canvas base. */
+	--background: var(--palette-neutral-n1);
+	/* Primary text. */
+	--foreground: var(--palette-text-primary);
+	/* Floating and raised panel surface. */
+	--card: var(--palette-neutral-n3);
+	/* Primary text on cards. */
+	--card-foreground: var(--palette-text-primary);
+	/* Floating popover surface. */
 	--popover: var(--card);
-	--popover-foreground: #cdd6f4;
-	--primary: #89b4fa;
-	--primary-foreground: #11111b;
-	--secondary: #313244;
-	--secondary-foreground: #cdd6f4;
-	--muted: #313244;
-	--muted-foreground: #bac2de;
-	--accent: #313244;
-	--accent-foreground: #cdd6f4;
-	--destructive: #f38ba8;
-	--border: rgb(205 214 244 / 0.1);
-	--input: rgb(205 214 244 / 0.18);
-	--ring: #b4befe;
-	--chart-1: #89b4fa;
-	--chart-2: #a6e3a1;
-	--chart-3: #f9e2af;
-	--chart-4: #cba6f7;
-	--chart-5: #f38ba8;
-	--sidebar: #181825;
-	--sidebar-foreground: #cdd6f4;
-	--sidebar-primary: #89b4fa;
-	--sidebar-primary-foreground: #11111b;
-	--sidebar-accent: #1e1e2e;
-	--sidebar-accent-foreground: #cdd6f4;
-	--sidebar-border: #45475a;
-	--sidebar-ring: #b4befe;
-	--bridge-app-bg: #101010;
-	--bridge-canvas-bg: #1e1e2e;
-	--bridge-header-bg: #181825;
-	--bridge-header-control-bg: #181825;
-	--bridge-header-control-active-bg: #313244;
-	--bridge-surface-bg: #181825;
-	--bridge-surface-raised-bg: #313244;
+	/* Primary text on popovers. */
+	--popover-foreground: var(--palette-text-primary);
+	/* Primary has exactly three tonal rungs: solid, 15% tint, and text. */
+	/* Brand accent for actions and active identity. */
+	--primary: var(--palette-primary-blue);
+	/* Dark text on #409cff; white reaches only about 2.8:1 contrast. */
+	--primary-foreground: var(--palette-ansi-black);
+	/* Filled secondary controls. */
+	--secondary: var(--palette-neutral-n4);
+	/* High-contrast text on secondary controls. */
+	--secondary-foreground: var(--palette-text-secondary);
+	/* De-emphasized fills. */
+	--muted: var(--palette-neutral-n4);
+	/* Secondary text. */
+	--muted-foreground: var(--palette-text-muted);
+	/* Hover and active wash on rows and controls. */
+	--accent: var(--palette-neutral-n4);
+	/* Primary text on accent fills. */
+	--accent-foreground: var(--palette-text-primary);
+	/* Errors, deletions, and destructive actions. */
+	--destructive: var(--palette-red);
+	/* Hairline separators. */
+	--border: var(--palette-stroke-subtle);
+	/* Control outlines. */
+	--input: var(--palette-stroke-hover);
+	/* Focus indication. */
+	--ring: var(--palette-lavender);
+	/* Floating chrome and rail surface. */
+	--surface: var(--palette-neutral-n0);
+	/* Primary text on surfaces. */
+	--surface-foreground: var(--palette-text-primary);
+	/* Selected rows and strong selection fills. */
+	--selection: var(--palette-neutral-n5);
+	/* Successful and added states. */
+	--success: var(--palette-green);
+	/* Warning and changed states. */
+	--warning: var(--palette-yellow);
+	/* Deliberately faint supporting text. */
+	--faint-foreground: var(--palette-text-faint);
+	/* Data-visualization hues follow the product accent set. */
+	--chart-1: var(--palette-blue);
+	--chart-2: var(--palette-green);
+	--chart-3: var(--palette-yellow);
+	--chart-4: var(--palette-mauve);
+	--chart-5: var(--palette-red);
+	/* File-tree and rail chrome. */
+	--sidebar: var(--palette-neutral-n0);
+	--sidebar-foreground: var(--palette-text-primary);
+	--sidebar-primary: var(--palette-blue);
+	--sidebar-primary-foreground: var(--palette-ansi-black);
+	--sidebar-accent: var(--palette-neutral-n2);
+	--sidebar-accent-foreground: var(--palette-text-primary);
+	--sidebar-border: var(--palette-neutral-n5);
+	--sidebar-ring: var(--palette-lavender);
+
+	/* Motion scale mirrors AppStyles.General.Animation. */
+	--motion-fast: 120ms;
+	--motion-standard: 200ms;
+	/* System shadows preserve the approved chrome elevations. */
+	--shadow-floating-panel: 0 18px 48px color-mix(in srgb, var(--palette-black) 45%, transparent);
+	--shadow-menu: 0 24px 68px color-mix(in srgb, var(--palette-black) 86%, transparent);
+	--shadow-divider: 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
+	--shadow-tree-sticky: 0 2px 4px -4px color-mix(in srgb, var(--palette-black) 90%, transparent);
+	--shadow-focus-dot: 0 0 0 1px var(--surface);
+	/* System focus and menu translucencies preserve their exact current alphas. */
+	--focus-ring: color-mix(in srgb, var(--ring) 30%, transparent);
+	--menu-border: color-mix(in srgb, var(--ring) 28%, transparent);
+	--menu-ring: color-mix(in srgb, var(--foreground) 16%, transparent);
+	/* System scrollbar dimensions and paints. */
+	--scrollbar-size: 6px;
+	--scrollbar-thumb: color-mix(in srgb, var(--foreground) 24%, transparent);
+	--scrollbar-thumb-hover: color-mix(in srgb, var(--foreground) 36%, transparent);
+	--scrollbar-track: transparent;
+
+	/* S1 compatibility aliases: definitions are one-line lookups and references burn down by S6. */
+	--bridge-app-bg: var(--background);
+	--bridge-canvas-bg: var(--background);
+	--bridge-header-bg: var(--surface);
+	--bridge-header-control-bg: var(--surface);
+	--bridge-header-control-active-bg: var(--accent);
+	--bridge-surface-bg: var(--surface);
+	--bridge-surface-raised-bg: var(--muted);
 	--bridge-menu-bg: var(--popover);
-	--bridge-surface-muted-bg: #313244;
+	--bridge-surface-muted-bg: var(--muted);
 	--bridge-border-subtle: var(--border);
 	--bridge-border-opaque: var(--input);
-	--bridge-text-primary: #cdd6f4;
-	--bridge-text-secondary: #bac2de;
-	--bridge-text-muted: #6c7086;
-	--bridge-accent: #89b4fa;
-	--bridge-accent-soft: rgb(137 180 250 / 0.16);
+	--bridge-text-primary: var(--foreground);
+	/* Warning: this maps to muted-foreground (#c5c8c6), NOT --palette-text-secondary (#eaeaea). */
+	--bridge-text-secondary: var(--muted-foreground);
+	--bridge-text-muted: var(--faint-foreground);
+	--bridge-accent: var(--primary);
+	--bridge-accent-soft: color-mix(in srgb, var(--primary) 15%, transparent);
 	--bridge-focus-border: var(--ring);
-	--bridge-focus-ring: rgb(180 190 254 / 0.3);
-	--bridge-focus-dot-shadow: 0 0 0 1px var(--bridge-surface-bg);
-	--bridge-menu-border: color-mix(in srgb, var(--bridge-focus-border) 28%, transparent);
-	--bridge-menu-ring: color-mix(in srgb, var(--bridge-text-primary) 16%, transparent);
-	--bridge-divider-shadow: 0 1px 0 rgb(205 214 244 / 0.06);
-	--bridge-floating-panel-shadow: 0 18px 48px rgb(0 0 0 / 0.45);
-	--bridge-menu-shadow: 0 24px 68px rgb(0 0 0 / 0.86);
-	--bridge-tree-sticky-shadow: 0 2px 4px -4px rgb(0 0 0 / 0.9);
-	--bridge-scrollbar-size: 6px;
-	--bridge-scrollbar-thumb: rgb(205 214 244 / 0.24);
-	--bridge-scrollbar-thumb-hover: rgb(205 214 244 / 0.36);
-	--bridge-scrollbar-track: transparent;
-	--bridge-motion-fast: 120ms;
-	--bridge-list-hover-bg: #313244;
-	--bridge-list-selected-bg: #45475a;
-	--bridge-added: #a6e3a1;
-	--bridge-deleted: #f38ba8;
-	--bridge-warning: #f9e2af;
-	--bridge-code-view-file-separator: var(--bridge-border-opaque);
-	--diffs-focus-border: var(--bridge-focus-border);
-	--diffs-focus-ring: var(--bridge-focus-ring);
-	--diffs-border-subtle: var(--bridge-border-subtle);
-	--diffs-border-opaque: var(--bridge-border-opaque);
-	--diffs-foreground: var(--bridge-text-primary);
-	--diffs-background: var(--bridge-canvas-bg);
-	--diffs-ansi-black: #11111b;
-	--diffs-ansi-red: var(--bridge-deleted);
-	--diffs-ansi-green: var(--bridge-added);
-	--diffs-ansi-yellow: var(--bridge-warning);
-	--diffs-ansi-blue: var(--bridge-accent);
-	--diffs-ansi-magenta: #cba6f7;
-	--diffs-ansi-cyan: #89dceb;
-	--diffs-ansi-white: var(--bridge-text-primary);
-	--diffs-ansi-bright-black: var(--bridge-text-muted);
-	--diffs-ansi-bright-red: #eba0ac;
-	--diffs-ansi-bright-green: #a6e3a1;
-	--diffs-ansi-bright-yellow: #f9e2af;
-	--diffs-ansi-bright-blue: #89b4fa;
-	--diffs-ansi-bright-magenta: #cba6f7;
-	--diffs-ansi-bright-cyan: #94e2d5;
-	--diffs-ansi-bright-white: #f5e0dc;
-	--diffs-token-link: #89b4fa;
-	--diffs-token-string: var(--bridge-added);
-	--diffs-token-comment: var(--bridge-text-muted);
-	--diffs-token-constant: #fab387;
-	--diffs-token-keyword: #cba6f7;
-	--diffs-token-parameter: #f9e2af;
-	--diffs-token-function: var(--bridge-accent);
-	--diffs-token-string-expression: #94e2d5;
-	--diffs-token-punctuation: #bac2de;
-	--diffs-token-inserted: var(--bridge-added);
-	--diffs-token-deleted: var(--bridge-deleted);
-	--diffs-token-changed: var(--bridge-warning);
+	--bridge-focus-ring: var(--focus-ring);
+	--bridge-focus-dot-shadow: var(--shadow-focus-dot);
+	--bridge-menu-border: var(--menu-border);
+	--bridge-menu-ring: var(--menu-ring);
+	--bridge-divider-shadow: var(--shadow-divider);
+	--bridge-floating-panel-shadow: var(--shadow-floating-panel);
+	--bridge-menu-shadow: var(--shadow-menu);
+	--bridge-tree-sticky-shadow: var(--shadow-tree-sticky);
+	--bridge-scrollbar-size: var(--scrollbar-size);
+	--bridge-scrollbar-thumb: var(--scrollbar-thumb);
+	--bridge-scrollbar-thumb-hover: var(--scrollbar-thumb-hover);
+	--bridge-scrollbar-track: var(--scrollbar-track);
+	--bridge-motion-fast: var(--motion-fast);
+	--bridge-list-hover-bg: var(--accent);
+	--bridge-list-selected-bg: var(--selection);
+	--bridge-added: var(--success);
+	--bridge-deleted: var(--destructive);
+	--bridge-warning: var(--warning);
+	--bridge-code-view-file-separator: var(--input);
+
+	/* Pierre contract: frozen names derive only from canonical roles and primitives. */
+	--diffs-focus-border: var(--ring);
+	--diffs-focus-ring: var(--focus-ring);
+	--diffs-border-subtle: var(--border);
+	--diffs-border-opaque: var(--input);
+	--diffs-foreground: var(--foreground);
+	--diffs-background: var(--background);
+	--diffs-ansi-black: var(--palette-ansi-black);
+	--diffs-ansi-red: var(--palette-ansi-red);
+	--diffs-ansi-green: var(--palette-ansi-green);
+	--diffs-ansi-yellow: var(--palette-ansi-yellow);
+	--diffs-ansi-blue: var(--palette-ansi-blue);
+	--diffs-ansi-magenta: var(--palette-ansi-magenta);
+	--diffs-ansi-cyan: var(--palette-ansi-cyan);
+	--diffs-ansi-white: var(--palette-ansi-white);
+	--diffs-ansi-bright-black: var(--palette-ansi-bright-black);
+	--diffs-ansi-bright-red: var(--palette-ansi-bright-red);
+	--diffs-ansi-bright-green: var(--palette-ansi-bright-green);
+	--diffs-ansi-bright-yellow: var(--palette-ansi-bright-yellow);
+	--diffs-ansi-bright-blue: var(--palette-ansi-bright-blue);
+	--diffs-ansi-bright-magenta: var(--palette-ansi-bright-magenta);
+	--diffs-ansi-bright-cyan: var(--palette-ansi-bright-cyan);
+	--diffs-ansi-bright-white: var(--palette-ansi-bright-white);
+	--diffs-token-link: var(--palette-blue);
+	--diffs-token-string: var(--palette-green);
+	--diffs-token-comment: var(--palette-text-faint);
+	--diffs-token-constant: var(--palette-peach);
+	--diffs-token-keyword: var(--palette-mauve);
+	--diffs-token-parameter: var(--palette-yellow);
+	--diffs-token-function: var(--palette-blue);
+	--diffs-token-string-expression: var(--palette-teal);
+	--diffs-token-punctuation: var(--palette-subtext);
+	--diffs-token-inserted: var(--palette-green);
+	--diffs-token-deleted: var(--palette-red);
+	--diffs-token-changed: var(--palette-yellow);
+
+	/* Inline-comment surface blended into the code canvas. */
+	--comment-surface: color-mix(in srgb, var(--muted) 42%, var(--background));
+	/* Primary comment text. */
+	--comment-foreground: var(--foreground);
+	/* Muted comment metadata and supporting text. */
+	--comment-muted: var(--faint-foreground);
+	/* Comment container outline. */
+	--comment-border: color-mix(in srgb, var(--input) 70%, transparent);
+	/* Dividers within a comment surface. */
+	--comment-divider: color-mix(in srgb, var(--border) 72%, transparent);
+	/* Hover feedback aligned with the code canvas. */
+	--comment-hover: color-mix(in srgb, var(--accent) 64%, transparent);
+	/* Comment-lane-owned active-range placeholder; S5 defines its final interaction use. */
+	--comment-active: var(--primary);
+	/* Composer inherits the comment surface. */
+	--comment-composer-bg: transparent;
+	/* Destructive comment feedback. */
+	--comment-destructive: var(--destructive);
 }
 
 @keyframes bridge-comparison-status-enter {
@@ -303,7 +451,7 @@ button:disabled,
 	grid-template-columns: minmax(0, 1fr) auto;
 	gap: 8px;
 	padding: 8px;
-	border-bottom: 1px solid var(--bridge-border-subtle);
+	border-bottom: 1px solid var(--border);
 	background: var(--bridge-header-bg);
 }
 
@@ -407,6 +555,95 @@ button:disabled,
 	padding: 8px 12px;
 	color: var(--bridge-text-secondary);
 	font-size: 12px;
+}
+
+.bridge-markdown-document :where(h1, h2, h3, h4, h5, h6) {
+	margin-block: 1.5em 0.55em;
+	font-weight: 650;
+	line-height: 1.25;
+}
+
+.bridge-markdown-document h1 {
+	padding-bottom: 0.35em;
+	border-bottom: 1px solid var(--bridge-border-subtle);
+	font-size: 2em;
+}
+
+.bridge-markdown-document h2 {
+	font-size: 1.55em;
+}
+
+.bridge-markdown-document h3 {
+	font-size: 1.25em;
+}
+
+.bridge-markdown-document :where(h4, h5, h6) {
+	font-size: 1em;
+}
+
+.bridge-markdown-document :where(p, ul, ol, blockquote, table, pre, hr) {
+	margin-block: 0.85em;
+}
+
+.bridge-markdown-document :where(ul, ol) {
+	padding-left: 1.75em;
+}
+
+.bridge-markdown-document ul {
+	list-style: disc;
+}
+
+.bridge-markdown-document ol {
+	list-style: decimal;
+}
+
+.bridge-markdown-document blockquote {
+	border-left: 3px solid var(--input);
+	padding-left: 1em;
+	color: var(--muted-foreground);
+}
+
+.bridge-markdown-document table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.bridge-markdown-document :where(th, td) {
+	border: 1px solid var(--border);
+	padding: 0.4em 0.65em;
+	text-align: left;
+}
+
+.bridge-markdown-document :where(code, pre) {
+	font-family: var(--font-mono);
+}
+
+.bridge-markdown-document :not(pre) > code {
+	border-radius: 4px;
+	padding: 0.12em 0.3em;
+	background: var(--surface);
+}
+
+.bridge-markdown-document pre {
+	max-width: 100%;
+	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 0.85em 1em;
+}
+
+.bridge-markdown-document .bridge-markdown-inert-link {
+	color: var(--primary);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, currentcolor 55%, transparent);
+	text-underline-offset: 2px;
+}
+
+.bridge-markdown-document .bridge-markdown-mermaid {
+	min-height: 6rem;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	padding: 1em;
 }
 
 @layer base {

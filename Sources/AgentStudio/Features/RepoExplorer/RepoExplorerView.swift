@@ -13,6 +13,7 @@ import SwiftUI
 enum RepoExplorerOutlineApplyOutcome: String, Equatable, Sendable {
     case equal
     case changed
+    case suppressed
 }
 
 struct RepoExplorerOutlineApplyMeasurement: Equatable, Sendable {
@@ -110,6 +111,16 @@ package struct RepoExplorerView: View {
         self.unreadCount = unreadCount
         self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
         self.performanceTraceRecorder = performanceTraceRecorder
+        _projectionAdapter = State(
+            initialValue: RepoExplorerProjectionAdapter(
+                onProjectionSuppressed: { result in
+                    Self.recordSuppressedOutlineApply(
+                        rowCount: result.rowIndex.entries.count,
+                        performanceTraceRecorder: performanceTraceRecorder
+                    )
+                }
+            )
+        )
         self.initialProjectionTrigger =
             AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
         self.initialProjectionSequence = initialProjectionSequence
@@ -135,7 +146,7 @@ package struct RepoExplorerView: View {
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
     @State private var debounceTask: Task<Void, Never>?
-    @State private var projectionAdapter = RepoExplorerProjectionAdapter()
+    @State private var projectionAdapter: RepoExplorerProjectionAdapter
     @State private var projectionGeneration = 0
     @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
@@ -661,6 +672,22 @@ package struct RepoExplorerView: View {
                             )
                         }
 
+                    case .unassociatedPaneRow(let destination):
+                        RepoExplorerUnassociatedPaneRow(
+                            label: destination.label(
+                                paneDisplayLabel: atom(\.paneDisplay).displayLabel(for: destination.paneId)
+                            ),
+                            onFocus: { focusPane(destination.paneId) }
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: 0,
+                                trailing: 0
+                            )
+                        )
+
                     case .topologyFault(let fault):
                         RepoExplorerTopologyFaultRow(fault: fault)
                             .listRowInsets(
@@ -711,7 +738,7 @@ package struct RepoExplorerView: View {
     }
 
     private func colorForCheckout(hex colorHex: String) -> Color {
-        Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+        Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
@@ -1044,6 +1071,26 @@ package struct RepoExplorerView: View {
     }
 
     private func recordOutlineApplyProxy(_ measurement: RepoExplorerOutlineApplyMeasurement) {
+        Self.recordOutlineApplyProxy(
+            measurement,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
+    private static func recordSuppressedOutlineApply(
+        rowCount: Int,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) {
+        recordOutlineApplyProxy(
+            measureSuppressedOutlineApplyProxy(rowCount: rowCount),
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
+    private static func recordOutlineApplyProxy(
+        _ measurement: RepoExplorerOutlineApplyMeasurement,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) {
         performanceTraceRecorder?.recordDuration(
             .repoExplorerOutlineApplyProxy,
             duration: measurement.duration,

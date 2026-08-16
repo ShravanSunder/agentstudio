@@ -316,26 +316,13 @@ extension WorkspaceSurfaceCoordinator {
             return nil
         }
 
-        if let cwd = sourcePane.metadata.cwd {
-            guard
-                let resolved = store.repositoryTopologyAtom.repoAndWorktree(
-                    containing: cwd
-                )
-            else {
-                return nil
-            }
-            return (sourcePane, resolved.repo, resolved.worktree)
-        }
-        if let worktreeId = sourcePane.worktreeId {
-            guard
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
-            else {
-                return nil
-            }
-            return (sourcePane, repo, worktree)
-        }
-        return nil
+        guard
+            let resolved = store.repositoryTopologyAtom.validatedAssociation(
+                repoId: sourcePane.repoId,
+                worktreeId: sourcePane.worktreeId
+            )
+        else { return nil }
+        return (sourcePane, resolved.repo, resolved.worktree)
     }
 
     func reconcileZoomCompanionAfterCWDChange(sourcePaneId: UUID) {

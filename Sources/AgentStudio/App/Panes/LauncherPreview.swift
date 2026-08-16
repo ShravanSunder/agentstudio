@@ -1,4 +1,5 @@
 import AgentStudioCommandBar
+import AgentStudioCore
 import AgentStudioInfrastructure
 import SwiftUI
 
@@ -338,13 +339,11 @@ struct CommandBarEmbeddedPreview: View {
     ]
 }
 
-// MARK: - PreviewBody — internal view composing real cmd-bar leaf views with mock data
+// MARK: - PreviewBody — internal view composing command-bar presentation with mock data
 
 private struct PreviewBody: View {
     let octiconLoader: OcticonLoader
     let scope: LauncherPreviewScope
-
-    @State private var previewState = CommandBarState()
 
     private var selectedItem: CommandBarItem? {
         CommandBarEmbeddedPreview.mockItems(for: scope).first
@@ -361,17 +360,7 @@ private struct PreviewBody: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            CommandBarSearchField(
-                state: previewState,
-                octiconLoader: octiconLoader,
-                onArrowUp: {},
-                onArrowDown: {},
-                onEnter: { _ in },
-                onShortcutTrigger: { _ in false },
-                onBackspaceOnEmpty: {},
-                onTabForward: {},
-                onShiftTabBack: {}
-            )
+            LauncherPreviewSearchRow(query: scope.query)
 
             Divider()
                 .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
@@ -390,13 +379,53 @@ private struct PreviewBody: View {
 
             CommandBarFooter(hints: footerHints)
         }
-        .onAppear { previewState.rawInput = scope.query }
+    }
+}
+
+/// Display-only counterpart to the command bar search field. The launcher
+/// preview teaches the command bar's appearance without constructing the
+/// focus-owning `NSTextField` used by the real command bar.
+private struct LauncherPreviewSearchRow: View {
+    let query: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                .foregroundStyle(.primary.opacity(0.35))
+                .frame(width: 16, height: 16)
+
+            Text(query)
+                .font(.system(size: 15))
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Preview search query: \(query)")
+    }
+}
+
+enum LauncherShortcutLeadingContent: Equatable {
+    case keyboardShortcut(String)
+    case commandIcon(CommandIcon)
+
+    static func preferred(
+        keyBindingDisplayString: String?,
+        icon: CommandIcon
+    ) -> Self {
+        guard let keyBindingDisplayString, !keyBindingDisplayString.isEmpty else {
+            return .commandIcon(icon)
+        }
+        return .keyboardShortcut(keyBindingDisplayString)
     }
 }
 
 struct LauncherShortcutRow: View {
-    let key: String?
-    let keyImage: String?
+    let leadingContent: LauncherShortcutLeadingContent
+    let octiconLoader: OcticonLoader
     let title: String
     let subtitle: String
     let isEnabled: Bool
@@ -410,14 +439,15 @@ struct LauncherShortcutRow: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: AppStyles.Welcome.launcherShortcutKeyTitleGap) {
                 Group {
-                    if let keyImage {
-                        Image(systemName: keyImage)
+                    switch leadingContent {
+                    case .keyboardShortcut(let keyboardShortcut):
+                        Text(keyboardShortcut)
                             .font(AppStyles.Welcome.Typography.key)
-                            .foregroundStyle(Color.accentColor)
-                    } else {
-                        Text(key ?? "")
+                            .foregroundStyle(AppStyles.General.Accent.primaryColor)
+                    case .commandIcon(let commandIcon):
+                        commandIcon.swiftUIImage(loader: octiconLoader)
                             .font(AppStyles.Welcome.Typography.key)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppStyles.General.Accent.primaryColor)
                     }
                 }
                 .frame(width: AppStyles.Welcome.launcherShortcutKeyColumnWidth, alignment: .leading)
@@ -450,7 +480,7 @@ struct LauncherShortcutRow: View {
         RoundedRectangle(cornerRadius: AppStyles.Welcome.launcherShortcutRowCornerRadius)
             .fill(
                 isHovered
-                    ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
+                    ? AppStyles.General.Accent.primaryColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
                     : Color.white.opacity(AppStyles.Welcome.cardFillOpacity)
             )
     }
@@ -500,7 +530,7 @@ struct LauncherScopesCallout: View {
             HStack(spacing: AppStyles.Welcome.scopesCalloutPillContentSpacing) {
                 Text(scope.prefixGlyph)
                     .font(AppStyles.Welcome.Typography.key)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppStyles.General.Accent.primaryColor)
                 Text(scope.label)
                     .font(AppStyles.Welcome.Typography.bodySm)
                     .foregroundStyle(
@@ -519,7 +549,9 @@ struct LauncherScopesCallout: View {
     private func pillBackground(for scope: LauncherPreviewScope) -> some View {
         if selectedScope == scope {
             RoundedRectangle(cornerRadius: AppStyles.Welcome.scopesCalloutPillCornerRadius)
-                .fill(Color.accentColor.opacity(AppStyles.Welcome.scopesCalloutPillSelectedFillOpacity))
+                .fill(
+                    AppStyles.General.Accent.primaryColor.opacity(
+                        AppStyles.Welcome.scopesCalloutPillSelectedFillOpacity))
         } else {
             Color.clear
         }

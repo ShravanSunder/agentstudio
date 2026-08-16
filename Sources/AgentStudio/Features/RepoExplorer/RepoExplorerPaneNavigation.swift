@@ -27,7 +27,7 @@ struct RepoExplorerPaneRow: View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
                 VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-                    HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
+                    HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                         Image(systemName: "square.split.2x1")
                             .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                             .frame(
@@ -93,6 +93,27 @@ struct RepoExplorerPaneRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .sidebarTextColumnGuide()
+    }
+}
+
+struct RepoExplorerUnassociatedPaneRow: View {
+    let label: String
+    let onFocus: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onFocus) {
+            SidebarRowShell(isHovering: isHovering) {
+                SidebarMetadataLine(
+                    iconSystemName: "square.split.2x1",
+                    text: label
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(label)
     }
 }
 

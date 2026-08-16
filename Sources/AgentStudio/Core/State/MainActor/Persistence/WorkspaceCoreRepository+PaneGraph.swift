@@ -67,9 +67,13 @@ extension WorkspaceCoreRepository {
     }
 
     struct DurableFacetsRecord: Equatable, Sendable {
+        var repoId: UUID?
+        var worktreeId: UUID?
         var cwd: URL?
 
-        init(cwd: URL? = nil) {
+        init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil) {
+            self.repoId = repoId
+            self.worktreeId = worktreeId
             self.cwd = cwd
         }
 
@@ -145,6 +149,14 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
     let note: String? = row["note"]
     let checkoutRef: String? = row["checkout_ref"]
     let cwdPath: String? = row["cwd"]
+    let facetRepoId = try decodeOptionalUUID(
+        row["facet_repo_id"],
+        malformedError: WorkspaceCoreRepositoryError.malformedRepoId
+    )
+    let facetWorktreeId = try decodeOptionalUUID(
+        row["facet_worktree_id"],
+        malformedError: WorkspaceCoreRepositoryError.malformedWorktreeId
+    )
     let metadata = WorkspaceCoreRepository.PaneMetadataRecord(
         launchDirectory: launchDirectoryPath.map {
             URL(filePath: $0, directoryHint: .isDirectory)
@@ -155,6 +167,8 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
         note: note,
         checkoutRef: checkoutRef,
         durableFacets: .init(
+            repoId: facetRepoId,
+            worktreeId: facetWorktreeId,
             cwd: cwdPath.map {
                 URL(filePath: $0, directoryHint: .isDirectory)
             }

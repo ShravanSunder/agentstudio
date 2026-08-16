@@ -189,6 +189,9 @@ extension AppDelegate {
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             },
+            paneAssociationBootReconciliationReporter: { [weak self] summary in
+                self?.performanceTraceRecorder.recordPaneAssociationBootReconciliation(summary)
+            },
             persistenceReasonReporter: { [weak self] reason in
                 Task { @MainActor [weak self] in
                     await self?.recordPaneTopologyPersistenceReason(reason)

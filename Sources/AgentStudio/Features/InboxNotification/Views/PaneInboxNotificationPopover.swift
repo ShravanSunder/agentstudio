@@ -230,7 +230,9 @@ package struct PaneInboxNotificationPopover: View {
                 Image(systemName: "dot.circle.viewfinder")
             }
             .buttonStyle(.borderless)
-            .foregroundStyle(contentMode == .rollUpAlerts ? Color.accentColor : Color.secondary)
+            .foregroundStyle(
+                contentMode == .rollUpAlerts ? AppStyles.General.Accent.primaryColor : Color.secondary
+            )
             .controlHelp(contentModeTooltip)
 
             Divider()

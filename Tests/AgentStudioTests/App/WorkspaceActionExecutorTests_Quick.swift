@@ -45,12 +45,14 @@ private func assertFileViewPane(
     _ pane: Pane,
     repo: Repo,
     worktree: Worktree,
+    store: WorkspaceStore,
     viewRegistry: ViewRegistry
 ) {
     #expect(pane.repoId == repo.id)
     #expect(pane.worktreeId == worktree.id)
     #expect(pane.metadata.cwd == worktree.path)
     #expect(pane.metadata.title == "Files")
+    assertDurablePaneAssociation(pane.id, repo: repo, worktree: worktree, store: store)
     let bridgeView = viewRegistry.view(for: pane.id)?.mountedContentViewForTesting as? BridgePaneMountView
     #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
     #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
@@ -76,6 +78,26 @@ private func assertFileViewPane(
     #expect(!script.contains(repo.id.uuidString))
     #expect(!script.contains(worktree.id.uuidString))
     #expect(!script.contains(StableKey.fromPath(worktree.path)))
+}
+
+@MainActor
+private func assertDurablePaneAssociation(
+    _ paneId: UUID,
+    repo: Repo,
+    worktree: Worktree,
+    store: WorkspaceStore
+) {
+    let facets = store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
+    #expect(facets?.repoId == repo.id)
+    #expect(facets?.worktreeId == worktree.id)
+    #expect(facets?.cwd?.standardizedFileURL == worktree.path.standardizedFileURL)
+}
+
+@MainActor
+private func assertDurablyUnassociatedPane(_ paneId: UUID, store: WorkspaceStore) {
+    let facets = store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
+    #expect(facets?.repoId == nil)
+    #expect(facets?.worktreeId == nil)
 }
 
 extension WebKitSerializedTests {
@@ -106,6 +128,7 @@ extension WebKitSerializedTests {
             #expect(pane?.repoId == nil)
             #expect(pane?.worktreeId == nil)
             #expect(pane?.metadata.cwd == nil)
+            assertDurablyUnassociatedPane(pane!.id, store: store)
         }
 
         @Test("openBridgeReviewInNewTab inherits active pane worktree context")
@@ -146,6 +169,7 @@ extension WebKitSerializedTests {
             #expect(pane?.repoId == repo.id)
             #expect(pane?.worktreeId == worktree.id)
             #expect(pane?.metadata.cwd == worktree.path)
+            assertDurablePaneAssociation(pane!.id, repo: repo, worktree: worktree, store: store)
             guard case .bridgePanel(let state) = pane?.content,
                 case .workspace(let rootPath, let comparisonIntent) = state.source
             else {
@@ -181,6 +205,7 @@ extension WebKitSerializedTests {
             #expect(pane?.repoId == repo.id)
             #expect(pane?.worktreeId == worktree.id)
             #expect(pane?.metadata.cwd == worktree.path)
+            assertDurablePaneAssociation(pane!.id, repo: repo, worktree: worktree, store: store)
             let bridgeView = viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting as? BridgePaneMountView
             #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
@@ -255,6 +280,7 @@ extension WebKitSerializedTests {
             #expect(pane?.repoId == repo.id)
             #expect(pane?.worktreeId == worktree.id)
             #expect(pane?.metadata.cwd == worktree.path)
+            assertDurablePaneAssociation(pane!.id, repo: repo, worktree: worktree, store: store)
             let bridgeView = viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting as? BridgePaneMountView
             #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
@@ -297,6 +323,7 @@ extension WebKitSerializedTests {
             #expect(pane?.worktreeId == worktree.id)
             #expect(pane?.metadata.cwd == worktree.path)
             #expect(pane?.metadata.title == "Files")
+            assertDurablePaneAssociation(pane!.id, repo: repo, worktree: worktree, store: store)
             let bridgeView = viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting as? BridgePaneMountView
             #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
             #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
@@ -344,6 +371,9 @@ extension WebKitSerializedTests {
             let tab = Tab(paneId: sourcePane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
+            _ = store.addRepo(
+                at: tempDir.appending(path: "distracting-repo", directoryHint: .isDirectory)
+            )
 
             let pane = try #require(executor.openBridgeFilesInNewTab())
 
@@ -353,6 +383,7 @@ extension WebKitSerializedTests {
                 pane,
                 repo: repo,
                 worktree: worktree,
+                store: store,
                 viewRegistry: viewRegistry
             )
         }
@@ -380,6 +411,7 @@ extension WebKitSerializedTests {
                 pane,
                 repo: repo,
                 worktree: worktree,
+                store: store,
                 viewRegistry: viewRegistry
             )
         }
@@ -470,6 +502,40 @@ extension WebKitSerializedTests {
             #expect(pane.repoId == repo.id)
             #expect(pane.worktreeId == worktree.id)
             #expect(pane.metadata.cwd == worktree.path)
+            assertDurablePaneAssociation(pane.id, repo: repo, worktree: worktree, store: store)
+        }
+
+        @Test("typed webview drawer insertion inherits the parent workspace association")
+        func typedWebviewDrawerInsertionPersistsAssociation() throws {
+            let harness = makeWorkspaceActionExecutorHarness()
+            let store = harness.store
+            let coordinator = harness.coordinator
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            let repo = store.addRepo(
+                at: harness.tempDir.appending(path: "repo", directoryHint: .isDirectory)
+            )
+            let worktree = try #require(
+                store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
+                "Expected main worktree"
+            )
+            let parentPane = store.createPane(
+                launchDirectory: worktree.path,
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            let paneIdsBefore = store.paneAtom.graphAtom.paneIDs
+
+            coordinator.executeAddWebviewDrawerPane(
+                parentPaneId: parentPane.id,
+                state: WebviewState(url: URL(string: "https://github.com/example/project")!)
+            )
+
+            let drawerPaneId = try #require(
+                store.paneAtom.graphAtom.paneIDs.subtracting(paneIdsBefore).first
+            )
+            #expect(store.pane(parentPane.id)?.drawer?.paneIds.contains(drawerPaneId) == true)
+            assertDurablePaneAssociation(drawerPaneId, repo: repo, worktree: worktree, store: store)
         }
 
         @Test("failed webview layout insertion tears down its mounted host and runtime")

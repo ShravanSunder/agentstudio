@@ -42,7 +42,7 @@ package struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     package var body: some View {
         Button(action: onToggle) {
             SidebarSectionHeaderRow(isCollapsed: isCollapsed) {
-                HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
+                HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                     headerIcon
                         .frame(
                             width: AppStyles.Shell.Sidebar.groupIconColumnWidth,

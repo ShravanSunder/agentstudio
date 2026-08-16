@@ -14,7 +14,7 @@ struct SidebarToolbarIcon<Icon: View>: View {
                 width: AppStyles.General.Button.compact,
                 height: AppStyles.General.Button.compact
             )
-            .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+            .foregroundStyle(isActive ? AppStyles.General.Accent.primaryColor : Color.secondary)
             .contentShape(Rectangle())
     }
 }
@@ -423,7 +423,7 @@ package struct SidebarToolbarGroupingButton<TooltipTarget: Hashable>: View {
                     .font(.system(size: AppStyles.Shell.Sidebar.ToolbarControl.groupingChevronSize, weight: .semibold))
                     .rotationEffect(.degrees(isOpen ? 180 : 0))
             }
-            .foregroundStyle(isOpen ? Color.accentColor : Color.secondary)
+            .foregroundStyle(isOpen ? AppStyles.General.Accent.primaryColor : Color.secondary)
             .padding(.horizontal, AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding)
             .frame(height: AppStyles.General.Button.compact)
             .contentShape(Rectangle())

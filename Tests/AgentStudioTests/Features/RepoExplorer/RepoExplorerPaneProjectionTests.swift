@@ -250,6 +250,86 @@ struct RepoExplorerPaneProjectionTests {
         )
     }
 
+    @Test("pane grouping keeps validated associations in worktree buckets and isolates unassociated panes")
+    func paneGroupingSeparatesAssociatedAndUnassociatedPanes() throws {
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId)
+        let associatedPaneId = UUIDv7.generate()
+        let nilAssociationPaneId = UUIDv7.generate()
+        let danglingAssociationPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [makeRepo(id: repoId, worktrees: [worktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .pane,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    worktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: associatedPaneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ]
+                ],
+                unassociatedPaneLocations: [
+                    WorkspacePaneLocation(
+                        paneId: nilAssociationPaneId,
+                        tabId: tabId,
+                        tabIndex: 0,
+                        paneIndexInTab: 1,
+                        isActiveInTab: false
+                    ),
+                    WorkspacePaneLocation(
+                        paneId: danglingAssociationPaneId,
+                        tabId: tabId,
+                        tabIndex: 0,
+                        paneIndexInTab: 2,
+                        isActiveInTab: false
+                    ),
+                ]
+            )
+        )
+
+        #expect(projection.paneDestinationsByWorktreeId[worktree.id]?.map(\.paneId) == [associatedPaneId])
+        #expect(projection.sections.map(\.kind) == [.panes, .ungrouped])
+        let ungroupedSection = try #require(projection.sections.last)
+        #expect(ungroupedSection.title == "Ungrouped")
+        #expect(
+            Set(ungroupedSection.unassociatedPaneDestinations.map(\.paneId))
+                == [nilAssociationPaneId, danglingAssociationPaneId]
+        )
+
+        let rowIndex = RepoExplorerRowIndex(
+            projection: projection,
+            collapsedGroupIds: [],
+            isFiltering: false
+        )
+        #expect(
+            Set(
+                rowIndex.entries.compactMap { entry -> UUID? in
+                    guard case .unassociatedPaneRow(let destination) = entry else { return nil }
+                    return destination.paneId
+                }) == [nilAssociationPaneId, danglingAssociationPaneId]
+        )
+    }
+
+    @Test("Ungrouped pane labels render without a worktree fallback")
+    func ungroupedPaneLabelOmitsWorktreeFallback() {
+        let destination = RepoExplorerUnassociatedPaneDestination(
+            paneId: UUIDv7.generate(),
+            tabId: UUIDv7.generate(),
+            tabIndex: 1,
+            paneIndexInTab: 2,
+            isActiveInTab: true
+        )
+
+        #expect(destination.label(paneDisplayLabel: "Terminal") == "Terminal — Tab 2, Pane 3 — Active")
+    }
+
     @Test("pane destinations sort by tab pane and stable pane identity")
     func paneDestinationsUseCanonicalLocationOrder() throws {
         let repoId = UUIDv7.generate()
@@ -339,6 +419,42 @@ struct RepoExplorerPaneProjectionTests {
             projection.paneDestinationsByRepoId[repoId]?.map(\.paneId)
                 == [matchingPaneId, hiddenPaneId]
         )
+    }
+
+    @Test("pane search filters Ungrouped rows by their projected location label")
+    func paneSearchFiltersUngroupedRows() throws {
+        let paneId = UUIDv7.generate()
+        let baseSnapshot = RepoExplorerSnapshot(
+            repos: [],
+            repoEnrichmentByRepoId: [:],
+            groupingMode: .pane,
+            query: "not-present",
+            unassociatedPaneLocations: [
+                WorkspacePaneLocation(
+                    paneId: paneId,
+                    tabId: UUIDv7.generate(),
+                    tabIndex: 0,
+                    paneIndexInTab: 1,
+                    isActiveInTab: true
+                )
+            ]
+        )
+
+        let noMatch = RepoExplorerProjection.project(baseSnapshot)
+        #expect(noMatch.sections.contains { $0.kind == .ungrouped } == false)
+        #expect(noMatch.emptyState == .searchNoResults)
+
+        let matching = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [],
+                repoEnrichmentByRepoId: [:],
+                groupingMode: .pane,
+                query: "pane 2",
+                unassociatedPaneLocations: baseSnapshot.unassociatedPaneLocations
+            )
+        )
+        let ungrouped = try #require(matching.sections.first { $0.kind == .ungrouped })
+        #expect(ungrouped.unassociatedPaneDestinations.map(\.paneId) == [paneId])
     }
 
     private func makeRepo(id: UUID, worktrees: [Worktree]) -> RepoPresentationItem {

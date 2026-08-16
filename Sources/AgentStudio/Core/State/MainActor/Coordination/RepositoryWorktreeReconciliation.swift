@@ -3,15 +3,36 @@ import Foundation
 package struct RemovedWorktreeEntry: Sendable, Equatable {
     package let id: UUID
     package let path: URL
+
+    package init(id: UUID, path: URL) {
+        self.id = id
+        self.path = path
+    }
 }
 
 package struct WorktreeTopologyDelta: Sendable, Equatable {
-    let repoId: UUID
-    let addedWorktreeIds: [UUID]
+    package let repoId: UUID
+    package let addedWorktreeIds: [UUID]
     package let removedWorktrees: [RemovedWorktreeEntry]
-    let preservedWorktreeIds: [UUID]
+    package let preservedWorktreeIds: [UUID]
     package let didChange: Bool
-    let traceId: UUID?
+    package let traceId: UUID?
+
+    package init(
+        repoId: UUID,
+        addedWorktreeIds: [UUID],
+        removedWorktrees: [RemovedWorktreeEntry],
+        preservedWorktreeIds: [UUID],
+        didChange: Bool,
+        traceId: UUID?
+    ) {
+        self.repoId = repoId
+        self.addedWorktreeIds = addedWorktreeIds
+        self.removedWorktrees = removedWorktrees
+        self.preservedWorktreeIds = preservedWorktreeIds
+        self.didChange = didChange
+        self.traceId = traceId
+    }
 }
 
 package struct RepositoryScannedMainWorktree: Equatable, Sendable {

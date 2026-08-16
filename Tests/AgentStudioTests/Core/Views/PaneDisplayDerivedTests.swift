@@ -71,6 +71,45 @@ struct PaneDisplayDerivedTests {
         }
     }
 
+    @Test("dangling stored association renders unassociated without CWD fallback")
+    func danglingStoredAssociationRendersUnassociatedWithoutCWDFallback() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let liveRepo = store.addRepo(at: URL(filePath: "/tmp/dangling-association-live"))
+            let liveWorktree = try #require(liveRepo.worktrees.single)
+            let pane = Pane(
+                id: PaneId.generateUUIDv7().uuid,
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                ),
+                metadata: PaneMetadata(
+                    launchDirectory: liveWorktree.path,
+                    title: "Dangling",
+                    facets: PaneContextFacets(
+                        repoId: UUIDv7.generate(),
+                        worktreeId: UUIDv7.generate(),
+                        cwd: liveWorktree.path
+                    )
+                )
+            )
+            #expect(store.paneAtom.insertRestoredPane(pane))
+
+            let renderedPane = try #require(store.pane(pane.id))
+
+            #expect(renderedPane.repoId == nil)
+            #expect(renderedPane.worktreeId == nil)
+            #expect(renderedPane.metadata.cwd?.standardizedFileURL.path == liveWorktree.path.path)
+        }
+    }
+
     @Test("pane note appears after location parts in collapsed label parts")
     func paneNoteAppearsAfterLocationPartsInCollapsedLabelParts() {
         withTestCoreAtoms { atoms in

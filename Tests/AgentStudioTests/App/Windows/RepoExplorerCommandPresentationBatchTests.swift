@@ -359,14 +359,77 @@ struct RepoExplorerCommandPresentationBatchTests {
                             path: "repo-command-batch-\(UUIDv7.generate().uuidString)"
                         )
                     )
-                    // A path-index rebuild is uncertain for any pane CWD, so recomputation is
-                    // required even when equality suppresses a visible presentation change.
-                    await eventually("path index capability recompute") {
-                        replacementHandler.repoExplorerCapabilityRequestBatches.count
-                            > capabilityBatchCountBeforeUnrelatedRepo
-                    }
+                    for _ in 0..<20 { await Task.yield() }
                     #expect(batch.snapshot.generation == activeTabGeneration)
                     #expect(batch.snapshot.results == presentationBeforeUnrelatedRepo)
+                    #expect(
+                        replacementHandler.repoExplorerCapabilityRequestBatches.count
+                            == capabilityBatchCountBeforeUnrelatedRepo
+                    )
+                }
+            }
+        )
+    }
+
+    @Test("association move resolves only affected visible worktree rows")
+    func associationMoveResolvesOnlyAffectedVisibleWorktreeRows() async throws {
+        let handler = RepoExplorerCommandPresentationRecordingHandler()
+
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                AppCommandDispatcher.shared.handler = handler
+                AppCommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                await withAsyncTestCoreAtoms { _ in
+                    let store = WorkspaceStore()
+                    let repos = (0..<3).map { index in
+                        store.addRepo(
+                            at: FileManager.default.temporaryDirectory.appending(
+                                path: "repo-command-association-\(index)-\(UUIDv7.generate().uuidString)"
+                            )
+                        )
+                    }
+                    let worktrees = repos.compactMap(\.worktrees.first)
+                    guard worktrees.count == 3 else {
+                        Issue.record("expected three worktrees")
+                        return
+                    }
+                    let pane = store.createPane(
+                        launchDirectory: worktrees[0].path,
+                        facets: PaneContextFacets(
+                            repoId: repos[0].id,
+                            worktreeId: worktrees[0].id,
+                            cwd: worktrees[0].path
+                        )
+                    )
+                    store.appendTab(Tab(paneId: pane.id))
+                    let visibleWorktrees = SidebarVisibleWorktreesRuntimeAtom()
+                    visibleWorktrees.setVisibleWorktreeIds(Set(worktrees.map(\.id)))
+                    let batch = RepoExplorerCommandPresentationBatch(
+                        store: store,
+                        repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                        visibleWorktrees: visibleWorktrees,
+                        dispatcher: .shared
+                    )
+                    batch.start()
+                    defer { batch.stop() }
+
+                    _ = await handler.batchArrivals.wait { _ in true }
+                    handler.repoExplorerCapabilityRequestBatches.removeAll()
+
+                    _ = store.paneAtom.updatePaneCWDAndResolvedContext(
+                        pane.id,
+                        cwd: worktrees[1].path,
+                        resolvedContext: (repos[1], worktrees[1])
+                    )
+
+                    let affectedRequests = await handler.batchArrivals.wait { requests in
+                        requests.contains { $0.target == worktrees[1].id }
+                    }
+                    #expect(affectedRequests.contains { $0.target == worktrees[0].id })
+                    #expect(affectedRequests.contains { $0.target == worktrees[1].id })
+                    #expect(!affectedRequests.contains { $0.target == worktrees[2].id })
                 }
             }
         )

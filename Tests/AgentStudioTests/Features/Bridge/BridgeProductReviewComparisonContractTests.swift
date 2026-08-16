@@ -340,7 +340,7 @@ struct BridgeProductReviewComparisonContractTests {
     @Test("comparison target query response is admitted by strict JSON vocabulary")
     func comparisonTargetQueryResponseUsesRegisteredCaptureKeys() throws {
         let responseJSON = Data(
-            #"{"call":{"method":"review.comparisonTargets.query","result":{"descriptor":{"capturedAtUnixMilliseconds":2000,"contentKind":"review.comparisonTargets","cutoffUnixMilliseconds":1000,"declaredByteLength":7,"descriptorId":"019FEEC5-A29D-7858-A3BD-AB969E228484","encoding":"utf-8","expectedSha256":"b4515e15c59bb425429f6a53644cb0c6b5696ceedfb5230e73ace9ee7cbae33e","maximumBytes":7}}},"kind":"call.completed","paneSessionId":"pane-session-1","requestId":"request-1","requestSequence":1,"wireVersion":2,"workerInstanceId":"worker-instance-1"}"#
+            #"{"call":{"method":"review.comparisonTargets.query","result":{"descriptor":{"contentKind":"review.comparisonTargets","descriptorId":"019FEEC5-A29D-7858-A3BD-AB969E228484","maximumBytes":1048576}}},"kind":"call.completed","paneSessionId":"pane-session-1","requestId":"request-1","requestSequence":1,"wireVersion":2,"workerInstanceId":"worker-instance-1"}"#
                 .utf8
         )
 
@@ -356,8 +356,38 @@ struct BridgeProductReviewComparisonContractTests {
         #expect(completed.call.method == "review.comparisonTargets.query")
     }
 
-    @Test("comparison target query creates a descriptor for a catalog below the byte ceiling")
-    func comparisonTargetQueryCreatesDescriptorBelowByteCeiling() async throws {
+    @Test("comparison target authorization rejects a zero byte maximum")
+    func comparisonTargetAuthorizationRejectsZeroByteMaximum() {
+        let responseJSON = Data(
+            #"{"call":{"method":"review.comparisonTargets.query","result":{"descriptor":{"contentKind":"review.comparisonTargets","descriptorId":"019FEEC5-A29D-7858-A3BD-AB969E228484","maximumBytes":0}}},"kind":"call.completed","paneSessionId":"pane-session-1","requestId":"request-1","requestSequence":1,"wireVersion":2,"workerInstanceId":"worker-instance-1"}"#
+                .utf8
+        )
+
+        #expect(throws: (any Error).self) {
+            _ = try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: responseJSON
+            )
+        }
+    }
+
+    @Test("comparison target authorization rejects a maximum above the product bound")
+    func comparisonTargetAuthorizationRejectsMaximumAboveProductBound() {
+        let responseJSON = Data(
+            #"{"call":{"method":"review.comparisonTargets.query","result":{"descriptor":{"contentKind":"review.comparisonTargets","descriptorId":"019FEEC5-A29D-7858-A3BD-AB969E228484","maximumBytes":1048577}}},"kind":"call.completed","paneSessionId":"pane-session-1","requestId":"request-1","requestSequence":1,"wireVersion":2,"workerInstanceId":"worker-instance-1"}"#
+                .utf8
+        )
+
+        #expect(throws: (any Error).self) {
+            _ = try BridgeProductStrictJSON.decode(
+                BridgeProductControlResponse.self,
+                from: responseJSON
+            )
+        }
+    }
+
+    @Test("comparison target producer creates a catalog below the byte ceiling")
+    func comparisonTargetProducerCreatesCatalogBelowByteCeiling() throws {
         // Arrange
         let capture = BridgeReviewComparisonTargetsCapture(
             capturedAtUnixMilliseconds: 2000,
@@ -374,17 +404,140 @@ struct BridgeProductReviewComparisonContractTests {
         )
 
         // Act
-        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
-        let result = BridgePaneProductComparisonTargetQuerySource.makeCapture(
+        let result = BridgeReviewComparisonTargetCatalogProducer.produceCatalog(
             capture,
-            maximumEncodedBytes: 1024 * 1024,
-            foregroundWorkAdmission: refreshWorkAdmission.admission
+            maximumEncodedBytes: 1024 * 1024
         )
 
         // Assert
-        let queryCapture = try #require(result)
-        #expect(queryCapture.descriptor.declaredByteLength == queryCapture.body.count)
-        #expect(queryCapture.descriptor.maximumBytes == queryCapture.body.count)
+        let producedCatalog = try #require(result)
+        #expect(producedCatalog.body.count < 1024 * 1024)
+    }
+
+    @Test("comparison target producer records capture and encode stage outcomes")
+    func comparisonTargetProducerRecordsCaptureAndEncodeStageOutcomes() async throws {
+        let capture = BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
+            defaultTarget: nil,
+            currentTarget: nil,
+            branches: [
+                .local(
+                    branchName: "stack/base",
+                    oid: "af70f11324247e802366a8f6ab1f4ea0ec5ae55f"
+                )
+            ]
+        )
+        let sourceProvider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [:],
+            comparisonTargetsCapture: capture
+        )
+        let traceProbe = ComparisonTargetCatalogTraceProbe()
+        let producer = BridgeReviewComparisonTargetCatalogProducer(
+            reviewSourceProvider: sourceProvider,
+            traceRecorder: traceProbe
+        )
+        let descriptor = try BridgeProductReviewComparisonTargetsContentDescriptor(
+            descriptorId: "019FEEC5-A29D-7858-A3BD-AB969E228484",
+            maximumBytes: 1024 * 1024
+        )
+        let request = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: reviewComparisonTargetsQueryBody()
+        )
+        let reservation = try #require(
+            BridgeProductReviewComparisonTargetsReservation(
+                authorization: BridgeProductReviewComparisonTargetsAuthorization(
+                    descriptor: descriptor,
+                    currentTarget: nil
+                ),
+                issuing: request
+            )
+        )
+
+        let producedCatalog = try await producer.produceComparisonTargetCatalog(
+            for: reservation
+        )
+
+        await traceProbe.waitForEventCount(2)
+        let events = await traceProbe.events
+        let captureEvent = events.first { $0.stage == .scheduledCapture }
+        let encodeEvent = events.first { $0.stage == .encode }
+        #expect(captureEvent?.outcome == .success)
+        #expect(encodeEvent?.outcome == .success)
+        #expect(events.compactMap(\.queryRequestSequence).allSatisfy { $0 == 2 })
+        #expect(captureEvent?.durationMilliseconds != nil)
+        #expect(encodeEvent?.durationMilliseconds != nil)
+        #expect(encodeEvent?.inputRowCount == 1)
+        #expect(encodeEvent?.outputRowCount == 1)
+        #expect(encodeEvent?.observedByteCount == producedCatalog.body.count)
+        #expect(encodeEvent?.isTruncated == false)
+    }
+
+    @Test("comparison target producer observes cancellation after scheduled capture returns")
+    func comparisonTargetProducerObservesCancellationAfterCaptureReturns() async throws {
+        let capture = BridgeReviewComparisonTargetsCapture(
+            capturedAtUnixMilliseconds: 2000,
+            cutoffUnixMilliseconds: 1000,
+            isTruncated: false,
+            defaultTarget: nil,
+            currentTarget: nil,
+            branches: []
+        )
+        let captureGate = BridgeComparisonGate()
+        let sourceProvider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [:],
+            comparisonTargetsCapture: capture,
+            comparisonTargetsCaptureGate: captureGate
+        )
+        let traceProbe = ComparisonTargetCatalogTraceProbe()
+        let producer = BridgeReviewComparisonTargetCatalogProducer(
+            reviewSourceProvider: sourceProvider,
+            traceRecorder: traceProbe
+        )
+        let descriptor = try BridgeProductReviewComparisonTargetsContentDescriptor(
+            descriptorId: "019FEEC5-A29D-7858-A3BD-AB969E228484",
+            maximumBytes: 1024 * 1024
+        )
+        let request = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: reviewComparisonTargetsQueryBody()
+        )
+        let reservation = try #require(
+            BridgeProductReviewComparisonTargetsReservation(
+                authorization: BridgeProductReviewComparisonTargetsAuthorization(
+                    descriptor: descriptor,
+                    currentTarget: nil
+                ),
+                issuing: request
+            )
+        )
+        let productionTask = Task {
+            try await producer.produceComparisonTargetCatalog(for: reservation)
+        }
+        await captureGate.waitForStartedComparisonCount(1)
+
+        productionTask.cancel()
+        await captureGate.releaseAll()
+
+        await #expect(throws: CancellationError.self) {
+            try await productionTask.value
+        }
+        await traceProbe.waitForEventCount(1)
+        let event = try #require(await traceProbe.events.first)
+        #expect(event.stage == .scheduledCapture)
+        #expect(event.outcome == .cancelled)
     }
 
     @Test("comparison target byte truncation is exact deterministic and preserves role rows")
@@ -413,21 +566,17 @@ struct BridgeProductReviewComparisonContractTests {
             branches: [defaultTarget, currentTarget] + ordinaryBranches
         )
         let maximumEncodedBytes = 32 * 1024
-        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
-
         // Act
         let first = try #require(
-            BridgePaneProductComparisonTargetQuerySource.makeCapture(
+            BridgeReviewComparisonTargetCatalogProducer.produceCatalog(
                 capture,
-                maximumEncodedBytes: maximumEncodedBytes,
-                foregroundWorkAdmission: refreshWorkAdmission.admission
+                maximumEncodedBytes: maximumEncodedBytes
             )
         )
         let second = try #require(
-            BridgePaneProductComparisonTargetQuerySource.makeCapture(
+            BridgeReviewComparisonTargetCatalogProducer.produceCatalog(
                 capture,
-                maximumEncodedBytes: maximumEncodedBytes,
-                foregroundWorkAdmission: refreshWorkAdmission.admission
+                maximumEncodedBytes: maximumEncodedBytes
             )
         )
         let decodedCatalog = try JSONDecoder().decode(
@@ -489,29 +638,26 @@ struct BridgeProductReviewComparisonContractTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let maximumEncodedBytes = try encoder.encode(completeCatalog).count - 1
-        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
-
         // Act
-        let queryCapture = BridgePaneProductComparisonTargetQuerySource.makeCapture(
+        let producedCatalog = BridgeReviewComparisonTargetCatalogProducer.produceCatalog(
             capture,
-            maximumEncodedBytes: maximumEncodedBytes,
-            foregroundWorkAdmission: refreshWorkAdmission.admission
+            maximumEncodedBytes: maximumEncodedBytes
         )
 
         // Assert
-        let admittedCapture = try #require(queryCapture)
+        let admittedCatalog = try #require(producedCatalog)
         let decodedCatalog = try JSONDecoder().decode(
             BridgeReviewComparisonTargetCatalog.self,
-            from: admittedCapture.body
+            from: admittedCatalog.body
         )
         #expect(decodedCatalog.isTruncated)
         #expect(decodedCatalog.defaultTarget == defaultTarget)
         #expect(decodedCatalog.branches == [defaultTarget])
-        #expect(admittedCapture.body.count < maximumEncodedBytes)
+        #expect(admittedCatalog.body.count < maximumEncodedBytes)
     }
 
-    @Test("foreground loss during target capture returns a query-local error")
-    func foregroundLossDuringTargetCaptureReturnsQueryLocalError() async throws {
+    @Test("comparison target query settles without starting catalog capture")
+    func comparisonTargetQuerySettlesWithoutStartingCatalogCapture() async throws {
         // Arrange
         let captureGate = BridgeComparisonGate()
         let capture = BridgeReviewComparisonTargetsCapture(
@@ -559,10 +705,13 @@ struct BridgeProductReviewComparisonContractTests {
             reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
             reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
             markReviewItemViewed: { _, _ in },
-            queryReviewComparisonTargets: BridgePaneProductComparisonTargetQuerySource.makeQuery(
-                reviewSourceProvider: sourceProvider,
-                targetProjection: targetProjection,
-                refreshWorkAdmissionSource: refreshWorkAdmissionSource
+            authorizeReviewComparisonTargets:
+                BridgePaneProductComparisonTargetQuerySource.makeAuthorization(
+                    targetProjection: targetProjection,
+                    refreshWorkAdmissionSource: refreshWorkAdmissionSource
+                ),
+            reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
+                reviewSourceProvider: sourceProvider
             ),
             refreshWorkAdmissionSource: refreshWorkAdmissionSource
         )
@@ -570,26 +719,15 @@ struct BridgeProductReviewComparisonContractTests {
             BridgeProductControlRequest.self,
             from: reviewComparisonTargetsQueryBody()
         )
-        let query = Task {
-            await provider.response(for: request)
-        }
-        await captureGate.waitForStartedComparisonCount(1)
-
         // Act
-        await MainActor.run {
-            refreshCoordinator.applyActivity(.loadedHidden)
-        }
-        await captureGate.releaseAll()
-        let response = await query.value
+        let response = await provider.response(for: request)
 
         // Assert
-        guard case .requestError(let error) = response else {
-            Issue.record("Expected foreground loss to cancel only the comparison-target query")
+        guard case .callCompleted = response else {
+            Issue.record("Expected authorization-only query completion")
             return
         }
-        #expect(error.code == .internal)
-        #expect(error.retryable)
-        #expect(error.safeMessage == "Comparison targets are unavailable")
+        #expect(await captureGate.startedComparisonCountSnapshot() == 0)
     }
 
     private func sortedJSONObject<TValue: Encodable>(_ value: TValue) throws -> String {

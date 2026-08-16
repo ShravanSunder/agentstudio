@@ -70,9 +70,7 @@ describe('Bridge comm worker File View command handler', () => {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
 				transferDescriptors: [],
-				kind: 'slicePatch',
-				epoch: 2,
-				sequence: 42,
+				kind: 'fileRenderPatch',
 				patches: [
 					{
 						slice: 'contentAvailability',
@@ -81,6 +79,9 @@ describe('Bridge comm worker File View command handler', () => {
 						payload: { state: 'loading' },
 					},
 				],
+				publicationSequence: 42,
+				surface: 'file',
+				workerDerivationEpoch: 2,
 			},
 		]);
 	});
@@ -184,9 +185,7 @@ describe('Bridge comm worker File View command handler', () => {
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
 				transferDescriptors: [],
-				kind: 'slicePatch',
-				epoch: 2,
-				sequence: 62,
+				kind: 'fileRenderPatch',
 				patches: [
 					{
 						slice: 'contentAvailability',
@@ -195,6 +194,9 @@ describe('Bridge comm worker File View command handler', () => {
 						payload: { state: 'loading' },
 					},
 				],
+				publicationSequence: 62,
+				surface: 'file',
+				workerDerivationEpoch: 2,
 			},
 		]);
 		expect(scheduledReviewPreparations).toEqual([]);

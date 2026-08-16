@@ -129,7 +129,7 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(projection.attributes["agentstudio.trace.tag"] == .string("performance"))
         #expect(projection.attributes["agentstudio.performance.git.running.count"] == .int(4))
         #expect(projection.attributes["agentstudio.performance.git.status.last_outcome"] == .string("timeout"))
-        #expect(projection.attributes["agentstudio.performance.git.status.consecutive_timeout.count"] == .int(2))
+        #expect(projection.attributes["agentstudio.performance.git.status.consecutive_failure.count"] == .int(2))
         #expect(projection.attributes["agentstudio.performance.git.status.duration_ms"] == .double(2.5))
         #expect(projection.attributes["agentstudio.performance.git.status.elapsed_ms"] == .double(2.7))
         #expect(projection.attributes["agentstudio.performance.git.status_unavailable.reason"] == .string("timeout"))
@@ -372,7 +372,7 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
             attributes: [
                 "agentstudio.performance.git.running.count": .int(4),
                 "agentstudio.performance.git.status.last_outcome": .string("timeout"),
-                "agentstudio.performance.git.status.consecutive_timeout.count": .int(2),
+                "agentstudio.performance.git.status.consecutive_failure.count": .int(2),
                 "agentstudio.performance.git.status.duration_ms": .double(2.5),
                 "agentstudio.performance.git.status.elapsed_ms": .double(2.7),
                 "agentstudio.performance.git.status_unavailable.reason": .string("timeout"),

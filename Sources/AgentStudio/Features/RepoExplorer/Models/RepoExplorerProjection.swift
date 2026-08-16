@@ -16,6 +16,7 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
     case panes
     case repositories
     case tabs
+    case ungrouped
 
     var title: String {
         switch self {
@@ -23,6 +24,7 @@ enum RepoExplorerSidebarSectionKind: String, Equatable, Sendable {
         case .panes: "Panes"
         case .repositories: "Repositories"
         case .tabs: "Tabs"
+        case .ungrouped: "Ungrouped"
         }
     }
 }
@@ -37,6 +39,19 @@ struct RepoExplorerSidebarSection: Identifiable, Equatable, Sendable {
     let kind: RepoExplorerSidebarSectionKind
     let resolvedGroups: [RepoPresentationGroup]
     let loadingRepos: [RepoPresentationItem]
+    let unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination]
+
+    init(
+        kind: RepoExplorerSidebarSectionKind,
+        resolvedGroups: [RepoPresentationGroup],
+        loadingRepos: [RepoPresentationItem],
+        unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination] = []
+    ) {
+        self.kind = kind
+        self.resolvedGroups = resolvedGroups
+        self.loadingRepos = loadingRepos
+        self.unassociatedPaneDestinations = unassociatedPaneDestinations
+    }
 
     var id: String { "section:\(kind.rawValue)" }
     var title: String { kind.title }
@@ -183,6 +198,21 @@ struct RepoExplorerPaneDestination: Equatable, Sendable, Identifiable {
         let activeSuffix = isActiveInTab ? " — Active" : ""
         return
             "\(worktreeLabel) — \(paneDisplayLabel) — Tab \(tabIndex + 1), Pane \(paneIndexInTab + 1)\(activeSuffix)"
+    }
+}
+
+struct RepoExplorerUnassociatedPaneDestination: Equatable, Sendable, Identifiable {
+    let paneId: UUID
+    let tabId: UUID
+    let tabIndex: Int
+    let paneIndexInTab: Int
+    let isActiveInTab: Bool
+
+    var id: UUID { paneId }
+
+    func label(paneDisplayLabel: String) -> String {
+        let activeSuffix = isActiveInTab ? " — Active" : ""
+        return "\(paneDisplayLabel) — Tab \(tabIndex + 1), Pane \(paneIndexInTab + 1)\(activeSuffix)"
     }
 }
 
@@ -385,6 +415,7 @@ enum RepoExplorerProjection {
             repos: snapshot.repos,
             destinationsByWorktreeId: paneDestinationsByWorktreeId
         )
+        let unassociatedPaneDestinations = unassociatedPaneDestinations(snapshot)
         let resolvedGroups: [RepoPresentationGroup]
         let projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
         let projectedPaneRowsByGroupId: [String: [RepoExplorerProjectedPaneRow]]
@@ -426,7 +457,8 @@ enum RepoExplorerProjection {
         let sections = sidebarSections(
             groupingMode: snapshot.groupingMode,
             resolvedGroups: resolvedGroups,
-            loadingRepos: filteredLoadingRepos
+            loadingRepos: filteredLoadingRepos,
+            unassociatedPaneDestinations: unassociatedPaneDestinations
         )
         let orderedResolvedGroups = sections.isEmpty ? resolvedGroups : sections.flatMap(\.resolvedGroups)
         let orderedLoadingRepos = sections.isEmpty ? filteredLoadingRepos : sections.flatMap(\.loadingRepos)
@@ -443,16 +475,35 @@ enum RepoExplorerProjection {
                 emptyState: emptyState(
                     snapshot: snapshot,
                     resolvedGroups: orderedResolvedGroups,
-                    loadingRepos: orderedLoadingRepos
+                    loadingRepos: orderedLoadingRepos,
+                    hasUnassociatedPanes: snapshot.groupingMode == .pane
+                        && !unassociatedPaneDestinations.isEmpty
                 )
             )
         )
     }
 
+    private static func unassociatedPaneDestinations(
+        _ snapshot: RepoExplorerSnapshot
+    ) -> [RepoExplorerUnassociatedPaneDestination] {
+        let destinations = RepoExplorerPaneLocationProjection.unassociatedDestinations(
+            from: sortedUniqueLocations(snapshot.unassociatedPaneLocations)
+        )
+        let query = snapshot.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return destinations }
+        return destinations.filter { destination in
+            let activeLabel = destination.isActiveInTab ? " active" : ""
+            let searchableLabel =
+                "ungrouped tab \(destination.tabIndex + 1) pane \(destination.paneIndexInTab + 1)\(activeLabel)"
+            return searchableLabel.localizedCaseInsensitiveContains(query)
+        }
+    }
+
     private static func sidebarSections(
         groupingMode: RepoExplorerGroupingMode,
         resolvedGroups: [RepoPresentationGroup],
-        loadingRepos: [RepoPresentationItem]
+        loadingRepos: [RepoPresentationItem],
+        unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination]
     ) -> [RepoExplorerSidebarSection] {
         if groupingMode == .tab {
             return [
@@ -495,15 +546,26 @@ enum RepoExplorerProjection {
                 loadingRepos: regularLoadingRepos
             )
         )
+        if groupingMode == .pane && !unassociatedPaneDestinations.isEmpty {
+            sections.append(
+                RepoExplorerSidebarSection(
+                    kind: .ungrouped,
+                    resolvedGroups: [],
+                    loadingRepos: [],
+                    unassociatedPaneDestinations: unassociatedPaneDestinations
+                )
+            )
+        }
         return sections
     }
 
     private static func emptyState(
         snapshot: RepoExplorerSnapshot,
         resolvedGroups: [RepoPresentationGroup],
-        loadingRepos: [RepoPresentationItem]
+        loadingRepos: [RepoPresentationItem],
+        hasUnassociatedPanes: Bool
     ) -> RepoExplorerEmptyState {
-        guard resolvedGroups.isEmpty && loadingRepos.isEmpty else { return .content }
+        guard resolvedGroups.isEmpty && loadingRepos.isEmpty && !hasUnassociatedPanes else { return .content }
         if !snapshot.query.isEmpty {
             return .searchNoResults
         }

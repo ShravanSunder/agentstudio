@@ -110,33 +110,30 @@ type ComparisonTargetsTerminal = Awaited<
 
 function comparisonTargetsDescriptor(): BridgeProductReviewComparisonTargetsContentDescriptor {
 	return {
-		capturedAtUnixMilliseconds: 1_700_000_000_000,
 		contentKind: 'review.comparisonTargets' as const,
-		cutoffUnixMilliseconds: 1_697_408_000_000,
-		declaredByteLength: 190,
 		descriptorId: 'comparison-targets-descriptor',
-		encoding: 'utf-8' as const,
-		expectedSha256: 'a'.repeat(64),
-		maximumBytes: 190,
+		maximumBytes: 1024 * 1024,
 	};
 }
 
 function comparisonTargetsTerminal(): ComparisonTargetsTerminal {
+	const bytes = new TextEncoder().encode(
+		JSON.stringify({
+			branches: [],
+			capturedAtUnixMilliseconds: 1_700_000_000_000,
+			cutoffUnixMilliseconds: 1_697_408_000_000,
+			currentTarget: null,
+			defaultTarget: null,
+			isTruncated: false,
+		}),
+	);
 	return {
-		bytes: new TextEncoder().encode(
-			JSON.stringify({
-				branches: [],
-				capturedAtUnixMilliseconds: 1_700_000_000_000,
-				cutoffUnixMilliseconds: 1_697_408_000_000,
-				currentTarget: null,
-				defaultTarget: null,
-				isTruncated: false,
-			}),
-		).buffer,
+		bytes: bytes.buffer,
 		contentKind: 'review.comparisonTargets',
 		descriptorId: 'comparison-targets-descriptor',
 		endOfSource: true,
 		kind: 'complete',
+		observedByteLength: bytes.byteLength,
 		observedSha256: 'a'.repeat(64),
 	};
 }

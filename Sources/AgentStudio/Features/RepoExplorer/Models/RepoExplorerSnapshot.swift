@@ -85,6 +85,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
     let sortOrder: RepoExplorerSortOrder
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
+    let unassociatedPaneLocations: [WorkspacePaneLocation]
     let bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]]
 
     init(
@@ -94,6 +95,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         sortOrder: RepoExplorerSortOrder = .default,
         query: String,
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:],
+        unassociatedPaneLocations: [WorkspacePaneLocation] = [],
         bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:]
     ) {
         self.repos = repos
@@ -102,6 +104,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.sortOrder = sortOrder
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
+        self.unassociatedPaneLocations = unassociatedPaneLocations
         self.bridgePaneCommandCandidatesByWorktreeId = bridgePaneCommandCandidatesByWorktreeId
     }
 }

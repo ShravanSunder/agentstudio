@@ -88,6 +88,9 @@ describe('Bridge product Review content contracts', () => {
 
 		// Assert
 		expect(request.contentKind).toBe('review.content');
+		if (request.descriptor.contentKind !== 'review.content') {
+			throw new Error('Expected a Review content descriptor.');
+		}
 		expect(request.descriptor.declaredByteLength).toBeNull();
 		expect(request.descriptor.expectedSha256).toBeNull();
 	});

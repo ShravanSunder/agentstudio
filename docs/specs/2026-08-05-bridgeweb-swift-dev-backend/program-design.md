@@ -4,6 +4,13 @@ Requirements: [BridgeWeb Swift Development Backend — Requirements](user-requir
 
 Specification: [BridgeWeb Swift Development Backend Specification](2026-08-05-bridgeweb-swift-dev-backend.md)
 
+> **Status:** Substrate, not the current PR0 persistence design. Its thin HTTP
+> carrier, Vite ownership, and exclusion of full Agent Studio boot remain
+> authoritative. PR0 supersedes the synthetic worktree/base source, ephemeral
+> pane identity, and no-cross-process-persistence sections with an isolated
+> `CoreAtoms` + `WorkspaceStore` composition keyed by exact pane UUID. See
+> [`../2026-08-06-worktree-annotations/pr0-program-design.md`](../2026-08-06-worktree-annotations/pr0-program-design.md).
+
 ## Design Decision
 
 Keep Vite as the BridgeWeb asset server and React hot-module-replacement
@@ -87,8 +94,9 @@ It owns only:
 - one `BridgeDevelopmentProductHost` for the selected source; and
 - binding the HTTP listener to `127.0.0.1`.
 
-A non-Debug build refuses to serve. No daemon, watcher, persistence, service
-registration, or AgentStudio application lifecycle is introduced.
+A non-Debug build refuses to serve. The executable owns no daemon, watcher,
+persistence, service registration, or AgentStudio application lifecycle. Its
+development process is supervised externally by Vite.
 
 ### `BridgeDevelopmentProductHost`
 
@@ -185,6 +193,30 @@ the loopback Swift server.
 Vite does not parse product bodies, construct Git providers, issue
 capabilities, retain sessions, or synthesize product responses.
 
+A development-only Vite plugin owns one backend supervisor. It uses Vite's
+existing filesystem watcher with an explicit allowlist containing the Swift
+server target, the transitive Swift target directories it compiles, package
+manifests, and the build scripts invoked by that path. It does not watch
+BridgeWeb, tests, unrelated AgentStudio features, build output, `tmp`, or Git
+state. Vite's frontend watcher continues to own React HMR independently.
+
+The supervisor creates one temporary data root for the Vite session, invokes
+the existing allocated build task, launches exactly one backend child on the
+configured proxy port, and retains the data root across replacements. A
+ten-second trailing quiet window coalesces relevant edits. Builds are
+serialized and bounded by a 300-second deadline.
+
+Each build captures the current source generation. Failure or timeout leaves
+the running server untouched. A generation that changes during compilation
+makes the candidate stale and prevents restart. After a current build succeeds,
+the supervisor sends `SIGTERM` only to its owned child PID, waits for observed
+exit, escalates to `SIGKILL` after the bounded graceful-shutdown allowance when
+necessary, launches the replacement, and waits for health `204`. Vite shutdown
+cancels pending debounce/build work, retires its owned backend, and removes its
+temporary data root. An explicitly configured backend origin remains
+externally owned and disables this supervisor, preserving integration and E2E
+fixture ownership.
+
 The existing browser bootstrap host and HTTP request executor remain the
 frontend carrier selection. The TypeScript bootstrap decoder and test fixtures
 may remain; the live TypeScript bootstrap encoder/carrier, product adapters,
@@ -217,9 +249,10 @@ API.
 ### Initial browser session
 
 ```text
-developer starts Swift server with worktree/base
+developer starts Vite
+  -> Vite builds and launches Swift with worktree/base
   -> Swift validates source and composes existing product owners
-developer starts/opens Vite page
+developer opens Vite page
   -> browser requests /bootstrap through Vite proxy
   -> Swift host issues existing session bootstrap + capability
   -> Vite-only host acknowledges page readiness
@@ -245,7 +278,10 @@ comm worker request
 ### Backend restart
 
 ```text
-server stops
+relevant Swift edit remains quiet for ten seconds
+  -> Vite builds one current candidate while the old server remains live
+  -> successful current build sends SIGTERM to the owned server PID
+server stops gracefully
   -> listener and host terminate; old capability dies with process
   -> open browser requests fail through the existing unavailable/retry path
 server restarts with selected source
@@ -269,11 +305,14 @@ server restarts with selected source
 - Worker replacement: serialize through the existing session owner; never keep
   two active installations for one development host.
 - Source change: restart and page reload, not live mutation of a host.
+- Source change during build: mark that candidate stale and wait for the next
+  debounced serialized build; never restart from stale source.
+- Build failure or timeout: keep the current backend and report the failure.
 - Process shutdown: stop accepting requests, cancel in-flight HTTP tasks, and
   retire the active product installation through existing owner APIs.
 
-There is no cross-process persistence, in-place reconnect, hot backend swap,
-continuous watcher, or multi-worktree host registry.
+There is no cross-process persistence, in-place reconnect, zero-downtime hot
+backend swap, or multi-worktree host registry.
 
 ## Proof Architecture
 
@@ -286,7 +325,9 @@ continuous watcher, or multi-worktree host registry.
   content, replacement, disconnect, and shutdown through HTTP.
 - BridgeWeb tests prove Vite proxies all four product endpoints plus the
   development health route, acknowledges bootstrap readiness, bounds recovery
-  to one reload, and installs no live TypeScript carrier.
+  to one reload, installs no live TypeScript carrier, coalesces relevant source
+  changes, fences stale builds, and preserves the current server after build
+  failure or timeout.
 - Existing shared-contract and packaged WebKit suites remain green, proving the
   frontend protocol and existing Swift product owners were not forked.
 - Release artifact inspection proves AgentStudio does not link, launch, or
@@ -294,12 +335,13 @@ continuous watcher, or multi-worktree host registry.
 
 ### Manual
 
-- Run the Debug Swift server and Vite while AgentStudio is not running.
+- Run Vite while AgentStudio is not running and observe it build, launch, and
+  health-check the Debug Swift server.
 - Open File and Review for a controlled worktree and verify the visible result
   matches that worktree/base.
 - Edit React and observe Vite HMR without restarting Swift.
-- Stop Swift and observe explicit bootstrap failure; restart it, observe one
-  automatic page reload, and verify a fresh working session.
+- Make a relevant Swift edit and observe one debounced graceful replacement,
+  one automatic page reload, and a fresh working session.
 
 No restart-duration threshold or benchmark is a readiness gate.
 
@@ -312,7 +354,7 @@ No restart-duration threshold or benchmark is a readiness gate.
 - Product execution: production URL-scheme ingress and Debug HTTP ingress
   converge on the same active `BridgeProductSchemeAdapter`; the existing
   WebKit registration and task lifecycle remain intact.
-- U3 / R5: the standalone executable can be rebuilt/restarted independently;
+- U3 / R5: Vite supervises serialized backend builds and graceful replacement;
   one development-only page reload is the complete recovery boundary.
 
 ## Rejected Alternatives
@@ -326,5 +368,6 @@ No restart-duration threshold or benchmark is a readiness gate.
   the full app loop and creates unnecessary UI lifecycle.
 - Extract a generalized transport framework first: spends production
   complexity before the one development carrier demonstrates that need.
-- Add a watcher, daemon, in-place reconnect protocol, or persisted sessions: not
-  needed for the accepted restart-plus-single-reload workflow.
+- Put the watcher inside the Swift executable or add a daemon, in-place
+  reconnect protocol, or persisted sessions: mixes development supervision
+  with product authority and exceeds the accepted Vite-session lifecycle.

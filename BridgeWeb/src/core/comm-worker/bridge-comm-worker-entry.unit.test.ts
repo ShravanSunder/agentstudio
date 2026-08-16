@@ -985,6 +985,7 @@ function makeCompletedReviewContentStream(
 			descriptorId: descriptor.descriptorId,
 			endOfSource: true,
 			kind: 'complete',
+			observedByteLength: bytes.byteLength,
 			observedSha256: 'a'.repeat(64),
 		}),
 	};

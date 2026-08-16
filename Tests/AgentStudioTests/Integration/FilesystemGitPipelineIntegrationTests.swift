@@ -14,6 +14,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let bus = EventBus<RuntimeEnvelope>()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: .stub { _ in
                 GitWorkingTreeStatus(
                     summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 1),
@@ -107,6 +108,7 @@ struct FilesystemGitPipelineIntegrationTests {
         )
         let pipeline = FilesystemGitPipeline(
             bus: bus,
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
@@ -192,6 +194,7 @@ struct FilesystemGitPipelineIntegrationTests {
         )
         let pipeline = FilesystemGitPipeline(
             bus: bus,
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
@@ -255,6 +258,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus(branch: "initial"))
         let pipeline = FilesystemGitPipeline(
             bus: bus,
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
@@ -295,6 +299,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus())
         let pipeline = FilesystemGitPipeline(
             bus: bus,
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
@@ -361,6 +366,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let provider = MutableGitWorkingTreeStatusProvider(status: makeTrackedStatus())
         let pipeline = FilesystemGitPipeline(
             bus: EventBus<RuntimeEnvelope>(),
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
@@ -448,6 +454,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let provider = MutableGitWorkingTreeStatusProvider(status: status(originResolution: .awaitingResolution))
         let pipeline = FilesystemGitPipeline(
             bus: bus,
+            registrationDiscoveryProvider: AcceptingRegistrationDiscoveryProvider(),
             gitWorkingTreeProvider: provider,
             fseventStreamClient: SilentFSEventStreamClient(),
             filesystemDebounceWindow: .zero,
@@ -474,7 +481,6 @@ struct FilesystemGitPipelineIntegrationTests {
         }
 
         let repoCache = RepoCacheAtom()
-        let cacheReceipt = OriginRetryCacheReceipt()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -485,23 +491,35 @@ struct FilesystemGitPipelineIntegrationTests {
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 coordinator.consume(envelope)
-                await cacheReceipt.record(
-                    branch: repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch,
-                    repoEnrichment: repoCache.repoEnrichmentByRepoId[repo.id]
-                )
             }
         }
         await waitForSubscriberCount(bus: bus, atLeast: 3)
         await pipeline.register(worktreeId: worktreeId, repoId: repo.id, rootPath: rootPath)
         await pipeline.setSidebarVisibleWorktrees([worktreeId])
 
-        await cacheReceipt.waitForInitialSnapshot()
+        let initialSnapshotArrived = await eventually("initial origin-retry snapshot should arrive") {
+            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main"
+        }
+        #expect(initialSnapshotArrived)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
 
         await provider.setStatus(status(originResolution: .resolved("git@github.com:askluna/agent-studio.git")))
-        await pipeline.enqueueRawPathsForTesting(worktreeId: worktreeId, paths: [".git/config"])
+        _ = await pipeline.refreshWatchedFolders([])
 
-        await cacheReceipt.waitForRemoteIdentity()
+        let originRefreshReadCompleted = await eventually("explicit refresh should trigger a status read") {
+            await provider.callCount >= 2
+        }
+        guard originRefreshReadCompleted else {
+            await shutdownWorld(pipeline: pipeline, observerTasks: [coordinatorTask], bus: bus)
+            return
+        }
+        let remoteIdentityArrived = await eventually("origin retry should publish remote identity") {
+            if case .some(.resolvedRemote) = repoCache.repoEnrichmentByRepoId[repo.id] {
+                return true
+            }
+            return false
+        }
+        #expect(remoteIdentityArrived)
         guard case .some(.resolvedRemote(_, let raw, let identity, _)) = repoCache.repoEnrichmentByRepoId[repo.id]
         else {
             Issue.record("git config change should resolve the remote identity")
@@ -682,45 +700,6 @@ private actor PeriodicGitCacheReceipt {
     }
 }
 
-private actor OriginRetryCacheReceipt {
-    private var initialSnapshotObserved = false
-    private var remoteIdentityObserved = false
-    private var initialSnapshotWaiters: [CheckedContinuation<Void, Never>] = []
-    private var remoteIdentityWaiters: [CheckedContinuation<Void, Never>] = []
-
-    func record(branch: String?, repoEnrichment: RepoEnrichment?) {
-        if branch == "main" {
-            initialSnapshotObserved = true
-            resumeAll(&initialSnapshotWaiters)
-        }
-        if case .some(.resolvedRemote(_, let raw, let identity, _)) = repoEnrichment,
-            raw.origin == "git@github.com:askluna/agent-studio.git",
-            identity.groupKey == "remote:askluna/agent-studio"
-        {
-            remoteIdentityObserved = true
-            resumeAll(&remoteIdentityWaiters)
-        }
-    }
-
-    func waitForInitialSnapshot() async {
-        guard !initialSnapshotObserved else { return }
-        await withCheckedContinuation { initialSnapshotWaiters.append($0) }
-    }
-
-    func waitForRemoteIdentity() async {
-        guard !remoteIdentityObserved else { return }
-        await withCheckedContinuation { remoteIdentityWaiters.append($0) }
-    }
-
-    private func resumeAll(_ waiters: inout [CheckedContinuation<Void, Never>]) {
-        let continuations = waiters
-        waiters.removeAll(keepingCapacity: false)
-        for continuation in continuations {
-            continuation.resume()
-        }
-    }
-}
-
 private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     private var currentStatus: GitWorkingTreeStatus?
     private(set) var callCount = 0
@@ -834,5 +813,17 @@ private actor ObservedFilesystemGitEvents {
 
     func hasSeenFilesChangedPath(_ path: String, for worktreeId: UUID) -> Bool {
         seenFilesChangedPathsByWorktreeId[worktreeId]?.contains(path) == true
+    }
+}
+
+private struct AcceptingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryDiscoveryProvider {
+    func discoveryOutcome(for url: URL) async -> GitRepositoryDiscoveryOutcome {
+        .validated(
+            RepoScanner.ResolvedGitEntry(
+                path: url,
+                kind: .cloneRoot,
+                repositoryKey: "test:\(url.path)"
+            )
+        )
     }
 }

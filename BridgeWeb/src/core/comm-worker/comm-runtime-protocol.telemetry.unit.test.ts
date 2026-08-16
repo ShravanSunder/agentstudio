@@ -24,7 +24,142 @@ import type {
 } from './bridge-product-transport.js';
 import type { BridgeWorkerReviewContentRequestDescriptor } from './bridge-worker-contracts.js';
 
+const currentFileSourceConfiguration = {
+	cwdScope: null,
+	freshness: 'live',
+	includeStatuses: true,
+	repoId: '00000000-0000-4000-8000-000000000001',
+	rootPathToken: 'telemetry-root-token',
+	worktreeId: '00000000-0000-4000-8000-000000000002',
+} as const;
+
 describe('Bridge comm worker runtime protocol telemetry', () => {
+	test('records unavailable as the sole terminal outcome of initial File source discovery', async () => {
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(8);
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			productTransport: makeTelemetryReviewProductTransport({
+				deferredStreamsByDescriptorId: new Map(),
+				fileSourceDiscovery: async () => ({
+					reason: 'no-file-source-authority',
+					status: 'unavailable',
+				}),
+				reviewMetadataEvents,
+			}),
+			schedulePreparationDrain: (): void => {},
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		const discoverySamples = telemetrySamples.filter(
+			(sample) =>
+				sample.stringAttributes['agentstudio.bridge.worker.command'] === 'fileSourceDiscovery',
+		);
+		expect(discoverySamples).toHaveLength(1);
+		expect(discoverySamples).toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.worker.task',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'worker_task',
+					'agentstudio.bridge.result': 'unavailable',
+					'agentstudio.bridge.worker.command': 'fileSourceDiscovery',
+					'agentstudio.bridge.worker.task_kind': 'product_control',
+				}),
+			}),
+		);
+	});
+
+	test('maps available File source discovery to the accepted success result', async () => {
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(8);
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			productTransport: makeTelemetryReviewProductTransport({
+				deferredStreamsByDescriptorId: new Map(),
+				fileSourceDiscovery: async () => ({
+					source: currentFileSourceConfiguration,
+					status: 'available',
+				}),
+				reviewMetadataEvents,
+			}),
+			schedulePreparationDrain: (): void => {},
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		const discoverySamples = telemetrySamples.filter(
+			(sample) =>
+				sample.stringAttributes['agentstudio.bridge.worker.command'] === 'fileSourceDiscovery',
+		);
+		expect(discoverySamples).toHaveLength(1);
+		expect(discoverySamples[0]?.stringAttributes['agentstudio.bridge.result']).toBe('success');
+	});
+
+	test('records a failed terminal outcome when File source discovery throws', async () => {
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const reviewMetadataEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.metadata'>
+		>(8);
+		const { dispatch } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			productTransport: makeTelemetryReviewProductTransport({
+				deferredStreamsByDescriptorId: new Map(),
+				fileSourceDiscovery: async (): Promise<never> => {
+					throw new Error('Expected File source discovery failure.');
+				},
+				reviewMetadataEvents,
+			}),
+			schedulePreparationDrain: (): void => {},
+			telemetryClient: {
+				record: (sample): void => {
+					telemetrySamples.push(sample);
+				},
+			},
+		});
+		await flushBridgeWorkerRuntimeContinuations();
+
+		const discoverySamples = telemetrySamples.filter(
+			(sample) =>
+				sample.stringAttributes['agentstudio.bridge.worker.command'] === 'fileSourceDiscovery',
+		);
+		expect(discoverySamples).toHaveLength(1);
+		expect(discoverySamples[0]?.stringAttributes['agentstudio.bridge.result']).toBe('failed');
+	});
+
 	test('records command queue wait and handler duration from typed dispatch timestamp', () => {
 		const clockReadings = [18, 22];
 		const telemetrySamples: BridgeTelemetrySample[] = [];
@@ -32,7 +167,11 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
 			now: () => {
 				const value = clockReadings.shift();
 				if (value === undefined) {
@@ -97,7 +236,11 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			budget: { className: 'interactive', maxBytes: 512 * 1024, maxWindowLines: 50 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
 			productTransport: makeTelemetryReviewProductTransport({
 				deferredStreamsByDescriptorId,
 				reviewMetadataEvents,
@@ -159,11 +302,23 @@ describe('Bridge comm worker runtime protocol telemetry', () => {
 
 function makeTelemetryReviewProductTransport(props: {
 	readonly deferredStreamsByDescriptorId: Map<string, DeferredReviewContentStream>;
+	readonly fileSourceDiscovery?: BridgeProductTransportSession['call'];
 	readonly reviewMetadataEvents: BridgeProductBoundedAsyncQueue<
 		BridgeProductSubscriptionEvent<'review.metadata'>
 	>;
 }): BridgeProductTransportSession {
+	let fileWorkerDerivationEpoch = 0;
 	let reviewWorkerDerivationEpoch = 0;
+	const fileMetadataEvents = new BridgeProductBoundedAsyncQueue<
+		BridgeProductSubscriptionEvent<'file.metadata'>
+	>(8);
+	const fileSubscription: BridgeProductSubscription<'file.metadata'> = {
+		cancel: async (): Promise<void> => {},
+		events: fileMetadataEvents,
+		subscriptionId: 'telemetry-file-subscription',
+		subscriptionKind: 'file.metadata',
+		update: async (): Promise<void> => {},
+	};
 	const reviewSubscription: BridgeProductSubscription<'review.metadata'> = {
 		cancel: async (): Promise<void> => {},
 		events: props.reviewMetadataEvents,
@@ -173,12 +328,15 @@ function makeTelemetryReviewProductTransport(props: {
 	};
 	return {
 		bumpWorkerDerivationEpoch: (surface): number => {
+			if (surface === 'file') fileWorkerDerivationEpoch += 1;
 			if (surface === 'review') reviewWorkerDerivationEpoch += 1;
-			return surface === 'review' ? reviewWorkerDerivationEpoch : 0;
+			return surface === 'review' ? reviewWorkerDerivationEpoch : fileWorkerDerivationEpoch;
 		},
-		call: async (): Promise<never> => {
-			throw new Error('Unexpected product call in Review telemetry test.');
-		},
+		call:
+			props.fileSourceDiscovery ??
+			(async (): Promise<never> => {
+				throw new Error('Unexpected product call in Review telemetry test.');
+			}),
 		openContent: (descriptor) => {
 			if (descriptor.contentKind !== 'review.content') {
 				throw new Error(`Unexpected product content kind ${descriptor.contentKind}.`);
@@ -206,14 +364,13 @@ function makeTelemetryReviewProductTransport(props: {
 		},
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;
-			if (subscriptionKind !== 'review.metadata') {
-				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);
-			}
-			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- This closed test transport rejects every non-Review subscription above.
-			return reviewSubscription as never;
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The closed subscription-kind branch selects the matching typed test subscription.
+			return (
+				subscriptionKind === 'file.metadata' ? fileSubscription : reviewSubscription
+			) as never;
 		},
 		workerDerivationEpoch: (surface): number =>
-			surface === 'review' ? reviewWorkerDerivationEpoch : 0,
+			surface === 'review' ? reviewWorkerDerivationEpoch : fileWorkerDerivationEpoch,
 	};
 }
 
@@ -307,7 +464,12 @@ function telemetryReviewSnapshotEvent(
 				reviewState: 'unreviewed',
 			},
 		],
-		itemWindow: { finalWindow: true, itemCount: 2, startIndex: 0, totalItemCount: 2 },
+		itemWindow: {
+			finalWindow: true,
+			itemCount: 2,
+			startIndex: 0,
+			totalItemCount: 2,
+		},
 		packageId: baseDescriptor.packageId,
 		presentationRevision: 1,
 		publicationId: '00000000-0000-7000-8000-000000000001',
@@ -369,7 +531,12 @@ function telemetryReviewSnapshotEvent(
 				rowId: 'row-item-2',
 			},
 		],
-		treeWindow: { finalWindow: true, rowCount: 2, startIndex: 0, totalRowCount: 2 },
+		treeWindow: {
+			finalWindow: true,
+			rowCount: 2,
+			startIndex: 0,
+			totalRowCount: 2,
+		},
 	};
 }
 

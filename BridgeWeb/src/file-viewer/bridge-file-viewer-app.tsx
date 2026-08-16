@@ -11,6 +11,8 @@ import {
 
 import { BridgeViewerViewSettingsMenu } from '../app/bridge-viewer-view-settings-menu.js';
 import type { BridgeFilesViewSettings } from '../app/bridge-viewer-view-settings.js';
+import { resolveBridgeFileMarkdownIntent } from '../app/markdown/bridge-file-markdown-intent.js';
+import { useBridgeMarkdownPresentation } from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
@@ -62,6 +64,8 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		codeViewWorkerPoolEnabled,
 		controlTarget = document,
 		isActive = true,
+		markdownWorkerClient = null,
+		mermaidRenderer,
 		isNavigationCommandStillEligible = bridgeFileViewerNavigationCommandIsAlwaysEligible,
 		navigationCommand,
 		onDisplaySourceChange,
@@ -160,6 +164,28 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		hasPierreItem: renderSnapshotController.selectedCodeViewItem !== null,
 		selection,
 		status: displayModel.status,
+	});
+	const selectedPath = selection?.path ?? null;
+	const markdownDecision = useMemo(
+		() =>
+			resolveBridgeFileMarkdownIntent({
+				displaySource: displayModel.source,
+				openFileStatus: openFileState.status,
+				selectedCodeViewItem: renderSnapshotController.selectedCodeViewItem,
+				selectedPath,
+			}),
+		[
+			displayModel.source,
+			openFileState.status,
+			renderSnapshotController.selectedCodeViewItem,
+			selectedPath,
+		],
+	);
+	const markdownPresentation = useBridgeMarkdownPresentation({
+		abortKey: 'bridge-markdown-file',
+		isActive,
+		intent: markdownDecision.kind === 'render' ? markdownDecision.intent : null,
+		workerClient: markdownWorkerClient,
 	});
 	const selectFile = useCallback(
 		(nextSelection: BridgeFileViewerSelection, source: 'programmatic' | 'user'): void => {
@@ -274,7 +300,6 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			renderSnapshotController.dispatchVisibleFileViewViewportFact,
 		isActive,
 	});
-	const selectedPath = selection?.path ?? null;
 	const contentHeaderTitle = bridgeFileViewerContentHeaderTitle({
 		selectedPath,
 		sourceId: displayModel.source?.sourceId ?? '',
@@ -324,6 +349,18 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				onSelectFile={selectFileFromTree}
 				onToggleSearch={toggleSearch}
 				openFileState={openFileState}
+				markdownPresentation={
+					markdownDecision.kind === 'pierre'
+						? null
+						: {
+								presentationState:
+									markdownDecision.kind === 'loading'
+										? { status: 'loading', sourcePath: selectedPath ?? 'Markdown' }
+										: markdownPresentation.presentationState,
+								mermaidRenderer,
+								retry: markdownPresentation.retry,
+							}
+				}
 				openFileTotalHeightPixels={openFileTotalHeightPixels}
 				panelChromeSlice={renderSnapshotController.panelChromeSlice}
 				renderFulfillmentCoordinator={renderSnapshotController.renderFulfillmentCoordinator}

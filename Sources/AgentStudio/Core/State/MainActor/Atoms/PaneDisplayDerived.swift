@@ -285,22 +285,16 @@ package struct PaneDisplayDerived {
 
         let explicitRepoId = pane.repoId ?? pane.metadata.repoId
         let explicitWorktreeId = pane.worktreeId ?? pane.metadata.worktreeId
-        let explicitContext: (repo: Repo, worktree: Worktree)? = {
-            guard let explicitRepoId,
-                let explicitWorktreeId,
-                let repo = workspaceRepositoryTopology.repo(explicitRepoId),
-                let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
-            else { return nil }
-            return (repo, worktree)
-        }()
+        let explicitContext = workspaceRepositoryTopology.validatedAssociation(
+            repoId: explicitRepoId,
+            worktreeId: explicitWorktreeId
+        )
         if explicitContext == nil, explicitRepoId != nil || explicitWorktreeId != nil {
             paneDisplayLogger.warning(
-                "resolvedWorkspaceContext: explicit repo/worktree for pane \(pane.id.uuidString, privacy: .public) missing from topology; falling back"
+                "resolvedWorkspaceContext: explicit repo/worktree for pane \(pane.id.uuidString, privacy: .public) is not valid in topology"
             )
         }
-        let resolvedContext =
-            explicitContext
-            ?? workspaceRepositoryTopology.repoAndWorktree(containing: pane.metadata.cwd)
+        let resolvedContext = explicitContext
         let resolvedWorktreeEnrichment = resolvedContext.flatMap {
             repoCache.worktreeEnrichment(for: $0.worktree.id)
         }
