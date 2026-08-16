@@ -53,6 +53,12 @@ struct DrawerToolbarCommandPresentationTests {
                     targetType: .pane
                 ),
                 .init(
+                    command: .openPullRequest,
+                    surface: .toolbar(.pane),
+                    target: locationTargetPaneId,
+                    targetType: .pane
+                ),
+                .init(
                     command: .showPaneInboxNotifications,
                     surface: .toolbar(.pane),
                     target: anchorPaneId,
@@ -77,7 +83,7 @@ struct DrawerToolbarCommandPresentationTests {
             resolver.requests.map(\.surface)
                 == Array(
                     repeating: .toolbar(.terminalZoom),
-                    count: 6
+                    count: 7
                 )
         )
     }
@@ -100,6 +106,7 @@ struct DrawerToolbarCommandPresentationTests {
         #expect(presentation.openEditorMenu?.isEnabled == true)
         #expect(presentation.openFinder == nil)
         #expect(presentation.copyPath?.isEnabled == false)
+        #expect(presentation.openPullRequest?.isEnabled == true)
         #expect(presentation.showPaneInbox?.isEnabled == true)
     }
 

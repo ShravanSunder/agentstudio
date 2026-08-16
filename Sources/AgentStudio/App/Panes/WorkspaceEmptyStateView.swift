@@ -379,15 +379,11 @@ struct WorkspaceEmptyStateView: View {
             if visibleRecentCards.isEmpty {
                 WorkspaceRecentPlaceholderCard()
             } else {
-                VStack(spacing: AppStyles.Welcome.recentCardGap) {
-                    ForEach(visibleRecentCards) { card in
-                        WorkspaceRecentCardView(
-                            card: card,
-                            octiconLoader: octiconLoader,
-                            onOpen: { onOpenRecent(card.target) }
-                        )
-                    }
-                }
+                WorkspaceRecentList(
+                    cards: visibleRecentCards,
+                    octiconLoader: octiconLoader,
+                    onOpen: onOpenRecent
+                )
             }
         }
     }
@@ -411,7 +407,42 @@ struct WorkspaceEmptyStateView: View {
     }
 }
 
-private struct WorkspaceRecentCardView: View {
+private struct WorkspaceRecentList: View {
+    let cards: [WorkspaceRecentCardModel]
+    let octiconLoader: OcticonLoader
+    let onOpen: (ApplicationRecentEntity) -> Void
+
+    var body: some View {
+        VStack(spacing: AppStyles.Welcome.recentRowSpacing) {
+            ForEach(cards) { card in
+                WorkspaceRecentRowView(
+                    card: card,
+                    octiconLoader: octiconLoader,
+                    onOpen: { onOpen(card.target) }
+                )
+
+                if card.id != cards.last?.id {
+                    Divider()
+                        .padding(.leading, 16)
+                        .opacity(AppStyles.Welcome.recentListSeparatorOpacity)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.recentListCornerRadius)
+                .fill(Color.white.opacity(AppStyles.Welcome.cardFillOpacity))
+        )
+        .clipShape(
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.recentListCornerRadius)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.recentListCornerRadius)
+                .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
+        )
+    }
+}
+
+private struct WorkspaceRecentRowView: View {
     let card: WorkspaceRecentCardModel
     let octiconLoader: OcticonLoader
     let onOpen: () -> Void
@@ -432,26 +463,20 @@ private struct WorkspaceRecentCardView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardBackground)
-            .overlay(cardBorder)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: AppStyles.Welcome.recentRowMinHeight,
+                alignment: .leading
+            )
+            .contentShape(Rectangle())
+            .background(
+                isHovered
+                    ? Color.white.opacity(AppStyles.Welcome.cardHoverOpacity)
+                    : Color.clear
+            )
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(
-                isHovered
-                    ? AppStyles.General.Accent.primaryColor.opacity(AppStyles.Welcome.cardHoverOpacity)
-                    : Color.white.opacity(AppStyles.Welcome.cardFillOpacity)
-            )
-    }
-
-    private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
     }
 
     private var iconColor: Color {

@@ -418,7 +418,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.retry_pending.count",
         "agentstudio.performance.git.running.count",
         "agentstudio.performance.git.snapshot_dedup.count",
-        "agentstudio.performance.git.status.consecutive_timeout.count",
+        "agentstudio.performance.git.status.consecutive_failure.count",
         "agentstudio.performance.git.status.duration_ms",
         "agentstudio.performance.git.status.elapsed_ms",
         "agentstudio.performance.git.suppressed_git_internal_path.count",

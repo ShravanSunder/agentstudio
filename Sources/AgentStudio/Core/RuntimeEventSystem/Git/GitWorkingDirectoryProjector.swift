@@ -74,7 +74,7 @@ package actor GitWorkingDirectoryProjector {
     var openStatusBackoffWorktreeIds: Set<UUID> = []
     var deferredStatusBackoffChangesetByWorktreeId: [UUID: FileChangeset] = [:]
     var statusBackoffTasks: [UUID: Task<Void, Never>] = [:]
-    var consecutiveStatusTimeoutCountByWorktreeId: [UUID: Int] = [:]
+    var consecutiveStatusFailureCountByWorktreeId: [UUID: Int] = [:]
     /// Registered worktrees whose root path has vanished from disk. They are
     /// skipped at admission and periodic re-enqueue without further stat calls
     /// until an event-driven re-arm clears the mark
@@ -144,7 +144,7 @@ package actor GitWorkingDirectoryProjector {
         nilStatusRetryTasks.removeAll(keepingCapacity: false)
         capacityRetryTasks.removeAll(keepingCapacity: false)
         statusBackoffTasks.removeAll(keepingCapacity: false)
-        consecutiveStatusTimeoutCountByWorktreeId.removeAll(keepingCapacity: false)
+        consecutiveStatusFailureCountByWorktreeId.removeAll(keepingCapacity: false)
     }
 
     package func start() async {
@@ -240,7 +240,7 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeAll(keepingCapacity: false)
         lastStatusEntriesByWorktreeId.removeAll(keepingCapacity: false)
         nilStatusRetryCountByWorktreeId.removeAll(keepingCapacity: false)
-        consecutiveStatusTimeoutCountByWorktreeId.removeAll(keepingCapacity: false)
+        consecutiveStatusFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
         nextWorktreeTaskGeneration = 0
         periodicRefreshTick = 1
@@ -453,7 +453,7 @@ package actor GitWorkingDirectoryProjector {
             lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
             lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
             nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
-            consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: worktreeId)
+            consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: worktreeId)
             cancelNilStatusRetry(worktreeId: worktreeId)
             clearCapacityRetryState(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
@@ -503,7 +503,7 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
         lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
         nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
-        consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: worktreeId)
+        consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: worktreeId)
         cancelNilStatusRetry(worktreeId: worktreeId)
         clearCapacityRetryState(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
@@ -675,20 +675,13 @@ package actor GitWorkingDirectoryProjector {
         let statusCompletion = envelopeClock.now
         let statusDuration = computeStart.duration(to: statusCompletion)
         let statusOutcome: GitStatusOutcome
-        let consecutiveTimeoutCount: Int
-        if unavailable.reason == .timeout {
-            let previousTimeoutCount = consecutiveStatusTimeoutCountByWorktreeId[changeset.worktreeId] ?? 0
-            consecutiveTimeoutCount = min(
-                previousTimeoutCount + 1,
-                AppPolicies.GitRefresh.statusUnavailableConsecutiveTimeoutThreshold
-            )
-            consecutiveStatusTimeoutCountByWorktreeId[changeset.worktreeId] = consecutiveTimeoutCount
-            statusOutcome = .timeout
-        } else {
-            consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
-            consecutiveTimeoutCount = 0
-            statusOutcome = .unavailable
-        }
+        let previousFailureCount = consecutiveStatusFailureCountByWorktreeId[changeset.worktreeId] ?? 0
+        let consecutiveFailureCount = min(
+            previousFailureCount + 1,
+            AppPolicies.GitRefresh.statusUnavailableConsecutiveFailureThreshold
+        )
+        consecutiveStatusFailureCountByWorktreeId[changeset.worktreeId] = consecutiveFailureCount
+        statusOutcome = unavailable.reason == .timeout ? .timeout : .unavailable
         performanceTraceRecorder?.recordDuration(
             .gitStatusUnavailable,
             duration: statusDuration,
@@ -700,7 +693,7 @@ package actor GitWorkingDirectoryProjector {
                     pathspecCount: pathspecCount,
                     statusCompletion: statusCompletion,
                     outcome: statusOutcome,
-                    consecutiveTimeoutCount: consecutiveTimeoutCount,
+                    consecutiveFailureCount: consecutiveFailureCount,
                     statusDuration: statusDuration
                 )
             )
@@ -709,24 +702,19 @@ package actor GitWorkingDirectoryProjector {
             worktreeId: changeset.worktreeId,
             repoId: changeset.repoId,
             event: .statusOutcome(
-                worktreeId: changeset.worktreeId,
-                repoId: changeset.repoId,
-                outcome: statusOutcome,
-                consecutiveTimeoutCount: consecutiveTimeoutCount
-            )
+                GitStatusOutcomeFact(
+                    worktreeId: changeset.worktreeId,
+                    repoId: changeset.repoId,
+                    outcome: statusOutcome,
+                    reason: unavailable.reason,
+                    consecutiveFailureCount: consecutiveFailureCount
+                ))
         )
         guard !Task.isCancelled, !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
         guard isCurrent(changeset) else { return }
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        switch unavailable.reason {
-        case .timeout:
-            openOrAdvanceStatusBackoff(for: changeset, reason: unavailable.reason)
-        case .readCapacityExceeded:
-            scheduleCapacityRetry(for: changeset)
-        case .providerReturnedNil, .readAlreadyInFlight, .cancelled, .sdkError:
-            scheduleNilStatusRetry(for: changeset)
-        }
+        openOrAdvanceStatusBackoff(for: changeset, reason: unavailable.reason)
     }
 
     private func scheduleNilStatusRetry(for changeset: FileChangeset) {

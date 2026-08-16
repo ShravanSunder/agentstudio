@@ -94,7 +94,6 @@ package enum LocalActionSpec {
     case extractPaneToNewTab
     case movePaneToTabMenu
     case openGitHubInNewTab
-    case openPullRequest
     case arrangements
     case addTerminalToTab
     case showArrangements
@@ -194,9 +193,6 @@ package enum LocalActionSpec {
         case .openGitHubInNewTab:
             return ActionSpec(
                 label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system(.globe))
-        case .openPullRequest:
-            return ActionSpec(
-                label: "Open PR", helpText: "Open PR in Browser", icon: .octicon(.gitPullRequest))
         case .arrangements:
             return ActionSpec(
                 label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))
