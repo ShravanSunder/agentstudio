@@ -23,7 +23,7 @@ final class AtomRegistry {
 
     init(
         core: CoreAtoms = .init(),
-        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom = .init(),
+        repoExplorerSidebarPrefs: RepoExplorerSidebarPrefsAtom? = nil,
         terminalActivity: TerminalActivityAtom = .init(),
         editorPreference: EditorPreferenceAtom = .init(),
         editorChooserRuntime: EditorChooserRuntimeAtom = .init(),
@@ -35,7 +35,9 @@ final class AtomRegistry {
         bridgePaneAttendance: BridgePaneAttendanceAtom = .init()
     ) {
         self.core = core
-        self.repoExplorerSidebarPrefs = repoExplorerSidebarPrefs
+        self.repoExplorerSidebarPrefs =
+            repoExplorerSidebarPrefs
+            ?? RepoExplorerSidebarPrefsAtom(sidebarState: core.workspaceSidebarState)
         self.terminalActivity = terminalActivity
         self.editorPreference = editorPreference
         self.editorChooserRuntime = editorChooserRuntime

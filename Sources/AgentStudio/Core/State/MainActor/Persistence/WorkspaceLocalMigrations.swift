@@ -74,6 +74,34 @@ package enum WorkspaceLocalMigrations {
         migrator.registerMigration("004_remove_persisted_pull_request_counts") { database in
             try database.execute(sql: "DROP TABLE IF EXISTS cache_pull_request_count")
         }
+        migrator.registerMigration("005_move_repo_grouping_to_window_sidebar_memory") { database in
+            let windowColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('local_window_state')"
+                )
+            )
+            if !windowColumnNames.contains("repo_grouping_mode") {
+                try database.execute(
+                    sql: """
+                        ALTER TABLE local_window_state
+                        ADD COLUMN repo_grouping_mode TEXT NOT NULL DEFAULT 'repo'
+                        """
+                )
+            }
+
+            let preferenceColumnNames = try Set(
+                String.fetchAll(
+                    database,
+                    sql: "SELECT name FROM pragma_table_info('local_repo_explorer_preferences')"
+                )
+            )
+            if preferenceColumnNames.contains("grouping_mode") {
+                try database.execute(
+                    sql: "ALTER TABLE local_repo_explorer_preferences DROP COLUMN grouping_mode"
+                )
+            }
+        }
         return migrator
     }
 
@@ -148,6 +176,7 @@ package enum WorkspaceLocalMigrations {
             is_filter_visible INTEGER NOT NULL CHECK (is_filter_visible IN (0, 1)),
             sidebar_collapsed INTEGER NOT NULL CHECK (sidebar_collapsed IN (0, 1)),
             sidebar_surface TEXT NOT NULL,
+            repo_grouping_mode TEXT NOT NULL DEFAULT 'repo',
             updated_at REAL NOT NULL
         )
         """,
@@ -269,7 +298,6 @@ package enum WorkspaceLocalMigrations {
         """
         CREATE TABLE local_repo_explorer_preferences (
             workspace_id TEXT PRIMARY KEY,
-            grouping_mode TEXT NOT NULL,
             sort_order TEXT NOT NULL,
             visibility_mode TEXT NOT NULL,
             updated_at REAL NOT NULL

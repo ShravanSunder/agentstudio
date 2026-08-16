@@ -70,6 +70,14 @@ package enum SQLiteLocalUXStorage {
         }
     }
 
+    package static func storageValue(for groupingMode: RepoSidebarGroupingMode) -> String {
+        groupingMode.rawValue
+    }
+
+    package static func repoGroupingMode(from rawValue: String) -> RepoSidebarGroupingMode? {
+        RepoSidebarGroupingMode(rawValue: rawValue)
+    }
+
     package static func isValidRepoExplorerGrouping(_ rawValue: String) -> Bool {
         repoExplorerGroupingValues.contains(rawValue)
     }

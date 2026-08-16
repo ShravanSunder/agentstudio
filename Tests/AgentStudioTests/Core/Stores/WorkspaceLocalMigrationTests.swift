@@ -69,7 +69,34 @@ struct WorkspaceLocalMigrationTests {
                     "002_replace_recent_targets_with_entity_recency",
                     "003_invert_sidebar_group_memory",
                     "004_remove_persisted_pull_request_counts",
+                    "005_move_repo_grouping_to_window_sidebar_memory",
                 ]
+        )
+    }
+
+    @Test("repo grouping belongs only to main-window sidebar memory")
+    func repoGroupingBelongsOnlyToMainWindowSidebarMemory() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+
+        let columnNamesByTable = try databaseQueue.read { database in
+            try Dictionary(
+                uniqueKeysWithValues: ["local_window_state", "local_repo_explorer_preferences"].map { tableName in
+                    let columnNames = try Row.fetchAll(
+                        database,
+                        sql: "PRAGMA table_info(\(tableName))"
+                    ).map { row in
+                        row["name"] as String
+                    }
+                    return (tableName, Set(columnNames))
+                }
+            )
+        }
+
+        #expect(columnNamesByTable["local_window_state"]?.contains("repo_grouping_mode") == true)
+        #expect(
+            columnNamesByTable["local_repo_explorer_preferences"]?.contains("grouping_mode") == false
         )
     }
 
