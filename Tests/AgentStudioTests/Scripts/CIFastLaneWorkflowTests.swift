@@ -376,6 +376,19 @@ struct CIFastLaneWorkflowTests {
         #expect(!aggregateLaneMode.contains("run_non_serialized_swift_tests"))
     }
 
+    @Test("Swift command watchdog measures output inactivity")
+    func swiftCommandWatchdogMeasuresOutputInactivity() throws {
+        let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
+        let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+
+        #expect(timeoutRunner.contains("output_size=$(wc -c <\"$output_file\" | tr -d '[:space:]')"))
+        #expect(timeoutRunner.contains("if [ \"$output_size\" -gt \"$last_output_size\" ]; then"))
+        #expect(timeoutRunner.contains("last_progress_epoch=\"$now_epoch\""))
+        #expect(timeoutRunner.contains("inactive_seconds=$((now_epoch - last_progress_epoch))"))
+        #expect(timeoutRunner.contains("if [ \"$inactive_seconds\" -ge \"$timeout_seconds\" ]; then"))
+        #expect(!timeoutRunner.contains("if [ \"$elapsed_seconds\" -ge \"$timeout_seconds\" ]; then"))
+    }
+
     @Test("aggregate lane isolates executor-sensitive and AppKit-global tests")
     func aggregateLaneIsolatesExecutorSensitiveAndAppKitGlobalTests() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
@@ -393,6 +406,7 @@ struct CIFastLaneWorkflowTests {
         for suiteName in [
             "EagerDerivedAtomTests",
             "EagerDerivedAtomFamilyTests",
+            "TerminalActivationSchedulerTests",
             "TabBarAdapterTests",
             "TabBarAdapterMaterializationTests",
             "TabBarAffectedItemTelemetryTests",
