@@ -16,8 +16,8 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("fileMenu.addItem(menuItem(command: .newTab, action: #selector(newTab)))"))
     }
 
-    @Test("launcher keeps Watch Folder as a text shortcut row")
-    func launcherKeepsWatchFolderAsTextShortcutRow() throws {
+    @Test("launcher keeps Watch Folder as a command-spec-backed shortcut row")
+    func launcherKeepsWatchFolderAsCommandSpecBackedShortcutRow() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(
@@ -26,8 +26,8 @@ struct WelcomeLauncherArchitectureTests {
             encoding: .utf8
         )
 
-        #expect(source.contains("keyImage: \"folder.badge.plus\""))
         #expect(source.contains("let watchFolderDefinition = AppCommand.watchFolder.definition"))
+        #expect(source.contains("icon: watchFolderDefinition.actionSpec.icon"))
         #expect(source.contains("title: watchFolderDefinition.label"))
         #expect(!source.contains("title: \"Watch Folder\""))
         #expect(source.contains("subtitle: \"Scan and keep watching a folder for repos.\""))
@@ -49,11 +49,11 @@ struct WelcomeLauncherArchitectureTests {
 
         #expect(source.contains("let quickFindDefinition = AppCommand.showCommandBarEverything.definition"))
         #expect(source.contains("let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition"))
-        #expect(source.contains("key: quickFindDefinition.keyBinding?.displayString"))
+        #expect(source.contains("keyBindingDisplayString: quickFindDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: quickFindDefinition.label"))
         #expect(source.contains("let quickFindPresentation = ShellTabBarCommandPresentation("))
         #expect(source.contains("action: quickFindPresentation.perform"))
-        #expect(source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
+        #expect(source.contains("keyBindingDisplayString: newTabOrWorktreeDefinition.keyBinding?.displayString"))
         #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
         #expect(source.contains("title: watchFolderDefinition.label"))
         #expect(source.contains("let repositoriesPresentation = ShellTabBarCommandPresentation("))
@@ -61,6 +61,37 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("isEnabled: quickFindPresentation.isEnabled"))
         #expect(source.contains("isEnabled: repositoriesPresentation.isEnabled"))
         #expect(!source.contains("title: \"Command palette\""))
+    }
+
+    @Test("launcher preview search is display only while scope pills remain interactive")
+    func launcherPreviewSearchIsDisplayOnly() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/LauncherPreview.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("LauncherPreviewSearchRow("))
+        #expect(!source.contains("CommandBarSearchField("))
+        #expect(source.contains("Button {"))
+        #expect(source.contains("selectedScope = scope"))
+    }
+
+    @Test("launcher shortcut rows use a command icon when no keyboard shortcut exists")
+    func launcherShortcutRowsUseCommandIconFallback() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/WorkspaceEmptyStateView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("leadingContent: .preferred("))
+        #expect(source.contains("icon: newTabOrWorktreeDefinition.actionSpec.icon"))
+        #expect(!source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
     }
 
     @Test("top chrome includes a command-spec-backed Watch Folder button")

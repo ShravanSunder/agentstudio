@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import AgentStudio
+@testable import AgentStudioCore
 @testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceEmptyStateView")
@@ -211,6 +212,26 @@ struct WorkspaceEmptyStateViewTests {
         // range; over 200ms starts feeling laggy.
         #expect(AppStyles.Welcome.launcherPreviewScopeCrossfadeDuration <= 0.15)
         #expect(AppStyles.Welcome.launcherPreviewScopeCrossfadeDuration > 0)
+    }
+
+    @Test("launcher shortcut leading content prefers a keyboard shortcut")
+    func launcherShortcutLeadingContentPrefersKeyboardShortcut() {
+        let leadingContent = LauncherShortcutLeadingContent.preferred(
+            keyBindingDisplayString: "⌘P",
+            icon: .system(.folder)
+        )
+
+        #expect(leadingContent == .keyboardShortcut("⌘P"))
+    }
+
+    @Test("launcher shortcut leading content falls back to the command icon")
+    func launcherShortcutLeadingContentFallsBackToCommandIcon() {
+        let leadingContent = LauncherShortcutLeadingContent.preferred(
+            keyBindingDisplayString: nil,
+            icon: .system(.folder)
+        )
+
+        #expect(leadingContent == .commandIcon(.system(.folder)))
     }
 
     // MARK: - Folder-intake layout tokens (noFolders/scanning/scanEmpty share)
