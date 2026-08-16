@@ -261,7 +261,7 @@ Consumer: end user. Contract: R10. Compat: no API change; purely visual.
 |-----------|----------------|
 | R1 roles + utilities exist | automated build/unit (utility classes compile and resolve) |
 | R2/R3 no raw hex, no `--bridge-*` | automated scan (same checker as R11), zero findings on migrated tree |
-| R4 visual invariant | screenshot pairs per surface per PR, owner-reviewed; unenumerated delta = fail |
+| R4 visual invariant | owner live review of the running surfaces (dev loop and/or debug app) per PR; unenumerated delta the owner spots = fail. (Owner decision 2026-08-16: aesthetic invariants are judged by look; automated screenshot pairs were dropped after both baseline-capture paths proved broken at the base commit.) |
 | R5 compact defaults | visual evidence of default-rendered owned components beside existing chrome |
 | R6 tree matches chrome | screenshot (this is a named delta PR) |
 | R7 Pierre unchanged | screenshot pair of a diff view incl. syntax-heavy file |
