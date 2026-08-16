@@ -700,7 +700,7 @@ package struct RepoExplorerView: View {
     }
 
     private func colorForCheckout(hex colorHex: String) -> Color {
-        Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+        Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {

@@ -50,13 +50,13 @@ package struct SidebarRowShell<Content: View>: View {
         isHovering: Bool
     ) -> Color {
         if isFlashing {
-            return Color.accentColor.opacity(AppStyles.General.Fill.selected)
+            return AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Fill.selected)
         }
         if isSelected {
-            return Color.accentColor.opacity(AppStyles.General.Fill.active)
+            return AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Fill.active)
         }
         if isHovering {
-            return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
+            return AppStyles.General.Accent.primaryColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
         }
         return Color.clear
     }

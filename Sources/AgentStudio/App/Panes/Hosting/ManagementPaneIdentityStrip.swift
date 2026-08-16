@@ -44,7 +44,7 @@ struct ManagementPaneIdentityStrip: View {
                 WorkspaceStatusChipRow(
                     octiconLoader: octiconLoader,
                     model: statusChips,
-                    accentColor: .accentColor
+                    accentColor: AppStyles.General.Accent.primaryColor
                 )
             }
         }

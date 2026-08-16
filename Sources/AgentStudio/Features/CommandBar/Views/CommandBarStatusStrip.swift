@@ -26,7 +26,7 @@ struct CommandBarStatusStrip: View {
                     Text(label)
                         .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(AppStyles.General.Accent.primaryColor)
             }
 
             Spacer()

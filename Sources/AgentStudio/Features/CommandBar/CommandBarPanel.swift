@@ -83,7 +83,8 @@ final class CommandBarPanel: NSPanel {
     func setContent<V: View>(_ view: V) {
         hostingView?.removeFromSuperview()
 
-        let hosting = NSHostingView(rootView: AnyView(view))
+        let hosting = NSHostingView(
+            rootView: AnyView(view.tint(AppStyles.General.Accent.primaryColor)))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         hosting.setContentHuggingPriority(.defaultLow, for: .vertical)
         hosting.setContentCompressionResistancePriority(.defaultLow, for: .vertical)

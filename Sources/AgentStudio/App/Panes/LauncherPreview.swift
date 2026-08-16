@@ -443,11 +443,11 @@ struct LauncherShortcutRow: View {
                     case .keyboardShortcut(let keyboardShortcut):
                         Text(keyboardShortcut)
                             .font(AppStyles.Welcome.Typography.key)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppStyles.General.Accent.primaryColor)
                     case .commandIcon(let commandIcon):
                         commandIcon.swiftUIImage(loader: octiconLoader)
                             .font(AppStyles.Welcome.Typography.key)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(AppStyles.General.Accent.primaryColor)
                     }
                 }
                 .frame(width: AppStyles.Welcome.launcherShortcutKeyColumnWidth, alignment: .leading)
@@ -480,7 +480,7 @@ struct LauncherShortcutRow: View {
         RoundedRectangle(cornerRadius: AppStyles.Welcome.launcherShortcutRowCornerRadius)
             .fill(
                 isHovered
-                    ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
+                    ? AppStyles.General.Accent.primaryColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
                     : Color.white.opacity(AppStyles.Welcome.cardFillOpacity)
             )
     }
@@ -530,7 +530,7 @@ struct LauncherScopesCallout: View {
             HStack(spacing: AppStyles.Welcome.scopesCalloutPillContentSpacing) {
                 Text(scope.prefixGlyph)
                     .font(AppStyles.Welcome.Typography.key)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppStyles.General.Accent.primaryColor)
                 Text(scope.label)
                     .font(AppStyles.Welcome.Typography.bodySm)
                     .foregroundStyle(
@@ -549,7 +549,9 @@ struct LauncherScopesCallout: View {
     private func pillBackground(for scope: LauncherPreviewScope) -> some View {
         if selectedScope == scope {
             RoundedRectangle(cornerRadius: AppStyles.Welcome.scopesCalloutPillCornerRadius)
-                .fill(Color.accentColor.opacity(AppStyles.Welcome.scopesCalloutPillSelectedFillOpacity))
+                .fill(
+                    AppStyles.General.Accent.primaryColor.opacity(
+                        AppStyles.Welcome.scopesCalloutPillSelectedFillOpacity))
         } else {
             Color.clear
         }

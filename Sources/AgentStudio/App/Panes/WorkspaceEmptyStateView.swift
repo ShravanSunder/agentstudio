@@ -481,7 +481,7 @@ private struct WorkspaceRecentRowView: View {
 
     private var iconColor: Color {
         let hex = card.iconColorHex ?? ""
-        return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
+        return Color(nsColor: NSColor(hex: hex) ?? AppStyles.General.Accent.primaryNSColor)
     }
 
     private var iconSymbol: String {
@@ -581,7 +581,7 @@ private struct AppLogoView: View {
             } else {
                 Image(systemName: "chevron.left.forwardslash.chevron.right")
                     .font(.system(size: size * 0.4, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(AppStyles.General.Accent.primaryColor)
             }
         }
         .frame(width: size, height: size)

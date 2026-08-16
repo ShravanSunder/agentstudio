@@ -102,6 +102,11 @@ struct ChromeToolbarButtonStyleTests {
         #expect(selectTabSection.contains("ChromeToolbarButtonLabel("))
         #expect(selectTabSection.contains("symbolName: \"rectangle.stack\""))
         #expect(selectTabSection.contains("showsBackground: false"))
+        #expect(
+            selectTabSection.contains(
+                ".tint(AppStyles.Shell.Chrome.ToolbarButton.iconForegroundColor)"
+            )
+        )
         #expect(containsMenuInitializer(in: selectTabSection))
     }
 

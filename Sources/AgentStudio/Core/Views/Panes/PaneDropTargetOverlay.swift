@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import SwiftUI
 
 /// Renders the active main-pane drop target.
@@ -16,13 +17,13 @@ package struct PaneDropTargetOverlay: View {
         ZStack(alignment: .topLeading) {
             if let visual {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.accentColor.opacity(0.16))
+                    .fill(AppStyles.General.Accent.primaryColor.opacity(0.16))
                     .frame(width: visual.region.width, height: visual.region.height)
                     .offset(x: visual.region.minX, y: visual.region.minY)
 
                 if let marker = visual.insertionMarker {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentColor.opacity(0.85))
+                        .fill(AppStyles.General.Accent.primaryColor.opacity(0.85))
                         .frame(width: marker.width, height: marker.height)
                         .offset(x: marker.minX, y: marker.minY)
                 }

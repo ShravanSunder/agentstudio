@@ -563,7 +563,9 @@ extension MainWindowController: NSToolbarDelegate {
             weight: .medium
         )
         let paletteColor: NSColor =
-            isSelected ? .controlAccentColor : AppStyles.Shell.Chrome.ToolbarButton.iconForegroundNSColor
+            isSelected
+            ? AppStyles.General.Accent.primaryNSColor
+            : AppStyles.Shell.Chrome.ToolbarButton.iconForegroundNSColor
         configuration = configuration.applying(
             NSImage.SymbolConfiguration(paletteColors: [paletteColor])
         )

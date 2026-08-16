@@ -1,17 +1,19 @@
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
 @MainActor
 final class PersistentTabHostView: NSView {
     let tabId: UUID
-    let hostingView: NSHostingView<SingleTabContent>
+    let hostingView: NSHostingView<AnyView>
 
     init(
         tabId: UUID,
         rootView: SingleTabContent
     ) {
         self.tabId = tabId
-        self.hostingView = NSHostingView(rootView: rootView)
+        self.hostingView = NSHostingView(
+            rootView: AnyView(rootView.tint(AppStyles.General.Accent.primaryColor)))
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         hostingView.sizingOptions = [.minSize]
