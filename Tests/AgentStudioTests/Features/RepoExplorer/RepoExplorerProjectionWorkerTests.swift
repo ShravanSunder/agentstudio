@@ -208,7 +208,7 @@ struct RepoExplorerProjectionWorkerTests {
         let tabId = UUIDv7.generate()
         let paneFacts = RepoExplorerPaneRowFacts(
             terminalTitle: "tests running",
-            lastInteractedAt: Date(timeIntervalSince1970: 100),
+            recencyReferenceDate: Date(timeIntervalSince1970: 100),
             recencyText: "2m",
             isActive: true
         )

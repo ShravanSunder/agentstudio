@@ -31,7 +31,7 @@ extension RepoSidebarGroupingMode {
 
 struct RepoExplorerPaneRowFacts: Equatable, Sendable {
     let terminalTitle: String
-    let lastInteractedAt: Date?
+    let recencyReferenceDate: Date
     let recencyText: String
     let isActive: Bool
 }

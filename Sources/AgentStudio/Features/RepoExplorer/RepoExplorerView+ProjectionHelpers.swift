@@ -245,7 +245,7 @@ extension RepoExplorerView {
                     paneId,
                     RepoExplorerPaneRowFacts(
                         terminalTitle: terminalTitle,
-                        lastInteractedAt: lastInteractedAt,
+                        recencyReferenceDate: recencyReferenceDate,
                         recencyText: RepoExplorerPaneRecencyText.display(
                             lastInteractedAt: recencyReferenceDate,
                             now: now

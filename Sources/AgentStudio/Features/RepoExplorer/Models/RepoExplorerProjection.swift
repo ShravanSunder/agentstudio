@@ -745,8 +745,8 @@ enum RepoExplorerProjection {
         usesRecency: Bool
     ) -> Bool {
         if usesRecency {
-            let lhsDate = paneRowFactsByPaneId[lhs.paneId]?.lastInteractedAt
-            let rhsDate = paneRowFactsByPaneId[rhs.paneId]?.lastInteractedAt
+            let lhsDate = paneRowFactsByPaneId[lhs.paneId]?.recencyReferenceDate
+            let rhsDate = paneRowFactsByPaneId[rhs.paneId]?.recencyReferenceDate
             if lhsDate != rhsDate {
                 return (lhsDate ?? .distantPast) > (rhsDate ?? .distantPast)
             }

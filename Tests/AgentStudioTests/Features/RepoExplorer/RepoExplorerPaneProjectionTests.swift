@@ -44,13 +44,13 @@ struct RepoExplorerPaneProjectionTests {
             paneRowFactsByPaneId: [
                 olderPaneId: .init(
                     terminalTitle: "old shell",
-                    lastInteractedAt: Date(timeIntervalSince1970: 10),
+                    recencyReferenceDate: Date(timeIntervalSince1970: 10),
                     recencyText: "2m",
                     isActive: false
                 ),
                 newerPaneId: .init(
                     terminalTitle: "tests running",
-                    lastInteractedAt: Date(timeIntervalSince1970: 20),
+                    recencyReferenceDate: Date(timeIntervalSince1970: 20),
                     recencyText: "Now",
                     isActive: true
                 ),
@@ -64,6 +64,59 @@ struct RepoExplorerPaneProjectionTests {
         #expect(rows[0].secondaryText == "tests running")
         #expect(rows[0].recencyText == "Now")
         #expect(rows[0].isActive)
+    }
+
+    @Test("All Panes orders never-focused panes by the recency date used for display")
+    func allPanesOrdersNeverFocusedPanesByDisplayedRecency() throws {
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId)
+        let neverFocusedPaneId = UUIDv7.generate()
+        let previouslyFocusedPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [makeRepo(id: repoId, worktrees: [worktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .pane,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    worktree.id: [
+                        .init(
+                            paneId: neverFocusedPaneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        ),
+                        .init(
+                            paneId: previouslyFocusedPaneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 1,
+                            isActiveInTab: false
+                        ),
+                    ]
+                ]
+            ),
+            paneRowFactsByPaneId: [
+                neverFocusedPaneId: .init(
+                    terminalTitle: "new pane",
+                    recencyReferenceDate: Date(timeIntervalSince1970: 20),
+                    recencyText: "Now",
+                    isActive: true
+                ),
+                previouslyFocusedPaneId: .init(
+                    terminalTitle: "old pane",
+                    recencyReferenceDate: Date(timeIntervalSince1970: 10),
+                    recencyText: "5m",
+                    isActive: false
+                ),
+            ]
+        )
+
+        let group = try #require(projection.resolvedGroups.first)
+        let rows = try #require(projection.paneRowsByGroupId[group.id])
+        #expect(rows.map(\.destination.paneId) == [neverFocusedPaneId, previouslyFocusedPaneId])
     }
 
     @Test("By Tab uses display titles, pane counts, tab order, and pane rows")
@@ -102,13 +155,13 @@ struct RepoExplorerPaneProjectionTests {
             paneRowFactsByPaneId: [
                 firstPaneId: .init(
                     terminalTitle: "first terminal",
-                    lastInteractedAt: nil,
+                    recencyReferenceDate: Date(timeIntervalSince1970: 10),
                     recencyText: "Now",
                     isActive: true
                 ),
                 secondPaneId: .init(
                     terminalTitle: "second terminal",
-                    lastInteractedAt: nil,
+                    recencyReferenceDate: Date(timeIntervalSince1970: 20),
                     recencyText: "Now",
                     isActive: false
                 ),
