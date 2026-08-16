@@ -308,9 +308,10 @@ one composition apply, terminal activation, then exact-ID zmx attach. After
 repository topology is independently decoded, `WorkspaceStore` performs one
 narrow pane-association housekeeping pass: a missing soft-reference pair may
 be backfilled from CWD, and a pair that does not resolve in the decoded topology
-is cleared. If that pass changes a pair, the corrected snapshot is persisted
-best-effort; persistence failure is non-fatal to the already accepted in-memory
-composition. Missing or invalid required state remains a decode/restore failure.
+is cleared unless its repository is known to be temporarily unavailable. If that
+pass changes a pair, the corrected snapshot is persisted best-effort;
+persistence failure is non-fatal to the already accepted in-memory composition.
+Missing or invalid required state remains a decode/restore failure.
 Startup does not otherwise normalize the graph, prune or invent layout
 references, repair cursors, infer session identities, or mutate a stored
 `ZmxSessionID`. Repository/topology startup never gates or mutates session

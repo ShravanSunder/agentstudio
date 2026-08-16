@@ -142,8 +142,8 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    @Test("temporary repo unavailability retains association and preserved topology heals moved CWD")
-    func temporaryRepoUnavailabilityRetainsAndHealsAssociation() async throws {
+    @Test("temporary repo unavailability retains association when worktrees are omitted and heals moved CWD")
+    func temporaryRepoUnavailabilityWithOmittedWorktreesRetainsAndHealsAssociation() async throws {
         let bus = makeTestPaneRuntimeEventBus()
         let store = WorkspaceStore()
         let coordinator = makeTestWorkspaceSurfaceCoordinator(
@@ -176,6 +176,19 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         )
         store.appendTab(Tab(paneId: pane.id))
         store.markRepoUnavailable(repository.id)
+        var unavailableRepository = try #require(store.repositoryTopologyAtom.repo(repository.id))
+        unavailableRepository.worktrees = []
+        let unavailableReplacementPreparation = RepositoryTopologyReplacement.prepare(
+            repositories: [unavailableRepository],
+            watchedPaths: store.repositoryTopologyAtom.watchedPaths,
+            unavailableRepositoryIDs: [repository.id]
+        )
+        guard case .prepared(let unavailableReplacement) = unavailableReplacementPreparation else {
+            Issue.record("unavailable topology without worktree rows should remain valid")
+            await coordinator.shutdown()
+            return
+        }
+        store.repositoryTopologyAtom.replaceTopology(unavailableReplacement)
 
         _ = await bus.post(
             RuntimeEnvelopeHarness.paneEnvelope(

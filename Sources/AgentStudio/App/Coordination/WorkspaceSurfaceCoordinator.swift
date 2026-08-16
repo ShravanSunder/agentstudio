@@ -320,6 +320,7 @@ final class WorkspaceSurfaceCoordinator {
             Self.logger.warning("cwd update ignored for missing pane \(paneId.uuidString, privacy: .public)")
             return
         }
+        let currentFacets = store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
         let lookupClock = ContinuousClock()
         let lookupStartedAt = lookupClock.now
         let topologySnapshot = store.repositoryTopologyAtom.captureReadSnapshot()
@@ -343,7 +344,13 @@ final class WorkspaceSurfaceCoordinator {
                 repoId: resolvedContext.repo.id,
                 worktreeId: resolvedContext.worktree.id
             )
-        } else if topologySnapshot.hasUnavailableWorktree(containing: cwd) {
+        } else if cwd != nil,
+            topologySnapshot.hasUnavailableWorktree(containing: cwd)
+                || topologySnapshot.isKnownAssociationTemporarilyUnavailable(
+                    repoId: currentFacets?.repoId,
+                    worktreeId: currentFacets?.worktreeId
+                )
+        {
             associationResolution = .uncertain
         } else {
             associationResolution = .confidentNoMatch
