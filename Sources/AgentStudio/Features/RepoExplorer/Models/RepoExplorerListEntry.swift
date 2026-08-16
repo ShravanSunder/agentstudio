@@ -16,6 +16,7 @@ enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
     case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID, rowId: String)
     case resolvedPaneRow(groupId: String, identity: RepoExplorerPaneListEntryIdentity, rowId: String)
+    case unassociatedPaneRow(RepoExplorerUnassociatedPaneDestination)
     case topologyFault(RepoExplorerTopologyFault)
 
     var id: String {
@@ -32,6 +33,8 @@ enum RepoExplorerListEntry: Identifiable, Equatable, Sendable {
             return rowId
         case .resolvedPaneRow(_, _, let rowId):
             return rowId
+        case .unassociatedPaneRow(let destination):
+            return "unassociated-pane-row:\(destination.paneId.uuidString)"
         case .topologyFault:
             return "topology-fault"
         }

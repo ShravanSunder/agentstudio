@@ -282,6 +282,11 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                     }
                 )
             }
+            entries.append(
+                contentsOf: section.unassociatedPaneDestinations.map {
+                    .unassociatedPaneRow($0)
+                }
+            )
             return entries
         }
     }

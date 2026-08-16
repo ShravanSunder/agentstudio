@@ -102,6 +102,8 @@ extension AppDelegate {
                     await self.runCrossTabMoveGeometrySmokeDiagnostic(action: action)
                 case .ipcTerminalSmoke:
                     await self.runIPCTerminalSmokeDiagnostic(action: action)
+                case .paneAssociationRuntimeProof:
+                    await self.runPaneAssociationRuntimeProofDiagnostic(action: action)
                 case .bridgeReviewObservabilitySmoke:
                     await self.runBridgeReviewObservabilitySmokeDiagnostic(action: action)
                 case .bridgeFileViewObservabilitySmoke:

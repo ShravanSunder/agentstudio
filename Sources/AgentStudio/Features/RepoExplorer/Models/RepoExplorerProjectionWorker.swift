@@ -42,6 +42,7 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             previous.snapshot.query == snapshot.query,
             previous.snapshot.repoEnrichmentSnapshotByRepoId == snapshot.repoEnrichmentSnapshotByRepoId,
             previous.snapshot.paneLocationsByWorktreeId == snapshot.paneLocationsByWorktreeId,
+            previous.snapshot.unassociatedPaneLocations == snapshot.unassociatedPaneLocations,
             previous.snapshot.bridgePaneCommandCandidatesByWorktreeId
                 == snapshot.bridgePaneCommandCandidatesByWorktreeId,
             previous.collapsedGroupIds == collapsedGroupIds,

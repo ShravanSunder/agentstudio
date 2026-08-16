@@ -287,6 +287,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         }
         appendTerminalAccumulatorApplyOutcomeDimension(record: record, dimensions: &dimensions)
         appendTerminalEqualSuppressedDimension(record: record, dimensions: &dimensions)
+        appendPaneAssociationOutcomeDimension(record: record, dimensions: &dimensions)
         appendAtomDimensions(record: record, dimensions: &dimensions)
         appendRepoExplorerKeyedWakeDimensions(record: record, dimensions: &dimensions)
         if record.body.hasPrefix("performance.bridge.") {
@@ -450,6 +451,24 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         }
         dimensions.append(
             AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome)
+        )
+    }
+
+    private static func appendPaneAssociationOutcomeDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard record.body == "performance.pane.association",
+            case .string(let outcome) = record.attributes[
+                "agentstudio.performance.pane.association_outcome"
+            ],
+            PaneAssociationOutcome(rawValue: outcome) != nil
+        else { return }
+        dimensions.append(
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "association_outcome",
+                value: outcome
+            )
         )
     }
 

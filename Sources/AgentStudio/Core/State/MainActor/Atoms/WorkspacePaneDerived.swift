@@ -60,9 +60,10 @@ package struct WorkspacePaneDerived {
     private func resolvedWorkspaceContext(
         for facets: PaneContextFacets
     ) -> (repo: Repo, worktree: Worktree)? {
-        guard let repositoryTopologyAtom else { return nil }
-
-        return repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd)
+        repositoryTopologyAtom?.validatedAssociation(
+            repoId: facets.repoId,
+            worktreeId: facets.worktreeId
+        )
     }
 
     nonisolated package static func displayFacets(

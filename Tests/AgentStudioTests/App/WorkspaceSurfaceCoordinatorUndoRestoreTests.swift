@@ -61,7 +61,7 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let repo = store.addRepo(at: repoPath)
         let worktree = Worktree(repoId: repo.id, name: "wt-main", path: worktreePath)
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        return (repo, worktree)
+        return store.repositoryTopologyAtom.repoAndWorktree(containing: worktreePath) ?? (repo, worktree)
     }
 
     private func makeWebviewPane(_ store: WorkspaceStore, title: String) -> Pane {
@@ -169,6 +169,14 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         let secondDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
         let drawerId = try #require(harness.store.pane(parentPane.id)?.drawer?.drawerId)
         harness.store.setActiveDrawerPane(secondDrawerPane.id, in: parentPane.id)
+        for paneId in [parentPane.id, firstDrawerPane.id, secondDrawerPane.id] {
+            let facets = try #require(
+                harness.store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
+            )
+            #expect(facets.repoId == repo.id)
+            #expect(facets.worktreeId == worktree.id)
+            #expect(facets.cwd?.standardizedFileURL.path == worktree.path.standardizedFileURL.path)
+        }
 
         harness.coordinator.execute(.closeTab(tabId: tab.id))
         harness.coordinator.undoCloseTab()
@@ -182,6 +190,14 @@ struct WorkspaceSurfaceCoordinatorUndoRestoreTests {
         #expect(restoredDrawerView.activeChildId == secondDrawerPane.id)
         #expect(harness.store.drawerCursorAtom.isExpanded(drawerId: drawerId))
         #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: parentPane.id)?.mode == .preparing)
+        for paneId in [parentPane.id, firstDrawerPane.id, secondDrawerPane.id] {
+            let facets = try #require(
+                harness.store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
+            )
+            #expect(facets.repoId == repo.id)
+            #expect(facets.worktreeId == worktree.id)
+            #expect(facets.cwd?.standardizedFileURL.path == worktree.path.standardizedFileURL.path)
+        }
     }
 
     @Test("deferred undo restore persists drawer graph and matched local cursor through fresh SQLite restore")

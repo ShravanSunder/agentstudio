@@ -3,6 +3,7 @@ import GRDB
 import Testing
 
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 
 @Suite("WorkspaceCoreRepositoryPaneGraphTests")
 struct WorkspaceCoreRepositoryPaneGraphTests {
@@ -63,6 +64,8 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         note: "keep this note",
                         checkoutRef: "feature/pane-graph",
                         durableFacets: .init(
+                            repoId: repoId,
+                            worktreeId: worktreeId,
                             cwd: URL(
                                 filePath: "/tmp/agentstudio/pane-graph-repo/Sources",
                                 directoryHint: .isDirectory
@@ -101,6 +104,35 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
         try repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
         let restoredGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
+        #expect(restoredGraph == graph)
+    }
+
+    @Test("pane graph round trips a dangling soft association without topology rows")
+    func paneGraphRoundTripsDanglingSoftAssociation() throws {
+        // Arrange
+        let fixture = try makeWorkspaceCoreRepositoryFixture()
+        let workspaceId = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let danglingRepoId = UUIDv7.generate()
+        let danglingWorktreeId = UUIDv7.generate()
+        try fixture.repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Dangling association",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        var pane = makeFloatingPane(id: paneId)
+        pane.metadata.durableFacets.repoId = danglingRepoId
+        pane.metadata.durableFacets.worktreeId = danglingWorktreeId
+        let graph = WorkspaceCoreRepository.PaneGraphRecord(panes: [pane])
+
+        // Act
+        try fixture.repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
+        let restoredGraph = try fixture.repository.fetchPaneGraph(workspaceId: workspaceId)
+
+        // Assert
         #expect(restoredGraph == graph)
     }
 

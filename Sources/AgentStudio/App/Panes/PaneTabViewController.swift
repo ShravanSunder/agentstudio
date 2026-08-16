@@ -3265,15 +3265,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
         let facets = paneState.durableContextFacets
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
-            return resolved.worktree.id
-        }
-        if let worktreeId = facets.worktreeId,
-            store.repositoryTopologyAtom.worktree(worktreeId) != nil
-        {
-            return worktreeId
-        }
-        return nil
+        return store.repositoryTopologyAtom.validatedAssociation(
+            repoId: facets.repoId,
+            worktreeId: facets.worktreeId
+        )?.worktree.id
     }
 
     private func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {

@@ -54,6 +54,9 @@ package enum WorkspaceStoreLoadResult: Equatable, Sendable {
     case failed(WorkspaceStoreLoadFailure)
 }
 
+package typealias PaneAssociationBootReconciliationReporter =
+    @MainActor @Sendable (PaneAssociationBootReconciliationSummary) -> Void
+
 /// Main-actor persistence aggregate for the workspace atoms.
 ///
 /// This type owns canonical SQLite composition loading, debounced persistence,
@@ -82,6 +85,7 @@ package final class WorkspaceStore {
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
+    private let paneAssociationBootReconciliationReporter: PaneAssociationBootReconciliationReporter?
     private let persistenceReasonReporter: PaneTopologyPersistenceReasonReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var debouncedSaveFailureDamping = DebouncedSaveFailureDamping()
@@ -105,6 +109,7 @@ package final class WorkspaceStore {
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil,
+        paneAssociationBootReconciliationReporter: PaneAssociationBootReconciliationReporter? = nil,
         persistenceReasonReporter: PaneTopologyPersistenceReasonReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom.shellAtom
@@ -152,6 +157,7 @@ package final class WorkspaceStore {
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
+        self.paneAssociationBootReconciliationReporter = paneAssociationBootReconciliationReporter
         self.persistenceReasonReporter = persistenceReasonReporter
     }
 
@@ -234,25 +240,30 @@ package final class WorkspaceStore {
     private func prepareAndApplyAuthoritativeSnapshot(
         _ snapshot: WorkspaceCoreLoadSnapshot
     ) async -> Result<WorkspacePreparedCompositionAcceptance, WorkspaceStoreLoadFailure> {
-        async let compositionPreparation = WorkspaceCompositionPreparer.prepareOffMain(snapshot.workspace)
-        async let topologyPreparation = WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(
+        let topologyPreparation = await WorkspacePersistenceTransformer.prepareRepositoryTopologyOffMain(
             snapshot.repositoryTopology
         )
 
-        let preparedComposition: PreparedWorkspaceComposition
-        switch await compositionPreparation {
-        case .prepared(let prepared):
-            preparedComposition = prepared
-        case .rejected(let rejection):
-            return .failure(.compositionRejected(rejection))
-        }
-
         let preparedTopology: RepositoryTopologyReplacement
-        switch await topologyPreparation {
+        switch topologyPreparation {
         case .prepared(let replacement):
             preparedTopology = replacement
         case .rejected(let rejection):
             return .failure(.topologyRejected(rejection))
+        }
+
+        let associationReconciliation = await WorkspacePersistenceTransformer.reconcilePaneAssociationsOffMain(
+            in: snapshot.workspace,
+            topology: preparedTopology
+        )
+        let didRepairAssociations = associationReconciliation.summary.changedCount > 0
+
+        let preparedComposition: PreparedWorkspaceComposition
+        switch await WorkspaceCompositionPreparer.prepareOffMain(associationReconciliation.workspace) {
+        case .prepared(let prepared):
+            preparedComposition = prepared
+        case .rejected(let rejection):
+            return .failure(.compositionRejected(rejection))
         }
 
         isApplyingInitialComposition = true
@@ -264,7 +275,11 @@ package final class WorkspaceStore {
                 repositoryTopologyAtom: repositoryTopologyAtom
             )
             _ = mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
+            paneAssociationBootReconciliationReporter?(associationReconciliation.summary)
             isDirty = false
+            if didRepairAssociations {
+                _ = await persistNow()
+            }
             workspaceStoreLogger.info(
                 "Installed SQLite workspace '\(preparedComposition.identity.workspaceName)' with \(preparedComposition.panes.count) pane(s), \(preparedComposition.tabs.count) tab(s)"
             )

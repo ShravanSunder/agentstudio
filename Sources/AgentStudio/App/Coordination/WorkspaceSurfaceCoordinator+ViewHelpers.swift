@@ -8,12 +8,11 @@ extension WorkspaceSurfaceCoordinator {
     func resolvedWorktreeContext(
         for targetPane: Pane?
     ) -> (repo: Repo, worktree: Worktree)? {
-        if let worktreeId = targetPane?.worktreeId,
-            let repoId = targetPane?.repoId,
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-            let repo = store.repositoryTopologyAtom.repo(repoId)
-        {
-            return (repo, worktree)
+        if let resolved = store.repositoryTopologyAtom.validatedAssociation(
+            repoId: targetPane?.repoId,
+            worktreeId: targetPane?.worktreeId
+        ) {
+            return resolved
         }
 
         return store.repositoryTopologyAtom.repoAndWorktree(containing: targetPane?.metadata.facets.cwd)
@@ -27,26 +26,25 @@ extension WorkspaceSurfaceCoordinator {
         repo: Repo?,
         worktree: Worktree?
     ) {
-        if let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let repo = store.repositoryTopologyAtom.repo(repoId),
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
-        {
+        if let resolved = store.repositoryTopologyAtom.validatedAssociation(
+            repoId: pane.repoId,
+            worktreeId: pane.worktreeId
+        ) {
             return (
                 PaneMetadata(
                     contentType: .browser,
-                    launchDirectory: worktree.path,
+                    launchDirectory: resolved.worktree.path,
                     title: fallbackTitle,
                     facets: PaneContextFacets(
-                        repoId: repo.id,
-                        repoName: repo.name,
-                        worktreeId: worktree.id,
-                        worktreeName: worktree.name,
-                        cwd: pane.metadata.cwd ?? worktree.path
+                        repoId: resolved.repo.id,
+                        repoName: resolved.repo.name,
+                        worktreeId: resolved.worktree.id,
+                        worktreeName: resolved.worktree.name,
+                        cwd: pane.metadata.cwd ?? resolved.worktree.path
                     )
                 ),
-                repo,
-                worktree
+                resolved.repo,
+                resolved.worktree
             )
         }
 
