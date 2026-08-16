@@ -34,7 +34,7 @@ struct RepoExplorerViewTests {
         let confirmedZero = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 0)
         let positive = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
 
-        #expect(unknown.icon == .system(.arrowClockwise))
+        #expect(unknown.icon == .system(.circle))
         #expect(unknown.text == nil)
         #expect(unknown.usesAccent == false)
         #expect(confirmedZero.icon == .octicon("octicon-git-pull-request"))

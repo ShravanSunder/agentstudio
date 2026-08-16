@@ -91,18 +91,8 @@ struct RepoExplorerWorktreeRowTests {
         )
     }
 
-    @Test("unknown pull-request facts render a static hollow dot, never a reload glyph")
-    func unknownPullRequestFactsRenderStaticHollowDot() throws {
-        let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
-        let known = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
-
-        #expect(unknown.icon == .system(.circle))
-        #expect(unknown.text == nil)
-        #expect(!unknown.usesAccent)
-        #expect(known.icon == .octicon("octicon-git-pull-request"))
-        #expect(known.text == "2")
-        #expect(known.usesAccent)
-
+    @Test("chip rows carry no animation")
+    func chipRowsCarryNoAnimation() throws {
         let chipSource = try String(
             contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
