@@ -325,6 +325,21 @@ final class WorkspaceSurfaceCoordinator {
         let lookupStartedAt = lookupClock.now
         let topologySnapshot = store.repositoryTopologyAtom.captureReadSnapshot()
         let resolvedContext = topologySnapshot.repoAndWorktree(containing: cwd)
+        let currentAssociationIsValid =
+            topologySnapshot.validatedAssociation(
+                repoId: currentFacets?.repoId,
+                worktreeId: currentFacets?.worktreeId
+            ) != nil
+        let currentAssociationIsTemporarilyUnavailable =
+            topologySnapshot.isKnownAssociationTemporarilyUnavailable(
+                repoId: currentFacets?.repoId,
+                worktreeId: currentFacets?.worktreeId
+            )
+        let currentAssociationIsKnownInvalid =
+            currentFacets?.repoId != nil
+            && currentFacets?.worktreeId != nil
+            && !currentAssociationIsValid
+            && !currentAssociationIsTemporarilyUnavailable
         if let cwd {
             performanceTraceRecorder?.recordRepoAndWorktreeLookup(
                 duration: lookupStartedAt.duration(to: lookupClock.now),
@@ -345,11 +360,9 @@ final class WorkspaceSurfaceCoordinator {
                 worktreeId: resolvedContext.worktree.id
             )
         } else if cwd != nil,
+            !currentAssociationIsKnownInvalid,
             topologySnapshot.hasUnavailableWorktree(containing: cwd)
-                || topologySnapshot.isKnownAssociationTemporarilyUnavailable(
-                    repoId: currentFacets?.repoId,
-                    worktreeId: currentFacets?.worktreeId
-                )
+                || currentAssociationIsTemporarilyUnavailable
         {
             associationResolution = .uncertain
         } else {

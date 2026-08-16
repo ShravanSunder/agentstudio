@@ -230,6 +230,70 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         await coordinator.shutdown()
     }
 
+    @Test("known foreign association clears even when cwd lies under an unavailable worktree")
+    func knownForeignAssociationClearsBeforePathUncertainty() async throws {
+        let bus = makeTestPaneRuntimeEventBus()
+        let store = WorkspaceStore()
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: CWDIdentitySurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: bus
+        )
+        let unavailableRepository = store.addRepo(at: URL(filePath: "/tmp/runtime-cwd-unavailable-owner"))
+        let unavailableWorktree = try #require(unavailableRepository.worktrees.first)
+        let foreignRepository = store.addRepo(at: URL(filePath: "/tmp/runtime-cwd-foreign-owner"))
+        let foreignWorktree = try #require(foreignRepository.worktrees.first)
+        let pane = store.createPane(
+            launchDirectory: foreignWorktree.path,
+            facets: PaneContextFacets(
+                repoId: foreignRepository.id,
+                worktreeId: foreignWorktree.id,
+                cwd: foreignWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        let invalidAssociationRevision = try #require(
+            store.paneAtom.graphAtom.reservePaneAssociationRevision(pane.id)
+        )
+        #expect(
+            store.paneAtom.graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: foreignWorktree.path,
+                resolution: .matched(
+                    repoId: unavailableRepository.id,
+                    worktreeId: foreignWorktree.id
+                ),
+                revision: invalidAssociationRevision
+            ) == .applied
+        )
+        store.markRepoUnavailable(unavailableRepository.id)
+        let changedCWD = unavailableWorktree.path.appending(path: "Sources")
+
+        _ = await bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .terminal(.cwdChanged(changedCWD.path)),
+                paneId: PaneId(existingUUID: pane.id)
+            )
+        )
+        await eventually("known foreign association should clear before path uncertainty") {
+            let facets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+            return facets?.cwd?.standardizedFileURL.path == changedCWD.standardizedFileURL.path
+                && facets?.repoId == nil
+                && facets?.worktreeId == nil
+        }
+
+        let updatedFacets = try #require(
+            store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+        )
+        #expect(updatedFacets.cwd?.standardizedFileURL.path == changedCWD.standardizedFileURL.path)
+        #expect(updatedFacets.repoId == nil)
+        #expect(updatedFacets.worktreeId == nil)
+        await coordinator.shutdown()
+    }
+
 }
 
 @MainActor
