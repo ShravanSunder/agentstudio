@@ -312,7 +312,10 @@ struct WorkspaceEmptyStateView: View {
             VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
                 if let quickFindPresentation {
                     launcherShortcutRow(
-                        key: quickFindDefinition.keyBinding?.displayString,
+                        leadingContent: .preferred(
+                            keyBindingDisplayString: quickFindDefinition.keyBinding?.displayString,
+                            icon: quickFindDefinition.actionSpec.icon
+                        ),
                         title: quickFindDefinition.label,
                         subtitle: "Everything in the app, one keypress away.",
                         isEnabled: quickFindPresentation.isEnabled,
@@ -322,7 +325,10 @@ struct WorkspaceEmptyStateView: View {
 
                 if let repositoriesPresentation {
                     launcherShortcutRow(
-                        key: newTabOrWorktreeDefinition.keyBinding?.displayString,
+                        leadingContent: .preferred(
+                            keyBindingDisplayString: newTabOrWorktreeDefinition.keyBinding?.displayString,
+                            icon: newTabOrWorktreeDefinition.actionSpec.icon
+                        ),
                         title: newTabOrWorktreeDefinition.label,
                         subtitle: "Opens the # picker. New Empty Tab is always first.",
                         isEnabled: repositoriesPresentation.isEnabled,
@@ -332,7 +338,10 @@ struct WorkspaceEmptyStateView: View {
 
                 if let watchFolderPresentation {
                     launcherShortcutRow(
-                        keyImage: "folder.badge.plus",
+                        leadingContent: .preferred(
+                            keyBindingDisplayString: watchFolderDefinition.keyBinding?.displayString,
+                            icon: watchFolderDefinition.actionSpec.icon
+                        ),
                         title: watchFolderDefinition.label,
                         subtitle: "Scan and keep watching a folder for repos.",
                         isEnabled: watchFolderPresentation.isEnabled,
@@ -345,16 +354,15 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private func launcherShortcutRow(
-        key: String? = nil,
-        keyImage: String? = nil,
+        leadingContent: LauncherShortcutLeadingContent,
         title: String,
         subtitle: String,
         isEnabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
         LauncherShortcutRow(
-            key: key,
-            keyImage: keyImage,
+            leadingContent: leadingContent,
+            octiconLoader: octiconLoader,
             title: title,
             subtitle: subtitle,
             isEnabled: isEnabled,
