@@ -48,7 +48,7 @@ struct CommandBarBreadcrumbRow: View {
         .padding(.horizontal, 12)
         .frame(height: 28)
         .frame(maxWidth: .infinity)
-        .background(Color.accentColor.opacity(0.06))
+        .background(AppStyles.General.Accent.primaryColor.opacity(0.06))
     }
 
     private func breadcrumbContent(
@@ -71,7 +71,7 @@ struct CommandBarBreadcrumbRow: View {
             } else {
                 Text(item.label)
                     .font(.system(size: AppStyles.General.Typography.textSm))
-                    .foregroundStyle(Color.accentColor.opacity(0.8))
+                    .foregroundStyle(AppStyles.General.Accent.primaryColor.opacity(0.8))
             }
         }
         .lineLimit(1)

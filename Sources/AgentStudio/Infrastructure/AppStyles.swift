@@ -1,7 +1,17 @@
+// Native design-system source of truth. Keep its convention-based correlation with
+// BridgeWeb/src/app/bridge-app.css aligned through
+// docs/architecture/bridgeweb_design_token_architecture.md.
+
 import SwiftUI
 
 package enum AppStyles {
     package enum General {
+        package enum Accent {
+            package static let primaryHex = "#89B4FA"
+            package static let primaryNSColor = NSColor(hex: primaryHex)!
+            package static let primaryColor = Color(nsColor: primaryNSColor)
+        }
+
         package enum Icon {
             package static let compact: CGFloat = 12
             package static let toolbar: CGFloat = 16
@@ -202,7 +212,7 @@ package enum AppStyles {
                     accentPaletteHexes.indices.contains(index)
                     ? accentPaletteHexes[index]
                     : accentPaletteHexes.first ?? ""
-                return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
+                return Color(nsColor: NSColor(hex: hex) ?? AppStyles.General.Accent.primaryNSColor)
             }
         }
 

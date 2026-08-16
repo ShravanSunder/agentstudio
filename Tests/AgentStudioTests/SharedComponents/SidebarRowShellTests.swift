@@ -38,8 +38,8 @@ struct SidebarRowShellTests {
             isHovering: false
         )
 
-        #expect(selectedFill == Color.accentColor.opacity(AppStyles.General.Fill.active))
-        #expect(flashingFill == Color.accentColor.opacity(AppStyles.General.Fill.selected))
+        #expect(selectedFill == AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Fill.active))
+        #expect(flashingFill == AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Fill.selected))
     }
 
     @Test("hover fill matches RepoExplorer accent hover policy")
@@ -51,7 +51,9 @@ struct SidebarRowShellTests {
             isHovering: true
         )
 
-        #expect(hoverFill == Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity))
+        #expect(
+            hoverFill == AppStyles.General.Accent.primaryColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
+        )
     }
 
     @Test("content padding and radius match RepoExplorer row chrome policy")

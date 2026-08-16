@@ -11,15 +11,17 @@ enum PaneTabEmptyStateViewFactory {
         onWatchFolder: @escaping () -> Void,
         onOpenRecent: @escaping (ApplicationRecentEntity) -> Void,
         onOpenAllRecent: @escaping () -> Void
-    ) -> NSHostingView<WorkspaceEmptyStateView> {
+    ) -> NSHostingView<AnyView> {
         let view = NSHostingView(
-            rootView: WorkspaceEmptyStateView(
-                model: model,
-                octiconLoader: octiconLoader,
-                onWatchFolder: onWatchFolder,
-                onOpenRecent: onOpenRecent,
-                onOpenAllRecent: onOpenAllRecent
-            )
+            rootView: AnyView(
+                WorkspaceEmptyStateView(
+                    model: model,
+                    octiconLoader: octiconLoader,
+                    onWatchFolder: onWatchFolder,
+                    onOpenRecent: onOpenRecent,
+                    onOpenAllRecent: onOpenAllRecent
+                )
+                .tint(AppStyles.General.Accent.primaryColor))
         )
         view.sizingOptions = []
         return view

@@ -191,7 +191,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let octiconLoader: OcticonLoader
     private let appEventBus: EventBus<AppEvent>
     private var terminalContainer: RestoreAwareTerminalContainerView!
-    private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
+    private var emptyStateView: NSHostingView<AnyView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
     #if DEBUG
@@ -1704,7 +1704,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
+    private func createEmptyStateView() -> NSHostingView<AnyView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
             octiconLoader: octiconLoader,
@@ -1729,14 +1729,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func rebuildEmptyStateView() {
         let currentModel = emptyStateModel
         guard currentModel != lastEmptyStateModel else { return }
-        emptyStateView?.rootView = WorkspaceEmptyStateView(
-            model: currentModel,
-            octiconLoader: octiconLoader,
+        emptyStateView?.rootView = AnyView(
+            WorkspaceEmptyStateView(
+                model: currentModel,
+                octiconLoader: octiconLoader,
 
-            onWatchFolder: { [weak self] in self?.watchFolderAction() },
-            onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
-            onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
-        )
+                onWatchFolder: { [weak self] in self?.watchFolderAction() },
+                onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
+                onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
+            )
+            .tint(AppStyles.General.Accent.primaryColor))
         lastEmptyStateModel = currentModel
     }
 
@@ -2583,6 +2585,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     self?.closeTabRenamePopover()
                 }
             )
+            .tint(AppStyles.General.Accent.primaryColor)
         )
         tabRenamePopover = popover
         if let workspaceWindowId = workspaceWindowId ?? windowLifecycleStore.focusedWindowId
@@ -4830,6 +4833,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     self?.closePaneNotePopover()
                 }
             )
+            .tint(AppStyles.General.Accent.primaryColor)
         )
         paneNotePopover = popover
 

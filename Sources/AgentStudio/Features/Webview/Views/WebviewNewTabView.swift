@@ -247,7 +247,9 @@ private struct RecentSiteRow: View {
     @State private var isHovered = false
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(AppStyles.General.Fill.selected) }
+        if isSelected {
+            return AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Fill.selected)
+        }
         if isHovered { return Color.primary.opacity(0.04) }
         return .clear
     }

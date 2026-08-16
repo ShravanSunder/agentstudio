@@ -148,7 +148,7 @@ struct SurfaceErrorOverlay: View {
 
 /// AppKit wrapper for SurfaceErrorOverlay
 final class SurfaceErrorOverlayView: NSView {
-    private var hostingView: NSHostingView<SurfaceErrorOverlay>?
+    private var hostingView: NSHostingView<AnyView>?
     private var currentHealth: SurfaceHealth = .healthy
 
     var onRestart: (() -> Void)?
@@ -191,7 +191,8 @@ final class SurfaceErrorOverlayView: NSView {
             }
         )
 
-        let hosting = NSHostingView(rootView: overlay)
+        let hosting = NSHostingView(
+            rootView: AnyView(overlay.tint(AppStyles.General.Accent.primaryColor)))
         hosting.frame = bounds
         hosting.autoresizingMask = [.width, .height]
         addSubview(hosting)

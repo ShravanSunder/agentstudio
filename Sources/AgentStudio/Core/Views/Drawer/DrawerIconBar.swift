@@ -664,8 +664,10 @@ struct DrawerIconBar: View {
         guard let iconAccentColorHex = action.state.iconAccentColorHex else {
             return paneSurfaceActionForeground(action, isHovered: isHovered)
         }
-        return Color(nsColor: NSColor(hex: iconAccentColorHex) ?? .controlAccentColor)
-            .opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+        return Color(
+            nsColor: NSColor(hex: iconAccentColorHex) ?? AppStyles.General.Accent.primaryNSColor
+        )
+        .opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     private func paneSurfaceActionFill(
