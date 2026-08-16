@@ -107,15 +107,12 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore
     ) -> (repo: Repo, worktreeId: UUID?)? {
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
-        if let repoId = pane.repoId,
-            let repo = workspaceRepositoryTopology.repo(repoId)
-        {
-            return (repo, pane.worktreeId)
-        }
-
-        guard let resolved = workspaceRepositoryTopology.repoAndWorktree(containing: pane.metadata.facets.cwd) else {
-            return nil
-        }
+        guard
+            let resolved = workspaceRepositoryTopology.validatedAssociation(
+                repoId: pane.repoId,
+                worktreeId: pane.worktreeId
+            )
+        else { return nil }
         return (resolved.repo, resolved.worktree.id)
     }
 

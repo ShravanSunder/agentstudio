@@ -392,8 +392,8 @@ struct PaneTabViewControllerTargetedPaneCommandTests {
             targetType: .pane
         )
 
-        #expect(harness.launchRecorder.revealedPaths == [drawerDirectory])
-        #expect(harness.launchRecorder.copiedPaths == [drawerDirectory])
+        #expect(harness.launchRecorder.revealedPaths.map(\.path) == [drawerDirectory.path])
+        #expect(harness.launchRecorder.copiedPaths.map(\.path) == [drawerDirectory.path])
         #expect(harness.atomRegistry.editorChooser.openForPaneId == drawerPane.id)
         #expect(harness.atomRegistry.editorChooser.availableTargets.map(\.id) == ["cursor", "vscode"])
     }

@@ -17,6 +17,41 @@ package enum TerminalAccumulatorApplyOutcome: String, Equatable, Sendable {
     case changed
 }
 
+package enum PaneAssociationOutcome: String, Equatable, Sendable {
+    case stampedKnown = "stamped_known"
+    case resolvedChanged = "resolved_changed"
+    case resolvedEqual = "resolved_equal"
+    case clearedNoMatch = "cleared_no_match"
+    case topologyRemoved = "topology_removed"
+    case deferredUncertain = "deferred_uncertain"
+    case freeNil = "free_nil"
+}
+
+package struct PaneAssociationBootReconciliationSummary: Equatable, Sendable {
+    package let paneCount: UInt64
+    package let retainedKnownCount: UInt64
+    package let backfilledCount: UInt64
+    package let danglingClearedCount: UInt64
+    package let freeNilCount: UInt64
+    package let changedCount: UInt64
+
+    package init(
+        paneCount: UInt64,
+        retainedKnownCount: UInt64,
+        backfilledCount: UInt64,
+        danglingClearedCount: UInt64,
+        freeNilCount: UInt64,
+        changedCount: UInt64
+    ) {
+        self.paneCount = paneCount
+        self.retainedKnownCount = retainedKnownCount
+        self.backfilledCount = backfilledCount
+        self.danglingClearedCount = danglingClearedCount
+        self.freeNilCount = freeNilCount
+        self.changedCount = changedCount
+    }
+}
+
 package struct TerminalAccumulatorDrainPerformanceSnapshot: Equatable, Sendable {
     let drainClass: TerminalAccumulatorDrainClass
     let offeredCount: UInt64
@@ -161,6 +196,8 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case interactionLatency = "performance.interaction.latency"
         case managementLayerAppKitState = "performance.management_layer.appkit_state"
         case managementLayerCommand = "performance.management_layer.command"
+        case paneAssociation = "performance.pane.association"
+        case paneAssociationBootReconciliation = "performance.pane.association_boot_reconciliation"
         case paneActionExecution = "performance.pane_action.execution"
         case paneTabLayout = "performance.pane_tab.layout"
         case paneViewRestore = "performance.pane_view.restore"
@@ -202,6 +239,7 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
     private let eventQueue: AgentStudioTraceEventQueue?
     private let lock = NSLock()
     private var topologyLookupAdmission = TopologyLookupTraceAdmission()
+    private var paneAssociationAdmission = PaneAssociationTraceAdmission()
     private let processMemorySampler: AgentStudioProcessMemorySampler?
     private let runtimeDeliveryPerformanceReporter: RuntimeDeliveryPerformanceReporter?
     private var recordedStartupLaunchInstant: ContinuousClock.Instant
@@ -354,6 +392,44 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
             attributes: [
                 "agentstudio.performance.topology.index.count": .int(indexCount),
                 "agentstudio.performance.topology.has_match": .bool(hasMatch),
+            ]
+        )
+    }
+
+    package func recordPaneAssociationOutcome(_ outcome: PaneAssociationOutcome) {
+        guard shouldRecordPaneAssociationOutcome() else { return }
+        record(
+            .paneAssociation,
+            attributes: [
+                "agentstudio.performance.pane.association_outcome": .string(outcome.rawValue)
+            ]
+        )
+    }
+
+    package func recordPaneAssociationBootReconciliation(
+        _ summary: PaneAssociationBootReconciliationSummary
+    ) {
+        record(
+            .paneAssociationBootReconciliation,
+            attributes: [
+                "agentstudio.performance.pane.association_boot.pane.count": Self.traceInteger(
+                    summary.paneCount
+                ),
+                "agentstudio.performance.pane.association_boot.retained_known.count": Self.traceInteger(
+                    summary.retainedKnownCount
+                ),
+                "agentstudio.performance.pane.association_boot.backfilled.count": Self.traceInteger(
+                    summary.backfilledCount
+                ),
+                "agentstudio.performance.pane.association_boot.dangling_cleared.count": Self.traceInteger(
+                    summary.danglingClearedCount
+                ),
+                "agentstudio.performance.pane.association_boot.free_nil.count": Self.traceInteger(
+                    summary.freeNilCount
+                ),
+                "agentstudio.performance.pane.association_boot.changed.count": Self.traceInteger(
+                    summary.changedCount
+                ),
             ]
         )
     }
@@ -519,8 +595,45 @@ package final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         )
     }
 
+    private func shouldRecordPaneAssociationOutcome() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return paneAssociationAdmission.admit(
+            now: ContinuousClock().now,
+            window: AppPolicies.Diagnostics.paneAssociationTraceAdmissionWindow,
+            limit: AppPolicies.Diagnostics.paneAssociationTraceAdmissionLimit
+        )
+    }
+
     private static func traceInteger(_ value: UInt64) -> AgentStudioTraceValue {
         .int(Int(clamping: value))
+    }
+}
+
+private struct PaneAssociationTraceAdmission {
+    private var windowStart: ContinuousClock.Instant?
+    private var admittedInWindow = 0
+
+    mutating func admit(
+        now: ContinuousClock.Instant,
+        window: Duration,
+        limit: Int
+    ) -> Bool {
+        resetWindowIfNeeded(now: now, window: window)
+        guard admittedInWindow < limit else { return false }
+        admittedInWindow += 1
+        return true
+    }
+
+    private mutating func resetWindowIfNeeded(now: ContinuousClock.Instant, window: Duration) {
+        guard let windowStart else {
+            self.windowStart = now
+            admittedInWindow = 0
+            return
+        }
+        guard windowStart.duration(to: now) >= window else { return }
+        self.windowStart = now
+        admittedInWindow = 0
     }
 }
 

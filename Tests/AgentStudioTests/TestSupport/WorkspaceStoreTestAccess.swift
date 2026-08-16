@@ -21,6 +21,7 @@ extension WorkspaceStore {
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil,
+        paneAssociationBootReconciliationReporter: PaneAssociationBootReconciliationReporter? = nil,
         persistenceReasonReporter: PaneTopologyPersistenceReasonReporter? = nil,
         startsObserving: Bool = true
     ) {
@@ -68,6 +69,7 @@ extension WorkspaceStore {
             persistDebounceDuration: persistDebounceDuration,
             clock: clock,
             recoveryReporter: recoveryReporter,
+            paneAssociationBootReconciliationReporter: paneAssociationBootReconciliationReporter,
             persistenceReasonReporter: persistenceReasonReporter
         )
         if startsObserving {

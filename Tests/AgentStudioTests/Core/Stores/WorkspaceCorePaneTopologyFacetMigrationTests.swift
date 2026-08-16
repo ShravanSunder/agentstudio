@@ -7,7 +7,7 @@ import Testing
 
 @Suite("Workspace core pane topology facet migration")
 struct WorkspaceCorePaneTopologyFacetMigrationTests {
-    @Test("migration 015 preserves the complete pane and layout graph")
+    @Test("migration 015 facet removal preserves the complete graph through current migrations")
     func migration015PreservesCompletePaneAndLayoutGraph() async throws {
         // Arrange
         let fixture = try makeMigration015PreservationFixture()
@@ -28,8 +28,8 @@ struct WorkspaceCorePaneTopologyFacetMigrationTests {
             let paneFacetTriggers = try fetchPaneFacetTriggerNames(database)
             return (paneColumns, quickCheck, foreignKeyViolations, paneFacetTriggers)
         }
-        #expect(!schemaProof.0.contains("facet_repo_id"))
-        #expect(!schemaProof.0.contains("facet_worktree_id"))
+        #expect(schemaProof.0.contains("facet_repo_id"))
+        #expect(schemaProof.0.contains("facet_worktree_id"))
         #expect(schemaProof.1 == "ok")
         #expect(schemaProof.2.isEmpty)
         #expect(schemaProof.3.isEmpty)
@@ -82,7 +82,7 @@ struct WorkspaceCorePaneTopologyFacetMigrationTests {
     }
 
     @MainActor
-    @Test("migration 015 discards malformed legacy facet text without graph loss")
+    @Test("migration 015 discards malformed legacy facet text before current association columns")
     func migration015DiscardsMalformedLegacyFacetTextWithoutGraphLoss() async throws {
         // Arrange
         let fixture = try makeMigration015MalformedFacetFixture()
@@ -112,8 +112,8 @@ struct WorkspaceCorePaneTopologyFacetMigrationTests {
             let paneFacetTriggers = try fetchPaneFacetTriggerNames(database)
             return (paneColumns, quickCheck, foreignKeyViolations, paneFacetTriggers)
         }
-        #expect(!schemaProof.0.contains("facet_repo_id"))
-        #expect(!schemaProof.0.contains("facet_worktree_id"))
+        #expect(schemaProof.0.contains("facet_repo_id"))
+        #expect(schemaProof.0.contains("facet_worktree_id"))
         #expect(schemaProof.1 == "ok")
         #expect(schemaProof.2.isEmpty)
         #expect(schemaProof.3.isEmpty)
@@ -179,15 +179,19 @@ struct WorkspaceCorePaneTopologyFacetMigrationTests {
         #expect(rollbackProof.1 == paneFacetTriggerNames)
         #expect(!rollbackProof.2.contains("015_drop_pane_topology_facets"))
 
-        let predecessorRepository = WorkspaceCoreRepository(databaseWriter: fixture.databaseQueue)
-        let predecessorPaneGraph = try predecessorRepository.fetchPaneGraph(workspaceId: fixture.workspaceID)
-        try predecessorRepository.replacePaneGraph(
-            workspaceId: fixture.workspaceID,
-            graph: predecessorPaneGraph
-        )
-        #expect(
-            try predecessorRepository.fetchPaneGraph(workspaceId: fixture.workspaceID)
-                == predecessorPaneGraph
-        )
+        try fixture.databaseQueue.write { database in
+            try database.execute(
+                sql: "UPDATE pane SET note = ? WHERE id = ?",
+                arguments: ["rollback remains writable", fixture.terminalPaneID.uuidString]
+            )
+        }
+        let persistedNote = try fixture.databaseQueue.read { database in
+            try String.fetchOne(
+                database,
+                sql: "SELECT note FROM pane WHERE id = ?",
+                arguments: [fixture.terminalPaneID.uuidString]
+            )
+        }
+        #expect(persistedNote == "rollback remains writable")
     }
 }

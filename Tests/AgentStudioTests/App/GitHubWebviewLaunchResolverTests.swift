@@ -3,6 +3,7 @@ import Testing
 
 @testable import AgentStudio
 @testable import AgentStudioCore
+@testable import AgentStudioInfrastructure
 @testable import AgentStudioTestSupport
 
 @Suite(.serialized)
@@ -234,5 +235,51 @@ struct GitHubWebviewLaunchResolverTests {
         )
 
         #expect(url == URL(string: "https://github.com/ShravanSunder/agentstudio"))
+    }
+
+    @Test
+    func danglingAssociationDoesNotRecoverRepositoryFromCwd() throws {
+        let store = makeStore()
+        let cache = RepoCacheAtom()
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        let worktree = try #require(store.repos.first(where: { $0.id == repo.id })?.worktrees.first)
+        let pane = Pane(
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: worktree.path,
+                title: "Dangling",
+                facets: PaneContextFacets(
+                    repoId: UUIDv7.generate(),
+                    worktreeId: worktree.id,
+                    cwd: worktree.path
+                )
+            )
+        )
+        #expect(store.paneAtom.insertRestoredPane(pane))
+        store.appendTab(Tab(paneId: pane.id))
+        cache.setRepoEnrichment(
+            .resolvedRemote(
+                repoId: repo.id,
+                raw: RawRepoOrigin(origin: "git@github.com:ShravanSunder/agentstudio.git", upstream: nil),
+                identity: RepoIdentity(
+                    groupKey: "remote:ShravanSunder/agentstudio",
+                    remoteSlug: "ShravanSunder/agentstudio",
+                    organizationName: "ShravanSunder",
+                    displayName: "agentstudio"
+                ),
+                updatedAt: Date()
+            )
+        )
+
+        #expect(
+            GitHubWebviewLaunchResolver.urlForActivePane(store: store, repoCache: cache)
+                == URL(string: "https://github.com")
+        )
     }
 }

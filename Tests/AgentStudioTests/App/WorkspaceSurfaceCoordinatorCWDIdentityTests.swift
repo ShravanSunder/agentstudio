@@ -142,6 +142,81 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    @Test("temporary repo unavailability retains association and preserved topology heals moved CWD")
+    func temporaryRepoUnavailabilityRetainsAndHealsAssociation() async throws {
+        let bus = makeTestPaneRuntimeEventBus()
+        let store = WorkspaceStore()
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: CWDIdentitySurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: bus
+        )
+
+        let repository = store.addRepo(at: URL(filePath: "/tmp/runtime-cwd-unavailable-repo"))
+        let firstWorktree = try #require(repository.worktrees.first)
+        let secondWorktree = Worktree(
+            repoId: repository.id,
+            name: "feature",
+            path: URL(filePath: "/tmp/runtime-cwd-unavailable-feature")
+        )
+        store.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [firstWorktree, secondWorktree]
+        )
+        let pane = store.createPane(
+            launchDirectory: firstWorktree.path,
+            facets: PaneContextFacets(
+                repoId: repository.id,
+                worktreeId: firstWorktree.id,
+                cwd: firstWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        store.markRepoUnavailable(repository.id)
+
+        _ = await bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .terminal(.cwdChanged(secondWorktree.path.path)),
+                paneId: PaneId(existingUUID: pane.id)
+            )
+        )
+        await eventually("uncertain CWD update should retain the known association") {
+            let facets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+            return facets?.cwd?.standardizedFileURL.path
+                == secondWorktree.path.standardizedFileURL.path
+                && facets?.repoId == repository.id
+                && facets?.worktreeId == firstWorktree.id
+        }
+        let unavailableFacets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+        #expect(
+            unavailableFacets?.cwd?.standardizedFileURL.path
+                == secondWorktree.path.standardizedFileURL.path
+        )
+        #expect(unavailableFacets?.repoId == repository.id)
+        #expect(unavailableFacets?.worktreeId == firstWorktree.id)
+
+        let reconciliation = store.mutationCoordinator.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [firstWorktree, secondWorktree]
+        )
+        guard case .accepted(let acceptedReconciliation) = reconciliation else {
+            Issue.record("preserved topology should be accepted after temporary unavailability")
+            await coordinator.shutdown()
+            return
+        }
+        coordinator.topologyDidChange(acceptedReconciliation.delta)
+
+        let healedFacets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+        #expect(!store.isRepoUnavailable(repository.id))
+        #expect(healedFacets?.repoId == repository.id)
+        #expect(healedFacets?.worktreeId == secondWorktree.id)
+        #expect(store.pane(pane.id)?.residency == .active)
+        await coordinator.shutdown()
+    }
+
 }
 
 @MainActor

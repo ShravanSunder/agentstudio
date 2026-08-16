@@ -216,7 +216,12 @@ struct AgentStudioIPCLayoutAdapterTests {
     func concreteLayoutActionsRegisterHostsBeforeExposingCreatedPanes() throws {
         try withTestCoreAtoms { _ in
             let harness = makeHarness()
-            let parentPane = harness.store.createPane(title: "Parent")
+            let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+            let parentPane = harness.store.createPane(
+                launchDirectory: worktree.path,
+                title: "Parent",
+                facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path)
+            )
             let tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
             harness.store.appendTab(tab)
             harness.store.setActiveTab(tab.id)
@@ -236,6 +241,12 @@ struct AgentStudioIPCLayoutAdapterTests {
             let splitPaneId = try #require(splitPaneIds.first)
 
             #expect(harness.viewRegistry.view(for: splitPaneId) != nil)
+            let splitFacets = try #require(
+                harness.store.paneAtom.graphAtom.paneState(splitPaneId)?.durableContextFacets
+            )
+            #expect(splitFacets.repoId == repo.id)
+            #expect(splitFacets.worktreeId == worktree.id)
+            #expect(splitFacets.cwd?.standardizedFileURL.path == worktree.path.standardizedFileURL.path)
 
             let panesBeforeDrawerAdd = harness.store.paneAtom.graphAtom.paneIDs
             _ = try adapter.addDrawerPane(
@@ -246,6 +257,12 @@ struct AgentStudioIPCLayoutAdapterTests {
 
             #expect(harness.store.paneAtom.pane(drawerPaneId)?.isDrawerChild == true)
             #expect(harness.viewRegistry.view(for: drawerPaneId) != nil)
+            let drawerFacets = try #require(
+                harness.store.paneAtom.graphAtom.paneState(drawerPaneId)?.durableContextFacets
+            )
+            #expect(drawerFacets.repoId == repo.id)
+            #expect(drawerFacets.worktreeId == worktree.id)
+            #expect(drawerFacets.cwd?.standardizedFileURL.path == worktree.path.standardizedFileURL.path)
         }
     }
 }

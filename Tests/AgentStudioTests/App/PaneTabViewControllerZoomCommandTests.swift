@@ -209,8 +209,8 @@ struct PaneTabViewControllerZoomCommandTests {
         )
     }
 
-    @Test("Zoom Viewer recovers a stale explicit worktree from the pane CWD")
-    func zoomViewerRecoversStaleWorktreeFromCWD() throws {
+    @Test("Zoom Viewer renders unavailable for a dangling association without CWD recovery")
+    func zoomViewerDoesNotRecoverDanglingAssociationFromCWD() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (staleRepo, staleWorktree) = makeRepoAndWorktree(
@@ -236,8 +236,11 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.reconcileDiscoveredWorktrees(staleRepo.id, worktrees: [])
 
         #expect(harness.store.repositoryTopologyAtom.worktree(staleWorktree.id) == nil)
+        harness.controller.execute(.zoomPane, target: sourcePane.id, targetType: .pane)
+
         #expect(
-            harness.controller.canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePane.id)
+            harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                .viewerPresentation == .unavailable
         )
     }
 
