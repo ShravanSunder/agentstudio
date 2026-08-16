@@ -46,7 +46,8 @@ if [ "$dry_run" = true ]; then
   echo "dry-run contract: delegates to the standard debug observability runner"
   echo "dry-run contract: requires strict LaunchServices with direct fallback disabled"
   echo "dry-run contract: creates a private disposable hierarchical Git fixture outside the repo"
-  echo "dry-run contract: starts with 257 initial Review diffs across the hierarchical fixture"
+  echo "dry-run contract: starts with 258 initial Review diffs across the hierarchical fixture"
+  echo "dry-run contract: includes one permanent Markdown proof document"
   echo "dry-run contract: starts the bridge-product-paint-correlation diagnostic with one-shot IPC escrow"
   echo "dry-run contract: seeds a designated default and an explicit symbolic comparison target"
   echo "dry-run contract: prepares same-tree target and shared-base movement without changing fixture bytes"
@@ -99,6 +100,91 @@ sha256_for_file() {
   "$SHASUM_BIN" -a 256 "$file_path" | awk '{ print $1 }'
 }
 
+write_markdown_fixture_baseline() {
+  local output_path="${1:?missing Markdown fixture output path}"
+  cat >"$output_path" <<'MARKDOWN'
+# Packaged Markdown Fixture
+
+This permanent document exercises semantic Markdown in the packaged WKWebView.
+
+## Structured content
+
+- Complete current-document rendering
+- Inert [Agent Studio link](https://example.invalid/agent-studio)
+- Syntax-highlighted Swift and bounded Mermaid
+
+> Remote navigation stays disabled inside the rendered document.
+
+| Surface | Expected result |
+| --- | --- |
+| File View | Complete semantic document |
+| Review | Exact Pierre Diff with Open available |
+
+## Swift highlighting
+
+```swift
+struct PackagedMarkdownProof: Sendable {
+    let title: String
+    let diagramCount: Int
+}
+```
+
+## Mermaid diagram
+
+```mermaid
+flowchart LR
+    MarkdownExit[Markdown Exit] --> Shiki[Shiki tokens]
+    MarkdownExit --> Mermaid[Mermaid SVG]
+    Shiki --> Canvas[Rendered canvas]
+    Mermaid --> Canvas
+```
+MARKDOWN
+}
+
+write_markdown_fixture_current() {
+  local output_path="${1:?missing Markdown fixture output path}"
+  cat >"$output_path" <<'MARKDOWN'
+# Packaged Markdown Fixture
+
+This permanent document proves semantic Markdown in the packaged WKWebView.
+
+## Structured content
+
+- Complete current-document rendering
+- Inert [Agent Studio link](https://example.invalid/agent-studio)
+- Syntax-highlighted Swift and bounded Mermaid
+
+> Remote navigation stays disabled inside the rendered document.
+
+| Surface | Expected result |
+| --- | --- |
+| File View | Complete semantic document |
+| Review | Exact Pierre Diff with Open available |
+
+## Swift highlighting
+
+```swift
+struct PackagedMarkdownProof: Sendable {
+    let title: String
+    let diagramCount: Int
+}
+
+let proof = PackagedMarkdownProof(title: "Packaged WKWebView", diagramCount: 1)
+print(proof.title)
+```
+
+## Mermaid diagram
+
+```mermaid
+flowchart LR
+    MarkdownExit[Markdown Exit] --> Shiki[Shiki tokens]
+    MarkdownExit --> Mermaid[Mermaid SVG]
+    Shiki --> Canvas[Rendered canvas]
+    Mermaid --> Canvas
+```
+MARKDOWN
+}
+
 fixture_digest_for_current_worktree() {
   local fixture_path="${1:?missing fixture path}"
   local fixture_baseline="${2:?missing fixture baseline}"
@@ -142,6 +228,7 @@ reviewed_branch_name=journey-reviewed
 default_branch_name=journey-integration
 comparison_target_name=journey-stack-base
 tracked_relative_path=tracked.txt
+markdown_relative_path=packaged-markdown-proof.md
 tracked_sha256=""
 tracked_byte_count=0
 early_relative_path="tree/group-00/segment-00/file-000.swift"
@@ -175,6 +262,7 @@ write_receipt() {
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_DEFAULT_BRANCH_NAME "$default_branch_name"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME "$comparison_target_name"
     write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_PATH "$tracked_relative_path"
+    write_state_value AGENTSTUDIO_BRIDGE_JOURNEY_MARKDOWN_PATH "$markdown_relative_path"
     write_state_value TRACKED_CANARY bridge-product-paint-canary
     write_state_value TRACKED_SHA256 "$tracked_sha256"
     write_state_value TRACKED_BYTE_COUNT "$tracked_byte_count"
@@ -213,7 +301,8 @@ write_receipt "$journey_status" "$journey_reason"
 "$GIT_BIN" -C "$fixture_root" config commit.gpgsign false
 
 printf 'bridge-product-paint-baseline\n' >"$fixture_root/$tracked_relative_path"
-fixture_file_count=1
+write_markdown_fixture_baseline "$fixture_root/$markdown_relative_path"
+fixture_file_count=2
 for index in $(seq 0 255); do
   group_index=$((index / 32))
   segment_index=$(((index % 32) / 8))
@@ -225,8 +314,8 @@ for index in $(seq 0 255); do
   fixture_file_count=$((fixture_file_count + 1))
 done
 
-if [ "$fixture_file_count" -ne 257 ]; then
-  echo "fixture file count mismatch: expected 257, observed $fixture_file_count" >&2
+if [ "$fixture_file_count" -ne 258 ]; then
+  echo "fixture file count mismatch: expected 258, observed $fixture_file_count" >&2
   exit 1
 fi
 
@@ -247,6 +336,7 @@ baseline_commit="$($GIT_BIN -C "$fixture_root" rev-parse HEAD)"
 
 printf 'bridge-product-paint-canary\npackaged-journey-selected-source\n' \
   >"$fixture_root/$tracked_relative_path"
+write_markdown_fixture_current "$fixture_root/$markdown_relative_path"
 for index in $(seq 0 255); do
   group_index=$((index / 32))
   segment_index=$(((index % 32) / 8))

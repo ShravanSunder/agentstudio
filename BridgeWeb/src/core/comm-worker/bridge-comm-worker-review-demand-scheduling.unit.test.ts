@@ -6,6 +6,7 @@ import {
 	createBridgeCommWorkerReviewDemandScheduling,
 	createBridgeCommWorkerVisibleSourceChurnDedupeState,
 	recordBridgeCommWorkerVisibleSourceChurn,
+	reviewRuntimeSourceWithSelectedPresentation,
 } from './bridge-comm-worker-review-demand-scheduling.js';
 import {
 	createDeferredReviewContentStream,
@@ -14,6 +15,7 @@ import {
 	makeContentRequestDescriptor,
 	makeRenderSemantics,
 	makeWorkerReviewContentMetadata,
+	openReviewContentFromDescriptorMap,
 	type DeferredReviewContentStream,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
@@ -28,6 +30,35 @@ interface TestDemandAdmission {
 }
 
 describe('Bridge comm worker Review demand source-churn dedupe', () => {
+	test('changes only the selected item render semantics for an Open projection', () => {
+		const firstSemantics = makeRenderSemantics({ itemId: 'item-1' });
+		const secondSemantics = makeRenderSemantics({ itemId: 'item-2' });
+		const source = {
+			contentItems: [],
+			contentRequestDescriptors: [],
+			renderSemantics: [firstSemantics, secondSemantics],
+			rows: [],
+		};
+
+		const openSource = reviewRuntimeSourceWithSelectedPresentation({
+			itemId: 'item-1',
+			presentation: 'file',
+			source,
+		});
+
+		expect(openSource.renderSemantics).toEqual([
+			{ ...firstSemantics, itemKind: 'file' },
+			secondSemantics,
+		]);
+		expect(
+			reviewRuntimeSourceWithSelectedPresentation({
+				itemId: 'item-1',
+				presentation: 'diff',
+				source,
+			}),
+		).toBe(source);
+	});
+
 	test('retains only the affected item membership for the current revision', () => {
 		let state = createBridgeCommWorkerVisibleSourceChurnDedupeState();
 
@@ -478,6 +509,94 @@ describe('Bridge comm worker Review logical-position ledger', () => {
 });
 
 describe('Bridge comm worker Review production demand scheduling', () => {
+	test('re-prepares a resident selected item when its Review presentation changes', async () => {
+		const itemId = 'item-1';
+		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];
+		const contentRequestDescriptors = [
+			makeContentRequestDescriptor({ itemId, role: 'base', text: 'base body\n' }),
+			makeContentRequestDescriptor({ itemId, role: 'head', text: 'head body\n' }),
+		];
+		const renderSemantics = [makeRenderSemantics({ itemId })];
+		const rows = [{ id: itemId, index: 0, parentId: null }];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		const pump = createWorkerContentPreparationPump({ maxSliceMs: 8, now: () => 0 });
+		const store = createBridgeCommWorkerStore({ contentItems, rows, surface: 'review' });
+		store.actions.applySelectedFact({ epoch: 7, itemId });
+		store.actions.applyViewportFact({
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 0,
+			visibleItemIds: [itemId],
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 1 });
+		const scheduling = createBridgeCommWorkerReviewDemandScheduling({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: { className: 'interactive', maxBytes: 1024, maxWindowLines: 50 },
+			createSequence: (() => {
+				let sequence = 1;
+				return (): number => (sequence += 1);
+			})(),
+			markPreparationDrainRequired: () => {},
+			openReviewContent: openReviewContentFromDescriptorMap,
+			port: dispatch.port,
+			pump,
+			recordPreparationCompletion: () => {},
+			requestPreparationDrain: () => {},
+			usesProductTransport: false,
+		});
+		scheduling.updateRuntimeSource({
+			contentItems,
+			contentRequestDescriptors,
+			renderSemantics,
+			rows,
+		});
+		scheduling.resume();
+		scheduling.scheduleSelectedContentReadyPreparation({
+			epoch: 7,
+			itemId,
+			reviewPresentation: 'diff',
+			store,
+		});
+		for (let drainIndex = 0; drainIndex < 16; drainIndex += 1) {
+			pump.runUntilBudget();
+			// oxlint-disable-next-line no-await-in-loop -- Each publication stage schedules the next owned continuation.
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+		scheduling.scheduleSelectedContentReadyPreparation({
+			epoch: 7,
+			itemId,
+			reviewPresentation: 'file',
+			store,
+		});
+		for (let drainIndex = 0; drainIndex < 16; drainIndex += 1) {
+			pump.runUntilBudget();
+			// oxlint-disable-next-line no-await-in-loop -- Each publication stage schedules the next owned continuation.
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+		scheduling.scheduleSelectedContentReadyPreparation({
+			epoch: 7,
+			itemId,
+			store,
+		});
+		for (let drainIndex = 0; drainIndex < 16; drainIndex += 1) {
+			pump.runUntilBudget();
+			// oxlint-disable-next-line no-await-in-loop -- Each publication stage schedules the next owned continuation.
+			await flushBridgeWorkerRuntimeContinuations();
+		}
+		scheduling.updateWorkerDerivationEpoch(8);
+		store.actions.applySelectedFact({ epoch: 8, itemId });
+		scheduling.scheduleSelectedContentReadyPreparation({
+			epoch: 8,
+			itemId,
+			store,
+		});
+		expect(pump.getPendingWorkIds().some((workId) => workId.includes(`:${itemId}:8:`))).toBe(true);
+
+		const renderPayloadKinds = postedMessages.flatMap(({ message }) =>
+			message.kind === 'reviewPierreRenderJob' ? [message.job.payload.kind] : [],
+		);
+		expect(renderPayloadKinds).toEqual(['codeViewDiffItem', 'codeViewFileItem']);
+	});
+
 	test('retains departed current-generation bodies without publishing stale Review UI', async () => {
 		const itemId = 'departed-item';
 		const contentItems = [makeWorkerReviewContentMetadata({ itemId })];

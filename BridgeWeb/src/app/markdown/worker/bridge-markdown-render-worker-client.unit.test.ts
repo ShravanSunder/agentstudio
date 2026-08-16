@@ -9,6 +9,7 @@ import {
 	type BridgeMarkdownRenderWorkerAbortRequest,
 	type BridgeMarkdownRenderWorkerRequest,
 	type BridgeMarkdownRenderWorkerResponse,
+	type BridgeMarkdownSourceIdentity,
 } from './bridge-markdown-render-worker-rpc.js';
 
 describe('Bridge markdown render worker client', () => {
@@ -33,11 +34,7 @@ describe('Bridge markdown render worker client', () => {
 		});
 
 		const firstTask = client.startRender({
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 1,
-			itemId: 'docs-plan',
-			itemVersion: 1,
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 1, fileVersion: 1 }),
 			contentCacheKey: 'docs-plan:head:v1',
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
@@ -45,11 +42,7 @@ describe('Bridge markdown render worker client', () => {
 			abortKey: 'markdown-preview',
 		});
 		const secondTask = client.startRender({
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 2,
-			itemId: 'docs-plan',
-			itemVersion: 2,
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 2, fileVersion: 2 }),
 			contentCacheKey: 'docs-plan:head:v2',
 			contentHash: 'sha256:v2',
 			markdownText: '# Second',
@@ -80,7 +73,7 @@ describe('Bridge markdown render worker client', () => {
 		});
 		await expect(secondTask.completed).resolves.toMatchObject({
 			status: 'success',
-			response: { html: '<h1>Second</h1>' },
+			response: { htmlCandidate: '<h1>Second</h1>' },
 		});
 	});
 
@@ -102,11 +95,7 @@ describe('Bridge markdown render worker client', () => {
 		});
 
 		client.startRender({
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 1,
-			itemId: 'docs-plan',
-			itemVersion: 1,
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 1, fileVersion: 1 }),
 			contentCacheKey: 'docs-plan:head:v1',
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
@@ -137,11 +126,7 @@ describe('Bridge markdown render worker client', () => {
 		});
 
 		const task = client.startRender({
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 1,
-			itemId: 'docs-plan',
-			itemVersion: 1,
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 1, fileVersion: 1 }),
 			contentCacheKey: 'docs-plan:head:v1',
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
@@ -178,11 +163,7 @@ describe('Bridge markdown render worker client', () => {
 		});
 
 		const firstTask = client.startRender({
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 1,
-			itemId: 'docs-plan',
-			itemVersion: 1,
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 1, fileVersion: 1 }),
 			contentCacheKey: 'docs-plan:head:v1',
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
@@ -190,11 +171,7 @@ describe('Bridge markdown render worker client', () => {
 			abortKey: 'markdown-preview',
 		});
 		const secondTask = client.startRender({
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 2,
-			itemId: 'docs-plan',
-			itemVersion: 2,
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 2, fileVersion: 2 }),
 			contentCacheKey: 'docs-plan:head:v2',
 			contentHash: 'sha256:v2',
 			markdownText: '# Second',
@@ -218,8 +195,21 @@ async function successResponseForRequest(
 ): Promise<BridgeMarkdownRenderWorkerResponse> {
 	return await buildBridgeMarkdownRenderWorkerSuccessResponse({
 		request,
-		renderMarkdown: async (): Promise<string> => html,
+		renderMarkdown: async () => ({ htmlCandidate: html, mermaidDiagrams: [] }),
 	});
+}
+
+function fileSourceIdentity(props: {
+	readonly sourceGeneration: number;
+	readonly fileVersion: number;
+}): BridgeMarkdownSourceIdentity {
+	return {
+		surface: 'file',
+		sourceId: 'worktree-1',
+		sourceGeneration: props.sourceGeneration,
+		fileId: 'docs-plan',
+		fileVersion: props.fileVersion,
+	};
 }
 
 function createDeferred<TValue>(): {

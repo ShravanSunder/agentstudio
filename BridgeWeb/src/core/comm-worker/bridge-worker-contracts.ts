@@ -47,6 +47,7 @@ import {
 	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
+import { validateBridgeWorkerSelectCommand } from './bridge-worker-select-command-validation.js';
 export {
 	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
@@ -110,16 +111,10 @@ export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchem
 		surface: bridgeWorkerInteractionSurfaceSchema,
 		selectedItemId: z.string().min(1).nullable(),
 		selectedSource: z.enum(['user', 'keyboard', 'programmatic']).nullable(),
+		reviewPresentation: z.enum(['diff', 'file']).optional(),
 	})
 	.strict()
-	.superRefine((command, context): void => {
-		if ((command.selectedItemId === null) !== (command.selectedSource === null)) {
-			context.addIssue({
-				code: 'custom',
-				message: 'Selection identity and source must both be present or both be null.',
-			});
-		}
-	});
+	.superRefine(validateBridgeWorkerSelectCommand);
 
 export const bridgeWorkerViewportCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({

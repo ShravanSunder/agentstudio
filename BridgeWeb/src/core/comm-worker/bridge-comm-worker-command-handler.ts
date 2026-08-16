@@ -29,6 +29,10 @@ import type { BridgeCommWorkerFileMetadataDemand } from './bridge-comm-worker-pr
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
 import { handleBridgeCommWorkerReviewHoverCommand } from './bridge-comm-worker-review-hover-command.js';
 import {
+	isBridgeWorkerReviewContentMetadata,
+	resolveReviewInvalidationAffectedItemIds,
+} from './bridge-comm-worker-review-invalidation.js';
+import {
 	applyBridgeCommWorkerReviewMetadataApplication,
 	type BridgeCommWorkerReviewMetadataApplication,
 } from './bridge-comm-worker-review-runtime-application.js';
@@ -45,11 +49,9 @@ import {
 } from './bridge-comm-worker-store.js';
 import {
 	isBridgeWorkerFileViewContentMetadata,
-	type BridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerFileDisplayResyncCommand,
 	type BridgeWorkerFileQueryUpdateCommand,
 	type BridgeWorkerMainToServerMessage,
-	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerReviewInvalidateCommand,
 	type BridgeWorkerReviewProjectionUpdateCommand,
 	type BridgeWorkerRenderDispositionCommand,
@@ -750,6 +752,7 @@ function scheduleSelectedContentReadyPreparationForSelection(
 		props.scheduleSelectedReviewContentReadyPreparation({
 			epoch: props.message.epoch,
 			itemId: selectedItemId,
+			reviewPresentation: props.message.reviewPresentation,
 			store: props.store,
 		});
 	}
@@ -847,12 +850,6 @@ function handleBridgeWorkerReviewInvalidateCommand(
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
 	];
-}
-
-function isBridgeWorkerReviewContentMetadata(
-	metadata: BridgeWorkerReviewContentMetadata | BridgeWorkerFileViewContentMetadata | null,
-): metadata is BridgeWorkerReviewContentMetadata {
-	return metadata !== null && 'availableContentRoles' in metadata;
 }
 
 interface HandleBridgeWorkerViewportCommandProps {
@@ -966,34 +963,4 @@ function bridgeCommWorkerNearbyFilePaths(props: {
 		const path = props.filePathsByItemId.get(row.id);
 		return path === undefined ? [] : [path];
 	});
-}
-
-function resolveReviewInvalidationAffectedItemIds(props: {
-	readonly message: BridgeWorkerReviewInvalidateCommand;
-	readonly store: BridgeCommWorkerStore;
-}): readonly string[] | undefined {
-	if (props.message.scope === 'package' || props.message.scope === 'treeWindow') {
-		return undefined;
-	}
-	const itemIds = new Set(props.message.itemIds);
-	for (const itemId of findReviewItemIdsByPathHints({
-		pathHints: props.message.pathHints,
-		store: props.store,
-	})) {
-		itemIds.add(itemId);
-	}
-	return Array.from(itemIds);
-}
-
-function findReviewItemIdsByPathHints(props: {
-	readonly pathHints: readonly string[];
-	readonly store: BridgeCommWorkerStore;
-}): readonly string[] {
-	const pathHints = new Set(props.pathHints);
-	return Array.from(props.store.getState().contentMetadataByItemId.values())
-		.filter(
-			(metadata): metadata is BridgeWorkerReviewContentMetadata =>
-				isBridgeWorkerReviewContentMetadata(metadata) && pathHints.has(metadata.path),
-		)
-		.map((metadata) => metadata.itemId);
 }

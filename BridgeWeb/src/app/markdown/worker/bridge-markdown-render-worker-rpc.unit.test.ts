@@ -9,11 +9,13 @@ describe('Bridge markdown render worker RPC', () => {
 			schemaVersion: 1,
 			method: 'markdown.render',
 			requestId: 'markdown-request-1',
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 2,
-			itemId: 'docs-plan',
-			itemVersion: 3,
+			sourceIdentity: {
+				surface: 'file',
+				sourceId: 'worktree-1',
+				sourceGeneration: 2,
+				fileId: 'docs-plan',
+				fileVersion: 3,
+			},
 			contentCacheKey: 'docs-plan:head',
 			contentHash: 'sha256:docs-plan:head',
 			abortKey: 'markdown-preview',
@@ -23,8 +25,10 @@ describe('Bridge markdown render worker RPC', () => {
 
 		const response = await buildBridgeMarkdownRenderWorkerSuccessResponse({
 			request,
-			renderMarkdown: async (markdownText: string): Promise<string> =>
-				`<h1>${markdownText.slice(2)}</h1>`,
+			renderMarkdown: async (markdownText: string) => ({
+				htmlCandidate: `<h1>${markdownText.slice(2)}</h1>`,
+				mermaidDiagrams: [],
+			}),
 			now: (() => {
 				const samples = [10, 14];
 				return (): number => samples.shift() ?? 14;
@@ -36,14 +40,17 @@ describe('Bridge markdown render worker RPC', () => {
 			method: 'markdown.render',
 			ok: true,
 			requestId: 'markdown-request-1',
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 2,
-			itemId: 'docs-plan',
-			itemVersion: 3,
+			sourceIdentity: {
+				surface: 'file',
+				sourceId: 'worktree-1',
+				sourceGeneration: 2,
+				fileId: 'docs-plan',
+				fileVersion: 3,
+			},
 			contentCacheKey: 'docs-plan:head',
 			contentHash: 'sha256:docs-plan:head',
-			html: '<h1>Bridge plan</h1>',
+			htmlCandidate: '<h1>Bridge plan</h1>',
+			mermaidDiagrams: [],
 			metrics: {
 				durationMilliseconds: 4,
 				inputBytes: 13,
@@ -52,16 +59,47 @@ describe('Bridge markdown render worker RPC', () => {
 		});
 	});
 
+	test('intercepts Mermaid fences without putting diagram source into HTML', async () => {
+		const request = bridgeMarkdownRenderWorkerRequestSchema.parse({
+			schemaVersion: 1,
+			method: 'markdown.render',
+			requestId: 'markdown-request-mermaid',
+			sourceIdentity: {
+				surface: 'file',
+				sourceId: 'worktree-1',
+				sourceGeneration: 4,
+				fileId: 'docs-plan',
+				fileVersion: 2,
+			},
+			contentCacheKey: 'docs-plan:file',
+			contentHash: 'sha256:docs-plan:file',
+			markdownText: ['# Bridge plan', '', '```mermaid', 'flowchart LR', 'A --> B', '```'].join(
+				'\n',
+			),
+			sourcePath: 'docs/plans/bridge.md',
+		});
+
+		const response = await buildBridgeMarkdownRenderWorkerSuccessResponse({ request });
+
+		expect(response.htmlCandidate).toContain('data-bridge-mermaid-id="mermaid-0"');
+		expect(response.htmlCandidate).not.toContain('flowchart LR');
+		expect(response.mermaidDiagrams).toEqual([
+			{ id: 'mermaid-0', source: 'flowchart LR\nA --> B\n' },
+		]);
+	});
+
 	test('measures awaited markdown render time', async () => {
 		const request = bridgeMarkdownRenderWorkerRequestSchema.parse({
 			schemaVersion: 1,
 			method: 'markdown.render',
 			requestId: 'markdown-request-1',
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 2,
-			itemId: 'docs-plan',
-			itemVersion: 3,
+			sourceIdentity: {
+				surface: 'file',
+				sourceId: 'worktree-1',
+				sourceGeneration: 2,
+				fileId: 'docs-plan',
+				fileVersion: 3,
+			},
 			contentCacheKey: 'docs-plan:head',
 			contentHash: 'sha256:docs-plan:head',
 			markdownText: '# Bridge plan',
@@ -71,9 +109,9 @@ describe('Bridge markdown render worker RPC', () => {
 
 		const response = await buildBridgeMarkdownRenderWorkerSuccessResponse({
 			request,
-			renderMarkdown: async (): Promise<string> => {
+			renderMarkdown: async () => {
 				currentTime += 55;
-				return '<h1>Bridge plan</h1>';
+				return { htmlCandidate: '<h1>Bridge plan</h1>', mermaidDiagrams: [] };
 			},
 			now: (): number => currentTime,
 		});
@@ -86,11 +124,13 @@ describe('Bridge markdown render worker RPC', () => {
 			schemaVersion: 1,
 			method: 'markdown.render',
 			requestId: 'markdown-request-unsafe',
-			packageId: 'package-1',
-			reviewGeneration: 1,
-			revision: 2,
-			itemId: 'docs-plan',
-			itemVersion: 3,
+			sourceIdentity: {
+				surface: 'file',
+				sourceId: 'worktree-1',
+				sourceGeneration: 2,
+				fileId: 'docs-plan',
+				fileVersion: 3,
+			},
 			contentCacheKey: 'docs-plan:head',
 			contentHash: 'sha256:docs-plan:head',
 			markdownText: [
@@ -109,12 +149,12 @@ describe('Bridge markdown render worker RPC', () => {
 
 		const response = await buildBridgeMarkdownRenderWorkerSuccessResponse({ request });
 
-		expect(response.html).toContain('<h1>Bridge plan</h1>');
-		expect(response.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
-		expect(response.html).not.toContain('<script>');
-		expect(response.html).not.toContain('<a href=');
-		expect(response.html).toContain('https://example.com/not-a-link');
-		expect(response.html).toContain('const');
+		expect(response.htmlCandidate).toContain('<h1>Bridge plan</h1>');
+		expect(response.htmlCandidate).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+		expect(response.htmlCandidate).not.toContain('<script>');
+		expect(response.htmlCandidate).not.toContain('<a href=');
+		expect(response.htmlCandidate).toContain('https://example.com/not-a-link');
+		expect(response.htmlCandidate).toContain('const');
 		expect(response.metrics.inputBytes).toBeGreaterThan(0);
 		expect(response.metrics.outputBytes).toBeGreaterThan(0);
 	});

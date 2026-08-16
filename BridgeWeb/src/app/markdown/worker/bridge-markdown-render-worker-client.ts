@@ -5,6 +5,7 @@ import {
 	type BridgeMarkdownRenderWorkerAbortRequest,
 	type BridgeMarkdownRenderWorkerFailureResponse,
 	type BridgeMarkdownRenderRequestIdentity,
+	type BridgeMarkdownSourceIdentity,
 	type BridgeMarkdownRenderWorkerRequest,
 	type BridgeMarkdownRenderWorkerResponse,
 	type BridgeMarkdownRenderWorkerSuccessResponse,
@@ -13,6 +14,7 @@ import {
 export interface BridgeMarkdownRenderWorkerTransport {
 	readonly send: (request: BridgeMarkdownRenderWorkerRequest) => Promise<unknown>;
 	readonly abort?: (request: BridgeMarkdownRenderWorkerAbortRequest) => void;
+	readonly dispose?: () => void;
 }
 
 export interface CreateBridgeMarkdownRenderWorkerClientProps {
@@ -21,11 +23,7 @@ export interface CreateBridgeMarkdownRenderWorkerClientProps {
 }
 
 export interface StartBridgeMarkdownRenderWorkerTaskProps {
-	readonly packageId: string;
-	readonly reviewGeneration: number;
-	readonly revision: number;
-	readonly itemId: string;
-	readonly itemVersion: number;
+	readonly sourceIdentity: BridgeMarkdownSourceIdentity;
 	readonly contentCacheKey: string;
 	readonly contentHash: string;
 	readonly markdownText: string;
@@ -46,7 +44,7 @@ export type BridgeMarkdownRenderWorkerClientCompletion =
 	  }
 	| {
 			readonly status: 'stale';
-			readonly reason: 'superseded' | 'identityMismatch' | 'invalidResponse';
+			readonly reason: 'superseded' | 'identityMismatch' | 'invalidResponse' | 'disposed';
 			readonly identity: BridgeMarkdownRenderRequestIdentity;
 	  };
 
@@ -61,6 +59,7 @@ export interface BridgeMarkdownRenderWorkerClient {
 		props: StartBridgeMarkdownRenderWorkerTaskProps,
 	) => BridgeMarkdownRenderWorkerTask;
 	readonly abort: (abortKey: string) => void;
+	readonly dispose: () => void;
 }
 
 export function createBridgeMarkdownRenderWorkerClient(
@@ -68,17 +67,14 @@ export function createBridgeMarkdownRenderWorkerClient(
 ): BridgeMarkdownRenderWorkerClient {
 	const activeIdentityByAbortKey = new Map<string, BridgeMarkdownRenderRequestIdentity>();
 	const createRequestId = props.createRequestId ?? defaultRequestIdFactory;
+	let isDisposed = false;
 
 	const startRender = (
 		taskProps: StartBridgeMarkdownRenderWorkerTaskProps,
 	): BridgeMarkdownRenderWorkerTask => {
 		const identity: BridgeMarkdownRenderRequestIdentity = {
 			requestId: createRequestId(),
-			packageId: taskProps.packageId,
-			reviewGeneration: taskProps.reviewGeneration,
-			revision: taskProps.revision,
-			itemId: taskProps.itemId,
-			itemVersion: taskProps.itemVersion,
+			sourceIdentity: taskProps.sourceIdentity,
 			contentCacheKey: taskProps.contentCacheKey,
 			contentHash: taskProps.contentHash,
 			...(taskProps.abortKey === undefined ? {} : { abortKey: taskProps.abortKey }),
@@ -101,17 +97,21 @@ export function createBridgeMarkdownRenderWorkerClient(
 
 		const completed = props.transport.send(request).then(
 			(responseValue: unknown): BridgeMarkdownRenderWorkerClientCompletion =>
-				completeMarkdownRenderRequest({
-					activeIdentityByAbortKey,
-					identity,
-					responseValue,
-				}),
+				isDisposed
+					? disposedCompletion(identity)
+					: completeMarkdownRenderRequest({
+							activeIdentityByAbortKey,
+							identity,
+							responseValue,
+						}),
 			(error: unknown): BridgeMarkdownRenderWorkerClientCompletion =>
-				completeMarkdownRenderTransportFailure({
-					activeIdentityByAbortKey,
-					identity,
-					error,
-				}),
+				isDisposed
+					? disposedCompletion(identity)
+					: completeMarkdownRenderTransportFailure({
+							activeIdentityByAbortKey,
+							identity,
+							error,
+						}),
 		);
 
 		return {
@@ -129,7 +129,24 @@ export function createBridgeMarkdownRenderWorkerClient(
 		activeIdentityByAbortKey.delete(abortKey);
 	};
 
-	return { startRender, abort };
+	const dispose = (): void => {
+		if (isDisposed) {
+			return;
+		}
+		isDisposed = true;
+		for (const abortKey of activeIdentityByAbortKey.keys()) {
+			abort(abortKey);
+		}
+		props.transport.dispose?.();
+	};
+
+	return { startRender, abort, dispose };
+}
+
+function disposedCompletion(
+	identity: BridgeMarkdownRenderRequestIdentity,
+): BridgeMarkdownRenderWorkerClientCompletion {
+	return { status: 'stale', reason: 'disposed', identity };
 }
 
 function abortRequestForIdentity(

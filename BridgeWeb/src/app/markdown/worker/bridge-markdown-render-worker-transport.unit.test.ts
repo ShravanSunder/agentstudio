@@ -57,6 +57,81 @@ describe('Bridge markdown render web worker transport', () => {
 		expect(firstCompletion.status).toBe('stale');
 		expect(secondCompletion.status).toBe('success');
 	});
+
+	test('terminates the worker and rejects pending work when disposed', async () => {
+		vi.stubGlobal('Worker', FakeMarkdownWorker);
+		const fakeWorker = new FakeMarkdownWorker();
+		const client = createBridgeMarkdownRenderWebWorkerClient({
+			createRequestId: (): string => 'markdown-request-dispose',
+			workerFactory: (): Worker => fakeWorker,
+		});
+		if (client === null) {
+			throw new Error('expected markdown worker client');
+		}
+
+		const task = client.startRender(makeMarkdownRenderTaskProps({ sourcePath: 'docs/dispose.md' }));
+		await flushMarkdownWorkerTransportMicrotasks();
+		client.dispose();
+
+		expect(fakeWorker.terminateCount).toBe(1);
+		await expect(task.completed).resolves.toMatchObject({ status: 'stale', reason: 'disposed' });
+	});
+
+	test('constructs a fresh worker after the first factory attempt rejects', async () => {
+		vi.stubGlobal('Worker', FakeMarkdownWorker);
+		const recoveredWorker = new FakeMarkdownWorker();
+		let factoryAttemptCount = 0;
+		const client = createBridgeMarkdownRenderWebWorkerClient({
+			createRequestId: (): string =>
+				`markdown-request-retry-${(factoryAttemptCount + 1).toString()}`,
+			workerFactory: async (): Promise<Worker> => {
+				factoryAttemptCount += 1;
+				if (factoryAttemptCount === 1) throw new Error('initial worker load failed');
+				return recoveredWorker;
+			},
+		});
+		if (client === null) throw new Error('expected markdown worker client');
+
+		const firstTask = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/retry.md' }),
+		);
+		await expect(firstTask.completed).resolves.toMatchObject({ status: 'failure' });
+		const secondTask = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/retry.md' }),
+		);
+		await flushMarkdownWorkerTransportMicrotasks();
+		const secondRequest = recoveredWorker.postedMessages.find(
+			(message: unknown): message is BridgeMarkdownRenderWorkerRequest =>
+				isRecord(message) && message['requestId'] === secondTask.identity.requestId,
+		);
+		if (secondRequest === undefined) throw new Error('expected retried markdown request');
+		recoveredWorker.emitMessage(successResponseForRequest(secondRequest));
+
+		await expect(secondTask.completed).resolves.toMatchObject({ status: 'success' });
+		expect(factoryAttemptCount).toBe(2);
+	});
+
+	test('terminates a worker that resolves after disposal without posting work', async () => {
+		vi.stubGlobal('Worker', FakeMarkdownWorker);
+		const deferredWorker = deferredMarkdownWorker();
+		const client = createBridgeMarkdownRenderWebWorkerClient({
+			createRequestId: (): string => 'markdown-request-pending-disposal',
+			workerFactory: (): Promise<Worker> => deferredWorker.promise,
+		});
+		if (client === null) throw new Error('expected markdown worker client');
+
+		const task = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/pending-disposal.md' }),
+		);
+		client.dispose();
+		const resolvedWorker = new FakeMarkdownWorker();
+		deferredWorker.resolve(resolvedWorker);
+		await flushMarkdownWorkerTransportMicrotasks();
+
+		await expect(task.completed).resolves.toMatchObject({ status: 'stale', reason: 'disposed' });
+		expect(resolvedWorker.terminateCount).toBe(1);
+		expect(resolvedWorker.postedMessages).toEqual([]);
+	});
 });
 
 interface MakeMarkdownRenderTaskProps {
@@ -67,11 +142,13 @@ function makeMarkdownRenderTaskProps(
 	props: MakeMarkdownRenderTaskProps,
 ): StartBridgeMarkdownRenderWorkerTaskProps {
 	return {
-		packageId: 'package-1',
-		reviewGeneration: 1,
-		revision: 1,
-		itemId: props.sourcePath,
-		itemVersion: 1,
+		sourceIdentity: {
+			surface: 'file',
+			sourceId: 'worktree-1',
+			sourceGeneration: 1,
+			fileId: props.sourcePath,
+			fileVersion: 1,
+		},
 		contentCacheKey: `${props.sourcePath}:head`,
 		contentHash: `${props.sourcePath}:hash`,
 		markdownText: '# Heading',
@@ -88,19 +165,17 @@ function successResponseForRequest(
 		method: 'markdown.render',
 		ok: true,
 		requestId: request.requestId,
-		packageId: request.packageId,
-		reviewGeneration: request.reviewGeneration,
-		revision: request.revision,
-		itemId: request.itemId,
-		itemVersion: request.itemVersion,
+		sourceIdentity: request.sourceIdentity,
 		contentCacheKey: request.contentCacheKey,
 		contentHash: request.contentHash,
 		abortKey: request.abortKey,
-		html: '<h1>Heading</h1>',
+		htmlCandidate: '<h1>Heading</h1>',
+		mermaidDiagrams: [],
 		metrics: {
 			durationMilliseconds: 1,
 			inputBytes: 9,
 			outputBytes: 16,
+			mermaidDiagramCount: 0,
 		},
 	};
 }
@@ -167,6 +242,23 @@ async function flushMarkdownWorkerTransportMicrotasks(): Promise<void> {
 	await Promise.resolve();
 	await Promise.resolve();
 	await Promise.resolve();
+}
+
+function deferredMarkdownWorker(): {
+	readonly promise: Promise<Worker>;
+	readonly resolve: (worker: Worker) => void;
+} {
+	let resolveWorker: ((worker: Worker) => void) | null = null;
+	const promise = new Promise<Worker>((resolve): void => {
+		resolveWorker = resolve;
+	});
+	return {
+		promise,
+		resolve: (worker): void => {
+			if (resolveWorker === null) throw new Error('expected deferred worker resolver');
+			resolveWorker(worker);
+		},
+	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

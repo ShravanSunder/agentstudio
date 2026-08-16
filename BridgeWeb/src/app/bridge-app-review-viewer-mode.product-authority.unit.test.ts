@@ -26,6 +26,13 @@ describe('BridgeReviewViewerMode product authority', () => {
 			'createBridgeReviewProjectionWebWorkerClient',
 			'useBridgeReviewMarkdownPreviewController',
 			'createBridgeMarkdownRenderWebWorkerClient',
+			'resolveBridgeReviewMarkdownIntent',
+			'useBridgeMarkdownPresentation',
+			'BridgeMarkdownReviewProjectionControl',
+			'markdownWorkerClient',
+			'mermaidRenderer',
+			'markdownPresentation',
+			'bridge-markdown-review',
 			'useState<BridgeReviewPackage',
 			'useState<readonly ReviewTreeRowMetadata',
 		] as const;

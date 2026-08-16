@@ -25,7 +25,6 @@ import {
 	bridgeCodeViewLoadingPlaceholderMatchesDescriptor,
 	codeViewHandleHasInstance,
 	controllerForHandle,
-	createBridgeCodeViewHeaderRenderers,
 	emptyMaterializationDiagnostic,
 	hasRenderedItemsSource,
 	isBridgeCodeViewItem,
@@ -72,6 +71,7 @@ import {
 	type BridgeCodeViewWorkerPreparedTelemetryContext,
 } from './bridge-code-view-worker-prepared-telemetry.js';
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
+import { useBridgeCodeViewHeaderRenderers } from './use-bridge-code-view-header-renderers.js';
 import { useBridgeCodeViewProgrammaticScroll } from './use-bridge-code-view-programmatic-scroll.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
 
@@ -400,16 +400,15 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			onControlHandleChange(null);
 		};
 	}, [onControlHandleChange, scrollToItem, setItemCollapsed]);
-	const headerRenderers = useMemo(
-		() =>
-			createBridgeCodeViewHeaderRenderers({
-				collapsedItemIds,
-				onHeaderVisibilityChange: handleHeaderVisibilityChange,
-				onToggleItemCollapse: toggleItemCollapse,
-				reviewPackage: props.reviewPackage,
-			}),
-		[collapsedItemIds, handleHeaderVisibilityChange, props.reviewPackage, toggleItemCollapse],
-	);
+	const headerRenderers = useBridgeCodeViewHeaderRenderers({
+		collapsedItemIds,
+		onFilePresentationChange: props.onFilePresentationChange,
+		onHeaderVisibilityChange: handleHeaderVisibilityChange,
+		onToggleItemCollapse: toggleItemCollapse,
+		reviewPackage: props.reviewPackage,
+		selectedItemId: props.selectedItemId,
+		selectedItemPresentation: props.selectedItemPresentation ?? null,
+	});
 	const loadingMaterializationItemIds = useMemo((): readonly string[] => {
 		return bridgeCodeViewLoadingMaterializationItemIdsForPanel({
 			selectedContentLoadingItemId: props.selectedContentLoadingItemId,
@@ -548,10 +547,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				props.selectedItemId !== null &&
 				props.selectedItemPresentation !== null &&
 				props.selectedItemPresentation !== undefined &&
-				metadataDeltaItems.some(
-					(item): boolean =>
-						item.id === props.selectedItemId && item.bridgeMetadata.contentState === 'loading',
-				)
+				metadataDeltaItems.some((item): boolean => item.id === props.selectedItemId)
 					? [props.selectedItemId]
 					: [],
 			getCurrentItem: (itemId: string): CodeViewItem | undefined => codeViewHandle.getItem(itemId),

@@ -84,6 +84,10 @@ export function bridgeCodeViewMetadataRequiresManifestReconciliation(
 		if (authoritativeIndex === undefined) {
 			continue;
 		}
+		const currentItem = props.getCurrentItem(metadataDeltaItem.id);
+		if (currentItem !== undefined && currentItem.type !== metadataDeltaItem.type) {
+			return true;
+		}
 		if (
 			liveBridgeCodeViewManifestNeighborhoodDiffers({
 				authoritativeIndex,

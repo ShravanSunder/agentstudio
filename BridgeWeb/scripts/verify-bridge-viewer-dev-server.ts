@@ -231,8 +231,7 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		}
 		assertNoEmptyExpandedHeaders(result.hydrationDiagnostics, 'selected markdown file');
 		assertCodeViewScrolledToSelectedItem({ initialResult, result });
-		await dispatchMarkdownPreviewCommand(page);
-		await waitForMarkdownPreview(page);
+		await assertReviewDiffOpenRoundTrip(page);
 		return result;
 	} finally {
 		await page.close();
@@ -248,14 +247,19 @@ async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 	try {
 		await page.goto(markdownDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await waitForSelectedPath(page, targetMarkdownPath);
-		await dispatchMarkdownPreviewCommand(page);
-		await waitForMarkdownPreview(page);
+		await page.locator('[data-testid="bridge-viewer-context-file"]').click();
+		await page.waitForSelector(
+			'[data-bridge-viewer-mode-active="true"] [data-testid="bridge-file-viewer-shell"]',
+		);
+		await page.waitForSelector('[data-testid="bridge-markdown-canvas"] h1');
+		await page.waitForSelector('[data-bridge-mermaid-state="ready"] svg');
+		await page.waitForSelector(
+			'[data-testid="bridge-markdown-canvas"] pre code span[style*="color"]',
+		);
 		const result = await page.evaluate((): MarkdownScenarioResult => {
+			const markdownCanvas = document.querySelector('[data-testid="bridge-markdown-canvas"]');
 			return {
-				displayPath:
-					document
-						.querySelector('[data-markdown-preview-source-path]')
-						?.getAttribute('data-markdown-preview-source-path') ?? null,
+				displayPath: markdownCanvas?.getAttribute('data-bridge-markdown-source-path') ?? null,
 			};
 		});
 		if (result.displayPath !== targetMarkdownPath) {
@@ -271,24 +275,26 @@ async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 	}
 }
 
-async function dispatchMarkdownPreviewCommand(page: Page): Promise<void> {
-	await page.evaluate((): void => {
-		document.dispatchEvent(
-			new CustomEvent('__bridge_review_control', {
-				detail: { method: 'bridge.fileView.showMarkdownPreview' },
-			}),
-		);
-	});
-}
-
-async function waitForMarkdownPreview(page: Page): Promise<void> {
+async function assertReviewDiffOpenRoundTrip(page: Page): Promise<void> {
+	const diffToggle = page.locator('[aria-label="Diff"]').first();
+	const openToggle = page.locator('[aria-label="Open"]').first();
+	await diffToggle.waitFor();
+	await openToggle.click();
 	await page.waitForFunction(
-		(heading: string): boolean =>
+		(): boolean =>
+			document.querySelector('[aria-label="Open"]')?.getAttribute('aria-pressed') === 'true' &&
 			document
-				.querySelector('[data-testid="bridge-markdown-preview"]')
-				?.textContent?.includes(heading) ?? false,
-		targetMarkdownHeading,
-		{ timeout: 10_000 },
+				.querySelector('.bridge-code-view-panel')
+				?.getAttribute('data-selected-materialized-item-type') === 'file',
+	);
+	await waitForCodeViewText(page, targetMarkdownHeading);
+	await diffToggle.click();
+	await page.waitForFunction(
+		(): boolean =>
+			document.querySelector('[aria-label="Diff"]')?.getAttribute('aria-pressed') === 'true' &&
+			document
+				.querySelector('.bridge-code-view-panel')
+				?.getAttribute('data-selected-materialized-item-type') === 'diff',
 	);
 }
 

@@ -46,6 +46,7 @@ export interface EncodeBridgeWorkerCommandBaseProps {
 }
 
 export interface EncodeBridgeWorkerSelectCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly reviewPresentation?: BridgeWorkerSelectCommand['reviewPresentation'];
 	readonly surface: BridgeWorkerSelectCommand['surface'];
 	readonly selectedItemId: BridgeWorkerSelectCommand['selectedItemId'];
 	readonly selectedSource: BridgeWorkerSelectCommand['selectedSource'];
@@ -128,6 +129,9 @@ export function encodeBridgeWorkerSelectCommand(
 		surface: props.surface,
 		selectedItemId: props.selectedItemId,
 		selectedSource: props.selectedSource,
+		...(props.reviewPresentation === undefined
+			? {}
+			: { reviewPresentation: props.reviewPresentation }),
 	});
 }
 

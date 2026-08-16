@@ -47,6 +47,10 @@ import {
 	bridgeReviewComparisonPaneState,
 } from './bridge-review-comparison-pane-state.js';
 import {
+	openedReviewItemAfterReviewSourceChange,
+	openedReviewItemAfterSelectionChange,
+} from './bridge-review-item-presentation.js';
+import {
 	createBridgeViewerSearchState,
 	transitionBridgeViewerSearchState,
 	type BridgeViewerSearchAction,
@@ -116,6 +120,7 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const commitSelectedReviewItemId = controller.commitSelectedReviewItemId;
 	const displayStore = controller.displayStore;
 	const emitHoveredReviewItemIntent = controller.emitHoveredReviewItemIntent;
+	const emitReviewItemPresentationIntent = controller.emitReviewItemPresentationIntent;
 	const emitSelectedReviewItemIntent = controller.emitSelectedReviewItemIntent;
 	const markFileViewed = controller.markFileViewed;
 	const panelChromeSlice = controller.panelChromeSlice;
@@ -147,6 +152,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		bridgeReviewDefaultViewSettings,
 	);
 	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
+	const [openedReviewItemId, setOpenedReviewItemId] = useState<string | null>(null);
+	const locallySelectedReviewItemIdRef = useRef(selectedItemId);
 	const [projectionMode, setProjectionMode] = useState<BridgeReviewProjectionMode>({
 		kind: 'normalReview',
 	});
@@ -363,6 +370,19 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	);
 	const reviewGeneration = presentationSnapshot?.reviewPackage.reviewGeneration ?? null;
 	const reviewPackageId = presentationSnapshot?.reviewPackage.packageId ?? null;
+	const previousReviewPackageIdRef = useRef<string | null>(null);
+	useEffect((): void => {
+		setOpenedReviewItemId((currentOpenedReviewItemId) =>
+			openedReviewItemAfterReviewSourceChange({
+				currentReviewPackageId: reviewPackageId,
+				openedReviewItemId: currentOpenedReviewItemId,
+				previousReviewPackageId: previousReviewPackageIdRef.current,
+			}),
+		);
+		if (reviewPackageId !== null) {
+			previousReviewPackageIdRef.current = reviewPackageId;
+		}
+	}, [reviewPackageId]);
 	const orderedItemIds = presentationSnapshot?.reviewPackage.orderedItemIds ?? [];
 	const selectionController = useBridgeReviewSelectionController({
 		commitLocalSelection: commitSelectedReviewItemId,
@@ -376,6 +396,8 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 	const selectReviewItem = selectionController.selectReviewItem;
 	const clearReviewSelection = useCallback((): void => {
 		clearSelectedReviewItemId();
+		locallySelectedReviewItemIdRef.current = null;
+		setOpenedReviewItemId(null);
 		const treeFallback = document.querySelector('[data-testid="bridge-review-trees-panel"]');
 		if (treeFallback instanceof HTMLElement) treeFallback.focus({ preventScroll: true });
 	}, [clearSelectedReviewItemId]);
@@ -384,6 +406,13 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 			if (!selectReviewItem(itemId, selectedSource)) {
 				return false;
 			}
+			locallySelectedReviewItemIdRef.current = itemId;
+			setOpenedReviewItemId((currentOpenedReviewItemId) =>
+				openedReviewItemAfterSelectionChange({
+					openedReviewItemId: currentOpenedReviewItemId,
+					selectedItemId: itemId,
+				}),
+			);
 			if (reviewGeneration === null || reviewPackageId === null) {
 				return true;
 			}
@@ -398,6 +427,37 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		},
 		[reviewGeneration, reviewPackageId, selectReviewItem],
 	);
+	const changeFilePresentation = useCallback(
+		(itemId: string, presentation: 'diff' | 'open'): void => {
+			if (presentation === 'diff') {
+				setOpenedReviewItemId(null);
+				emitReviewItemPresentationIntent(itemId, 'diff');
+				return;
+			}
+			if (locallySelectedReviewItemIdRef.current === itemId) {
+				setOpenedReviewItemId(itemId);
+				emitReviewItemPresentationIntent(itemId, 'file');
+				return;
+			}
+			if (selectReviewItemAndRevealTree(itemId)) {
+				setOpenedReviewItemId(itemId);
+				emitReviewItemPresentationIntent(itemId, 'file');
+			}
+		},
+		[emitReviewItemPresentationIntent, selectReviewItemAndRevealTree],
+	);
+	useEffect((): void => {
+		if (locallySelectedReviewItemIdRef.current === selectedItemId) {
+			return;
+		}
+		locallySelectedReviewItemIdRef.current = selectedItemId;
+		setOpenedReviewItemId((currentOpenedReviewItemId) =>
+			openedReviewItemAfterSelectionChange({
+				openedReviewItemId: currentOpenedReviewItemId,
+				selectedItemId,
+			}),
+		);
+	}, [selectedItemId]);
 	const onTargetOutsideAcceptedProjection = useCallback((): void => {}, []);
 	useBridgeReviewControlEventListeners({
 		codeViewControlHandleRef,
@@ -453,6 +513,11 @@ export function BridgeReviewViewerMode(props: BridgeReviewViewerModeProps): Reac
 		selectedContentAvailability,
 		selectedItemId,
 		selectedReviewItem,
+		onFilePresentationChange: changeFilePresentation,
+		selectedItemPresentation:
+			openedReviewItemId === selectedItemId && openedReviewItemId !== null
+				? { kind: 'file', version: 'current' }
+				: null,
 		selectReviewItem: selectReviewItemAndRevealTree,
 		setReviewCodeViewVisibleItemIds: publishCodeViewVisibleItemIds,
 		setReviewViewportItemIds: publishTreeVisibleItemIds,
@@ -540,6 +605,10 @@ function reviewPresentationState(props: {
 	readonly selectedContentAvailability: BridgeReviewRenderSnapshotController['selectedContentAvailability'];
 	readonly selectedItemId: string | null;
 	readonly selectedReviewItem: BridgeReviewRenderSnapshotController['selectedReviewItem'];
+	readonly selectedItemPresentation:
+		| import('../review-viewer/code-view/bridge-code-view-materialization.js').BridgeCodeViewItemPresentation
+		| null;
+	readonly onFilePresentationChange: (itemId: string, presentation: 'diff' | 'open') => void;
 	readonly selectReviewItem: (itemId: string) => boolean;
 	readonly setReviewCodeViewVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
@@ -589,6 +658,7 @@ function reviewPresentationState(props: {
 			onFilterChange: props.onFilterChange,
 			onFacetMenuOpenChange: props.onFacetMenuOpenChange,
 			onHoveredItemIdChange: props.onHoveredItemIdChange,
+			onFilePresentationChange: props.onFilePresentationChange,
 			onRetryComparison: props.onRetryComparison,
 			panelChromeSlice: props.panelChromeSlice,
 			projectionMode: props.projectionMode,
@@ -613,6 +683,7 @@ function reviewPresentationState(props: {
 			selectedContentLoadingItemId: selectedContentIsLoading ? props.selectedItemId : null,
 			selectedContentUnavailablePath: selectedUnavailablePath,
 			selectedItemId: props.selectedItemId,
+			selectedItemPresentation: props.selectedItemPresentation,
 			telemetryRecorder: props.telemetryRecorder,
 			treeSearchMode: props.treeSearchMode,
 			treeSearchOpen: props.treeSearchOpen,
@@ -637,13 +708,18 @@ function reviewPresentationState(props: {
 function reviewSelectedUnavailablePath(
 	props: Pick<
 		Parameters<typeof reviewPresentationState>[0],
-		'presentationSnapshot' | 'selectedContentAvailability' | 'selectedItemId' | 'selectedReviewItem'
+		| 'presentationSnapshot'
+		| 'selectedContentAvailability'
+		| 'selectedItemId'
+		| 'selectedItemPresentation'
+		| 'selectedReviewItem'
 	>,
 ): string | null {
 	if (
 		props.selectedItemId === null ||
 		props.presentationSnapshot === null ||
 		props.selectedContentAvailability === null ||
+		props.selectedItemPresentation?.kind !== 'file' ||
 		!['failed', 'unavailable'].includes(props.selectedContentAvailability.state)
 	) {
 		return null;

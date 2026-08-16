@@ -11,7 +11,10 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import { prepareBridgeMainPierreItemForPresentation } from '../core/comm-worker/bridge-main-pierre-item-adapter.js';
+import {
+	prepareBridgeMainPierreItemForKindTransition,
+	prepareBridgeMainPierreItemForPresentation,
+} from '../core/comm-worker/bridge-main-pierre-item-adapter.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
 	type BridgeMainCodeViewItem,
@@ -79,6 +82,10 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly emitSelectedReviewItemIntent: (
 		itemId: string,
 		selectedSource: 'keyboard' | 'programmatic' | 'user',
+	) => void;
+	readonly emitReviewItemPresentationIntent: (
+		itemId: string,
+		presentation: 'diff' | 'file',
 	) => void;
 	readonly markFileViewed: (itemId: string, onDeliveryFailure?: () => void) => boolean;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
@@ -311,6 +318,21 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[props.reviewClient],
 	);
+	const emitReviewItemPresentationIntent = useCallback(
+		(itemId: string, presentation: 'diff' | 'file'): void => {
+			latestReviewSelectRequestIdRef.current = props.reviewClient.send(
+				encodeBridgeWorkerSelectCommand({
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					requestId: 'review-client-owned',
+					reviewPresentation: presentation,
+					selectedItemId: itemId,
+					selectedSource: 'programmatic',
+					surface: 'review',
+				}),
+			);
+		},
+		[props.reviewClient],
+	);
 	const emitHoveredReviewItemIntent = useCallback(
 		(itemId: string | null): void => {
 			if (hoveredReviewItemIdRef.current === itemId) return;
@@ -453,6 +475,7 @@ export function useBridgeReviewRenderSnapshotController(
 		displayStore,
 		emitHoveredReviewItemIntent,
 		emitSelectedReviewItemIntent,
+		emitReviewItemPresentationIntent,
 		markFileViewed,
 		panelChromeSlice,
 		reviewSourceSlice,
@@ -617,6 +640,24 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				);
 				if (currentItem === undefined) {
 					const preparedItem = prepareBridgeMainPierreItemForPresentation({
+						currentItem,
+						presentationItem: publicationItem,
+					});
+					props.renderFulfillmentCoordinator.bindPublicationItem({
+						finalItem: preparedItem.item,
+						publicationItem,
+						residency: preparedItem.residency,
+					});
+					props.renderSnapshotStore.setWorkerCodeViewItem({
+						item: preparedItem.item,
+						itemId: message.job.itemId,
+					});
+					props.pierreCourier.submit(message.job);
+					props.renderFulfillmentCoordinator.markPublicationQueued(message);
+					break;
+				}
+				if (currentItem.type !== publicationItem.type) {
+					const preparedItem = prepareBridgeMainPierreItemForKindTransition({
 						currentItem,
 						presentationItem: publicationItem,
 					});

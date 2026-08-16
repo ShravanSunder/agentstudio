@@ -10,8 +10,8 @@ export function completeReviewContentMessages(
 ): readonly BridgeWorkerServerToMainMessage[] {
 	const baseContents = reviewWitnessFileContents(file, 'BASE');
 	const headContents = reviewWitnessFileContents(file, file.contentMarker);
-	const baseCacheKey = `review-recovery-base-${file.itemId}`;
-	const headCacheKey = `review-recovery-head-${file.itemId}`;
+	const baseCacheKey = `pierre-content:review-recovery-fixture:${reviewWitnessContentHash(file, 'base')}`;
+	const headCacheKey = `pierre-content:review-recovery-fixture:${reviewWitnessContentHash(file, 'head')}`;
 	const contentCacheKey = `${baseCacheKey}|${headCacheKey}`;
 	const job = buildBridgeWorkerPierreRenderJob({
 		bridgeDemandRank: { lane: 'visible', priority: publicationSequence },
@@ -19,7 +19,7 @@ export function completeReviewContentMessages(
 		contentCacheKey,
 		contentHash: `review-recovery-content-${file.itemId}`,
 		itemId: file.itemId,
-		language: 'swift',
+		language: reviewWitnessLanguage(file),
 		payload: {
 			item: {
 				bridgeMetadata: {
@@ -108,7 +108,7 @@ export function completeReviewFileContentMessages(
 		contentCacheKey,
 		contentHash: `review-recovery-file-content-${file.itemId}`,
 		itemId: file.itemId,
-		language: 'swift',
+		language: reviewWitnessLanguage(file),
 		payload: {
 			item: {
 				bridgeMetadata: {
@@ -119,7 +119,12 @@ export function completeReviewFileContentMessages(
 					itemId: file.itemId,
 					lineCount: file.lineCount,
 				},
-				file: { cacheKey: contentCacheKey, contents, lang: 'swift', name: file.path },
+				file: {
+					cacheKey: contentCacheKey,
+					contents,
+					lang: reviewWitnessLanguage(file),
+					name: file.path,
+				},
 				id: file.itemId,
 				type: 'file',
 				version: 1,
@@ -180,8 +185,25 @@ export function completeReviewFileContentMessages(
 }
 
 function reviewWitnessFileContents(file: BridgeReviewRecoveryWitnessFile, marker: string): string {
+	if (marker === 'BASE' && file.baseContent !== undefined) {
+		return file.baseContent;
+	}
+	if (marker === file.contentMarker && file.headContent !== undefined) {
+		return file.headContent;
+	}
 	return Array.from({ length: file.lineCount }, (_, lineIndex): string => {
 		const lineNumber = String(lineIndex + 1).padStart(3, '0');
 		return `let recoveryWitness${lineNumber} = "${marker}_LINE_${lineNumber}"`;
 	}).join('\n');
+}
+
+export function reviewWitnessContentHash(
+	file: BridgeReviewRecoveryWitnessFile,
+	role: 'base' | 'head',
+): string {
+	return `${role}:${file.itemId}:${role === 'head' ? file.contentMarker : 'before'}`;
+}
+
+function reviewWitnessLanguage(file: BridgeReviewRecoveryWitnessFile): string {
+	return file.language ?? (file.path.toLowerCase().endsWith('.md') ? 'markdown' : 'swift');
 }
