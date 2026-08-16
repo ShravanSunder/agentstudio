@@ -13,6 +13,7 @@ export const bridgeDesignPalette = {
 	'--palette-text-secondary': '#eaeaea',
 	'--palette-text-muted': '#c5c8c6',
 	'--palette-text-faint': '#9ba1ad',
+	'--palette-primary-blue': '#007bfe',
 	'--palette-blue': '#89b4fa',
 	'--palette-green': '#a6e3a1',
 	'--palette-yellow': '#f9e2af',
