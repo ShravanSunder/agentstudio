@@ -111,6 +111,7 @@ package enum AppStyles {
             package static let countBadgeVerticalPadding: CGFloat = 2
             package static let countBadgeBackgroundOpacity: CGFloat = 0.15
             package static let notificationRowUnreadDotSize: CGFloat = 6
+            package static let activePaneMarkerSize: CGFloat = 6
             package static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
             package static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
             package static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm

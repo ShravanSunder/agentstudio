@@ -22,6 +22,7 @@ package enum AppPolicies {
     package enum SidebarProjection {
         package static let cancellationItemStride: Int = 256
         package static let cancellationGroupStride: Int = 64
+        package static let paneRecencyDisplayCadence: Duration = .seconds(60)
 
         package enum Trigger: String, Equatable, Sendable {
             case groupingSwitch = "grouping_switch"

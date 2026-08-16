@@ -11,7 +11,8 @@ package struct RepoExplorerPanePresentation: Identifiable {
 }
 
 struct RepoExplorerPaneRow: View {
-    let label: String
+    let row: RepoExplorerProjectedPaneRow
+    let octiconLoader: OcticonLoader
     let onFocus: () -> Void
 
     @State private var isHovering = false
@@ -19,15 +20,65 @@ struct RepoExplorerPaneRow: View {
     var body: some View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
-                SidebarMetadataLine(
-                    iconSystemName: "square.split.2x1",
-                    text: label
-                )
+                VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+                    HStack(spacing: AppStyles.General.Spacing.tight) {
+                        Image(systemName: "square.split.2x1")
+                            .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                            .frame(
+                                width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                                alignment: .leading
+                            )
+                        Text(row.primaryText)
+                            .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if row.isActive {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(
+                                    width: AppStyles.Shell.Sidebar.activePaneMarkerSize,
+                                    height: AppStyles.Shell.Sidebar.activePaneMarkerSize
+                                )
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    SidebarMetadataLine(iconSystemName: "terminal", text: row.secondaryText)
+                    if row.recencyText != nil || row.isActive {
+                        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                            if let recencyText = row.recencyText {
+                                SidebarChip(
+                                    icon: .system(.clock),
+                                    octiconLoader: octiconLoader,
+                                    text: recencyText,
+                                    style: .neutral
+                                )
+                            }
+                            if row.isActive {
+                                SidebarChip(
+                                    icon: .system(.circleFill),
+                                    octiconLoader: octiconLoader,
+                                    text: "Active",
+                                    style: .accent(.accentColor)
+                                )
+                            }
+                        }
+                        .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityLabel(label)
+        .accessibilityLabel(
+            [row.primaryText, row.secondaryText, row.recencyText, row.isActive ? "Active" : nil]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
     }
 }
 

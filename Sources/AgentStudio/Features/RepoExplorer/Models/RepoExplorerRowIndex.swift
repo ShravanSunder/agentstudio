@@ -15,6 +15,7 @@ struct RepoExplorerResolvedWorktreeContext: Sendable {
 struct RepoExplorerResolvedPaneContext: Sendable {
     let rowId: String
     let group: RepoPresentationGroup
+    let row: RepoExplorerProjectedPaneRow
     let destination: RepoExplorerPaneDestination
 }
 
@@ -160,6 +161,7 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
         return RepoExplorerResolvedPaneContext(
             rowId: rowId,
             group: group,
+            row: projectedRow,
             destination: projectedRow.destination
         )
     }

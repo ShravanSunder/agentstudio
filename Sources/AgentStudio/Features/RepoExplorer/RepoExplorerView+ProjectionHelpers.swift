@@ -9,6 +9,8 @@ struct RepoExplorerProjectionRequestKey: Equatable {
     let isFiltering: Bool
     let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
     let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
+    let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
+    let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
 }
 
 extension RepoExplorerView {
@@ -92,7 +94,9 @@ extension RepoExplorerView {
             collapsedGroupIds: request.collapsedGroupIds,
             isFiltering: request.isFiltering,
             worktreeEnrichmentSnapshot: request.worktreeEnrichmentSnapshot,
-            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot
+            pullRequestFactsSnapshot: request.pullRequestFactsSnapshot,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 
@@ -174,6 +178,70 @@ extension RepoExplorerView {
         }
 
         return candidatesByWorktreeId
+    }
+
+    func paneRowFactsByPaneId(now: Date = Date()) -> [UUID: RepoExplorerPaneRowFacts] {
+        typealias PaneRowFactsEntry = (UUID, RepoExplorerPaneRowFacts)
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let lastInteractionByPaneId: [UUID: Date] = Dictionary(
+            uniqueKeysWithValues: atom(\.workspaceEntityRecency).recentEntities.compactMap { recency -> (UUID, Date)? in
+                guard case .pane(let paneId) = recency.entity else { return nil }
+                return (paneId, recency.lastInteractedAt)
+            }
+        )
+        let activePaneIds = Set(
+            store.tabLayoutAtom.activeTab.flatMap { tab in
+                store.tabLayoutAtom.activePaneID(forTab: tab.id).map { [$0] }
+            } ?? []
+        )
+        return Dictionary(
+            uniqueKeysWithValues: workspaceTab.tabs.flatMap(\.allPaneIds).compactMap { paneId -> PaneRowFactsEntry? in
+                guard let pane = store.paneAtom.pane(paneId) else { return nil }
+                let title = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cwdLeaf = pane.metadata.facets.cwd?.lastPathComponent ?? ""
+                let terminalTitle =
+                    title.isEmpty
+                    ? (cwdLeaf.isEmpty ? "shell" : "shell — \(cwdLeaf)")
+                    : title
+                let lastInteractedAt = lastInteractionByPaneId[paneId]
+                return (
+                    paneId,
+                    RepoExplorerPaneRowFacts(
+                        terminalTitle: terminalTitle,
+                        lastInteractedAt: lastInteractedAt,
+                        recencyText: lastInteractedAt.map {
+                            RepoExplorerPaneRecencyText.display(lastInteractedAt: $0, now: now)
+                        },
+                        isActive: activePaneIds.contains(paneId)
+                    )
+                )
+            }
+        )
+    }
+
+    func tabGroupFactsByTabId() -> [UUID: RepoExplorerTabGroupFacts] {
+        let workspaceTab = WorkspaceTabLayoutDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        return Dictionary(
+            uniqueKeysWithValues: workspaceTab.tabs.map { tab in
+                (
+                    tab.id,
+                    RepoExplorerTabGroupFacts(
+                        displayTitle: atom(\.tabDisplay).displayTitle(
+                            for: tab,
+                            workspacePane: store.paneAtom,
+                            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+                            repoCache: atom(\.repoCache)
+                        )
+                    )
+                )
+            }
+        )
     }
 
     static func checkoutColorHex(
@@ -317,7 +385,7 @@ extension RepoExplorerView {
 
         let projectedPaneRowsFingerprint = projection.paneRowsByGroupId.keys.sorted().map { groupId in
             let rows = projection.paneRowsByGroupId[groupId, default: []].map { row in
-                "\(row.groupId):\(row.rowId):\(paneDestinationFingerprint(row.destination))"
+                "\(row.groupId):\(row.rowId):\(row.primaryText):\(row.secondaryText):\(row.recencyText ?? ""):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
             }.joined(separator: ",")
             return "\(groupId):\(rows)"
         }.joined(separator: "|")
@@ -355,7 +423,7 @@ extension RepoExplorerView {
     }
 
     private static func paneDestinationFingerprint(_ destination: RepoExplorerPaneDestination) -> String {
-        "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
+        "\(destination.paneId.uuidString):\(destination.repoId.uuidString):\(destination.worktreeId.uuidString):\(destination.worktreeLabel):\(destination.paneDisplayLabel):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
     }
 
     static func shouldReportInitialProjection(hasReportedInitialProjection: Bool) -> Bool {
@@ -407,9 +475,7 @@ extension RepoExplorerView {
     func panePresentation(for destination: RepoExplorerPaneDestination) -> RepoExplorerPanePresentation {
         RepoExplorerPanePresentation(
             destination: destination,
-            label: destination.label(
-                paneDisplayLabel: atom(\.paneDisplay).displayLabel(for: destination.paneId)
-            )
+            label: destination.label
         )
     }
 

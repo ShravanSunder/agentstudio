@@ -545,7 +545,7 @@ struct RepoExplorerViewProjectionHelperTests {
         }
     }
 
-    @Test("source group icon uses repo semantics for By Pane and tab semantics for By Tab")
+    @Test("source group icon uses repo semantics for All Panes and tab semantics for By Tab")
     func sourceGroupIconUsesPerspectiveHeaderSemantics() {
         let group = RepoPresentationGroup(
             id: "pane:active",

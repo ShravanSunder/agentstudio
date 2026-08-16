@@ -16,6 +16,8 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
     let trigger: AppPolicies.SidebarProjection.Trigger
     let worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment]
     let pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts]
+    let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
+    let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
 
     init(
         generation: Int,
@@ -24,7 +26,9 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         isFiltering: Bool,
         trigger: AppPolicies.SidebarProjection.Trigger,
         worktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] = [:],
-        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:]
+        pullRequestFactsSnapshot: [RepoBranchKey: PullRequestFacts] = [:],
+        paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts] = [:],
+        tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts] = [:]
     ) {
         self.generation = generation
         self.snapshot = snapshot
@@ -33,6 +37,25 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
         self.trigger = trigger
         self.worktreeEnrichmentSnapshot = worktreeEnrichmentSnapshot
         self.pullRequestFactsSnapshot = pullRequestFactsSnapshot
+        self.paneRowFactsByPaneId = paneRowFactsByPaneId
+        self.tabGroupFactsByTabId = tabGroupFactsByTabId
+    }
+
+    func generated(
+        generation: Int,
+        trigger: AppPolicies.SidebarProjection.Trigger
+    ) -> Self {
+        Self(
+            generation: generation,
+            snapshot: snapshot,
+            collapsedGroupIds: collapsedGroupIds,
+            isFiltering: isFiltering,
+            trigger: trigger,
+            worktreeEnrichmentSnapshot: worktreeEnrichmentSnapshot,
+            pullRequestFactsSnapshot: pullRequestFactsSnapshot,
+            paneRowFactsByPaneId: paneRowFactsByPaneId,
+            tabGroupFactsByTabId: tabGroupFactsByTabId
+        )
     }
 
     func scopedChange(from previous: Self) -> RepoExplorerScopedProjectionChange? {
@@ -47,6 +70,8 @@ struct RepoExplorerProjectionRequest: Equatable, Sendable {
             previous.collapsedGroupIds == collapsedGroupIds,
             previous.isFiltering == isFiltering,
             previous.pullRequestFactsSnapshot == pullRequestFactsSnapshot
+                && previous.paneRowFactsByPaneId == paneRowFactsByPaneId
+                && previous.tabGroupFactsByTabId == tabGroupFactsByTabId
         else { return nil }
 
         if previous.snapshot.repos == snapshot.repos {
@@ -107,6 +132,8 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
     let branchStatusByWorktreeId: [UUID: GitBranchStatus]
     let branchNameByWorktreeId: [UUID: String]
     let bridgeCommandResolutionByWorktreeId: [UUID: BridgePaneCommandResolution]
+    let paneRowFactsByPaneId: [UUID: RepoExplorerPaneRowFacts]
+    let tabGroupFactsByTabId: [UUID: RepoExplorerTabGroupFacts]
 
     static let empty: Self = {
         let snapshot = RepoExplorerSnapshot(
@@ -139,7 +166,9 @@ struct RepoExplorerProjectionResult: Equatable, Sendable {
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: [:],
             branchNameByWorktreeId: [:],
-            bridgeCommandResolutionByWorktreeId: [:]
+            bridgeCommandResolutionByWorktreeId: [:],
+            paneRowFactsByPaneId: [:],
+            tabGroupFactsByTabId: [:]
         )
     }()
 }
@@ -185,6 +214,8 @@ actor RepoExplorerProjectionWorker {
         let projectionStart = clock.now
         let projection = try RepoExplorerProjection.projectCancellable(
             request.snapshot,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId,
             cancellationCheck: { try Task.checkCancellation() }
         )
         let projectionDuration = projectionStart.duration(to: clock.now)
@@ -226,7 +257,9 @@ actor RepoExplorerProjectionWorker {
             rowIndexDuration: rowIndexDuration,
             branchStatusByWorktreeId: branchStatusByWorktreeId,
             branchNameByWorktreeId: branchNameByWorktreeId,
-            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId
+            bridgeCommandResolutionByWorktreeId: bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 
@@ -405,7 +438,9 @@ actor RepoExplorerProjectionWorker {
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: branchStatuses,
             branchNameByWorktreeId: branchNames,
-            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId
+            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 
@@ -431,7 +466,9 @@ actor RepoExplorerProjectionWorker {
             rowIndexDuration: .zero,
             branchStatusByWorktreeId: previous.branchStatusByWorktreeId,
             branchNameByWorktreeId: previous.branchNameByWorktreeId,
-            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId
+            bridgeCommandResolutionByWorktreeId: previous.bridgeCommandResolutionByWorktreeId,
+            paneRowFactsByPaneId: request.paneRowFactsByPaneId,
+            tabGroupFactsByTabId: request.tabGroupFactsByTabId
         )
     }
 }

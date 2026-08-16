@@ -27,8 +27,8 @@ extension RepoExplorerReadModelTests {
         #expect(rowIndex.entries.map(\.id) == ["section-header:tabs"])
     }
 
-    @Test("all grouping modes keep their normal section header after favorites")
-    func allGroupingModesKeepTheirNormalSectionHeaderAfterFavorites() {
+    @Test("repository-owned modes keep empty normal sections while By Tab keeps stored tab order")
+    func groupingModesKeepTheirOwnedSectionShape() {
         let repoId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: repoId)
         let favoriteRepository = repo(
@@ -78,12 +78,14 @@ extension RepoExplorerReadModelTests {
 
         #expect(projections[0].sections.map(\.kind) == [.favorites, .repositories])
         #expect(projections[1].sections.map(\.kind) == [.favorites, .panes])
-        #expect(projections[2].sections.map(\.kind) == [.favorites, .tabs])
-        #expect(projections.allSatisfy { $0.sections.last?.resolvedGroups.isEmpty == true })
+        #expect(projections[2].sections.map(\.kind) == [.tabs])
+        #expect(projections[0].sections.last?.resolvedGroups.isEmpty == true)
+        #expect(projections[1].sections.last?.resolvedGroups.isEmpty == true)
+        #expect(projections[2].sections[0].resolvedGroups.map(\.id) == ["tab:\(tabId.uuidString)"])
     }
 
-    @Test("tab favorites are a top-level partition instead of nested section headers")
-    func tabFavoritesAreTopLevelInsteadOfNestedSectionHeaders() {
+    @Test("By Tab does not split panes by repository favorite state")
+    func tabFavoritesDoNotPartitionPaneRows() {
         let favoriteRepoId = UUIDv7.generate()
         let regularRepoId = UUIDv7.generate()
         let favoriteWorktree = worktree(repoId: favoriteRepoId, name: "favorite")
@@ -135,35 +137,16 @@ extension RepoExplorerReadModelTests {
             isFiltering: false
         )
 
-        #expect(projection.sections.map(\.kind) == [.favorites, .tabs])
-        #expect(rowIndex.entries.first?.id == "section-header:favorites")
+        #expect(projection.sections.map(\.kind) == [.tabs])
+        #expect(rowIndex.entries.first?.id == "section-header:tabs")
         #expect(rowIndex.entries.allSatisfy { !$0.id.hasPrefix("group-section-header:") })
         #expect(
             rowIndex.entries.compactMap { entry -> UUID? in
-                guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return nil }
-                return repoId
+                guard case .resolvedPaneRow(_, let identity, _) = entry else { return nil }
+                return identity.repoId
             } == [favoriteRepoId, regularRepoId]
         )
-
-        let favoriteEntry = rowIndex.entries.first { entry in
-            guard case .resolvedWorktreeRow(_, let repoId, _, _) = entry else { return false }
-            return repoId == favoriteRepoId
-        }
-        guard
-            let favoriteEntry,
-            case .resolvedWorktreeRow(let groupId, let repoId, let worktreeId, let rowId) = favoriteEntry
-        else {
-            Issue.record("Expected the favorite tab row")
-            return
-        }
-        #expect(
-            rowIndex.resolve(
-                groupId: groupId,
-                repoId: repoId,
-                worktreeId: worktreeId,
-                rowId: rowId
-            )?.placementContext?.tabId == tabId
-        )
+        #expect(projection.resolvedGroups.map(\.id) == ["tab:\(tabId.uuidString)"])
     }
 
     @Test("repository-owned modes omit empty favorite partitions")

@@ -3,17 +3,15 @@ import AgentStudioInfrastructure
 import AgentStudioSharedComponents
 import Foundation
 
-package enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, Sendable {
-    case repo
-    case pane
-    case tab
+package typealias RepoExplorerGroupingMode = RepoSidebarGroupingMode
 
+extension RepoSidebarGroupingMode {
     var title: String {
         switch self {
         case .repo:
             return "By Repo"
         case .pane:
-            return "By Pane"
+            return "All Panes"
         case .tab:
             return "By Tab"
         }
@@ -28,6 +26,29 @@ package enum RepoExplorerGroupingMode: String, CaseIterable, Codable, Hashable, 
         case .tab:
             return .system(.rectangleStack)
         }
+    }
+}
+
+struct RepoExplorerPaneRowFacts: Equatable, Sendable {
+    let terminalTitle: String
+    let lastInteractedAt: Date?
+    let recencyText: String?
+    let isActive: Bool
+}
+
+struct RepoExplorerTabGroupFacts: Equatable, Sendable {
+    let displayTitle: String
+}
+
+enum RepoExplorerPaneRecencyText {
+    static func display(lastInteractedAt: Date, now: Date) -> String {
+        let elapsedSeconds = max(0, now.timeIntervalSince(lastInteractedAt))
+        let elapsedMinutes = Int(elapsedSeconds / 60)
+        if elapsedMinutes < 1 { return "Now" }
+        if elapsedMinutes < 60 { return "\(elapsedMinutes)m" }
+        let elapsedHours = elapsedMinutes / 60
+        if elapsedHours < 24 { return "\(elapsedHours)h" }
+        return "\(elapsedHours / 24)d"
     }
 }
 

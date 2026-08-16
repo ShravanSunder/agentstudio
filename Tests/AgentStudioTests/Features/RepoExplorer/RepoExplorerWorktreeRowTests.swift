@@ -164,8 +164,8 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         #expect(paneNavigationSource.contains("SidebarMetadataLine("))
-        #expect(paneNavigationSource.contains("iconSystemName: \"square.split.2x1\""))
-        #expect(paneNavigationSource.contains("text: label"))
+        #expect(paneNavigationSource.contains("iconSystemName: \"terminal\""))
+        #expect(paneNavigationSource.contains("text: row.secondaryText"))
         #expect(
             worktreeRowSource.contains(
                 """

@@ -7,6 +7,141 @@ import Testing
 
 @Suite("RepoExplorer pane projection")
 struct RepoExplorerPaneProjectionTests {
+    @Test("All Panes rows are complete worker values sorted by recency")
+    func allPanesRowsCarryPresentationFactsInRecencyOrder() throws {
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId, name: "agent-studio.sidebar-grouping")
+        let olderPaneId = UUIDv7.generate()
+        let newerPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let snapshot = RepoExplorerSnapshot(
+            repos: [makeRepo(id: repoId, worktrees: [worktree])],
+            repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+            groupingMode: .pane,
+            query: "",
+            paneLocationsByWorktreeId: [
+                worktree.id: [
+                    .init(
+                        paneId: olderPaneId,
+                        tabId: tabId,
+                        tabIndex: 0,
+                        paneIndexInTab: 0,
+                        isActiveInTab: false
+                    ),
+                    .init(
+                        paneId: newerPaneId,
+                        tabId: tabId,
+                        tabIndex: 0,
+                        paneIndexInTab: 1,
+                        isActiveInTab: true
+                    ),
+                ]
+            ]
+        )
+
+        let projection = RepoExplorerProjection.project(
+            snapshot,
+            paneRowFactsByPaneId: [
+                olderPaneId: .init(
+                    terminalTitle: "old shell",
+                    lastInteractedAt: Date(timeIntervalSince1970: 10),
+                    recencyText: "2m",
+                    isActive: false
+                ),
+                newerPaneId: .init(
+                    terminalTitle: "tests running",
+                    lastInteractedAt: Date(timeIntervalSince1970: 20),
+                    recencyText: "Now",
+                    isActive: true
+                ),
+            ]
+        )
+
+        let group = try #require(projection.resolvedGroups.first)
+        let rows = try #require(projection.paneRowsByGroupId[group.id])
+        #expect(rows.map(\.destination.paneId) == [newerPaneId, olderPaneId])
+        #expect(rows[0].primaryText == "agent-studio.sidebar-grouping · Pane 2")
+        #expect(rows[0].secondaryText == "tests running")
+        #expect(rows[0].recencyText == "Now")
+        #expect(rows[0].isActive)
+    }
+
+    @Test("By Tab uses display titles, pane counts, tab order, and pane rows")
+    func byTabProjectsPaneRowsUnderDisplayTitleHeaders() throws {
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId)
+        let firstTabId = UUIDv7.generate()
+        let secondTabId = UUIDv7.generate()
+        let firstPaneId = UUIDv7.generate()
+        let secondPaneId = UUIDv7.generate()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [makeRepo(id: repoId, worktrees: [worktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    worktree.id: [
+                        .init(
+                            paneId: secondPaneId,
+                            tabId: secondTabId,
+                            tabIndex: 1,
+                            paneIndexInTab: 0,
+                            isActiveInTab: false
+                        ),
+                        .init(
+                            paneId: firstPaneId,
+                            tabId: firstTabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        ),
+                    ]
+                ]
+            ),
+            paneRowFactsByPaneId: [
+                firstPaneId: .init(
+                    terminalTitle: "first terminal",
+                    lastInteractedAt: nil,
+                    recencyText: nil,
+                    isActive: true
+                ),
+                secondPaneId: .init(
+                    terminalTitle: "second terminal",
+                    lastInteractedAt: nil,
+                    recencyText: nil,
+                    isActive: false
+                ),
+            ],
+            tabGroupFactsByTabId: [
+                firstTabId: .init(displayTitle: "Implementation"),
+                secondTabId: .init(displayTitle: "Tests"),
+            ]
+        )
+
+        #expect(projection.resolvedGroups.map(\.repoTitle) == ["Implementation", "Tests"])
+        #expect(projection.resolvedGroups.map(\.organizationName) == ["1 pane", "1 pane"])
+        #expect(projection.worktreeRowsByGroupId.isEmpty)
+        #expect(projection.resolvedGroups.allSatisfy { projection.paneRowsByGroupId[$0.id]?.count == 1 })
+    }
+
+    @Test("recency text changes only at minute boundaries")
+    func recencyTextUsesCoarseMinuteBuckets() {
+        let lastInteraction = Date(timeIntervalSince1970: 100)
+        #expect(
+            RepoExplorerPaneRecencyText.display(
+                lastInteractedAt: lastInteraction,
+                now: Date(timeIntervalSince1970: 161)
+            ) == "1m"
+        )
+        #expect(
+            RepoExplorerPaneRecencyText.display(
+                lastInteractedAt: lastInteraction,
+                now: Date(timeIntervalSince1970: 199)
+            ) == "1m"
+        )
+    }
+
     @Test("pane destinations sort by tab pane and stable pane identity")
     func paneDestinationsUseCanonicalLocationOrder() throws {
         let repoId = UUIDv7.generate()

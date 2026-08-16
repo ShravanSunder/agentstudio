@@ -168,6 +168,37 @@ struct RepoExplorerHotPathArchitectureTests {
         #expect(projectionWorkerSource.contains("branchNameByWorktreeId"))
     }
 
+    @Test("pane rows render only immutable worker projection values")
+    func paneRowsRenderOnlyImmutableWorkerProjectionValues() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let rowSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift"
+            ),
+            encoding: .utf8
+        )
+        let helperSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView+ProjectionHelpers.swift"
+            ),
+            encoding: .utf8
+        )
+        let workerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/Models/RepoExplorerProjectionWorker.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(rowSource.contains("let row: RepoExplorerProjectedPaneRow"))
+        #expect(!rowSource.contains("atom("))
+        #expect(!helperSource.contains("atom(\\.paneDisplay)"))
+        #expect(workerSource.contains("paneRowFactsByPaneId"))
+        // The source contract proves projection stays off MainActor.
+        // swiftlint:disable:next no_task_detached
+        #expect(workerSource.contains("Task.detached(priority: .userInitiated)"))
+    }
+
     @Test("repo favorite rows read current topology state instead of projected entity copies")
     func repoFavoriteRowsReadCurrentTopologyState() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

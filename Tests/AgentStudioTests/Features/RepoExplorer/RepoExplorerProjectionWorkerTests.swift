@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
@@ -199,6 +200,38 @@ struct RepoExplorerProjectionWorkerTests {
                 "worktree:repo:\(repoId.uuidString):\(repoId.uuidString):\(repo.worktrees[0].id.uuidString):inactive",
             ])
         #expect(result.branchNameByWorktreeId[repo.worktrees[0].id] == "Unknown branch")
+    }
+
+    @Test("generated requests preserve pane and tab presentation facts")
+    func generatedRequestPreservesPaneAndTabPresentationFacts() {
+        let paneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+        let paneFacts = RepoExplorerPaneRowFacts(
+            terminalTitle: "tests running",
+            lastInteractedAt: Date(timeIntervalSince1970: 100),
+            recencyText: "2m",
+            isActive: true
+        )
+        let tabFacts = RepoExplorerTabGroupFacts(displayTitle: "Implementation")
+        let request = RepoExplorerProjectionRequest(
+            generation: 0,
+            snapshot: .init(repos: [], repoEnrichmentByRepoId: [:], groupingMode: .tab, query: ""),
+            collapsedGroupIds: [],
+            isFiltering: false,
+            trigger: .startupDiagnostic,
+            paneRowFactsByPaneId: [paneId: paneFacts],
+            tabGroupFactsByTabId: [tabId: tabFacts]
+        )
+
+        let generatedRequest = request.generated(
+            generation: 7,
+            trigger: .dataRefresh
+        )
+
+        #expect(generatedRequest.generation == 7)
+        #expect(generatedRequest.trigger == .dataRefresh)
+        #expect(generatedRequest.paneRowFactsByPaneId == [paneId: paneFacts])
+        #expect(generatedRequest.tabGroupFactsByTabId == [tabId: tabFacts])
     }
 
     @Test("worker resolves Bridge command candidates off the capture path")
