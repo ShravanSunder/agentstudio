@@ -183,6 +183,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 	);
 	const markdownPresentation = useBridgeMarkdownPresentation({
 		abortKey: 'bridge-markdown-file',
+		isActive,
 		intent: markdownDecision.kind === 'render' ? markdownDecision.intent : null,
 		workerClient: markdownWorkerClient,
 	});
@@ -356,8 +357,8 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 									markdownDecision.kind === 'loading'
 										? { status: 'loading', sourcePath: selectedPath ?? 'Markdown' }
 										: markdownPresentation.presentationState,
+								mermaidRenderer,
 								retry: markdownPresentation.retry,
-								...(mermaidRenderer === undefined ? {} : { mermaidRenderer }),
 							}
 				}
 				openFileTotalHeightPixels={openFileTotalHeightPixels}

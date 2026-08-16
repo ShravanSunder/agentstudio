@@ -102,17 +102,22 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 		this.activeBuildController?.abort(new Error('Bridge development supervisor stopped.'));
 		await this.buildDrainPromise;
 		const server = this.activeServer;
-		this.activeServer = null;
-		await server?.stop();
+		if (server === null) return;
+		await server.stop();
+		if (this.activeServer === server) this.activeServer = null;
 	}
 
 	private ensureBuildDrain(): Promise<void> {
 		if (this.buildDrainPromise !== null) return this.buildDrainPromise;
 		const drainPromise = this.drainBuildQueue();
 		this.buildDrainPromise = drainPromise;
-		void drainPromise.finally((): void => {
+		const finishBuildDrain = (): void => {
 			if (this.buildDrainPromise === drainPromise) this.buildDrainPromise = null;
 			if (this.pendingBuild && !this.stopped) void this.ensureBuildDrain();
+		};
+		void drainPromise.then(finishBuildDrain, (error: unknown): void => {
+			this.props.report(`Bridge development server supervisor failed: ${errorMessage(error)}`);
+			finishBuildDrain();
 		});
 		return drainPromise;
 	}
@@ -156,8 +161,17 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 			return;
 		}
 		const previousServer = this.activeServer;
-		this.activeServer = null;
-		await previousServer?.stop();
+		if (previousServer !== null) {
+			try {
+				await previousServer.stop();
+			} catch (error: unknown) {
+				this.props.report(
+					`Bridge development server replacement stop failed; retaining cleanup authority: ${errorMessage(error)}`,
+				);
+				return;
+			}
+			if (this.activeServer === previousServer) this.activeServer = null;
+		}
 		if (this.stopped) return;
 		// oxlint-disable no-await-in-loop -- Launch retries are bounded, delayed, and reuse one successful build.
 		for (let launchAttempt = 1; launchAttempt <= maximumLaunchAttempts; launchAttempt += 1) {

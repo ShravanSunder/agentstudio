@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 
+import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
 import {
 	createBridgeDevTelemetrySink,
 	type BridgeDevTelemetrySink,
@@ -33,6 +34,9 @@ export default defineConfig(async () => {
 		base: './',
 		resolve: {
 			alias: [{ find: '@', replacement: `${bridgeWebPackageRoot}/src` }],
+		},
+		optimizeDeps: {
+			include: [...bridgeViteOptimizedDependencies],
 		},
 		plugins: [
 			react(),

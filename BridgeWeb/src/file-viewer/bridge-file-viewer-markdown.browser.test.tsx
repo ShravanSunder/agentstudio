@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the product Markdown styles.
@@ -183,6 +183,56 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 			expect(originalCanvas.querySelector('svg')).toBe(originalSvg);
 			expect(originalCanvas.querySelector('[data-bridge-mermaid-state="ready"]')).not.toBeNull();
 			expect(document.querySelector('[data-testid="bridge-markdown-status"]')).toBeNull();
+		} finally {
+			markdownWorkerClient.dispose();
+		}
+	});
+
+	test('aborts in-flight Markdown preparation when retained File view becomes inactive', async () => {
+		const markdownContent = '# Suspended Markdown\n';
+		const markdownDescriptor = await makeFileDescriptorForContent({
+			content: markdownContent,
+			contentHandle: 'suspended-markdown-content',
+			fileId: 'suspended-markdown',
+			path: 'docs/suspended.md',
+		});
+		const sendRenderRequest = vi.fn<BridgeMarkdownRenderWorkerTransport['send']>(
+			(): Promise<unknown> => new Promise<unknown>(() => {}),
+		);
+		const abortRenderRequest = vi.fn<NonNullable<BridgeMarkdownRenderWorkerTransport['abort']>>();
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport: { send: sendRenderRequest, abort: abortRenderRequest },
+		});
+		const activeApp = (
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				initialMetadataEvents={makeFileMetadataEvents(markdownDescriptor)}
+				isActive={true}
+				markdownWorkerClient={markdownWorkerClient}
+				navigationCommand={fileNavigationCommandForPath('docs/suspended.md')}
+				fileProductSession={{ readContent: async (): Promise<string> => markdownContent }}
+			/>
+		);
+
+		try {
+			const rendered = await render(activeApp);
+			await waitForMarkdownOpenFileState('ready');
+			await waitForMarkdownSelector('[data-testid="bridge-markdown-status"]');
+			expect(sendRenderRequest).toHaveBeenCalledOnce();
+
+			await rendered.rerender(
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialMetadataEvents={makeFileMetadataEvents(markdownDescriptor)}
+					isActive={false}
+					markdownWorkerClient={markdownWorkerClient}
+					navigationCommand={fileNavigationCommandForPath('docs/suspended.md')}
+					fileProductSession={{ readContent: async (): Promise<string> => markdownContent }}
+				/>,
+			);
+
+			expect(abortRenderRequest).toHaveBeenCalledOnce();
+			expect(sendRenderRequest).toHaveBeenCalledOnce();
 		} finally {
 			markdownWorkerClient.dispose();
 		}

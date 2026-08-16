@@ -3,6 +3,7 @@ import { useRef, type ReactElement, type ReactNode } from 'react';
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeMarkdownCanvas } from '../app/markdown/bridge-markdown-canvas.js';
+import type { BridgeMermaidRenderer } from '../app/markdown/bridge-mermaid-renderer.js';
 import type { BridgeMarkdownPresentationState } from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeViewerSearchFocusRestoration } from '../app/use-bridge-viewer-search-focus-restoration.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
@@ -49,6 +50,7 @@ export interface BridgeFileViewerShellProps {
 	readonly onToggleSearch: () => void;
 	readonly openFileState: BridgeFileViewerOpenState;
 	readonly markdownPresentation?: {
+		readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
 		readonly presentationState: BridgeMarkdownPresentationState;
 		readonly retry: () => void;
 	} | null;
@@ -153,7 +155,14 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 									: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 							/>
 						) : (
-							<BridgeMarkdownCanvas {...props.markdownPresentation} />
+							<BridgeMarkdownCanvas
+								isActive={props.isActive}
+								presentationState={props.markdownPresentation.presentationState}
+								retry={props.markdownPresentation.retry}
+								{...(props.markdownPresentation.mermaidRenderer === undefined
+									? {}
+									: { mermaidRenderer: props.markdownPresentation.mermaidRenderer })}
+							/>
 						)}
 					</section>
 				}

@@ -5,31 +5,10 @@ import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, type TestUserConfig } from 'vitest/config';
 
+import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
+
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryTemporaryRoot = resolve(bridgeWebPackageRoot, '..', 'tmp');
-
-const browserOptimizedDependencies = [
-	'@base-ui/react/combobox',
-	'@pierre/diffs/worker',
-	'@shikijs/markdown-exit',
-	'markdown-exit',
-	'react-dom/client',
-	'shiki/core',
-	'shiki/engine/javascript',
-	'shiki/langs/css.mjs',
-	'shiki/langs/diff.mjs',
-	'shiki/langs/html.mjs',
-	'shiki/langs/javascript.mjs',
-	'shiki/langs/json.mjs',
-	'shiki/langs/jsonc.mjs',
-	'shiki/langs/md.mjs',
-	'shiki/langs/shellscript.mjs',
-	'shiki/langs/swift.mjs',
-	'shiki/langs/tsx.mjs',
-	'shiki/langs/typescript.mjs',
-	'shiki/langs/yaml.mjs',
-	'shiki/themes/github-dark.mjs',
-];
 
 const browserConfig = {
 	enabled: true,
@@ -69,7 +48,7 @@ export default defineConfig({
 			{
 				plugins: [react()],
 				optimizeDeps: {
-					include: [...browserOptimizedDependencies],
+					include: [...bridgeViteOptimizedDependencies],
 				},
 				server: {
 					fs: {
@@ -98,7 +77,7 @@ export default defineConfig({
 			{
 				plugins: [react()],
 				optimizeDeps: {
-					include: [...browserOptimizedDependencies],
+					include: [...bridgeViteOptimizedDependencies],
 				},
 				server: {
 					fs: {

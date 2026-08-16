@@ -111,6 +111,96 @@ describe('Bridge markdown render web worker transport', () => {
 		expect(factoryAttemptCount).toBe(2);
 	});
 
+	test('terminates an errored worker before retrying with a fresh worker', async () => {
+		vi.stubGlobal('Worker', FakeMarkdownWorker);
+		const failedWorker = new FakeMarkdownWorker();
+		const recoveredWorker = new FakeMarkdownWorker();
+		const workers = [failedWorker, recoveredWorker];
+		let factoryAttemptCount = 0;
+		let nextRequestId = 0;
+		const client = createBridgeMarkdownRenderWebWorkerClient({
+			createRequestId: (): string =>
+				`markdown-request-worker-error-${(nextRequestId += 1).toString()}`,
+			workerFactory: (): Worker => {
+				const nextWorker = workers[factoryAttemptCount];
+				factoryAttemptCount += 1;
+				if (nextWorker === undefined) throw new Error('unexpected worker factory attempt');
+				return nextWorker;
+			},
+		});
+		if (client === null) throw new Error('expected markdown worker client');
+
+		const failedTask = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/worker-error.md' }),
+		);
+		await flushMarkdownWorkerTransportMicrotasks();
+		failedWorker.emitError('worker execution failed');
+
+		await expect(failedTask.completed).resolves.toMatchObject({ status: 'failure' });
+		expect(failedWorker.terminateCount).toBe(1);
+
+		const recoveredTask = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/worker-error.md' }),
+		);
+		await flushMarkdownWorkerTransportMicrotasks();
+		const recoveredRequest = recoveredWorker.postedMessages.find(
+			(message: unknown): message is BridgeMarkdownRenderWorkerRequest =>
+				isRecord(message) && message['requestId'] === recoveredTask.identity.requestId,
+		);
+		if (recoveredRequest === undefined) throw new Error('expected recovered markdown request');
+		recoveredWorker.emitMessage(successResponseForRequest(recoveredRequest));
+
+		await expect(recoveredTask.completed).resolves.toMatchObject({ status: 'success' });
+		expect(factoryAttemptCount).toBe(2);
+		client.dispose();
+		expect(failedWorker.terminateCount).toBe(1);
+		expect(recoveredWorker.terminateCount).toBe(1);
+	});
+
+	test('ignores queued messages from a retired worker after replacement', async () => {
+		vi.stubGlobal('Worker', FakeMarkdownWorker);
+		const failedWorker = new FakeMarkdownWorker();
+		const recoveredWorker = new FakeMarkdownWorker();
+		const workers = [failedWorker, recoveredWorker];
+		let factoryAttemptCount = 0;
+		let nextRequestId = 0;
+		const client = createBridgeMarkdownRenderWebWorkerClient({
+			createRequestId: (): string =>
+				`markdown-request-retired-message-${(nextRequestId += 1).toString()}`,
+			workerFactory: (): Worker => {
+				const nextWorker = workers[factoryAttemptCount];
+				factoryAttemptCount += 1;
+				if (nextWorker === undefined) throw new Error('unexpected worker factory attempt');
+				return nextWorker;
+			},
+		});
+		if (client === null) throw new Error('expected markdown worker client');
+
+		const failedTask = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/retired-worker.md' }),
+		);
+		await flushMarkdownWorkerTransportMicrotasks();
+		failedWorker.emitError('worker execution failed');
+		await expect(failedTask.completed).resolves.toMatchObject({ status: 'failure' });
+
+		const recoveredTask = client.startRender(
+			makeMarkdownRenderTaskProps({ sourcePath: 'docs/retired-worker.md' }),
+		);
+		await flushMarkdownWorkerTransportMicrotasks();
+		const recoveredRequest = recoveredWorker.postedMessages.find(
+			(message: unknown): message is BridgeMarkdownRenderWorkerRequest =>
+				isRecord(message) && message['requestId'] === recoveredTask.identity.requestId,
+		);
+		if (recoveredRequest === undefined) throw new Error('expected recovered markdown request');
+
+		failedWorker.emitMessage({ invalid: 'retired response' });
+		recoveredWorker.emitMessage(successResponseForRequest(recoveredRequest));
+
+		await expect(recoveredTask.completed).resolves.toMatchObject({ status: 'success' });
+		expect(failedWorker.terminateCount).toBe(1);
+		expect(recoveredWorker.terminateCount).toBe(0);
+	});
+
 	test('terminates a worker that resolves after disposal without posting work', async () => {
 		vi.stubGlobal('Worker', FakeMarkdownWorker);
 		const deferredWorker = deferredMarkdownWorker();
@@ -235,6 +325,10 @@ class FakeMarkdownWorker extends EventTarget implements Worker {
 
 	emitMessage(data: unknown): void {
 		this.dispatchEvent(new MessageEvent('message', { data }));
+	}
+
+	emitError(message: string): void {
+		this.dispatchEvent(new ErrorEvent('error', { message }));
 	}
 }
 

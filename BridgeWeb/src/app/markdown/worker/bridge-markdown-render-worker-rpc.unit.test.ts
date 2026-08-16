@@ -18,7 +18,7 @@ describe('Bridge markdown render worker RPC', () => {
 			},
 			contentCacheKey: 'docs-plan:head',
 			contentHash: 'sha256:docs-plan:head',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 			markdownText: '# Bridge plan',
 			sourcePath: 'docs/plans/bridge.md',
 		});

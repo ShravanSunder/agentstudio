@@ -97,6 +97,9 @@ function createBridgeMarkdownRenderWebWorkerTransport(props: {
 					throw new Error('Markdown render worker transport was disposed');
 				}
 				nextWorker.addEventListener('message', (event: MessageEvent<unknown>): void => {
+					if (worker !== nextWorker) {
+						return;
+					}
 					const parsed = bridgeMarkdownRenderWorkerResponseSchema.safeParse(event.data);
 					if (!parsed.success) {
 						rejectPendingRequests(
@@ -116,11 +119,15 @@ function createBridgeMarkdownRenderWebWorkerTransport(props: {
 					pending.resolve(parsed.data);
 				});
 				nextWorker.addEventListener('error', (event: ErrorEvent): void => {
+					if (worker !== nextWorker) {
+						return;
+					}
 					const errorMessage =
 						typeof event.message === 'string' && event.message.length > 0
 							? event.message
 							: 'Markdown render worker failed';
 					rejectPendingRequests(pendingByRequestId, new Error(errorMessage));
+					nextWorker.terminate();
 					worker = null;
 					workerPromise = null;
 				});

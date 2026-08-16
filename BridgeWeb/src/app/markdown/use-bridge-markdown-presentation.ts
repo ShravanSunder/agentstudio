@@ -31,6 +31,7 @@ export type BridgeMarkdownPresentationState =
 
 export function useBridgeMarkdownPresentation(props: {
 	readonly abortKey: string;
+	readonly isActive: boolean;
 	readonly intent: BridgeMarkdownRenderIntent | null;
 	readonly workerClient: BridgeMarkdownRenderWorkerClient | null;
 }): {
@@ -49,6 +50,10 @@ export function useBridgeMarkdownPresentation(props: {
 	latestIntentRef.current = props.intent;
 
 	useEffect((): (() => void) | void => {
+		if (!props.isActive) {
+			props.workerClient?.abort(props.abortKey);
+			return;
+		}
 		const intent = latestIntentRef.current;
 		if (intent === null || intentKey === null) {
 			props.workerClient?.abort(props.abortKey);
@@ -80,7 +85,7 @@ export function useBridgeMarkdownPresentation(props: {
 			acceptsCompletion = false;
 			workerClient.abort(props.abortKey);
 		};
-	}, [intentKey, props.abortKey, props.workerClient, retryRevision]);
+	}, [intentKey, props.abortKey, props.isActive, props.workerClient, retryRevision]);
 
 	const retry = useCallback((): void => setRetryRevision((revision): number => revision + 1), []);
 	return { presentationState, retry };

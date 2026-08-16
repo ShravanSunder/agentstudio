@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
 	bridgeMermaidSourceAdmission,
@@ -6,6 +6,11 @@ import {
 } from './bridge-mermaid-renderer.js';
 
 describe('Bridge Mermaid trust boundary', () => {
+	afterEach(() => {
+		vi.doUnmock('mermaid');
+		vi.resetModules();
+	});
+
 	test('admits inert diagrams and rejects configuration, interaction, style, and resources', () => {
 		expect(bridgeMermaidSourceAdmission('flowchart LR\nA --> B')).toEqual({ admitted: true });
 		for (const source of [
@@ -33,5 +38,34 @@ describe('Bridge Mermaid trust boundary', () => {
 
 		expect(sanitizedSvg).not.toMatch(/script|foreignObject|image|onclick|example\.com|@import/iu);
 		expect(sanitizedSvg).toContain('url(#arrow)');
+	});
+
+	test('retries Mermaid bootstrap after the first initialization rejects', async () => {
+		vi.resetModules();
+		let initializeAttemptCount = 0;
+		vi.doMock('mermaid', () => ({
+			default: {
+				initialize: (): void => {
+					initializeAttemptCount += 1;
+					if (initializeAttemptCount === 1) {
+						throw new Error('Mermaid initialization failed');
+					}
+				},
+				render: async (): Promise<{ readonly svg: string }> => ({
+					svg: '<svg><text>Recovered diagram</text></svg>',
+				}),
+			},
+		}));
+		const { createBridgeMermaidRenderer } = await import('./bridge-mermaid-renderer.js');
+		const renderer = createBridgeMermaidRenderer();
+		const renderProps = {
+			diagramId: 'retry-diagram',
+			source: 'flowchart LR\nA --> B',
+			accessibleLabel: 'Recovered diagram',
+		} as const;
+
+		await expect(renderer.render(renderProps)).rejects.toThrow('Mermaid initialization failed');
+		await expect(renderer.render(renderProps)).resolves.toContain('Recovered diagram');
+		expect(initializeAttemptCount).toBe(2);
 	});
 });

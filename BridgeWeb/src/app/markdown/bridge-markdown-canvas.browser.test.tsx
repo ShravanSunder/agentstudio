@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
@@ -16,9 +17,30 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 		document.body.replaceChildren();
 	});
 
+	test('renders document Retry with the owned Button primitive and invokes recovery', async () => {
+		const retry = vi.fn();
+		await render(
+			<BridgeMarkdownCanvas
+				isActive={true}
+				presentationState={{ status: 'failed', sourcePath: 'docs/markdown-proof.md' }}
+				retry={retry}
+			/>,
+		);
+
+		const retryButton = requireHTMLElement(
+			[...document.querySelectorAll('button')].find(
+				(button): boolean => button.textContent === 'Retry',
+			) ?? null,
+		);
+		expect(retryButton.dataset['slot']).toBe('button');
+		retryButton.click();
+		expect(retry).toHaveBeenCalledOnce();
+	});
+
 	test('renders semantic document structure, inert links, and preserved Shiki colors', async () => {
 		await render(
 			<BridgeMarkdownCanvas
+				isActive={true}
 				presentationState={readyPresentation({
 					htmlCandidate: `
 						<h1>Markdown proof</h1>
@@ -54,6 +76,7 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 	test('lazily renders an admitted Mermaid diagram as labeled sanitized SVG', async () => {
 		await render(
 			<BridgeMarkdownCanvas
+				isActive={true}
 				mermaidRenderer={createBridgeMermaidRenderer()}
 				presentationState={readyPresentation({
 					htmlCandidate:
@@ -64,11 +87,9 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 			/>,
 		);
 
-		await expect
-			.poll(() => document.querySelector('[data-bridge-mermaid-state="ready"] svg'))
-			.not.toBeNull();
-		const renderedSvg = requireSvgElement(
-			document.querySelector('[data-bridge-mermaid-state="ready"] svg'),
+		const renderedSvg = await waitForSelector(
+			'[data-bridge-mermaid-state="ready"] svg',
+			SVGElement,
 		);
 
 		expect(renderedSvg.getAttribute('role')).toBe('img');
@@ -76,10 +97,44 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 		expect(renderedSvg.querySelector('script, foreignObject, image')).toBeNull();
 	});
 
+	test('sanitizes Mermaid output again at the DOM insertion boundary', async () => {
+		const mermaidRenderer: BridgeMermaidRenderer = {
+			render: async (): Promise<string> => `
+				<svg role="img" onload="globalThis.mermaidOutputExecuted = true">
+					<script>globalThis.mermaidOutputExecuted = true</script>
+					<image href="https://example.com/tracker.png" />
+					<text>Safe diagram label</text>
+				</svg>
+			`,
+		};
+		await render(
+			<BridgeMarkdownCanvas
+				isActive={true}
+				mermaidRenderer={mermaidRenderer}
+				presentationState={readyPresentation({
+					htmlCandidate:
+						'<div class="bridge-markdown-mermaid" data-bridge-mermaid-id="diagram-sink"></div>',
+					mermaidDiagrams: [{ id: 'diagram-sink', source: 'flowchart LR\nA --> B' }],
+				})}
+				retry={(): void => {}}
+			/>,
+		);
+
+		const renderedSvg = await waitForSelector(
+			'[data-bridge-mermaid-state="ready"] svg',
+			SVGElement,
+		);
+
+		expect(renderedSvg.textContent).toContain('Safe diagram label');
+		expect(renderedSvg.hasAttribute('onload')).toBe(false);
+		expect(renderedSvg.querySelector('script, image')).toBeNull();
+	});
+
 	test('rejects resource-bearing Mermaid before renderer invocation and contains failure locally', async () => {
 		const renderDiagram = vi.fn<BridgeMermaidRenderer['render']>();
 		await render(
 			<BridgeMarkdownCanvas
+				isActive={true}
 				mermaidRenderer={{ render: renderDiagram }}
 				presentationState={readyPresentation({
 					htmlCandidate:
@@ -95,12 +150,60 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 			/>,
 		);
 
-		await expect
-			.poll(() => document.querySelector('[data-bridge-mermaid-state="failed"]'))
-			.not.toBeNull();
+		await act(async (): Promise<void> => {
+			await waitForSelector('[data-bridge-mermaid-state="failed"]', HTMLElement);
+		});
 		expect(renderDiagram).not.toHaveBeenCalled();
 		expect(document.body.textContent).toContain('Diagram could not be rendered.');
 		expect(document.body.textContent).toContain('Retry diagram');
+	});
+
+	test('renders diagram Retry with the owned Button primitive and recovers in place', async () => {
+		let renderAttemptCount = 0;
+		const mermaidRenderer: BridgeMermaidRenderer = {
+			render: async (): Promise<string> => {
+				renderAttemptCount += 1;
+				if (renderAttemptCount === 1) {
+					throw new Error('diagram bootstrap failed');
+				}
+				return '<svg role="img"><text>Recovered diagram</text></svg>';
+			},
+		};
+		await render(
+			<BridgeMarkdownCanvas
+				isActive={true}
+				mermaidRenderer={mermaidRenderer}
+				presentationState={readyPresentation({
+					htmlCandidate:
+						'<div class="bridge-markdown-mermaid" data-bridge-mermaid-id="diagram-retry"></div>',
+					mermaidDiagrams: [{ id: 'diagram-retry', source: 'flowchart LR\nA --> B' }],
+				})}
+				retry={(): void => {}}
+			/>,
+		);
+
+		await act(async (): Promise<void> => {
+			await waitForSelector('[data-bridge-mermaid-state="failed"] button', HTMLElement);
+		});
+		const article = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-markdown-canvas"]'),
+		);
+		const placeholder = requireHTMLElement(
+			document.querySelector('[data-bridge-mermaid-id="diagram-retry"]'),
+		);
+		const retryButton = requireHTMLElement(placeholder.querySelector('button'));
+		expect(retryButton.dataset['slot']).toBe('button');
+
+		await act(async (): Promise<void> => {
+			retryButton.click();
+			await waitForSelector('[data-bridge-mermaid-state="ready"] svg', SVGElement);
+		});
+
+		expect(renderAttemptCount).toBe(2);
+		expect(document.querySelector('[data-testid="bridge-markdown-canvas"]')).toBe(article);
+		expect(document.querySelector('[data-bridge-mermaid-id="diagram-retry"]')).toBe(placeholder);
+		expect(document.body.textContent).toContain('Recovered diagram');
+		expect(document.body.textContent).not.toContain('Retry diagram');
 	});
 
 	test('does not insert a completed diagram into a superseded document', async () => {
@@ -113,6 +216,7 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 		};
 		const rendered = await render(
 			<BridgeMarkdownCanvas
+				isActive={true}
 				mermaidRenderer={mermaidRenderer}
 				presentationState={readyPresentation({
 					htmlCandidate:
@@ -123,10 +227,11 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 				retry={(): void => {}}
 			/>,
 		);
-		await expect.poll(() => pendingDiagram.resolve).not.toBeNull();
+		await waitForSelector('[data-bridge-mermaid-state="rendering"]', HTMLElement);
 
 		await rendered.rerender(
 			<BridgeMarkdownCanvas
+				isActive={true}
 				mermaidRenderer={mermaidRenderer}
 				presentationState={readyPresentation({
 					htmlCandidate: '<h1>Current document</h1>',
@@ -144,6 +249,50 @@ describe('BridgeMarkdownCanvas Browser Mode', () => {
 		expect(document.body.textContent).toContain('Current document');
 		expect(document.body.textContent).not.toContain('Stale diagram');
 		expect(document.querySelector('[data-bridge-mermaid-id="diagram-stale"]')).toBeNull();
+	});
+
+	test('does not commit an in-flight Mermaid result while File view is inactive', async () => {
+		const pendingDiagram = { resolve: null as ((svg: string) => void) | null };
+		const mermaidRenderer: BridgeMermaidRenderer = {
+			render: () =>
+				new Promise<string>((resolve): void => {
+					pendingDiagram.resolve = resolve;
+				}),
+		};
+		const presentation = readyPresentation({
+			htmlCandidate:
+				'<div class="bridge-markdown-mermaid" data-bridge-mermaid-id="diagram-inactive"></div>',
+			mermaidDiagrams: [{ id: 'diagram-inactive', source: 'flowchart LR\nA --> B' }],
+			requestId: 'markdown-request-inactive',
+		});
+		const rendered = await render(
+			<BridgeMarkdownCanvas
+				isActive={true}
+				mermaidRenderer={mermaidRenderer}
+				presentationState={presentation}
+				retry={(): void => {}}
+			/>,
+		);
+		await waitForSelector('[data-bridge-mermaid-state="rendering"]', HTMLElement);
+
+		await rendered.rerender(
+			<BridgeMarkdownCanvas
+				isActive={false}
+				mermaidRenderer={mermaidRenderer}
+				presentationState={presentation}
+				retry={(): void => {}}
+			/>,
+		);
+		if (pendingDiagram.resolve === null) {
+			throw new Error('Expected the Mermaid render to be pending.');
+		}
+		await act(async (): Promise<void> => {
+			pendingDiagram.resolve?.('<svg role="img"><text>Hidden result</text></svg>');
+			await Promise.resolve();
+		});
+
+		expect(document.body.textContent).not.toContain('Hidden result');
+		expect(document.querySelector('[data-bridge-mermaid-id="diagram-inactive"] svg')).toBeNull();
 	});
 });
 
@@ -194,9 +343,31 @@ function requireHTMLElement(element: Element | null): HTMLElement {
 	return element;
 }
 
-function requireSvgElement(element: Element | null): SVGElement {
-	if (!(element instanceof SVGElement)) {
-		throw new Error('Expected an SVGElement.');
+async function waitForSelector<TElement extends Element>(
+	selector: string,
+	elementType: abstract new () => TElement,
+): Promise<TElement> {
+	const readMatchingElement = (): TElement | null => {
+		const matchingElement = document.querySelector(selector);
+		return matchingElement instanceof elementType ? matchingElement : null;
+	};
+	const existingElement = readMatchingElement();
+	if (existingElement !== null) {
+		return existingElement;
 	}
-	return element;
+	return await new Promise<TElement>((resolve): void => {
+		const observer = new MutationObserver((): void => {
+			const matchingElement = readMatchingElement();
+			if (matchingElement === null) {
+				return;
+			}
+			observer.disconnect();
+			resolve(matchingElement);
+		});
+		observer.observe(document.body, {
+			attributes: true,
+			childList: true,
+			subtree: true,
+		});
+	});
 }

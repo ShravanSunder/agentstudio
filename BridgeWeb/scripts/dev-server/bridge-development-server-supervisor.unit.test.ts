@@ -118,6 +118,63 @@ describe('Bridge development server supervisor', () => {
 		expect(serverStopCount).toBe(1);
 	});
 
+	test('retains cleanup authority when stopping the previous server fails', async () => {
+		// Clearing ownership before stop succeeds loses the only handle that shutdown can retry.
+		const clock = new ManualSupervisorClock();
+		const reports: string[] = [];
+		const unhandledRejections: unknown[] = [];
+		let launchCount = 0;
+		let previousServerStopAttemptCount = 0;
+		const unhandledRejectionListener = (reason: unknown): void => {
+			unhandledRejections.push(reason);
+		};
+		process.on('unhandledRejection', unhandledRejectionListener);
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {},
+			clock,
+			launchServer: async () => {
+				launchCount += 1;
+				return {
+					stop: async (): Promise<void> => {
+						previousServerStopAttemptCount += 1;
+						if (previousServerStopAttemptCount === 1) {
+							throw new Error('previous server refused to stop');
+						}
+					},
+				};
+			},
+			report: (message): void => {
+				reports.push(message);
+			},
+		});
+
+		try {
+			await supervisor.start();
+
+			// Act
+			supervisor.recordRelevantChange();
+			clock.advanceBy(10_000);
+			await flushMicrotasks();
+			await nextEventLoopTurn();
+			const launchCountAfterFailedStop = launchCount;
+			await supervisor.stop();
+
+			// Assert
+			expect(launchCountAfterFailedStop).toBe(1);
+			expect(previousServerStopAttemptCount).toBe(2);
+			expect(
+				reports.some(
+					(message) =>
+						message.includes('previous server refused to stop') &&
+						message.includes('retaining cleanup authority'),
+				),
+			).toBe(true);
+			expect(unhandledRejections).toEqual([]);
+		} finally {
+			process.off('unhandledRejection', unhandledRejectionListener);
+		}
+	});
+
 	test('does not restart from a successful build when source changed during compilation', async () => {
 		// Arrange: removing the generation fence would stop server 1 after build 2.
 		const clock = new ManualSupervisorClock();
@@ -329,4 +386,10 @@ async function flushMicrotasks(): Promise<void> {
 	await Promise.resolve();
 	await Promise.resolve();
 	await Promise.resolve();
+}
+
+async function nextEventLoopTurn(): Promise<void> {
+	await new Promise<void>((resolve): void => {
+		setImmediate(resolve);
+	});
 }

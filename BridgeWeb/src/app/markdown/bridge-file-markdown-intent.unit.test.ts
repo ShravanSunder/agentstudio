@@ -89,4 +89,29 @@ describe('File Markdown render intent', () => {
 
 		expect(decision.kind).toBe('render');
 	});
+
+	test('keeps Markdown exceeding the render byte budget on Pierre', () => {
+		const decision = resolveBridgeFileMarkdownIntent({
+			displaySource: { sourceId: 'worktree-1', generation: 7 },
+			openFileStatus: 'ready',
+			selectedPath: 'docs/large.md',
+			selectedCodeViewItem: {
+				id: 'docs-large',
+				type: 'file',
+				version: 2,
+				file: { name: 'docs/large.md', contents: '# Over budget\n', lang: 'markdown' },
+				bridgeMetadata: {
+					itemId: 'docs-large',
+					displayPath: 'docs/large.md',
+					contentState: 'hydrated',
+					contentRoles: ['file'],
+					cacheKey: 'large-markdown-cache-key',
+					lineCount: 1,
+				},
+			},
+			maxBytes: 4,
+		});
+
+		expect(decision).toEqual({ kind: 'pierre' });
+	});
 });

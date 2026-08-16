@@ -39,7 +39,7 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 		const secondTask = client.startRender({
 			sourceIdentity: fileSourceIdentity({ sourceGeneration: 2, fileVersion: 2 }),
@@ -47,12 +47,12 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v2',
 			markdownText: '# Second',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 
 		expect(abortedRequests).toEqual([
 			expect.objectContaining({
-				abortKey: 'markdown-preview',
+				abortKey: 'bridge-markdown-file',
 				requestId: 'markdown-request-1',
 			}),
 		]);
@@ -100,15 +100,15 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
-		client.abort('markdown-preview');
-		client.abort('markdown-preview');
+		client.abort('bridge-markdown-file');
+		client.abort('bridge-markdown-file');
 
 		expect(capturedRequests).toHaveLength(1);
 		expect(abortedRequests).toEqual([
 			expect.objectContaining({
-				abortKey: 'markdown-preview',
+				abortKey: 'bridge-markdown-file',
 				requestId: 'markdown-request-1',
 			}),
 		]);
@@ -131,7 +131,7 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 
 		await expect(task.completed).resolves.toMatchObject({
@@ -161,7 +161,7 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 
 		await expect(task.completed).resolves.toMatchObject({
@@ -194,7 +194,7 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 
 		await expect(task.completed).resolves.toMatchObject({
@@ -231,7 +231,7 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v1',
 			markdownText: '# First',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 		const secondTask = client.startRender({
 			sourceIdentity: fileSourceIdentity({ sourceGeneration: 2, fileVersion: 2 }),
@@ -239,7 +239,7 @@ describe('Bridge markdown render worker client', () => {
 			contentHash: 'sha256:v2',
 			markdownText: '# Second',
 			sourcePath: 'docs/plan.md',
-			abortKey: 'markdown-preview',
+			abortKey: 'bridge-markdown-file',
 		});
 
 		await expect(firstTask.completed).resolves.toMatchObject({

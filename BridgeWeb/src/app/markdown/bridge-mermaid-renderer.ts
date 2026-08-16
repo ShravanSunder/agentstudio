@@ -23,33 +23,43 @@ export interface BridgeMermaidRenderer {
 let sharedInitializedMermaidPromise: Promise<(typeof import('mermaid'))['default']> | null = null;
 
 async function sharedInitializedMermaid(): Promise<(typeof import('mermaid'))['default']> {
-	sharedInitializedMermaidPromise ??= import('mermaid').then(({ default: mermaid }) => {
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: 'strict',
-			htmlLabels: false,
-			suppressErrorRendering: true,
-			theme: 'dark',
-			maxTextSize: bridgeMermaidPolicy.maxTextSize,
-			maxEdges: bridgeMermaidPolicy.maxEdges,
-			flowchart: { htmlLabels: false },
-			secure: [
-				'securityLevel',
-				'startOnLoad',
-				'maxTextSize',
-				'maxEdges',
-				'suppressErrorRendering',
-				'htmlLabels',
-				'theme',
-				'themeCSS',
-				'themeVariables',
-				'fontFamily',
-				'altFontFamily',
-			],
+	const initializedMermaidPromise =
+		sharedInitializedMermaidPromise ??
+		import('mermaid').then(({ default: mermaid }) => {
+			mermaid.initialize({
+				startOnLoad: false,
+				securityLevel: 'strict',
+				htmlLabels: false,
+				suppressErrorRendering: true,
+				theme: 'dark',
+				maxTextSize: bridgeMermaidPolicy.maxTextSize,
+				maxEdges: bridgeMermaidPolicy.maxEdges,
+				flowchart: { htmlLabels: false },
+				secure: [
+					'securityLevel',
+					'startOnLoad',
+					'maxTextSize',
+					'maxEdges',
+					'suppressErrorRendering',
+					'htmlLabels',
+					'theme',
+					'themeCSS',
+					'themeVariables',
+					'fontFamily',
+					'altFontFamily',
+				],
+			});
+			return mermaid;
 		});
-		return mermaid;
-	});
-	return await sharedInitializedMermaidPromise;
+	sharedInitializedMermaidPromise = initializedMermaidPromise;
+	try {
+		return await initializedMermaidPromise;
+	} catch (error: unknown) {
+		if (sharedInitializedMermaidPromise === initializedMermaidPromise) {
+			sharedInitializedMermaidPromise = null;
+		}
+		throw error;
+	}
 }
 
 export function createBridgeMermaidRenderer(): BridgeMermaidRenderer {
@@ -89,6 +99,7 @@ export function sanitizeBridgeMermaidSvg(svgCandidate: string): string {
 			? DOMPurify.sanitize(svgCandidate, {
 					USE_PROFILES: { svg: true, svgFilters: true },
 					ADD_TAGS: ['style'],
+					ADD_ATTR: ['role', 'aria-label'],
 					FORBID_TAGS: ['script', 'foreignObject', 'iframe', 'object', 'embed', 'image'],
 					FORBID_ATTR: ['onclick', 'onload', 'onerror', 'href', 'xlink:href'],
 				})
