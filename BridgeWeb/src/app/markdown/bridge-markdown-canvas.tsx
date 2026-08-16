@@ -37,7 +37,7 @@ export function BridgeMarkdownCanvas(props: BridgeMarkdownCanvasProps): ReactEle
 	if (props.presentationState.status === 'failed') {
 		return (
 			<div className="flex h-full items-center justify-center" role="alert">
-				<div className="flex flex-col items-center gap-3 text-sm text-[var(--bridge-text-secondary)]">
+				<div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
 					<span>Markdown could not be rendered.</span>
 					<Button onClick={props.retry} type="button" variant="outline">
 						Retry
@@ -102,7 +102,7 @@ const BridgeMarkdownReadyDocument = memo(function BridgeMarkdownReadyDocument(pr
 	}, [diagramRetryRevision, props.isActive, props.mermaidRenderer, props.presentation]);
 
 	return (
-		<div className="bridge-scrollbar h-full min-h-0 overflow-auto bg-[var(--bridge-canvas-bg)]">
+		<div className="bridge-scrollbar h-full min-h-0 overflow-auto bg-background">
 			<BridgeMarkdownArticle articleRef={articleRef} presentation={props.presentation} />
 			{diagramFailureTargets
 				.filter(
@@ -129,7 +129,7 @@ const BridgeMarkdownArticle = memo(function BridgeMarkdownArticle(props: {
 		<article
 			ref={props.articleRef}
 			aria-label={`Markdown document ${props.presentation.sourcePath}`}
-			className="bridge-markdown-document mx-auto min-h-full w-full max-w-[920px] px-10 py-8 text-[14px] leading-6 text-[var(--bridge-text-primary)]"
+			className="bridge-markdown-document mx-auto min-h-full w-full max-w-[920px] px-10 py-8 text-sm leading-6 text-foreground"
 			data-bridge-markdown-source-path={props.presentation.sourcePath}
 			data-testid="bridge-markdown-canvas"
 			dangerouslySetInnerHTML={{
@@ -286,7 +286,7 @@ export function sanitizeBridgeMarkdownDocumentHtml(htmlCandidate: string): strin
 function BridgeMarkdownStatus(props: { readonly label: string }): ReactElement {
 	return (
 		<div
-			className="flex h-full items-center justify-center text-sm text-[var(--bridge-text-secondary)]"
+			className="flex h-full items-center justify-center text-sm text-muted-foreground"
 			data-testid="bridge-markdown-status"
 			role="status"
 		>

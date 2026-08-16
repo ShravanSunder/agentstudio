@@ -156,10 +156,10 @@ describe('BridgeViewer shared component boundaries', () => {
 		const filterMenu = await source('src/app/bridge-viewer-filter-menu.tsx');
 		const reviewFacetMenu = await source('src/review-viewer/chrome/bridge-review-facet-menu.tsx');
 
-		expect(appCss).toContain('--bridge-border-subtle: var(--border);');
-		expect(appCss).toContain('--bridge-border-opaque: var(--input);');
-		expect(appCss).toContain('--bridge-focus-border: var(--ring);');
-		expect(appCss).toContain('--diffs-focus-border: var(--bridge-focus-border);');
+		expect(appCss).toContain('--border: var(--palette-stroke-subtle);');
+		expect(appCss).toContain('--input: var(--palette-stroke-hover);');
+		expect(appCss).toContain('--ring: var(--palette-lavender);');
+		expect(appCss).toContain('--diffs-focus-border: var(--ring);');
 		expect(appCss).toContain('scrollbar-width: thin;');
 		expect(appCss).toContain('scrollbar-gutter: auto;');
 		expect(appCss).not.toContain('scrollbar-width: none;');
