@@ -253,8 +253,8 @@ struct CIFastLaneWorkflowTests {
         #expect(!benchmarkStep.contains("No benchmark threshold lines emitted"))
     }
 
-    @Test("fast lane keeps parallel defaults after cold prebuild")
-    func fastLaneKeepsParallelDefaultsAfterColdPrebuild() throws {
+    @Test("fast lane bounds Swift Testing case concurrency after cold prebuild")
+    func fastLaneBoundsSwiftTestingCaseConcurrencyAfterColdPrebuild() throws {
         let ciWorkflow = try String(contentsOfFile: ".github/workflows/ci.yml", encoding: .utf8)
         let benchmarkWorkflow = try String(
             contentsOfFile: ".github/workflows/benchmarks.yml",
@@ -288,7 +288,7 @@ struct CIFastLaneWorkflowTests {
         #expect(!fastLaneStep.contains("SWIFT_TEST_WORKERS"))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
-        #expect(fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
+        #expect(fastLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"1\""))
         #expect(fastLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(!fastLaneStep.contains("XCB_EXTRA_ARGS"))
         #expect(fastLaneStep.contains("run: mise run --skip-deps --raw test:swift:fast"))
@@ -382,8 +382,14 @@ struct CIFastLaneWorkflowTests {
         let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
 
         #expect(timeoutRunner.contains("output_size=$(wc -c <\"$output_file\" | tr -d '[:space:]')"))
-        #expect(timeoutRunner.contains("if [ \"$output_size\" -gt \"$last_output_size\" ]; then"))
-        #expect(timeoutRunner.contains("last_progress_epoch=\"$now_epoch\""))
+        #expect(
+            timeoutRunner.contains(
+                "    if [ \"$output_size\" -gt \"$last_output_size\" ]; then\n"
+                    + "      last_output_size=\"$output_size\"\n"
+                    + "      last_progress_epoch=\"$now_epoch\"\n"
+                    + "    fi"
+            )
+        )
         #expect(timeoutRunner.contains("inactive_seconds=$((now_epoch - last_progress_epoch))"))
         #expect(timeoutRunner.contains("if [ \"$inactive_seconds\" -ge \"$timeout_seconds\" ]; then"))
         #expect(!timeoutRunner.contains("if [ \"$elapsed_seconds\" -ge \"$timeout_seconds\" ]; then"))
