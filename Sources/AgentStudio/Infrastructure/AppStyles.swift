@@ -451,8 +451,11 @@ package enum AppStyles {
         package static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
         package static let titleBodyGap: CGFloat = 8
 
-        package static let recentCardMinWidth: CGFloat = 260
-        package static let recentCardGap: CGFloat = 20
+        package static let recentListCornerRadius: CGFloat = 12
+        package static let recentRowMinHeight: CGFloat = 56
+        package static let recentRowSpacing: CGFloat = 0
+        package static let recentListSeparatorOpacity: CGFloat =
+            AppStyles.CommandBar.Panel.nestedDividerOpacity
 
         package static let previewWidth: CGFloat = 500
         package static let previewCornerRadius: CGFloat = 16
