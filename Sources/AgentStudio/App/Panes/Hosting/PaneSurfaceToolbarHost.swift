@@ -140,7 +140,6 @@ struct PaneSurfaceToolbarHost: View {
             paneId: locationTargetPaneId,
             store: store,
             repoCache: repoCache,
-            iconAccentColorHex: atom(\.paneDisplay).accentColorHex(for: locationTargetPaneId),
             openExternalURL: {
                 openExternalURL($0)
                 return true

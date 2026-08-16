@@ -7,8 +7,6 @@ import Testing
 @MainActor
 @Suite("PanePullRequestToolbarActionFactory")
 struct PanePullRequestToolbarActionFactoryTests {
-    private let sidebarAccentColorHex = "#F5C451"
-
     @Test("resolvable worktree without an exact PR keeps a neutral disabled control")
     func noExactPullRequestIsVisibleAndDisabled() throws {
         let fixture = try makeFixture()
@@ -19,7 +17,6 @@ struct PanePullRequestToolbarActionFactoryTests {
                 paneId: fixture.pane.id,
                 store: fixture.store,
                 repoCache: fixture.cache,
-                iconAccentColorHex: sidebarAccentColorHex,
                 openExternalURL: recorder.open
             )
         )
@@ -28,13 +25,27 @@ struct PanePullRequestToolbarActionFactoryTests {
         #expect(action.state.isEnabled == false)
         #expect(action.state.isSelected == false)
         #expect(action.state.selectionEmphasis == .standard)
+        #expect(action.state.iconStatusTone == nil)
         #expect(action.state.iconAccentColorHex == nil)
+        #expect(action.state.label == "Open PR")
+        #expect(action.state.tooltip.text == "Open PR")
         action.perform()
         #expect(recorder.openedURLs.isEmpty)
     }
 
-    @Test("exact branch PR enables an unselected control and opens that browser URL")
-    func exactPullRequestEnablesUnselectedControlAndOpensURL() throws {
+    @Test(
+        "exact PR maps combined check state to an independent semantic color",
+        arguments: [
+            (PullRequestCheckStatus.passed, PaneSurfaceToolbarAction.IconStatusTone.success),
+            (PullRequestCheckStatus.running, PaneSurfaceToolbarAction.IconStatusTone.warning),
+            (PullRequestCheckStatus.failed, PaneSurfaceToolbarAction.IconStatusTone.danger),
+            (PullRequestCheckStatus.unknown, nil),
+        ]
+    )
+    func exactPullRequestMapsCheckStatusToColor(
+        checkStatus: PullRequestCheckStatus,
+        expectedTone: PaneSurfaceToolbarAction.IconStatusTone?
+    ) throws {
         let fixture = try makeFixture()
         let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
         fixture.cache.setWorktreeEnrichment(
@@ -46,7 +57,17 @@ struct PanePullRequestToolbarActionFactoryTests {
         )
         let branchKey = RepoBranchKey(repoId: fixture.repo.id, branch: "feature/pr-toolbar")!
         fixture.cache.applyPullRequestFacts([
-            branchKey: PullRequestFacts(openCount: 1, exactOpenURL: exactURL)
+            branchKey: PullRequestFacts(
+                openCount: 1,
+                exactOpenURL: exactURL,
+                exactReadiness: PullRequestReadiness(
+                    isDraft: false,
+                    checkStatus: checkStatus,
+                    reviewStatus: .approved,
+                    mergeability: .mergeable,
+                    mergeState: .clean
+                )
+            )
         ])
         let recorder = OpenedURLRecorder()
 
@@ -55,7 +76,6 @@ struct PanePullRequestToolbarActionFactoryTests {
                 paneId: fixture.pane.id,
                 store: fixture.store,
                 repoCache: fixture.cache,
-                iconAccentColorHex: sidebarAccentColorHex,
                 openExternalURL: recorder.open
             )
         )
@@ -63,9 +83,51 @@ struct PanePullRequestToolbarActionFactoryTests {
         #expect(action.state.isEnabled)
         #expect(!action.state.isSelected)
         #expect(action.state.selectionEmphasis == .standard)
-        #expect(action.state.iconAccentColorHex == sidebarAccentColorHex)
+        #expect(action.state.iconStatusTone == expectedTone)
+        #expect(action.state.iconAccentColorHex == nil)
         action.perform()
         #expect(recorder.openedURLs == [exactURL])
+    }
+
+    @Test("draft and merge blockers stay separate from the check color")
+    func draftAndMergeBlockersStaySeparateFromCheckColor() throws {
+        let fixture = try makeFixture()
+        let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
+        fixture.cache.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: fixture.worktree.id,
+                repoId: fixture.repo.id,
+                branch: "feature/pr-toolbar"
+            )
+        )
+        let branchKey = RepoBranchKey(repoId: fixture.repo.id, branch: "feature/pr-toolbar")!
+        fixture.cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(
+                openCount: 1,
+                exactOpenURL: exactURL,
+                exactReadiness: PullRequestReadiness(
+                    isDraft: true,
+                    checkStatus: .passed,
+                    reviewStatus: .changesRequested,
+                    mergeability: .conflicting,
+                    mergeState: .dirty
+                )
+            )
+        ])
+
+        let optionalAction = PanePullRequestToolbarActionFactory.make(
+            paneId: fixture.pane.id,
+            store: fixture.store,
+            repoCache: fixture.cache,
+            openExternalURL: { _ in true }
+        )
+        let action = try #require(optionalAction)
+
+        #expect(action.state.isEnabled)
+        #expect(action.state.icon == .octicon(.gitPullRequestDraft))
+        #expect(action.state.iconStatusTone == .success)
+        #expect(action.state.label == "Open PR, checks passed, draft, changes requested, conflicts")
+        #expect(action.state.tooltip.text == "Open PR — Checks passed — Draft — Changes requested — Conflicts")
     }
 
     @Test("pane without a resolvable worktree has no PR control")
@@ -78,7 +140,6 @@ struct PanePullRequestToolbarActionFactoryTests {
                 paneId: pane.id,
                 store: store,
                 repoCache: RepoCacheAtom(),
-                iconAccentColorHex: sidebarAccentColorHex,
                 openExternalURL: { _ in true }
             ) == nil
         )

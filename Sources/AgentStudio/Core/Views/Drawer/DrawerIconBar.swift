@@ -661,6 +661,15 @@ struct DrawerIconBar: View {
         _ action: PaneSurfaceToolbarAction,
         isHovered: Bool
     ) -> Color {
+        if let iconStatusTone = action.state.iconStatusTone {
+            let color =
+                switch iconStatusTone {
+                case .success: AppStyles.Shell.Sidebar.chipSuccessColor
+                case .warning: AppStyles.Shell.Sidebar.chipWarningColor
+                case .danger: AppStyles.Shell.Sidebar.chipDangerColor
+                }
+            return color.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+        }
         guard let iconAccentColorHex = action.state.iconAccentColorHex else {
             return paneSurfaceActionForeground(action, isHovered: isHovered)
         }

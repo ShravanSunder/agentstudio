@@ -35,7 +35,7 @@ struct PaneSurfaceToolbarHostPullRequestTests {
             )
         )
 
-        #expect(button.accessibilityLabel() == "Open PR")
+        #expect(button.accessibilityLabel() == "Open PR, checks unknown")
         #expect(button.isAccessibilityEnabled())
         #expect(button.accessibilityPerformPress())
         #expect(opener.openedURLs == [exactURL])
