@@ -22,9 +22,7 @@ import {
 	BridgeCommWorkerPanePresentationAuthority,
 	type BridgeCommWorkerPanePresentationSnapshot,
 } from './bridge-comm-worker-pane-presentation.js';
-import {
-	callCurrentFileSourceWithTelemetry,
-} from './bridge-comm-worker-product-control-runtime.js';
+import { callCurrentFileSourceWithTelemetry } from './bridge-comm-worker-product-control-runtime.js';
 import { BridgeCommWorkerProductController } from './bridge-comm-worker-product-controller.js';
 import {
 	bridgeWorkerComparisonTargetsContentOpen,

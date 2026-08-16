@@ -11,8 +11,8 @@ import {
 	type ReactNode,
 } from 'react';
 
-import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
+import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import {
 	createWorktreeAnnotationSurfaceClient,
 	emptyWorktreeAnnotationProjectionSnapshot,

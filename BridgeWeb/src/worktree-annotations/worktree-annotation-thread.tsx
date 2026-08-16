@@ -166,9 +166,7 @@ function WorktreeAnnotationMessageEditor(
 	messageRef.current = props.message;
 	const initialBody = props.message.draft?.body ?? props.message.savedBody ?? '';
 	const [body, setBody] = useState(initialBody);
-	const [isEditing, setIsEditing] = useState(
-		props.canEdit && props.message.savedBody === null,
-	);
+	const [isEditing, setIsEditing] = useState(props.canEdit && props.message.savedBody === null);
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const editTokenRef = useRef(
 		props.message.draft?.activeEditToken ?? createWorktreeAnnotationEditToken(),
