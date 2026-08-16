@@ -95,8 +95,15 @@ struct ObservabilityLaunchScriptsTests {
         #expect(wrapperScript.contains("swift_test_args+=("))
         #expect(wrapperScript.contains("swift test --skip-build \"${swift_test_args[@]}\""))
         #expect(wrapperScript.contains("AGENTSTUDIO_TRACE_BACKEND=\"${SWIFT_TEST_TRACE_BACKEND:-jsonl}\""))
-        #expect(testHelperScript.contains("Timeout in seconds for the one-time test bundle build"))
+        #expect(
+            testHelperScript.contains(
+                "Maximum seconds without one-time test bundle build output progress"
+            )
+        )
         #expect(testHelperScript.contains("\"prebuild test bundles\" \\\n    \"$PREBUILD_TIMEOUT_SECONDS\""))
+        #expect(testHelperScript.contains("last_progress_epoch=\"$start_epoch\""))
+        #expect(testHelperScript.contains("inactive_seconds=$((now_epoch - last_progress_epoch))"))
+        #expect(testHelperScript.contains("TerminalActivationSchedulerTests"))
         #expect(testHelperScript.contains("swift_test_output_has_failures()"))
         #expect(testHelperScript.contains("emitted Swift Testing failure output despite exit 0"))
         #expect(testHelperScript.contains("recorded an issue"))

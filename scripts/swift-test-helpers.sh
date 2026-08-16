@@ -3,8 +3,8 @@
 #
 # Required variables (set by caller before sourcing):
 #   LOG_PREFIX         - Log prefix, e.g. "test" or "test-coverage"
-#   TIMEOUT_SECONDS    - Timeout in seconds for swift commands
-#   PREBUILD_TIMEOUT_SECONDS - Timeout in seconds for the one-time test bundle build
+#   TIMEOUT_SECONDS    - Maximum seconds without Swift command output progress
+#   PREBUILD_TIMEOUT_SECONDS - Maximum seconds without one-time test bundle build output progress
 #   BUILD_PATH         - Swift build path
 #
 # Optional variables:
@@ -47,6 +47,7 @@ aggregate_serial_non_webkit_filter_pattern() {
   local patterns=(
     EagerDerivedAtomTests
     EagerDerivedAtomFamilyTests
+    TerminalActivationSchedulerTests
     TabBarAdapterTests
     TabBarAdapterMaterializationTests
     TabBarAffectedItemTelemetryTests
@@ -204,10 +205,12 @@ run_swift_with_timeout() {
   local timeout_seconds="$1"
   shift
 
-  echo "[$LOG_PREFIX] >>> $label (timeout=${timeout_seconds}s)"
+  echo "[$LOG_PREFIX] >>> $label (inactivity-timeout=${timeout_seconds}s)"
   local start_epoch
   start_epoch=$(date +%s)
   local last_heartbeat="$start_epoch"
+  local last_progress_epoch="$start_epoch"
+  local last_output_size=0
   local timed_out=0
 
   local xcb_pipe
@@ -226,20 +229,27 @@ run_swift_with_timeout() {
     local now_epoch
     now_epoch=$(date +%s)
     local elapsed_seconds=$((now_epoch - start_epoch))
+    local output_size
+    output_size=$(wc -c <"$output_file" | tr -d '[:space:]')
+    if [ "$output_size" -gt "$last_output_size" ]; then
+      last_output_size="$output_size"
+      last_progress_epoch="$now_epoch"
+    fi
+    local inactive_seconds=$((now_epoch - last_progress_epoch))
 
-    if [ "$elapsed_seconds" -ge "$timeout_seconds" ]; then
+    if [ "$inactive_seconds" -ge "$timeout_seconds" ]; then
       timed_out=1
       break
     fi
 
     if [ $((now_epoch - last_heartbeat)) -ge 20 ]; then
-      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s)"
+      echo "[$LOG_PREFIX] ... $label still running (${elapsed_seconds}s elapsed, ${inactive_seconds}s without output)"
       last_heartbeat="$now_epoch"
     fi
   done
 
   if [ "$timed_out" -eq 1 ]; then
-    echo "[$LOG_PREFIX] ERROR: timeout while running '$label' after ${timeout_seconds}s"
+    echo "[$LOG_PREFIX] ERROR: no output progress from '$label' for ${timeout_seconds}s"
     print_timeout_process_diagnostics "$label" "$command_pid"
     echo "[$LOG_PREFIX] raw output tail for '$label':"
     tail -n 120 "$output_file" || true
