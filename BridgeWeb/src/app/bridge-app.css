@@ -83,7 +83,7 @@
 	--palette-text-muted: #c5c8c6;
 	--palette-text-faint: #9ba1ad;
 	/* Accent hues: product identity, status, syntax, and focus colors. */
-	--palette-primary-blue: #007bfe;
+	--palette-primary-blue: #409cff;
 	--palette-blue: #89b4fa;
 	--palette-green: #a6e3a1;
 	--palette-yellow: #f9e2af;
@@ -141,8 +141,8 @@
 	/* Primary has exactly three tonal rungs: solid, 15% tint, and text. */
 	/* Brand accent for actions and active identity. */
 	--primary: var(--palette-primary-blue);
-	/* White text on the saturated brand accent. */
-	--primary-foreground: var(--palette-text-primary);
+	/* Dark text on #409cff; white reaches only about 2.8:1 contrast. */
+	--primary-foreground: var(--palette-ansi-black);
 	/* Filled secondary controls. */
 	--secondary: var(--palette-neutral-n4);
 	/* High-contrast text on secondary controls. */
