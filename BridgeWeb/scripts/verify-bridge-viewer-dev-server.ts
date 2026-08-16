@@ -231,7 +231,6 @@ async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 		}
 		assertNoEmptyExpandedHeaders(result.hydrationDiagnostics, 'selected markdown file');
 		assertCodeViewScrolledToSelectedItem({ initialResult, result });
-		await assertReviewDiffOpenRoundTrip(page);
 		return result;
 	} finally {
 		await page.close();
@@ -273,29 +272,6 @@ async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 	} finally {
 		await page.close();
 	}
-}
-
-async function assertReviewDiffOpenRoundTrip(page: Page): Promise<void> {
-	const diffToggle = page.locator('[aria-label="Diff"]').first();
-	const openToggle = page.locator('[aria-label="Open"]').first();
-	await diffToggle.waitFor();
-	await openToggle.click();
-	await page.waitForFunction(
-		(): boolean =>
-			document.querySelector('[aria-label="Open"]')?.getAttribute('aria-pressed') === 'true' &&
-			document
-				.querySelector('.bridge-code-view-panel')
-				?.getAttribute('data-selected-materialized-item-type') === 'file',
-	);
-	await waitForCodeViewText(page, targetMarkdownHeading);
-	await diffToggle.click();
-	await page.waitForFunction(
-		(): boolean =>
-			document.querySelector('[aria-label="Diff"]')?.getAttribute('aria-pressed') === 'true' &&
-			document
-				.querySelector('.bridge-code-view-panel')
-				?.getAttribute('data-selected-materialized-item-type') === 'diff',
-	);
 }
 
 async function makeVerificationPage(): Promise<Page> {

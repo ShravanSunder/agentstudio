@@ -2,6 +2,7 @@ import type { CodeViewItem } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useLayoutEffect } from 'react';
 
 import {
 	bridgeViewerChromeCompactMetadataClassName,
@@ -31,10 +32,6 @@ import {
 	type BridgeCodeViewModel,
 } from './bridge-code-view-controller.js';
 import {
-	BridgeCodeViewFilePresentationToggle,
-	type BridgeCodeViewFilePresentation,
-} from './bridge-code-view-file-presentation-toggle.js';
-import {
 	bridgeCodeViewMaterializationCacheKeysForItem,
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewLoadingItem,
@@ -43,7 +40,6 @@ import {
 	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewMetadataReconcileProps } from './bridge-code-view-metadata-apply.js';
-import { BridgeCodeViewVisibleHeaderReporter } from './bridge-code-view-visible-header-reporter.js';
 
 export interface BridgeCodeViewControllerEntry {
 	readonly handle: CodeViewHandle<undefined>;
@@ -670,11 +666,7 @@ interface BridgeCodeViewHeaderRenderers {
 
 interface CreateBridgeCodeViewHeaderRenderersProps {
 	readonly collapsedItemIds: ReadonlySet<string>;
-	readonly isFilePresentationOpen: (itemId: string) => boolean;
 	readonly onHeaderVisibilityChange: (itemId: string, isVisible: boolean) => void;
-	readonly onFilePresentationChange?:
-		| ((itemId: string, presentation: BridgeCodeViewFilePresentation) => void)
-		| undefined;
 	readonly onToggleItemCollapse: (itemId: string) => void;
 	readonly reviewPackage: BridgeReviewPackage;
 }
@@ -692,25 +684,13 @@ export function createBridgeCodeViewHeaderRenderers(
 				reviewPackage: props.reviewPackage,
 			}),
 		renderHeaderMetadata: (item: CodeViewItem): ReactNode =>
-			renderBridgeCodeViewHeaderMetadata({
-				isFilePresentationOpen: props.isFilePresentationOpen,
-				item,
-				reviewPackage: props.reviewPackage,
-				...(props.onFilePresentationChange === undefined
-					? {}
-					: { onFilePresentationChange: props.onFilePresentationChange }),
-			}),
+			renderBridgeCodeViewHeaderMetadata({ item, reviewPackage: props.reviewPackage }),
 	};
 }
 
 interface RenderBridgeCodeViewHeaderProps {
 	readonly collapsedItemIds?: ReadonlySet<string>;
-	readonly isFilePresentationOpen?: (itemId: string) => boolean;
 	readonly item: CodeViewItem;
-	readonly onFilePresentationChange?: (
-		itemId: string,
-		presentation: BridgeCodeViewFilePresentation,
-	) => void;
 	readonly onHeaderVisibilityChange?: (itemId: string, isVisible: boolean) => void;
 	readonly onToggleItemCollapse?: (itemId: string) => void;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -767,6 +747,20 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 	);
 }
 
+function BridgeCodeViewVisibleHeaderReporter(props: {
+	readonly itemId: string;
+	readonly onHeaderVisibilityChange: (itemId: string, isVisible: boolean) => void;
+}): null {
+	const { itemId, onHeaderVisibilityChange } = props;
+	useLayoutEffect((): (() => void) => {
+		onHeaderVisibilityChange(itemId, true);
+		return (): void => {
+			onHeaderVisibilityChange(itemId, false);
+		};
+	}, [itemId, onHeaderVisibilityChange]);
+	return null;
+}
+
 function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderProps): ReactNode {
 	const descriptor = bridgeReviewItemForCodeViewItem(props);
 	if (descriptor === null || !isBridgeCodeViewItem(props.item)) {
@@ -794,15 +788,6 @@ function renderBridgeCodeViewHeaderMetadata(props: RenderBridgeCodeViewHeaderPro
 			)}
 			<span className="shrink-0 text-[var(--bridge-deleted)]">{`-${descriptor.deletions}`}</span>
 			<span className="shrink-0 text-[var(--bridge-added)]">{`+${descriptor.additions}`}</span>
-			{props.onFilePresentationChange === undefined ? null : (
-				<BridgeCodeViewFilePresentationToggle
-					itemId={descriptor.itemId}
-					onPresentationChange={props.onFilePresentationChange}
-					presentation={
-						props.isFilePresentationOpen?.(descriptor.itemId) === true ? 'open' : 'diff'
-					}
-				/>
-			)}
 		</span>
 	);
 }
@@ -895,19 +880,6 @@ export function reconcileBridgeCodeViewMetadataItems(
 		(metadataItem: BridgeCodeViewItem): BridgeCodeViewItem => {
 			const currentItem = props.getCurrentItem(metadataItem.id);
 			if (
-				isBridgeCodeViewItem(currentItem) &&
-				(currentItem.type !== metadataItem.type ||
-					currentItem.bridgeMetadata.itemId !== metadataItem.bridgeMetadata.itemId)
-			) {
-				return metadataItem;
-			}
-			if (isBridgeCodeViewItem(currentItem) && forceReplaceItemIds.has(metadataItem.id)) {
-				return bridgeCodeViewForcedMetadataReplacementForCurrentItem({
-					currentItem,
-					metadataItem,
-				});
-			}
-			if (
 				props.preparePresentationItem !== undefined &&
 				isMaterializedBridgeCodeViewContentState(metadataItem.bridgeMetadata.contentState)
 			) {
@@ -928,6 +900,12 @@ export function reconcileBridgeCodeViewMetadataItems(
 			}
 			if (replacementItem !== null) {
 				return replacementItem;
+			}
+			if (forceReplaceItemIds.has(metadataItem.id)) {
+				return bridgeCodeViewForcedMetadataReplacementForCurrentItem({
+					currentItem,
+					metadataItem,
+				});
 			}
 			return currentItem;
 		},

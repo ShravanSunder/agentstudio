@@ -20,44 +20,46 @@ export interface BridgeMermaidRenderer {
 	}) => Promise<string>;
 }
 
-export function createBridgeMermaidRenderer(): BridgeMermaidRenderer {
-	let initializedMermaidPromise: Promise<(typeof import('mermaid'))['default']> | null = null;
-	const initializedMermaid = async (): Promise<(typeof import('mermaid'))['default']> => {
-		initializedMermaidPromise ??= import('mermaid').then(({ default: mermaid }) => {
-			mermaid.initialize({
-				startOnLoad: false,
-				securityLevel: 'strict',
-				htmlLabels: false,
-				suppressErrorRendering: true,
-				theme: 'dark',
-				maxTextSize: bridgeMermaidPolicy.maxTextSize,
-				maxEdges: bridgeMermaidPolicy.maxEdges,
-				flowchart: { htmlLabels: false },
-				secure: [
-					'securityLevel',
-					'startOnLoad',
-					'maxTextSize',
-					'maxEdges',
-					'suppressErrorRendering',
-					'htmlLabels',
-					'theme',
-					'themeCSS',
-					'themeVariables',
-					'fontFamily',
-					'altFontFamily',
-				],
-			});
-			return mermaid;
+let sharedInitializedMermaidPromise: Promise<(typeof import('mermaid'))['default']> | null = null;
+
+async function sharedInitializedMermaid(): Promise<(typeof import('mermaid'))['default']> {
+	sharedInitializedMermaidPromise ??= import('mermaid').then(({ default: mermaid }) => {
+		mermaid.initialize({
+			startOnLoad: false,
+			securityLevel: 'strict',
+			htmlLabels: false,
+			suppressErrorRendering: true,
+			theme: 'dark',
+			maxTextSize: bridgeMermaidPolicy.maxTextSize,
+			maxEdges: bridgeMermaidPolicy.maxEdges,
+			flowchart: { htmlLabels: false },
+			secure: [
+				'securityLevel',
+				'startOnLoad',
+				'maxTextSize',
+				'maxEdges',
+				'suppressErrorRendering',
+				'htmlLabels',
+				'theme',
+				'themeCSS',
+				'themeVariables',
+				'fontFamily',
+				'altFontFamily',
+			],
 		});
-		return await initializedMermaidPromise;
-	};
+		return mermaid;
+	});
+	return await sharedInitializedMermaidPromise;
+}
+
+export function createBridgeMermaidRenderer(): BridgeMermaidRenderer {
 	return {
 		render: async (props): Promise<string> => {
 			const admission = bridgeMermaidSourceAdmission(props.source);
 			if (!admission.admitted) {
 				throw new Error(`Mermaid source rejected: ${admission.reason}`);
 			}
-			const mermaid = await initializedMermaid();
+			const mermaid = await sharedInitializedMermaid();
 			const { svg } = await mermaid.render(props.diagramId, props.source);
 			return addBridgeMermaidAccessibleLabel(sanitizeBridgeMermaidSvg(svg), props.accessibleLabel);
 		},
@@ -103,12 +105,11 @@ function stripUnsafeBridgeMermaidSvgContent(svg: string): string {
 		.replace(/<(?:script|foreignObject|iframe|object|embed|image)\b[^>]*\/?\s*>/giu, '')
 		.replace(/\s(?:on[a-z]+|href|xlink:href)\s*=\s*(?:"[^"]*"|'[^']*')/giu, '');
 	sanitizedSvg = sanitizedSvg.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/giu, (styleTag, css) =>
-		bridgeMermaidCssIsSafe(String(css)) ? String(styleTag) : '',
+		bridgeMermaidCssIsSafe(css) ? styleTag : '',
 	);
 	return sanitizedSvg.replace(
 		/\s(?:fill|stroke|filter|marker-start|marker-mid|marker-end)\s*=\s*(["'])(url\([^)]*\))\1/giu,
-		(attribute, _quote, urlValue) =>
-			/^url\(#[a-z_][\w:.-]*\)$/iu.test(String(urlValue)) ? String(attribute) : '',
+		(attribute, _quote, urlValue) => (/^url\(#[a-z_][\w:.-]*\)$/iu.test(urlValue) ? attribute : ''),
 	);
 }
 

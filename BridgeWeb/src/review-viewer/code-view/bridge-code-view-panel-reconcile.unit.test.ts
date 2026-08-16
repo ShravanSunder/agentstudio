@@ -298,38 +298,6 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 		expect(requiresManifestReconciliation).toBe(false);
 	});
 
-	test('routes a selected diff-to-file projection through exact manifest replacement', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const projection = buildBridgeReviewProjection({
-			reviewPackage,
-			request: { facets: [], mode: { kind: 'normalReview' } },
-		});
-		const authoritativeItems = createBridgeCodeViewInitialItemsForPanel({
-			projection,
-			reviewPackage,
-		});
-		const currentDiff = authoritativeItems.find((item): boolean => item.type === 'diff');
-		if (currentDiff === undefined) throw new Error('expected a Review diff item');
-		const descriptor = reviewPackage.itemsById[currentDiff.id];
-		if (descriptor === undefined) throw new Error('expected selected Review descriptor');
-		const openFileItem = materializeBridgeCodeViewLoadingItem(descriptor, {
-			kind: 'file',
-			version: 'current',
-		});
-		const itemById = new Map(authoritativeItems.map((item) => [item.id, item]));
-
-		const requiresManifestReconciliation = bridgeCodeViewMetadataRequiresManifestReconciliation({
-			authoritativeIndexByItemId: indexBridgeCodeViewItemsById(authoritativeItems),
-			authoritativeItemIds: authoritativeItems.map((item): string => item.id),
-			getCurrentItem: (itemId: string): BridgeCodeViewItem | undefined => itemById.get(itemId),
-			manifestChanged: false,
-			metadataDeltaItems: [openFileItem],
-			sourceReset: false,
-		});
-
-		expect(requiresManifestReconciliation).toBe(true);
-	});
-
 	test('replaces a complete live manifest whose public item geometry is out of order', () => {
 		// Arrange
 		const reviewPackage = makeBridgeViewerProjectionFixture();
@@ -569,94 +537,6 @@ describe('BridgeCodeViewPanel reconcile apply path', () => {
 			},
 		});
 		expect(reconciledItems[0]?.version).toBeGreaterThan(hydratedSelectedItem.version ?? 0);
-	});
-
-	test('replaces a hydrated diff with a hydrated open-file item before publication preparation', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		if (sourceItem === undefined) throw new Error('expected source fixture item');
-		const currentDiff = materializeBridgeCodeViewLoadingItem(sourceItem);
-		const openFile = materializeBridgeCodeViewLoadingItem(sourceItem, {
-			kind: 'file',
-			version: 'current',
-		});
-		const hydratedCurrentDiff: BridgeCodeViewItem = {
-			...currentDiff,
-			bridgeMetadata: { ...currentDiff.bridgeMetadata, contentState: 'hydrated' },
-		};
-		const hydratedOpenFile: BridgeCodeViewItem = {
-			...openFile,
-			bridgeMetadata: { ...openFile.bridgeMetadata, contentState: 'hydrated' },
-		};
-		let prepareCallCount = 0;
-
-		const reconciledItems = reconcileBridgeCodeViewMetadataItems({
-			getCurrentItem: (): BridgeCodeViewItem => hydratedCurrentDiff,
-			metadataItems: [hydratedOpenFile],
-			preparePresentationItem: (): BridgeCodeViewItem => {
-				prepareCallCount += 1;
-				throw new Error('kind-changing replacements must bypass publication preparation');
-			},
-		});
-
-		expect(prepareCallCount).toBe(0);
-		expect(reconciledItems[0]).toMatchObject({
-			id: hydratedOpenFile.id,
-			type: 'file',
-		});
-	});
-
-	test('replaces metadata whose Pierre identity changed before publication preparation', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		if (sourceItem === undefined) throw new Error('expected source fixture item');
-		const currentItem = materializeBridgeCodeViewLoadingItem(sourceItem);
-		const replacementItem: BridgeCodeViewItem = {
-			...currentItem,
-			bridgeMetadata: {
-				...currentItem.bridgeMetadata,
-				contentState: 'hydrated',
-				itemId: `${sourceItem.itemId}:replacement`,
-			},
-		};
-
-		const reconciledItems = reconcileBridgeCodeViewMetadataItems({
-			getCurrentItem: (): BridgeCodeViewItem => currentItem,
-			metadataItems: [replacementItem],
-			preparePresentationItem: (): BridgeCodeViewItem => {
-				throw new Error('identity-changing replacements must bypass publication preparation');
-			},
-		});
-
-		expect(reconciledItems[0]).toBe(replacementItem);
-	});
-
-	test('honors forced selected-presentation replacement before publication preparation', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		if (sourceItem === undefined) throw new Error('expected source fixture item');
-		const loadingItem = materializeBridgeCodeViewLoadingItem(sourceItem);
-		const currentItem: BridgeCodeViewItem = {
-			...loadingItem,
-			bridgeMetadata: { ...loadingItem.bridgeMetadata, contentState: 'hydrated' },
-			version: 4,
-		};
-		const replacementItem: BridgeCodeViewItem = {
-			...currentItem,
-			bridgeMetadata: { ...currentItem.bridgeMetadata, cacheKey: 'open-file-cache-key' },
-		};
-
-		const reconciledItems = reconcileBridgeCodeViewMetadataItems({
-			forceReplaceItemIds: [sourceItem.itemId],
-			getCurrentItem: (): BridgeCodeViewItem => currentItem,
-			metadataItems: [replacementItem],
-			preparePresentationItem: (): BridgeCodeViewItem => {
-				throw new Error('forced replacements must bypass publication preparation');
-			},
-		});
-
-		expect(reconciledItems[0]?.bridgeMetadata.cacheKey).toBe('open-file-cache-key');
-		expect(reconciledItems[0]?.version).toBe(5);
 	});
 
 	test('does not preserve stale selected item during source reset reconciliation', () => {

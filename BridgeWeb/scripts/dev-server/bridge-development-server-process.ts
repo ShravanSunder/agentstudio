@@ -56,10 +56,14 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 	readonly dataRootPath: string;
 	readonly initialTarget: string;
 	readonly paneId: string;
+	readonly port?: number;
 	readonly repoRootPath: string;
 	readonly worktreeRoot: string;
 }): Promise<OwnedBridgeDevelopmentServer> {
-	const port = await reserveLoopbackPort();
+	const port = await resolveBridgeDevelopmentServerPort({
+		...(props.port === undefined ? {} : { configuredPort: props.port }),
+		reservePort: reserveLoopbackPort,
+	});
 	const origin = `http://127.0.0.1:${port}`;
 	const executablePath = bridgeDevelopmentServerExecutablePath(props.repoRootPath);
 	await access(executablePath);
@@ -122,6 +126,13 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 			await stopOwnedBridgeDevelopmentServerProcess(child, lifecycleOutcome),
 		stdoutTail: (): string => stdoutTail,
 	};
+}
+
+export async function resolveBridgeDevelopmentServerPort(props: {
+	readonly configuredPort?: number;
+	readonly reservePort: () => Promise<number>;
+}): Promise<number> {
+	return props.configuredPort ?? (await props.reservePort());
 }
 
 export function bridgeDevelopmentServerArguments(props: {

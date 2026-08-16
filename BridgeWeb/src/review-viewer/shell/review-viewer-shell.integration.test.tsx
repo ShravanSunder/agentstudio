@@ -18,7 +18,6 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import { materializeBridgeCodeViewLoadingItem } from '../code-view/bridge-code-view-materialization.js';
-import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import {
@@ -566,7 +565,6 @@ describe('review viewer shell', () => {
 				onSelectItem: () => undefined,
 				selectedContentText: null,
 				selectedContentUnavailablePath: 'Sources/App/View.swift',
-				selectedItemPresentation: { kind: 'file', version: 'current' },
 			}),
 		);
 
@@ -577,8 +575,7 @@ describe('review viewer shell', () => {
 			findElementByTestId(unavailableElement, 'review-viewer-shell')?.props[
 				'data-review-canvas-branch'
 			],
-		).toBe('code');
-		expect(findElementByComponent(unavailableElement, BridgeCodeViewPanel)).not.toBeNull();
+		).toBe('unavailable');
 	});
 
 	test('renders only items matching folder file-class and change-kind filter state', () => {

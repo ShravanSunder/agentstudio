@@ -21,7 +21,6 @@ import {
 import type { BridgeViewerSearchError } from '../../app/bridge-viewer-search-state.js';
 import { cn } from '../../app/class-name.js';
 import { useBridgeViewerSearchFocusRestoration } from '../../app/use-bridge-viewer-search-focus-restoration.js';
-import { Skeleton } from '../../components/ui/skeleton.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeWorkerPanelChromePatchPayload } from '../../core/comm-worker/bridge-worker-contracts.js';
 import { compileBridgeFileTreeSearchPattern } from '../../core/models/bridge-file-tree-search.js';
@@ -69,7 +68,6 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedContentPaintTelemetryStart?: SelectedContentPaintTelemetryStart | null;
 	readonly onSelectItem: (itemId: string) => void;
-	readonly onFilePresentationChange?: (itemId: string, presentation: 'diff' | 'open') => void;
 	readonly onHoveredItemIdChange?: (itemId: string | null) => void;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly selectedContentText?: string | null;
@@ -360,6 +358,11 @@ export function renderReviewViewerShellPresentation(presentation: {
 						>
 							{!hasChangedFiles ? (
 								<BridgeReviewEmptyCanvas />
+							) : props.selectedContentUnavailablePath !== undefined &&
+							  props.selectedContentUnavailablePath !== null ? (
+								<BridgeReviewContentUnavailableState
+									sourcePath={props.selectedContentUnavailablePath}
+								/>
 							) : (
 								<BridgeCodeViewPanel
 									presentationPositionKey={props.presentationPositionKey}
@@ -375,9 +378,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
 									visibleCodeViewItems={props.visibleCodeViewItems ?? []}
-									{...(props.onFilePresentationChange === undefined
-										? {}
-										: { onFilePresentationChange: props.onFilePresentationChange })}
 									{...(props.codeViewOptions === undefined
 										? {}
 										: { codeViewOptions: props.codeViewOptions })}
@@ -399,17 +399,6 @@ export function renderReviewViewerShellPresentation(presentation: {
 										? {}
 										: { telemetryRecorder: props.telemetryRecorder })}
 								/>
-							)}
-							{props.selectedContentUnavailablePath === undefined ||
-							props.selectedContentUnavailablePath === null ? null : (
-								<BridgeReviewContentUnavailableState
-									sourcePath={props.selectedContentUnavailablePath}
-								/>
-							)}
-							{props.selectedCanvasLoadingReason === undefined ||
-							props.selectedCanvasLoadingReason === null ||
-							props.selectedCanvasLoadingReason === 'content' ? null : (
-								<BridgeReviewCanvasLoadingState reason={props.selectedCanvasLoadingReason} />
 							)}
 						</section>
 					</section>
@@ -562,32 +551,6 @@ function hiddenVisiblePathTextForRegistry(registry: BridgeReviewItemRegistry): s
 	return text;
 }
 
-export function BridgeReviewCanvasLoadingState(props: {
-	readonly reason: BridgeReviewCanvasLoadingReason;
-}): ReactElement {
-	return (
-		<div
-			aria-hidden="true"
-			className="pointer-events-none absolute left-8 top-12 z-20 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[var(--bridge-floating-panel-shadow)] backdrop-blur"
-			data-bridge-review-canvas-loading-reason={props.reason}
-			data-testid="bridge-review-canvas-loading-state"
-		>
-			<Skeleton
-				className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]"
-				data-testid="bridge-review-canvas-loading-line"
-			/>
-			<Skeleton
-				className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]"
-				data-testid="bridge-review-canvas-loading-line"
-			/>
-			<Skeleton
-				className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]"
-				data-testid="bridge-review-canvas-loading-line"
-			/>
-		</div>
-	);
-}
-
 function bridgeReviewViewerHeaderTitle(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedDisplayPath: string | null;
@@ -623,7 +586,7 @@ function BridgeReviewContentUnavailableState(props: { readonly sourcePath: strin
 	return (
 		<section
 			aria-label="Selected content unavailable"
-			className="absolute inset-x-0 bottom-0 top-10 z-10 flex min-h-[220px] items-center justify-center bg-[var(--bridge-canvas-bg)] px-8 text-center"
+			className="flex h-full min-h-[260px] items-center justify-center bg-[var(--bridge-canvas-bg)] px-8 text-center"
 			data-testid="bridge-review-content-unavailable"
 		>
 			<div className="max-w-md">
@@ -654,7 +617,9 @@ function selectedContentStateForShell(props: {
 function reviewCanvasBranchForShell(props: {
 	readonly selectedContentUnavailablePath: string | null;
 }): 'code' | 'unavailable' {
-	void props;
+	if (props.selectedContentUnavailablePath !== null) {
+		return 'unavailable';
+	}
 	return 'code';
 }
 

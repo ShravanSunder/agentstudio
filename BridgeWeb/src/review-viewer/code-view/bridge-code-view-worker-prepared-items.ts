@@ -244,7 +244,7 @@ function selectedCodeViewItemMatchesPresentation(props: {
 	readonly selectedDescriptor: BridgeReviewItemDescriptor | undefined;
 }): boolean {
 	if (props.presentation === null || props.presentation === undefined) {
-		return props.item.type === 'diff';
+		return true;
 	}
 	if (props.presentation.kind === 'diff') {
 		return props.item.type === 'diff';
@@ -256,13 +256,7 @@ function selectedCodeViewItemMatchesPresentation(props: {
 		item: props.selectedDescriptor,
 		version: props.presentation.version,
 	});
-	const matchesExpectedRole =
-		expectedRole === null
-			? fallbackContentRolesForFilePresentation(props.presentation.version).some((contentRole) =>
-					props.item.bridgeMetadata.contentRoles.includes(contentRole),
-				)
-			: props.item.bridgeMetadata.contentRoles.includes(expectedRole);
-	if (!matchesExpectedRole) {
+	if (expectedRole === null || !props.item.bridgeMetadata.contentRoles.includes(expectedRole)) {
 		return false;
 	}
 	if (props.item.type === 'file') {
@@ -273,22 +267,6 @@ function selectedCodeViewItemMatchesPresentation(props: {
 		(props.selectedDescriptor.changeKind === 'added' ||
 			props.selectedDescriptor.changeKind === 'deleted')
 	);
-}
-
-function fallbackContentRolesForFilePresentation(
-	version: BridgeCodeViewFilePresentationVersion,
-): readonly BridgeContentRole[] {
-	switch (version) {
-		case 'base':
-			return ['base'];
-		case 'head':
-			return ['head', 'file'];
-		case 'current':
-			return ['head', 'file'];
-	}
-	const exhaustiveVersion: never = version;
-	void exhaustiveVersion;
-	return [];
 }
 
 function contentRoleForFilePresentation(props: {

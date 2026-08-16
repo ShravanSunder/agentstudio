@@ -41,30 +41,6 @@ export function prepareBridgeMainPierreItemForPresentation<
 	});
 }
 
-export function prepareBridgeMainPierreItemForKindTransition(
-	props: PrepareBridgeMainPierreItemForPresentationProps<BridgeMainRenderPublicationItem>,
-): PreparedBridgeMainPierreItem<BridgeMainRenderPublicationItem> {
-	if (
-		props.currentItem === undefined ||
-		props.currentItem.id !== props.presentationItem.id ||
-		props.currentItem.bridgeMetadata.itemId !== props.presentationItem.bridgeMetadata.itemId ||
-		props.currentItem.type === props.presentationItem.type
-	) {
-		throw new Error('Bridge main Pierre kind transition requires one stable item changing kind.');
-	}
-	const version = (props.currentItem.version ?? 0) + 1;
-	if (!Number.isSafeInteger(version)) {
-		throw new Error('Bridge main Pierre item version exhausted its safe integer range.');
-	}
-	return Object.freeze({
-		item: {
-			...bridgeMainPierreItemWithPreservedPresentation(props),
-			version,
-		},
-		residency: 'replaced',
-	});
-}
-
 function bridgeMainPierreItemWithPreservedPresentation<
 	TItem extends BridgeMainRenderPublicationItem,
 >(props: PrepareBridgeMainPierreItemForPresentationProps<TItem>): TItem {

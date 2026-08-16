@@ -11,10 +11,10 @@ the BridgeWeb File View.
 
 > File View is the readable document surface. Review remains the exact Pierre diff.
 
-| Surface   | Presentation                       |
-| --------- | ---------------------------------- |
-| Review    | Exact diff or complete-file toggle |
-| File View | Semantic Markdown                  |
+| Surface   | Presentation      |
+| --------- | ----------------- |
+| Review    | Exact Pierre diff |
+| File View | Semantic Markdown |
 
 The [Agent Studio repository](https://example.com/agent-studio) is intentionally
 shown as inert link text in this read-only view.
@@ -32,6 +32,6 @@ struct MarkdownViewProof {
 
 ```mermaid
 flowchart LR
-    Review[Review diff] --> Open[Open current file]
-    Open --> Document[Complete file presentation]
+    Selection[Select Markdown file] --> Worker[Markdown worker]
+    Worker --> Document[Semantic document]
 ```

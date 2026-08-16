@@ -20,8 +20,7 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.stdout.contains("standard debug observability runner"))
         #expect(result.stdout.contains("strict LaunchServices"))
         #expect(result.stdout.contains("disposable hierarchical Git fixture"))
-        #expect(result.stdout.contains("258 initial Review diffs"))
-        #expect(result.stdout.contains("permanent Markdown proof document"))
+        #expect(result.stdout.contains("257 initial Review diffs"))
         #expect(result.stdout.contains("bridge-product-paint-correlation"))
         #expect(result.stdout.contains("preserves the fixture and app for verification"))
         #expect(result.stdout.contains("explicit symbolic comparison target"))
@@ -42,7 +41,7 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         #expect(result.stdout.contains("bundle/executable/assets"))
         #expect(result.stdout.contains("persistent authenticated semantic IPC"))
-        #expect(result.stdout.contains("requires exactly 258 initial Review diffs"))
+        #expect(result.stdout.contains("requires exactly 257 initial Review diffs"))
         #expect(result.stdout.contains("retains the 100-diff floor before IPC authentication"))
         #expect(result.stdout.contains("Review early/middle/final traversal"))
         #expect(result.stdout.contains("two independent panes"))
@@ -337,7 +336,7 @@ struct BridgePackagedProductJourneyScriptTests {
 
         let invalidCountPairs = [
             (expectedFileCount: 100, expectedReviewDiffCount: 100),
-            (expectedFileCount: 258, expectedReviewDiffCount: 100),
+            (expectedFileCount: 257, expectedReviewDiffCount: 100),
         ]
 
         for (index, counts) in invalidCountPairs.enumerated() {
@@ -380,8 +379,8 @@ struct BridgePackagedProductJourneyScriptTests {
             )
 
             #expect(result.exitCode == 1, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
-            if counts.expectedFileCount != 258 {
-                #expect(result.stderr.contains("expected file count must be exactly 258"))
+            if counts.expectedFileCount != 257 {
+                #expect(result.stderr.contains("expected file count must be exactly 257"))
             } else {
                 #expect(result.stderr.contains("expected Review diff count must equal expected file count"))
             }
@@ -404,9 +403,9 @@ struct BridgePackagedProductJourneyScriptTests {
             at: tokenFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try makeChangedReviewFixture(at: fixtureRoot, fileCount: 258)
-        try "baseline 257\n".write(
-            to: fixtureRoot.appending(path: "file-257.txt"),
+        try makeChangedReviewFixture(at: fixtureRoot, fileCount: 257)
+        try "baseline 256\n".write(
+            to: fixtureRoot.appending(path: "file-256.txt"),
             atomically: true,
             encoding: .utf8
         )
@@ -420,8 +419,8 @@ struct BridgePackagedProductJourneyScriptTests {
         AGENTSTUDIO_BRIDGE_JOURNEY_STATUS=running
         AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE=\(observabilityStateFile.path)
         AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT=\(fixtureRoot.path)
-        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT=258
-        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT=258
+        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT=257
+        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT=257
         AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_DIGEST=\(String(repeating: "0", count: 64))
         BASELINE_COMMIT=\(baselineCommit)
         """
@@ -438,7 +437,7 @@ struct BridgePackagedProductJourneyScriptTests {
         #expect(result.exitCode == 1, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         #expect(
             result.stderr.contains(
-                "initial Review diff count mismatch: expected 258, observed 257"
+                "initial Review diff count mismatch: expected 257, observed 256"
             )
         )
         #expect(FileManager.default.fileExists(atPath: tokenFile.path))
@@ -459,7 +458,7 @@ struct BridgePackagedProductJourneyScriptTests {
             at: tokenFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try makeChangedReviewFixture(at: fixtureRoot, fileCount: 258)
+        try makeChangedReviewFixture(at: fixtureRoot, fileCount: 257)
         let baselineCommit = try FilesystemTestGitRepo.runGit(
             at: fixtureRoot,
             args: ["rev-parse", "HEAD"]
@@ -470,8 +469,8 @@ struct BridgePackagedProductJourneyScriptTests {
         AGENTSTUDIO_BRIDGE_JOURNEY_STATUS=running
         AGENTSTUDIO_BRIDGE_JOURNEY_OBSERVABILITY_STATE_FILE=\(observabilityStateFile.path)
         AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_ROOT=\(fixtureRoot.path)
-        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT=258
-        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT=258
+        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_FILE_COUNT=257
+        AGENTSTUDIO_BRIDGE_JOURNEY_EXPECTED_REVIEW_DIFF_COUNT=257
         AGENTSTUDIO_BRIDGE_JOURNEY_FIXTURE_DIGEST=\(String(repeating: "0", count: 64))
         BASELINE_COMMIT=\(baselineCommit)
         AGENTSTUDIO_BRIDGE_JOURNEY_EARLY_PATH=file-000.txt
@@ -548,7 +547,6 @@ struct BridgePackagedProductJourneyScriptTests {
             "AGENTSTUDIO_BRIDGE_JOURNEY_MIDDLE_PATH",
             "AGENTSTUDIO_BRIDGE_JOURNEY_FINAL_PATH",
             "AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_PATH",
-            "AGENTSTUDIO_BRIDGE_JOURNEY_MARKDOWN_PATH",
         ]
 
         for key in verifierOwnedKeys {

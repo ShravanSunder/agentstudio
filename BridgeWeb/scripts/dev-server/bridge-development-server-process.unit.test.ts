@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import {
 	bridgeDevelopmentServerArguments,
 	bridgeDevelopmentServerExecutablePath,
+	resolveBridgeDevelopmentServerPort,
 	runAllOwnedCleanupOperations,
 	startOwnedBridgeDevelopmentServer,
 	stopOwnedBridgeDevelopmentServerProcess,
@@ -15,9 +16,45 @@ describe('owned Bridge development server executable', () => {
 			readonly dataRootPath: string;
 			readonly initialTarget: string;
 			readonly paneId: string;
+			readonly port?: number;
 			readonly repoRootPath: string;
 			readonly worktreeRoot: string;
 		}>();
+	});
+
+	test('uses the configured Vite proxy port without reserving another port', async () => {
+		// Arrange: ignoring this value would launch a backend the fixed Vite proxy cannot reach.
+		let reservePortCallCount = 0;
+
+		// Act
+		const port = await resolveBridgeDevelopmentServerPort({
+			configuredPort: 43_871,
+			reservePort: async (): Promise<number> => {
+				reservePortCallCount += 1;
+				return 43_872;
+			},
+		});
+
+		// Assert
+		expect(port).toBe(43_871);
+		expect(reservePortCallCount).toBe(0);
+	});
+
+	test('reserves an isolated port when the caller does not configure one', async () => {
+		// Arrange: the existing test fixtures require independent concurrent backend ports.
+		let reservePortCallCount = 0;
+
+		// Act
+		const port = await resolveBridgeDevelopmentServerPort({
+			reservePort: async (): Promise<number> => {
+				reservePortCallCount += 1;
+				return 43_872;
+			},
+		});
+
+		// Assert
+		expect(port).toBe(43_872);
+		expect(reservePortCallCount).toBe(1);
 	});
 
 	test('launch arguments carry one isolated root and exact pane identity without base authority', () => {

@@ -11,6 +11,7 @@ import {
 	type BridgeDevTelemetrySink,
 	type BridgeDevTelemetrySnapshot,
 } from './scripts/dev-server/bridge-dev-telemetry.js';
+import { createBridgeDevelopmentServerVitePlugin } from './scripts/dev-server/bridge-development-server-vite-plugin.js';
 import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
 	BRIDGE_PRODUCT_DEV_HEALTH_ROUTE,
@@ -23,6 +24,7 @@ import {
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 const bridgeProductDevBackendOrigin = resolveBridgeProductDevBackendOrigin(process.env);
+const bridgeProductDevBackendIsSupervised = bridgeProductDevBackendShouldBeSupervised(process.env);
 export default defineConfig({
 	base: './',
 	resolve: {
@@ -50,6 +52,14 @@ export default defineConfig({
 				});
 			},
 		},
+		...(bridgeProductDevBackendIsSupervised
+			? [
+					createBridgeDevelopmentServerVitePlugin({
+						backendOrigin: bridgeProductDevBackendOrigin,
+						repoRootPath: dirname(bridgeWebPackageRoot),
+					}),
+				]
+			: []),
 	],
 	server: {
 		host: '127.0.0.1',
@@ -61,6 +71,12 @@ export default defineConfig({
 		sourcemap: false,
 	},
 });
+
+export function bridgeProductDevBackendShouldBeSupervised(
+	env: Readonly<Record<string, string | undefined>>,
+): boolean {
+	return env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] === undefined;
+}
 
 const bridgeDevTelemetryMaxBodyBytes = 256 * 1024;
 const bridgeDevTelemetryCapability = 'dev-telemetry-capability-0123456789abcdef';

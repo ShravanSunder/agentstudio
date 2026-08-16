@@ -28,7 +28,6 @@ import { visibleTextIncludingOpenShadowRoots } from './bridge-viewer-browser-vis
 import {
 	completeReviewContentMessages,
 	completeReviewFileContentMessages,
-	reviewWitnessContentHash,
 } from './bridge-viewer-browser.recovery-witness-content.test-support.js';
 import {
 	advanceBridgeReviewRecoveryWitnessFrames,
@@ -46,16 +45,11 @@ export type {
 	BridgeReviewRecoveryScrollScan,
 } from './bridge-viewer-browser.recovery-witness-scroll.test-support.js';
 export interface BridgeReviewRecoveryWitnessFile {
-	readonly baseContent?: string;
 	readonly changeKind?: BridgeFileChangeKind;
 	readonly contentMarker: string;
-	readonly extension?: string;
 	readonly fileClass?: BridgeFileClass;
-	readonly headContent?: string;
 	readonly itemId: string;
-	readonly language?: string;
 	readonly lineCount: number;
-	readonly mimeType?: string;
 	readonly path: string;
 	readonly sourceCorrelation?: BridgeWorkerRenderSourceCorrelation;
 }
@@ -80,7 +74,6 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly publishDisplayAtPackageIdentity: (metadataWindowIdentity: string) => Promise<void>;
 	readonly publishDisplayInTwoBatches: (initialItemCount: number) => Promise<void>;
 	readonly publishFileContentForItemId: (itemId: string) => Promise<void>;
-	readonly publishUnavailableContentForItemId: (itemId: string) => Promise<void>;
 	readonly publishDisplayPrefix: (initialItemCount: number) => Promise<void>;
 	readonly publishAuthoritativeDisplayAfterRetainedSelection: () => Promise<void>;
 	readonly publishAuthoritativeDisplayWithImmediateLocalSelection: (
@@ -92,7 +85,6 @@ export interface BridgeReviewRecoveryWitnessHarness {
 	readonly renderResult: Awaited<ReturnType<typeof render>>;
 	readonly markFileViewedCommandCount: () => number;
 	readonly selectedItemCommandCount: () => number;
-	readonly selectedItemPresentations: () => readonly ('diff' | 'file' | undefined)[];
 	readonly selectionScrollToPathSampleCount: () => number;
 	readonly setActive: (isActive: boolean) => Promise<void>;
 	readonly expandedTreePaths: () => readonly string[];
@@ -154,12 +146,6 @@ export async function renderBridgeReviewRecoveryWitness(
 		},
 	};
 	const publishedContentItemIds = new Set<string>();
-	let nextContentPublicationSequence = 1;
-	const issueContentPublicationSequence = (): number => {
-		const publicationSequence = nextContentPublicationSequence;
-		nextContentPublicationSequence += 1;
-		return publicationSequence;
-	};
 	let messageListener: ((message: BridgeWorkerServerToMainMessage) => void) | null = null;
 	const reviewProjectionRouter = new BridgeReviewProjectionWitnessRouter();
 	let isDisposed = false;
@@ -253,11 +239,8 @@ export async function renderBridgeReviewRecoveryWitness(
 		publishCompleteContent: async (): Promise<void> => {
 			await act(async (): Promise<void> => {
 				const publish = requireMessageListener();
-				for (const file of files) {
-					for (const message of completeReviewContentMessages(
-						file,
-						issueContentPublicationSequence(),
-					)) {
+				for (const [fileIndex, file] of files.entries()) {
+					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
 						publish(message);
 					}
 					publishedContentItemIds.add(file.itemId);
@@ -278,10 +261,8 @@ export async function renderBridgeReviewRecoveryWitness(
 			await act(async (): Promise<void> => {
 				const publish = requireMessageListener();
 				for (const file of requestedFiles) {
-					for (const message of completeReviewContentMessages(
-						file,
-						issueContentPublicationSequence(),
-					)) {
+					const fileIndex = files.indexOf(file);
+					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
 						publish(message);
 					}
 					publishedContentItemIds.add(file.itemId);
@@ -316,10 +297,8 @@ export async function renderBridgeReviewRecoveryWitness(
 			await act(async (): Promise<void> => {
 				const publish = requireMessageListener();
 				for (const file of demandedFiles) {
-					for (const message of completeReviewContentMessages(
-						file,
-						issueContentPublicationSequence(),
-					)) {
+					const fileIndex = files.indexOf(file);
+					for (const message of completeReviewContentMessages(file, fileIndex + 1)) {
 						publish(message);
 					}
 					publishedContentItemIds.add(file.itemId);
@@ -401,41 +380,15 @@ export async function renderBridgeReviewRecoveryWitness(
 				throw new Error(`Review file-content publication requires a fixture item: ${itemId}`);
 			}
 			await act(async (): Promise<void> => {
+				const fileIndex = files.indexOf(file);
 				const publish = requireMessageListener();
-				for (const message of completeReviewFileContentMessages(
-					file,
-					issueContentPublicationSequence(),
-				)) {
+				for (const message of completeReviewFileContentMessages(file, fileIndex + 1)) {
 					publish(message);
 				}
 				publishedContentItemIds.add(file.itemId);
 				await Promise.resolve();
 			});
 			await advanceBridgeReviewRecoveryWitnessFrames(5);
-		},
-		publishUnavailableContentForItemId: async (itemId: string): Promise<void> => {
-			await act(async (): Promise<void> => {
-				const publish = requireMessageListener();
-				publish({
-					direction: 'serverWorkerToMain',
-					kind: 'reviewRenderPatch',
-					patches: [
-						{
-							itemId,
-							operation: 'upsert',
-							payload: { reason: 'content_unavailable', state: 'unavailable' },
-							slice: 'contentAvailability',
-						},
-					],
-					publicationSequence: issueContentPublicationSequence(),
-					surface: 'review',
-					transferDescriptors: [],
-					wireVersion: 1,
-					workerDerivationEpoch: 1,
-				});
-				await Promise.resolve();
-			});
-			await advanceBridgeReviewRecoveryWitnessFrames(2);
 		},
 		publishDisplayPrefix: async (initialItemCount: number): Promise<void> => {
 			if (initialItemCount <= 0 || initialItemCount >= files.length) {
@@ -509,12 +462,6 @@ export async function renderBridgeReviewRecoveryWitness(
 			sentCommands.filter((command) => command.command === 'markFileViewed').length,
 		selectedItemCommandCount: (): number =>
 			sentCommands.filter((command) => command.command === 'select').length,
-		selectedItemPresentations: (): readonly ('diff' | 'file' | undefined)[] =>
-			sentCommands.flatMap((command) =>
-				command.command === 'select' && command.surface === 'review'
-					? [command.reviewPresentation]
-					: [],
-			),
 		selectionScrollToPathSampleCount: (): number =>
 			telemetrySamples.filter(
 				(sample): boolean =>
@@ -821,17 +768,13 @@ function reviewDisplayItem(
 	metadataWindowIdentity = 'review-recovery-witness-window-r2',
 ): BridgeWorkerReviewDisplayItem {
 	const semanticDocumentRevision = `review-recovery-semantic:${file.itemId}:${file.contentMarker}`;
-	const baseContentHash = reviewWitnessContentHash(file, 'base');
-	const headContentHash = reviewWitnessContentHash(file, 'head');
-	const language =
-		file.language ?? (file.path.toLowerCase().endsWith('.md') ? 'markdown' : 'swift');
 	return {
 		contentFacts: [
 			{
 				contentDigest: {
 					algorithm: 'review-recovery-fixture',
 					authority: 'provisional',
-					value: baseContentHash,
+					value: `base:${file.itemId}`,
 				},
 				role: 'base',
 				semanticDocumentRevision,
@@ -840,7 +783,7 @@ function reviewDisplayItem(
 				contentDigest: {
 					algorithm: 'review-recovery-fixture',
 					authority: 'provisional',
-					value: headContentHash,
+					value: `head:${file.itemId}:${file.contentMarker}`,
 				},
 				role: 'head',
 				semanticDocumentRevision,
@@ -854,15 +797,15 @@ function reviewDisplayItem(
 			basePath: file.path,
 			changeKind: file.changeKind ?? 'modified',
 			contentDescriptorIdsByRole: {},
-			contentHashesByRole: { base: baseContentHash, head: headContentHash },
+			contentHashesByRole: {},
 			contentRoles: ['base', 'head'],
-			extension: file.extension ?? file.path.split('.').at(-1) ?? null,
+			extension: 'swift',
 			fileClass: file.fileClass ?? 'source',
 			headPath: file.path,
 			isHiddenByDefault: false,
 			itemId: file.itemId,
-			language,
-			mimeTypes: [file.mimeType ?? (language === 'markdown' ? 'text/markdown' : 'text/x-swift')],
+			language: 'swift',
+			mimeTypes: ['text/x-swift'],
 			provenance: { agentSessionIds: [], operationIds: [], promptIds: [] },
 			reviewPriority: 'normal',
 			reviewState: 'unreviewed',

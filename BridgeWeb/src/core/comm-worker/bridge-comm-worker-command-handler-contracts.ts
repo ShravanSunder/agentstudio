@@ -92,7 +92,6 @@ export interface BridgeCommWorkerReviewMetadataResetScheduleRequest {
 export interface BridgeCommWorkerSelectedReviewContentReadyPreparationRequest {
 	readonly epoch: number;
 	readonly itemId: string;
-	readonly reviewPresentation?: 'diff' | 'file' | undefined;
 	readonly store: BridgeCommWorkerStore;
 }
 

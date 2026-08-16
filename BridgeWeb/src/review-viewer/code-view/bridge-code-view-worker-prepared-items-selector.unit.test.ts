@@ -4,10 +4,7 @@ import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
-import {
-	createBridgeCodeViewMetadataDeltaItemsForPanel,
-	createBridgeCodeViewMetadataDeltaItemsForPanelSelector,
-} from './bridge-code-view-worker-prepared-items.js';
+import { createBridgeCodeViewMetadataDeltaItemsForPanelSelector } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView worker-prepared item selector', () => {
 	test('promotes selected demand rank without replacing the exact worker-prepared object', () => {
@@ -88,68 +85,6 @@ describe('Bridge CodeView worker-prepared item selector', () => {
 		expect(secondItems.find((item) => item.id === freshVisibleCodeViewItem.id)).toBe(
 			freshVisibleCodeViewItem,
 		);
-	});
-
-	test('accepts an explicit worker content role when descriptor ids are unavailable', () => {
-		const reviewPackage = makeBridgeViewerProjectionFixture();
-		const sourceItem = reviewPackage.itemsById['source-high'];
-		if (sourceItem === undefined) {
-			throw new Error('expected fixture item');
-		}
-		const descriptorWithoutContentIds = {
-			...sourceItem,
-			contentRoles: { base: null, diff: null, file: null, head: null },
-		};
-		const reviewPackageWithoutContentIds = {
-			...reviewPackage,
-			itemsById: {
-				...reviewPackage.itemsById,
-				[sourceItem.itemId]: descriptorWithoutContentIds,
-			},
-		};
-		const selectedCodeViewItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(descriptorWithoutContentIds, {
-				kind: 'file',
-				version: 'current',
-			}),
-		);
-		const selectedHeadCodeViewItem = {
-			...selectedCodeViewItem,
-			bridgeMetadata: {
-				...selectedCodeViewItem.bridgeMetadata,
-				contentRoles: ['head' as const],
-			},
-		};
-
-		const deltaItems = createBridgeCodeViewMetadataDeltaItemsForPanel({
-			reviewPackage: reviewPackageWithoutContentIds,
-			selectedCodeViewItem: selectedHeadCodeViewItem,
-			selectedItemId: sourceItem.itemId,
-			selectedItemPresentation: { kind: 'file', version: 'current' },
-			visibleCodeViewItems: [],
-		});
-
-		expect(deltaItems).toEqual([selectedHeadCodeViewItem]);
-		expect(deltaItems[0]?.bridgeMetadata.contentState).toBe('hydrated');
-	});
-
-	test('rejects a stale file item when the selected presentation is the default diff', () => {
-		const fixture = makeSelectorFixture();
-		const descriptor = fixture.reviewPackage.itemsById[fixture.selectedItemId];
-		if (descriptor === undefined) throw new Error('expected selected descriptor');
-		const staleFileItem = workerPreparedCodeViewItem(
-			materializeBridgeCodeViewLoadingItem(descriptor, { kind: 'file', version: 'current' }),
-		);
-
-		const deltaItems = createBridgeCodeViewMetadataDeltaItemsForPanel({
-			reviewPackage: fixture.reviewPackage,
-			selectedCodeViewItem: staleFileItem,
-			selectedItemId: fixture.selectedItemId,
-			selectedItemPresentation: null,
-			visibleCodeViewItems: [],
-		});
-
-		expect(deltaItems).toEqual([]);
 	});
 });
 

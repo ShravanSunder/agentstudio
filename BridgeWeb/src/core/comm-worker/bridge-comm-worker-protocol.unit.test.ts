@@ -22,24 +22,6 @@ import {
 } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker protocol', () => {
-	test('encodes the selected Review file projection without changing viewer mode', () => {
-		const command = encodeBridgeWorkerSelectCommand({
-			epoch: 4,
-			requestId: 'request-review-open',
-			reviewPresentation: 'file',
-			selectedItemId: 'item-1',
-			selectedSource: 'programmatic',
-			surface: 'review',
-		});
-
-		expect(command).toMatchObject({
-			command: 'select',
-			reviewPresentation: 'file',
-			surface: 'review',
-		});
-		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
-	});
-
 	test('encodes a typed comparison-target query cancellation intent', () => {
 		const command = encodeBridgeWorkerReviewComparisonTargetsQueryCancelCommand({
 			epoch: 3,

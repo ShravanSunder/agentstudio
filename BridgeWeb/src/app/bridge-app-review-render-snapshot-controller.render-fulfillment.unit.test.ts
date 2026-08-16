@@ -133,36 +133,6 @@ describe('Bridge app Review render snapshot fulfillment admission', () => {
 		expect(harness.dispositions.at(-1)).toEqual(expectedQueuedDisposition(secondPublication, 150));
 	});
 
-	test('binds and installs a same-id diff-to-file replacement before its queued receipt', () => {
-		const harness = createFulfillmentAdmissionHarness(175);
-		const itemId = 'review-kind-transition-item';
-		seedReviewCatalog(harness.renderSnapshotStore, { epoch: 7, itemIds: [itemId] });
-		const diffPublication = makeReviewPublication({
-			itemId,
-			publicationSequence: 1,
-			workerDerivationEpoch: 7,
-		});
-		const filePublication = makeReviewFilePublication({
-			itemId,
-			publicationSequence: 2,
-			workerDerivationEpoch: 7,
-		});
-		applyReviewPublication(harness, diffPublication);
-
-		applyReviewPublication(harness, filePublication);
-
-		const installedFileItem = harness.renderSnapshotStore.getReviewCodeViewItemSnapshot(itemId);
-		expect(installedFileItem?.type).toBe('file');
-		expect(installedFileItem?.version).toBe(2);
-		expect(
-			installedFileItem === undefined
-				? false
-				: harness.renderFulfillmentCoordinator.isBoundFinalItem(installedFileItem),
-		).toBe(true);
-		expect(harness.dispositions.at(-1)).toEqual(expectedQueuedDisposition(filePublication, 175));
-		expect(harness.storeItemsAtDisposition.at(-1)).toBe(installedFileItem);
-	});
-
 	test('terminally rejects a stale Review publication with its full receipt identity instead of installing it', () => {
 		// Arrange
 		const harness = createFulfillmentAdmissionHarness(200);
@@ -347,67 +317,6 @@ function makeReviewPublication(
 		},
 		renderKind: 'reviewDiff',
 		window: { endLine: 2, startLine: 1, totalLineCount: 2 },
-	});
-	return bridgeWorkerReviewPierreRenderJobEventSchema.parse({
-		direction: 'serverWorkerToMain',
-		job,
-		kind: 'reviewPierreRenderJob',
-		publicationSequence: props.publicationSequence,
-		renderReceiptIdentity: makeBridgeWorkerRenderReceiptIdentity({
-			itemId: props.itemId,
-			publicationSequence: props.publicationSequence,
-			surface: 'review',
-			workerDerivationEpoch: props.workerDerivationEpoch,
-		}),
-		surface: 'review',
-		transferDescriptors: [
-			{
-				byteLength: job.payloadByteLength,
-				fieldPath: ['job', 'payload'],
-				messageKind: 'reviewPierreRenderJob',
-				mode: 'clone',
-			},
-		],
-		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-		workerDerivationEpoch: props.workerDerivationEpoch,
-	});
-}
-
-function makeReviewFilePublication(
-	props: MakeReviewPublicationProps,
-): BridgeWorkerReviewPierreRenderJobEvent {
-	const contentCacheKey = `review-file-cache-${props.publicationSequence}`;
-	const job = buildBridgeWorkerPierreRenderJob({
-		bridgeDemandRank: { lane: 'selected', priority: 0 },
-		budget: { className: 'interactive', maxBytes: 4096, maxWindowLines: 20 },
-		contentCacheKey,
-		contentHash: `review-file-hash-${props.publicationSequence}`,
-		itemId: props.itemId,
-		language: 'typescript',
-		payload: {
-			kind: 'codeViewFileItem',
-			item: {
-				bridgeMetadata: {
-					cacheKey: contentCacheKey,
-					contentRoles: ['head'],
-					contentState: 'hydrated',
-					displayPath: `Sources/${props.itemId}.ts`,
-					itemId: props.itemId,
-					lineCount: 1,
-				},
-				file: {
-					cacheKey: contentCacheKey,
-					contents: `export const revision = ${props.publicationSequence};\n`,
-					lang: 'typescript',
-					name: `Sources/${props.itemId}.ts`,
-				},
-				id: props.itemId,
-				type: 'file',
-				version: props.publicationSequence,
-			},
-		},
-		renderKind: 'fileText',
-		window: { endLine: 1, startLine: 1, totalLineCount: 1 },
 	});
 	return bridgeWorkerReviewPierreRenderJobEventSchema.parse({
 		direction: 'serverWorkerToMain',

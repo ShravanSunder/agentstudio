@@ -67,21 +67,6 @@ export interface BridgeCommWorkerReviewDemandScheduling {
 	readonly updateWorkerDerivationEpoch: (workerDerivationEpoch: number) => void;
 }
 
-export function reviewRuntimeSourceWithSelectedPresentation(props: {
-	readonly itemId: string;
-	readonly presentation: 'diff' | 'file';
-	readonly source: BridgeCommWorkerReviewRuntimeSource;
-}): BridgeCommWorkerReviewRuntimeSource {
-	if (props.presentation === 'diff') return props.source;
-	let changed = false;
-	const renderSemantics = props.source.renderSemantics.map((semantics) => {
-		if (semantics.itemId !== props.itemId || semantics.itemKind === 'file') return semantics;
-		changed = true;
-		return { ...semantics, itemKind: 'file' as const };
-	});
-	return changed ? { ...props.source, renderSemantics } : props.source;
-}
-
 export interface BridgeCommWorkerVisibleSourceChurnIdentity {
 	readonly epoch: number;
 	readonly sourceChurnRevision: number | null;
@@ -440,11 +425,6 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 	let activeWorkerDerivationEpoch: number | null = null;
 	let latestSchedulingStore: BridgeCommWorkerStore | null = null;
 	let latestSchedulingEpoch: number | null = null;
-	let selectedPresentation: {
-		readonly itemId: string;
-		readonly presentation: 'diff' | 'file';
-	} | null = null;
-	let presentationResetItemId: string | null = null;
 	let currentMembershipByItemId = new Map<string, BridgeCommWorkerDemandMember>();
 	let previousFirstVisibleOrderedIndex: number | null = null;
 	const retryAttemptByItemId = new Map<string, number>();
@@ -460,17 +440,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 
 	const reviewDemandLedger = createBridgeCommWorkerReviewDemandLedger({
 		resolvePreparationIdentity: (itemId): string =>
-			reviewItemPreparationIdentity({
-				itemId,
-				source:
-					selectedPresentation?.itemId === itemId
-						? reviewRuntimeSourceWithSelectedPresentation({
-								itemId,
-								presentation: selectedPresentation.presentation,
-								source: reviewRuntimeSource,
-							})
-						: reviewRuntimeSource,
-			}),
+			reviewItemPreparationIdentity({ itemId, source: reviewRuntimeSource }),
 		start: (admission): BridgeCommWorkerReviewDemandStartHandle => {
 			const store = latestSchedulingStore;
 			const epoch = latestSchedulingEpoch;
@@ -493,14 +463,6 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 					? `selected:${member.selectedDemandEpoch}`
 					: `review-ledger:${admission.itemId}`;
 			const ledgerStore = bridgeCommWorkerStoreWithDemandKey(store, admission.itemId, demandKey);
-			const preparationSource =
-				selectedPresentation?.itemId === admission.itemId
-					? reviewRuntimeSourceWithSelectedPresentation({
-							itemId: admission.itemId,
-							presentation: selectedPresentation.presentation,
-							source: reviewRuntimeSource,
-						})
-					: reviewRuntimeSource;
 			const ticket =
 				member.role === 'selected'
 					? enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
@@ -515,7 +477,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 							itemId: admission.itemId,
 							port: props.port,
 							pump: props.pump,
-							renderSemantics: preparationSource.renderSemantics,
+							renderSemantics: reviewRuntimeSource.renderSemantics,
 							requestPreparationDrain: props.requestPreparationDrain,
 							sequence: props.createSequence(),
 							signal: admission.signal,
@@ -746,37 +708,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 		if (!isReviewWorkAdmitted()) {
 			return;
 		}
-		const nextPresentation =
-			request.reviewPresentation ??
-			(selectedPresentation?.itemId === request.itemId
-				? selectedPresentation.presentation
-				: 'diff');
-		const presentationChangedItemIds = new Set<string>();
-		if (presentationResetItemId === request.itemId) {
-			presentationChangedItemIds.add(request.itemId);
-			presentationResetItemId = null;
-		}
-		if (
-			selectedPresentation?.presentation === 'file' &&
-			(selectedPresentation.itemId !== request.itemId || nextPresentation === 'diff')
-		) {
-			presentationChangedItemIds.add(selectedPresentation.itemId);
-		}
-		if (
-			nextPresentation === 'file' &&
-			(selectedPresentation?.itemId !== request.itemId ||
-				selectedPresentation.presentation !== 'file')
-		) {
-			presentationChangedItemIds.add(request.itemId);
-		}
-		for (const itemId of presentationChangedItemIds) {
-			reviewDemandLedger.invalidate(itemId);
-		}
-		selectedPresentation =
-			nextPresentation === 'file'
-				? { itemId: request.itemId, presentation: nextPresentation }
-				: null;
-		reconcileCurrentReviewDemand(request.store, request.epoch, presentationChangedItemIds);
+		reconcileCurrentReviewDemand(request.store, request.epoch);
 	};
 
 	const scheduleMetadataReset = (
@@ -849,13 +781,7 @@ export function createBridgeCommWorkerReviewDemandScheduling(
 			reviewRuntimeSource = source;
 		},
 		updateWorkerDerivationEpoch: (workerDerivationEpoch: number): void => {
-			const previouslyOpenedItemId = selectedPresentation?.itemId ?? null;
-			presentationResetItemId = previouslyOpenedItemId;
-			selectedPresentation = null;
 			reviewDemandLedger.updateGeneration(workerDerivationEpoch);
-			if (previouslyOpenedItemId !== null) {
-				reviewDemandLedger.invalidate(previouslyOpenedItemId);
-			}
 			retryAttemptByItemId.clear();
 			activeWorkerDerivationEpoch = workerDerivationEpoch;
 		},

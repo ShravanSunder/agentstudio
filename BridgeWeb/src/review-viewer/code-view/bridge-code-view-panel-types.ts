@@ -5,7 +5,6 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
-import type { BridgeCodeViewFilePresentation } from './bridge-code-view-file-presentation-toggle.js';
 import type { BridgeCodeViewItemPresentation } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
 import type { BridgeCodeViewRenderFulfillmentCoordinator } from './bridge-code-view-render-fulfillment.js';
@@ -34,10 +33,6 @@ export interface BridgeCodeViewPanelProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
-	readonly onFilePresentationChange?: (
-		itemId: string,
-		presentation: BridgeCodeViewFilePresentation,
-	) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 }

@@ -5,6 +5,14 @@ import { cleanup, render } from 'vitest-browser-react';
 import '../app/bridge-app.css';
 import { createBridgeMermaidRenderer } from '../app/markdown/bridge-mermaid-renderer.js';
 import {
+	createBridgeMarkdownRenderWorkerClient,
+	type BridgeMarkdownRenderWorkerTransport,
+} from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
+import {
+	identityFromMarkdownRenderWorkerRequest,
+	type BridgeMarkdownRenderWorkerRequest,
+} from '../app/markdown/worker/bridge-markdown-render-worker-rpc.js';
+import {
 	createBridgeMarkdownRenderModuleWorkerFactory,
 	createBridgeMarkdownRenderWebWorkerClient,
 } from '../app/markdown/worker/bridge-markdown-render-worker-transport.js';
@@ -100,15 +108,26 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 			);
 			const inertLink = requireHTMLElement(markdownCanvas.querySelector('a'));
 			const codeBlock = requireHTMLElement(markdownCanvas.querySelector('pre'));
-			const highlightedTokens = markdownCanvas.querySelectorAll('pre code span[style*="color"]');
+			const swiftCode = requireHTMLElement(codeBlock.querySelector('code'));
+			const highlightedTokens = Array.from(
+				markdownCanvas.querySelectorAll<HTMLElement>('pre code span[style*="color"]'),
+			);
+			const highlightedColors = new Set(
+				highlightedTokens
+					.map((token): string => token.style.color)
+					.filter((color): boolean => color.length > 0),
+			);
 			const diagram = markdownCanvas.querySelector('svg[role="img"]');
 
 			expect(markdownCanvas.textContent).toContain('File Markdown proof');
 			expect(markdownCanvas.querySelector('blockquote')).not.toBeNull();
 			expect(markdownCanvas.querySelector('ul')).not.toBeNull();
 			expect(markdownCanvas.querySelector('table')).not.toBeNull();
+			expect(markdownCanvas.querySelector('th')?.textContent).toBe('Surface');
+			expect(markdownCanvas.querySelector('td')?.textContent).toBe('File');
 			expect(inertLink.hasAttribute('href')).toBe(false);
-			expect(highlightedTokens.length).toBeGreaterThan(1);
+			expect(swiftCode.textContent).toContain('let markdownProof: String');
+			expect(highlightedColors.size).toBeGreaterThan(1);
 			expect(getComputedStyle(codeBlock).overflowX).toBe('auto');
 			expect(diagram?.getAttribute('aria-label')).toBe('Diagram 1 in docs/markdown-proof.md');
 			expect(document.querySelector('[data-testid="bridge-file-viewer-code-view"]')).toBeNull();
@@ -148,7 +167,10 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 				document.querySelector('[data-testid="bridge-markdown-canvas"]'),
 			);
 			const originalSvg = originalCanvas.querySelector('svg');
-			originalCanvas.parentElement?.scrollTo({ top: 12 });
+			const markdownScrollOwner = originalCanvas.parentElement;
+			if (!(markdownScrollOwner instanceof HTMLElement)) {
+				throw new Error('Expected the Markdown scroll owner.');
+			}
 
 			const searchToggle = requireHTMLElement(
 				document.querySelector('[data-testid="worktree-file-search-toggle"]'),
@@ -158,9 +180,76 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 			await actFrame();
 
 			expect(document.querySelector('[data-testid="bridge-markdown-canvas"]')).toBe(originalCanvas);
+			expect(originalCanvas.parentElement).toBe(markdownScrollOwner);
 			expect(originalCanvas.querySelector('svg')).toBe(originalSvg);
 			expect(originalCanvas.querySelector('[data-bridge-mermaid-state="ready"]')).not.toBeNull();
 			expect(document.querySelector('[data-testid="bridge-markdown-status"]')).toBeNull();
+		} finally {
+			markdownWorkerClient.dispose();
+		}
+	});
+
+	test('recovers a failed File Markdown render through the visible Retry action', async () => {
+		// Arrange
+		const markdownContent = '# Retry Markdown\n';
+		const markdownDescriptor = await makeFileDescriptorForContent({
+			content: markdownContent,
+			contentHandle: 'retry-markdown-content',
+			fileId: 'retry-markdown',
+			path: 'docs/retry.md',
+		});
+		let sendCount = 0;
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: async (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => {
+				sendCount += 1;
+				if (sendCount === 1) {
+					throw new Error('Expected first render failure');
+				}
+				return {
+					schemaVersion: 1,
+					method: request.method,
+					ok: true,
+					...identityFromMarkdownRenderWorkerRequest(request),
+					htmlCandidate: '<h1>Recovered Markdown</h1>',
+					mermaidDiagrams: [],
+					metrics: {
+						durationMilliseconds: 1,
+						inputBytes: markdownContent.length,
+						outputBytes: 27,
+						mermaidDiagramCount: 0,
+					},
+				};
+			},
+		};
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => `retry-${(sendCount + 1).toString()}`,
+		});
+
+		try {
+			await render(
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialMetadataEvents={makeFileMetadataEvents(markdownDescriptor)}
+					markdownWorkerClient={markdownWorkerClient}
+					navigationCommand={fileNavigationCommandForPath('docs/retry.md')}
+					fileProductSession={{ readContent: async (): Promise<string> => markdownContent }}
+				/>,
+			);
+			await waitForOpenFileState('ready');
+			await waitForMarkdownSelector('[role="alert"]');
+
+			// Act
+			const retryButton = requireHTMLElement(document.querySelector('[role="alert"] button'));
+			await actClick(retryButton);
+
+			// Assert
+			await waitForMarkdownSelector('[data-testid="bridge-markdown-canvas"] h1');
+			expect(document.querySelector('[data-testid="bridge-markdown-canvas"] h1')?.textContent).toBe(
+				'Recovered Markdown',
+			);
+			expect(document.querySelector('[role="alert"]')).toBeNull();
+			expect(sendCount).toBe(2);
 		} finally {
 			markdownWorkerClient.dispose();
 		}
@@ -174,13 +263,16 @@ function requireHTMLElement(element: Element | null): HTMLElement {
 	return element;
 }
 
-async function waitForMarkdownSelector(selector: string, attempt = 0): Promise<void> {
+async function waitForMarkdownSelector(
+	selector: string,
+	deadline = performance.now() + 10_000,
+): Promise<void> {
 	if (document.querySelector(selector) !== null) {
 		return;
 	}
-	if (attempt >= 60) {
+	if (performance.now() >= deadline) {
 		throw new Error(`Expected Markdown selector to appear: ${selector}`);
 	}
 	await actFrame();
-	await waitForMarkdownSelector(selector, attempt + 1);
+	await waitForMarkdownSelector(selector, deadline);
 }

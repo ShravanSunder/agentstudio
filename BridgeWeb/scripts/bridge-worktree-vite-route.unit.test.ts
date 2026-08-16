@@ -11,6 +11,7 @@ import {
 } from '../src/core/comm-worker/bridge-product-http-request-executor.js';
 import {
 	bridgeProductDevProxyConfiguration,
+	bridgeProductDevBackendShouldBeSupervised,
 	resolveBridgeProductDevBackendOrigin,
 } from '../vite.config.js';
 import { bridgeDevelopmentServerHealthResponseIsReady } from './dev-server/bridge-development-server-process.js';
@@ -61,5 +62,15 @@ describe('BridgeWeb Vite product proxy', () => {
 		expect(bridgeDevelopmentServerHealthResponseIsReady(new Response(null, { status: 404 }))).toBe(
 			false,
 		);
+	});
+
+	test('supervises the default backend but leaves an explicitly configured backend alone', () => {
+		// An E2E fixture supplies and owns its own backend process; double ownership would collide.
+		expect(bridgeProductDevBackendShouldBeSupervised({})).toBe(true);
+		expect(
+			bridgeProductDevBackendShouldBeSupervised({
+				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://127.0.0.1:43872',
+			}),
+		).toBe(false);
 	});
 });

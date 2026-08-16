@@ -11,7 +11,7 @@ if [ "${1:-}" = "--dry-run" ]; then
   cat <<'DRY_RUN'
 dry-run ok: binds bundle/executable/assets to the current candidate
 dry-run ok: uses one persistent authenticated semantic IPC session
-dry-run ok: requires exactly 258 initial Review diffs and retains the 100-diff floor before IPC authentication
+dry-run ok: requires exactly 257 initial Review diffs and retains the 100-diff floor before IPC authentication
 dry-run ok: proves Review early/middle/final traversal
 dry-run ok: proves two independent panes and hidden-to-foreground refresh
 dry-run ok: hard-cuts Files and Review Filter candidates with semantic read-back
@@ -70,7 +70,6 @@ early_path=""
 middle_path=""
 final_path=""
 tracked_path=""
-markdown_path=""
 reviewed_branch_name=""
 comparison_target_name=""
 
@@ -93,7 +92,6 @@ while IFS='=' read -r key raw_value; do
     AGENTSTUDIO_BRIDGE_JOURNEY_MIDDLE_PATH) middle_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_FINAL_PATH) final_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_TRACKED_PATH) tracked_path="$value" ;;
-    AGENTSTUDIO_BRIDGE_JOURNEY_MARKDOWN_PATH) markdown_path="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_REVIEWED_BRANCH_NAME) reviewed_branch_name="$value" ;;
     AGENTSTUDIO_BRIDGE_JOURNEY_TARGET_NAME) comparison_target_name="$value" ;;
   esac
@@ -123,8 +121,8 @@ case "$expected_review_diff_count" in
     exit 1
     ;;
 esac
-if [ "$expected_file_count" -ne 258 ]; then
-  echo "Bridge packaged journey expected file count must be exactly 258: $expected_file_count" >&2
+if [ "$expected_file_count" -ne 257 ]; then
+  echo "Bridge packaged journey expected file count must be exactly 257: $expected_file_count" >&2
   exit 1
 fi
 if [ "$expected_review_diff_count" -ne "$expected_file_count" ]; then
@@ -163,16 +161,12 @@ if [ "$actual_fixture_digest" != "$expected_fixture_digest" ]; then
   echo "Bridge packaged journey fixture digest mismatch" >&2
   exit 1
 fi
-for required_path in "$early_path" "$middle_path" "$final_path" "$tracked_path" "$markdown_path"; do
+for required_path in "$early_path" "$middle_path" "$final_path" "$tracked_path"; do
   if [ -z "$required_path" ] || [ ! -f "$fixture_root/$required_path" ]; then
     echo "Bridge packaged journey sentinel is missing: ${required_path:-<missing>}" >&2
     exit 1
   fi
 done
-if [[ "$markdown_path" != *.md ]]; then
-  echo "Bridge packaged journey Markdown sentinel is invalid: ${markdown_path:-<missing>}" >&2
-  exit 1
-fi
 
 state_status=""
 state_pid=""
