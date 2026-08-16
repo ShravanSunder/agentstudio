@@ -23,6 +23,9 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        registrationDiscoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
+            RepoScannerGitDiscoveryClient(),
+        registrationValidationDelay: AsyncDelay = .taskSleep,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
@@ -52,7 +55,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
         self.registrationValidator = GitWorktreeRegistrationValidator(
-            delay: .clock(gitSleepClock)
+            discoveryProvider: registrationDiscoveryProvider,
+            delay: registrationValidationDelay
         )
         self.forgeActor = ForgeActor(
             bus: bus,
@@ -192,19 +196,20 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 }
 
-private enum GitWorktreeRegistrationDecision: Sendable, Equatable {
+enum GitWorktreeRegistrationDecision: Sendable, Equatable {
     case validated
     case authoritativeNegative
     case uncertain(previouslyAcceptedContext: WorktreeFilesystemContext?)
 }
 
-private actor GitWorktreeRegistrationValidator {
-    private let discoveryProvider: RepoScannerGitDiscoveryClient
+actor GitWorktreeRegistrationValidator {
+    private let discoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider
     private let delay: AsyncDelay
     private var acceptedContextByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
 
     init(
-        discoveryProvider: RepoScannerGitDiscoveryClient = RepoScannerGitDiscoveryClient(),
+        discoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
+            RepoScannerGitDiscoveryClient(),
         delay: AsyncDelay = .taskSleep
     ) {
         self.discoveryProvider = discoveryProvider
