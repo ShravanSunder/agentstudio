@@ -13,11 +13,14 @@ import SwiftUI
 enum RepoExplorerOutlineApplyOutcome: String, Equatable, Sendable {
     case equal
     case changed
+    case suppressed
 }
 
 struct RepoExplorerOutlineApplyMeasurement: Equatable, Sendable {
     let duration: Duration
-    let rowCount: Int
+    let totalRowCount: Int
+    let changedRowCount: Int
+    let equalPublishCount: Int
     let outcome: RepoExplorerOutlineApplyOutcome
 }
 
@@ -104,6 +107,16 @@ package struct RepoExplorerView: View {
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
         self.unreadCount = unreadCount
         self.performanceTraceRecorder = performanceTraceRecorder
+        _projectionAdapter = State(
+            initialValue: RepoExplorerProjectionAdapter(
+                onProjectionSuppressed: { result in
+                    Self.recordSuppressedOutlineApply(
+                        rowCount: result.rowIndex.entries.count,
+                        performanceTraceRecorder: performanceTraceRecorder
+                    )
+                }
+            )
+        )
         self.initialProjectionTrigger =
             AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
         self.initialProjectionSequence = initialProjectionSequence
@@ -130,7 +143,7 @@ package struct RepoExplorerView: View {
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
     @State private var debounceTask: Task<Void, Never>?
-    @State private var projectionAdapter = RepoExplorerProjectionAdapter()
+    @State private var projectionAdapter: RepoExplorerProjectionAdapter
     @State private var projectionGeneration = 0
     @State private var cachedProjectionResult = RepoExplorerProjectionResult.empty
     @State private var cachedProjectionRequest: RepoExplorerProjectionRequest?
@@ -195,7 +208,10 @@ package struct RepoExplorerView: View {
     /// observed slot has admitted a rebuild.
     private var projectionInputRevision: Int {
         let repositoryIDs = store.repositoryTopologyAtom.repositoryIdsInOrder
-        var observedSlotCount = repositoryIDs.count
+        var observedSlotCount = Self.observeRepoEnrichmentInputs(
+            repositoryIDs: repositoryIDs,
+            repoCache: repoCache
+        )
         for repositoryID in repositoryIDs {
             guard let repository = store.repositoryTopologyAtom.repo(repositoryID) else { continue }
             for worktree in repository.worktrees {
@@ -231,6 +247,16 @@ package struct RepoExplorerView: View {
             observedSlotCount += 1
         }
         return observedSlotCount
+    }
+
+    static func observeRepoEnrichmentInputs(
+        repositoryIDs: [UUID],
+        repoCache: RepoCacheAtom
+    ) -> Int {
+        for repositoryID in repositoryIDs {
+            _ = repoCache.repoEnrichment(for: repositoryID)
+        }
+        return repositoryIDs.count
     }
 
     private var sidebarWorktreeEnrichmentSnapshot: [UUID: WorktreeEnrichment] {
@@ -414,25 +440,41 @@ package struct RepoExplorerView: View {
                     case .sectionHeader(let kind):
                         sectionHeader(kind: kind)
 
-                    case .loadingSectionHeader:
-                        RepoExplorerLoadingSectionHeaderRow()
-                            .padding(.top, AppStyles.General.Spacing.standard)
-                            .padding(.bottom, AppStyles.General.Spacing.tight)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
+                    case .loadingSectionHeader(let kind):
+                        RepoExplorerLoadingSectionHeaderRow(
+                            state: currentProjection.sections
+                                .first(where: { $0.kind == kind })?
+                                .loadingState(
+                                    enrichmentByRepoId: cachedProjectionResult.snapshot.repoEnrichmentSnapshotByRepoId
+                                ) ?? .scanning
+                        )
+                        .padding(.top, AppStyles.General.Spacing.standard)
+                        .padding(.bottom, AppStyles.General.Spacing.tight)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
 
                     case .loadingRepoRow(_, let repo):
-                        RepoExplorerLoadingRepoRow(repoName: repo.name)
-                            .listRowInsets(
-                                EdgeInsets(
-                                    top: 0,
-                                    leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
-                                    bottom: 0,
-                                    trailing: AppStyles.General.Spacing.loose
-                                )
+                        RepoExplorerLoadingRepoRow(
+                            repoName: repo.name,
+                            isStatusUnavailable: {
+                                if case .statusUnavailable = cachedProjectionResult.snapshot
+                                    .repoEnrichmentSnapshotByRepoId[repo.id]
+                                {
+                                    return true
+                                }
+                                return false
+                            }()
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: 0,
+                                trailing: AppStyles.General.Spacing.loose
                             )
-                            .listRowBackground(Color.clear)
-                            .allowsHitTesting(false)
+                        )
+                        .listRowBackground(Color.clear)
+                        .allowsHitTesting(false)
 
                     case .resolvedGroupHeader(let group):
                         let semanticRepo = Self.semanticRepoForHeader(
@@ -932,7 +974,9 @@ package struct RepoExplorerView: View {
                     "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(
                         AgentStudioPerformanceTraceRecorder.milliseconds(from: result.workerDuration)),
                     "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
-                    "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
+                    "agentstudio.performance.sidebar.loading_repo.count": .int(
+                        result.projection.scanningRepoCount(
+                            enrichmentByRepoId: result.snapshot.repoEnrichmentSnapshotByRepoId)),
                 ]
             )
         )
@@ -979,7 +1023,9 @@ package struct RepoExplorerView: View {
                         AgentStudioPerformanceTraceRecorder.milliseconds(
                             from: outlineApplyMeasurement.duration)),
                     "agentstudio.performance.sidebar.group.count": .int(result.projection.resolvedGroups.count),
-                    "agentstudio.performance.sidebar.loading_repo.count": .int(result.projection.loadingRepos.count),
+                    "agentstudio.performance.sidebar.loading_repo.count": .int(
+                        result.projection.scanningRepoCount(
+                            enrichmentByRepoId: result.snapshot.repoEnrichmentSnapshotByRepoId)),
                 ]
             )
         )
@@ -993,13 +1039,40 @@ package struct RepoExplorerView: View {
     }
 
     private func recordOutlineApplyProxy(_ measurement: RepoExplorerOutlineApplyMeasurement) {
+        Self.recordOutlineApplyProxy(
+            measurement,
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
+    private static func recordSuppressedOutlineApply(
+        rowCount: Int,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) {
+        recordOutlineApplyProxy(
+            measureSuppressedOutlineApplyProxy(rowCount: rowCount),
+            performanceTraceRecorder: performanceTraceRecorder
+        )
+    }
+
+    private static func recordOutlineApplyProxy(
+        _ measurement: RepoExplorerOutlineApplyMeasurement,
+        performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
+    ) {
         performanceTraceRecorder?.recordDuration(
             .repoExplorerOutlineApplyProxy,
             duration: measurement.duration,
             attributes: [
                 "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string(
                     measurement.outcome.rawValue),
-                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count": .int(measurement.rowCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count": .int(
+                    measurement.totalRowCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_changed.count": .int(
+                    measurement.changedRowCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.equal_publish.count": .int(
+                    measurement.equalPublishCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.mainactor_held_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: measurement.duration)),
             ]
         )
     }

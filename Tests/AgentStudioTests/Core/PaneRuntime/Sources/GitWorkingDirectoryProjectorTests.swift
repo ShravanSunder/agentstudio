@@ -1628,6 +1628,7 @@ struct GitWorkingDirectoryProjectorTests {
         }
         #expect(newSnapshotArrived)
         #expect(await observed.snapshotCount(for: worktreeId) == 1)
+        #expect(await observed.statusOutcomeCount(for: worktreeId) == 1)
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -2542,12 +2543,14 @@ struct GitWorkingDirectoryProjectorTests {
             _ = await calls.increment()
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
         })
+        let traceRecorder = GitProjectorTraceRecorderSpy()
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
             coalescingWindow: .zero,
             sleepClock: clock,
-            refreshPolicy: policy
+            refreshPolicy: policy,
+            performanceTraceRecorder: traceRecorder
         )
 
         let observed = ObservedGitEvents()
@@ -2575,8 +2578,25 @@ struct GitWorkingDirectoryProjectorTests {
         // The remaining 50ms (100ms total) expires step 2 and recomputes.
         clock.advance(by: .milliseconds(50))
         #expect(await waitUntil { await calls.value() == 3 })
+        #expect(
+            await waitUntil {
+                traceRecorder.recordedAttributes(for: .gitStatusUnavailable).count == 3
+            })
+
+        let timeoutAttempts = traceRecorder.recordedAttributes(for: .gitStatusUnavailable)
+        #expect(timeoutAttempts.count == 3)
+        #expect(
+            timeoutAttempts.map { $0["agentstudio.performance.git.status.last_outcome"] } == [
+                .string("timeout"), .string("timeout"), .string("timeout"),
+            ])
+        #expect(
+            timeoutAttempts.map { $0["agentstudio.performance.git.status.consecutive_timeout.count"] } == [
+                .int(1), .int(2), .int(2),
+            ])
+        #expect(timeoutAttempts.allSatisfy { $0["agentstudio.performance.git.status.duration_ms"] != nil })
 
         await actor.shutdown()
+        #expect(await actor.consecutiveStatusTimeoutCountByWorktreeId.isEmpty)
         collectionTask.cancel()
     }
 
@@ -3627,6 +3647,7 @@ private actor ObservedGitEvents {
     private var snapshotsByWorktreeId: [UUID: [GitWorkingTreeSnapshot]] = [:]
     private var branchEventsByWorktreeId: [UUID: [(String, String)]] = [:]
     private var originEventsByRepoId: [UUID: [(String, String)]] = [:]
+    private var statusOutcomesByWorktreeId: [UUID: [GitStatusOutcome]] = [:]
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope else { return }
@@ -3643,6 +3664,9 @@ private actor ObservedGitEvents {
             originEventsByRepoId[repoId, default: []].append((from, to))
         case .originUnavailable(let repoId):
             originEventsByRepoId[repoId, default: []].append(("", ""))
+        case .statusOutcome(let eventWorktreeId, _, let outcome, _):
+            guard eventWorktreeId == worktreeId else { return }
+            statusOutcomesByWorktreeId[worktreeId, default: []].append(outcome)
         case .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }
@@ -3654,6 +3678,10 @@ private actor ObservedGitEvents {
 
     func latestSnapshot(for worktreeId: UUID) -> GitWorkingTreeSnapshot? {
         snapshotsByWorktreeId[worktreeId]?.last
+    }
+
+    func statusOutcomeCount(for worktreeId: UUID) -> Int {
+        statusOutcomesByWorktreeId[worktreeId]?.count ?? 0
     }
 
     func branchEventCount(for worktreeId: UUID) -> Int {

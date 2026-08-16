@@ -39,12 +39,34 @@ extension RepoExplorerView {
         let startedAtNanoseconds = nowNanoseconds()
         apply()
         let completedAtNanoseconds = nowNanoseconds()
+        let previousIndexByRowID = Dictionary(
+            uniqueKeysWithValues: previousRowIDs.enumerated().map { ($0.element, $0.offset) }
+        )
+        let nextIndexByRowID = Dictionary(
+            uniqueKeysWithValues: nextRowIDs.enumerated().map { ($0.element, $0.offset) }
+        )
+        let changedRowCount = Set(previousIndexByRowID.keys).union(nextIndexByRowID.keys).count { rowID in
+            previousIndexByRowID[rowID] != nextIndexByRowID[rowID]
+        }
+        let isContentIdentical = previousRowIDs == nextRowIDs
         return RepoExplorerOutlineApplyMeasurement(
             duration: .nanoseconds(
                 Int64(clamping: completedAtNanoseconds - min(completedAtNanoseconds, startedAtNanoseconds))
             ),
-            rowCount: nextRowIDs.count,
-            outcome: previousRowIDs == nextRowIDs ? .equal : .changed
+            totalRowCount: nextRowIDs.count,
+            changedRowCount: changedRowCount,
+            equalPublishCount: isContentIdentical ? 1 : 0,
+            outcome: isContentIdentical ? .equal : .changed
+        )
+    }
+
+    static func measureSuppressedOutlineApplyProxy(rowCount: Int) -> RepoExplorerOutlineApplyMeasurement {
+        RepoExplorerOutlineApplyMeasurement(
+            duration: .zero,
+            totalRowCount: rowCount,
+            changedRowCount: 0,
+            equalPublishCount: 1,
+            outcome: .suppressed
         )
     }
 

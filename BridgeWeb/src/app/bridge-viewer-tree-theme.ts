@@ -1,15 +1,15 @@
 import { themeToTreeStyles, type TreeThemeInput, type TreeThemeStyles } from '@pierre/trees';
 import type { CSSProperties } from 'react';
 
-export const bridgeCatppuccinMochaTreeTheme = {
+export const bridgeGhosttyCatppuccinTreeTheme = {
 	type: 'dark',
-	fg: '#CDD6F4',
-	bg: '#1E1E2E',
+	fg: '#FFFFFF',
+	bg: '#282C34',
 	colors: {
 		descriptionForeground: '#6C7086',
 		focusBorder: '#B4BEFE',
-		'editor.background': '#1E1E2E',
-		'editor.foreground': '#CDD6F4',
+		'editor.background': '#282C34',
+		'editor.foreground': '#FFFFFF',
 		'gitDecoration.addedResourceForeground': '#A6E3A1',
 		'gitDecoration.deletedResourceForeground': '#F38BA8',
 		'gitDecoration.modifiedResourceForeground': '#89B4FA',
@@ -24,8 +24,8 @@ export const bridgeCatppuccinMochaTreeTheme = {
 	},
 } as const satisfies TreeThemeInput;
 
-export const bridgeCatppuccinMochaTreeStyles: TreeThemeStyles = themeToTreeStyles(
-	bridgeCatppuccinMochaTreeTheme,
+export const bridgeGhosttyCatppuccinTreeStyles: TreeThemeStyles = themeToTreeStyles(
+	bridgeGhosttyCatppuccinTreeTheme,
 );
 
 export type BridgeViewerTreeStyle = CSSProperties &
@@ -48,8 +48,10 @@ export type BridgeViewerTreeStyle = CSSProperties &
 	>;
 
 export const bridgeViewerTreeStyle: BridgeViewerTreeStyle = {
-	...bridgeCatppuccinMochaTreeStyles,
+	...bridgeGhosttyCatppuccinTreeStyles,
+	backgroundColor: 'var(--bridge-surface-bg)',
 	colorScheme: 'dark',
+	color: 'var(--bridge-text-primary)',
 	display: 'block',
 	height: '100%',
 	'--trees-bg-override': 'var(--bridge-surface-bg)',

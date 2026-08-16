@@ -299,6 +299,8 @@ package final class EventReplayBuffer {
 
     private static func estimateSize(of event: GitWorkingDirectoryEvent) -> Int {
         switch event {
+        case .statusOutcome:
+            return 40
         case .snapshotChanged(let snapshot):
             return 56 + snapshot.rootPath.path.utf8.count + (snapshot.branch?.utf8.count ?? 0)
         case .branchChanged(_, _, let from, let to):

@@ -106,6 +106,54 @@ private func repoExplorerProjectionRequestKey(
 @MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("timeout-only repo enrichment wakes capture and changes scanning projection")
+    func timeoutOnlyRepoEnrichmentWakesAndChangesProjection() {
+        let repoCache = RepoCacheAtom()
+        let repoId = UUIDv7.generate()
+        let worktree = Worktree(
+            repoId: repoId,
+            name: "main",
+            path: URL(fileURLWithPath: "/tmp/repo-explorer-timeout-observation")
+        )
+        let repo = RepoPresentationItem(
+            id: repoId,
+            name: "timeout-observation",
+            repoPath: worktree.path,
+            stableKey: "timeout-observation",
+            worktrees: [worktree]
+        )
+        let counter = RepoExplorerProjectionInputInvalidationCounter()
+
+        withObservationTracking {
+            _ = RepoExplorerView.observeRepoEnrichmentInputs(
+                repositoryIDs: [repoId],
+                repoCache: repoCache
+            )
+        } onChange: {
+            counter.record()
+        }
+        let scanningProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(repos: [repo], repoEnrichmentByRepoId: [:], query: "")
+        )
+
+        repoCache.setRepoEnrichment(.statusUnavailable(repoId: repoId, reason: "timeout"))
+        let unavailableEnrichment = [repoId: repoCache.repoEnrichment(for: repoId)!]
+        let unavailableProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo],
+                repoEnrichmentByRepoId: unavailableEnrichment,
+                query: ""
+            )
+        )
+
+        #expect(counter.count == 1)
+        #expect(scanningProjection.scanningRepoCount(enrichmentByRepoId: [:]) == 1)
+        #expect(unavailableProjection.scanningRepoCount(enrichmentByRepoId: unavailableEnrichment) == 0)
+        #expect(
+            unavailableProjection.sections[0].loadingState(enrichmentByRepoId: unavailableEnrichment)
+                == .statusUnavailable)
+    }
+
     @Test("section subheading aligns with disclosure caret leading edge")
     func sectionSubheadingAlignsWithDisclosureCaretLeadingEdge() {
         #expect(

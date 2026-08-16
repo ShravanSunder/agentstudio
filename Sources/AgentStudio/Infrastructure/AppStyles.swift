@@ -83,6 +83,7 @@ package enum AppStyles {
 
     package enum Shell {
         package enum Sidebar {
+            package static let statusUnavailableForegroundOpacity: CGFloat = 0.7
             package static let minimumWidth: CGFloat = 200
             package static let shadowOpacity: CGFloat = 0
             package static let shadowRadius: CGFloat = 0

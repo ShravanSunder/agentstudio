@@ -33,12 +33,13 @@ package struct RepoIdentity: Codable, Hashable, Sendable {
 
 package enum RepoEnrichment: Codable, Hashable, Sendable {
     case awaitingOrigin(repoId: UUID)
+    case statusUnavailable(repoId: UUID, reason: String)
     case resolvedLocal(repoId: UUID, identity: RepoIdentity, updatedAt: Date)
     case resolvedRemote(repoId: UUID, raw: RawRepoOrigin, identity: RepoIdentity, updatedAt: Date)
 
     package var repoId: UUID {
         switch self {
-        case .awaitingOrigin(let repoId):
+        case .awaitingOrigin(let repoId), .statusUnavailable(let repoId, _):
             repoId
         case .resolvedLocal(let repoId, _, _):
             repoId
@@ -49,7 +50,7 @@ package enum RepoEnrichment: Codable, Hashable, Sendable {
 
     var raw: RawRepoOrigin? {
         switch self {
-        case .awaitingOrigin, .resolvedLocal:
+        case .awaitingOrigin, .statusUnavailable, .resolvedLocal:
             nil
         case .resolvedRemote(_, let raw, _, _):
             raw
@@ -58,7 +59,7 @@ package enum RepoEnrichment: Codable, Hashable, Sendable {
 
     var identity: RepoIdentity? {
         switch self {
-        case .awaitingOrigin:
+        case .awaitingOrigin, .statusUnavailable:
             nil
         case .resolvedLocal(_, let identity, _):
             identity
@@ -96,6 +97,11 @@ package enum RepoEnrichment: Codable, Hashable, Sendable {
         case (.awaitingOrigin(let lhsRepoId), .awaitingOrigin(let rhsRepoId)):
             lhsRepoId == rhsRepoId
         case (
+            .statusUnavailable(let lhsRepoId, let lhsReason),
+            .statusUnavailable(let rhsRepoId, let rhsReason)
+        ):
+            lhsRepoId == rhsRepoId && lhsReason == rhsReason
+        case (
             .resolvedLocal(let lhsRepoId, let lhsIdentity, _),
             .resolvedLocal(let rhsRepoId, let rhsIdentity, _)
         ):
@@ -105,7 +111,13 @@ package enum RepoEnrichment: Codable, Hashable, Sendable {
             .resolvedRemote(let rhsRepoId, let rhsRaw, let rhsIdentity, _)
         ):
             lhsRepoId == rhsRepoId && lhsRaw == rhsRaw && lhsIdentity == rhsIdentity
-        case (.awaitingOrigin, .resolvedLocal),
+        case (.awaitingOrigin, .statusUnavailable),
+            (.statusUnavailable, .awaitingOrigin),
+            (.statusUnavailable, .resolvedLocal),
+            (.statusUnavailable, .resolvedRemote),
+            (.resolvedLocal, .statusUnavailable),
+            (.resolvedRemote, .statusUnavailable),
+            (.awaitingOrigin, .resolvedLocal),
             (.awaitingOrigin, .resolvedRemote),
             (.resolvedLocal, .awaitingOrigin),
             (.resolvedLocal, .resolvedRemote),

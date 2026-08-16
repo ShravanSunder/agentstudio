@@ -9,6 +9,78 @@ import Testing
 struct RepoExplorerReadModelTests {}
 
 extension RepoExplorerReadModelTests {
+    @Test("status-unavailable repo is no longer projected as scanning")
+    func statusUnavailableRepoIsNotProjectedAsScanning() {
+        let repoId = UUIDv7.generate()
+        let unavailableRepo = repo(id: repoId, name: "slow-repo", worktrees: [worktree(repoId: repoId)])
+        let enrichmentByRepoId: [UUID: RepoEnrichment] = [
+            repoId: .statusUnavailable(repoId: repoId, reason: "timeout")
+        ]
+
+        #expect(RepoExplorerProjection.loadingRepos([unavailableRepo], enrichmentByRepoId: enrichmentByRepoId).isEmpty)
+        #expect(
+            RepoExplorerProjection.statusUnavailableRepos(
+                [unavailableRepo],
+                enrichmentByRepoId: enrichmentByRepoId
+            ).map(\.id) == [repoId]
+        )
+    }
+
+    @Test("status-unavailable section state does not leak into scanning-only sections")
+    func statusUnavailableSectionStateIsSectionLocal() {
+        let unavailableRepoId = UUIDv7.generate()
+        let scanningRepoId = UUIDv7.generate()
+        let unavailableRepo = repo(
+            id: unavailableRepoId,
+            name: "favorite-unavailable",
+            isFavorite: true,
+            worktrees: [worktree(repoId: unavailableRepoId)]
+        )
+        let scanningRepo = repo(
+            id: scanningRepoId,
+            name: "scanning",
+            worktrees: [worktree(repoId: scanningRepoId)]
+        )
+        let enrichmentByRepoId: [UUID: RepoEnrichment] = [
+            unavailableRepoId: .statusUnavailable(repoId: unavailableRepoId, reason: "timeout"),
+            scanningRepoId: .awaitingOrigin(repoId: scanningRepoId),
+        ]
+
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [unavailableRepo, scanningRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                query: ""
+            )
+        )
+
+        #expect(projection.sections[0].loadingState(enrichmentByRepoId: enrichmentByRepoId) == .statusUnavailable)
+        #expect(projection.sections[1].loadingState(enrichmentByRepoId: enrichmentByRepoId) == .scanning)
+        #expect(projection.scanningRepoCount(enrichmentByRepoId: enrichmentByRepoId) == 1)
+    }
+
+    @Test("same section reports scanning and unavailable repos without conflation")
+    func sameSectionReportsMixedLoadingState() {
+        let unavailableRepoId = UUIDv7.generate()
+        let scanningRepoId = UUIDv7.generate()
+        let enrichmentByRepoId: [UUID: RepoEnrichment] = [
+            unavailableRepoId: .statusUnavailable(repoId: unavailableRepoId, reason: "timeout"),
+            scanningRepoId: .awaitingOrigin(repoId: scanningRepoId),
+        ]
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [
+                    repo(id: unavailableRepoId, name: "unavailable", worktrees: [worktree(repoId: unavailableRepoId)]),
+                    repo(id: scanningRepoId, name: "scanning", worktrees: [worktree(repoId: scanningRepoId)]),
+                ],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                query: ""
+            )
+        )
+
+        #expect(projection.sections[0].loadingState(enrichmentByRepoId: enrichmentByRepoId) == .mixed)
+    }
+
     @Test("grouping modes are exactly repo pane and tab")
     func groupingModesAreExactlyRepoPaneAndTab() {
         #expect(RepoExplorerGroupingMode.allCases == [.repo, .pane, .tab])

@@ -268,6 +268,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "scope", value: scope))
         }
+        appendGitStatusOutcomeDimension(record: record, dimensions: &dimensions)
         if record.body == "performance.git.backoff",
             case .string(let reason) = record.attributes["agentstudio.performance.git.backoff.reason"],
             isSafeDimensionValue(reason)
@@ -324,6 +325,17 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             )
         }
         return dimensions
+    }
+
+    private static func appendGitStatusOutcomeDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard ["performance.git.status", "performance.git.status_unavailable"].contains(record.body),
+            case .string(let outcome) = record.attributes["agentstudio.performance.git.status.last_outcome"],
+            ["completed", "timeout", "unavailable"].contains(outcome)
+        else { return }
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: outcome))
     }
 
     private static func appendRepoExplorerKeyedWakeDimensions(

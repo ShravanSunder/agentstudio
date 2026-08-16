@@ -2,7 +2,19 @@ import type { DiffsThemeNames } from '@pierre/diffs';
 import { hasResolvedThemes, registerCustomTheme, resolveThemes } from '@pierre/diffs';
 import catppuccinMochaTheme from '@shikijs/themes/catppuccin-mocha';
 
-export const bridgePierreDarkThemeName = 'catppuccin-mocha' satisfies DiffsThemeNames;
+export const bridgePierreDarkThemeName = 'agentstudio-ghostty-dark' satisfies DiffsThemeNames;
+
+const bridgePierreDarkTheme = {
+	...catppuccinMochaTheme,
+	name: bridgePierreDarkThemeName,
+	displayName: 'Agent Studio Ghostty Dark',
+	colors: {
+		...catppuccinMochaTheme.colors,
+		'editor.background': '#282C34',
+		'editor.foreground': '#FFFFFF',
+		'editorCursor.background': '#282C34',
+	},
+};
 
 export interface BridgeCodeViewThemeResolver {
 	readonly hasResolvedThemes: (themeNames: DiffsThemeNames[]) => boolean;
@@ -51,10 +63,15 @@ export function registerBridgeCodeViewThemes(): void {
 		return;
 	}
 	didRegisterBridgeCodeViewThemes = true;
-	registerCustomTheme(bridgePierreDarkThemeName, () => Promise.resolve(catppuccinMochaTheme));
+	registerCustomTheme(bridgePierreDarkThemeName, () => Promise.resolve(bridgePierreDarkTheme));
 }
 
 function makeBridgeCodeViewThemeNames(): DiffsThemeNames[] {
 	registerBridgeCodeViewThemes();
 	return [bridgePierreDarkThemeName];
 }
+
+// CodeView options can be consumed before the worker-pool provider effect runs.
+// Register during module evaluation so every main-thread Pierre renderer can
+// resolve the custom name before its first asynchronous highlight begins.
+registerBridgeCodeViewThemes();

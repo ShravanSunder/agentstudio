@@ -8,26 +8,40 @@ enum GitVisibilityAdmissionOutcome: String, Sendable {
     case admittedUncovered = "admitted_uncovered"
 }
 
+struct GitStatusCompletionTraceContext {
+    let scope: GitWorkingDirectoryProjector.GitStatusScope
+    let pathspecCount: Int
+    let statusCompletion: ContinuousClock.Instant
+    let outcome: GitStatusOutcome
+    let consecutiveTimeoutCount: Int
+    let statusDuration: Duration
+}
+
 /// Performance telemetry helpers split from the projector actor body so git
 /// performance records can stay per-worktree without growing the actor body.
 extension GitWorkingDirectoryProjector {
     func gitStatusCompletionTraceAttributes(
         for changeset: FileChangeset,
         unavailable: GitWorkingTreeStatusUnavailable?,
-        scope: GitStatusScope,
-        pathspecCount: Int,
-        statusCompletion: ContinuousClock.Instant
+        context: GitStatusCompletionTraceContext
     ) -> [String: AgentStudioTraceValue] {
         var attributes = gitStatusTraceAttributes(
             for: changeset,
             unavailable: unavailable,
-            scope: scope,
-            pathspecCount: pathspecCount
+            scope: context.scope,
+            pathspecCount: context.pathspecCount
+        )
+        attributes["agentstudio.performance.git.status.last_outcome"] = .string(context.outcome.rawValue)
+        attributes["agentstudio.performance.git.status.consecutive_timeout.count"] = .int(
+            context.consecutiveTimeoutCount
+        )
+        attributes["agentstudio.performance.git.status.duration_ms"] = .double(
+            AgentStudioPerformanceTraceRecorder.milliseconds(from: context.statusDuration)
         )
         if let admissionStartedAt = admissionStartedAtByWorktreeId[changeset.worktreeId] {
             attributes["agentstudio.performance.git.admission_to_status.elapsed_ms"] = .double(
                 AgentStudioPerformanceTraceRecorder.milliseconds(
-                    from: admissionStartedAt.duration(to: statusCompletion)
+                    from: admissionStartedAt.duration(to: context.statusCompletion)
                 )
             )
         }

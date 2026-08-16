@@ -137,6 +137,7 @@ package enum AppPolicies {
     }
 
     package enum GitRefresh {
+        package static let statusUnavailableConsecutiveTimeoutThreshold: Int = 2
         package static let defaultPolicy = Policy()
         package static let defaultStatusReadTimeout: Duration = .seconds(1)
         package static let defaultDiscoveryReadTimeout: Duration = .seconds(2)

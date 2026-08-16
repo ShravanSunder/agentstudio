@@ -72,7 +72,7 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
     }
 
     @Test
-    func outlineApplyProxyProjectsOutcomeAndRowCount() throws {
+    func outlineApplyProxyProjectsOutcomeAndReconciliationCounts() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 140,
             severityText: .info,
@@ -85,7 +85,9 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(3),
                 "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string("changed"),
-                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count": .int(42),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count": .int(42),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_changed.count": .int(7),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.equal_publish.count": .int(0),
             ]
         )
 
@@ -94,8 +96,20 @@ struct AgentStudioOTLPBridgeSidebarMetricTests {
         #expect(metricEvent.dimensionTuples.contains { $0 == ("outcome", "changed") })
         #expect(
             metricEvent.samples.contains {
-                $0.label == "agentstudio_performance_repo_explorer_outline_apply_proxy_row_count"
+                $0.label == "agentstudio_performance_repo_explorer_outline_apply_proxy_rows_total_count"
                     && $0.value == 42
+            }
+        )
+        #expect(
+            metricEvent.samples.contains {
+                $0.label == "agentstudio_performance_repo_explorer_outline_apply_proxy_rows_changed_count"
+                    && $0.value == 7
+            }
+        )
+        #expect(
+            metricEvent.samples.contains {
+                $0.label == "agentstudio_performance_repo_explorer_outline_apply_proxy_equal_publish_count"
+                    && $0.value == 0
             }
         )
     }
