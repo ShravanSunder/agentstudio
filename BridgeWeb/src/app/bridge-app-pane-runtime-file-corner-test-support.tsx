@@ -35,83 +35,86 @@ export async function runBridgeAppFileCornerSwitchJourney(props: {
 	readonly runtimeDisposeCount: () => number;
 }): Promise<void> {
 	const handshake = installBridgeReadyHandshake();
-	await actWait(async (): Promise<void> => {
-		await render(
-			<div style={{ height: '860px', overflow: 'hidden', width: '1,440px' }}>
-				<BridgeAppProtocolRouter
-					codeViewWorkerPoolEnabled={false}
-					fileViewerProps={{ autoOpenInitialFile: true }}
-					protocol="worktree-file"
-				/>
-			</div>,
+	try {
+		await actWait(async (): Promise<void> => {
+			await render(
+				<div style={{ height: '860px', overflow: 'hidden', width: '1440px' }}>
+					<BridgeAppProtocolRouter
+						codeViewWorkerPoolEnabled={false}
+						fileViewerProps={{ autoOpenInitialFile: true }}
+						protocol="worktree-file"
+					/>
+				</div>,
+			);
+			await Promise.resolve();
+		});
+		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
+		const retainedFileHost = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
 		);
-		await Promise.resolve();
-	});
-	const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
-	const retainedFileHost = requireHTMLElement(
-		document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
-	);
-	const retainedReviewHost = requireHTMLElement(
-		document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
-	);
-	await actWait(async (): Promise<void> => {
-		props.installPositionFixtures();
-		await Promise.resolve();
-	});
-	await requestNativeSurface({
-		activeViewerModeUpdateForNativeRequest: props.activeViewerModeUpdateForNativeRequest,
-		appRoot,
-		bindingRevision: 1,
-		nativeSelectionRequestId: 'native-selection-review-file-corner',
-		publishNativeSurfaceSelectionRequest: props.publishNativeSurfaceSelectionRequest,
-		surface: 'review',
-	});
-	const reviewOwners = await waitForScrollableSurfaceOwners({
-		host: retainedReviewHost,
-		surface: 'review',
-	});
-	const reviewPosition = await establishSemanticSurfacePosition(reviewOwners);
-	const openFileButton = requireHTMLElement(
-		await pollWithinActUntilTruthy(() =>
-			viewportOpenFileButton(retainedReviewHost, reviewOwners.codeScrollOwner),
-		),
-	);
-	const openedFilePath = openFileButton.getAttribute('data-bridge-code-view-file-path');
-	if (openedFilePath === null) throw new Error('Missing file-corner command path.');
-	await actClick(openFileButton);
+		const retainedReviewHost = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
+		);
+		await actWait(async (): Promise<void> => {
+			props.installPositionFixtures();
+			await Promise.resolve();
+		});
+		await requestNativeSurface({
+			activeViewerModeUpdateForNativeRequest: props.activeViewerModeUpdateForNativeRequest,
+			appRoot,
+			bindingRevision: 1,
+			nativeSelectionRequestId: 'native-selection-review-file-corner',
+			publishNativeSurfaceSelectionRequest: props.publishNativeSurfaceSelectionRequest,
+			surface: 'review',
+		});
+		const reviewOwners = await waitForScrollableSurfaceOwners({
+			host: retainedReviewHost,
+			surface: 'review',
+		});
+		const reviewPosition = await establishSemanticSurfacePosition(reviewOwners);
+		const openFileButton = requireHTMLElement(
+			await pollWithinActUntilTruthy(() =>
+				viewportOpenFileButton(retainedReviewHost, reviewOwners.codeScrollOwner),
+			),
+		);
+		const openedFilePath = openFileButton.getAttribute('data-bridge-code-view-file-path');
+		if (openedFilePath === null) throw new Error('Missing file-corner command path.');
+		await actClick(openFileButton);
 
-	expect(await pollWithinActUntilEqual(() => appRoot.dataset['bridgeViewerMode'], 'file')).toBe(
-		'file',
-	);
-	expect(
-		await pollWithinActUntilEqual(
-			() =>
-				retainedFileHost
-					.querySelector('[data-testid="bridge-file-viewer-shell"]')
-					?.getAttribute('data-selected-display-path') ?? null,
-			openedFilePath,
-		),
-	).toBe(openedFilePath);
-	expect(document.querySelector('[data-testid="bridge-viewer-mode-host-file"]')).toBe(
-		retainedFileHost,
-	);
-	expect(document.querySelector('[data-testid="bridge-viewer-mode-host-review"]')).toBe(
-		retainedReviewHost,
-	);
+		expect(await pollWithinActUntilEqual(() => appRoot.dataset['bridgeViewerMode'], 'file')).toBe(
+			'file',
+		);
+		expect(
+			await pollWithinActUntilEqual(
+				() =>
+					retainedFileHost
+						.querySelector('[data-testid="bridge-file-viewer-shell"]')
+						?.getAttribute('data-selected-display-path') ?? null,
+				openedFilePath,
+			),
+		).toBe(openedFilePath);
+		expect(document.querySelector('[data-testid="bridge-viewer-mode-host-file"]')).toBe(
+			retainedFileHost,
+		);
+		expect(document.querySelector('[data-testid="bridge-viewer-mode-host-review"]')).toBe(
+			retainedReviewHost,
+		);
 
-	await actClick(requireActiveContextButton('review'));
+		await actClick(requireActiveContextButton('review'));
 
-	expect(await pollWithinActUntilEqual(() => appRoot.dataset['bridgeViewerMode'], 'review')).toBe(
-		'review',
-	);
-	await assertSurfacePositionRetained({
-		expected: reviewPosition,
-		owners: reviewOwners,
-		surface: 'review',
-	});
-	expect(props.runtimeCreateCount()).toBe(1);
-	expect(props.runtimeDisposeCount()).toBe(0);
-	handshake.dispose();
+		expect(await pollWithinActUntilEqual(() => appRoot.dataset['bridgeViewerMode'], 'review')).toBe(
+			'review',
+		);
+		await assertSurfacePositionRetained({
+			expected: reviewPosition,
+			owners: reviewOwners,
+			surface: 'review',
+		});
+		expect(props.runtimeCreateCount()).toBe(1);
+		expect(props.runtimeDisposeCount()).toBe(0);
+	} finally {
+		handshake.dispose();
+	}
 }
 
 function viewportOpenFileButton(host: HTMLElement, scrollOwner: HTMLElement): HTMLElement | null {

@@ -513,11 +513,11 @@ function telemetryReviewSnapshotEvent(
 		reviewComparison: null,
 		sourceIdentity: baseDescriptor.sourceIdentity,
 		summary: {
-			additions: 1,
-			deletions: 1,
-			filesChanged: 1,
+			additions: 2,
+			deletions: 2,
+			filesChanged: 2,
 			hiddenFileCount: 0,
-			visibleFileCount: 1,
+			visibleFileCount: 2,
 		},
 		treeRows: [
 			{

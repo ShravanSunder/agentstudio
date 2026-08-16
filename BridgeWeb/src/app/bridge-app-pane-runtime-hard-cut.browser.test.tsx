@@ -573,7 +573,7 @@ describe('BridgeApp pane runtime hard cut', () => {
 		const handshake = installBridgeReadyHandshake();
 		await actWait(async (): Promise<void> => {
 			await render(
-				<div style={{ height: '860px', overflow: 'hidden', width: '1,440px' }}>
+				<div style={{ height: '860px', overflow: 'hidden', width: '1440px' }}>
 					<BridgeAppProtocolRouter
 						codeViewWorkerPoolEnabled={false}
 						fileViewerProps={{ autoOpenInitialFile: true }}
