@@ -118,6 +118,9 @@ struct SidebarSurfaceHost: View {
                 unreadCount: { worktree in
                     Self.rollUpAlertCount(for: worktree, inboxAtom: inboxAtom)
                 },
+                latestPaneMessageSnapshot: { paneId in
+                    inboxAtom.latestMessageText(forPaneId: paneId)
+                },
                 performanceTraceRecorder: performanceTraceRecorder,
                 initialProjectionTrigger: initialProjectionTrigger,
                 initialProjectionSequence: surfaceSwitchSequence,

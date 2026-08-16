@@ -40,7 +40,11 @@ EXIT: screenshot proof per item, all 16 in ONE build.
    to text). No larger gap on headers.
 18 chips row alignment: left, By Repo parity (user default 2026-08-16).
 19 reload chip replaced (By Repo chips row): stale/needs-refresh =
-   STATIC hollow-dot chip (no animation); actively refreshing = symbol
-   chip with .symbolEffect (.variableColor.iterative or .pulse) — render-
-   server animated. NO rotationEffect/repeatForever animations anywhere
-   in rows.
+   STATIC hollow-dot chip, no animation. The stale fact is "pull-request
+   facts not yet fetched for this branch" (prCount == nil), a cached
+   keyed read. NO rotationEffect/repeatForever/symbolEffect animation
+   anywhere in rows.
+   DEFERRED: the actively-refreshing animated state. The app owns no
+   keyed refresh-lifecycle fact, and a locally inferred one would be a
+   lie. Revisit only once such a fact exists; do not add runtime
+   plumbing for it under this contract.

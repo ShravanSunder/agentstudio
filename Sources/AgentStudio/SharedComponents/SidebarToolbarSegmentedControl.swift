@@ -84,11 +84,6 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 .controlHelp(segment.tooltipValue)
             }
         }
-        .padding(AppStyles.Shell.Sidebar.ToolbarControl.segmentedControlPadding)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
-                .fill(Color.primary.opacity(AppStyles.Shell.Sidebar.ToolbarControl.hoverFillOpacity))
-        )
         .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: selection)
     }
 }
@@ -113,6 +108,13 @@ private struct SidebarToolbarSegmentButtonStyleBody: View {
     @State private var isHovered = false
 
     var body: some View {
+        let visualState = SidebarToolbarControlVisualState.resolve(
+            isEnabled: isEnabled,
+            isHovered: isHovered,
+            isPressed: configuration.isPressed,
+            isActive: isSelected,
+            isOpen: false
+        )
         configuration.label
             .foregroundStyle(
                 ChromeToolbarControlPalette.foregroundColor(
@@ -122,24 +124,7 @@ private struct SidebarToolbarSegmentButtonStyleBody: View {
             )
             .background(
                 RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
-                    .fill(
-                        ChromeToolbarControlPalette.fillColor(
-                            isSelected: isSelected,
-                            isHovered: isHovered,
-                            isPressed: configuration.isPressed
-                        )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
-                            .stroke(
-                                ChromeToolbarControlPalette.strokeColor(
-                                    isSelected: isSelected,
-                                    isHovered: isHovered,
-                                    isPressed: configuration.isPressed
-                                ),
-                                lineWidth: 1
-                            )
-                    )
+                    .fill(Color.primary.opacity(visualState.fillOpacity))
             )
             .opacity(isEnabled ? 1 : AppStyles.Shell.Sidebar.ToolbarControl.disabledOpacity)
             .onHover { isHovered = $0 }

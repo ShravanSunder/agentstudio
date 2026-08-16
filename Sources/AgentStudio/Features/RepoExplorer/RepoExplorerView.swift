@@ -47,6 +47,8 @@ struct RepoExplorerRowBodyEvaluationMeasurement<Content> {
 }
 package typealias BridgeAttendanceSnapshot =
     @MainActor (UUID) -> UInt64?
+package typealias LatestPaneMessageSnapshot =
+    @MainActor (UUID) -> String?
 
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
@@ -61,6 +63,7 @@ package struct RepoExplorerView: View {
     let octiconLoader: OcticonLoader
     let repoExplorerPrefs: RepoExplorerSidebarPrefsAtom
     let bridgeAttendanceSnapshot: BridgeAttendanceSnapshot
+    let latestPaneMessageSnapshot: LatestPaneMessageSnapshot
     let commandDispatcher: any AppCommandDispatching
     let commandPresentationSnapshot: RepoExplorerCommandPresentationSnapshot
     let onSetSortOrder: (RepoExplorerSortOrder) -> Void
@@ -88,6 +91,7 @@ package struct RepoExplorerView: View {
         onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void,
         onShowNotificationsForWorktree: @escaping (Worktree) -> Void,
         unreadCount: @escaping (Worktree) -> Int,
+        latestPaneMessageSnapshot: @escaping LatestPaneMessageSnapshot = { _ in nil },
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         initialProjectionTrigger: String = AppPolicies.SidebarProjection.Trigger.startupDiagnostic.rawValue,
         initialProjectionSequence: Int = 0,
@@ -104,6 +108,7 @@ package struct RepoExplorerView: View {
         self.onSidebarVisibleWorktreesChanged = onSidebarVisibleWorktreesChanged
         self.onShowNotificationsForWorktree = onShowNotificationsForWorktree
         self.unreadCount = unreadCount
+        self.latestPaneMessageSnapshot = latestPaneMessageSnapshot
         self.performanceTraceRecorder = performanceTraceRecorder
         self.initialProjectionTrigger =
             AppPolicies.SidebarProjection.Trigger(rawValue: initialProjectionTrigger) ?? .startupDiagnostic
@@ -231,6 +236,7 @@ package struct RepoExplorerView: View {
                 _ = paneGraph.paneStructuralFacts(paneID)
                 _ = store.paneAtom.pane(paneID)
                 _ = bridgeAttendanceSnapshot(paneID)
+                _ = latestPaneMessageSnapshot(paneID)
                 observedSlotCount += 1
             }
         }
@@ -1094,6 +1100,7 @@ extension RepoExplorerView {
                         onSetSortOrder(nextSortOrder)
                     }
                 )
+                .id("repoSidebarSortButton.stable")
                 .disabled(!sortCommand.isEnabled)
             }
 

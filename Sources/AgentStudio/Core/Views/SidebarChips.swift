@@ -149,59 +149,75 @@ package struct SidebarStatusSyncChip: View {
 }
 
 package struct SidebarDiffChip: View {
+    /// The one working-tree fact the chip describes. The dirty dot is never rendered on its own, so
+    /// every case here carries a label the reader can act on.
+    package enum WorkingTreeDetail: Equatable {
+        case lineCounts(added: Int, deleted: Int)
+        case untrackedOnly
+        case changesWithoutLineCounts
+    }
+
     let octiconLoader: OcticonLoader
-    let linesAdded: Int
-    let linesDeleted: Int
-    let showsDirtyIndicator: Bool
-    let isMuted: Bool
+    let detail: WorkingTreeDetail
 
     private var plusColor: Color {
-        if isMuted {
-            return SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
-        }
-        return AppStyles.Shell.Sidebar.chipSuccessColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+        AppStyles.Shell.Sidebar.chipSuccessColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     private var minusColor: Color {
-        if isMuted {
-            return SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
-        }
-        return AppStyles.Shell.Sidebar.chipDangerColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+        AppStyles.Shell.Sidebar.chipDangerColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
-    package init(
-        octiconLoader: OcticonLoader,
+    private var neutralColor: Color {
+        SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+    }
+
+    package init(octiconLoader: OcticonLoader, detail: WorkingTreeDetail) {
+        self.octiconLoader = octiconLoader
+        self.detail = detail
+    }
+
+    /// Resolves the chip for a branch status, or `nil` when the checkout is clean and the row shows no
+    /// diff chip at all.
+    package static func workingTreeDetail(
+        isDirty: Bool,
         linesAdded: Int,
         linesDeleted: Int,
-        showsDirtyIndicator: Bool,
-        isMuted: Bool
-    ) {
-        self.octiconLoader = octiconLoader
-        self.linesAdded = linesAdded
-        self.linesDeleted = linesDeleted
-        self.showsDirtyIndicator = showsDirtyIndicator
-        self.isMuted = isMuted
+        untrackedFileCount: Int
+    ) -> WorkingTreeDetail? {
+        if linesAdded > 0 || linesDeleted > 0 {
+            return .lineCounts(added: linesAdded, deleted: linesDeleted)
+        }
+        if untrackedFileCount > 0 {
+            return .untrackedOnly
+        }
+        return isDirty ? .changesWithoutLineCounts : nil
     }
 
     package var body: some View {
         HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
-            if showsDirtyIndicator {
-                OcticonImage(
-                    name: "octicon-dot-fill",
-                    size: AppStyles.Shell.Sidebar.chipIconSize,
-                    loader: octiconLoader
-                )
-                .foregroundStyle(
-                    SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
-            }
+            OcticonImage(
+                name: "octicon-dot-fill",
+                size: AppStyles.Shell.Sidebar.chipIconSize,
+                loader: octiconLoader
+            )
+            .foregroundStyle(
+                SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
 
-            if linesAdded > 0 || linesDeleted > 0 {
+            switch detail {
+            case .lineCounts(let added, let deleted):
                 HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Text("+\(linesAdded)")
+                    Text("+\(added)")
                         .foregroundStyle(plusColor)
-                    Text("-\(linesDeleted)")
+                    Text("-\(deleted)")
                         .foregroundStyle(minusColor)
                 }
+            case .untrackedOnly:
+                Text("untracked")
+                    .foregroundStyle(neutralColor)
+            case .changesWithoutLineCounts:
+                Text("changes")
+                    .foregroundStyle(neutralColor)
             }
         }
         .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())

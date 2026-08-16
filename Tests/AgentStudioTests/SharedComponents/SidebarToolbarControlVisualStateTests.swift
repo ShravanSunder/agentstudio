@@ -16,18 +16,18 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(allPanesWidth > repoWidth)
     }
 
-    @Test("segmented control uses the shared primary chrome palette")
-    func segmentedControlUsesSharedPrimaryChromePalette() throws {
+    @Test("selected segment uses accent foreground and subtle fill without borders")
+    func selectedSegmentUsesBorderlessAccentPresentation() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
             encoding: .utf8
         )
 
+        #expect(source.contains("Text(segment.label)"))
         #expect(source.contains("ChromeToolbarControlPalette.foregroundColor"))
-        #expect(source.contains("ChromeToolbarControlPalette.fillColor"))
-        #expect(source.contains("ChromeToolbarControlPalette.strokeColor"))
-        #expect(!source.contains("segmentedControlSelectedFillOpacity"))
-        #expect(!source.contains("mutedPrimaryAccentColor"))
+        #expect(source.contains("visualState.fillOpacity"))
+        #expect(!source.contains(".stroke("))
+        #expect(!source.contains("ChromeToolbarControlPalette.strokeColor"))
     }
 
     @Test("segmented control renders typed mode-name tooltips")

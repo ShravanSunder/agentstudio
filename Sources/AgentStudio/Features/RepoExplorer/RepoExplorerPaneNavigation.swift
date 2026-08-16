@@ -27,7 +27,7 @@ struct RepoExplorerPaneRow: View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
                 VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-                    HStack(spacing: AppStyles.General.Spacing.tight) {
+                    HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                         Image(systemName: "square.split.2x1")
                             .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                             .frame(
@@ -41,10 +41,10 @@ struct RepoExplorerPaneRow: View {
                             .layoutPriority(1)
                             .foregroundStyle(.primary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        trailingMetadata
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    SidebarMetadataLine(iconSystemName: "terminal", text: row.secondaryText)
+                    SidebarMetadataLine(text: row.secondaryText)
+                    chipRow
                 }
             }
         }
@@ -64,39 +64,34 @@ struct RepoExplorerPaneRow: View {
     }
 
     @ViewBuilder
-    private var trailingMetadata: some View {
+    private var chipRow: some View {
         let normalizedPullRequestCount = Self.normalizedPullRequestCount(pullRequestCount)
-        HStack(spacing: AppStyles.General.Spacing.tight) {
+        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
             if let normalizedPullRequestCount {
-                HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
-                    OcticonImage(
-                        name: "octicon-git-pull-request",
-                        size: AppStyles.Shell.Sidebar.chipIconSize,
-                        loader: octiconLoader
-                    )
-                    Text("\(normalizedPullRequestCount)")
-                }
+                SidebarChip(
+                    icon: .octicon("octicon-git-pull-request"),
+                    octiconLoader: octiconLoader,
+                    text: "\(normalizedPullRequestCount)",
+                    style: .accent(.accentColor)
+                )
             }
-            if normalizedPullRequestCount != nil {
-                Text("·")
-            }
-            Text(row.recencyText)
+            SidebarChip(
+                icon: .system(.clock),
+                octiconLoader: octiconLoader,
+                text: row.recencyText,
+                style: .neutral
+            )
             if row.isActive {
-                Text("·")
-            }
-            if row.isActive {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(
-                        width: AppStyles.Shell.Sidebar.activePaneMarkerSize,
-                        height: AppStyles.Shell.Sidebar.activePaneMarkerSize
-                    )
-                    .accessibilityHidden(true)
+                SidebarChip(
+                    icon: .system(.circleFill),
+                    octiconLoader: octiconLoader,
+                    text: "active",
+                    style: .accent(.accentColor)
+                )
             }
         }
-        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium).monospacedDigit())
-        .foregroundStyle(.secondary)
-        .fixedSize(horizontal: true, vertical: true)
+        .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

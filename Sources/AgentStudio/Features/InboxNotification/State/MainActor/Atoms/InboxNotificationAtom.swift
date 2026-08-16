@@ -52,6 +52,10 @@ package final class InboxNotificationAtom {
         telemetryLabel: "inbox_notification_worktree_rollup_count",
         isContentEqual: ==
     )
+    @ObservationIgnored private let latestMessageTextByPaneId = AtomFamily<UUID, String>(
+        telemetryLabel: "inbox_notification_latest_message_text",
+        isContentEqual: ==
+    )
     @ObservationIgnored private var worktreeFacetIds: Set<UUID> = []
 
     package init() {}
@@ -83,6 +87,10 @@ package final class InboxNotificationAtom {
 
     package func rollUpAlertCount(forWorktreeId worktreeId: UUID) -> Int {
         rollUpAlertCountByWorktreeId.value(for: worktreeId) ?? 0
+    }
+
+    package func latestMessageText(forPaneId paneId: UUID) -> String? {
+        latestMessageTextByPaneId.value(for: paneId)
     }
 
     package func rollUpAlertCount(forTabId tabId: UUID) -> Int {
@@ -393,7 +401,38 @@ package final class InboxNotificationAtom {
         attentionFactSnapshot = nextAttentionFactSnapshot
         recalculateAttentionLaneProjection(snapshot: nextAttentionFactSnapshot)
         recalculateWorktreeRowFacets()
+        recalculateLatestPaneMessages()
     }
+
+    private func recalculateLatestPaneMessages() {
+        var paneIds: Set<UUID> = []
+        var latestContentByPaneId: [UUID: (timestamp: Date, body: String)] = [:]
+        for notification in notifications {
+            guard let paneId = notification.paneId else { continue }
+            paneIds.insert(paneId)
+            guard let body = InboxNotificationTextPolicy.contentBearingBody(notification.body) else {
+                continue
+            }
+            if let currentLatest = latestContentByPaneId[paneId],
+                currentLatest.timestamp > notification.timestamp
+            {
+                continue
+            }
+            latestContentByPaneId[paneId] = (notification.timestamp, body)
+        }
+
+        let latestMessageTextByPaneId = Dictionary(
+            uniqueKeysWithValues: paneIds.map { paneId in
+                (paneId, latestContentByPaneId[paneId]?.body ?? Self.genericPaneActivityText)
+            })
+        let mutation = AtomMutationContext(aggregateRevision: attentionProjectionRevision)
+        self.latestMessageTextByPaneId.replaceAll(latestMessageTextByPaneId, mutation: mutation)
+        mutation.commit()
+    }
+
+    /// Shown when a pane has only generic activity notifications, so the row still reports that something
+    /// happened without quoting a line that says nothing.
+    package static let genericPaneActivityText = "output activity"
 
     private func recalculateWorktreeRowFacets() {
         let groupedNotifications = Dictionary(

@@ -45,4 +45,59 @@ struct SidebarSourceGroupHeaderTests {
                 == AppStyles.Shell.Sidebar.mutedPrimaryAccentColor
         )
     }
+
+    @Test("group headers and row lines share one icon-to-text spacing token")
+    func groupHeadersAndRowsShareIconTextSpacing() throws {
+        let groupHeaderSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSourceGroupHeader.swift",
+            encoding: .utf8
+        )
+        let groupRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarGroupRow.swift",
+            encoding: .utf8
+        )
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        let paneRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+        let sectionHeaderSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarSectionHeader.swift",
+            encoding: .utf8
+        )
+        let metadataLineSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarMetadataLine.swift",
+            encoding: .utf8
+        )
+        let statusRowsSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerStatusRows.swift",
+            encoding: .utf8
+        )
+        let appStylesSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Infrastructure/AppStyles.swift",
+            encoding: .utf8
+        )
+
+        #expect(
+            appStylesSource.contains(
+                "iconTextSpacing: CGFloat = AppStyles.General.Spacing.tight"
+            )
+        )
+        for source in [
+            groupHeaderSource,
+            groupRowSource,
+            sectionHeaderSource,
+            metadataLineSource,
+            worktreeRowSource,
+            paneRowSource,
+            statusRowsSource,
+        ] {
+            #expect(source.contains("AppStyles.Shell.Sidebar.iconTextSpacing"))
+            #expect(!source.contains("groupIconTitleSpacing"))
+            #expect(!source.contains("sectionHeaderChevronLabelSpacing"))
+        }
+    }
 }

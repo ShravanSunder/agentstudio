@@ -44,12 +44,14 @@ struct RepoExplorerPaneProjectionTests {
             paneRowFactsByPaneId: [
                 olderPaneId: .init(
                     terminalTitle: "old shell",
+                    latestMessageText: "No activity yet",
                     recencyReferenceDate: Date(timeIntervalSince1970: 10),
                     recencyText: "2m",
                     isActive: false
                 ),
                 newerPaneId: .init(
                     terminalTitle: "tests running",
+                    latestMessageText: "Tests passed",
                     recencyReferenceDate: Date(timeIntervalSince1970: 20),
                     recencyText: "Now",
                     isActive: true
@@ -60,8 +62,8 @@ struct RepoExplorerPaneProjectionTests {
         let group = try #require(projection.resolvedGroups.first)
         let rows = try #require(projection.paneRowsByGroupId[group.id])
         #expect(rows.map(\.destination.paneId) == [newerPaneId, olderPaneId])
-        #expect(rows[0].primaryText == "agent-studio.sidebar-grouping · Pane 2")
-        #expect(rows[0].secondaryText == "tests running")
+        #expect(rows[0].primaryText == "Pane 2 · tests running")
+        #expect(rows[0].secondaryText == "Tests passed")
         #expect(rows[0].recencyText == "Now")
         #expect(rows[0].isActive)
     }
@@ -101,12 +103,14 @@ struct RepoExplorerPaneProjectionTests {
             paneRowFactsByPaneId: [
                 neverFocusedPaneId: .init(
                     terminalTitle: "new pane",
+                    latestMessageText: "No activity yet",
                     recencyReferenceDate: Date(timeIntervalSince1970: 20),
                     recencyText: "Now",
                     isActive: true
                 ),
                 previouslyFocusedPaneId: .init(
                     terminalTitle: "old pane",
+                    latestMessageText: "No activity yet",
                     recencyReferenceDate: Date(timeIntervalSince1970: 10),
                     recencyText: "5m",
                     isActive: false
@@ -119,7 +123,7 @@ struct RepoExplorerPaneProjectionTests {
         #expect(rows.map(\.destination.paneId) == [neverFocusedPaneId, previouslyFocusedPaneId])
     }
 
-    @Test("By Tab uses display titles, pane counts, tab order, and pane rows")
+    @Test("By Tab uses display titles, pane counts, tab order, and exact pane rows")
     func byTabProjectsPaneRowsUnderDisplayTitleHeaders() throws {
         let repoId = UUIDv7.generate()
         let worktree = makeWorktree(repoId: repoId)
@@ -127,6 +131,7 @@ struct RepoExplorerPaneProjectionTests {
         let secondTabId = UUIDv7.generate()
         let firstPaneId = UUIDv7.generate()
         let secondPaneId = UUIDv7.generate()
+        let thirdPaneId = UUIDv7.generate()
         let projection = RepoExplorerProjection.project(
             RepoExplorerSnapshot(
                 repos: [makeRepo(id: repoId, worktrees: [worktree])],
@@ -149,19 +154,35 @@ struct RepoExplorerPaneProjectionTests {
                             paneIndexInTab: 0,
                             isActiveInTab: true
                         ),
+                        .init(
+                            paneId: thirdPaneId,
+                            tabId: firstTabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 1,
+                            isActiveInTab: false
+                        ),
                     ]
                 ]
             ),
             paneRowFactsByPaneId: [
                 firstPaneId: .init(
                     terminalTitle: "first terminal",
+                    latestMessageText: "First message",
                     recencyReferenceDate: Date(timeIntervalSince1970: 10),
                     recencyText: "Now",
                     isActive: true
                 ),
                 secondPaneId: .init(
                     terminalTitle: "second terminal",
+                    latestMessageText: "Second message",
                     recencyReferenceDate: Date(timeIntervalSince1970: 20),
+                    recencyText: "Now",
+                    isActive: false
+                ),
+                thirdPaneId: .init(
+                    terminalTitle: "third terminal",
+                    latestMessageText: "Third message",
+                    recencyReferenceDate: Date(timeIntervalSince1970: 30),
                     recencyText: "Now",
                     isActive: false
                 ),
@@ -173,9 +194,43 @@ struct RepoExplorerPaneProjectionTests {
         )
 
         #expect(projection.resolvedGroups.map(\.repoTitle) == ["Implementation", "Tests"])
-        #expect(projection.resolvedGroups.map(\.organizationName) == ["1 pane", "1 pane"])
+        #expect(projection.resolvedGroups.map(\.organizationName) == ["2 panes", "1 pane"])
         #expect(projection.worktreeRowsByGroupId.isEmpty)
-        #expect(projection.resolvedGroups.allSatisfy { projection.paneRowsByGroupId[$0.id]?.count == 1 })
+        let firstTabRows = try #require(projection.paneRowsByGroupId[projection.resolvedGroups[0].id])
+        #expect(firstTabRows.map(\.destination.paneId) == [firstPaneId, thirdPaneId])
+        #expect(firstTabRows.map(\.primaryText) == ["Pane 1 · first terminal", "Pane 2 · third terminal"])
+        #expect(firstTabRows.map(\.secondaryText) == ["First message", "Third message"])
+    }
+
+    @Test("empty states distinguish no repositories, no panes, and no tabs")
+    func emptyStatesMatchGroupingMode() {
+        let emptyRepoProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(repos: [], repoEnrichmentByRepoId: [:], groupingMode: .repo, query: "")
+        )
+        let repoId = UUIDv7.generate()
+        let worktree = makeWorktree(repoId: repoId)
+        let repo = makeRepo(id: repoId, worktrees: [worktree])
+        let enrichment = [repoId: resolvedRemote(repoId: repoId)]
+        let emptyPaneProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo],
+                repoEnrichmentByRepoId: enrichment,
+                groupingMode: .pane,
+                query: ""
+            )
+        )
+        let emptyTabProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo],
+                repoEnrichmentByRepoId: enrichment,
+                groupingMode: .tab,
+                query: ""
+            )
+        )
+
+        #expect(emptyRepoProjection.emptyState == .noRepositories)
+        #expect(emptyPaneProjection.emptyState == .noPanes)
+        #expect(emptyTabProjection.emptyState == .noTabs)
     }
 
     @Test("recency text changes only at minute boundaries")

@@ -15,13 +15,15 @@ package struct GitBranchStatus: Equatable, Sendable {
     package let prCount: Int?
     package let linesAdded: Int
     package let linesDeleted: Int
+    package let untrackedFileCount: Int
 
     package static let unknown = Self(
         isDirty: false,
         syncState: .unknown,
         prCount: nil,
         linesAdded: 0,
-        linesDeleted: 0
+        linesDeleted: 0,
+        untrackedFileCount: 0
     )
 
     package init(
@@ -29,13 +31,15 @@ package struct GitBranchStatus: Equatable, Sendable {
         syncState: SyncState,
         prCount: Int?,
         linesAdded: Int,
-        linesDeleted: Int
+        linesDeleted: Int,
+        untrackedFileCount: Int
     ) {
         self.isDirty = isDirty
         self.syncState = syncState
         self.prCount = prCount
         self.linesAdded = linesAdded
         self.linesDeleted = linesDeleted
+        self.untrackedFileCount = untrackedFileCount
     }
 
     package static func merge(
@@ -67,7 +71,8 @@ package struct GitBranchStatus: Equatable, Sendable {
                 syncState: Self.unknown.syncState,
                 prCount: pullRequestFacts?.openCount,
                 linesAdded: Self.unknown.linesAdded,
-                linesDeleted: Self.unknown.linesDeleted
+                linesDeleted: Self.unknown.linesDeleted,
+                untrackedFileCount: Self.unknown.untrackedFileCount
             )
         }
 
@@ -110,7 +115,8 @@ package struct GitBranchStatus: Equatable, Sendable {
             syncState: syncState,
             prCount: pullRequestFacts?.openCount,
             linesAdded: summary?.linesAdded ?? 0,
-            linesDeleted: summary?.linesDeleted ?? 0
+            linesDeleted: summary?.linesDeleted ?? 0,
+            untrackedFileCount: summary?.untracked ?? 0
         )
     }
 }

@@ -38,12 +38,7 @@ extension RepoExplorerView {
             let lastPathComponent = URL(fileURLWithPath: shellExecutablePath).lastPathComponent
             return lastPathComponent.isEmpty ? nil : lastPathComponent
         }
-        let cwdLeaf = cwd.flatMap { cwd -> String? in
-            let lastPathComponent = cwd.lastPathComponent
-            return lastPathComponent.isEmpty ? nil : lastPathComponent
-        }
-        let fallbackParts = [shellName, cwdLeaf].compactMap { $0 }
-        return fallbackParts.isEmpty ? "Terminal" : fallbackParts.joined(separator: " — ")
+        return shellName ?? "zsh"
     }
 
     static func measureRowBodyEvaluationProxy<Content>(
@@ -245,6 +240,7 @@ extension RepoExplorerView {
                     paneId,
                     RepoExplorerPaneRowFacts(
                         terminalTitle: terminalTitle,
+                        latestMessageText: latestPaneMessageSnapshot(paneId),
                         recencyReferenceDate: recencyReferenceDate,
                         recencyText: RepoExplorerPaneRecencyText.display(
                             lastInteractedAt: recencyReferenceDate,

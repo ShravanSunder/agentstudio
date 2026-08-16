@@ -14,21 +14,24 @@ struct RepoExplorerWorktreeRowTests {
             syncState: .synced,
             prCount: 0,
             linesAdded: 0,
-            linesDeleted: 0
+            linesDeleted: 0,
+            untrackedFileCount: 0
         )
         let noUpstream = GitBranchStatus(
             isDirty: false,
             syncState: .noUpstream,
             prCount: 0,
             linesAdded: 0,
-            linesDeleted: 0
+            linesDeleted: 0,
+            untrackedFileCount: 0
         )
         let dirtyAheadWithPullRequests = GitBranchStatus(
             isDirty: true,
             syncState: .ahead(2),
             prCount: 3,
             linesAdded: 4,
-            linesDeleted: 1
+            linesDeleted: 1,
+            untrackedFileCount: 0
         )
 
         #expect(!RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: cleanSynced))
@@ -39,6 +42,79 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: dirtyAheadWithPullRequests))
         #expect(RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: dirtyAheadWithPullRequests))
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: dirtyAheadWithPullRequests))
+    }
+
+    @Test("diff chip always carries a label and never renders +0 -0")
+    func diffChipAlwaysCarriesALabel() {
+        let clean = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let untrackedOnly = GitBranchStatus(
+            isDirty: true,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 3
+        )
+        let dirtyWithoutLineCounts = GitBranchStatus(
+            isDirty: true,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+        let dirtyWithLineCounts = GitBranchStatus(
+            isDirty: true,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 12,
+            linesDeleted: 4,
+            untrackedFileCount: 2
+        )
+
+        #expect(RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: clean) == nil)
+        #expect(RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: untrackedOnly) == .untrackedOnly)
+        #expect(
+            RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: dirtyWithoutLineCounts)
+                == .changesWithoutLineCounts
+        )
+        #expect(
+            RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: dirtyWithLineCounts)
+                == .lineCounts(added: 12, deleted: 4)
+        )
+    }
+
+    @Test("unknown pull-request facts render a static hollow dot, never a reload glyph")
+    func unknownPullRequestFactsRenderStaticHollowDot() throws {
+        let unknown = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: nil)
+        let known = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
+
+        #expect(unknown.icon == .system(.circle))
+        #expect(unknown.text == nil)
+        #expect(!unknown.usesAccent)
+        #expect(known.icon == .octicon("octicon-git-pull-request"))
+        #expect(known.text == "2")
+        #expect(known.usesAccent)
+
+        let chipSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
+            encoding: .utf8
+        )
+        let rowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        for source in [chipSource, rowSource] {
+            #expect(!source.contains("repeatForever"))
+            #expect(!source.contains("symbolEffect"))
+        }
     }
 
     @Test("pane trailing metadata suppresses zero pull requests")
@@ -205,13 +281,12 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         #expect(paneNavigationSource.contains("SidebarMetadataLine("))
-        #expect(paneNavigationSource.contains("iconSystemName: \"terminal\""))
         #expect(paneNavigationSource.contains("text: row.secondaryText"))
         #expect(paneNavigationSource.contains("AppStyles.Shell.Sidebar.rowContentSpacing"))
-        #expect(!paneNavigationSource.contains("SidebarChip("))
-        #expect(!paneNavigationSource.contains("text: \"Active\""))
+        #expect(paneNavigationSource.contains("SidebarChip("))
+        #expect(paneNavigationSource.contains("text: \"active\""))
         #expect(paneNavigationSource.contains("normalizedPullRequestCount(pullRequestCount)"))
-        #expect(paneNavigationSource.contains("Text(\"·\")"))
+        #expect(paneNavigationSource.contains("text: row.recencyText"))
         #expect(
             worktreeRowSource.contains(
                 """
@@ -237,6 +312,23 @@ struct RepoExplorerWorktreeRowTests {
         #expect(explorerViewSource.contains("pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId"))
         #expect(appEntityIconSource.contains("case .tabGroup:"))
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.mutedPrimaryAccentColor"))
+    }
+
+    @Test("pane and By Repo chip rows share the same left alignment")
+    func paneAndByRepoChipRowsShareLeftAlignment() throws {
+        let paneRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        for source in [paneRowSource, worktreeRowSource] {
+            #expect(source.contains(".padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)"))
+            #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
+        }
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

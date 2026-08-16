@@ -24,7 +24,7 @@ package struct SidebarMetadataLine: View {
     }
 
     package var body: some View {
-        HStack(spacing: AppStyles.General.Spacing.tight) {
+        HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
             if let iconSystemName {
                 Image(systemName: iconSystemName)
                     .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))

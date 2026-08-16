@@ -5,6 +5,9 @@ import Foundation
 
 enum RepoExplorerEmptyState: Equatable, Sendable {
     case content
+    case noRepositories
+    case noPanes
+    case noTabs
     case searchNoResults
 }
 
@@ -504,7 +507,14 @@ enum RepoExplorerProjection {
         if !snapshot.query.isEmpty {
             return .searchNoResults
         }
-        return .content
+        switch snapshot.groupingMode {
+        case .repo:
+            return .noRepositories
+        case .pane:
+            return .noPanes
+        case .tab:
+            return .noTabs
+        }
     }
 
     private static func checkoutColorHexByRepoId(
@@ -660,9 +670,12 @@ enum RepoExplorerProjection {
                     repoId: repo.id,
                     destination: destination,
                     rowId: "pane-row:\(groupId):\(destination.paneId.uuidString)",
-                    primaryText: panePrimaryText(destination),
-                    secondaryText: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
-                        ?? destination.paneDisplayLabel,
+                    primaryText: panePrimaryText(
+                        destination,
+                        terminalTitle: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
+                    ),
+                    secondaryText: paneRowFactsByPaneId[destination.paneId]?.latestMessageText
+                        ?? "No activity yet",
                     recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText ?? "Now",
                     isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false
                 )
@@ -754,9 +767,14 @@ enum RepoExplorerProjection {
         return paneDestinationPrecedes(lhs, rhs)
     }
 
-    private static func panePrimaryText(_ destination: RepoExplorerPaneDestination) -> String {
+    private static func panePrimaryText(
+        _ destination: RepoExplorerPaneDestination,
+        terminalTitle: String?
+    ) -> String {
         let paneText = "Pane \(destination.paneIndexInTab + 1)"
-        return destination.worktreeLabel.isEmpty ? paneText : "\(destination.worktreeLabel) · \(paneText)"
+        let normalizedTitle = terminalTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveTitle = normalizedTitle.flatMap { $0.isEmpty ? nil : $0 } ?? "zsh"
+        return "\(paneText) · \(effectiveTitle)"
     }
 
     private static func tabPaneGroups(
@@ -784,12 +802,7 @@ enum RepoExplorerProjection {
         }
         let groups = orderedTabs.compactMap { tabId -> RepoPresentationGroup? in
             let destinations = (destinationsByTabId[tabId] ?? []).sorted { lhs, rhs in
-                paneRowPrecedes(
-                    lhs,
-                    rhs,
-                    paneRowFactsByPaneId: paneRowFactsByPaneId,
-                    usesRecency: true
-                )
+                paneRowPrecedes(lhs, rhs, paneRowFactsByPaneId: paneRowFactsByPaneId, usesRecency: false)
             }
             guard !destinations.isEmpty else { return nil }
             let groupId = "tab:\(tabId.uuidString)"
@@ -799,9 +812,12 @@ enum RepoExplorerProjection {
                     repoId: destination.repoId,
                     destination: destination,
                     rowId: "pane-row:\(groupId):\(destination.paneId.uuidString)",
-                    primaryText: "Pane \(destination.paneIndexInTab + 1)",
-                    secondaryText: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
-                        ?? destination.paneDisplayLabel,
+                    primaryText: panePrimaryText(
+                        destination,
+                        terminalTitle: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
+                    ),
+                    secondaryText: paneRowFactsByPaneId[destination.paneId]?.latestMessageText
+                        ?? "No activity yet",
                     recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText ?? "Now",
                     isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false
                 )

@@ -70,10 +70,6 @@ struct RepoExplorerWorktreeRowContent: View {
         }
     }
 
-    private var lineDiffCounts: (added: Int, deleted: Int) {
-        (branchStatus.linesAdded, branchStatus.linesDeleted)
-    }
-
     static func shouldShowUnreadPill(unreadCount: Int) -> Bool {
         unreadCount > 0
     }
@@ -90,10 +86,12 @@ struct RepoExplorerWorktreeRowContent: View {
         (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
     }
 
+    /// A `nil` count means pull-request facts have not been fetched for this branch yet. That state is a
+    /// static hollow dot; it must not animate, because the app has no refresh-lifecycle fact to drive one.
     static func pullRequestChipPresentation(prCount: Int?) -> PullRequestChipPresentation {
         guard let prCount else {
             return PullRequestChipPresentation(
-                icon: .system(.arrowClockwise),
+                icon: .system(.circle),
                 text: nil,
                 usesAccent: false
             )
@@ -105,8 +103,17 @@ struct RepoExplorerWorktreeRowContent: View {
         )
     }
 
+    static func diffChipDetail(branchStatus: GitBranchStatus) -> SidebarDiffChip.WorkingTreeDetail? {
+        SidebarDiffChip.workingTreeDetail(
+            isDirty: branchStatus.isDirty,
+            linesAdded: branchStatus.linesAdded,
+            linesDeleted: branchStatus.linesDeleted,
+            untrackedFileCount: branchStatus.untrackedFileCount
+        )
+    }
+
     static func shouldShowDiffChip(branchStatus: GitBranchStatus) -> Bool {
-        branchStatus.isDirty || branchStatus.linesAdded > 0 || branchStatus.linesDeleted > 0
+        diffChipDetail(branchStatus: branchStatus) != nil
     }
 
     static func shouldShowSyncChip(branchStatus: GitBranchStatus) -> Bool {
@@ -135,7 +142,7 @@ struct RepoExplorerWorktreeRowContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.General.Spacing.tight) {
+            HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
@@ -175,7 +182,7 @@ struct RepoExplorerWorktreeRowContent: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: AppStyles.General.Spacing.tight) {
+            HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                 OcticonImage(
                     name: "octicon-git-branch",
                     size: AppStyles.Shell.Sidebar.branchIconSize,
@@ -195,7 +202,7 @@ struct RepoExplorerWorktreeRowContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if !placementText.isEmpty {
-                HStack(spacing: AppStyles.General.Spacing.tight) {
+                HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                     Image(systemName: "square.split.2x1")
                         .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
                         .foregroundStyle(.secondary)
@@ -214,14 +221,8 @@ struct RepoExplorerWorktreeRowContent: View {
 
             if hasStatusMetadata {
                 HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-                    if Self.shouldShowDiffChip(branchStatus: branchStatus) {
-                        SidebarDiffChip(
-                            octiconLoader: octiconLoader,
-                            linesAdded: lineDiffCounts.added,
-                            linesDeleted: lineDiffCounts.deleted,
-                            showsDirtyIndicator: branchStatus.isDirty,
-                            isMuted: lineDiffCounts.added == 0 && lineDiffCounts.deleted == 0
-                        )
+                    if let diffChipDetail = Self.diffChipDetail(branchStatus: branchStatus) {
+                        SidebarDiffChip(octiconLoader: octiconLoader, detail: diffChipDetail)
                     }
 
                     if Self.shouldShowSyncChip(branchStatus: branchStatus) {
