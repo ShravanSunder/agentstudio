@@ -11,6 +11,7 @@ import {
 } from '../src/core/comm-worker/bridge-product-http-request-executor.js';
 import {
 	bridgeProductDevProxyConfiguration,
+	bridgeProductDevBackendShouldBeSupervised,
 	resolveBridgeProductDevBackendOrigin,
 } from '../vite.config.js';
 import { bridgeDevelopmentServerHealthResponseIsReady } from './dev-server/bridge-development-server-process.js';
@@ -32,23 +33,37 @@ describe('BridgeWeb Vite product proxy', () => {
 		}
 	});
 
-	test('accepts only loopback HTTP origins', () => {
-		expect(resolveBridgeProductDevBackendOrigin({})).toBe('http://127.0.0.1:43871');
+	test('reserves an isolated loopback origin for each supervised Vite session', async () => {
+		// Removing dynamic reservation would let Vite attach to an unrelated backend on a fixed port.
 		expect(
-			resolveBridgeProductDevBackendOrigin({
-				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://localhost:43872',
-			}),
+			await resolveBridgeProductDevBackendOrigin({}, async (): Promise<number> => 43_987),
+		).toBe('http://127.0.0.1:43987');
+	});
+
+	test('accepts only explicitly configured loopback HTTP origins', async () => {
+		let reservePortCallCount = 0;
+		expect(
+			await resolveBridgeProductDevBackendOrigin(
+				{
+					BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://localhost:43872',
+				},
+				async (): Promise<number> => {
+					reservePortCallCount += 1;
+					return 43_987;
+				},
+			),
 		).toBe('http://localhost:43872');
-		expect(() =>
+		expect(reservePortCallCount).toBe(0);
+		await expect(
 			resolveBridgeProductDevBackendOrigin({
 				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'https://127.0.0.1:43871',
 			}),
-		).toThrow(/loopback HTTP origin/u);
-		expect(() =>
+		).rejects.toThrow(/loopback HTTP origin/u);
+		await expect(
 			resolveBridgeProductDevBackendOrigin({
 				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://example.test:43871',
 			}),
-		).toThrow(/loopback HTTP origin/u);
+		).rejects.toThrow(/loopback HTTP origin/u);
 	});
 
 	test('accepts only a no-content development server health response as ready', () => {
@@ -61,5 +76,15 @@ describe('BridgeWeb Vite product proxy', () => {
 		expect(bridgeDevelopmentServerHealthResponseIsReady(new Response(null, { status: 404 }))).toBe(
 			false,
 		);
+	});
+
+	test('supervises the default backend but leaves an explicitly configured backend alone', () => {
+		// An E2E fixture supplies and owns its own backend process; double ownership would collide.
+		expect(bridgeProductDevBackendShouldBeSupervised({})).toBe(true);
+		expect(
+			bridgeProductDevBackendShouldBeSupervised({
+				BRIDGE_WEB_DEV_BACKEND_ORIGIN: 'http://127.0.0.1:43872',
+			}),
+		).toBe(false);
 	});
 });

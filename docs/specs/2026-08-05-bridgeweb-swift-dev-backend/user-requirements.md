@@ -47,17 +47,18 @@ No Agent Studio end-user behavior change is requested.
 
 ### U3 — Keep backend development independent of the full app loop
 
-- **Need:** A developer should be able to rebuild and restart the development
-  backend without rebuilding or relaunching the full AgentStudio application.
+- **Need:** The Vite development command should rebuild and restart the
+  development backend after relevant Swift source changes without rebuilding
+  or relaunching the full AgentStudio application.
 - **Why:** The development server should remain practical for focused Bridge
   work.
 - **Evidence:** Product-owner direction in the 2026-08-05 design conversation.
 - **Authority:** Authorized
-- **Priority:** Should
+- **Priority:** Must
 - **Priority assigner:** Product owner
-- **Acceptance note:** No latency threshold is defined. Restart performance is
-  secondary to establishing the single Swift source of truth and may be
-  observed after the focused design is proven.
+- **Acceptance note:** Backend rebuilding begins only after ten seconds with no
+  relevant source change. A failed, timed-out, or stale build must not retire
+  the working backend.
 
 ## Current Journey And Missing Outcome
 
@@ -68,7 +69,8 @@ Current
 
 Required
   Vite serves React + HMR
-    └── development product requests execute AgentStudioBridge Swift behavior
+    └── supervises the development Swift backend
+          └── product requests execute AgentStudioBridge Swift behavior
 ```
 
 The missing outcome is not a new frontend or a faster build system. It is a
@@ -108,16 +110,15 @@ authority.
 - Replacing Vite or its frontend hot-reload role.
 - Redesigning product sessions, controllers, worktree identity, or Git
   behavior.
-- Automatic backend watching, zero-downtime restart, or a numeric restart
-  target.
+- Zero-downtime restart or a numeric end-to-end restart target.
 - Production HTTP serving or a remotely reachable service.
 
 ### Acceptable complexity
 
 The change may add the smallest development-only Swift serving boundary and
 the wiring needed for Vite development to use it. A second product model,
-compatibility layer, persistent service, production server, or frontend fork
-requires a new owner decision.
+compatibility layer, persistent service, production server, frontend fork, or
+watcher inside the Swift executable requires a new owner decision.
 
 ## Outcome Evidence
 
@@ -131,7 +132,7 @@ The completed design must make it possible to prove the Must outcomes that:
 4. Browser development and packaged production use one product protocol rather
    than environment-specific frontend behavior.
 
-It should also make it possible to prove the lower-priority U3 outcome that the
-development backend can be restarted independently and the Vite page reloads
-once after the restarted backend reports ready, establishing a fresh working
-session without a manual recovery action.
+It should also make it possible to prove the U3 outcome that Vite observes only
+the explicit Swift backend dependency closure, waits for ten seconds of source
+quiet, preserves the working backend across failed or stale builds, and reloads
+the page once after a successful replacement reports ready.

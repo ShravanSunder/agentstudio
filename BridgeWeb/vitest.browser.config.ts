@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, type TestUserConfig } from 'vitest/config';
 
+import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
+
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryTemporaryRoot = resolve(bridgeWebPackageRoot, '..', 'tmp');
 
@@ -34,9 +36,6 @@ export default defineConfig({
 			'@': `${bridgeWebPackageRoot}/src`,
 		},
 	},
-	optimizeDeps: {
-		include: ['@base-ui/react/combobox', '@pierre/diffs/worker', 'react-dom/client'],
-	},
 	test: {
 		globals: true,
 		tags: [
@@ -48,6 +47,9 @@ export default defineConfig({
 		projects: [
 			{
 				plugins: [react()],
+				optimizeDeps: {
+					include: [...bridgeViteOptimizedDependencies],
+				},
 				server: {
 					fs: {
 						allow: [bridgeWebPackageRoot, repositoryTemporaryRoot],
@@ -74,6 +76,9 @@ export default defineConfig({
 			},
 			{
 				plugins: [react()],
+				optimizeDeps: {
+					include: [...bridgeViteOptimizedDependencies],
+				},
 				server: {
 					fs: {
 						allow: [bridgeWebPackageRoot, repositoryTemporaryRoot],

@@ -36,6 +36,7 @@ import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-r
 import {
 	isSelectedContentReadyPreparationCurrent,
 	readSelectedReviewDemandEpoch,
+	scheduleSelectedFileViewContentReadyPreparationForCurrentDemand,
 } from './bridge-comm-worker-selection-demand.js';
 import {
 	createBridgeCommWorkerStore,
@@ -57,6 +58,10 @@ import {
 	type BridgeWorkerServerToMainMessage,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
+import {
+	bridgeWorkerFileRenderPatchesFromSlicePatchEvent,
+	prepareBridgeWorkerFileRenderPatchEvent,
+} from './bridge-worker-file-view-content-ready.js';
 import {
 	BridgeWorkerRenderFulfillmentRegistry,
 	type BridgeWorkerRenderFulfillmentRegistryContext,
@@ -555,20 +560,20 @@ function applyBridgeCommWorkerFileViewRuntimeSource(props: {
 			? {}
 			: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
 	});
-	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+	const fileRenderPatch = takePendingFileSourceReconciliationRenderPatch({
+		createSequence: props.createSequence,
 		epoch: props.epoch,
-		sequence: props.createSequence(),
+		store: props.store,
 	});
 	scheduleSelectedFileViewContentReadyPreparationForCurrentDemand({
 		epoch: props.epoch,
-		scheduleSelectedFileViewContentReadyPreparation:
-			props.scheduleSelectedFileViewContentReadyPreparation,
+		schedulePreparation: props.scheduleSelectedFileViewContentReadyPreparation,
 		selectedContentMetadataChanged:
 			sourceUpdateResult.selectedFileViewContentMetadataChanged === true,
 		selectedContentRequestChanged,
 		store: props.store,
 	});
-	return slicePatch === null ? [] : [slicePatch];
+	return fileRenderPatch === null ? [] : [fileRenderPatch];
 }
 
 function applyBridgeCommWorkerFileViewRuntimeMutation(props: {
@@ -607,20 +612,40 @@ function applyBridgeCommWorkerFileViewRuntimeMutation(props: {
 			? {}
 			: { updateFileMetadataDemand: props.updateFileMetadataDemand }),
 	});
-	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+	const fileRenderPatch = takePendingFileSourceReconciliationRenderPatch({
+		createSequence: props.createSequence,
 		epoch: props.epoch,
-		sequence: props.createSequence(),
+		store: props.store,
 	});
 	scheduleSelectedFileViewContentReadyPreparationForCurrentDemand({
 		epoch: props.epoch,
-		scheduleSelectedFileViewContentReadyPreparation:
-			props.scheduleSelectedFileViewContentReadyPreparation,
+		schedulePreparation: props.scheduleSelectedFileViewContentReadyPreparation,
 		selectedContentMetadataChanged:
 			sourceUpdateResult.selectedFileViewContentMetadataChanged === true,
 		selectedContentRequestChanged,
 		store: props.store,
 	});
-	return slicePatch === null ? [] : [slicePatch];
+	return fileRenderPatch === null ? [] : [fileRenderPatch];
+}
+
+function takePendingFileSourceReconciliationRenderPatch(props: {
+	readonly createSequence: () => number;
+	readonly epoch: number;
+	readonly store: BridgeCommWorkerStore;
+}): BridgeWorkerServerToMainMessage | null {
+	const publicationSequence = props.createSequence();
+	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+		epoch: props.epoch,
+		sequence: publicationSequence,
+	});
+	if (slicePatch === null) {
+		return null;
+	}
+	return prepareBridgeWorkerFileRenderPatchEvent({
+		patches: bridgeWorkerFileRenderPatchesFromSlicePatchEvent(slicePatch),
+		publicationSequence,
+		workerDerivationEpoch: props.epoch,
+	}).message;
 }
 
 interface HandleBridgeWorkerSelectCommandProps {
@@ -753,44 +778,6 @@ function scheduleSelectedContentReadyPreparationForSelection(
 			store: props.store,
 		});
 	}
-}
-
-function scheduleSelectedFileViewContentReadyPreparationForCurrentDemand(props: {
-	readonly epoch: number;
-	readonly scheduleSelectedFileViewContentReadyPreparation: (
-		request: BridgeCommWorkerSelectedFileViewContentReadyPreparationRequest,
-	) => void;
-	readonly selectedContentMetadataChanged: boolean;
-	readonly selectedContentRequestChanged: boolean;
-	readonly store: BridgeCommWorkerStore;
-}): void {
-	const selectedId = props.store.getState().selectedId;
-	if (
-		selectedId === null ||
-		!isSelectedContentReadyPreparationCurrent({
-			epoch: props.epoch,
-			itemId: selectedId,
-			store: props.store,
-		})
-	) {
-		return;
-	}
-	const metadata = props.store.getState().contentMetadataByItemId.get(selectedId) ?? null;
-	if (!isBridgeWorkerFileViewContentMetadata(metadata)) {
-		return;
-	}
-	if (!props.selectedContentMetadataChanged && !props.selectedContentRequestChanged) {
-		return;
-	}
-	const availability = props.store.getState().availabilityByItemId.get(selectedId);
-	if (availability !== 'loading' && availability !== 'stale' && availability !== 'ready') {
-		return;
-	}
-	props.scheduleSelectedFileViewContentReadyPreparation({
-		epoch: props.epoch,
-		itemId: selectedId,
-		store: props.store,
-	});
 }
 
 interface HandleBridgeWorkerReviewInvalidateCommandProps {

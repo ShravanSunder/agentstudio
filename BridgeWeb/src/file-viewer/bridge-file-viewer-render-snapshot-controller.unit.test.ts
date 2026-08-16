@@ -425,6 +425,104 @@ describe('Bridge File viewer render snapshot controller', () => {
 		).toEqual(selectedItem);
 	});
 
+	test('retains the exact selected Pierre item when source reconciliation deletes its row paint', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileDisplayEvent({ epoch: 2, projectionRevision: 1, sequence: 1 })],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+		store.setWorkerCodeViewItem({ item: selectedItem, itemId: 'file-1' });
+		store.applySnapshotUpdate({
+			workerPatches: [
+				{
+					itemId: 'file-1',
+					operation: 'upsert',
+					payload: { contentCacheKey: 'cache-file-1' },
+					slice: 'rowPaint',
+				},
+				{
+					itemId: 'file-2',
+					operation: 'upsert',
+					payload: { contentCacheKey: 'cache-file-2' },
+					slice: 'rowPaint',
+				},
+			],
+		});
+
+		// Act
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [
+				{
+					direction: 'serverWorkerToMain',
+					kind: 'fileRenderPatch',
+					patches: [
+						{ itemId: 'file-1', operation: 'delete', slice: 'rowPaint' },
+						{ itemId: 'file-2', operation: 'delete', slice: 'rowPaint' },
+					],
+					publicationSequence: 2,
+					surface: 'file',
+					transferDescriptors: [],
+					wireVersion: 1,
+					workerDerivationEpoch: 2,
+				},
+			],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+
+		// Assert
+		expect(store.getSnapshot().codeViewItemsById['file-1']).toEqual(selectedItem);
+		expect(store.getSnapshot().rowPaintById['file-1']).toEqual({
+			contentCacheKey: 'cache-file-1',
+		});
+		expect(store.getSnapshot().rowPaintById['file-2']).toBeUndefined();
+	});
+
+	test('projects selected stale source reconciliation availability as no File availability', () => {
+		// Arrange
+		const store = createBridgeMainRenderSnapshotStore();
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [fileDisplayEvent({ epoch: 4, projectionRevision: 1, sequence: 1 })],
+			renderSnapshotStore: store,
+		});
+		store.applyWorkerPatch({
+			itemId: 'file-1',
+			operation: 'upsert',
+			payload: { state: 'ready' },
+			slice: 'contentAvailability',
+		});
+
+		// Act
+		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({
+			messages: [
+				{
+					direction: 'serverWorkerToMain',
+					kind: 'fileRenderPatch',
+					patches: [
+						{
+							itemId: 'file-1',
+							operation: 'upsert',
+							payload: { state: 'stale' },
+							slice: 'contentAvailability',
+						},
+					],
+					publicationSequence: 2,
+					surface: 'file',
+					transferDescriptors: [],
+					wireVersion: 1,
+					workerDerivationEpoch: 4,
+				},
+			],
+			renderSnapshotStore: store,
+			selection: { fileId: 'file-1', path: 'README.md' },
+		});
+
+		// Assert
+		expect(store.getSnapshot().contentAvailabilityById['file-1']).toBeUndefined();
+	});
+
 	test('rejects stale File render publications after a same-id source reset', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 		applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore({

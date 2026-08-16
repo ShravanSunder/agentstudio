@@ -21,6 +21,8 @@ import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { recordBridgeFrameJankTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeAppNavigationSource } from './bridge-app-navigation-admission.js';
+import type { BridgeMermaidRenderer } from './markdown/bridge-mermaid-renderer.js';
+import type { BridgeMarkdownRenderWorkerClient } from './markdown/worker/bridge-markdown-render-worker-client.js';
 
 export interface BridgeFileViewerModeProps {
 	readonly controlTarget: EventTarget;
@@ -35,6 +37,8 @@ export interface BridgeFileViewerModeProps {
 		>,
 	) => boolean;
 	readonly isActive: boolean;
+	readonly markdownWorkerClient: BridgeMarkdownRenderWorkerClient | null;
+	readonly mermaidRenderer: BridgeMermaidRenderer;
 	readonly navigationCommand?: Extract<
 		BridgeProductNavigationCommand,
 		{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
@@ -122,6 +126,8 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 						? {}
 						: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 					isActive={props.isActive}
+					markdownWorkerClient={props.markdownWorkerClient}
+					mermaidRenderer={props.mermaidRenderer}
 					isNavigationCommandStillEligible={props.isNavigationCommandStillEligible}
 					controlTarget={props.controlTarget}
 					{...(props.navigationCommand === undefined

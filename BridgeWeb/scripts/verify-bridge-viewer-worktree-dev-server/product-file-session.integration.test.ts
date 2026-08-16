@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -17,10 +19,12 @@ import { BridgeVerifierProductFileSession } from './product-file-session.js';
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
 const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
 const productFileSessionTestTimeoutMilliseconds = 15_000;
+const execFileAsync = promisify(execFile);
 
 describe('Bridge verifier product File session', () => {
 	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
 	let bridgeDevelopmentServerDataRootPath: string | null = null;
+	let bridgeDevelopmentServerWorktreeRootPath: string | null = null;
 	let viteServer: ViteDevServer | null = null;
 	const initialBackendOrigin = process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
 
@@ -28,9 +32,11 @@ describe('Bridge verifier product File session', () => {
 		const ownedViteServer = viteServer;
 		const ownedBridgeDevelopmentServer = bridgeDevelopmentServer;
 		const ownedBridgeDevelopmentServerDataRootPath = bridgeDevelopmentServerDataRootPath;
+		const ownedBridgeDevelopmentServerWorktreeRootPath = bridgeDevelopmentServerWorktreeRootPath;
 		viteServer = null;
 		bridgeDevelopmentServer = null;
 		bridgeDevelopmentServerDataRootPath = null;
+		bridgeDevelopmentServerWorktreeRootPath = null;
 		try {
 			await runAllOwnedCleanupOperations({
 				operations: [
@@ -44,6 +50,17 @@ describe('Bridge verifier product File session', () => {
 						name: 'integration Swift development backend',
 						run: async (): Promise<void> => {
 							await ownedBridgeDevelopmentServer?.stop();
+						},
+					},
+					{
+						name: 'integration Swift development backend worktree fixture',
+						run: async (): Promise<void> => {
+							if (ownedBridgeDevelopmentServerWorktreeRootPath !== null) {
+								await rm(ownedBridgeDevelopmentServerWorktreeRootPath, {
+									force: true,
+									recursive: true,
+								});
+							}
 						},
 					},
 					{
@@ -75,12 +92,45 @@ describe('Bridge verifier product File session', () => {
 			bridgeDevelopmentServerDataRootPath = await mkdtemp(
 				join(tmpdir(), 'bridge-product-file-development-server-'),
 			);
+			bridgeDevelopmentServerWorktreeRootPath = await mkdtemp(
+				join(tmpdir(), 'bridge-product-file-worktree-'),
+			);
+			await writeFile(
+				join(bridgeDevelopmentServerWorktreeRootPath, 'README.md'),
+				'# Agent Studio\n\nDeterministic product File session fixture.\n',
+			);
+			await writeFile(
+				join(bridgeDevelopmentServerWorktreeRootPath, 'fixture.txt'),
+				'bounded fixture content\n',
+			);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'init',
+				'--initial-branch=main',
+			]);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'config',
+				'user.name',
+				'Bridge Product File Integration',
+			]);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'config',
+				'user.email',
+				'bridge-product-file@example.invalid',
+			]);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, ['add', '--all']);
+			await runFixtureGit(bridgeDevelopmentServerWorktreeRootPath, [
+				'-c',
+				'commit.gpgsign=false',
+				'commit',
+				'-m',
+				'fixture base',
+			]);
 			bridgeDevelopmentServer = await startOwnedBridgeDevelopmentServer({
 				dataRootPath: bridgeDevelopmentServerDataRootPath,
 				initialTarget: 'HEAD',
 				paneId: randomUUID(),
 				repoRootPath,
-				worktreeRoot: repoRootPath,
+				worktreeRoot: bridgeDevelopmentServerWorktreeRootPath,
 			});
 			process.env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] = bridgeDevelopmentServer.origin;
 			let resolveMetadataStreamClosed: (() => void) | null = null;
@@ -151,3 +201,10 @@ describe('Bridge verifier product File session', () => {
 		productFileSessionTestTimeoutMilliseconds,
 	);
 });
+
+async function runFixtureGit(
+	worktreeRootPath: string,
+	arguments_: readonly string[],
+): Promise<void> {
+	await execFileAsync('git', ['-C', worktreeRootPath, ...arguments_]);
+}
