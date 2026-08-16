@@ -470,16 +470,6 @@ package final class WorkspacePaneAtom {
             repositoryTopologyAtom.repo(repoId) != nil,
             repositoryTopologyAtom.worktree(worktreeId)?.repoId == repoId
         {
-            if let resolvedContext = repositoryTopologyAtom.repoAndWorktree(
-                containing: proposedFacets.cwd ?? fallbackCWD
-            ),
-                resolvedContext.repo.id != repoId || resolvedContext.worktree.id != worktreeId
-            {
-                admittedFacets.repoId = resolvedContext.repo.id
-                admittedFacets.worktreeId = resolvedContext.worktree.id
-                associationOutcomeRecorder?(.resolvedChanged)
-                return admittedFacets
-            }
             associationOutcomeRecorder?(.stampedKnown)
             return admittedFacets
         }

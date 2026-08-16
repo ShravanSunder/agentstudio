@@ -134,6 +134,37 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         )
     }
 
+    @Test("boot association sweep clears an unavailable repo paired with a known foreign worktree")
+    func bootAssociationSweepClearsKnownForeignWorktreeMismatch() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make(
+            unavailableKnownAssociation: true,
+            knownWorktreeBelongsToForeignRepository: true
+        )
+        defer { fixture.removeTemporaryFiles() }
+        var summaries: [PaneAssociationBootReconciliationSummary] = []
+
+        let store = try await fixture.loadStore { summary in
+            summaries.append(summary)
+        }
+
+        let repairedFacets = store.paneAtom.graphAtom
+            .paneState(fixture.legacyPaneID)?.durableContextFacets
+        #expect(repairedFacets?.repoId == nil)
+        #expect(repairedFacets?.worktreeId == nil)
+        #expect(
+            summaries == [
+                PaneAssociationBootReconciliationSummary(
+                    paneCount: 2,
+                    retainedKnownCount: 0,
+                    backfilledCount: 0,
+                    danglingClearedCount: 2,
+                    freeNilCount: 0,
+                    changedCount: 2
+                )
+            ]
+        )
+    }
+
     @Test("exact-root repair persists and heals CWD-derived pane association after degraded boot")
     func exactRootRepairPersistsAndHealsDerivedAssociation() async throws {
         // Arrange: persist a production-shaped workspace whose repository has no root worktree.
@@ -231,6 +262,7 @@ private struct WorkspacePaneAssociationBootFixture {
     let localDatabaseURL: URL
     let datastore: WorkspaceSQLiteDatastore
     let repositoryID: UUID
+    let foreignRepositoryID: UUID
     let worktreeID: UUID
     let legacyPaneID: UUID
     let danglingPaneID: UUID
@@ -238,7 +270,8 @@ private struct WorkspacePaneAssociationBootFixture {
 
     static func make(
         unavailableKnownAssociation: Bool = false,
-        omitUnavailableWorktree: Bool = false
+        omitUnavailableWorktree: Bool = false,
+        knownWorktreeBelongsToForeignRepository: Bool = false
     ) async throws -> Self {
         let rootDirectory = FileManager.default.temporaryDirectory.appending(
             path: "agentstudio-pane-association-boot-\(UUIDv7.generate().uuidString)",
@@ -257,6 +290,7 @@ private struct WorkspacePaneAssociationBootFixture {
             localDatabaseURL: localDatabaseURL,
             datastore: datastore,
             repositoryID: UUIDv7.generate(),
+            foreignRepositoryID: UUIDv7.generate(),
             worktreeID: UUIDv7.generate(),
             legacyPaneID: UUIDv7.generate(),
             danglingPaneID: UUIDv7.generate(),
@@ -264,7 +298,8 @@ private struct WorkspacePaneAssociationBootFixture {
         )
         try await fixture.seed(
             unavailableKnownAssociation: unavailableKnownAssociation,
-            omitUnavailableWorktree: omitUnavailableWorktree
+            omitUnavailableWorktree: omitUnavailableWorktree,
+            knownWorktreeBelongsToForeignRepository: knownWorktreeBelongsToForeignRepository
         )
         return fixture
     }
@@ -356,7 +391,8 @@ private struct WorkspacePaneAssociationBootFixture {
 
     private func seed(
         unavailableKnownAssociation: Bool,
-        omitUnavailableWorktree: Bool
+        omitUnavailableWorktree: Bool,
+        knownWorktreeBelongsToForeignRepository: Bool
     ) async throws {
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             throw WorkspacePaneAssociationBootFixtureError.databasePreparationFailed
@@ -402,13 +438,27 @@ private struct WorkspacePaneAssociationBootFixture {
                         name: worktreePath.lastPathComponent,
                         repoPath: worktreePath
                     )
-                ],
+                ]
+                    + (knownWorktreeBelongsToForeignRepository
+                        ? [
+                            CanonicalRepo(
+                                id: foreignRepositoryID,
+                                name: "foreign-repository",
+                                repoPath: rootDirectory.appending(
+                                    path: "foreign-repository",
+                                    directoryHint: .isDirectory
+                                )
+                            )
+                        ]
+                        : []),
                 worktrees: omitUnavailableWorktree
                     ? []
                     : [
                         CanonicalWorktree(
                             id: worktreeID,
-                            repoId: repositoryID,
+                            repoId: knownWorktreeBelongsToForeignRepository
+                                ? foreignRepositoryID
+                                : repositoryID,
                             name: worktreePath.lastPathComponent,
                             path: worktreePath,
                             isMainWorktree: true

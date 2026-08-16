@@ -91,12 +91,12 @@ struct WorkspacePaneAssociationCreationPathTests {
         expectDurablyUnassociated(pane.id, expectedCWD: freeDirectory, store: harness.store)
     }
 
-    @Test("creation replaces a stale explicit association when CWD identifies another worktree")
-    func creationReplacesStaleExplicitAssociation() throws {
+    @Test("creation preserves a valid explicit association when CWD identifies another worktree")
+    func creationPreservesValidExplicitAssociation() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (sourceRepo, sourceWorktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let (destinationRepo, destinationWorktree) = makeRepoAndWorktree(
+        let (_, destinationWorktree) = makeRepoAndWorktree(
             harness.store,
             root: harness.tempDir
         )
@@ -116,8 +116,8 @@ struct WorkspacePaneAssociationCreationPathTests {
 
         expectDurableAssociation(
             pane.id,
-            repo: destinationRepo,
-            worktree: destinationWorktree,
+            repo: sourceRepo,
+            worktree: sourceWorktree,
             expectedCWD: destinationDirectory,
             store: harness.store
         )

@@ -75,11 +75,12 @@ package struct RepositoryTopologyReadSnapshot: Sendable {
     ) -> Bool {
         guard
             let repoId,
-            worktreeId != nil,
+            let worktreeId,
             unavailableRepositoryIDs.contains(repoId),
             repo(repoId) != nil
         else { return false }
-        return true
+        guard let knownWorktree = worktree(worktreeId) else { return true }
+        return knownWorktree.repoId == repoId
     }
 
     package func repoAndWorktree(
