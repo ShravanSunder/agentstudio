@@ -120,7 +120,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(Math.round(reviewButtonBox.height)).toBe(20);
 		expect(Math.abs(fileButtonBox.width - reviewButtonBox.width)).toBeLessThanOrEqual(1);
 		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
-		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(29, 32, 38)');
 		expect(fileButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(reviewButton.getAttribute('data-slot')).toBe('toggle-group-item');
 		expect(fileButton.getAttribute('aria-label')).toBe('Files');
@@ -166,7 +166,7 @@ describe('BridgeReviewProjectionMenu Browser Mode', () => {
 		expect(switcher.getAttribute('role')).toBe('radiogroup');
 		expect(Math.round(switcher.getBoundingClientRect().height)).toBe(24);
 		expect(getComputedStyle(switcher).borderTopWidth).toBe('1px');
-		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(24, 24, 37)');
+		expect(getComputedStyle(switcher).backgroundColor).toBe('rgb(29, 32, 38)');
 		expect(segments).toHaveLength(3);
 		expect(segments.map((segment) => segment.getAttribute('data-slot'))).toEqual([
 			'toggle-group-item',
