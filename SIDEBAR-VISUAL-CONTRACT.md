@@ -35,3 +35,7 @@ BEHAVIOR
 16 all row facts = cached reads; no per-row derivation; no path strings.
 
 EXIT: screenshot proof per item, all 16 in ONE build.
+17 icon-to-text gap identical everywhere: group header (chevron/icon to
+   name) must use the SAME spacing token as row lines (star/branch icon
+   to text). No larger gap on headers.
+18 chips row alignment: left, By Repo parity (user default 2026-08-16).
