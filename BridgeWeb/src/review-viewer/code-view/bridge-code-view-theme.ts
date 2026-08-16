@@ -70,3 +70,8 @@ function makeBridgeCodeViewThemeNames(): DiffsThemeNames[] {
 	registerBridgeCodeViewThemes();
 	return [bridgePierreDarkThemeName];
 }
+
+// CodeView options can be consumed before the worker-pool provider effect runs.
+// Register during module evaluation so every main-thread Pierre renderer can
+// resolve the custom name before its first asynchronous highlight begins.
+registerBridgeCodeViewThemes();

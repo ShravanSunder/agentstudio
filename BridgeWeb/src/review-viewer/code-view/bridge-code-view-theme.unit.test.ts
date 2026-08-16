@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { resolveThemes } from '@pierre/diffs';
 import { describe, expect, test, vi } from 'vitest';
 
-import { bridgeGhosttyCatppuccinTreeTheme } from '../../app/bridge-viewer-tree-theme.js';
+import {
+	bridgeGhosttyCatppuccinTreeTheme,
+	bridgeViewerTreeStyle,
+} from '../../app/bridge-viewer-tree-theme.js';
 import {
 	bridgePierreDarkThemeName,
 	ensureBridgeCodeViewThemeResolved,
@@ -106,6 +109,8 @@ describe('Bridge CodeView theme', () => {
 		expect(bridgeGhosttyCatppuccinTreeTheme.colors['editor.background'].toLowerCase()).toBe(
 			'#282c34',
 		);
+		expect(bridgeViewerTreeStyle.backgroundColor).toBe('var(--bridge-surface-bg)');
+		expect(bridgeViewerTreeStyle.color).toBe('var(--bridge-text-primary)');
 	});
 });
 

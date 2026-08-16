@@ -49,7 +49,9 @@ export type BridgeViewerTreeStyle = CSSProperties &
 
 export const bridgeViewerTreeStyle: BridgeViewerTreeStyle = {
 	...bridgeGhosttyCatppuccinTreeStyles,
+	backgroundColor: 'var(--bridge-surface-bg)',
 	colorScheme: 'dark',
+	color: 'var(--bridge-text-primary)',
 	display: 'block',
 	height: '100%',
 	'--trees-bg-override': 'var(--bridge-surface-bg)',
