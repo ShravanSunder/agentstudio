@@ -130,12 +130,7 @@ package enum WorktreeScopedEvent: Sendable {
 }
 
 package enum GitWorkingDirectoryEvent: Sendable {
-    case statusOutcome(
-        worktreeId: UUID,
-        repoId: UUID,
-        outcome: GitStatusOutcome,
-        consecutiveTimeoutCount: Int
-    )
+    case statusOutcome(GitStatusOutcomeFact)
     case snapshotChanged(snapshot: GitWorkingTreeSnapshot)
     case branchChanged(worktreeId: UUID, repoId: UUID, from: String, to: String)
     case originChanged(repoId: UUID, from: String, to: String)
@@ -143,6 +138,28 @@ package enum GitWorkingDirectoryEvent: Sendable {
     case worktreeDiscovered(repoId: UUID, worktreePath: URL, branch: String, isMain: Bool)
     case worktreeRemoved(repoId: UUID, worktreePath: URL)
     case diffAvailable(diffId: UUID, worktreeId: UUID, repoId: UUID)
+}
+
+package struct GitStatusOutcomeFact: Sendable, Equatable {
+    package let worktreeId: UUID
+    package let repoId: UUID
+    package let outcome: GitStatusOutcome
+    package let reason: GitWorkingTreeStatusUnavailableReason?
+    package let consecutiveFailureCount: Int
+
+    package init(
+        worktreeId: UUID,
+        repoId: UUID,
+        outcome: GitStatusOutcome,
+        reason: GitWorkingTreeStatusUnavailableReason?,
+        consecutiveFailureCount: Int
+    ) {
+        self.worktreeId = worktreeId
+        self.repoId = repoId
+        self.outcome = outcome
+        self.reason = reason
+        self.consecutiveFailureCount = consecutiveFailureCount
+    }
 }
 
 package enum GitStatusOutcome: String, Sendable, Equatable {
