@@ -351,6 +351,8 @@ struct BridgeProductActiveViewerModeUpdateRequest: Codable, Equatable, Sendable 
 }
 
 enum BridgeProductCallRequest: Codable, Equatable, Sendable {
+    case fileAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
+    case fileAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
     case fileSourceCurrent(BridgeProductFileSourceCurrentRequest)
     case fileActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
     case reviewActiveViewerModeUpdate(BridgeProductActiveViewerModeUpdateRequest)
@@ -359,6 +361,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
     case reviewIntakeReady(BridgeProductReviewIntakeReadyRequest)
     case reviewMarkFileViewed(BridgeProductReviewMarkFileViewedRequest)
     case reviewPublicationApplied(BridgeProductReviewPublicationAppliedRequest)
+    case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandRequest)
+    case reviewAnnotationsOutputInspect(BridgeProductAnnotationOutputInspectRequest)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case method
@@ -367,6 +371,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
 
     var method: String {
         switch self {
+        case .fileAnnotationsCommand: "file.annotations.command"
+        case .fileAnnotationsOutputInspect: "file.annotations.output.inspect"
         case .fileSourceCurrent: "file.source.current"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
@@ -375,15 +381,19 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
         case .reviewPublicationApplied: "review.publication.applied"
+        case .reviewAnnotationsCommand: "review.annotations.command"
+        case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
         }
     }
 
     var surface: BridgeProductSurface {
         switch self {
-        case .fileSourceCurrent, .fileActiveViewerModeUpdate: .file
+        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect, .fileSourceCurrent,
+            .fileActiveViewerModeUpdate:
+            .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
-            .reviewPublicationApplied:
+            .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect:
             .review
         }
     }
@@ -396,6 +406,20 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .method) {
+        case "file.annotations.command":
+            let request = try container.decode(
+                BridgeProductWorktreeAnnotationCommandRequest.self,
+                forKey: .request
+            )
+            try request.validateSource(surface: .file, codingPath: decoder.codingPath)
+            self = .fileAnnotationsCommand(request)
+        case "file.annotations.output.inspect":
+            self = .fileAnnotationsOutputInspect(
+                try container.decode(
+                    BridgeProductAnnotationOutputInspectRequest.self,
+                    forKey: .request
+                )
+            )
         case "file.source.current":
             self = .fileSourceCurrent(
                 try container.decode(BridgeProductFileSourceCurrentRequest.self, forKey: .request)
@@ -437,6 +461,20 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
                     forKey: .request
                 )
             )
+        case "review.annotations.command":
+            let request = try container.decode(
+                BridgeProductWorktreeAnnotationCommandRequest.self,
+                forKey: .request
+            )
+            try request.validateSource(surface: .review, codingPath: decoder.codingPath)
+            self = .reviewAnnotationsCommand(request)
+        case "review.annotations.output.inspect":
+            self = .reviewAnnotationsOutputInspect(
+                try container.decode(
+                    BridgeProductAnnotationOutputInspectRequest.self,
+                    forKey: .request
+                )
+            )
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .method,
@@ -450,6 +488,11 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(method, forKey: .method)
         switch self {
+        case .fileAnnotationsCommand(let request), .reviewAnnotationsCommand(let request):
+            try container.encode(request, forKey: .request)
+        case .fileAnnotationsOutputInspect(let request),
+            .reviewAnnotationsOutputInspect(let request):
+            try container.encode(request, forKey: .request)
         case .fileSourceCurrent(let request):
             try container.encode(request, forKey: .request)
         case .fileActiveViewerModeUpdate(let request),
@@ -470,6 +513,8 @@ enum BridgeProductCallRequest: Codable, Equatable, Sendable {
 }
 
 enum BridgeProductCallResult: Codable, Equatable, Sendable {
+    case fileAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
+    case fileAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
     case fileSourceCurrent(BridgeProductFileSourceCurrentResult)
     case fileActiveViewerModeUpdate
     case reviewActiveViewerModeUpdate
@@ -478,6 +523,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
     case reviewIntakeReady
     case reviewMarkFileViewed
     case reviewPublicationApplied
+    case reviewAnnotationsCommand(BridgeProductWorktreeAnnotationCommandResult)
+    case reviewAnnotationsOutputInspect(BridgeProductWorktreeAnnotationOutputInspectResult)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case method
@@ -486,6 +533,8 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
 
     var method: String {
         switch self {
+        case .fileAnnotationsCommand: "file.annotations.command"
+        case .fileAnnotationsOutputInspect: "file.annotations.output.inspect"
         case .fileSourceCurrent: "file.source.current"
         case .fileActiveViewerModeUpdate: "file.activeViewerMode.update"
         case .reviewActiveViewerModeUpdate: "review.activeViewerMode.update"
@@ -494,15 +543,19 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         case .reviewIntakeReady: "review.intake.ready"
         case .reviewMarkFileViewed: "review.markFileViewed"
         case .reviewPublicationApplied: "review.publication.applied"
+        case .reviewAnnotationsCommand: "review.annotations.command"
+        case .reviewAnnotationsOutputInspect: "review.annotations.output.inspect"
         }
     }
 
     var surface: BridgeProductSurface {
         switch self {
-        case .fileSourceCurrent, .fileActiveViewerModeUpdate: .file
+        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect, .fileSourceCurrent,
+            .fileActiveViewerModeUpdate:
+            .file
         case .reviewActiveViewerModeUpdate, .reviewComparisonUpdate, .reviewComparisonTargetsQuery, .reviewIntakeReady,
             .reviewMarkFileViewed,
-            .reviewPublicationApplied:
+            .reviewPublicationApplied, .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect:
             .review
         }
     }
@@ -515,6 +568,22 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .method) {
+        case "file.annotations.command":
+            self = .fileAnnotationsCommand(
+                try container.decode(BridgeProductWorktreeAnnotationCommandResult.self, forKey: .result)
+            )
+        case "file.annotations.output.inspect":
+            let result = try container.decode(
+                BridgeProductWorktreeAnnotationOutputInspectResult.self,
+                forKey: .result
+            )
+            guard result.descriptor.surface == .file else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File annotation output descriptor must remain on the File surface",
+                    codingPath: decoder.codingPath
+                )
+            }
+            self = .fileAnnotationsOutputInspect(result)
         case "file.source.current":
             self = .fileSourceCurrent(
                 try container.decode(BridgeProductFileSourceCurrentResult.self, forKey: .result)
@@ -568,6 +637,22 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
                 codingPath: decoder.codingPath
             )
             self = .reviewPublicationApplied
+        case "review.annotations.command":
+            self = .reviewAnnotationsCommand(
+                try container.decode(BridgeProductWorktreeAnnotationCommandResult.self, forKey: .result)
+            )
+        case "review.annotations.output.inspect":
+            let result = try container.decode(
+                BridgeProductWorktreeAnnotationOutputInspectResult.self,
+                forKey: .result
+            )
+            guard result.descriptor.surface == .review else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review annotation output descriptor must remain on the Review surface",
+                    codingPath: decoder.codingPath
+                )
+            }
+            self = .reviewAnnotationsOutputInspect(result)
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .method,
@@ -581,6 +666,11 @@ enum BridgeProductCallResult: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(method, forKey: .method)
         switch self {
+        case .fileAnnotationsCommand(let result), .reviewAnnotationsCommand(let result):
+            try container.encode(result, forKey: .result)
+        case .fileAnnotationsOutputInspect(let result),
+            .reviewAnnotationsOutputInspect(let result):
+            try container.encode(result, forKey: .result)
         case .fileSourceCurrent(let result):
             try container.encode(result, forKey: .result)
         case .fileActiveViewerModeUpdate, .reviewActiveViewerModeUpdate, .reviewComparisonUpdate,

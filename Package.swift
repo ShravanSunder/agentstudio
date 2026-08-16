@@ -133,6 +133,7 @@ let package = Package(
                 "AgentStudioInfrastructure",
                 "AgentStudioProgrammaticControl",
                 "AgentStudioSharedComponents",
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "AgentStudioGit", package: "agentstudio-git"),
             ],
             path: "Sources/AgentStudio/Features/Bridge",

@@ -22,6 +22,7 @@ import {
 } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerReviewRuntimeSource } from './bridge-comm-worker-review-source-diff.js';
 import {
+	createIdleWorktreeAnnotationSubscription,
 	createBridgeCommWorkerReviewProductTestSource,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -753,9 +754,12 @@ function makeUnavailableFileProductTransport(): BridgeProductTransportSession {
 		openContent: (): never => {
 			throw new Error('Entry harness cannot open content without a File source.');
 		},
-		subscribe: (): never => {
+		subscribe: ((subscriptionKind: string): never => {
+			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+			}
 			throw new Error('Entry harness cannot subscribe without a File source.');
-		},
+		}) as BridgeProductTransportSession['subscribe'],
 		workerDerivationEpoch: (surface): number => workerDerivationEpochs[surface],
 	};
 }

@@ -24,6 +24,13 @@ import {
 	bridgeProductFileVirtualizedExtentKindSchema,
 } from './bridge-product-subscription-contracts.js';
 import {
+	bridgeWorkerAnnotationCommandAcceptedEventSchema,
+	bridgeWorkerAnnotationCommandSchema,
+	bridgeWorkerAnnotationOutputInspectCommandSchema,
+	bridgeWorkerAnnotationOutputInspectionEventSchema,
+	bridgeWorkerAnnotationProjectionEventSchema,
+} from './bridge-worker-annotation-contracts.js';
+import {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerFileDisplayPatchSchema,
 } from './bridge-worker-file-display-patch-contracts.js';
@@ -47,6 +54,15 @@ import {
 	BRIDGE_WORKER_REVIEW_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerReviewDisplayPatchSchema,
 } from './bridge-worker-review-display-patch-contracts.js';
+import {
+	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerEpochSchema,
+	bridgeWorkerInteractionSurfaceSchema,
+	bridgeWorkerMainToServerBaseSchema,
+	bridgeWorkerRequestIdSchema,
+	bridgeWorkerSequenceSchema,
+	bridgeWorkerServerToMainBaseSchema,
+} from './bridge-worker-wire-base-contracts.js';
 export {
 	bridgeWorkerReviewComparisonTargetsQueryCancelCommandSchema,
 	bridgeWorkerReviewComparisonTargetsQueryCommandSchema,
@@ -58,7 +74,7 @@ export type {
 	BridgeWorkerReviewComparisonTargetsQueryEvent,
 } from './bridge-worker-review-comparison-target-query-contracts.js';
 
-export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
+export { BRIDGE_WORKER_WIRE_VERSION } from './bridge-worker-wire-base-contracts.js';
 export {
 	BRIDGE_WORKER_FILE_DISPLAY_PATCH_LIMIT,
 	bridgeWorkerFileDisplayPatchSchema,
@@ -74,35 +90,18 @@ export type {
 	BridgeWorkerReviewSourceDisplayPayload,
 } from './bridge-worker-review-display-patch-contracts.js';
 export type { BridgeWorkerPanelChromePatchPayload } from './bridge-worker-panel-chrome-contracts.js';
-
-const bridgeWorkerRequestIdSchema = z.string().min(1);
-const bridgeWorkerEpochSchema = z.number().int().nonnegative();
-const bridgeWorkerSequenceSchema = z.number().int().nonnegative();
-const bridgeWorkerIssuedAtMillisecondsSchema = z.number().finite().nonnegative();
-export const bridgeWorkerInteractionSurfaceSchema = z.enum(['fileView', 'review']);
-
-export const bridgeWorkerTransferDescriptorSchema = z
-	.object({
-		messageKind: z.string().min(1),
-		fieldPath: z.array(z.string().min(1)).readonly(),
-		byteLength: z.number().int().nonnegative(),
-		mode: z.enum(['transfer', 'clone']),
-	})
-	.strict();
-
-export type BridgeWorkerTransferDescriptor = z.infer<typeof bridgeWorkerTransferDescriptorSchema>;
-
-const bridgeWorkerMainToServerBaseSchema = z
-	.object({
-		wireVersion: z.literal(BRIDGE_WORKER_WIRE_VERSION),
-		direction: z.literal('mainToServerWorker'),
-		kind: z.literal('command'),
-		requestId: bridgeWorkerRequestIdSchema,
-		epoch: bridgeWorkerEpochSchema,
-		issuedAtMilliseconds: bridgeWorkerIssuedAtMillisecondsSchema.optional(),
-		transferDescriptors: z.array(bridgeWorkerTransferDescriptorSchema).readonly(),
-	})
-	.strict();
+export {
+	bridgeWorkerInteractionSurfaceSchema,
+	bridgeWorkerTransferDescriptorSchema,
+} from './bridge-worker-wire-base-contracts.js';
+export type { BridgeWorkerTransferDescriptor } from './bridge-worker-wire-base-contracts.js';
+export type {
+	BridgeWorkerAnnotationCommand,
+	BridgeWorkerAnnotationCommandAcceptedEvent,
+	BridgeWorkerAnnotationOutputInspectCommand,
+	BridgeWorkerAnnotationOutputInspectionEvent,
+	BridgeWorkerAnnotationProjectionEvent,
+} from './bridge-worker-annotation-contracts.js';
 
 export const bridgeWorkerSelectCommandSchema = bridgeWorkerMainToServerBaseSchema
 	.extend({
@@ -359,6 +358,8 @@ export const bridgeWorkerFileViewContentMetadataSchema = z
 	.strict();
 
 export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
+	bridgeWorkerAnnotationCommandSchema,
+	bridgeWorkerAnnotationOutputInspectCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerHoverCommandSchema,
@@ -603,14 +604,6 @@ export type BridgeWorkerSurfacePublicationEnvelope<
 	workerDerivationEpoch: number;
 }> &
 	TPublication;
-
-const bridgeWorkerServerToMainBaseSchema = z
-	.object({
-		wireVersion: z.literal(BRIDGE_WORKER_WIRE_VERSION),
-		direction: z.literal('serverWorkerToMain'),
-		transferDescriptors: z.array(bridgeWorkerTransferDescriptorSchema).readonly(),
-	})
-	.strict();
 
 const bridgeWorkerSurfacePublicationEnvelopeShape = {
 	publicationSequence: bridgeWorkerSequenceSchema,
@@ -922,6 +915,9 @@ function validateBridgeWorkerPierreRenderPublicationIdentity(
 }
 
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerAnnotationCommandAcceptedEventSchema,
+	bridgeWorkerAnnotationOutputInspectionEventSchema,
+	bridgeWorkerAnnotationProjectionEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,
@@ -936,6 +932,9 @@ export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind'
 ]);
 
 export const bridgeWorkerServerToMainWireMessageSchema = z.discriminatedUnion('kind', [
+	bridgeWorkerAnnotationCommandAcceptedEventSchema,
+	bridgeWorkerAnnotationOutputInspectionEventSchema,
+	bridgeWorkerAnnotationProjectionEventSchema,
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerFileDisplayPatchEventSchema,

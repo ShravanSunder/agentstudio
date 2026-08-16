@@ -16,7 +16,8 @@ actor BridgePaneProductMetadataCoordinator {
     }
 
     private let contentDemandAuthority: BridgePaneProductContentDemandAuthority
-    private let fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    let annotationSource: BridgePaneProductWorktreeAnnotationSource
+    let fileMetadataSource: any BridgePaneProductFileMetadataProducing
     let lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)?
     private let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
     let isReviewPublicationCurrent: @MainActor @Sendable (UUID, BridgeProductAdmissionContext) -> Bool
@@ -26,16 +27,17 @@ actor BridgePaneProductMetadataCoordinator {
     private var latestPanePresentation: BridgePaneProductPresentationSnapshot?
     private var latestPaneSurfaceSelectionRequest: BridgePaneSurfaceSelectionRequest?
     private(set) var activeStream: ActiveStream?
-    private var producerTaskLifecycle: BridgePaneProductMetadataProducerTaskLifecycle
+    var producerTaskLifecycle: BridgePaneProductMetadataProducerTaskLifecycle
     private var isClosed = false
     private var lifecycleTransitionTail: Task<Void, Never>?
     private var streamTransitionGeneration = 0
-    private var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
-    private var deferredOpenSubscriptionIds: Set<String> = []
+    var subscriptionKindById: [String: BridgeProductSubscriptionKind] = [:]
+    var deferredOpenSubscriptionIds: Set<String> = []
     private var deferredUpdateSubscriptionIds: Set<String> = []
-    private var openedSourceSubscriptionIds: Set<String> = []
+    var openedSourceSubscriptionIds: Set<String> = []
 
     init(
+        annotationSource: BridgePaneProductWorktreeAnnotationSource = .unavailable,
         fileMetadataSource: any BridgePaneProductFileMetadataProducing,
         reviewMetadataSource: any BridgePaneProductReviewMetadataProducing,
         reviewContentSource: any BridgePaneProductReviewContentProducing =
@@ -49,6 +51,7 @@ actor BridgePaneProductMetadataCoordinator {
         refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource,
         lifecycleTraceRecorder: (any BridgeProductMetadataLifecycleTraceRecording)? = nil
     ) {
+        self.annotationSource = annotationSource
         self.contentDemandAuthority = BridgePaneProductContentDemandAuthority(
             fileMetadataSource: fileMetadataSource,
             reviewContentSource: reviewContentSource
@@ -609,232 +612,6 @@ actor BridgePaneProductMetadataCoordinator {
         }
     }
 
-    private func startSubscriptionOpen(
-        _ subscription: BridgeProductSubscriptionSnapshot,
-        activeStream: ActiveStream,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) {
-        producerTaskLifecycle.startBootstrapTask(
-            subscriptionId: subscription.subscriptionId,
-            subscriptionKind: subscription.subscriptionKind,
-            executionContext: .init(
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                productAdmission: productAdmission,
-                session: activeStream.session
-            ),
-            taskFinished: { [weak self] subscriptionId, taskId, shouldRetireSubscription in
-                await self?.bootstrapProducerTaskFinished(
-                    subscriptionId: subscriptionId,
-                    taskId: taskId,
-                    shouldRetireSubscription: shouldRetireSubscription
-                )
-            },
-            operation: { traceContext in
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                }
-                switch subscription.subscriptionKind {
-                case .fileMetadata:
-                    try await self.fileMetadataSource.open(
-                        subscription: subscription,
-                        productAdmission: productAdmission,
-                        foregroundWorkAdmission: foregroundWorkAdmission
-                    ) { event in
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            productAdmission: productAdmission,
-                            foregroundWorkAdmission: foregroundWorkAdmission,
-                            session: activeStream.session
-                        )
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                    }
-                case .reviewMetadata:
-                    try await self.reviewMetadataSource.open(
-                        subscription: subscription,
-                        productAdmission: productAdmission
-                    ) { event, emittedAdmission in
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        guard emittedAdmission.matches(productAdmission),
-                            await self.isReviewPublicationCurrent(
-                                event.publicationId,
-                                emittedAdmission
-                            )
-                        else {
-                            throw CancellationError()
-                        }
-                        let enqueueResult = try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            productAdmission: emittedAdmission,
-                            foregroundWorkAdmission: foregroundWorkAdmission,
-                            session: activeStream.session
-                        )
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                        return enqueueResult
-                    }
-                    await self.replayCommittedReviewPublicationIfPresent(
-                        productAdmission: productAdmission,
-                        foregroundWorkAdmission: foregroundWorkAdmission,
-                        traceContext: traceContext
-                    )
-                }
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                }
-                await self.recordSourceOpened(
-                    subscriptionId: subscription.subscriptionId,
-                    foregroundWorkAdmission: foregroundWorkAdmission
-                )
-            }
-        )
-    }
-
-    private func startSubscriptionUpdate(
-        _ subscription: BridgeProductSubscriptionSnapshot,
-        activeStream: ActiveStream,
-        productAdmission: BridgeProductAdmissionContext,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) {
-        producerTaskLifecycle.startInterestTask(
-            subscriptionId: subscription.subscriptionId,
-            subscriptionKind: subscription.subscriptionKind,
-            executionContext: .init(
-                foregroundWorkAdmission: foregroundWorkAdmission,
-                productAdmission: productAdmission,
-                session: activeStream.session
-            ),
-            taskFinished: { [weak self] subscriptionId, taskId, shouldRetireSubscription in
-                await self?.interestProducerTaskFinished(
-                    subscriptionId: subscriptionId,
-                    taskId: taskId,
-                    shouldRetireSubscription: shouldRetireSubscription
-                )
-            },
-            operation: { traceContext in
-                guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                    throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                }
-                switch subscription.subscriptionKind {
-                case .fileMetadata:
-                    try await self.fileMetadataSource.update(
-                        subscription: subscription,
-                        productAdmission: productAdmission,
-                        foregroundWorkAdmission: foregroundWorkAdmission
-                    ) { event in
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            productAdmission: productAdmission,
-                            foregroundWorkAdmission: foregroundWorkAdmission,
-                            session: activeStream.session
-                        )
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                    }
-                case .reviewMetadata:
-                    try await self.reviewMetadataSource.update(
-                        subscription: subscription,
-                        productAdmission: productAdmission
-                    ) { event, emittedAdmission in
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        guard emittedAdmission.matches(productAdmission),
-                            await self.isReviewPublicationCurrent(
-                                event.publicationId,
-                                emittedAdmission
-                            )
-                        else {
-                            throw CancellationError()
-                        }
-                        let enqueueResult = try await Self.enqueue(
-                            event: event,
-                            subscriptionId: subscription.subscriptionId,
-                            productAdmission: emittedAdmission,
-                            foregroundWorkAdmission: foregroundWorkAdmission,
-                            session: activeStream.session
-                        )
-                        guard foregroundWorkAdmission.withValidAdmission({ true }) == true else {
-                            throw BridgePaneProductMetadataCoordinatorError.foregroundWorkInvalidated
-                        }
-                        await self.recordEnqueued(event, traceContext: traceContext)
-                        return enqueueResult
-                    }
-                }
-            }
-        )
-    }
-
-    private func bootstrapProducerTaskFinished(
-        subscriptionId: String,
-        taskId: UUID,
-        shouldRetireSubscription: Bool
-    ) async {
-        producerTaskLifecycle.bootstrapTaskFinished(
-            subscriptionId: subscriptionId,
-            taskId: taskId
-        )
-        if shouldRetireSubscription {
-            await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
-        }
-    }
-
-    private func interestProducerTaskFinished(
-        subscriptionId: String,
-        taskId: UUID,
-        shouldRetireSubscription: Bool
-    ) async {
-        producerTaskLifecycle.interestTaskFinished(
-            subscriptionId: subscriptionId,
-            taskId: taskId
-        )
-        if shouldRetireSubscription {
-            await retireSubscriptionAfterReset(subscriptionId: subscriptionId)
-        }
-    }
-
-    private func recordEnqueued(
-        _ event: BridgeProductFileMetadataEvent,
-        traceContext: BridgeTraceContext?
-    ) async {
-        await producerTaskLifecycle.recordEnqueued(event, traceContext: traceContext)
-    }
-
-    private func recordEnqueued(
-        _ event: BridgeProductReviewMetadataEvent,
-        traceContext: BridgeTraceContext?
-    ) async {
-        await producerTaskLifecycle.recordEnqueued(event, traceContext: traceContext)
-    }
-
-    private func recordSourceOpened(
-        subscriptionId: String,
-        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
-    ) {
-        guard foregroundWorkAdmission.withValidAdmission({ true }) == true,
-            subscriptionKindById[subscriptionId] != nil
-        else { return }
-        openedSourceSubscriptionIds.insert(subscriptionId)
-        deferredOpenSubscriptionIds.remove(subscriptionId)
-    }
 }
 
 extension BridgePaneProductMetadataCoordinator {
@@ -963,6 +740,8 @@ extension BridgePaneProductMetadataCoordinator {
         subscriptionKind: BridgeProductSubscriptionKind
     ) async {
         switch subscriptionKind {
+        case .fileAnnotations, .reviewAnnotations:
+            await annotationSource.cancel(subscriptionId: subscriptionId)
         case .fileMetadata:
             await fileMetadataSource.cancel(subscriptionId: subscriptionId)
         case .reviewMetadata:

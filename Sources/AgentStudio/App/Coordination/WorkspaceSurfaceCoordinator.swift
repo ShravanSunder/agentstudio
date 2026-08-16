@@ -54,6 +54,8 @@ final class WorkspaceSurfaceCoordinator {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let bridgeGitReadScheduler: BridgeGitReadScheduler
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator
+    let worktreeAnnotationStore: WorktreeAnnotationStore?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator?
     let filesystemSource: any WorkspaceFilesystemSourceManaging
     let filesystemProjectionIndex: any WorkspaceFilesystemProjectionIndexing
     let windowLifecycleStore: WindowLifecycleAtom
@@ -133,7 +135,9 @@ final class WorkspaceSurfaceCoordinator {
         runtime: SessionRuntime,
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
-        bridgePaneAttendance: BridgePaneAttendanceAtom
+        bridgePaneAttendance: BridgePaneAttendanceAtom,
+        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil
     ) {
         self.init(
             store: store,
@@ -145,7 +149,9 @@ final class WorkspaceSurfaceCoordinator {
             runtimeCommandClock: ContinuousClock(),
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
-            bridgePaneAttendance: bridgePaneAttendance
+            bridgePaneAttendance: bridgePaneAttendance,
+            worktreeAnnotationStore: worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator
         )
     }
 
@@ -167,6 +173,8 @@ final class WorkspaceSurfaceCoordinator {
         windowLifecycleStore: WindowLifecycleAtom,
         appLifecycleStore: AppLifecycleAtom = AppLifecycleAtom(),
         bridgePaneAttendance: BridgePaneAttendanceAtom,
+        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
         traceIdentityRefreshHandler: (@MainActor @Sendable () -> Void)? = nil
@@ -192,6 +200,8 @@ final class WorkspaceSurfaceCoordinator {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.bridgeGitReadScheduler = bridgeGitReadScheduler
         self.worktreeProductConstructionCoordinator = worktreeProductConstructionCoordinator
+        self.worktreeAnnotationStore = worktreeAnnotationStore
+        self.worktreeAnnotationOutputCoordinator = worktreeAnnotationOutputCoordinator
         self.filesystemSource = resolvedFilesystemSource
         self.filesystemProjectionIndex = filesystemProjectionIndex ?? FilesystemProjectionIndex()
         self.windowLifecycleStore = windowLifecycleStore

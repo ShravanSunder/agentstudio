@@ -26,6 +26,7 @@ import type { BridgeWorkerRenderDispositionReceipt } from '../../core/comm-worke
 import { makeBridgeWorkerRenderReceiptIdentity } from '../../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+import { createWorktreeAnnotationBrowserProviderHarness } from '../../worktree-annotations/worktree-annotation-browser-test-support.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { waitForBridgeViewerCodeHeaderCollapseButton } from '../test-support/bridge-viewer-browser-dom.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
@@ -57,6 +58,7 @@ interface PendingAnimationFrame {
 }
 describe('BridgeCodeViewPanel render fulfillment', () => {
 	test('keeps Pierre-retained readable content when the same semantic item is selected without a keyed frontend copy', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('review');
 		// Pierre retains a hydrated item after its controller-facing keyed copy disappears.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
@@ -111,7 +113,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			visibleCodeViewItems: [retainedReadableItem],
 			workerPoolEnabled: false,
 		};
-		const rendered = await render(<BridgeCodeViewPanel {...panelProps} />);
+		const rendered = await render(annotationHarness.wrap(<BridgeCodeViewPanel {...panelProps} />));
 
 		try {
 			await settleBridgeCodeViewState(
@@ -123,12 +125,14 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			// Act: the same semantic item becomes selected after its keyed frontend copy was reset.
 			await act(async (): Promise<void> => {
 				await rendered.rerender(
-					<BridgeCodeViewPanel
-						{...panelProps}
-						selectedContentLoadingItemId={publicationItem.id}
-						selectedItemId={publicationItem.id}
-						visibleCodeViewItems={[]}
-					/>,
+					annotationHarness.wrap(
+						<BridgeCodeViewPanel
+							{...panelProps}
+							selectedContentLoadingItemId={publicationItem.id}
+							selectedItemId={publicationItem.id}
+							visibleCodeViewItems={[]}
+						/>,
+					),
 				);
 				await Promise.resolve();
 			});
@@ -166,14 +170,16 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			});
 			await act(async (): Promise<void> => {
 				await rendered.rerender(
-					<BridgeCodeViewPanel
-						{...panelProps}
-						projection={changedProjection}
-						reviewPackage={changedReviewPackage}
-						selectedContentLoadingItemId={publicationItem.id}
-						selectedItemId={publicationItem.id}
-						visibleCodeViewItems={[]}
-					/>,
+					annotationHarness.wrap(
+						<BridgeCodeViewPanel
+							{...panelProps}
+							projection={changedProjection}
+							reviewPackage={changedReviewPackage}
+							selectedContentLoadingItemId={publicationItem.id}
+							selectedItemId={publicationItem.id}
+							visibleCodeViewItems={[]}
+						/>,
+					),
 				);
 				await Promise.resolve();
 			});
@@ -194,6 +200,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 	});
 
 	test('adapts Review items with main versions, preserves collapse, and reuses exact painted residency', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('review');
 		// Hold Pierre's post-render callback while retaining a real CodeView and public readbacks.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const capturedPostRenderLog = createExactItemReceiptLog<
@@ -319,7 +326,7 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			visibleCodeViewItems: [firstControllerSeedItem],
 			workerPoolEnabled: false,
 		};
-		const rendered = await render(<BridgeCodeViewPanel {...panelProps} />);
+		const rendered = await render(annotationHarness.wrap(<BridgeCodeViewPanel {...panelProps} />));
 
 		try {
 			await settleBridgeCodeViewState((): boolean => {
@@ -605,7 +612,9 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 				visibleCodeViewItems: [secondPublicationItem],
 			};
 			await act(async (): Promise<void> => {
-				await rendered.rerender(<BridgeCodeViewPanel {...secondPanelProps} />);
+				await rendered.rerender(
+					annotationHarness.wrap(<BridgeCodeViewPanel {...secondPanelProps} />),
+				);
 				await Promise.resolve();
 			});
 			await settleBridgeCodeViewState((): boolean => {
@@ -673,11 +682,13 @@ describe('BridgeCodeViewPanel render fulfillment', () => {
 			expect(dispositionKinds(dispositions)).toEqual(secondPaintedKinds);
 			await act(async (): Promise<void> => {
 				await rendered.rerender(
-					<BridgeCodeViewPanel
-						{...secondPanelProps}
-						selectedCodeViewItem={retryPublicationItem}
-						visibleCodeViewItems={[retryPublicationItem]}
-					/>,
+					annotationHarness.wrap(
+						<BridgeCodeViewPanel
+							{...secondPanelProps}
+							selectedCodeViewItem={retryPublicationItem}
+							visibleCodeViewItems={[retryPublicationItem]}
+						/>,
+					),
 				);
 				await Promise.resolve();
 			});

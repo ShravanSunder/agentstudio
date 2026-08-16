@@ -1,0 +1,772 @@
+import {
+	CodeView,
+	parseDiffFromFile,
+	type CodeViewItem,
+	type CodeViewOptions,
+} from '@pierre/diffs';
+import { act, type ReactElement } from 'react';
+import { describe, expect, test } from 'vitest';
+import { render } from 'vitest-browser-react';
+
+// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load production app CSS.
+import '../app/bridge-app.css';
+import { createBridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
+import type { BridgeMainCodeViewItem } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import { BridgeFileViewerCodePanel } from '../file-viewer/bridge-file-viewer-code-panel.js';
+import type { BridgeFileViewerSelectedCodeViewItem } from '../file-viewer/bridge-file-viewer-code-view-items.js';
+import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
+import { BridgeCodeViewPanel } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import { worktreeAnnotationMetadataForPierreAnnotation } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
+import { buildBridgeReviewProjection } from '../review-viewer/navigation/review-projection.js';
+import {
+	annotationBaseThreadId,
+	annotationHeadThreadId,
+	annotationMessage,
+	annotationSessionId,
+	annotationSessionSummary,
+	RecordingAnnotationBrowserSurface,
+} from './worktree-annotation-browser-test-support.js';
+import type { WorktreeAnnotationThreadContext } from './worktree-annotation-surface-client.js';
+import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
+import { WorktreeAnnotationNewMessageComposer } from './worktree-annotation-thread.js';
+
+const headMessageId = '00000000-0000-7000-8000-000000000021';
+const baseMessageId = '00000000-0000-7000-8000-000000000022';
+
+describe('worktree annotation Pierre integration', () => {
+	test('publishes completed Review batches through updateItem without remounting or losing collapse', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review');
+		const mountedCodeViews: CodeView[] = [];
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		const updatedItems: CodeViewItem[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetup = CodeView.prototype.setup;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalUpdateItem = CodeView.prototype.updateItem;
+		CodeView.prototype.setup = function captureMountedCodeView(root: HTMLElement): void {
+			mountedCodeViews.push(this);
+			originalSetup.call(this, root);
+		};
+		CodeView.prototype.setOptions = function captureOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+		CodeView.prototype.updateItem = function captureUpdate(item: CodeViewItem): boolean {
+			updatedItems.push(item);
+			return originalUpdateItem.call(this, item);
+		};
+
+		const reviewPackage = makeBridgeReviewPackage();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { facets: [], mode: { kind: 'normalReview' } },
+		});
+		const coordinator = createBridgeMainRenderFulfillmentCoordinator({
+			sendDisposition: (): void => {},
+		});
+		const reviewCodeViewItem = makeReviewCodeViewItem();
+		try {
+			const rendered = await render(
+				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+					<BridgeCodeViewPanel
+						presentationPositionKey="annotation-browser-review"
+						projection={projection}
+						renderFulfillmentCoordinator={coordinator}
+						reviewPackage={reviewPackage}
+						selectedCodeViewItem={reviewCodeViewItem}
+						selectedItemId="item-source"
+						visibleCodeViewItems={[reviewCodeViewItem]}
+						workerPoolEnabled={false}
+					/>
+				</WorktreeAnnotationSurfaceProvider>,
+			);
+			await settleBrowserCondition(
+				(): boolean => mountedCodeViews[0]?.getItem('item-source') !== undefined,
+				'Expected one mounted Review Pierre item.',
+			);
+			const codeView = requireCodeView(mountedCodeViews[0]);
+
+			await act(async (): Promise<void> => {
+				surface.publishProjectionState({
+					recoveryStatus: 'recovered_degraded',
+					revision: 1,
+					sessions: [annotationSessionSummary({ revision: 1, sessionId: annotationSessionId })],
+				});
+				await Promise.resolve();
+			});
+			expect(
+				document.querySelector(
+					'[data-testid="bridge-code-view-panel"] [data-testid="worktree-annotation-session-surface"]',
+				),
+			).toBeNull();
+			const updatesBeforeMessages = updatedItems.length;
+			await act(async (): Promise<void> => {
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'additions',
+						endLine: 2,
+						sourceRole: 'review_head',
+						threadId: annotationHeadThreadId,
+					}),
+					message: annotationMessage({
+						messageId: headMessageId,
+						threadId: annotationHeadThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => updatedItems.length > updatesBeforeMessages,
+				'Expected a completed same-revision message batch to update Pierre.',
+			);
+			expect(codeView.getItem('item-source')?.annotations).toEqual([
+				{
+					lineNumber: 2,
+					metadata: {
+						kind: 'thread',
+						range: { end: 2, endSide: 'additions', side: 'additions', start: 2 },
+						threadId: annotationHeadThreadId,
+					},
+					side: 'additions',
+				},
+			]);
+
+			await act(async (): Promise<void> => {
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'deletions',
+						endLine: 2,
+						sourceRole: 'review_base',
+						threadId: annotationBaseThreadId,
+					}),
+					message: annotationMessage({
+						messageId: baseMessageId,
+						threadId: annotationBaseThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 2,
+				'Expected both Review threads to render in Pierre annotation slots.',
+			);
+			expect(codeView.getItem('item-source')?.annotations).toEqual([
+				{
+					lineNumber: 2,
+					metadata: {
+						kind: 'thread',
+						range: { end: 2, endSide: 'additions', side: 'additions', start: 2 },
+						threadId: annotationHeadThreadId,
+					},
+					side: 'additions',
+				},
+				{
+					lineNumber: 2,
+					metadata: {
+						kind: 'thread',
+						range: { end: 2, endSide: 'deletions', side: 'deletions', start: 2 },
+						threadId: annotationBaseThreadId,
+					},
+					side: 'deletions',
+				},
+			]);
+			expect(mountedCodeViews).toHaveLength(1);
+
+			const beforeCollapse = requireCodeViewItem(codeView.getItem('item-source'));
+			await act(async (): Promise<void> => {
+				codeView.updateItem({
+					...beforeCollapse,
+					collapsed: true,
+					version: (beforeCollapse.version ?? 0) + 1,
+				});
+				await Promise.resolve();
+				surface.publishProjection(2);
+				await Promise.resolve();
+				surface.publishThread({
+					context: annotationContext({
+						diffSide: 'additions',
+						endLine: 2,
+						sourceRole: 'review_head',
+						threadId: annotationHeadThreadId,
+					}),
+					message: annotationMessage({
+						messageId: headMessageId,
+						sessionRevision: 2,
+						threadId: annotationHeadThreadId,
+					}),
+				});
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => codeView.getItem('item-source')?.annotations?.length === 1,
+				'Expected the next annotation projection to settle.',
+			);
+			expect(codeView.getItem('item-source')?.collapsed).toBe(true);
+			expect(mountedCodeViews).toHaveLength(1);
+
+			await act(async (): Promise<void> => {
+				surface.publishProjection(3);
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => codeView.getItem('item-source')?.annotations?.length === 0,
+				'Expected the fresh projection to clear the prior thread before composer admission.',
+			);
+			const collapsedItem = requireCodeViewItem(codeView.getItem('item-source'));
+			await act(async (): Promise<void> => {
+				codeView.updateItem({
+					...collapsedItem,
+					collapsed: false,
+					version: (collapsedItem.version ?? 0) + 1,
+				});
+				await Promise.resolve();
+			});
+			const latestOptions = requireCodeViewOptions(appliedOptions.at(-1));
+			const currentItem = requireCodeViewItem(codeView.getItem('item-source'));
+			await act(async (): Promise<void> => {
+				invokeLineSelection(latestOptions, { start: 2, end: 2, side: 'additions' }, currentItem);
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					codeView
+						.getItem('item-source')
+						?.annotations?.some(
+							(annotation): boolean =>
+								worktreeAnnotationMetadataForPierreAnnotation(annotation)?.kind === 'composer',
+						) === true,
+				'Expected the Review item to receive the pending composer annotation.',
+			);
+			expect(codeView.getItem('item-source')?.collapsed).toBe(false);
+			const headComposer = rendered.getByRole('textbox', {
+				name: 'Write an annotation in Markdown',
+			});
+			await expect.element(headComposer).toBeVisible();
+			await act(async (): Promise<void> => {
+				await headComposer.fill('Head-side comment');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					surface.sentOperations.filter((operation) => operation.kind === 'root.create').length ===
+					1,
+				'Expected one Review head-side root operation.',
+			);
+			expect(
+				surface.sentOperations.find((operation) => operation.kind === 'root.create'),
+			).toMatchObject({
+				origin: { diffSide: 'additions', sourceRole: 'reviewHead' },
+			});
+			await act(async (): Promise<void> => {
+				invokeLineSelection(latestOptions, null, currentItem);
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					document.querySelector('[aria-label="Write an annotation in Markdown"]') === null,
+				'Expected clearing Pierre selection to close the root composer.',
+			);
+			await act(async (): Promise<void> => {
+				invokeLineSelection(latestOptions, { start: 2, end: 2, side: 'deletions' }, currentItem);
+				await Promise.resolve();
+			});
+			const baseComposer = rendered.getByRole('textbox', {
+				name: 'Write an annotation in Markdown',
+			});
+			await act(async (): Promise<void> => {
+				await baseComposer.fill('Base-side comment');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean =>
+					surface.sentOperations.filter((operation) => operation.kind === 'root.create').length ===
+					2,
+				'Expected one Review base-side root operation.',
+			);
+			expect(
+				surface.sentOperations.findLast((operation) => operation.kind === 'root.create'),
+			).toMatchObject({
+				origin: { diffSide: 'deletions', sourceRole: 'reviewBase' },
+			});
+		} finally {
+			CodeView.prototype.setup = originalSetup;
+			CodeView.prototype.setOptions = originalSetOptions;
+			CodeView.prototype.updateItem = originalUpdateItem;
+			coordinator.dispose();
+		}
+	});
+
+	test('opens the File root composer from Pierre selection with path and line origin', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		CodeView.prototype.setOptions = function captureOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+		const selectedCodeViewItem = makeFileItem();
+		try {
+			const rendered = await render(
+				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{
+							displayItem: null,
+							fileId: 'file-1',
+							path: 'Sources/App/View.swift',
+							status: 'ready',
+						}}
+						renderFulfillmentCoordinator={{
+							observePostRender: (): void => {},
+							reconcilePublication: (): void => {},
+						}}
+						selectedCodeViewItem={selectedCodeViewItem}
+						totalHeightPixels={null}
+					/>
+				</WorktreeAnnotationSurfaceProvider>,
+			);
+			await settleBrowserCondition(
+				(): boolean => appliedOptions.at(-1)?.onLineSelectionEnd !== undefined,
+				'Expected File Pierre selection callback.',
+			);
+			await act(async (): Promise<void> => {
+				invokeLineSelection(
+					requireCodeViewOptions(appliedOptions.at(-1)),
+					{ start: 4, end: 7 },
+					selectedCodeViewItem,
+				);
+				await Promise.resolve();
+			});
+			const textbox = rendered.getByRole('textbox', { name: 'Write an annotation in Markdown' });
+			await expect.element(textbox).toBeVisible();
+			const textareaElement = textbox.element();
+			const annotationContent = textareaElement
+				.closest<HTMLElement>('[slot]')
+				?.assignedSlot?.closest<HTMLElement>('[data-annotation-content]');
+			const conversationFrame = textareaElement.closest<HTMLElement>(
+				'[data-testid="worktree-annotation-conversation-frame"]',
+			);
+			if (
+				annotationContent === null ||
+				annotationContent === undefined ||
+				conversationFrame === null
+			) {
+				throw new Error('Expected the shared annotation frame inside Pierre annotation content.');
+			}
+			const annotationBounds = annotationContent.getBoundingClientRect();
+			const frameBounds = conversationFrame.getBoundingClientRect();
+			const textareaBounds = textareaElement.getBoundingClientRect();
+			expect(frameBounds.width).toBeLessThanOrEqual(600);
+			expect(frameBounds.left - annotationBounds.left).toBeGreaterThanOrEqual(8);
+			expect(textareaBounds.left - frameBounds.left).toBeGreaterThanOrEqual(12);
+			await act(async (): Promise<void> => {
+				await textbox.fill('File selection comment');
+				await Promise.resolve();
+			});
+			await settleBrowserCondition(
+				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'root.create'),
+				'Expected first File edit to issue root.create.',
+			);
+			const rootCreateOperation = surface.sentOperations.find(
+				(operation) => operation.kind === 'root.create',
+			);
+			if (rootCreateOperation?.kind !== 'root.create') {
+				throw new Error('Expected the File root.create operation.');
+			}
+			await act(async (): Promise<void> => {
+				surface.publishProjection(1);
+				surface.publishThread({
+					context: {
+						diffSide: null,
+						endLine: 7,
+						path: 'Sources/App/View.swift',
+						placement: 'exact',
+						resolution: 'open',
+						scope: 'located',
+						sourceIdentity: 'descriptor-file-1',
+						sourceRole: 'file',
+						startLine: 4,
+						threadId: annotationHeadThreadId,
+					},
+					message: {
+						...annotationMessage({
+							messageId: headMessageId,
+							threadId: annotationHeadThreadId,
+						}),
+						draft: {
+							activeEditToken: rootCreateOperation.editToken,
+							body: 'File selection comment',
+							revision: 1,
+						},
+						savedBody: null,
+						savedRevision: null,
+					},
+				});
+				await Promise.resolve();
+			});
+			await expect.element(textbox).toHaveValue('File selection comment');
+			expect(
+				document.querySelectorAll('[aria-label="Write an annotation in Markdown"]'),
+			).toHaveLength(1);
+			expect(
+				surface.sentOperations.find((operation) => operation.kind === 'root.create'),
+			).toMatchObject({
+				origin: {
+					endLine: 7,
+					kind: 'located',
+					path: 'Sources/App/View.swift',
+					sourceIdentity: 'descriptor-file-1',
+					sourceRole: 'file',
+					startLine: 4,
+				},
+			});
+		} finally {
+			CodeView.prototype.setOptions = originalSetOptions;
+		}
+	});
+
+	test('never rebinds a pending File composer across file or descriptor navigation', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const appliedOptions: CodeViewOptions<undefined>[] = [];
+		// oxlint-disable-next-line unbound-method -- Browser witness restores the exact prototype method.
+		const originalSetOptions = CodeView.prototype.setOptions;
+		CodeView.prototype.setOptions = function captureOptions(
+			options: CodeViewOptions<undefined> | undefined,
+		): void {
+			if (options !== undefined) appliedOptions.push(options);
+			originalSetOptions.call(this, options);
+		};
+		const fileA = makeFileItem();
+		const fileB = makeFileItem({
+			displayPath: 'Sources/App/Other.swift',
+			fileId: 'file-2',
+			sourceDescriptorId: 'descriptor-file-2',
+		});
+		const fileCWithReusedPresentationIdentity = makeFileItem({
+			sourceDescriptorId: 'descriptor-file-3',
+		});
+		const renderFilePanel = (
+			selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem,
+		): ReactElement => (
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<BridgeFileViewerCodePanel
+					codeViewWorkerPoolEnabled={false}
+					openFileState={{
+						displayItem: null,
+						fileId: selectedCodeViewItem.bridgeMetadata.itemId,
+						path: selectedCodeViewItem.bridgeMetadata.displayPath,
+						status: 'ready',
+					}}
+					renderFulfillmentCoordinator={{
+						observePostRender: (): void => {},
+						reconcilePublication: (): void => {},
+					}}
+					selectedCodeViewItem={selectedCodeViewItem}
+					totalHeightPixels={null}
+				/>
+			</WorktreeAnnotationSurfaceProvider>
+		);
+
+		try {
+			const rendered = await render(renderFilePanel(fileA));
+			await settleBrowserCondition(
+				(): boolean => appliedOptions.at(-1)?.onLineSelectionEnd !== undefined,
+				'Expected File Pierre selection callback.',
+			);
+			await act(async (): Promise<void> => {
+				invokeLineSelection(
+					requireCodeViewOptions(appliedOptions.at(-1)),
+					{ start: 4, end: 4 },
+					fileA,
+				);
+				await Promise.resolve();
+			});
+			await expect
+				.element(rendered.getByRole('textbox', { name: 'Write an annotation in Markdown' }))
+				.toBeVisible();
+
+			await act(async (): Promise<void> => {
+				await rendered.rerender(renderFilePanel(fileB));
+				await Promise.resolve();
+			});
+			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
+
+			await act(async (): Promise<void> => {
+				await rendered.rerender(renderFilePanel(fileCWithReusedPresentationIdentity));
+				await Promise.resolve();
+			});
+			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
+
+			await act(async (): Promise<void> => {
+				await rendered.rerender(renderFilePanel(fileA));
+				await Promise.resolve();
+			});
+			expect(document.querySelector('[aria-label="Write an annotation in Markdown"]')).toBeNull();
+		} finally {
+			CodeView.prototype.setOptions = originalSetOptions;
+		}
+	});
+
+	test('keeps two File threads on one line in distinct Pierre annotation rows', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<BridgeFileViewerCodePanel
+					codeViewWorkerPoolEnabled={false}
+					openFileState={{
+						displayItem: null,
+						fileId: 'file-1',
+						path: 'Sources/App/View.swift',
+						status: 'ready',
+					}}
+					renderFulfillmentCoordinator={{
+						observePostRender: (): void => {},
+						reconcilePublication: (): void => {},
+					}}
+					selectedCodeViewItem={makeFileItem()}
+					totalHeightPixels={null}
+				/>
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				revision: 4,
+				sessions: [annotationSessionSummary({ revision: 4, sessionId: annotationSessionId })],
+			});
+			for (const [index, threadId] of [annotationHeadThreadId, annotationBaseThreadId].entries()) {
+				surface.publishThread({
+					context: {
+						diffSide: null,
+						endLine: 4,
+						path: 'Sources/App/View.swift',
+						placement: 'exact',
+						resolution: 'open',
+						scope: 'located',
+						sourceIdentity: 'descriptor-file-1',
+						sourceRole: 'file',
+						startLine: index === 0 ? 3 : 4,
+						threadId,
+					},
+					message: annotationMessage({
+						messageId: index === 0 ? headMessageId : baseMessageId,
+						sessionRevision: 4,
+						threadId,
+					}),
+				});
+			}
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean =>
+				document.querySelectorAll('[data-testid="worktree-annotation-thread"]').length === 2,
+			'Expected two distinct File thread rows at the shared line.',
+		);
+		const threadFrames = Array.from(
+			document.querySelectorAll<HTMLElement>('[data-testid="worktree-annotation-thread"]'),
+		);
+		expect(threadFrames).toHaveLength(2);
+		for (const threadFrame of threadFrames) {
+			expect(threadFrame.getBoundingClientRect().width).toBeLessThanOrEqual(600);
+		}
+		const firstBounds = threadFrames[0]?.getBoundingClientRect();
+		const secondBounds = threadFrames[1]?.getBoundingClientRect();
+		if (firstBounds === undefined || secondBounds === undefined) {
+			throw new Error('Expected both File annotation frame bounds.');
+		}
+		expect(firstBounds.bottom <= secondBounds.top || secondBounds.bottom <= firstBounds.top).toBe(
+			true,
+		);
+	});
+
+	test('retains unsent composer text when native rejects the draft with a conflict', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('review', {
+			failRootCreateWithConflict: true,
+		});
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<WorktreeAnnotationNewMessageComposer
+					createOperation={(body, editToken) => ({
+						admission: { kind: 'implicitOrSingle' },
+						body,
+						editToken,
+						kind: 'root.create',
+						origin: {
+							diffSide: null,
+							endLine: 7,
+							kind: 'located',
+							path: 'Sources/App/View.swift',
+							sourceIdentity: 'descriptor-file-1',
+							sourceRole: 'file',
+							startLine: 7,
+						},
+					})}
+					onCancel={(): void => {}}
+					onSaved={(): void => {}}
+					placeholder="Conflict composer"
+				/>
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		const textbox = rendered.getByRole('textbox', { name: 'Conflict composer' });
+		await act(async (): Promise<void> => {
+			await textbox.fill('Unsent reviewer text');
+			textbox.element().blur();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		await expect.element(rendered.getByRole('alert')).toHaveTextContent('conflict');
+		await expect.element(textbox).toHaveValue('Unsent reviewer text');
+	});
+});
+
+function annotationContext(
+	props:
+		| {
+				readonly diffSide: 'deletions';
+				readonly endLine: number;
+				readonly sourceRole: 'review_base';
+				readonly threadId: string;
+		  }
+		| {
+				readonly diffSide: 'additions';
+				readonly endLine: number;
+				readonly sourceRole: 'review_head';
+				readonly threadId: string;
+		  },
+): WorktreeAnnotationThreadContext {
+	const commonContext = {
+		endLine: props.endLine,
+		path: 'Sources/App/View.swift',
+		placement: 'exact',
+		resolution: 'open',
+		scope: 'located',
+		sourceIdentity:
+			props.sourceRole === 'review_base' ? 'handle-item-source-base' : 'handle-item-source-head',
+		startLine: props.endLine,
+		threadId: props.threadId,
+	} as const;
+	return props.sourceRole === 'review_base'
+		? { ...commonContext, diffSide: props.diffSide, sourceRole: 'review_base' }
+		: { ...commonContext, diffSide: props.diffSide, sourceRole: 'review_head' };
+}
+
+function makeReviewCodeViewItem(): BridgeMainCodeViewItem {
+	const baseContents = ['let stable = 1', 'let reviewed = "before"', 'let tail = 3'].join('\n');
+	const headContents = ['let stable = 1', 'let reviewed = "after"', 'let tail = 3'].join('\n');
+	return {
+		bridgeMetadata: {
+			cacheKey: 'review-base|review-head',
+			contentRoles: ['base', 'head'],
+			contentState: 'hydrated',
+			displayPath: 'Sources/App/View.swift',
+			itemId: 'item-source',
+			lineCount: 3,
+		},
+		fileDiff: parseDiffFromFile(
+			{
+				cacheKey: 'review-base',
+				contents: baseContents,
+				name: 'Sources/App/View.swift',
+			},
+			{
+				cacheKey: 'review-head',
+				contents: headContents,
+				name: 'Sources/App/View.swift',
+			},
+		),
+		id: 'item-source',
+		type: 'diff',
+		version: 1,
+	};
+}
+
+function makeFileItem(
+	props: {
+		readonly displayPath?: string;
+		readonly fileId?: string;
+		readonly sourceDescriptorId?: string;
+	} = {},
+): BridgeFileViewerSelectedCodeViewItem {
+	const displayPath = props.displayPath ?? 'Sources/App/View.swift';
+	const fileId = props.fileId ?? 'file-1';
+	const sourceDescriptorId = props.sourceDescriptorId ?? 'descriptor-file-1';
+	return {
+		bridgeMetadata: {
+			cacheKey: `file-cache-${fileId}`,
+			contentRoles: ['file'],
+			contentState: 'hydrated',
+			displayPath,
+			itemId: fileId,
+			lineCount: 8,
+			sourceDescriptorId,
+		},
+		file: {
+			cacheKey: `file-cache-${fileId}`,
+			contents: Array.from(
+				{ length: 8 },
+				(_, index): string => `let line${index + 1} = ${index + 1}`,
+			).join('\n'),
+			lang: 'swift',
+			name: displayPath,
+		},
+		id: `file:${fileId}`,
+		type: 'file',
+		version: 1,
+	};
+}
+
+function invokeLineSelection(
+	options: CodeViewOptions<undefined>,
+	range: {
+		readonly end: number;
+		readonly endSide?: 'additions' | 'deletions';
+		readonly side?: 'additions' | 'deletions';
+		readonly start: number;
+	} | null,
+	item: Readonly<{ id: string }>,
+): void {
+	const callback = options.onLineSelectionEnd;
+	if (callback === undefined) throw new Error('Expected a Pierre line-selection callback.');
+	Reflect.apply(callback, undefined, [range, { item }]);
+}
+
+function requireCodeView(value: CodeView | undefined): CodeView {
+	if (value === undefined) throw new Error('Expected mounted Pierre CodeView.');
+	return value;
+}
+
+function requireCodeViewItem(value: CodeViewItem | undefined): CodeViewItem {
+	if (value === undefined) throw new Error('Expected current Pierre item.');
+	return value;
+}
+
+function requireCodeViewOptions(
+	value: CodeViewOptions<undefined> | undefined,
+): CodeViewOptions<undefined> {
+	if (value === undefined) throw new Error('Expected current Pierre options.');
+	return value;
+}
+
+async function settleBrowserCondition(
+	predicate: () => boolean,
+	failureMessage: string,
+	remainingFrames = 60,
+): Promise<void> {
+	await act(async (): Promise<void> => {
+		await Promise.resolve();
+		await new Promise<void>((resolve): void => {
+			requestAnimationFrame((): void => resolve());
+		});
+		await Promise.resolve();
+	});
+	if (predicate()) return;
+	if (remainingFrames <= 0) throw new Error(failureMessage);
+	await settleBrowserCondition(predicate, failureMessage, remainingFrames - 1);
+}

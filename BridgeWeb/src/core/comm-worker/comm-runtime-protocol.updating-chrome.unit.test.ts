@@ -7,6 +7,7 @@ import {
 } from './bridge-comm-worker-protocol.js';
 import { registerBridgeCommWorkerRuntimePortProtocol } from './bridge-comm-worker-runtime-protocol.js';
 import {
+	createIdleWorktreeAnnotationSubscription,
 	createRecordingBridgeCommWorkerPort,
 	flushBridgeWorkerRuntimeContinuations,
 } from './bridge-comm-worker-runtime-protocol.test-support.js';
@@ -449,6 +450,9 @@ function createPanePresentationTestTransport(props: {
 			panePresentationSink = sink;
 		},
 		subscribe: ((subscriptionKind: string): never => {
+			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+			}
 			if (subscriptionKind !== 'file.metadata') return reviewSubscription as never;
 			const subscription = fileSubscriptions[fileSubscriptionCount];
 			if (subscription === undefined) {

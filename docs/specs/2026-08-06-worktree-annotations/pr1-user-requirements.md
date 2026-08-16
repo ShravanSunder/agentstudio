@@ -7,14 +7,15 @@ Status: current Requirements authority for PR1
 PR1 establishes a durable human review loop inside the selected repository
 worktree. A reviewer creates human-authored threads on source-backed material in
 File View and Review View, preserves unfinished messages across reload and
-restart, saves intentional message versions, and hands any selected saved
-messages to the working agent through Markdown clipboard copy or versioned JSON
-file export.
+restart, explicitly saves intentional message content, and hands any selected
+saved messages to the working agent through Markdown clipboard copy or
+versioned JSON file export.
 
-Located threads appear inline beside their source in the main File or Review
-view. Whole-file and session-level threads remain in that same main review
-surface. PR1 adds no comment sidebar; a separate navigation surface may be
-considered only after the inline workflow is proven.
+PR1's customer-facing annotation surface is only located inline threads beside
+their source in the main File or Review view. It adds no whole-file or
+session-level comment UI, global review panel, persistent session chrome, or
+comment sidebar. Those surfaces may be considered only after the inline
+workflow is proven.
 
 The working agent remains an external recipient in PR1. Agent Studio does not
 deliver to, query, authorize, or accept mutations from an agent in this slice.
@@ -37,7 +38,7 @@ deliver to, query, authorize, or accept mutations from an agent in this slice.
 
 Reviews completed plans, specifications, files, and code changes in the
 worktree where an agent worked. The reviewer creates durable transformation
-requests, deliberately saves the versions that are ready, hands off a selected
+requests, deliberately saves the messages that are ready, hands off a selected
 batch, and verifies the resulting worktree changes.
 
 ### Working agent
@@ -72,31 +73,29 @@ agent completes work in a selected worktree
   → reviewer opens File View or Review View
   → reviewer creates or continues one living annotation session
   → reviewer starts inline source-backed threads and writes Markdown messages
-  → message drafts autosave; explicit Save establishes output-eligible versions
+  → message drafts autosave; explicit Save establishes output-eligible content
   → reviewer selects some or all saved messages
   → reviewer copies Markdown or exports versioned JSON
       → Copy shows a short confirmation and closes the copy interaction
       → copied threads remain open
   → agent changes the worktree through the existing interaction
   → reviewer returns to the same living session
-  → reviewer resolves, continues, or finishes the review
+  → reviewer resolves or continues inline threads
 ```
 
 ```text
 main File / Review surface
 
   source line or range
-       +-- add comment control
+       +-- select range → highlighted range + endpoint add control
        `-- inline thread
-             root human message
-             reply 1
-             reply 2 draft
-             [Save] [Revert] [Reply] [Resolve thread]
+             one message  → show that message directly
+             two or more → show one compact thread summary
+                             → expand to the complete flat thread
+             [Save] [Revert] [Reply] [Resolve whole thread]
 
-  whole-file request ---- shown at file level in this surface
-  general request ------- shown at session level in this surface
-
-  no PR1 comment sidebar
+  no PR1 global-review panel, whole-file comments, session comment chrome,
+  or comment sidebar
 ```
 
 ```text
@@ -124,8 +123,7 @@ PR1 human boundary
   of review work; panes, viewer instances, workspaces, and ordinary worktree
   changes must not fragment it.
 - Evidence: owner confirmation on 2026-08-14; worktree ownership confirmed by
-  the owner on 2026-08-15
-  ([decisions record D2](./pr1-owner-decisions-2026-08-15.md)).
+  the owner on 2026-08-15.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
@@ -133,9 +131,16 @@ PR1 human boundary
 ### P1-U2 — Preserve unfinished message work
 
 - Affected class: human reviewer.
-- Need: A non-empty message draft survives focus changes, view replacement,
-  pane recreation, leaving Zoom, and Agent Studio restart without requiring an
-  explicit Save.
+- Need: An untouched or whitespace-only composer is ephemeral and disappears
+  on focus loss, Escape, or abandoned selection. From the first non-whitespace
+  edit, a message draft survives focus changes, view replacement, pane
+  recreation, leaving Zoom, and Agent Studio restart without requiring an
+  explicit Save. Focus loss flushes the draft immediately; Escape or starting
+  another range flushes and collapses a non-empty draft. Clearing a never-saved
+  message back to empty removes that unsaved message when the change is flushed.
+  Clearing an existing saved message creates a durable empty working draft so
+  the edit is not lost; Save remains unavailable until the body is valid, while
+  Revert restores the saved body.
 - Why: Draft text is human work product and must not be lost merely because the
   review surface or process lifecycle changes.
 - Evidence: owner confirmation on 2026-08-14.
@@ -147,9 +152,11 @@ PR1 human boundary
 ### P1-U3 — Keep message autosave separate from intentional Save
 
 - Affected class: human reviewer.
-- Need: Autosave protects a working message draft, while explicit Save
-  establishes a new intentional message version. Revert restores the last saved
-  version or removes an unsaved new message draft.
+- Need: Autosave protects one optional working draft, while explicit Save
+  replaces the message's one current saved body and clears that draft. Revert
+  clears the draft to restore the current saved body, or removes an unsaved new
+  message draft. A message does not retain a pre-output history of saved bodies.
+  Command+Enter invokes Save; Enter and Shift+Enter insert a newline.
 - Why: Crash protection must not silently declare incomplete writing eligible
   for output.
 - Evidence: owner confirmation on 2026-08-14.
@@ -175,20 +182,20 @@ PR1 human boundary
 ### P1-U5 — Anchor threads to model-usable source context
 
 - Affected classes: human reviewer and working agent.
-- Need: PR1 supports source-line/range threads, whole-file threads, and
-  session-level general threads. Located and whole-file threads identify
-  a repository-relative path; located threads additionally identify source
-  lines and the applicable old or new diff side. Located selections are made
-  in the source or diff line presentation; Markdown files remain annotatable
-  in that presentation. Located threads appear inline beside
-  their source in the main view; whole-file and session-level threads remain
-  available from that same surface without a sidebar.
-- Why: The reviewer needs precise requests, file-wide requests, and general
-  review requests. Every scope must make sense to the working model without
-  relying on pane, DOM, SVG, or machine-local path identity.
+- Need: PR1 supports only located source-line/range threads. Each thread
+  identifies a repository-relative path, source lines, and the applicable old
+  or new diff side. A dragged range remains highlighted but does not open a
+  composer until the reviewer clicks its endpoint `+`; selecting another range,
+  clicking outside, or pressing Escape clears the pending range. A single-line
+  gutter `+` opens its composer directly. Located selections are made in the
+  source or diff line presentation; Markdown files remain annotatable there.
+  Located threads appear inline beside their source in the main view.
+- Why: The reviewer needs precise requests that remain useful to the working
+  model without relying on pane, DOM, SVG, or machine-local path identity, and
+  range selection must provide feedback before it commits the reviewer to a
+  comment.
 - Evidence: owner confirmation on 2026-08-14; rendered-preview anchoring
-  deferral confirmed on 2026-08-15
-  ([decisions record D7](./pr1-owner-decisions-2026-08-15.md)).
+  deferral confirmed on 2026-08-15.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: non-text-region, DOM-node, and Mermaid-node annotations are
@@ -201,7 +208,10 @@ PR1 human boundary
 
 - Affected classes: human reviewer and working agent.
 - Need: Every thread keeps immutable creation evidence and separately shows
-  whether its current placement is exact, relocated, outdated, or unavailable.
+  whether its current placement is exact, relocated, outdated, or unavailable
+  whenever that located thread is presented or exported. PR1 preserves but does
+  not invent a global fallback panel for a thread that has no renderable inline
+  location.
 - Why: A living worktree changes after external handoff; source drift must
   neither erase the request nor present uncertain locations as current truth.
 - Evidence: owner-confirmed continuity model on 2026-08-14 and advisory PR1
@@ -230,16 +240,17 @@ PR1 human boundary
 - Need: A session’s living/completed lifecycle, source applicability, each
   thread’s placement, and each thread’s open/resolved state remain independent.
   Resolution belongs to the whole thread, not individual messages. Only an
-  explicit human action resolves or reopens a thread, or finishes or reopens a
-  session.
+  explicit human action resolves or reopens a thread. PR1 preserves session
+  lifecycle as durable model state but adds no customer-facing finish/reopen
+  chrome.
 - Why: Detached is not completed, copied is not resolved, and outdated is not
   detached.
 - Evidence: owner confirmation on 2026-08-14, carrying forward the advisory PR1
   distinction.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
-- Hypothesis state: reopening a completed session is admitted only through an
-  explicit human action; no automatic event reopens it.
+- Hypothesis state: completed-session management is outside PR1's visible UI;
+  no automatic event changes lifecycle.
 
 ```text
 One session                Each thread
@@ -258,7 +269,7 @@ placement.
 
 ```text
 Copy selected messages
-        +-- locks only those message identities
+        +-- changes only included editable messages to locked
         +-- leaves every containing thread open
         `-- never means the requested work was addressed
 
@@ -269,11 +280,11 @@ Resolve whole thread
 ### P1-U9 — Produce any selected saved-message output batch
 
 - Affected classes: human reviewer and working agent.
-- Need: The reviewer can select some or all saved message versions and
-  produce one deterministic, model-readable batch without including unsaved
-  message drafts.
+- Need: The reviewer can select some or all editable messages that have a saved
+  body and no working draft, and produce one deterministic, model-readable
+  batch. A message with an unsaved draft must be Saved or Reverted first.
 - Why: Review may proceed in partial rounds, while explicit Save remains the
-  readiness boundary.
+  output boundary.
 - Evidence: owner confirmation on 2026-08-14 and the established partial-output
   workflow.
 - Authority: authorized.
@@ -283,15 +294,13 @@ Resolve whole thread
 ### P1-U10 — Copy a path- and line-oriented Markdown packet
 
 - Affected classes: human reviewer and working agent.
-- Need: Clipboard copy presents session-level threads first, then groups file
-  threads by repository-relative path and source order. Located entries contain
+- Need: Clipboard copy groups located threads by repository-relative path and
+  source order. Entries contain
   a trustworthy current or explicit original line reference, numbered source
   excerpt, diff side when applicable, placement status, and adjacent Markdown
-  thread message. Whole-file and session-level entries identify their
-  broader scope explicitly rather than inventing a line number. The packet owns
-  one H1, plain field labels, horizontal-rule separators, and adaptive fenced
-  source excerpts. Authored message bodies remain untouched Markdown and may
-  use H2 through H6.
+  thread message. The packet owns one H1, plain field labels, horizontal-rule
+  separators, and adaptive fenced source excerpts. Authored message bodies
+  remain untouched Markdown and may use H2 through H6.
 - Why: The pasted packet must make sense to a model without hidden UI context.
 - Evidence: owner confirmation on 2026-08-14.
 - Authority: authorized.
@@ -303,8 +312,8 @@ Resolve whole thread
 - Affected classes: human reviewer and working agent.
 - Need: File export writes a versioned, lossless JSON representation of the same
   selected message-batch semantics used by clipboard Markdown.
-- Why: A file output must preserve identities, versions, source evidence,
-  ordering, and request bodies without parsing prose.
+- Why: A file output must preserve identities, exact snapshotted content,
+  source evidence, ordering, and request bodies without parsing prose.
 - Evidence: owner selection of structured file export on 2026-08-14.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
@@ -314,7 +323,7 @@ Resolve whole thread
 
 - Affected class: human reviewer.
 - Need: A successful copy or export preserves an immutable ordered snapshot of
-  the exact message versions and thread source context used for that action.
+  the exact saved message bodies and thread source context used for that action.
   Every included message becomes immutable; clarification or correction is a new
   human reply. Later work does not rewrite the historical batch. Normal Copy
   success shows a concise copied confirmation, closes the copy interaction, and
@@ -348,20 +357,20 @@ thread state remains open until explicit Resolve
 ### P1-U13 — Discover and resume applicable sessions predictably
 
 - Affected class: human reviewer.
-- Need: File View and Review View expose the active session and an obvious
-  create-or-continue action. Discovery exposes living applicable, living
-  uncertain, living detached, and completed sessions distinctly. With zero
-  applicable sessions, the reviewer's first annotation creates the session in
-  the same motion — no separate creation ceremony — while other sessions
-  remain inspectable; one applicable session offers continuation; several
-  applicable sessions require an explicit choice. Uncertain sessions remain discoverable
-  so the reviewer can decide continuity, and completed sessions remain
-  discoverable so the reviewer can explicitly reopen them.
+- Need: Inline comment admission resolves the applicable session predictably
+  without persistent session chrome. With no living applicable session and no
+  relevant uncertain candidate, the first non-whitespace annotation edit
+  creates a session and root draft in the same motion. With one applicable
+  session, admission continues it; with several, admission pauses for explicit
+  disambiguation rather than inferring from recency. Any relevant uncertain
+  candidate invokes P1-U7's human choice and MUST NOT be bypassed by the
+  zero-applicable creation rule. Detached and completed sessions remain durable
+  and distinguishable in the data model for later management surfaces.
 - Why: Session identity must never be inferred silently from pane recency or
-  path coincidence.
+  path coincidence, and inline-comment PR1 must not grow a session-management
+  interface.
 - Evidence: owner-directed efficiency boundary plus the advisory PR1 session
-  requirement; implicit first-annotation creation confirmed on 2026-08-15
-  ([decisions record D5](./pr1-owner-decisions-2026-08-15.md)).
+  requirement; implicit first-annotation creation confirmed on 2026-08-15.
 - Authority: authorized.
 - Priority: must, assigned by the Agent Studio owner.
 - Hypothesis state: none.
@@ -372,7 +381,11 @@ thread state remains open until explicit Resolve
 - Need: Creating an annotation creates a thread with one root human message.
   Every root message and reply belongs to that thread and may receive a later
   human reply. Replies form one flat chronological sequence; they do not nest.
-  PR1 has no standalone comments and no agent-authored messages.
+  A one-message thread shows its only message directly. A thread with two or
+  more messages shows one compact thread summary instead of showing its root
+  message in the collapsed state; expanding it reveals every message in the
+  same flat chronological sequence. The summary is presentation, not another
+  message. PR1 has no standalone comments and no agent-authored messages.
 - Why: Once output has exposed a message, its content must remain stable while
   later clarification remains possible without erasing history. A flat thread
   remains readable in both the product and its external outputs.
@@ -390,7 +403,8 @@ thread state remains open until explicit Resolve
   filters, the currently pinned `@pierre/diffs` 1.2.10 source presentation and
   annotation affordances, safe rich Markdown rendering, and native
   clipboard/file effects.
-- Missing capabilities: durable sessions, autosaved drafts and saved versions,
+- Missing capabilities: durable sessions, optional autosaved drafts and current
+  saved message bodies,
   source-backed human threads shared across both viewers, explicit lifecycle and
   continuity, partial/all selection, deterministic Markdown copy, versioned
   JSON export, and immutable output history.
@@ -407,8 +421,10 @@ thread state remains open until explicit Resolve
   deferred to PR2 with its semantics already decided (open threads, whole
   thread only; resolved threads never). Rendered-Markdown preview selection
   anchoring and a batch save-all-drafts affordance are outside PR1. A comment
-  sidebar (the planned follow-up PR for thread navigation) and a Pierre
-  dependency upgrade are also outside PR1; each requires separate work.
+  sidebar (the planned follow-up PR for thread navigation), whole-file or
+  session-level comment UI, a global review panel, persistent session chrome,
+  session finish/reopen management, and a Pierre dependency upgrade are also
+  outside PR1; each requires separate work.
 - Complexity limit: extend existing owners. A new delivery system, provider
   control plane, collaboration platform, security system, separate physical
   Bridge transport, or exactly-once machinery requires renewed owner approval.
@@ -423,7 +439,8 @@ thread state remains open until explicit Resolve
 session identity
   one living worktree review round across File View and Review View
   owned by the worktree lineage; workspaces never partition a round
-  first annotation creates the session when none applies
+  first non-whitespace annotation edit creates the session when none applies
+  and no relevant uncertain candidate requires human choice
 
 durability
   annotation history fails closed on storage corruption
@@ -435,20 +452,29 @@ continuity
   different lineage → detach without completing the session
 
 draft durability
-  first non-empty edit creates a durable draft
+  empty focus loss/Escape/abandonment creates nothing
+  first non-whitespace edit creates a durable draft
   focused typing uses 1-second debounce with 5-second maximum wait
-  focus loss and explicit Save flush immediately
+  focus loss, Escape/new range, and explicit Save flush immediately
 
-message readiness
-  autosave protects draft work
-  Save creates an output-eligible message version
-  Revert restores the last saved version or removes a new message draft
+message content
+  savedBody absent + draft present   → new unsaved message
+  savedBody present + draft absent   → saved and output-eligible
+  savedBody present + draft present  → unsaved edits; Save or Revert first
+  Save replaces the one current saved body and clears the draft
+  Revert clears the draft or removes a never-saved message
+
+message status
+  editable | locked
+  prepared output may temporarily block writes without adding a third status
 
 thread history
   every annotation is a thread with a human root message
   replies form one flat chronological sequence
+  one message is shown directly; two or more collapse to a thread summary
+  expanding the summary shows every message; the summary is not a message
   resolution applies to the whole thread
-  successful output locks each included message
+  successful or crash-unknown output changes each included message to locked
   later clarification is a new human reply
 
 message size
@@ -462,8 +488,9 @@ output
 
 main-view presentation
   located threads → inline beside source
-  whole-file and session threads → same main review surface
-  no PR1 comment sidebar; finish warning shows an open-thread count
+  pending range → Pierre highlight; composer only after endpoint +
+  single line → gutter + opens composer directly
+  no PR1 global-review panel, whole-file/session comments, or sidebar
   located anchoring uses source/diff line presentation only in PR1
 ```
 

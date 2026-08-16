@@ -145,6 +145,9 @@ function bridgeWorkerCommandMatchesSurface(
 	surface: BridgeWorkerRpcClientSurface,
 ): boolean {
 	switch (command.command) {
+		case 'annotationCommand':
+		case 'annotationOutputInspect':
+			return command.surface === surface;
 		case 'fileDisplayResync':
 		case 'fileQueryUpdate':
 			return surface === 'fileView';
@@ -210,6 +213,10 @@ function bridgeWorkerMessageMatchesSurface(
 	surface: BridgeWorkerRpcClientSurface,
 ): boolean {
 	switch (message.kind) {
+		case 'annotationCommandAccepted':
+		case 'annotationOutputInspection':
+		case 'annotationProjection':
+			return message.surface === surface;
 		case 'health':
 			return true;
 		case 'nativeSurfaceSelectionRequest':
@@ -240,6 +247,8 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 	readonly surface: BridgeWorkerRpcClientSurface;
 }): void {
 	if (
+		props.message.kind !== 'annotationCommandAccepted' &&
+		props.message.kind !== 'annotationOutputInspection' &&
 		props.message.kind !== 'health' &&
 		props.message.kind !== 'subscription' &&
 		props.message.kind !== 'reviewComparisonTargetsQuery'
@@ -251,10 +260,15 @@ function settleBridgeWorkerRpcLifecycleFromMessage(props: {
 	if (request?.state !== 'pending' || request.surface !== props.surface) return;
 	props.clearRequestTimeout(requestId);
 	if (
+		props.message.kind === 'annotationCommandAccepted' ||
 		(props.message.kind === 'health' && props.message.status === 'degraded') ||
 		(props.message.kind === 'subscription' && props.message.status === 'rejected') ||
 		(props.message.kind === 'reviewComparisonTargetsQuery' && props.message.status === 'failed')
 	) {
+		if (props.message.kind === 'annotationCommandAccepted') {
+			props.lifecycleStore.ackRequest({ acknowledgedAtSequence: 0, requestId });
+			return;
+		}
 		props.lifecycleStore.failRequest({
 			reason:
 				props.message.kind === 'health'

@@ -7,12 +7,20 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 
-export type BridgeCommWorkerIntentEpochDomain = 'fileView' | 'pane' | 'review';
+export type BridgeCommWorkerIntentEpochDomain =
+	| 'fileAnnotation'
+	| 'fileView'
+	| 'pane'
+	| 'review'
+	| 'reviewAnnotation';
 
 export function bridgeCommWorkerIntentEpochDomain(
 	message: BridgeWorkerMainToServerMessage,
 ): BridgeCommWorkerIntentEpochDomain {
 	switch (message.command) {
+		case 'annotationCommand':
+		case 'annotationOutputInspect':
+			return message.surface === 'fileView' ? 'fileAnnotation' : 'reviewAnnotation';
 		case 'hover':
 		case 'select':
 		case 'viewport':

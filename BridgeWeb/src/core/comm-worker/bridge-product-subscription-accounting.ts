@@ -4,6 +4,9 @@ export function bridgeProductSubscriptionInterestDeltaItemCount(
 	delta: BridgeProductSubscriptionInterestDeltaWire,
 ): number {
 	switch (delta.subscriptionKind) {
+		case 'file.annotations':
+		case 'review.annotations':
+			return 0;
 		case 'file.metadata':
 			return (
 				delta.add.length +

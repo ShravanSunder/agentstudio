@@ -44,6 +44,9 @@ struct BridgeProductSessionDependencyInput {
     let state: BridgePaneState
     let gitReadContext: BridgeGitReadContext?
     let worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator?
+    let worktreeAnnotationStore: WorktreeAnnotationStore?
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator?
+    let originatingWorkspaceID: String?
     let reviewContentLoaderCache: BridgeReviewContentLoaderCache
     let reviewPublicationCoordinator: BridgeReviewPublicationCoordinator
     let refreshWorkAdmissionSource: BridgePaneRefreshWorkAdmissionSource
@@ -102,7 +105,8 @@ final class BridgePaneProductCommittedCallTarget {
         let sourceProtocol: BridgeActiveViewerSourceProtocol
         let update: BridgeProductActiveViewerModeUpdateRequest
         switch call {
-        case .fileSourceCurrent:
+        case .fileAnnotationsCommand, .fileAnnotationsOutputInspect,
+            .reviewAnnotationsCommand, .reviewAnnotationsOutputInspect, .fileSourceCurrent:
             return
         case .fileActiveViewerModeUpdate(let request):
             mode = .file
@@ -513,24 +517,13 @@ extension BridgePaneController {
             } else {
                 BridgeUnavailablePaneProductFileMetadataSource()
             }
-        let reviewContentSource = BridgePaneProductReviewContentSource(
-            loaderCache: input.reviewContentLoaderCache,
-            acquireContentLease: { descriptor, productAdmission in
-                input.reviewPublicationCoordinator.acquireContentLease(
-                    handleId: descriptor.descriptorId,
-                    packageId: descriptor.packageId,
-                    requestedGeneration: BridgeReviewGeneration(
-                        descriptor.reviewGeneration
-                    ),
-                    sourceIdentity: descriptor.sourceIdentity,
-                    productAdmission: productAdmission
-                )
-            },
-            settleContentLease: { lease in
-                input.reviewPublicationCoordinator.settleContentLease(lease)
-            }
-        )
+        let reviewContentSource = makeProductReviewContentSource(input)
+        let annotationSource = makeWorktreeAnnotationSource(input)
         let provider = BridgePaneProductSchemeProvider(
+            annotationSource: annotationSource,
+            annotationOutputSource: BridgePaneProductWorktreeAnnotationOutputSource(
+                store: input.worktreeAnnotationStore
+            ),
             fileMetadataSource: fileMetadataSource,
             reviewMetadataSource: BridgePaneProductReviewMetadataSource(),
             reviewContentSource: reviewContentSource,
@@ -570,6 +563,10 @@ extension BridgePaneController {
                 )
             },
             applyReviewComparisonUpdate: committedCallTarget.applyReviewComparisonUpdate,
+            applyWorktreeAnnotationCommand: makeWorktreeAnnotationCommandHandler(
+                input,
+                fileMetadataSource: fileMetadataSource
+            ),
             queryReviewComparisonTargets: makeReviewComparisonTargetsQuery(input),
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
@@ -595,6 +592,97 @@ extension BridgePaneController {
             committedCallTarget: committedCallTarget,
             productProvider: provider
         )
+    }
+
+    private static func makeProductReviewContentSource(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> BridgePaneProductReviewContentSource {
+        BridgePaneProductReviewContentSource(
+            loaderCache: input.reviewContentLoaderCache,
+            acquireContentLease: { descriptor, productAdmission in
+                input.reviewPublicationCoordinator.acquireContentLease(
+                    handleId: descriptor.descriptorId,
+                    packageId: descriptor.packageId,
+                    requestedGeneration: BridgeReviewGeneration(
+                        descriptor.reviewGeneration
+                    ),
+                    sourceIdentity: descriptor.sourceIdentity,
+                    productAdmission: productAdmission
+                )
+            },
+            settleContentLease: { lease in
+                input.reviewPublicationCoordinator.settleContentLease(lease)
+            }
+        )
+    }
+
+    private static func makeWorktreeAnnotationSource(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> BridgePaneProductWorktreeAnnotationSource {
+        guard let projection = input.worktreeAnnotationStore?.projection,
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else { return .unavailable }
+        return BridgePaneProductWorktreeAnnotationSource(
+            projection: projection,
+            contextID: input.paneSessionId,
+            worktreeID: worktreeID
+        )
+    }
+
+    private static func makeWorktreeAnnotationCommandHandler(
+        _ input: BridgeProductSessionDependencyInput,
+        fileMetadataSource: any BridgePaneProductFileMetadataProducing
+    )
+        -> @MainActor @Sendable (
+            BridgeProductWorktreeAnnotationCommandRequest,
+            BridgeProductSurface,
+            BridgeProductControlCorrelation,
+            BridgeProductAdmissionContext
+        ) async -> Void
+    {
+        guard let store = input.worktreeAnnotationStore,
+            let repositoryID = input.runtime.metadata.repoId?.uuidString.lowercased(),
+            let worktreeID = input.runtime.metadata.worktreeId?.uuidString.lowercased()
+        else {
+            let unavailableStore = input.worktreeAnnotationStore
+            return { _, surface, correlation, _ in
+                unavailableStore?.projection.publish(
+                    commandOutcome: .init(
+                        requestID: correlation.requestId,
+                        surface: surface,
+                        sessionID: nil,
+                        status: .failed(.unavailable)
+                    )
+                )
+            }
+        }
+        let sourceResolver = WorktreeAnnotationSourceCapture.resolver(
+            fileMetadataSource: fileMetadataSource,
+            reviewPublicationCoordinator: input.reviewPublicationCoordinator,
+            reviewContentLoaderCache: input.reviewContentLoaderCache
+        )
+        let adapter = WorktreeAnnotationTransportAdapter(
+            store: store,
+            contextID: input.paneSessionId,
+            repositoryID: repositoryID,
+            worktreeID: worktreeID,
+            originatingWorkspaceID: input.originatingWorkspaceID,
+            sourceResolver: sourceResolver,
+            outputCoordinator: input.worktreeAnnotationOutputCoordinator,
+            outputLabels: .init(
+                sessionLabel: "Current review",
+                worktreeLabel: input.runtime.metadata.worktreeName ?? "Worktree",
+                comparisonLabel: nil
+            )
+        )
+        return { request, surface, correlation, productAdmission in
+            await adapter.apply(
+                request,
+                surface: surface,
+                correlation: correlation,
+                productAdmission: productAdmission
+            )
+        }
     }
 
     private static func makeReviewComparisonTargetsQuery(

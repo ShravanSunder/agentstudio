@@ -112,6 +112,9 @@ package final class BridgePaneController {
         reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
         gitReadContext: BridgeGitReadContext? = nil,
         worktreeProductConstructionCoordinator: BridgeWorktreeProductConstructionCoordinator? = nil,
+        worktreeAnnotationStore: WorktreeAnnotationStore? = nil,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator? = nil,
+        originatingWorkspaceID: String? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy = .live,
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
@@ -175,6 +178,9 @@ package final class BridgePaneController {
                     state: state,
                     gitReadContext: gitReadContext,
                     worktreeProductConstructionCoordinator: worktreeProductConstructionCoordinator,
+                    worktreeAnnotationStore: worktreeAnnotationStore,
+                    worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
+                    originatingWorkspaceID: originatingWorkspaceID,
                     reviewContentLoaderCache: resolvedReviewContentLoaderCache,
                     reviewPublicationCoordinator: resolvedReviewPublicationCoordinator,
                     refreshWorkAdmissionSource: resolvedRefreshAdmissionCoordinator.workAdmissionSource,
@@ -186,9 +192,7 @@ package final class BridgePaneController {
             )
         self.productSessionOwner = resolvedProductSessionDependencies.owner
         self.productSchemeProvider = resolvedProductSessionDependencies.productProvider
-        let initialManagementScript = WebInteractionManagementScript.makeUserScript(
-            blockInteraction: atom(\.managementLayer).isActive
-        )
+        let initialManagementScript = Self.makeInitialManagementScript()
         self.managementScript = initialManagementScript
         self.isContentInteractionEnabled = !atom(\.managementLayer).isActive
 
@@ -237,9 +241,22 @@ package final class BridgePaneController {
             dialogPresenter: WebviewDialogHandler()
         )
 
+        finishRuntimeSetup(readyMessageHandler, resolvedProductSessionDependencies.committedCallTarget)
+    }
+
+    private static func makeInitialManagementScript() -> WKUserScript {
+        WebInteractionManagementScript.makeUserScript(
+            blockInteraction: atom(\.managementLayer).isActive
+        )
+    }
+
+    private func finishRuntimeSetup(
+        _ readyMessageHandler: BridgeReadyMessageHandler,
+        _ committedCallTarget: BridgePaneProductCommittedCallTarget?
+    ) {
         configureReadyMessageHandler(readyMessageHandler)
         configureRuntimeCallbacks()
-        resolvedProductSessionDependencies.committedCallTarget?.controller = self
+        committedCallTarget?.controller = self
     }
 
     private static func makeReviewDependencies(

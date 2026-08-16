@@ -55,6 +55,8 @@ actor BridgePaneProductContentDemandAuthority {
     ) async -> BridgeContentDemandInterest {
         let highestLane: BridgeProductDemandLane?
         switch request {
+        case .annotationOutput:
+            return .selected
         case .fileContent(let fileRequest):
             guard
                 let path = await fileMetadataSource.authoritativePath(

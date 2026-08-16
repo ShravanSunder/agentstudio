@@ -28,6 +28,7 @@ package actor WorkspaceSQLiteDatastore {
     private var applicationLocalRepositoryBundle: ApplicationLocalRepositoryBundle?
     private let configuration: WorkspaceSQLiteDatastoreConfiguration?
     private let beforeFreshLocalDatabaseCreation: (@Sendable () throws -> Void)?
+    private let localDatabaseReplacementObserver: WorkspaceLocalDatabaseReplacementObserver?
     private let probe: (@Sendable (ProbeEvent) async -> Void)?
     private let traceRecorder: WorkspaceSQLiteTraceRecorder
 
@@ -40,12 +41,14 @@ package actor WorkspaceSQLiteDatastore {
         configuration: WorkspaceSQLiteDatastoreConfiguration,
         traceRuntime: AgentStudioTraceRuntime? = nil,
         beforeFreshLocalDatabaseCreation: (@Sendable () throws -> Void)? = nil,
+        localDatabaseReplacementObserver: WorkspaceLocalDatabaseReplacementObserver? = nil,
         probe: (@Sendable (ProbeEvent) async -> Void)? = nil
     ) {
         self.backend = nil
         self.applicationLocalRepositoryBundle = nil
         self.configuration = configuration
         self.beforeFreshLocalDatabaseCreation = beforeFreshLocalDatabaseCreation
+        self.localDatabaseReplacementObserver = localDatabaseReplacementObserver
         self.probe = probe
         self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
         self.databasePreparationState = .unprepared
@@ -80,6 +83,7 @@ package actor WorkspaceSQLiteDatastore {
             ApplicationLocalRepositoryBundle.init(applicationRepository:)
         )
         self.beforeFreshLocalDatabaseCreation = nil
+        self.localDatabaseReplacementObserver = nil
         self.probe = probe
         self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
         self.databasePreparationState = .prepared(preparationReceipt)
@@ -820,8 +824,10 @@ extension WorkspaceSQLiteDatastore {
         configuration: WorkspaceSQLiteDatastoreConfiguration,
         reason: LocalDatabaseRecoveryReason
     ) -> PreparedLocalDatabaseOutcome {
+        let recoveredAt = Date()
         let quarantine = SQLiteSidecarQuarantine.quarantine(
-            databaseURL: configuration.localDatabaseURL
+            databaseURL: configuration.localDatabaseURL,
+            date: recoveredAt
         )
         guard quarantine.succeeded else {
             return localUnavailableOutcome(
@@ -840,6 +846,14 @@ extension WorkspaceSQLiteDatastore {
             let repository = try Self.openConfiguredLocalRepository(
                 workspaceId: Self.applicationLocalRepositoryScopeId,
                 configuration: configuration
+            )
+            try localDatabaseReplacementObserver?(
+                repository,
+                WorkspaceLocalDatabaseReplacement(
+                    quarantinedFilenames: quarantine.quarantinedFilenames,
+                    reason: reason == .corruptDatabase ? "corrupt_database" : "incomplete_file_set",
+                    recoveredAt: recoveredAt
+                )
             )
             applicationLocalRepositoryBundle = .init(applicationRepository: repository)
             return .init(

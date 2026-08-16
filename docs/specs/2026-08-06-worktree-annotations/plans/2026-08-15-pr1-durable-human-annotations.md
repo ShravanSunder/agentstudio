@@ -1,6 +1,12 @@
 # PR1 Durable Human Annotations — Implementation Plan
 
-Planning result: `ready`
+Planning result: `stale — do not execute`
+
+This plan predates the 2026-08-16 inline-comments-only correction. Its
+whole-file/session comment UI, session-management chrome, and former component
+anatomy are no longer authorized by the current Requirements, Specification,
+or Program Design. Replan from those three artifacts before further PR1 UI
+implementation.
 
 ## Governing planning basis
 
@@ -11,8 +17,6 @@ Planning result: `ready`
   [`../pr1-specification.md`](../pr1-specification.md)
 - Program Design:
   [`../pr1-program-design.md`](../pr1-program-design.md)
-- Owner decisions:
-  [`../pr1-owner-decisions-2026-08-15.md`](../pr1-owner-decisions-2026-08-15.md)
 - Independent review invocation:
   `pr1-three-artifact-review-a5de3efe0-2026-08-15`
 - Independent review result:

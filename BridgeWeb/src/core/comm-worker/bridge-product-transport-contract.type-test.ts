@@ -138,6 +138,8 @@ void syntheticCrossWiredIdentity;
 void syntheticCrossWiredTerminal;
 
 const surfaceByCallKind = {
+	'file.annotations.command': 'file',
+	'file.annotations.output.inspect': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
@@ -146,16 +148,21 @@ const surfaceByCallKind = {
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
+	'review.annotations.command': 'review',
+	'review.annotations.output.inspect': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
 const surfaceBySubscriptionKind = {
+	'file.annotations': 'file',
 	'file.metadata': 'file',
+	'review.annotations': 'review',
 	'review.metadata': 'review',
 } as const satisfies {
 	readonly [TSubscriptionKind in BridgeProductSubscriptionKind]: BridgeProductSubscriptionRegistry[TSubscriptionKind]['surface'];
 };
 const surfaceByContentKind = {
+	'annotation.output': 'file',
 	'file.content': 'file',
 	'review.content': 'review',
 	'review.comparisonTargets': 'review',
@@ -334,8 +341,10 @@ void unionSubscription.update(fileSubscriptionUpdate);
 
 if (unionSubscription.subscriptionKind === 'review.metadata') {
 	void unionSubscription.update(reviewSubscriptionUpdate);
-} else {
+} else if (unionSubscription.subscriptionKind === 'file.metadata') {
 	void unionSubscription.update(fileSubscriptionUpdate);
+} else {
+	void unionSubscription.update({});
 }
 
 declare const fileMetadataEvent: BridgeProductSubscriptionEvent<'file.metadata'>;

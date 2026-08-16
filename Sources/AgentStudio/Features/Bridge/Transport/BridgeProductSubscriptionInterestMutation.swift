@@ -38,6 +38,8 @@ enum BridgeProductSubscriptionInterestMutation {
         in delta: BridgeProductSubscriptionInterestDelta
     ) -> Set<BridgeProductSubscriptionDeltaMemberIdentity> {
         switch delta {
+        case .fileAnnotations, .reviewAnnotations:
+            return []
         case .reviewMetadata(let reviewDelta):
             return Set(
                 reviewDelta.add.map {
@@ -89,6 +91,12 @@ enum BridgeProductSubscriptionInterestMutation {
         subscriptionKind: BridgeProductSubscriptionKind
     ) throws -> BridgeProductSubscriptionInterestState {
         switch (state, subscriptionKind) {
+        case (.fileAnnotations, .fileAnnotations):
+            guard deltas.allSatisfy({ $0.subscriptionKind == .fileAnnotations }) else {
+                throw BridgeProductSubscriptionStateError.subscriptionKindMismatch
+            }
+            return .fileAnnotations
+
         case (.reviewMetadata(let groups), .reviewMetadata):
             var members = interestMembers(from: groups)
             for delta in deltas {
@@ -143,6 +151,12 @@ enum BridgeProductSubscriptionInterestMutation {
                 interests: try fileGroups(from: members),
                 pathScope: orderedPathScope
             )
+
+        case (.reviewAnnotations, .reviewAnnotations):
+            guard deltas.allSatisfy({ $0.subscriptionKind == .reviewAnnotations }) else {
+                throw BridgeProductSubscriptionStateError.subscriptionKindMismatch
+            }
+            return .reviewAnnotations
 
         default:
             throw BridgeProductSubscriptionStateError.subscriptionKindMismatch

@@ -57,7 +57,7 @@ describe('Bridge comm worker Review product source projection', () => {
 			}),
 		);
 		await flushBridgeWorkerRuntimeContinuations();
-		expect(subscribedKinds).toEqual(['review.metadata']);
+		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations', 'review.metadata']);
 		events.push(reviewSnapshotEvent);
 		await flushBridgeWorkerRuntimeContinuations();
 

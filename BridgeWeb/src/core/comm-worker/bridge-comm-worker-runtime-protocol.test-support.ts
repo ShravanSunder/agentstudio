@@ -149,6 +149,23 @@ export async function flushBridgeWorkerRuntimeContinuations(): Promise<void> {
 	);
 }
 
+export function createIdleWorktreeAnnotationSubscription<
+	TSubscriptionKind extends 'file.annotations' | 'review.annotations',
+>(subscriptionKind: TSubscriptionKind): BridgeProductSubscription<TSubscriptionKind> {
+	const events = new BridgeProductBoundedAsyncQueue<
+		BridgeProductSubscriptionEvent<TSubscriptionKind>
+	>(1);
+	return {
+		cancel: async (): Promise<void> => {
+			events.close(true);
+		},
+		events,
+		subscriptionId: `${subscriptionKind}-idle-test-subscription`,
+		subscriptionKind,
+		update: async (): Promise<void> => {},
+	};
+}
+
 export interface BridgeCommWorkerReviewProductTestSource {
 	readonly close: () => void;
 	readonly productTransport: BridgeProductTransportSession;
@@ -219,6 +236,9 @@ export function createBridgeCommWorkerReviewProductTestSource(): BridgeCommWorke
 		},
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;
+			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+			}
 			if (subscriptionKind !== 'review.metadata') {
 				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);
 			}

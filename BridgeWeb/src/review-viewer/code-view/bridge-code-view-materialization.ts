@@ -36,6 +36,7 @@ export const bridgeCodeViewItemMetadataSchema = z.object({
 	contentRoles: z.array(bridgeContentRoleSchema).readonly(),
 	cacheKey: z.string().min(1),
 	lineCount: z.number().int().nonnegative().nullable(),
+	sourceDescriptorId: z.string().min(1).optional(),
 });
 
 export type BridgeCodeViewItemMetadata = z.infer<typeof bridgeCodeViewItemMetadataSchema>;

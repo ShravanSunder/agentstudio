@@ -1,5 +1,30 @@
 import Foundation
 
+struct BridgeProductAnnotationInterestDelta: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey, CaseIterable { case subscriptionKind }
+
+    let subscriptionKind: BridgeProductSubscriptionKind
+
+    init(from decoder: Decoder) throws {
+        try BridgeProductContractDecoding.rejectUnknownKeys(
+            from: decoder,
+            allowedKeys: Set(CodingKeys.allCases.map(\.rawValue)),
+            contract: "annotation interest delta"
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        subscriptionKind = try container.decode(
+            BridgeProductSubscriptionKind.self,
+            forKey: .subscriptionKind
+        )
+        guard subscriptionKind == .fileAnnotations || subscriptionKind == .reviewAnnotations else {
+            throw BridgeProductContractDecoding.invalidValue(
+                "Annotation interest delta kind must be an annotation subscription",
+                codingPath: decoder.codingPath
+            )
+        }
+    }
+}
+
 struct BridgeProductReviewMetadataInterestAddition: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case itemId
@@ -146,7 +171,9 @@ struct BridgeProductFileMetadataInterestDelta: Codable, Equatable, Sendable {
 }
 
 enum BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
+    case fileAnnotations(BridgeProductAnnotationInterestDelta)
     case fileMetadata(BridgeProductFileMetadataInterestDelta)
+    case reviewAnnotations(BridgeProductAnnotationInterestDelta)
     case reviewMetadata(BridgeProductReviewMetadataInterestDelta)
 
     private enum CodingKeys: String, CodingKey {
@@ -155,6 +182,8 @@ enum BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
 
     var itemCount: Int {
         switch self {
+        case .fileAnnotations, .reviewAnnotations:
+            0
         case .fileMetadata(let delta):
             delta.add.count + delta.addPathScope.count + delta.removePathScope.count + delta.removePaths.count
         case .reviewMetadata(let delta):
@@ -164,7 +193,9 @@ enum BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
 
     var subscriptionKind: BridgeProductSubscriptionKind {
         switch self {
+        case .fileAnnotations: .fileAnnotations
         case .fileMetadata: .fileMetadata
+        case .reviewAnnotations: .reviewAnnotations
         case .reviewMetadata: .reviewMetadata
         }
     }
@@ -172,8 +203,12 @@ enum BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
+        case .fileAnnotations:
+            self = .fileAnnotations(try BridgeProductAnnotationInterestDelta(from: decoder))
         case .fileMetadata:
             self = .fileMetadata(try BridgeProductFileMetadataInterestDelta(from: decoder))
+        case .reviewAnnotations:
+            self = .reviewAnnotations(try BridgeProductAnnotationInterestDelta(from: decoder))
         case .reviewMetadata:
             self = .reviewMetadata(try BridgeProductReviewMetadataInterestDelta(from: decoder))
         }
@@ -181,6 +216,8 @@ enum BridgeProductSubscriptionInterestDelta: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         switch self {
+        case .fileAnnotations(let delta), .reviewAnnotations(let delta):
+            try delta.encode(to: encoder)
         case .fileMetadata(let delta):
             try delta.encode(to: encoder)
         case .reviewMetadata(let delta):

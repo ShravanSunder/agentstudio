@@ -5,6 +5,68 @@ import Testing
 
 @Suite("Bridge product scheme control completion effects")
 struct BridgeProductSchemeControlCompletionEffectsTests {
+    @Test("annotation commands mutate only after committed completion and only once")
+    func annotationCommandMutationRequiresCommittedCompletion() async throws {
+        // Arrange
+        let capabilityBytes = (0..<BridgeProductWireContract.capabilityByteLength).map(UInt8.init)
+        let capabilityHeader = try BridgeProductCapabilityHeaderEncoding.encode(capabilityBytes)
+        let session = try BridgeProductSession(
+            paneSessionId: bridgeProductTestPaneSessionId,
+            workerInstanceId: bridgeProductTestWorkerInstanceId,
+            capabilityBytes: capabilityBytes
+        )
+        let recorder = await MainActor.run { BridgeProductCallMutationRecorder() }
+        let refreshWorkAdmission = await BridgePaneRefreshWorkAdmissionTestContext.foreground()
+        let provider = BridgePaneProductSchemeProvider(
+            fileMetadataSource: BridgeUnavailablePaneProductFileMetadataSource(),
+            reviewMetadataSource: BridgeUnavailablePaneProductReviewMetadataSource(),
+            reviewContentSource: BridgeUnavailablePaneProductReviewContentSource(),
+            markReviewItemViewed: { _, _ in },
+            applyWorktreeAnnotationCommand: { request, surface, correlation, _ in
+                recorder.record(
+                    request.operation,
+                    surface: surface,
+                    requestID: correlation.requestId
+                )
+            },
+            refreshWorkAdmissionSource: refreshWorkAdmission.source
+        )
+        let productAdmission = try BridgeProductAdmissionTestContext.make().context
+        let dispatcher = makeBridgeProductSchemeControlDispatcher(
+            session: session,
+            provider: provider,
+            productAdmission: productAdmission
+        )
+        let callBody = bridgeProductCompletionEffectsAnnotationDiscoverBody()
+        let decodedCall = try BridgeProductStrictJSON.decode(
+            BridgeProductControlRequest.self,
+            from: callBody
+        )
+
+        // Act
+        _ = await provider.response(for: decodedCall)
+        let callsBeforeCommit = await recorder.annotationCalls
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: bridgeProductSchemeWorkerOpenBody(),
+            presentedCapability: capabilityHeader
+        )
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: callBody,
+            presentedCapability: capabilityHeader
+        )
+        _ = try await dispatcher.dispatch(
+            exactRequestBytes: callBody,
+            presentedCapability: capabilityHeader
+        )
+
+        // Assert
+        #expect(callsBeforeCommit.isEmpty)
+        #expect(await recorder.annotationCalls.count == 1)
+        #expect(await recorder.annotationCalls.first?.surface == .file)
+        #expect(await recorder.annotationCalls.first?.operation == .discoverSessions)
+        #expect(await recorder.annotationCalls.first?.requestID == "annotation-discover-1")
+    }
+
     @Test("product call mutates only after committed completion and only once")
     func productCallMutationRequiresCommittedCompletion() async throws {
         // Arrange
@@ -486,6 +548,13 @@ private func installCompletionEffectsMetadataStream(
 
 @MainActor
 private final class BridgeProductCallMutationRecorder {
+    struct AnnotationCall: Equatable {
+        let operation: BridgeProductWorktreeAnnotationOperation
+        let surface: BridgeProductSurface
+        let requestID: String
+    }
+
+    private(set) var annotationCalls: [AnnotationCall] = []
     private(set) var itemIds: [String] = []
     private(set) var publicationIds: [UUID] = []
     var count: Int { itemIds.count }
@@ -497,6 +566,36 @@ private final class BridgeProductCallMutationRecorder {
     func record(_ publicationId: UUID) {
         publicationIds.append(publicationId)
     }
+
+    func record(
+        _ operation: BridgeProductWorktreeAnnotationOperation,
+        surface: BridgeProductSurface,
+        requestID: String
+    ) {
+        annotationCalls.append(
+            AnnotationCall(operation: operation, surface: surface, requestID: requestID)
+        )
+    }
+}
+
+private func bridgeProductCompletionEffectsAnnotationDiscoverBody() -> Data {
+    Data(
+        """
+        {
+          "call": {
+            "method": "file.annotations.command",
+            "request": { "operation": { "kind": "session.discover" } }
+          },
+          "kind": "product.call",
+          "paneSessionId": "\(bridgeProductTestPaneSessionId)",
+          "requestId": "annotation-discover-1",
+          "requestSequence": 2,
+          "wireVersion": 2,
+          "workerDerivationEpoch": 0,
+          "workerInstanceId": "\(bridgeProductTestWorkerInstanceId)"
+        }
+        """.utf8
+    )
 }
 
 private func bridgeProductCompletionEffectsPublicationAppliedBody() -> Data {

@@ -7,7 +7,9 @@ import {
 export const BRIDGE_PRODUCT_INTEREST_STATE_FORMAT_VERSION = 1 as const;
 
 const bridgeProductSubscriptionKindTag = {
+	'file.annotations': 3,
 	'file.metadata': 2,
+	'review.annotations': 4,
 	'review.metadata': 1,
 } as const;
 
@@ -39,12 +41,14 @@ export function encodeBridgeProductSubscriptionInterestState(
 						lane: interest.lane,
 					})),
 				)
-			: validatedState.interests.flatMap((interest): readonly EncodedInterest[] =>
-					interest.itemIds.map((itemId) => ({
-						keyBytes: bridgeProductTextEncoder.encode(itemId),
-						lane: interest.lane,
-					})),
-				)
+			: validatedState.subscriptionKind === 'review.metadata'
+				? validatedState.interests.flatMap((interest): readonly EncodedInterest[] =>
+						interest.itemIds.map((itemId) => ({
+							keyBytes: bridgeProductTextEncoder.encode(itemId),
+							lane: interest.lane,
+						})),
+					)
+				: []
 	).toSorted(compareEncodedInterestKeys);
 	const encodedPathScope =
 		validatedState.subscriptionKind === 'file.metadata'

@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioGit
 import Foundation
 
 package enum BridgeReviewRepositoryLocation: Equatable, Sendable {
@@ -48,6 +49,21 @@ package enum BridgeReviewSourceProviderFactory {
     }
 
     package static func gitProvider(
+        repositoryPath: URL?,
+        gitReadContext: BridgeGitReadContext?,
+        sharedContentRootURL: URL
+    ) -> any BridgeReviewSourceProvider {
+        guard let repositoryPath, let gitReadContext else {
+            return BridgeUnavailableReviewSourceProvider()
+        }
+        return makeGitProvider(
+            repositoryPath: repositoryPath,
+            gitReadContext: gitReadContext,
+            sharedContentRootURL: sharedContentRootURL
+        )
+    }
+
+    package static func gitProvider(
         location: BridgeReviewRepositoryLocation,
         gitReadContext: BridgeGitReadContext?
     ) -> any BridgeReviewSourceProvider {
@@ -59,12 +75,23 @@ package enum BridgeReviewSourceProviderFactory {
 
     private static func makeGitProvider(
         repositoryPath: URL,
-        gitReadContext: BridgeGitReadContext
+        gitReadContext: BridgeGitReadContext,
+        sharedContentRootURL: URL? = nil
     ) -> any BridgeReviewSourceProvider {
-        let dataClient = AgentStudioGitBridgeReviewDataClient(
-            repositoryPath: repositoryPath,
-            gitReadContext: gitReadContext
-        )
+        let dataClient: AgentStudioGitBridgeReviewDataClient<LibGit2AgentStudioGitLocalClient>
+        if let sharedContentRootURL {
+            dataClient = AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                client: LibGit2AgentStudioGitLocalClient(),
+                gitReadContext: gitReadContext,
+                sharedContentRootURL: sharedContentRootURL
+            )
+        } else {
+            dataClient = AgentStudioGitBridgeReviewDataClient(
+                repositoryPath: repositoryPath,
+                gitReadContext: gitReadContext
+            )
+        }
         return BridgeGitReviewSourceProvider(client: dataClient)
     }
 }

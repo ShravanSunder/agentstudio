@@ -1,4 +1,9 @@
-import type { CodeViewItem, CodeViewOptions } from '@pierre/diffs';
+import type {
+	CodeViewItem,
+	CodeViewOptions,
+	DiffLineAnnotation,
+	LineAnnotation,
+} from '@pierre/diffs';
 import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement, ReactNode } from 'react';
 import { useMemo } from 'react';
@@ -43,6 +48,10 @@ interface BridgeCodeViewPanelFrameProps {
 	readonly selectedPresentationKind: string;
 	readonly selectedPresentationVersion: string | number;
 	readonly selectionScrollDiagnostic: BridgeCodeViewSelectionScrollDiagnostic;
+	readonly renderAnnotation?: (
+		annotation: DiffLineAnnotation | LineAnnotation,
+		item: CodeViewItem,
+	) => ReactNode;
 	readonly setCodeViewHandle: (handle: CodeViewHandle<undefined> | null) => void;
 	readonly sourceKey: string;
 	readonly workerFactory?: () => Worker;
@@ -57,7 +66,7 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 	return (
 		<section
 			aria-label="Review content"
-			className="bridge-code-view-panel relative h-full min-h-0 bg-[var(--bridge-canvas-bg)]"
+			className="bridge-code-view-panel relative flex h-full min-h-0 flex-col bg-[var(--bridge-canvas-bg)]"
 			data-code-view-item-count={props.initialItems.length}
 			data-code-view-rendered-content-resource-count={props.materializationResourceEntryCount}
 			data-code-view-rendered-content-resource-item-ids={props.materializationResourceEntryItemIds}
@@ -108,28 +117,33 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 			onTouchStartCapture={props.handleCodeViewUserScrollIntent}
 			onWheelCapture={props.handleCodeViewUserScrollIntent}
 		>
-			<BridgePierreWorkerPoolProvider
-				{...(props.workerPoolEnabled === undefined ? {} : { enabled: props.workerPoolEnabled })}
-				{...(props.workerFactory === undefined ? {} : { workerFactory: props.workerFactory })}
-			>
-				<CodeView
-					className={cn(
-						'bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 w-full min-w-0 max-w-full',
-						'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
-						'[overflow-anchor:none] [will-change:scroll-position]',
-						'[&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]',
-						'[&_diffs-container]:shadow-[0_-1px_0_var(--bridge-code-view-file-separator),0_1px_0_var(--bridge-code-view-file-separator)]',
-					)}
-					initialItems={props.initialItems}
-					key={props.sourceKey}
-					onScroll={props.handleCodeViewScroll}
-					options={codeViewOptions}
-					ref={props.setCodeViewHandle}
-					renderHeaderMetadata={props.headerRenderers.renderHeaderMetadata}
-					renderHeaderPrefix={props.headerRenderers.renderHeaderPrefix}
-					style={{ height: '100%' }}
-				/>
-			</BridgePierreWorkerPoolProvider>
+			<div className="relative min-h-0 flex-1">
+				<BridgePierreWorkerPoolProvider
+					{...(props.workerPoolEnabled === undefined ? {} : { enabled: props.workerPoolEnabled })}
+					{...(props.workerFactory === undefined ? {} : { workerFactory: props.workerFactory })}
+				>
+					<CodeView
+						className={cn(
+							'bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 w-full min-w-0 max-w-full',
+							'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
+							'[overflow-anchor:none] [will-change:scroll-position]',
+							'[&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]',
+							'[&_diffs-container]:shadow-[0_-1px_0_var(--bridge-code-view-file-separator),0_1px_0_var(--bridge-code-view-file-separator)]',
+						)}
+						initialItems={props.initialItems}
+						key={props.sourceKey}
+						onScroll={props.handleCodeViewScroll}
+						options={codeViewOptions}
+						ref={props.setCodeViewHandle}
+						renderHeaderMetadata={props.headerRenderers.renderHeaderMetadata}
+						renderHeaderPrefix={props.headerRenderers.renderHeaderPrefix}
+						{...(props.renderAnnotation === undefined
+							? {}
+							: { renderAnnotation: props.renderAnnotation })}
+						style={{ height: '100%' }}
+					/>
+				</BridgePierreWorkerPoolProvider>
+			</div>
 		</section>
 	);
 }

@@ -1,5 +1,8 @@
 import { makeReviewPanePresentationFrame } from './bridge-comm-worker-runtime-protocol.review-product-pane-presentation.test-support.js';
-import { makeImmediateReviewContentStream } from './bridge-comm-worker-runtime-protocol.test-support.js';
+import {
+	createIdleWorktreeAnnotationSubscription,
+	makeImmediateReviewContentStream,
+} from './bridge-comm-worker-runtime-protocol.test-support.js';
 import type { BridgeProductSubscription } from './bridge-product-transport-contract.js';
 import type {
 	BridgeProductPanePresentationFrame,
@@ -36,6 +39,9 @@ export function makeReviewProductTransport(props: {
 		subscribe: (...arguments_): never => {
 			const [subscriptionKind] = arguments_;
 			props.subscribedKinds.push(subscriptionKind);
+			if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+				return createIdleWorktreeAnnotationSubscription(subscriptionKind) as never;
+			}
 			if (subscriptionKind !== 'review.metadata') {
 				throw new Error(`Unexpected product subscription ${subscriptionKind}.`);
 			}

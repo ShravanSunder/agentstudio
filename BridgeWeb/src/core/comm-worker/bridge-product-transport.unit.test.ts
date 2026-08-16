@@ -21,7 +21,10 @@ import {
 	type BridgeProductMetadataFrame,
 	type BridgeProductMetadataStreamRequest,
 } from './bridge-product-session-contracts.js';
-import type { BridgeProductSubscriptionOptions } from './bridge-product-subscription-contracts.js';
+import type {
+	BridgeProductSubscriptionKind,
+	BridgeProductSubscriptionOptions,
+} from './bridge-product-subscription-contracts.js';
 import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
 import {
 	createBridgeProductTransport,
@@ -694,7 +697,7 @@ function metadataAccepted(
 function subscriptionAccepted(props: {
 	readonly epoch: number;
 	readonly interestHash: string;
-	readonly kind: 'file.metadata' | 'review.metadata';
+	readonly kind: BridgeProductSubscriptionKind;
 	readonly request: BridgeProductMetadataStreamRequest;
 	readonly streamSequence: number;
 	readonly subscriptionId: string;
@@ -854,10 +857,16 @@ function fileSourceIdentity(): BridgeProductFileSourceIdentity {
 	} as const;
 }
 
-function emptyInterestHash(kind: 'file.metadata' | 'review.metadata'): string {
-	return kind === 'file.metadata'
-		? interestHash({ interests: [], pathScope: [], subscriptionKind: kind })
-		: interestHash({ interests: [], subscriptionKind: kind });
+function emptyInterestHash(kind: BridgeProductSubscriptionKind): string {
+	switch (kind) {
+		case 'file.annotations':
+		case 'review.annotations':
+			return interestHash({ subscriptionKind: kind });
+		case 'file.metadata':
+			return interestHash({ interests: [], pathScope: [], subscriptionKind: kind });
+		case 'review.metadata':
+			return interestHash({ interests: [], subscriptionKind: kind });
+	}
 }
 
 function interestHash(

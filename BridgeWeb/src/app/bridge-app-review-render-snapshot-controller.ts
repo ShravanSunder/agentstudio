@@ -595,6 +595,9 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 			}
 			case 'slicePatch':
 				break;
+			case 'annotationCommandAccepted':
+			case 'annotationOutputInspection':
+			case 'annotationProjection':
 			case 'health':
 			case 'nativeSurfaceSelectionRequest':
 			case 'subscription':

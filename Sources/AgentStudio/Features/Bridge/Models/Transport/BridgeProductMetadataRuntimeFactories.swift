@@ -12,6 +12,18 @@ struct BridgeProductMetadataStreamCorrelation: Equatable, Sendable {
     let wireVersion: Int
     let workerInstanceId: String
 
+    init(
+        metadataStreamId: String,
+        paneSessionId: String,
+        wireVersion: Int,
+        workerInstanceId: String
+    ) {
+        self.metadataStreamId = metadataStreamId
+        self.paneSessionId = paneSessionId
+        self.wireVersion = wireVersion
+        self.workerInstanceId = workerInstanceId
+    }
+
     init(request: BridgeProductMetadataStreamRequest) {
         self.metadataStreamId = request.metadataStreamId
         self.paneSessionId = request.paneSessionId

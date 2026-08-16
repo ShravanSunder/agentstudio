@@ -12,41 +12,192 @@ Program Design:
 
 PR1 is complete when a human can create or continue one living annotation
 session in File View and Review View, recover unfinished human-message drafts,
-explicitly save output-eligible message versions, copy any selected saved
+explicitly save output-eligible message content, copy any selected saved
 messages as a path- and line-oriented Markdown packet, export the same batch as
-versioned JSON, return after the worktree changes, and continue or finish the
-review without any direct agent integration.
+versioned JSON, return after the worktree changes, and continue or resolve the
+inline review threads without any direct agent integration.
 
 ```text
 inspect source-backed material
   → start or reply to an inline human thread in the main view
   → autosave and recover message draft
-  → Save intentional message version
+  → Save intentional message content
   → select saved messages
   → Copy Markdown or Export JSON
   → inspect changed worktree in the same session
-  → resolve, continue, detach, or finish explicitly
+  → resolve or continue inline threads; continuity may pause or detach
 ```
 
 ```text
 main File / Review view
 
-  [session-level general thread]
+  drag range ──► Pierre highlight ──► endpoint + ──► inline composer
+  hover line ───────────────────────► gutter + ────► inline composer
 
-  file header
-    [whole-file thread]
-
-  line/range  +  [inline located thread]
-                   root + flat replies
-                   draft / Save / Revert
-                   Reply / Resolve thread
+  inline located thread
+    strongly rounded shared shell
+      avatar as the left timeline node │ rounded message surface
+      author/time/status in the timeline row
+      icon-only commands in an invisible bottom-right rail
+      1 message: M1
+      2+ messages: compact summary; expand to M1…Mn
+      Draft · Save/Revert · Reply · Resolve/Reopen
 
   Copy selected → clipboard → "Copied N comments" toast
                                copy interaction closes
                                threads remain open
 
-No PR1 comment sidebar exists.
+No PR1 global-review panel, whole-file/session comments, persistent session
+chrome, or comment sidebar exists.
 ```
+
+## What the inline experience looks like
+
+These wireframes define observable anatomy and hierarchy, not final pixel
+values. Radius, avatar/timeline spacing, command placement, and exact token
+derivations are tuned against the running Vite and packaged viewers without
+changing the relationships shown here.
+
+### Range selection gives feedback before creating anything
+
+```text
+Pierre code canvas
+
+  379 │ const selected = comments.filter(isOpen)
+  380 │ return selected.map(renderComment)        ╭───╮
+  381 │                                           │ + │  click to comment
+      ╰──────── highlighted selected range ───────╰───╯
+
+drag ends       → highlight and endpoint + remain; no composer or durable row
+click +         → inline composer opens beneath the selected range
+new range       → old pending range clears; new range becomes pending
+outside/Escape  → pending range clears
+```
+
+For one line, hovering the gutter exposes `+`; clicking it opens the same
+composer immediately without a separate drag-confirmation step.
+
+### New comment composer
+
+```text
+  ◉── You · Draft · saved locally
+  │
+  │  ╭──────────────────────────────────────────────╮
+  │  │ Write Markdown…                              │
+  │  │                                              │
+  │  │ The body is the writing surface.             │
+  │  │ It has no nested textarea card or dividers.  │
+  │  │                                          ↶   │ Revert
+  │  │                                          ●   │ Save, primary
+  │  ╰──────────────────────────────────────────────╯
+       rounded body surface      invisible bottom-right rail
+```
+
+The avatar is the left timeline node. Author, time, and thread/message status
+occupy its timeline row instead of a separate header or right-aligned date.
+Commands use icon-only shadcn `Button` controls stacked vertically at the
+bottom-right of the message surface; their rail has no visible card or divider.
+Every icon retains an accessible name and tooltip. `Draft` plus a
+warning-semantic cue communicates durability without relying on color alone.
+Save is the only primary action.
+
+### Saved one-message thread
+
+```text
+  ◉── You · 2m · Open
+  │
+  │  ╭──────────────────────────────────────────────╮
+  │  │ Please keep source refresh separate.        │
+  │  │                                          ↩   │ Reply
+  │  │                                          ✓   │ Resolve
+  │  ╰──────────────────────────────────────────────╯
+
+  resolved state: same thread and history; Resolve becomes Reopen
+```
+
+When the thread contains exactly one message, that message is the inline body;
+there is no thread-summary or disclosure control.
+
+### Collapsed multi-message thread summary
+
+```text
+  ◉── Latest: You · 1m · Open · 2 messages
+  │
+  │  ╭──────────────────────────────────────────────╮
+  │  │ Add coverage for the failure case…          │
+  │  │                                          ↩   │ Reply
+  │  │                                          ✓   │ Resolve
+  │  │                                          ▾   │ Expand
+  │  ╰──────────────────────────────────────────────╯
+```
+
+For two or more messages, the collapsed inline body is one synthetic thread
+summary, not M1. It deterministically shows a bounded plain-text excerpt of the
+latest message, that message's author and time, the total message count, and
+the thread's open/resolved state. Placement and hidden-draft state remain
+visible when they are not exact/absent. The summary is not authored Markdown,
+not a message, not independently selectable, and not clipboard/JSON content.
+Reply, Resolve/Reopen, and Expand are sibling commands rather than children of
+the disclosure trigger.
+
+### Expanded multi-message thread
+
+```text
+  ◉── You · 2m
+  │  ╭──────────────────────────────────────────────╮
+  │  │ M1: Please keep source refresh separate.    │
+  │  ╰──────────────────────────────────────────────╯
+  │
+  ◉── You · 1m · Open · 2 messages
+  │  ╭──────────────────────────────────────────────╮
+  │  │ M2: This also needs a failure case.         │
+  │  │                                          ↩   │ Reply
+  │  │                                          ✓   │ Resolve
+  │  │                                          ▴   │ Collapse
+  │  ╰──────────────────────────────────────────────╯
+```
+
+Activating the summary expands the same inline thread and reveals M1 through
+Mn exactly once in flat chronological order. Replies do not become nested
+cards. Saved-message inclusion and contextual Copy/Export remain available
+with the inline thread; PR1 introduces no persistent global handoff toolbar or
+session chrome. Resolve and Reopen always operate on the whole thread.
+
+### Collapsed durable draft
+
+```text
+  ◉── You · Draft · saved locally
+  │  ╭──────────────────────────────────────────────╮
+  │  │ Add failure coverage…                  ▶     │ Resume
+  │  ╰──────────────────────────────────────────────╯
+```
+
+An empty composer disappears. A durable non-empty draft may collapse, but its
+text summary, `Draft` label, author, and Resume action remain visible in the
+same shell rather than moving to a separate panel.
+
+### Command ownership
+
+```text
+thread commands
+  Reply · Resolve/Reopen · Expand/Collapse
+
+message commands
+  Edit when editable · Include/Exclude saved body from output
+
+draft commands
+  Revert · Save (the only primary action)
+
+output interaction
+  Copy selected · Export selected as JSON
+```
+
+Resolve/Reopen never appears as a message mutation, and Copy/Export never
+appears as delivery or resolution. Collapsed multi-message summaries expose
+only thread commands; message selection and editing become reachable after
+expansion. Commands render as icon-only buttons in the bottom-right rail with
+accessible names and tooltips; the product meaning above does not depend on one
+particular icon glyph.
 
 ## Consumers and surfaces
 
@@ -54,7 +205,7 @@ No PR1 comment sidebar exists.
 Human reviewer
   ├─ File View annotation interaction
   ├─ Review View annotation interaction
-  ├─ session and output-history interaction
+  ├─ output-history interaction
   ├─ system clipboard output
   └─ user-selected JSON file output
 
@@ -68,8 +219,9 @@ Outside the PR1 boundary
 
 File View and Review View remain the only visible viewer surfaces. Annotation
 Mode is an interaction state within them, not a third viewer or review
-application. All PR1 thread scopes remain accessible from the main viewer
-surface; PR1 does not require or expose a comment sidebar.
+application. PR1 presents only located inline threads in the main viewer; it
+does not require or expose a global review panel, whole-file/session comment
+surface, persistent session chrome, or comment sidebar.
 
 PR1 uses three distinct terms:
 
@@ -89,7 +241,7 @@ An output event never claims that the external agent handoff occurred.
 ```text
 Agent Studio authority                         Outside Agent Studio authority
 
-saved versions → batch → Copy/Export success  → reviewer transfers output
+saved bodies → batch → Copy/Export success    → reviewer transfers output
                          │
                          └→ durable event         recipient may consume it
 
@@ -131,7 +283,8 @@ living         │ writable  │ readable  │ readable  │
 completed      │ read-only │ read-only │ read-only │
                └───────────┴───────────┴───────────┘
 
-Only explicit reviewer actions cross living ↔ completed.
+Only explicit session-management actions cross living ↔ completed; PR1 adds no
+customer-facing action for that transition.
 Continuity assessment moves only across the columns.
 ```
 
@@ -139,35 +292,46 @@ Continuity assessment moves only across the columns.
 
 ```text
 new thread composer
-  → first non-empty edit
+  ├─ untouched/whitespace-only
+  │    └─ focus loss / Escape / abandoned selection → removed, never durable
+  └─ first non-whitespace edit
       → durable root-message draft
-          → Save   → saved root message
-          → Revert → empty composer
+          ├─ focus loss → immediate flush; remain visible
+          ├─ Escape / new range → immediate flush; collapse
+          ├─ Save / Command+Enter → set savedBody; clear draft
+          └─ Revert → empty composer
 
-saved root or reply message V1
+saved root or reply message
   → edit
-      → durable message draft based on V1
-          → Save   → saved version V2
-          → Revert → saved version V1
+      → optional durable draft beside savedBody
+          → Save   → replace savedBody; clear draft
+          → Revert → clear draft; show savedBody
+
+savedBody absent + draft present   → new unsaved message
+savedBody present + draft absent   → saved message
+savedBody present + draft present  → saved message with unsaved edits
+
+Clearing a never-saved message removes it when flushed. Clearing an existing
+saved message persists an empty draft, disables Save, and preserves Revert.
 
 saved message
   → successful Copy or Export
-      → immutable output message
+      → status locked
           → Reply → new human-message draft in the same thread
 ```
 
 Every annotation is a thread with one root human message. Every later PR1
 message is a human reply in one flat chronological sequence in that thread;
-replies do not nest. Only saved message versions may enter output selection.
-Autosave never changes thread resolution or output eligibility. Thread
+replies do not nest. Only an `editable` message with a saved body and no draft
+may enter output selection. Autosave never changes thread resolution. Thread
 resolution is `open | resolved`, applies to the whole thread rather than an
 individual message, and changes only through an explicit human action.
 
 ```text
 thread OPEN
-  root V1 ── successful output ──► immutable root V1
-  reply 1 V1 ────────────────────► immutable reply 1 V1
-  reply 2 draft ── Save ─────────► saved reply 2 V1
+  root savedBody ── successful output ──► root status LOCKED
+  reply 1 savedBody ────────────────────► reply 1 status LOCKED
+  reply 2 draft ── Save ────────────────► reply 2 savedBody
        │
        ├─ Resolve whole thread ───► thread RESOLVED
        └─ Reopen whole thread  ◀─── explicit reviewer action
@@ -205,48 +369,62 @@ MUST NOT replace the session.
 
 Basis: P1-U1, P1-U13.
 
-Failure expectation: if no session applies, the viewer MUST offer creation and
-MUST let the reviewer's first annotation create the session in that same
-motion without a separate creation step; if one applies, it MUST show
-continuation; if several apply, it MUST require an explicit reviewer choice
-rather than infer one from recency.
+Failure expectation: if no living session applies and no relevant uncertain
+candidate exists, the first non-whitespace annotation edit MUST create the
+session and root draft in one motion without a separate creation step; if one
+applies, inline admission MUST continue it without persistent session chrome;
+if several apply, admission MUST require an explicit bounded choice rather than
+infer one from recency. A relevant uncertain candidate MUST invoke R-P1-008's
+reviewer choice before admission and MUST NOT be treated as the zero-session
+case.
 
-Uncertain, detached, and completed sessions MUST remain separately discoverable
-so the reviewer can inspect, decide continuity, or explicitly reopen them.
+Uncertain, detached, and completed sessions MUST remain durable and distinctly
+represented in canonical state. PR1 MUST NOT add persistent session-selection,
+finish, reopen, or history chrome; an ambiguity choice may appear only when
+several applicable sessions or relevant uncertain continuity blocks inline
+comment admission.
 
-### R-P1-002 — Annotation scope admission
+### R-P1-002 — Located inline annotation admission
 
-PR1 MUST admit three annotation scopes:
+PR1 MUST admit only located annotations carrying a repository-relative path,
+source line or contiguous source-line range, source role sufficient to
+distinguish a current file or diff side, immutable source/version evidence, and
+selected source excerpt.
 
-- `located`: repository-relative path, source line or contiguous source-line
-  range, source role sufficient to distinguish a current file or diff side,
-  immutable source/version evidence, and selected source excerpt;
-- `wholeFile`: repository-relative path plus immutable file/source evidence;
-- `session`: one general request scoped to the annotation session, with no
-  fabricated file or line identity.
+Located selection MUST come from the source or diff line presentation;
+Markdown files remain annotatable in that presentation. A dragged range MUST
+remain visibly selected without opening a composer. The composer MUST open only
+after the reviewer clicks the range endpoint `+`. Selecting another range,
+clicking outside, or pressing Escape before that action MUST clear the pending
+range. Hovering one source line MUST expose a gutter `+` whose activation opens
+a single-line composer directly.
 
-Located selection MUST be admitted from the source or diff line presentation;
-Markdown files remain annotatable in that presentation. Rendered-Markdown
-preview selection is not a PR1 admission source (see negative space). PR1 MUST
-reject a located or whole-file annotation that has only absolute path,
-pane, DOM, SVG, rendered-pixel, or Mermaid-node identity.
-
-Located threads MUST render inline beside trustworthy current source in the
-main File or Review view. Whole-file threads MUST render at file scope and
-session threads at general-review scope in that same surface. Outdated or
-unavailable located threads MUST remain accessible there with their immutable
-origin and warning rather than silently disappearing.
+Rendered-Markdown preview selection is not a PR1 admission source. PR1 MUST
+reject an annotation that has only absolute path, pane, DOM, SVG,
+rendered-pixel, or Mermaid-node identity. Located threads with trustworthy
+current placement MUST render inline beside that source in the main File or
+Review view. Placement and immutable origin MUST remain durable when an inline
+slot is unavailable; PR1 MUST NOT invent a global fallback panel or fabricated
+line slot.
 
 Basis: P1-U5.
 
 ### R-P1-003 — First-non-empty durable draft
 
-Opening an empty composer MUST create no durable message. The first non-empty
-edit MUST create a durable working message draft. While the composer remains
-focused, changed draft content MUST be scheduled for persistence one second
+Opening an empty new-message composer MUST create no durable message. Its first
+non-whitespace edit MUST create a durable working message draft. Clearing that
+never-saved message back to empty MUST remove it when the change is flushed. An
+existing saved message's first changed edit MUST create a draft even when the
+new body is empty, because that empty working edit must survive recovery and
+remain Revertible. While the composer remains focused, changed draft content
+MUST be scheduled for persistence one second
 after the latest edit and MUST be persisted at least once every five seconds
 during continuous editing. Losing composer focus MUST request an immediate
-flush of current draft content.
+flush of current draft content. An untouched or whitespace-only composer MUST
+disappear on focus loss, Escape, or selection abandonment without creating a
+thread or message. Escape or admission of another range while a non-empty draft
+is expanded MUST request an immediate flush and collapse that composer; focus
+loss after non-empty input MUST flush but leave the draft visible.
 
 Basis: P1-U2, P1-U3.
 
@@ -256,17 +434,19 @@ completed, but MUST NOT lose an earlier completed flush.
 
 ### R-P1-004 — Explicit message Save and Revert
 
-Save MUST first flush the current message draft and then establish a new saved
-message version only if that flush and version transition succeed. Revert on an
-existing message MUST restore its latest saved version. Revert on a never-saved
-message MUST remove its draft. Pane closure, focus loss,
+Save MUST first flush the current message draft and then atomically replace the
+message's one current saved body and clear the draft. PR1 MUST NOT retain a
+pre-output history of earlier saved bodies. Revert on an existing saved message
+MUST clear its draft and restore presentation of the current saved body. Revert
+on a never-saved message MUST remove its draft and unsaved message. Pane closure,
+focus loss,
 autosave, copy, export, placement change, and restart MUST NOT perform Save.
+Command+Enter MUST invoke Save; Enter and Shift+Enter MUST insert a newline.
 
 Basis: P1-U3.
 
-Failure expectation: failed Save MUST leave the recoverable draft and previous
-saved version unchanged and MUST visibly report that no new saved version was
-established.
+Failure expectation: failed Save MUST leave both the recoverable draft and
+current saved body unchanged and MUST visibly report that Save did not complete.
 
 ### R-P1-005 — Safe Markdown bodies
 
@@ -277,18 +457,37 @@ MUST preserve the annotation’s Markdown meaning without allowing its headings
 to replace the packet or file hierarchy.
 
 Each root or reply body MUST be at most 16 KiB of UTF-8. The limit applies to
-each draft and saved version independently, not to the whole thread. An
+the optional draft and current saved body independently, not to the whole thread. An
 oversized edit MUST be visibly rejected without discarding the editor's unsent
 text. A thread MAY contain multiple messages and exceed 16 KiB in total.
 
 Basis: P1-U4.
 
-### R-P1-006 — Message version and draft visibility
+### R-P1-006 — Message content, draft, and status
 
-When a message has both a saved version and a changed durable draft, the UI
-MUST distinguish them and offer Save and Revert. Output selection MUST use the
-latest saved version and MUST NOT silently include working-draft text. A
-never-saved message draft MUST NOT be selectable for output.
+Each message MUST contain one optional current saved body, one optional durable
+draft, and one status of `editable | locked`. The combinations mean:
+
+```text
+saved body   draft      meaning
+absent       absent     no durable message; invalid stored state
+absent       present    new unsaved message
+present      absent     saved message
+present      present    saved message with unsaved edits
+```
+
+A never-saved draft MUST contain non-whitespace content; clearing it removes the
+unsaved message when flushed. An existing saved message MAY retain an empty
+draft so clearing the editor is durable; Save remains unavailable while the
+body is invalid and Revert remains available.
+
+The UI MUST distinguish a draft from the saved body and offer Save and Revert.
+Output selection MUST admit only an `editable` message whose saved body is
+present and whose draft is absent. It MUST NOT silently output a prior saved
+body while unsaved edits exist. Draft state MUST use a visible text label and a
+warning-semantic cue, never color alone. Successful or crash-unknown output
+MUST change included messages to `locked`; locked messages cannot be edited or
+selected again, but their threads remain replyable.
 
 Basis: P1-U3, P1-U9.
 
@@ -318,38 +517,36 @@ Failure expectation: matching paths or branch labels alone MUST NOT be
 presented as proof of continuity. A continuity-evaluation failure MUST become
 `uncertain`, not silently `applicable` or `detached`.
 
-### R-P1-009 — Explicit finish and reopen
+### R-P1-009 — Preserve session lifecycle without session-management UI
 
-The reviewer MUST be able to finish a living session. If open annotations
-remain, the UI MUST warn with the count of open threads and allow the
-reviewer to confirm completion without auto-resolving any thread. PR1 does not
-require thread enumeration or navigation in this warning; that affordance
-belongs to the follow-up comment-sidebar PR. A completed
-session MUST remain read-only until an explicit human reopen action.
+Living/completed lifecycle and open-thread counts MUST remain durable canonical
+facts and MUST NOT be changed by Save, Copy, Export, placement updates, or
+thread resolution. PR1 MUST NOT expose customer-facing session finish/reopen,
+history, or open-thread warning chrome. A completed session remains read-only;
+its management surface is follow-up scope.
 
 Basis: P1-U8.
 
 ### R-P1-010 — Deterministic batch snapshot
 
-The reviewer MUST be able to select any non-empty subset of saved human-message
-versions or all eligible saved messages. Invoking Copy or Export MUST construct
-one immutable batch snapshot containing the exact selected message identities,
-versions, Markdown bodies, immutable origins, trustworthy current
+The reviewer MUST be able to select any non-empty subset of eligible saved
+human messages or all eligible saved messages. Eligibility requires status
+`editable`, a present saved body, and no draft. Invoking Copy or Export MUST
+construct one immutable batch snapshot containing the exact selected message
+identities, saved bodies, immutable origins, trustworthy current
 thread-placement summaries, source excerpts, thread-resolution states, and
 deterministic order.
 
-The order MUST place session-level threads first, then order file-backed threads
-by repository-relative path, then place whole-file requests before located
-requests for that path, then use the trustworthy current line or original line
-when no current line is trustworthy, and finally stable thread and message
-identity. Later message edits or thread-placement changes MUST NOT alter the
-batch.
+The order MUST group located threads by repository-relative path, then use the
+trustworthy current line or original line when no current line is trustworthy,
+and finally stable thread and message identity. Later message edits or
+thread-placement changes MUST NOT alter the batch.
 
 ```text
 selection
-   │ validate saved versions only
+   │ validate editable + savedBody present + draft absent
    ▼
-snapshot exact versions + source context + thread state
+snapshot exact saved bodies + source context + thread state
    │ deterministic order
    ├─► Markdown projection ──► native clipboard effect
    └─► JSON projection     ──► native save-panel/file effect
@@ -366,10 +563,8 @@ Copy MUST render the batch as deterministic model-readable Markdown. The packet
 MUST include:
 
 - review/session label and safe worktree/comparison context;
-- one explicit general-review section when session-level threads are selected;
 - one section per repository-relative path;
-- an explicit whole-file label for whole-file requests;
-- for located requests, current line/range when trustworthy, otherwise an
+- current line/range when trustworthy, otherwise an
   explicit original line/range;
 - placement status and diff side when applicable;
 - a source excerpt whose lines carry visible line numbers;
@@ -424,15 +619,179 @@ Request:
 
 Export MUST write a versioned JSON document representing the same batch
 semantics and order as R-P1-010. The document MUST preserve full thread and
-message identities and versions, raw Markdown bodies, immutable origins,
+message identities, raw snapshotted Markdown bodies, immutable origins,
 thread-placement summaries, source excerpts and roles, thread-resolution state,
 session context, batch identity, format version, and creation time without
 requiring Markdown parsing.
 
+PR1 emits exactly `agentstudio.worktree-annotations.batch` format version `1`.
+The following closed shape is the authoritative v1 contract; every shown field
+is required, every object rejects unknown fields, and a union member admits
+only the fields shown for that member.
+
+```text
+WorktreeAnnotationBatchV1 = {
+  schema: "agentstudio.worktree-annotations.batch"
+  formatVersion: 1
+  batchId: UUIDv7 string
+  createdAt: RFC 3339 UTC string
+  session: {
+    sessionId: UUIDv7 string
+    label: non-empty string
+    repositoryId: non-empty string
+    worktreeId: non-empty string
+    lifecycle: "living" | "completed"
+    sourceRelationship: "applicable" | "uncertain" | "detached"
+  }
+  entries: non-empty ordered array of BatchEntryV1
+}
+
+BatchEntryV1 = {
+  batchOrdinal: non-negative integer
+  thread: {
+    threadId: UUIDv7 string
+    resolution: "open" | "resolved"
+    origin: OriginV1
+    placement: PlacementV1
+  }
+  message: {
+    messageId: UUIDv7 string
+    messageOrdinal: non-negative integer
+    author: { kind: "human" }
+    savedRevision: positive integer
+    bodyMarkdown: string with 1...16384 UTF-8 bytes
+  }
+}
+
+OriginV1 = {
+  path: repository-relative path string
+  source: SourceV1
+  startLine: positive integer
+  endLine: positive integer
+  excerpt: non-empty ordered array of {
+    lineNumber: positive integer
+    text: string
+  }
+}
+
+SourceV1 =
+  { kind: "file"; sourceIdentity: non-empty string }
+  | {
+      kind: "diff"
+      side: "old" | "new"
+      sourceIdentity: non-empty string
+      comparisonOrigin: ComparisonOriginV1
+    }
+
+ComparisonOriginV1 = {
+  kind: "contribution"
+  baseRole: "commonCommit" | "selectedTarget"
+  comparedRole: "capturedWorkingTree"
+  symbolicTarget: ComparisonTargetV1
+  resolvedTargetOID: non-empty string
+  reviewedHeadOID: non-empty string
+  baseOID: non-empty string
+}
+
+ComparisonTargetV1 =
+  { kind: "localDefaultBranch"; basis: "commonCommit" | "branchTip";
+    branchName: non-empty string }
+  | { kind: "originDefaultBranch"; basis: "commonCommit" | "branchTip";
+      branchName: non-empty string; remoteName: non-empty string }
+  | { kind: "branch"; basis: "commonCommit" | "branchTip";
+      name: non-empty string }
+  | { kind: "commit"; oid: 40- or 64-character hexadecimal string }
+  | { kind: "ref"; basis: "commonCommit" | "branchTip";
+      name: non-empty string }
+
+CoordinateV1 = {
+  path: repository-relative path string
+  source: SourceV1
+  startLine: positive integer
+  endLine: positive integer
+}
+
+PlacementV1 =
+  { status: "exact"; current: CoordinateV1 }
+  | { status: "relocated"; current: CoordinateV1 }
+  | { status: "outdated"; current: null }
+  | { status: "unavailable"; current: null }
+```
+
+Array order is batch order and `batchOrdinal` MUST equal the zero-based array
+index. Message identities MUST be unique. Repeated thread identities MUST carry
+byte-equivalent thread context. `startLine` MUST be less than or equal to
+`endLine`; excerpt line numbers MUST be strictly increasing and include the
+selected origin range. Paths MUST be repository-relative. The exact v1 shape
+uses no optional properties: variant-only data lives only on its discriminated
+union member, and semantic absence is the required JSON value `null`.
+
+Representative complete document:
+
+```json
+{
+  "schema": "agentstudio.worktree-annotations.batch",
+  "formatVersion": 1,
+  "batchId": "0198f0b4-6d66-7e42-9a2c-621d34e37f9f",
+  "createdAt": "2026-08-16T18:42:00Z",
+  "session": {
+    "sessionId": "0198f0a8-2e30-7f2d-ae34-1b28b52e10fa",
+    "label": "Review current implementation",
+    "repositoryId": "repo-agent-studio",
+    "worktreeId": "worktree-review-comments",
+    "lifecycle": "living",
+    "sourceRelationship": "applicable"
+  },
+  "entries": [
+    {
+      "batchOrdinal": 0,
+      "thread": {
+        "threadId": "0198f0b0-d129-7bdd-86f6-b9e96747d5fd",
+        "resolution": "open",
+        "origin": {
+          "path": "Sources/App/ReviewView.swift",
+          "source": {
+            "kind": "file",
+            "sourceIdentity": "sha256:4b30d9f3"
+          },
+          "startLine": 84,
+          "endLine": 86,
+          "excerpt": [
+            { "lineNumber": 84, "text": "private func refreshReview() {" },
+            { "lineNumber": 85, "text": "    reviewSource.reload()" },
+            { "lineNumber": 86, "text": "}" }
+          ]
+        },
+        "placement": {
+          "status": "relocated",
+          "current": {
+            "path": "Sources/App/ReviewView.swift",
+            "source": {
+              "kind": "file",
+              "sourceIdentity": "sha256:6c620871"
+            },
+            "startLine": 91,
+            "endLine": 93
+          }
+        }
+      },
+      "message": {
+        "messageId": "0198f0b2-5518-7776-bf53-e725b2b465d2",
+        "messageOrdinal": 0,
+        "author": { "kind": "human" },
+        "savedRevision": 1,
+        "bodyMarkdown": "## Keep refresh asynchronous\n\nPreserve the current owner."
+      }
+    }
+  ]
+}
+```
+
 An unsupported format version, missing required field, invalid discriminant,
-duplicate identity, or order/membership inconsistency MUST be rejected rather
-than partially interpreted by contract validation. PR1 emits one version and
-defines no JSON import UI or cross-version compatibility promise.
+unknown field, duplicate identity, inconsistent repeated-thread context, or
+order/membership inconsistency MUST be rejected rather than partially
+interpreted by contract validation. PR1 emits one version and defines no JSON
+import UI or cross-version compatibility promise.
 
 Basis: P1-U11.
 
@@ -467,8 +826,8 @@ repetition without forcing a recovery-choice modal.
 ```text
 prepared batch
     +-- effect fails --------> no event; preparation cancelled
-    +-- effect + finalize ---> successful event; messages locked
-    `-- crash, result unknown -> unknown history; messages locked
+    +-- effect + finalize ---> successful event; status = locked
+    `-- crash, result unknown -> unknown history; status = locked
                                 explicit exact-byte repetition only
 
 No output branch changes thread resolution.
@@ -505,6 +864,31 @@ reply message MUST be replyable, including after it becomes immutable through
 successful output. PR1 MUST expose no agent author, reply, query, or mutation
 behavior.
 
+A thread containing exactly one message MUST render that message directly
+inline and MUST NOT expose a thread disclosure. A thread containing two or more
+messages MUST initially render one synthetic thread-summary surface instead of
+M1. The summary MUST derive deterministically from the current thread
+projection, MUST identify the latest-message excerpt and author/time, total
+message count, resolution, and any hidden Draft, placement, inclusion, or lock
+status needed to avoid a false collapsed representation, and MUST NOT become a
+stored, selectable, exportable, or replyable message.
+
+Activating the summary MUST expand that same inline thread to expose every
+message exactly once in flat chronological order. Starting or resuming a reply
+or edit MUST expand the thread and MUST keep it expanded while the editor is
+active. Per-message inclusion and reply actions hidden by the summary MUST
+remain reachable through expansion. Threads remain independently expandable
+and resolvable, including when Pierre presents several thread components in one
+physical annotation row at the same source coordinate. Resolve and Reopen MUST
+continue to affect the whole thread only.
+
+The summary disclosure MUST be keyboard operable through Enter and Space,
+retain focus on its trigger when expanded, and keep Reply, Resolve/Reopen,
+Expand/Collapse, links, and selection controls outside the trigger. Hidden message
+controls MUST NOT remain in keyboard or accessibility traversal while the
+thread is collapsed. Disclosure MUST NOT consume Escape, which retains its
+range and draft behavior.
+
 Basis: P1-U14 and the confirmed PR1/PR2 boundary.
 
 ### R-P1-017 — Bounded complete-message transport
@@ -536,7 +920,7 @@ dynamic complete-message packing
 | Contract slot | PR1 behavior |
 | --- | --- |
 | Consumer | human reviewer and pasted-text recipient |
-| Input | one non-empty deterministic selection of saved message versions |
+| Input | one non-empty deterministic selection of editable messages with saved bodies and no drafts |
 | Success | packet replaces clipboard; exact history is recorded; copied toast appears; copy UI closes; threads remain open |
 | Empty selection | action is unavailable or rejected without effect |
 | Generation/validation failure | no clipboard mutation and no history |
@@ -550,7 +934,7 @@ dynamic complete-message packing
 | Contract slot | PR1 behavior |
 | --- | --- |
 | Consumer | human reviewer and structured-file recipient |
-| Input | one non-empty deterministic selection of saved message versions and a user-selected destination |
+| Input | one non-empty deterministic selection of editable messages with saved bodies and no drafts, plus a user-selected destination |
 | Success | one complete versioned JSON file is present and exact batch history is recorded |
 | User cancellation | no output file and no history |
 | Generation/validation failure | no output file and no history |
@@ -609,10 +993,13 @@ PR1 does not define or imply:
   threads, whole thread only; resolved threads never deletable);
 - a batch save-all-drafts affordance;
 - a third visible viewer surface or separate physical Bridge transport;
-- a comment sidebar (the planned follow-up PR owning thread navigation) or a
-  Pierre dependency upgrade.
+- a global/general-review panel, whole-file or session-level comment UI,
+  persistent session chrome, or a comment sidebar (the planned follow-up PR
+  owning thread navigation);
+- customer-facing session finish/reopen/history or open-thread warning UI;
+- a Pierre dependency upgrade; 1.3.5 is stable follow-up work, not part of PR1.
 
-Stable session, thread, message, saved-version, and batch identities; immutable
+Stable session, thread, message, and batch identities; immutable
 origins; deterministic ordering; and versioned JSON are PR1 facts. They are not
 authorization to prebuild PR2 delivery machinery.
 
@@ -620,21 +1007,28 @@ authorization to prebuild PR2 delivery machinery.
 
 | Requirements | Required evidence class |
 | --- | --- |
-| R-P1-001, R-P1-008, R-P1-009, R-P1-016 | automated lifecycle/thread behavior plus manual cross-view interaction |
-| R-P1-002, R-P1-007 | automated anchor admission and placement-state behavior using real source evidence |
+| R-P1-001, R-P1-008, R-P1-009 | automated lifecycle/thread behavior plus manual cross-view interaction |
+| R-P1-002, R-P1-007 | automated selection/admission and placement-state behavior using real source evidence plus manual range-highlight, endpoint/gutter `+`, and inline-only visual proof |
 | R-P1-003, R-P1-004, R-P1-006 | automated draft/save/revert behavior with controlled time and restart state inspection |
 | R-P1-005, R-P1-017 | automated Markdown/size/frame admission plus manual visual inspection and boundary rejection |
 | R-P1-010, R-P1-011 | deterministic snapshot/Markdown behavior plus actual clipboard inspection |
 | R-P1-012 | schema validation, encode/decode, malformed-input, and unsupported-version evidence |
 | R-P1-013 | automated failure/partial-success behavior plus actual file/clipboard effect inspection |
 | R-P1-014 | integration behavior across File/Review and restart with canonical state inspection |
+| R-P1-016 | automated one-message direct rendering, two-or-more-message summary replacement, expansion to exactly one flat chronological sequence, independent same-coordinate threads, authoring-forced expansion, and keyboard/focus behavior plus manual File/Review, narrow-width, 200% text, reduced-motion, and packaged VoiceOver interaction |
 | R-P1-015 | dependency/surface inspection proving the complete journey without PR2 machinery |
 | Reliability obligations | corrupt-local-database recovery proving visible pre-acknowledgement degradation, rejected mutations, retained recovery witness, and retained quarantined files |
 
 Packaged interaction proof MUST demonstrate the complete human journey in both
-viewers, including draft recovery, Save/Revert, selection, actual clipboard
-Markdown, actual JSON export, worktree change, placement degradation, explicit
-resolution, warning-assisted finish, and session restoration.
+viewers, including drag feedback without composer creation, endpoint and
+single-line gutter `+` admission, empty-composer dismissal, non-empty draft
+collapse/recovery, one-message direct rendering, multi-message summary without
+M1, expansion to every message, independent expansion of same-coordinate
+threads, keyboard Save/newline/disclosure behavior, shared-shell visual quality,
+actual clipboard Markdown, actual JSON export, worktree change, placement
+degradation, explicit whole-thread resolution, and restoration. It MUST also
+show that summary/full-thread replacement reflows through Pierre without
+clipping, overlapping, persistent flicker, or a competing scroll writer.
 
 ## Traceability
 
@@ -662,7 +1056,7 @@ The linked Program Design defines these internal boundaries without changing
 this observable contract:
 
 - canonical feature-state, persistence, and App-composed native-effect owners;
-- stable identities, saved-version/draft representation, and transaction
+- stable identities, saved-body/optional-draft/status representation, and transaction
   boundaries;
 - source-origin capture, placement evaluation, and continuity-evidence policy;
 - cross-view publication and restart recovery;

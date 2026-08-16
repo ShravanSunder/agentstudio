@@ -7,6 +7,7 @@ import {
 	bridgeProductSafeMessageSchema,
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_INTEREST_STATE_BYTES,
 } from './bridge-product-contract-primitives.js';
+import { bridgeProductSubscriptionInterestDeltaItemCount } from './bridge-product-subscription-accounting.js';
 import {
 	type BridgeProductSubscriptionInterestState,
 	bridgeProductFileMetadataInterestDeltaSchema,
@@ -17,6 +18,25 @@ import {
 import { encodeBridgeProductSubscriptionInterestState } from './bridge-product-subscription-interest-state-codec.js';
 
 describe('Bridge product subscription interest-state codec', () => {
+	test('encodes annotation interest states as the canonical empty six-byte payload', () => {
+		expect(
+			encodeBridgeProductSubscriptionInterestState({ subscriptionKind: 'file.annotations' }),
+		).toEqual(Uint8Array.from([1, 3, 0, 0, 0, 0]));
+		expect(
+			encodeBridgeProductSubscriptionInterestState({ subscriptionKind: 'review.annotations' }),
+		).toEqual(Uint8Array.from([1, 4, 0, 0, 0, 0]));
+		expect(
+			preflightBridgeProductSubscriptionInterestStateCanonicalEncoding({
+				subscriptionKind: 'file.annotations',
+			}),
+		).toEqual({ canonicalByteLength: 6, status: 'accepted', visitedTextValueCount: 0 });
+		expect(
+			bridgeProductSubscriptionInterestDeltaItemCount({
+				subscriptionKind: 'review.annotations',
+			}),
+		).toBe(0);
+	});
+
 	test('rejects unpaired UTF-16 surrogates before lossy UTF-8 encoding', () => {
 		const firstLoneSurrogate = '\ud800';
 		const secondLoneSurrogate = '\udbff';

@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 
+import { Toaster } from '@/components/ui/sonner.js';
+
 import { createBridgePaneRuntime } from '../core/comm-worker/bridge-pane-runtime.js';
 import {
 	createBridgeMarkdownRenderModuleWorkerFactory,
@@ -52,13 +54,16 @@ if (rootElement !== null) {
 	);
 
 	root.render(
-		<BridgeAppProtocolRouter
-			codeViewWorkerPoolEnabled
-			markdownWorkerClient={markdownWorkerClient}
-			paneRuntime={paneRuntime}
-			fileViewerProps={{ autoOpenInitialFile: true }}
-			codeViewWorkerFactory={workerFactory.workerFactory}
-		/>,
+		<>
+			<BridgeAppProtocolRouter
+				codeViewWorkerPoolEnabled
+				markdownWorkerClient={markdownWorkerClient}
+				paneRuntime={paneRuntime}
+				fileViewerProps={{ autoOpenInitialFile: true }}
+				codeViewWorkerFactory={workerFactory.workerFactory}
+			/>
+			<Toaster />
+		</>,
 	);
 }
 

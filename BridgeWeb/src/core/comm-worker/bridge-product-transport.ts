@@ -283,7 +283,7 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			paneSessionId: this.#authority.bootstrap.paneSessionId,
 			wireVersion: this.#authority.bootstrap.wireVersion,
 			workerDerivationEpoch: this.workerDerivationEpoch(
-				bridgeProductSurfaceForContentKind(parsedDescriptor.contentKind),
+				bridgeProductSurfaceForContentKind(parsedDescriptor.contentKind, parsedDescriptor),
 			),
 			workerInstanceId: this.#authority.bootstrap.workerInstanceId,
 		});
@@ -313,9 +313,9 @@ class BridgeProductTransportSessionImpl implements BridgeProductTransportSession
 			onTerminal: (subscriptionId): void => {
 				this.#subscriptions.delete(subscriptionId);
 			},
+			readWorkerDerivationEpochAtAdmission: (): number => this.workerDerivationEpoch(surface),
 			subscriptionId: this.#createIdentifier('subscription'),
 			subscriptionKind,
-			workerDerivationEpoch: this.workerDerivationEpoch(surface),
 		});
 	}
 

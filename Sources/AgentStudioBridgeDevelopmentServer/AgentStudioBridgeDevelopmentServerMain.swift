@@ -13,6 +13,11 @@ enum AgentStudioBridgeDevelopmentServerMain {
             )
             let host = try await BridgeDevelopmentProductHost(
                 source: coreComposition.productSource,
+                worktreeAnnotationStore: coreComposition.worktreeAnnotationStore,
+                worktreeAnnotationOutputCoordinator:
+                    coreComposition.worktreeAnnotationOutputCoordinator,
+                originatingWorkspaceID: coreComposition.originatingWorkspaceID,
+                reviewSharedContentRootURL: configuration.reviewSharedContentRootURL,
                 contributionTargetCommit: { target in
                     coreComposition.applyContributionTarget(target)
                 }

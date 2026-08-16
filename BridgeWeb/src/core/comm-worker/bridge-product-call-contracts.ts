@@ -3,13 +3,21 @@ import { z } from 'zod';
 import { bridgeProductReviewComparisonTargetsContentDescriptorSchema } from './bridge-product-content-contracts.js';
 import {
 	type BridgeProductAssert,
+	bridgeProductDisplayPathSchema,
 	bridgeProductIdentifierSchema,
+	bridgeProductUnicodeScalarUtf8ByteLength,
 	type BridgeProductRegistryValue,
 	type BridgeProductTypeSetsEqual,
 } from './bridge-product-contract-primitives.js';
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 import { bridgeProductReviewPublicationIdSchema } from './bridge-product-review-primitives.js';
 import { bridgeProductFileSourceConfigurationSchema } from './bridge-product-subscription-contracts.js';
+import {
+	bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
+	bridgeProductWorktreeAnnotationOutputInspectResultSchema,
+} from './bridge-product-worktree-annotation-output-contracts.js';
+
+export { bridgeProductWorktreeAnnotationOutputInspectResultSchema } from './bridge-product-worktree-annotation-output-contracts.js';
 
 export { bridgeProductReviewComparisonTargetSchema } from './bridge-product-review-comparison-contracts.js';
 
@@ -81,7 +89,203 @@ export const bridgeProductFileActiveViewerModeUpdateRequestSchema = z
 	.strict();
 export const bridgeProductActiveViewerModeUpdateResultSchema = z.null();
 
+const bridgeProductWorktreeAnnotationIdSchema = bridgeProductReviewPublicationIdSchema;
+const bridgeProductWorktreeAnnotationBodySchema = z
+	.string()
+	.refine((body) => body.trim().length > 0, 'Annotation bodies cannot be empty.')
+	.refine((body) => {
+		const byteLength = bridgeProductUnicodeScalarUtf8ByteLength(body);
+		return byteLength !== null && byteLength <= 16 * 1024;
+	}, 'Annotation bodies cannot exceed 16 KiB of UTF-8.');
+const bridgeProductWorktreeAnnotationAdmissionSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('implicitOrSingle') }).strict(),
+	z.object({ kind: z.literal('newSession') }).strict(),
+	z
+		.object({
+			kind: z.literal('selected'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+]);
+const bridgeProductWorktreeAnnotationOriginSchema = z
+	.object({
+		diffSide: z.enum(['additions', 'deletions']).nullable(),
+		endLine: z.number().int().positive(),
+		kind: z.literal('located'),
+		path: bridgeProductDisplayPathSchema,
+		sourceIdentity: bridgeProductIdentifierSchema,
+		sourceRole: z.enum(['file', 'reviewBase', 'reviewHead']),
+		startLine: z.number().int().positive(),
+	})
+	.strict()
+	.refine((origin) => origin.endLine >= origin.startLine, {
+		message: 'Annotation endLine cannot precede startLine.',
+	});
+const bridgeProductWorktreeAnnotationMessageIdListSchema = z
+	.array(bridgeProductWorktreeAnnotationIdSchema)
+	.max(64)
+	.refine((messageIds) => new Set(messageIds).size === messageIds.length, {
+		message: 'Annotation output selection cannot repeat a message identity.',
+	});
+const bridgeProductWorktreeAnnotationOutputSelectionSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			kind: z.literal('explicit'),
+			messageIds: bridgeProductWorktreeAnnotationMessageIdListSchema.min(1),
+		})
+		.strict(),
+	z
+		.object({
+			excludedMessageIds: bridgeProductWorktreeAnnotationMessageIdListSchema,
+			kind: z.literal('allEligible'),
+		})
+		.strict(),
+]);
+
+export const bridgeProductWorktreeAnnotationOperationSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('session.discover') }).strict(),
+	z
+		.object({
+			kind: z.literal('demand.acquire'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('demand.release'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			admission: bridgeProductWorktreeAnnotationAdmissionSchema,
+			body: bridgeProductWorktreeAnnotationBodySchema,
+			editToken: bridgeProductIdentifierSchema,
+			kind: z.literal('root.create'),
+			origin: bridgeProductWorktreeAnnotationOriginSchema,
+		})
+		.strict(),
+	z
+		.object({
+			body: bridgeProductWorktreeAnnotationBodySchema,
+			editToken: bridgeProductIdentifierSchema,
+			expectedSessionRevision: z.number().int().nonnegative(),
+			kind: z.literal('reply.create'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			threadId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			body: bridgeProductWorktreeAnnotationBodySchema,
+			editToken: bridgeProductIdentifierSchema,
+			expectedDraftRevision: z.number().int().nonnegative().nullable(),
+			expectedSessionRevision: z.number().int().nonnegative(),
+			kind: z.literal('draft.flush'),
+			messageId: bridgeProductWorktreeAnnotationIdSchema,
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	...(['draft.save', 'draft.revert'] as const).map((kind) =>
+		z
+			.object({
+				editToken: bridgeProductIdentifierSchema,
+				expectedDraftRevision: z.number().int().nonnegative(),
+				expectedSessionRevision: z.number().int().nonnegative(),
+				kind: z.literal(kind),
+				messageId: bridgeProductWorktreeAnnotationIdSchema,
+				sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			})
+			.strict(),
+	),
+	z
+		.object({
+			expectedSessionRevision: z.number().int().nonnegative(),
+			kind: z.literal('thread.resolution.set'),
+			resolution: z.enum(['open', 'resolved']),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			threadId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			decision: z.enum(['acceptCurrentSource', 'keepDetached']),
+			expectedSessionRevision: z.number().int().nonnegative(),
+			kind: z.literal('continuity.choose'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('source.refresh'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+			sourceEpoch: z.number().int().nonnegative(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('output.prepare'),
+			outputKind: z.enum(['clipboardMarkdown', 'jsonFile']),
+			selection: bridgeProductWorktreeAnnotationOutputSelectionSchema,
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('output.history'),
+			sessionId: bridgeProductWorktreeAnnotationIdSchema,
+		})
+		.strict(),
+	z
+		.object({
+			attemptId: bridgeProductWorktreeAnnotationIdSchema,
+			kind: z.literal('output.repeat'),
+		})
+		.strict(),
+	z.object({ kind: z.literal('recovery.acknowledge') }).strict(),
+]);
+export const bridgeProductWorktreeAnnotationCommandRequestSchema = z
+	.object({ operation: bridgeProductWorktreeAnnotationOperationSchema })
+	.strict();
+export const bridgeProductWorktreeAnnotationCommandResultSchema = z
+	.object({
+		kind: z.literal('accepted'),
+		requestId: bridgeProductIdentifierSchema,
+	})
+	.strict();
+
+const bridgeProductFileAnnotationOutputInspectResultSchema =
+	bridgeProductWorktreeAnnotationOutputInspectResultSchema.refine(
+		(result) => result.descriptor.surface === 'file',
+		{
+			message: 'File annotation output descriptors must remain File-surface bound.',
+			path: ['descriptor', 'surface'],
+		},
+	);
+const bridgeProductReviewAnnotationOutputInspectResultSchema =
+	bridgeProductWorktreeAnnotationOutputInspectResultSchema.refine(
+		(result) => result.descriptor.surface === 'review',
+		{
+			message: 'Review annotation output descriptors must remain Review-surface bound.',
+			path: ['descriptor', 'surface'],
+		},
+	);
+
+export type BridgeProductWorktreeAnnotationOperation = z.infer<
+	typeof bridgeProductWorktreeAnnotationOperationSchema
+>;
+
 export type BridgeProductCallRegistry = {
+	readonly 'file.annotations.command': {
+		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationCommandRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationCommandResultSchema>;
+		readonly surface: 'file';
+	};
+	readonly 'file.annotations.output.inspect': {
+		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectResultSchema>;
+		readonly surface: 'file';
+	};
 	readonly 'file.source.current': {
 		readonly request: z.infer<typeof bridgeProductFileSourceCurrentRequestSchema>;
 		readonly result: z.infer<typeof bridgeProductFileSourceCurrentResultSchema>;
@@ -122,6 +326,16 @@ export type BridgeProductCallRegistry = {
 		readonly result: z.infer<typeof bridgeProductReviewComparisonTargetsQueryResultSchema>;
 		readonly surface: 'review';
 	};
+	readonly 'review.annotations.command': {
+		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationCommandRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationCommandResultSchema>;
+		readonly surface: 'review';
+	};
+	readonly 'review.annotations.output.inspect': {
+		readonly request: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectRequestSchema>;
+		readonly result: z.infer<typeof bridgeProductWorktreeAnnotationOutputInspectResultSchema>;
+		readonly surface: 'review';
+	};
 };
 
 export type BridgeProductCallKind = keyof BridgeProductCallRegistry;
@@ -131,6 +345,8 @@ export type BridgeProductCallResult<TCallKind extends BridgeProductCallKind> =
 	BridgeProductRegistryValue<BridgeProductCallRegistry, TCallKind, 'result'>;
 
 const bridgeProductSurfaceByCallKind = {
+	'file.annotations.command': 'file',
+	'file.annotations.output.inspect': 'file',
 	'file.activeViewerMode.update': 'file',
 	'file.source.current': 'file',
 	'review.activeViewerMode.update': 'review',
@@ -139,6 +355,8 @@ const bridgeProductSurfaceByCallKind = {
 	'review.intake.ready': 'review',
 	'review.markFileViewed': 'review',
 	'review.publication.applied': 'review',
+	'review.annotations.command': 'review',
+	'review.annotations.output.inspect': 'review',
 } as const satisfies {
 	readonly [TCallKind in BridgeProductCallKind]: BridgeProductCallRegistry[TCallKind]['surface'];
 };
@@ -150,6 +368,18 @@ export function bridgeProductSurfaceForCallKind<TCallKind extends BridgeProductC
 }
 
 export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.annotations.command'),
+			request: bridgeProductWorktreeAnnotationCommandRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.annotations.output.inspect'),
+			request: bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('file.source.current'),
@@ -198,9 +428,33 @@ export const bridgeProductCallRequestSchema = z.discriminatedUnion('method', [
 			request: bridgeProductReviewPublicationAppliedRequestSchema,
 		})
 		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.command'),
+			request: bridgeProductWorktreeAnnotationCommandRequestSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.output.inspect'),
+			request: bridgeProductWorktreeAnnotationOutputInspectRequestSchema,
+		})
+		.strict(),
 ]);
 
 export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
+	z
+		.object({
+			method: z.literal('file.annotations.command'),
+			result: bridgeProductWorktreeAnnotationCommandResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('file.annotations.output.inspect'),
+			result: bridgeProductFileAnnotationOutputInspectResultSchema,
+		})
+		.strict(),
 	z
 		.object({
 			method: z.literal('file.source.current'),
@@ -247,6 +501,18 @@ export const bridgeProductCallResultSchema = z.discriminatedUnion('method', [
 		.object({
 			method: z.literal('review.publication.applied'),
 			result: bridgeProductReviewPublicationAppliedResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.command'),
+			result: bridgeProductWorktreeAnnotationCommandResultSchema,
+		})
+		.strict(),
+	z
+		.object({
+			method: z.literal('review.annotations.output.inspect'),
+			result: bridgeProductReviewAnnotationOutputInspectResultSchema,
 		})
 		.strict(),
 ]);

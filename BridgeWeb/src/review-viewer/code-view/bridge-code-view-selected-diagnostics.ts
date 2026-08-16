@@ -1,7 +1,14 @@
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type { BridgeContentRole } from '../../foundation/review-package/bridge-review-package.js';
+import type {
+	BridgeContentRole,
+	BridgeReviewItemDescriptor,
+} from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewContentFacts } from './bridge-code-view-materialization.js';
-import type { BridgeCodeViewMaterializationDiagnostic } from './bridge-code-view-panel-support.js';
+import {
+	selectedBridgeCodeViewReviewContext,
+	type BridgeCodeViewMaterializationDiagnostic,
+} from './bridge-code-view-panel-support.js';
+import type { BridgeCodeViewPanelProps } from './bridge-code-view-panel-types.js';
 
 interface SelectedContentSummary {
 	readonly cacheKeyCount: number;
@@ -15,6 +22,25 @@ export interface SelectedContentDiagnostics {
 	readonly roleNames: string;
 	readonly state: 'none' | 'pending' | 'ready';
 	readonly summary: SelectedContentSummary;
+}
+
+export function selectedBridgeCodeViewPanelContext(
+	props: Pick<
+		BridgeCodeViewPanelProps,
+		'projection' | 'reviewPackage' | 'selectedCodeViewItem' | 'selectedItemId'
+	>,
+): {
+	readonly selectedContentDiagnostics: SelectedContentDiagnostics;
+	readonly selectedDisplayPath: string | null;
+	readonly selectedReviewItem: BridgeReviewItemDescriptor | null;
+} {
+	return {
+		...selectedBridgeCodeViewReviewContext(props),
+		selectedContentDiagnostics: selectedContentDiagnosticsForPanel({
+			selectedCodeViewItem: props.selectedCodeViewItem,
+			selectedItemId: props.selectedItemId,
+		}),
+	};
 }
 
 const selectedContentRoleOrder: readonly BridgeContentRole[] = ['base', 'head', 'diff', 'file'];

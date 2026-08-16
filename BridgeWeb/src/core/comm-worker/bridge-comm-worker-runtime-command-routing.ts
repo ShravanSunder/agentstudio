@@ -6,6 +6,17 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 	message: BridgeWorkerMainToServerMessage,
 ): { readonly command: BridgeProductControlCommand; readonly requestId: string } | null {
 	switch (message.command) {
+		case 'annotationCommand':
+			return {
+				command: {
+					method:
+						message.surface === 'fileView'
+							? 'file.annotations.command'
+							: 'review.annotations.command',
+					params: { operation: message.operation },
+				},
+				requestId: message.requestId,
+			};
 		case 'markFileViewed':
 			return {
 				command: {
@@ -51,6 +62,7 @@ export function bridgeWorkerRuntimeProductControlCommandForMessage(
 				requestId: message.requestId,
 			};
 		case 'reviewComparisonTargetsQueryCancel':
+		case 'annotationOutputInspect':
 		case 'hover':
 		case 'metadataInterestUpdate':
 		case 'fileQueryUpdate':
@@ -71,6 +83,9 @@ export function bridgeCommWorkerTelemetryLaneForMessage(
 	message: BridgeWorkerMainToServerMessage,
 ): BridgeCommWorkerTelemetryLane {
 	switch (message.command) {
+		case 'annotationCommand':
+		case 'annotationOutputInspect':
+			return 'selected';
 		case 'select':
 			return 'selected';
 		case 'viewport':

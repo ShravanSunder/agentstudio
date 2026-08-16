@@ -77,6 +77,18 @@ protocol BridgePaneProductFileMetadataProducing: Sendable {
         for request: BridgeProductFileContentRequest,
         productAdmission: BridgeProductAdmissionContext
     ) async -> BridgePaneProductFileContentReadPlan?
+    func captureWorktreeAnnotationSource(
+        origin: BridgeProductWorktreeAnnotationOrigin,
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationCapturedSource
+    func currentWorktreeAnnotationFingerprint(
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceFingerprint
+    func currentWorktreeAnnotationRefresh(
+        requirements: [WorktreeAnnotationSourceRefreshRequirement],
+        productAdmission: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceRefreshCapture
+    func worktreeAnnotationRepositoryPath() async throws -> URL
 }
 
 extension BridgePaneProductFileMetadataProducing {
@@ -84,6 +96,30 @@ extension BridgePaneProductFileMetadataProducing {
         for _: BridgeProductFileContentRequest,
         productAdmission _: BridgeProductAdmissionContext
     ) async -> String? { nil }
+
+    func captureWorktreeAnnotationSource(
+        origin _: BridgeProductWorktreeAnnotationOrigin,
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationCapturedSource {
+        throw WorktreeAnnotationSourceResolutionError.unavailable
+    }
+
+    func currentWorktreeAnnotationFingerprint(
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceFingerprint {
+        throw WorktreeAnnotationSourceResolutionError.unavailable
+    }
+
+    func currentWorktreeAnnotationRefresh(
+        requirements _: [WorktreeAnnotationSourceRefreshRequirement],
+        productAdmission _: BridgeProductAdmissionContext
+    ) async throws -> WorktreeAnnotationSourceRefreshCapture {
+        throw WorktreeAnnotationSourceResolutionError.unavailable
+    }
+
+    func worktreeAnnotationRepositoryPath() async throws -> URL {
+        throw WorktreeAnnotationSourceResolutionError.unavailable
+    }
 }
 
 actor BridgeUnavailablePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducing {

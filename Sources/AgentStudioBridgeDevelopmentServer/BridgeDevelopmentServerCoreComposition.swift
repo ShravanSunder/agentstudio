@@ -18,6 +18,9 @@ enum BridgeDevelopmentServerCoreCompositionError: Error, Equatable {
 @MainActor
 final class BridgeDevelopmentServerCoreComposition {
     let productSource: BridgeDevelopmentProductSource
+    let worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator
+    let worktreeAnnotationStore: WorktreeAnnotationStore
+    let originatingWorkspaceID: String
 
     private let atoms: CoreAtoms
     private let repositoryTopologyStore: RepositoryTopologyStore
@@ -28,12 +31,17 @@ final class BridgeDevelopmentServerCoreComposition {
         atoms: CoreAtoms,
         productSource: BridgeDevelopmentProductSource,
         repositoryTopologyStore: RepositoryTopologyStore,
-        workspaceStore: WorkspaceStore
+        workspaceStore: WorkspaceStore,
+        worktreeAnnotationOutputCoordinator: WorktreeAnnotationOutputCoordinator,
+        worktreeAnnotationStore: WorktreeAnnotationStore
     ) {
         self.atoms = atoms
         self.productSource = productSource
         self.repositoryTopologyStore = repositoryTopologyStore
         self.workspaceStore = workspaceStore
+        self.worktreeAnnotationOutputCoordinator = worktreeAnnotationOutputCoordinator
+        self.worktreeAnnotationStore = worktreeAnnotationStore
+        self.originatingWorkspaceID = workspaceStore.identityAtom.workspaceId.uuidString.lowercased()
     }
 
     static func prepare(
@@ -45,7 +53,8 @@ final class BridgeDevelopmentServerCoreComposition {
         )
         let datastore = WorkspaceSQLiteDatastoreFactory(
             coreDatabaseURL: configuration.dataRoot.appending(path: "core.sqlite"),
-            localDatabaseURL: configuration.dataRoot.appending(path: "local.sqlite")
+            localDatabaseURL: configuration.dataRoot.appending(path: "local.sqlite"),
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
         ).makeDatastore()
         guard case .prepared = await datastore.prepareDatabasesForBoot() else {
             throw BridgeDevelopmentServerCoreCompositionError.databasePreparationFailed
@@ -124,14 +133,41 @@ final class BridgeDevelopmentServerCoreComposition {
             atoms: atoms,
             configuration: configuration
         )
+        let annotationOwners = await makeAnnotationOwners(
+            workspaceStore: workspaceStore,
+            datastore: datastore,
+            dataRoot: configuration.dataRoot
+        )
         workspaceStore.startObserving()
         repositoryTopologyStore.startObserving()
         return BridgeDevelopmentServerCoreComposition(
             atoms: atoms,
             productSource: productSource,
             repositoryTopologyStore: repositoryTopologyStore,
-            workspaceStore: workspaceStore
+            workspaceStore: workspaceStore,
+            worktreeAnnotationOutputCoordinator: annotationOwners.outputCoordinator,
+            worktreeAnnotationStore: annotationOwners.store
         )
+    }
+
+    private static func makeAnnotationOwners(
+        workspaceStore: WorkspaceStore,
+        datastore: WorkspaceSQLiteDatastore,
+        dataRoot: URL
+    ) async -> (store: WorktreeAnnotationStore, outputCoordinator: WorktreeAnnotationOutputCoordinator) {
+        let store = WorktreeAnnotationStore(
+            projection: WorktreeAnnotationProjectionAtom(),
+            sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
+                workspaceID: workspaceStore.identityAtom.workspaceId,
+                datastore: datastore
+            )
+        )
+        let outputCoordinator = WorktreeAnnotationOutputCoordinator(
+            store: store,
+            effect: BridgeDevelopmentWorktreeAnnotationOutputEffect(dataRoot: dataRoot)
+        )
+        _ = await store.restoreRecoveryState()
+        return (store, outputCoordinator)
     }
 
     func applyContributionTarget(

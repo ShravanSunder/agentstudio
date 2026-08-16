@@ -22,6 +22,138 @@ import {
 import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
 
 describe('BridgeWorkerContracts', () => {
+	test('carries strict annotation commands, acceptance correlation, and projections per surface', () => {
+		const command = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'annotationCommand',
+			requestId: 'annotation-worker-request-1',
+			epoch: 3,
+			transferDescriptors: [],
+			surface: 'fileView',
+			operation: { kind: 'session.discover' },
+		} as const;
+		const accepted = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCommandAccepted',
+			requestId: command.requestId,
+			productRequestId: 'annotation-product-request-1',
+			surface: command.surface,
+			transferDescriptors: [],
+		} as const;
+		const projection = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			kind: 'annotationProjection',
+			surface: command.surface,
+			transferDescriptors: [],
+			event: {
+				eventKind: 'projection.state',
+				payload: {
+					commandOutcomes: [
+						{
+							requestId: 'annotation-product-request-1',
+							sessionId: '00000000-0000-7000-8000-000000000002',
+							status: { code: 'session_read_only', kind: 'failed' },
+							surface: 'file',
+						},
+					],
+					outputHistory: [],
+					recoveryStatus: 'available',
+					revision: 1,
+					sessions: [],
+					worktreeId: '00000000-0000-7000-8000-000000000001',
+				},
+			},
+		} as const;
+
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(accepted)).toEqual(accepted);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(projection)).toEqual(projection);
+		expect(
+			bridgeWorkerMainToServerMessageSchema.safeParse({
+				...command,
+				operation: { kind: 'thread.delete' },
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerServerToMainMessageSchema.safeParse({
+				...projection,
+				surface: 'all',
+			}).success,
+		).toBe(false);
+	});
+
+	test('carries a strict surface-bound annotation output inspection with transferred exact bytes', () => {
+		const attemptId = '00000000-0000-7000-8000-000000000031';
+		const exactBytes = new TextEncoder().encode('# Exact annotation output\n').buffer;
+		const command = {
+			attemptId,
+			command: 'annotationOutputInspect',
+			direction: 'mainToServerWorker',
+			epoch: 3,
+			kind: 'command',
+			requestId: 'annotation-output-worker-request-1',
+			surface: 'fileView',
+			transferDescriptors: [],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		} as const;
+		const descriptor = {
+			attemptId,
+			contentKind: 'annotation.output',
+			contentType: 'text/markdown; charset=utf-8',
+			declaredByteLength: exactBytes.byteLength,
+			descriptorId: 'annotation-output-descriptor-1',
+			encoding: 'utf-8',
+			expectedSha256: 'a'.repeat(64),
+			formatVersion: 1,
+			maximumBytes: exactBytes.byteLength,
+			outputKind: 'clipboard_markdown',
+			surface: 'file',
+		} as const;
+		const result = {
+			descriptor,
+			direction: 'serverWorkerToMain',
+			exactBytes,
+			kind: 'annotationOutputInspection',
+			requestId: command.requestId,
+			surface: command.surface,
+			transferDescriptors: [
+				{
+					byteLength: exactBytes.byteLength,
+					fieldPath: ['exactBytes'],
+					messageKind: 'annotationOutputInspection',
+					mode: 'transfer',
+				},
+			],
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		} as const;
+
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
+		expect(bridgeWorkerServerToMainMessageSchema.parse(result)).toEqual(result);
+		for (const invalidCommand of [
+			{ ...command, unexpected: true },
+			{ ...command, attemptId: 'not-a-uuidv7' },
+			{ ...command, wireVersion: BRIDGE_WORKER_WIRE_VERSION + 1 },
+		]) {
+			expect(bridgeWorkerMainToServerMessageSchema.safeParse(invalidCommand).success).toBe(false);
+		}
+		for (const invalidResult of [
+			{ ...result, unexpected: true },
+			{ ...result, surface: 'review' },
+			{ ...result, descriptor: { ...descriptor, surface: 'review' } },
+			{ ...result, transferDescriptors: [] },
+			{
+				...result,
+				transferDescriptors: [{ ...result.transferDescriptors[0], mode: 'clone' }],
+			},
+		]) {
+			expect(bridgeWorkerServerToMainMessageSchema.safeParse(invalidResult).success).toBe(false);
+		}
+	});
+
 	test('requires selection identity and source to be cleared together', () => {
 		// Arrange
 		const selectionCommand = {

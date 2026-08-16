@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client';
 
+import { Toaster } from '@/components/ui/sonner.js';
+
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- The packaged app loads compiled CSS from index.html; this source import keeps dev/build contracts explicit.
@@ -9,6 +11,9 @@ const rootElement = document.querySelector('#root');
 
 if (rootElement !== null) {
 	createRoot(rootElement).render(
-		<BridgeAppProtocolRouter fileViewerProps={{ autoOpenInitialFile: true }} />,
+		<>
+			<BridgeAppProtocolRouter fileViewerProps={{ autoOpenInitialFile: true }} />
+			<Toaster />
+		</>,
 	);
 }

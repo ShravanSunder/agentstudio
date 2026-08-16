@@ -25,7 +25,9 @@ import {
 	bridgeProductFileTreeRowSchema,
 } from './bridge-product-file-tree-contracts.js';
 import { bridgeProductReviewMetadataEventSchema } from './bridge-product-review-metadata-contracts.js';
+import { validateBridgeProductSubscriptionDeltaCollection } from './bridge-product-subscription-delta-validation.js';
 import { preflightBridgeProductSubscriptionInterestStateCanonicalEncoding } from './bridge-product-subscription-interest-preflight.js';
+import { bridgeProductWorktreeAnnotationEventSchema } from './bridge-product-worktree-annotation-contracts.js';
 
 export { bridgeProductSubscriptionInterestDeltaItemCount } from './bridge-product-subscription-accounting.js';
 export {
@@ -172,6 +174,10 @@ export const bridgeProductFileMetadataSubscriptionOptionsSchema = z
 		}
 	});
 
+export const bridgeProductAnnotationSubscriptionOptionsSchema = z.object({}).strict();
+export const bridgeProductAnnotationSubscriptionUpdateOptionsSchema =
+	bridgeProductAnnotationSubscriptionOptionsSchema;
+
 export const bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema =
 	bridgeProductReviewMetadataSubscriptionOptionsSchema;
 
@@ -215,9 +221,11 @@ export const bridgeProductFileMetadataSubscriptionUpdateOptionsSchema = z
 const bridgeProductSubscriptionInterestStateStructuralSchema = z.discriminatedUnion(
 	'subscriptionKind',
 	[
+		z.object({ subscriptionKind: z.literal('file.annotations') }).strict(),
 		bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.safeExtend({
 			subscriptionKind: z.literal('file.metadata'),
 		}),
+		z.object({ subscriptionKind: z.literal('review.annotations') }).strict(),
 		bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.safeExtend({
 			subscriptionKind: z.literal('review.metadata'),
 		}),
@@ -734,6 +742,12 @@ function bridgeProductFileSourceIdentitiesEqual(
 }
 
 export type BridgeProductSubscriptionRegistry = {
+	readonly 'file.annotations': {
+		readonly event: z.infer<typeof bridgeProductWorktreeAnnotationEventSchema>;
+		readonly options: z.infer<typeof bridgeProductAnnotationSubscriptionOptionsSchema>;
+		readonly surface: 'file';
+		readonly updateOptions: z.infer<typeof bridgeProductAnnotationSubscriptionUpdateOptionsSchema>;
+	};
 	readonly 'file.metadata': {
 		readonly event: z.infer<typeof bridgeProductFileMetadataEventSchema>;
 		readonly options: z.infer<typeof bridgeProductFileMetadataSubscriptionOptionsSchema>;
@@ -741,6 +755,12 @@ export type BridgeProductSubscriptionRegistry = {
 		readonly updateOptions: z.infer<
 			typeof bridgeProductFileMetadataSubscriptionUpdateOptionsSchema
 		>;
+	};
+	readonly 'review.annotations': {
+		readonly event: z.infer<typeof bridgeProductWorktreeAnnotationEventSchema>;
+		readonly options: z.infer<typeof bridgeProductAnnotationSubscriptionOptionsSchema>;
+		readonly surface: 'review';
+		readonly updateOptions: z.infer<typeof bridgeProductAnnotationSubscriptionUpdateOptionsSchema>;
 	};
 	readonly 'review.metadata': {
 		readonly event: z.infer<typeof bridgeProductReviewMetadataEventSchema>;
@@ -753,10 +773,17 @@ export type BridgeProductSubscriptionRegistry = {
 };
 
 export type BridgeProductSubscriptionKind = keyof BridgeProductSubscriptionRegistry;
-export const bridgeProductSubscriptionKindSchema = z.enum(['file.metadata', 'review.metadata']);
+export const bridgeProductSubscriptionKindSchema = z.enum([
+	'file.annotations',
+	'file.metadata',
+	'review.annotations',
+	'review.metadata',
+]);
 
 const bridgeProductSurfaceBySubscriptionKind = {
+	'file.annotations': 'file',
 	'file.metadata': 'file',
+	'review.annotations': 'review',
 	'review.metadata': 'review',
 } as const satisfies {
 	readonly [TSubscriptionKind in BridgeProductSubscriptionKind]: BridgeProductSubscriptionRegistry[TSubscriptionKind]['surface'];
@@ -800,6 +827,8 @@ export function validateBridgeProductSubscriptionInterestState(
 }
 
 export const bridgeProductSubscriptionOpenSchema = z.discriminatedUnion('subscriptionKind', [
+	z.object({ subscriptionKind: z.literal('file.annotations') }).strict(),
+	z.object({ subscriptionKind: z.literal('review.annotations') }).strict(),
 	z
 		.object({
 			source: bridgeProductFileSourceConfigurationSchema,
@@ -843,9 +872,10 @@ export const bridgeProductReviewMetadataInterestDeltaSchema = z
 	.superRefine((delta, context): void => {
 		const addedItemIds = delta.add.map((addition) => addition.itemId);
 		const removedItemIds = delta.removeItemIds;
-		validateDeltaCollection({
+		validateBridgeProductSubscriptionDeltaCollection({
 			addedValues: addedItemIds,
 			context,
+			maximumItemCount: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
 			path: ['add'],
 			removedPath: ['removeItemIds'],
 			removedValues: removedItemIds,
@@ -874,16 +904,18 @@ export const bridgeProductFileMetadataInterestDeltaSchema = z
 	})
 	.strict()
 	.superRefine((delta, context): void => {
-		validateDeltaCollection({
+		validateBridgeProductSubscriptionDeltaCollection({
 			addedValues: delta.add.map((addition) => addition.path),
 			context,
+			maximumItemCount: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
 			path: ['add'],
 			removedPath: ['removePaths'],
 			removedValues: delta.removePaths,
 		});
-		validateDeltaCollection({
+		validateBridgeProductSubscriptionDeltaCollection({
 			addedValues: delta.addPathScope,
 			context,
+			maximumItemCount: BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
 			path: ['addPathScope'],
 			removedPath: ['removePathScope'],
 			removedValues: delta.removePathScope,
@@ -892,8 +924,27 @@ export const bridgeProductFileMetadataInterestDeltaSchema = z
 
 export const bridgeProductSubscriptionInterestDeltaSchema = z.discriminatedUnion(
 	'subscriptionKind',
-	[bridgeProductFileMetadataInterestDeltaSchema, bridgeProductReviewMetadataInterestDeltaSchema],
+	[
+		z.object({ subscriptionKind: z.literal('file.annotations') }).strict(),
+		bridgeProductFileMetadataInterestDeltaSchema,
+		z.object({ subscriptionKind: z.literal('review.annotations') }).strict(),
+		bridgeProductReviewMetadataInterestDeltaSchema,
+	],
 );
+
+export const bridgeProductFileAnnotationSubscriptionDataSchema = z
+	.object({
+		event: bridgeProductWorktreeAnnotationEventSchema,
+		subscriptionKind: z.literal('file.annotations'),
+	})
+	.strict();
+
+export const bridgeProductReviewAnnotationSubscriptionDataSchema = z
+	.object({
+		event: bridgeProductWorktreeAnnotationEventSchema,
+		subscriptionKind: z.literal('review.annotations'),
+	})
+	.strict();
 
 export const bridgeProductFileMetadataSubscriptionDataSchema = z
 	.object({
@@ -910,7 +961,9 @@ export const bridgeProductReviewMetadataSubscriptionDataSchema = z
 	.strict();
 
 export const bridgeProductSubscriptionDataSchema = z.discriminatedUnion('subscriptionKind', [
+	bridgeProductFileAnnotationSubscriptionDataSchema,
 	bridgeProductFileMetadataSubscriptionDataSchema,
+	bridgeProductReviewAnnotationSubscriptionDataSchema,
 	bridgeProductReviewMetadataSubscriptionDataSchema,
 ]);
 
@@ -937,45 +990,3 @@ export type BridgeProductSubscriptionDataRegistryParity = BridgeProductAssert<
 		BridgeProductSubscriptionKind
 	>
 >;
-
-function validateDeltaCollection(props: {
-	readonly addedValues: readonly string[];
-	readonly context: z.RefinementCtx;
-	readonly path: readonly (number | string)[];
-	readonly removedPath: readonly (number | string)[];
-	readonly removedValues: readonly string[];
-}): void {
-	const addedIdentityKeySet = bridgeProductExactUtf8IdentitySet(props.addedValues);
-	const removedIdentityKeySet = bridgeProductExactUtf8IdentitySet(props.removedValues);
-	if (addedIdentityKeySet.size !== props.addedValues.length) {
-		props.context.addIssue({
-			code: 'custom',
-			message: 'Bridge product subscription delta additions must be unique.',
-			path: [...props.path],
-		});
-	}
-	if (removedIdentityKeySet.size !== props.removedValues.length) {
-		props.context.addIssue({
-			code: 'custom',
-			message: 'Bridge product subscription delta removals must be unique.',
-			path: [...props.removedPath],
-		});
-	}
-	if ([...addedIdentityKeySet].some((identityKey) => removedIdentityKeySet.has(identityKey))) {
-		props.context.addIssue({
-			code: 'custom',
-			message: 'Bridge product subscription delta cannot add and remove the same member.',
-			path: [...props.path],
-		});
-	}
-	if (
-		props.addedValues.length + props.removedValues.length >
-		BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT
-	) {
-		props.context.addIssue({
-			code: 'custom',
-			message: 'Bridge product subscription delta exceeds its aggregate item ceiling.',
-			path: [...props.path],
-		});
-	}
-}

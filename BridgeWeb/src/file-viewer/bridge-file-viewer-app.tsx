@@ -92,20 +92,6 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 			}),
 		[viewSettings],
 	);
-	const contentHeaderControls = (
-		<>
-			{isActive ? (
-				<BridgeViewerViewSettingsMenu
-					defaultSettings={bridgeFilesDefaultViewSettings}
-					onChange={setViewSettings}
-					onOpenChange={setViewSettingsMenuOpen}
-					open={viewSettingsMenuOpen}
-					settings={viewSettings}
-					surface="file"
-				/>
-			) : null}
-		</>
-	);
 	const isActiveRef = useRef(isActive);
 	isActiveRef.current = isActive;
 	const appliedNavigationApplicationKeyRef = useRef<string | null>(null);
@@ -161,6 +147,20 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		selection,
 		status: displayModel.status,
 	});
+	const contentHeaderControls = (
+		<>
+			{isActive ? (
+				<BridgeViewerViewSettingsMenu
+					defaultSettings={bridgeFilesDefaultViewSettings}
+					onChange={setViewSettings}
+					onOpenChange={setViewSettingsMenuOpen}
+					open={viewSettingsMenuOpen}
+					settings={viewSettings}
+					surface="file"
+				/>
+			) : null}
+		</>
+	);
 	const selectFile = useCallback(
 		(nextSelection: BridgeFileViewerSelection, source: 'programmatic' | 'user'): void => {
 			if (!isActiveRef.current) {

@@ -31,8 +31,10 @@ import {
 import { bridgeProductReviewComparisonPresentationSchema } from './bridge-product-review-comparison-presentation-contracts.js';
 import {
 	BRIDGE_PRODUCT_MAXIMUM_SUBSCRIPTION_DELTA_ITEM_COUNT,
+	bridgeProductFileAnnotationSubscriptionDataSchema,
 	bridgeProductFileMetadataInterestDeltaSchema,
 	bridgeProductFileMetadataSubscriptionDataSchema,
+	bridgeProductReviewAnnotationSubscriptionDataSchema,
 	bridgeProductReviewMetadataInterestDeltaSchema,
 	bridgeProductReviewMetadataSubscriptionDataSchema,
 	bridgeProductSubscriptionInterestDeltaItemCount,
@@ -417,8 +419,22 @@ const bridgeProductSubscriptionDataFrameSchema = z.discriminatedUnion('subscript
 	z
 		.object({
 			...bridgeProductSubscriptionDataFrameBaseShape,
+			data: bridgeProductFileAnnotationSubscriptionDataSchema,
+			subscriptionKind: z.literal('file.annotations'),
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductSubscriptionDataFrameBaseShape,
 			data: bridgeProductFileMetadataSubscriptionDataSchema,
 			subscriptionKind: z.literal('file.metadata'),
+		})
+		.strict(),
+	z
+		.object({
+			...bridgeProductSubscriptionDataFrameBaseShape,
+			data: bridgeProductReviewAnnotationSubscriptionDataSchema,
+			subscriptionKind: z.literal('review.annotations'),
 		})
 		.strict(),
 	z

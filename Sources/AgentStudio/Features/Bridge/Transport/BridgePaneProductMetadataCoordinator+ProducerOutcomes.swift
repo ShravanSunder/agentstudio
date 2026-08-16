@@ -8,6 +8,39 @@ enum BridgePaneProductFileRefreshPublicationDisposition: Equatable, Sendable {
 }
 
 extension BridgePaneProductMetadataCoordinator {
+    static func enqueue(
+        event: BridgeProductWorktreeAnnotationEvent,
+        subscriptionKind: BridgeProductSubscriptionKind,
+        subscriptionId: String,
+        productAdmission: BridgeProductAdmissionContext,
+        foregroundWorkAdmission: BridgePaneRefreshWorkAdmission,
+        session: BridgeProductSession
+    ) async throws {
+        let data: BridgeProductSubscriptionData
+        switch subscriptionKind {
+        case .fileAnnotations:
+            data = .fileAnnotations(event)
+        case .reviewAnnotations:
+            data = .reviewAnnotations(event)
+        case .fileMetadata, .reviewMetadata:
+            throw BridgePaneProductMetadataCoordinatorError.producerRejected(.unknownLease)
+        }
+        let result = try await session.enqueueSubscriptionData(
+            subscriptionId: subscriptionId,
+            data: data,
+            productAdmission: productAdmission,
+            foregroundWorkAdmission: foregroundWorkAdmission
+        )
+        switch result {
+        case .enqueued:
+            return
+        case .queueReset:
+            throw BridgePaneProductMetadataCoordinatorError.producerQueueReset
+        case .rejected(let rejection):
+            throw BridgePaneProductMetadataCoordinatorError.producerRejected(rejection)
+        }
+    }
+
     static func reviewPublicationFailure(
         for error: any Error
     ) -> BridgeProductReviewMetadataPublicationFailure {

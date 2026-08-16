@@ -295,6 +295,8 @@ actor BridgeProductSchemeTranscriptProvider: BridgeProductSchemeProvider {
         else { return }
         let data: BridgeProductSubscriptionData
         switch subscription.subscriptionKind {
+        case .fileAnnotations, .reviewAnnotations:
+            return
         case .reviewMetadata:
             data = reviewSourceData
         case .fileMetadata:

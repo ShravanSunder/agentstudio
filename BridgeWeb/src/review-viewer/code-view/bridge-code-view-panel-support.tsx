@@ -93,6 +93,23 @@ export interface BridgeCodeViewRenderedHeaderOffset {
 	readonly stickyCompensationPixels: number;
 }
 
+export function selectedBridgeCodeViewReviewContext(props: {
+	readonly projection: BridgeReviewProjectionResult;
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly selectedItemId: string | null;
+}): {
+	readonly selectedDisplayPath: string | null;
+	readonly selectedReviewItem: BridgeReviewItemDescriptor | null;
+} {
+	if (props.selectedItemId === null) {
+		return { selectedDisplayPath: null, selectedReviewItem: null };
+	}
+	return {
+		selectedDisplayPath: props.projection.primaryDisplayPathByItemId[props.selectedItemId] ?? null,
+		selectedReviewItem: props.reviewPackage.itemsById[props.selectedItemId] ?? null,
+	};
+}
+
 export function nextCodeViewItemForCollapse(props: {
 	readonly collapsed: boolean;
 	readonly currentItem: BridgeCodeViewItem;

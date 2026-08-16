@@ -22,6 +22,12 @@ import {
 	type BridgeProductFileSourceIdentity,
 } from './bridge-product-file-contracts.js';
 import { bridgeProductReviewContentRoleSchema } from './bridge-product-review-primitives.js';
+import {
+	bridgeProductAnnotationOutputContentDescriptorSchema,
+	bridgeProductAnnotationOutputContentIdentitySchema,
+	type BridgeProductAnnotationOutputContentDescriptor,
+	type BridgeProductAnnotationOutputContentIdentity,
+} from './bridge-product-worktree-annotation-output-contracts.js';
 
 const bridgeProductDeclaredByteLengthSchema = bridgeProductNonnegativeSequenceSchema.max(
 	BRIDGE_PRODUCT_MAXIMUM_CONTENT_STREAM_BYTES,
@@ -208,6 +214,7 @@ export const bridgeProductFileContentDescriptorSchema = z
 	});
 
 export const bridgeProductContentDescriptorSchema = z.discriminatedUnion('contentKind', [
+	bridgeProductAnnotationOutputContentDescriptorSchema,
 	bridgeProductFileContentDescriptorSchema,
 	bridgeProductReviewComparisonTargetsContentDescriptorSchema,
 	bridgeProductReviewContentDescriptorSchema,
@@ -262,6 +269,7 @@ export const bridgeProductReviewComparisonTargetsContentIdentitySchema = z
 	.strict();
 
 export const bridgeProductContentIdentitySchema = z.discriminatedUnion('contentKind', [
+	bridgeProductAnnotationOutputContentIdentitySchema,
 	bridgeProductFileContentIdentitySchema,
 	bridgeProductReviewComparisonTargetsContentIdentitySchema,
 	bridgeProductReviewContentIdentitySchema,
@@ -289,6 +297,35 @@ export type BridgeProductReviewComparisonTargetsContentIdentity = z.infer<
 	typeof bridgeProductReviewComparisonTargetsContentIdentitySchema
 >;
 export type { BridgeProductFileSourceIdentity };
+export type {
+	BridgeProductAnnotationOutputContentDescriptor,
+	BridgeProductAnnotationOutputContentIdentity,
+} from './bridge-product-worktree-annotation-output-contracts.js';
+
+type BridgeProductAnnotationOutputContentTerminal =
+	| {
+			readonly bytes: ArrayBuffer;
+			readonly contentKind: 'annotation.output';
+			readonly descriptorId: string;
+			readonly endOfSource: boolean;
+			readonly kind: 'complete';
+			readonly observedSha256: string;
+	  }
+	| {
+			readonly code: BridgeProductRequestErrorCode;
+			readonly contentKind: 'annotation.output';
+			readonly descriptorId: string;
+			readonly kind: 'error';
+			readonly retryable: boolean;
+			readonly safeMessage: string | null;
+	  }
+	| {
+			readonly contentKind: 'annotation.output';
+			readonly descriptorId: string;
+			readonly kind: 'reset';
+			readonly reason: BridgeProductResetReason;
+			readonly retryable: true;
+	  };
 
 type BridgeProductFileContentTerminal =
 	| {
@@ -366,6 +403,12 @@ type BridgeProductReviewComparisonTargetsContentTerminal =
 	  };
 
 export type BridgeProductContentRegistry = {
+	readonly 'annotation.output': {
+		readonly descriptor: BridgeProductAnnotationOutputContentDescriptor;
+		readonly identity: BridgeProductAnnotationOutputContentIdentity;
+		readonly surface: 'file' | 'review';
+		readonly terminal: BridgeProductAnnotationOutputContentTerminal;
+	};
 	readonly 'file.content': {
 		readonly descriptor: BridgeProductFileContentDescriptor;
 		readonly identity: BridgeProductFileContentIdentity;
@@ -393,17 +436,27 @@ export type BridgeProductContentIdentity<TContentKind extends BridgeProductConte
 	BridgeProductRegistryValue<BridgeProductContentRegistry, TContentKind, 'identity'>;
 
 const bridgeProductSurfaceByContentKind = {
+	'annotation.output': null,
 	'file.content': 'file',
 	'review.content': 'review',
 	'review.comparisonTargets': 'review',
-} as const satisfies {
-	readonly [TContentKind in BridgeProductContentKind]: BridgeProductContentRegistry[TContentKind]['surface'];
-};
+} as const;
 
 export function bridgeProductSurfaceForContentKind<TContentKind extends BridgeProductContentKind>(
 	contentKind: TContentKind,
+	identity?:
+		| BridgeProductContentDescriptor<TContentKind>
+		| BridgeProductContentIdentity<TContentKind>,
 ): BridgeProductContentRegistry[TContentKind]['surface'] {
-	return bridgeProductSurfaceByContentKind[contentKind];
+	if (contentKind === 'annotation.output') {
+		if (identity?.contentKind !== 'annotation.output') {
+			throw new Error('Annotation output content requires a surface-bound descriptor or identity.');
+		}
+		return identity.surface as BridgeProductContentRegistry[TContentKind]['surface'];
+	}
+	return bridgeProductSurfaceByContentKind[
+		contentKind
+	] as BridgeProductContentRegistry[TContentKind]['surface'];
 }
 
 const bridgeProductContentRequestBaseShape = {
@@ -417,6 +470,13 @@ const bridgeProductContentRequestBaseShape = {
 } as const;
 
 export const bridgeProductContentRequestSchema = z.discriminatedUnion('contentKind', [
+	z
+		.object({
+			...bridgeProductContentRequestBaseShape,
+			contentKind: z.literal('annotation.output'),
+			descriptor: bridgeProductAnnotationOutputContentDescriptorSchema,
+		})
+		.strict(),
 	z
 		.object({
 			...bridgeProductContentRequestBaseShape,
@@ -469,6 +529,15 @@ export const bridgeProductContentAcceptedBodySchema = z
 			});
 		}
 		if (
+			header.identity.contentKind === 'annotation.output' &&
+			(header.declaredByteLength !== header.maximumBytes || header.expectedSha256 === null)
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Accepted annotation output must retain exact length and digest.',
+				path: ['declaredByteLength'],
+			});
+		} else if (
 			header.identity.contentKind === 'file.content' &&
 			header.declaredByteLength !== header.maximumBytes
 		) {
@@ -511,6 +580,15 @@ export const bridgeProductContentAcceptedHeaderSchema = z
 			});
 		}
 		if (
+			header.identity.contentKind === 'annotation.output' &&
+			(header.declaredByteLength !== header.maximumBytes || header.expectedSha256 === null)
+		) {
+			context.addIssue({
+				code: 'custom',
+				message: 'Accepted annotation output must retain exact length and digest.',
+				path: ['declaredByteLength'],
+			});
+		} else if (
 			header.identity.contentKind === 'file.content' &&
 			header.declaredByteLength !== header.maximumBytes
 		) {
@@ -626,6 +704,9 @@ export type BridgeProductContentTerminal<TContentKind extends BridgeProductConte
 	BridgeProductRegistryValue<BridgeProductContentRegistry, TContentKind, 'terminal'>;
 
 export function bridgeProductContentIdentityFromDescriptor(
+	descriptor: BridgeProductAnnotationOutputContentDescriptor,
+): BridgeProductAnnotationOutputContentIdentity;
+export function bridgeProductContentIdentityFromDescriptor(
 	descriptor: BridgeProductReviewComparisonTargetsContentDescriptor,
 ): BridgeProductReviewComparisonTargetsContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
@@ -636,23 +717,37 @@ export function bridgeProductContentIdentityFromDescriptor(
 ): BridgeProductReviewContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
 	descriptor:
+		| BridgeProductAnnotationOutputContentDescriptor
 		| BridgeProductFileContentDescriptor
 		| BridgeProductReviewContentDescriptor
 		| BridgeProductReviewComparisonTargetsContentDescriptor,
 ):
 	| BridgeProductFileContentIdentity
+	| BridgeProductAnnotationOutputContentIdentity
 	| BridgeProductReviewContentIdentity
 	| BridgeProductReviewComparisonTargetsContentIdentity;
 export function bridgeProductContentIdentityFromDescriptor(
 	descriptor:
+		| BridgeProductAnnotationOutputContentDescriptor
 		| BridgeProductFileContentDescriptor
 		| BridgeProductReviewContentDescriptor
 		| BridgeProductReviewComparisonTargetsContentDescriptor,
 ):
 	| BridgeProductFileContentIdentity
+	| BridgeProductAnnotationOutputContentIdentity
 	| BridgeProductReviewContentIdentity
 	| BridgeProductReviewComparisonTargetsContentIdentity {
 	switch (descriptor.contentKind) {
+		case 'annotation.output':
+			return {
+				attemptId: descriptor.attemptId,
+				contentKind: descriptor.contentKind,
+				descriptorId: descriptor.descriptorId,
+				formatVersion: descriptor.formatVersion,
+				maximumBytes: descriptor.maximumBytes,
+				outputKind: descriptor.outputKind,
+				surface: descriptor.surface,
+			};
 		case 'file.content':
 			return {
 				contentKind: descriptor.contentKind,
@@ -691,7 +786,8 @@ export function bridgeProductContentIdentityFromDescriptor(
 function bridgeProductMaximumBytesForIdentity(
 	identity: BridgeProductContentIdentity<BridgeProductContentKind>,
 ): number {
-	return identity.contentKind === 'review.comparisonTargets'
+	return identity.contentKind === 'annotation.output' ||
+		identity.contentKind === 'review.comparisonTargets'
 		? identity.maximumBytes
 		: identity.window.maximumBytes;
 }

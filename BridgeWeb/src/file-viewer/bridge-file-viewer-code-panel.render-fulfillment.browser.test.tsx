@@ -25,6 +25,7 @@ import {
 import type { BridgeWorkerRenderDispositionReceipt } from '../core/comm-worker/bridge-worker-render-fulfillment.js';
 import { makeBridgeWorkerRenderReceiptIdentity } from '../core/comm-worker/bridge-worker-render-fulfillment.test-support.js';
 import { bridgePierreOptionalHighlightLanguage } from '../review-viewer/workers/pierre/bridge-pierre-language-normalization.js';
+import { createWorktreeAnnotationBrowserProviderHarness } from '../worktree-annotations/worktree-annotation-browser-test-support.js';
 import {
 	BridgeFileViewerCodePanel,
 	type BridgeFileViewerCodePanelState,
@@ -52,6 +53,7 @@ interface PendingAnimationFrame {
 
 describe('BridgeFileViewerCodePanel render fulfillment', () => {
 	test('applies Files view settings on the same mounted Pierre owner without changing selection', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		// Arrange: capture the public CodeView owner and option updates from the production React bridge.
 		const mountedInstances: CodeView[] = [];
 		const appliedOptions: CodeViewOptions<undefined>[] = [];
@@ -99,14 +101,15 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				viewSettings: { lineNumbers: true, wordWrap: true },
 			});
 			const rendered = await render(
-				<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={initialOptions} />,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={initialOptions} />,
+				),
 			);
 			const initialOwner = mountedInstances.at(-1);
 			await settleBridgeCodeViewState(
 				(): boolean => initialOwner?.getItem(selectedCodeViewItem.id) === selectedCodeViewItem,
 				'Expected the initial Files selection to be owned by the mounted Pierre CodeView.',
 			);
-
 			// Act
 			const changedOptions = deriveBridgeFilesCodeViewOptions({
 				compatibilityOptions: bridgeFileViewerCodeViewOptions,
@@ -114,7 +117,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			});
 			await act(async (): Promise<void> => {
 				await rendered.rerender(
-					<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={changedOptions} />,
+					annotationHarness.wrap(
+						<BridgeFileViewerCodePanel {...panelProps} codeViewOptions={changedOptions} />,
+					),
 				);
 				await Promise.resolve();
 			});
@@ -130,6 +135,17 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			expect(
 				document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]'),
 			).toHaveAttribute('data-bridge-code-view-overflow', 'scroll');
+			await act(async (): Promise<void> => {
+				annotationHarness.surface.publishProjectionState({
+					recoveryStatus: 'recovered_degraded',
+					revision: 1,
+					sessions: [],
+				});
+				await Promise.resolve();
+			});
+			expect(
+				document.querySelector('[data-testid="worktree-annotation-session-surface"]'),
+			).toBeNull();
 		} finally {
 			CodeView.prototype.setup = originalSetup;
 			CodeView.prototype.setOptions = originalSetOptions;
@@ -137,6 +153,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 	});
 
 	test('settles File fulfillment only from exact main-adapted public Pierre items', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		// Arrange: capture Pierre's public callback while retaining a real mounted CodeView and its
 		// public current-item and rendered-membership readback APIs.
 		const mountedCodeView: { current: CodeView | null } = { current: null };
@@ -234,7 +251,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				selectedCodeViewItem: firstFinalItem,
 				totalHeightPixels: null,
 			};
-			const rendered = await render(<BridgeFileViewerCodePanel {...panelProps} />);
+			const rendered = await render(
+				annotationHarness.wrap(<BridgeFileViewerCodePanel {...panelProps} />),
+			);
 
 			await settleBridgeCodeViewState(
 				(): boolean => mountedCodeView.current?.getItem(firstFinalItem.id) === firstFinalItem,
@@ -388,7 +407,9 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 				selectedCodeViewItem: secondFinalItem,
 			};
 			await act(async (): Promise<void> => {
-				await rendered.rerender(<BridgeFileViewerCodePanel {...secondPanelProps} />);
+				await rendered.rerender(
+					annotationHarness.wrap(<BridgeFileViewerCodePanel {...secondPanelProps} />),
+				);
 				await Promise.resolve();
 			});
 			await settleBridgeCodeViewState(
@@ -432,6 +453,7 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 	});
 
 	test('lets stable same-file items preserve scroll without app-owned retargeting', async () => {
+		const annotationHarness = createWorktreeAnnotationBrowserProviderHarness('fileView');
 		const mountedCodeView: { current: CodeView | null } = { current: null };
 		const mountedCodeViewRoot: { current: HTMLElement | null } = { current: null };
 		const setItemReceipts: CodeViewItem<undefined>[][] = [];
@@ -488,13 +510,15 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 
 		try {
 			const rendered = await render(
-				<BridgeFileViewerCodePanel
-					codeViewWorkerPoolEnabled={false}
-					openFileState={initialOpenFileState}
-					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-					selectedCodeViewItem={initialItem}
-					totalHeightPixels={null}
-				/>,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={initialOpenFileState}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={initialItem}
+						totalHeightPixels={null}
+					/>,
+				),
 			);
 			await act(async (): Promise<void> => {
 				await new Promise<void>((resolve): void => {
@@ -516,22 +540,26 @@ describe('BridgeFileViewerCodePanel render fulfillment', () => {
 			});
 
 			await rendered.rerender(
-				<BridgeFileViewerCodePanel
-					codeViewWorkerPoolEnabled={false}
-					openFileState={{ ...initialOpenFileState, status: 'loading' }}
-					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-					selectedCodeViewItem={initialItem}
-					totalHeightPixels={null}
-				/>,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{ ...initialOpenFileState, status: 'loading' }}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={initialItem}
+						totalHeightPixels={null}
+					/>,
+				),
 			);
 			await rendered.rerender(
-				<BridgeFileViewerCodePanel
-					codeViewWorkerPoolEnabled={false}
-					openFileState={{ ...initialOpenFileState }}
-					renderFulfillmentCoordinator={renderFulfillmentCoordinator}
-					selectedCodeViewItem={refreshedItem}
-					totalHeightPixels={null}
-				/>,
+				annotationHarness.wrap(
+					<BridgeFileViewerCodePanel
+						codeViewWorkerPoolEnabled={false}
+						openFileState={{ ...initialOpenFileState }}
+						renderFulfillmentCoordinator={renderFulfillmentCoordinator}
+						selectedCodeViewItem={refreshedItem}
+						totalHeightPixels={null}
+					/>,
+				),
 			);
 			await act(async (): Promise<void> => {
 				await new Promise<void>((resolve): void => {

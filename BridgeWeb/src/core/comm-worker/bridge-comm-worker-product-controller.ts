@@ -11,6 +11,8 @@ import type { BridgeWorkerMetadataInterestRequest } from './bridge-worker-contra
 
 type FileMetadataSubscription = BridgeProductSubscription<'file.metadata'>;
 type FileMetadataEvent = BridgeProductSubscriptionEvent<'file.metadata'>;
+type FileAnnotationSubscription = BridgeProductSubscription<'file.annotations'>;
+type FileAnnotationEvent = BridgeProductSubscriptionEvent<'file.annotations'>;
 type FileMetadataEventHandler = (event: FileMetadataEvent, workerDerivationEpoch: number) => void;
 type FileMetadataFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
 type FileMetadataDemandFailureHandler = (error: unknown, workerDerivationEpoch: number) => void;
@@ -19,6 +21,8 @@ type FileMetadataInterestLane = FileMetadataInterest['lane'];
 type FileSourceDiscoveryResult = BridgeProductCallResult<'file.source.current'>;
 type ReviewMetadataSubscription = BridgeProductSubscription<'review.metadata'>;
 type ReviewMetadataEvent = BridgeProductSubscriptionEvent<'review.metadata'>;
+type ReviewAnnotationSubscription = BridgeProductSubscription<'review.annotations'>;
+type ReviewAnnotationEvent = BridgeProductSubscriptionEvent<'review.annotations'>;
 type ReviewMetadataEventHandler = (
 	event: ReviewMetadataEvent,
 	workerDerivationEpoch: number,
@@ -42,9 +46,11 @@ export interface BridgeCommWorkerFileMetadataDemand {
 
 export class BridgeCommWorkerProductController {
 	readonly #onFileMetadataEvent: FileMetadataEventHandler;
+	readonly #onFileAnnotationEvent: (event: FileAnnotationEvent) => void;
 	readonly #onFileMetadataFailure: FileMetadataFailureHandler;
 	readonly #onFileMetadataDemandFailure: FileMetadataDemandFailureHandler;
 	readonly #onReviewMetadataEvent: ReviewMetadataEventHandler;
+	readonly #onReviewAnnotationEvent: (event: ReviewAnnotationEvent) => void;
 	readonly #onReviewMetadataFailure: ReviewMetadataFailureHandler;
 	readonly #productTransport: BridgeProductTransportSession;
 	readonly #callCurrentFileSource: () => Promise<FileSourceDiscoveryResult>;
@@ -55,6 +61,7 @@ export class BridgeCommWorkerProductController {
 		options: BridgeProductSubscriptionOptions<'review.metadata'>,
 	) => ReviewMetadataSubscription;
 	#fileSubscription: FileMetadataSubscription | null = null;
+	#fileAnnotationSubscription: FileAnnotationSubscription | null = null;
 	#fileSource: FileMetadataEvent['source'] | null = null;
 	#filePathScope: readonly string[] = [];
 	readonly #fileInterestPathsByLane = new Map<FileMetadataInterestLane, readonly string[]>();
@@ -68,6 +75,7 @@ export class BridgeCommWorkerProductController {
 	#hasFileMetadataDemand = false;
 	#fileSourceEnsure: Promise<void> | null = null;
 	#reviewSubscription: ReviewMetadataSubscription | null = null;
+	#reviewAnnotationSubscription: ReviewAnnotationSubscription | null = null;
 	readonly #reviewInterestItemIdsByLane = new Map<ReviewMetadataInterestLane, readonly string[]>();
 	#reviewInterestUpdate: Promise<void> = Promise.resolve();
 	#reviewDesiredInterestSignature: string | null = null;
@@ -76,10 +84,12 @@ export class BridgeCommWorkerProductController {
 
 	constructor(props: {
 		readonly callCurrentFileSource?: () => Promise<FileSourceDiscoveryResult>;
+		readonly onFileAnnotationEvent?: (event: FileAnnotationEvent) => void;
 		readonly onFileMetadataEvent: FileMetadataEventHandler;
 		readonly onFileMetadataFailure?: FileMetadataFailureHandler;
 		readonly onFileMetadataDemandFailure?: FileMetadataDemandFailureHandler;
 		readonly onReviewMetadataEvent?: ReviewMetadataEventHandler;
+		readonly onReviewAnnotationEvent?: (event: ReviewAnnotationEvent) => void;
 		readonly onReviewMetadataFailure?: ReviewMetadataFailureHandler;
 		readonly productTransport: BridgeProductTransportSession;
 		readonly subscribeFile?: (
@@ -90,10 +100,12 @@ export class BridgeCommWorkerProductController {
 		) => ReviewMetadataSubscription;
 	}) {
 		this.#onFileMetadataEvent = props.onFileMetadataEvent;
+		this.#onFileAnnotationEvent = props.onFileAnnotationEvent ?? ignoreAnnotationEvent;
 		this.#onFileMetadataFailure = props.onFileMetadataFailure ?? ignoreFileMetadataFailure;
 		this.#onFileMetadataDemandFailure =
 			props.onFileMetadataDemandFailure ?? ignoreFileMetadataFailure;
 		this.#onReviewMetadataEvent = props.onReviewMetadataEvent ?? ignoreReviewMetadataEvent;
+		this.#onReviewAnnotationEvent = props.onReviewAnnotationEvent ?? ignoreAnnotationEvent;
 		this.#onReviewMetadataFailure = props.onReviewMetadataFailure ?? ignoreReviewMetadataFailure;
 		this.#productTransport = props.productTransport;
 		this.#callCurrentFileSource =
@@ -108,6 +120,43 @@ export class BridgeCommWorkerProductController {
 			props.subscribeReview ??
 			((options): ReviewMetadataSubscription =>
 				this.#productTransport.subscribe('review.metadata', options));
+	}
+
+	ensureAnnotationSubscriptions(): void {
+		if (this.#fileAnnotationSubscription === null) {
+			const subscription = this.#productTransport.subscribe('file.annotations', {});
+			this.#fileAnnotationSubscription = subscription;
+			void this.#consumeAnnotationEvents(subscription, 'file').catch((): void => {});
+		}
+		if (this.#reviewAnnotationSubscription === null) {
+			const subscription = this.#productTransport.subscribe('review.annotations', {});
+			this.#reviewAnnotationSubscription = subscription;
+			void this.#consumeAnnotationEvents(subscription, 'review').catch((): void => {});
+		}
+	}
+
+	async #consumeAnnotationEvents(
+		subscription: FileAnnotationSubscription | ReviewAnnotationSubscription,
+		surface: 'file' | 'review',
+	): Promise<void> {
+		try {
+			for await (const event of subscription.events) {
+				const activeSubscription =
+					surface === 'file'
+						? this.#fileAnnotationSubscription
+						: this.#reviewAnnotationSubscription;
+				if (subscription !== activeSubscription) return;
+				if (surface === 'file') this.#onFileAnnotationEvent(event);
+				else this.#onReviewAnnotationEvent(event);
+			}
+		} finally {
+			if (surface === 'file' && subscription === this.#fileAnnotationSubscription) {
+				this.#fileAnnotationSubscription = null;
+			}
+			if (surface === 'review' && subscription === this.#reviewAnnotationSubscription) {
+				this.#reviewAnnotationSubscription = null;
+			}
+		}
 	}
 
 	ensureFileSource(): Promise<void> {
@@ -144,6 +193,14 @@ export class BridgeCommWorkerProductController {
 
 	async sendProductControl(command: BridgeProductControlCommand): Promise<unknown> {
 		switch (command.method) {
+			case 'file.annotations.command':
+				return await this.#productTransport.call('file.annotations.command', {
+					operation: command.params.operation,
+				});
+			case 'review.annotations.command':
+				return await this.#productTransport.call('review.annotations.command', {
+					operation: command.params.operation,
+				});
 			case 'review.markFileViewed':
 				return await this.#productTransport.call('review.markFileViewed', {
 					itemId: command.params.fileId,
@@ -570,3 +627,5 @@ function ignoreReviewMetadataEvent(
 }
 
 function ignoreReviewMetadataFailure(_error: unknown, _workerDerivationEpoch: number): void {}
+
+function ignoreAnnotationEvent(_event: FileAnnotationEvent): void {}

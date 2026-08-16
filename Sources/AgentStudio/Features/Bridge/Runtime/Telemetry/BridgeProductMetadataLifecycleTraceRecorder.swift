@@ -259,10 +259,18 @@ struct BridgeProductMetadataLifecycleTraceRecorder: BridgeProductMetadataLifecyc
         let viewer: String
         let slice: BridgeTelemetrySlice
         switch event.subscriptionKind {
+        case .fileAnnotations:
+            protocolName = "worktree-annotations"
+            viewer = "file"
+            slice = .treePrepareInput
         case .fileMetadata:
             protocolName = "worktree-file"
             viewer = "file"
             slice = .treePrepareInput
+        case .reviewAnnotations:
+            protocolName = "worktree-annotations"
+            viewer = "review"
+            slice = .reviewMetadata
         case .reviewMetadata:
             protocolName = "review"
             viewer = "review"

@@ -100,6 +100,74 @@ describe('Bridge product metadata frame decoder', () => {
 		});
 	});
 
+	test('round-trips File and Review annotation projections through the framed metadata codec', () => {
+		const frameIdentity = {
+			metadataStreamId: 'metadata-stream-annotations',
+			paneSessionId: 'pane-session-annotations',
+			wireVersion: 2,
+			workerInstanceId: 'worker-instance-annotations',
+		} as const;
+		const projection = {
+			eventKind: 'projection.state',
+			payload: {
+				commandOutcomes: [],
+				outputHistory: [],
+				recoveryStatus: 'available',
+				revision: 1,
+				sessions: [],
+				worktreeId: '00000000-0000-7000-8000-000000000001',
+			},
+		} as const;
+		const annotationInterestSha256 = 'a'.repeat(64);
+		const frames = [
+			{
+				...frameIdentity,
+				cursor: 'file-annotations-cursor-1',
+				data: {
+					event: projection,
+					subscriptionKind: 'file.annotations',
+				},
+				interestRevision: 0,
+				interestSha256: annotationInterestSha256,
+				kind: 'subscription.data',
+				sourceGeneration: 1,
+				streamSequence: 1,
+				subscriptionId: 'file-annotations-subscription',
+				subscriptionKind: 'file.annotations',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: 0,
+			},
+			{
+				...frameIdentity,
+				cursor: 'review-annotations-cursor-1',
+				data: {
+					event: projection,
+					subscriptionKind: 'review.annotations',
+				},
+				interestRevision: 0,
+				interestSha256: annotationInterestSha256,
+				kind: 'subscription.data',
+				sourceGeneration: 1,
+				streamSequence: 2,
+				subscriptionId: 'review-annotations-subscription',
+				subscriptionKind: 'review.annotations',
+				subscriptionSequence: 1,
+				workerDerivationEpoch: 0,
+			},
+		] as const;
+
+		const encodedFrames = frames.map((frame) => encodeBridgeProductMetadataFrame(frame));
+		const decoder = new BridgeProductMetadataFrameDecoder();
+
+		expect(decoder.push(concatenateBytes(...encodedFrames))).toEqual(frames);
+		decoder.finish();
+		expect(decoder.diagnostics).toMatchObject({
+			emittedFrameCount: 2,
+			failureCode: null,
+			state: 'finished',
+		});
+	});
+
 	test('rejects the hostile pane presentation corpus through the framed metadata codec', () => {
 		const hostileCases = invalidProductSessionCorpus.cases.filter((hostileCase) =>
 			hostileCase.name.startsWith('pane presentation'),

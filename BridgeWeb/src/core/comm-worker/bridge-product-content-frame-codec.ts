@@ -15,6 +15,7 @@ import {
 	type BridgeProductContentRequest,
 	type BridgeProductContentRequestFor,
 	type BridgeProductContentTerminal,
+	type BridgeProductAnnotationOutputContentIdentity,
 	type BridgeProductFileContentIdentity,
 	type BridgeProductReviewComparisonTargetsContentIdentity,
 	type BridgeProductReviewContentIdentity,
@@ -408,6 +409,7 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 		throw new Error('Bridge product content acceptance does not match its issued request.');
 	}
 	const identityMaximumBytes =
+		header.identity.contentKind === 'annotation.output' ||
 		header.identity.contentKind === 'review.comparisonTargets'
 			? header.identity.maximumBytes
 			: header.identity.window.maximumBytes;
@@ -434,16 +436,28 @@ function concatenateBridgeProductContentBytes(
 
 function bridgeProductContentIdentitiesEqual(
 	left:
+		| BridgeProductAnnotationOutputContentIdentity
 		| BridgeProductFileContentIdentity
 		| BridgeProductReviewContentIdentity
 		| BridgeProductReviewComparisonTargetsContentIdentity,
 	right:
+		| BridgeProductAnnotationOutputContentIdentity
 		| BridgeProductFileContentIdentity
 		| BridgeProductReviewContentIdentity
 		| BridgeProductReviewComparisonTargetsContentIdentity,
 ): boolean {
 	if (left.contentKind !== right.contentKind) return false;
 	switch (left.contentKind) {
+		case 'annotation.output':
+			if (right.contentKind !== 'annotation.output') return false;
+			return (
+				left.attemptId === right.attemptId &&
+				left.descriptorId === right.descriptorId &&
+				left.formatVersion === right.formatVersion &&
+				left.maximumBytes === right.maximumBytes &&
+				left.outputKind === right.outputKind &&
+				left.surface === right.surface
+			);
 		case 'file.content':
 			if (right.contentKind !== 'file.content') return false;
 			return (

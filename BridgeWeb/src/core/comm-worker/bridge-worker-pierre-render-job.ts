@@ -142,6 +142,7 @@ const bridgeWorkerCodeViewItemMetadataSchema = z
 		contentRoles: z.array(bridgeWorkerCodeViewContentRoleSchema).readonly(),
 		cacheKey: z.string().min(1),
 		lineCount: z.number().int().nonnegative().nullable(),
+		sourceDescriptorId: bridgeProductIdentifierSchema.optional(),
 	})
 	.strict();
 

@@ -287,6 +287,86 @@ describe('Bridge worker RPC client', () => {
 		reviewClient.dispose();
 	});
 
+	test('settles only the matching surface lifecycle from annotation output inspection', async () => {
+		vi.useFakeTimers();
+		try {
+			const { createBridgeWorkerRpcClient } = await loadBridgeWorkerRpcClientModule();
+			const lifecycleStore = createBridgeWorkerRpcLifecycleStore();
+			const dispatched: BridgeWorkerMainToServerMessage[] = [];
+			const fileClient = createBridgeWorkerRpcClient({
+				dispatch: (message): void => {
+					dispatched.push(message);
+				},
+				lifecycleStore,
+				requestIdFactory: (): string => 'annotation-output-inspect-1',
+				requestTimeoutMilliseconds: 100,
+				surface: 'fileView',
+			});
+			const reviewClient = createBridgeWorkerRpcClient({
+				dispatch: vi.fn(),
+				lifecycleStore,
+				requestIdFactory: (): string => 'review-output-inspect-1',
+				requestTimeoutMilliseconds: 100,
+				surface: 'review',
+			});
+			const requestId = fileClient.send({
+				attemptId: '00000000-0000-7000-8000-000000000031',
+				command: 'annotationOutputInspect',
+				epoch: 1,
+				surface: 'fileView',
+			});
+			const exactBytes = new TextEncoder().encode('# Exact output\n').buffer;
+			const result = bridgeWorkerServerToMainMessageSchema.parse({
+				descriptor: {
+					attemptId: '00000000-0000-7000-8000-000000000031',
+					contentKind: 'annotation.output',
+					contentType: 'text/markdown; charset=utf-8',
+					declaredByteLength: exactBytes.byteLength,
+					descriptorId: 'annotation-output-descriptor-1',
+					encoding: 'utf-8',
+					expectedSha256: 'a'.repeat(64),
+					formatVersion: 1,
+					maximumBytes: exactBytes.byteLength,
+					outputKind: 'clipboard_markdown',
+					surface: 'file',
+				},
+				direction: 'serverWorkerToMain',
+				exactBytes,
+				kind: 'annotationOutputInspection',
+				requestId,
+				surface: 'fileView',
+				transferDescriptors: [
+					{
+						byteLength: exactBytes.byteLength,
+						fieldPath: ['exactBytes'],
+						messageKind: 'annotationOutputInspection',
+						mode: 'transfer',
+					},
+				],
+				wireVersion: 1,
+			});
+
+			expect(reviewClient.receive(result)).toBe(false);
+			expect(fileClient.receive(result)).toBe(true);
+			await vi.advanceTimersByTimeAsync(100);
+
+			expect(dispatched[0]).toMatchObject({
+				attemptId: '00000000-0000-7000-8000-000000000031',
+				command: 'annotationOutputInspect',
+				surface: 'fileView',
+			});
+			expect(lifecycleStore.getSnapshot().requestsById[requestId]).toMatchObject({
+				command: 'annotationOutputInspect',
+				state: 'acked',
+			});
+			expect(vi.getTimerCount()).toBe(0);
+			fileClient.dispose();
+			reviewClient.dispose();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	test('settles Review projection lifecycle from the worker acknowledgement', async () => {
 		// Arrange
 		vi.useFakeTimers();

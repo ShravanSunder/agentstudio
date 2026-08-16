@@ -6,6 +6,8 @@ import {
 import type { BridgeProductControlMux } from './bridge-product-session-authority.js';
 import type { BridgeProductMetadataFrame } from './bridge-product-session-contracts.js';
 import {
+	bridgeProductAnnotationSubscriptionOptionsSchema,
+	bridgeProductAnnotationSubscriptionUpdateOptionsSchema,
 	bridgeProductFileMetadataSubscriptionOptionsSchema,
 	bridgeProductFileMetadataSubscriptionUpdateOptionsSchema,
 	bridgeProductReviewMetadataSubscriptionOptionsSchema,
@@ -48,9 +50,9 @@ export interface BridgeProductSubscriptionStateProps<
 	readonly ensureMetadataStream: () => Promise<void>;
 	readonly initialOptions: BridgeProductSubscriptionOptions<TSubscriptionKind>;
 	readonly onTerminal: (subscriptionId: string) => void;
+	readonly readWorkerDerivationEpochAtAdmission: () => number;
 	readonly subscriptionId: string;
 	readonly subscriptionKind: TSubscriptionKind;
-	readonly workerDerivationEpoch: number;
 }
 
 export class BridgeProductSubscriptionState<
@@ -72,10 +74,11 @@ export class BridgeProductSubscriptionState<
 	#operation: Promise<void> = Promise.resolve();
 	#pendingBarrier: PendingSubscriptionBarrier | null = null;
 	#pendingCancel: BridgeProductDeferred<void> | null = null;
+	readonly #readWorkerDerivationEpochAtAdmission: () => number;
 	readonly subscriptionId: string;
 	readonly #subscriptionKind: TSubscriptionKind;
 	#terminal = false;
-	readonly #workerDerivationEpoch: number;
+	#admittedWorkerDerivationEpoch: number | null = null;
 
 	constructor(props: BridgeProductSubscriptionStateProps<TSubscriptionKind>) {
 		this.#controlMux = props.controlMux;
@@ -83,9 +86,9 @@ export class BridgeProductSubscriptionState<
 		this.#ensureMetadataStream = props.ensureMetadataStream;
 		this.#initialOptions = props.initialOptions;
 		this.#onTerminal = props.onTerminal;
+		this.#readWorkerDerivationEpochAtAdmission = props.readWorkerDerivationEpochAtAdmission;
 		this.subscriptionId = props.subscriptionId;
 		this.#subscriptionKind = props.subscriptionKind;
-		this.#workerDerivationEpoch = props.workerDerivationEpoch;
 		this.#currentInterestState = emptyInterestState(props.subscriptionKind);
 	}
 
@@ -119,7 +122,7 @@ export class BridgeProductSubscriptionState<
 			await this.#controlMux.cancelSubscription({
 				subscriptionId: this.subscriptionId,
 				subscriptionKind: this.#subscriptionKind,
-				workerDerivationEpoch: this.#workerDerivationEpoch,
+				workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
 			});
 			await cancelled.promise;
 		});
@@ -131,7 +134,7 @@ export class BridgeProductSubscriptionState<
 		if (
 			frame.subscriptionId !== this.subscriptionId ||
 			frame.subscriptionKind !== this.#subscriptionKind ||
-			frame.workerDerivationEpoch !== this.#workerDerivationEpoch
+			frame.workerDerivationEpoch !== this.#admittedWorkerDerivationEpoch
 		) {
 			throw new Error('Bridge product subscription frame identity does not match its admission.');
 		}
@@ -199,10 +202,12 @@ export class BridgeProductSubscriptionState<
 
 	async #initialize(): Promise<void> {
 		await this.#ensureMetadataStream();
+		const workerDerivationEpoch = this.#readWorkerDerivationEpochAtAdmission();
+		this.#admittedWorkerDerivationEpoch = workerDerivationEpoch;
 		const opened = await this.#controlMux.openSubscription({
 			subscription: subscriptionOpenForOptions(this.#subscriptionKind, this.#initialOptions),
 			subscriptionId: this.subscriptionId,
-			workerDerivationEpoch: this.#workerDerivationEpoch,
+			workerDerivationEpoch,
 		});
 		if (
 			this.#currentInterestHash !== null &&
@@ -251,7 +256,7 @@ export class BridgeProductSubscriptionState<
 			targetInterestSha256,
 			totalDeltaItemCount: deltaItemCount,
 			updateId,
-			workerDerivationEpoch: this.#workerDerivationEpoch,
+			workerDerivationEpoch: this.#requiredAdmittedWorkerDerivationEpoch(),
 		});
 		await barrier.promise;
 	}
@@ -294,6 +299,13 @@ export class BridgeProductSubscriptionState<
 		this.#eventQueue.close(true);
 		this.#onTerminal(this.subscriptionId);
 	}
+
+	#requiredAdmittedWorkerDerivationEpoch(): number {
+		if (this.#admittedWorkerDerivationEpoch === null) {
+			throw new Error('Bridge product subscription operation preceded its admission epoch.');
+		}
+		return this.#admittedWorkerDerivationEpoch;
+	}
 }
 
 interface PendingSubscriptionBarrier {
@@ -307,9 +319,16 @@ interface PendingSubscriptionBarrier {
 function emptyInterestState(
 	subscriptionKind: BridgeProductSubscriptionKind,
 ): BridgeProductSubscriptionInterestState {
-	return subscriptionKind === 'file.metadata'
-		? { interests: [], pathScope: [], subscriptionKind: 'file.metadata' }
-		: { interests: [], subscriptionKind: 'review.metadata' };
+	switch (subscriptionKind) {
+		case 'file.annotations':
+			return { subscriptionKind: 'file.annotations' };
+		case 'file.metadata':
+			return { interests: [], pathScope: [], subscriptionKind: 'file.metadata' };
+		case 'review.annotations':
+			return { subscriptionKind: 'review.annotations' };
+		case 'review.metadata':
+			return { interests: [], subscriptionKind: 'review.metadata' };
+	}
 }
 
 function subscriptionOpenForOptions<TSubscriptionKind extends BridgeProductSubscriptionKind>(
@@ -321,6 +340,10 @@ function subscriptionOpenForOptions<TSubscriptionKind extends BridgeProductSubsc
 	if (subscriptionKind === 'file.metadata') {
 		const parsed = bridgeProductFileMetadataSubscriptionOptionsSchema.parse(options);
 		return { source: parsed.source, subscriptionKind: 'file.metadata' };
+	}
+	if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+		bridgeProductAnnotationSubscriptionOptionsSchema.parse(options);
+		return { subscriptionKind };
 	}
 	bridgeProductReviewMetadataSubscriptionOptionsSchema.parse(options);
 	return { subscriptionKind: 'review.metadata' };
@@ -337,6 +360,9 @@ function initialUpdateOptions<TSubscriptionKind extends BridgeProductSubscriptio
 			pathScope: parsed.pathScope,
 		});
 	}
+	if (subscriptionKind === 'file.annotations' || subscriptionKind === 'review.annotations') {
+		return bridgeProductAnnotationSubscriptionUpdateOptionsSchema.parse(options);
+	}
 	return bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options);
 }
 
@@ -344,21 +370,35 @@ function interestStateForUpdate<TSubscriptionKind extends BridgeProductSubscript
 	subscriptionKind: TSubscriptionKind,
 	options: BridgeProductSubscriptionUpdateOptions<TSubscriptionKind>,
 ): BridgeProductSubscriptionInterestState {
-	return subscriptionKind === 'file.metadata'
-		? {
-				...bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.parse(options),
-				subscriptionKind: 'file.metadata',
-			}
-		: {
-				...bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options),
-				subscriptionKind: 'review.metadata',
-			};
+	if (subscriptionKind === 'file.metadata') {
+		return {
+			...bridgeProductFileMetadataSubscriptionUpdateOptionsSchema.parse(options),
+			subscriptionKind: 'file.metadata',
+		};
+	}
+	if (subscriptionKind === 'review.metadata') {
+		return {
+			...bridgeProductReviewMetadataSubscriptionUpdateOptionsSchema.parse(options),
+			subscriptionKind: 'review.metadata',
+		};
+	}
+	bridgeProductAnnotationSubscriptionUpdateOptionsSchema.parse(options);
+	return { subscriptionKind };
 }
 
 function interestDelta(
 	current: BridgeProductSubscriptionInterestState,
 	target: BridgeProductSubscriptionInterestState,
 ): BridgeProductSubscriptionInterestDeltaWire {
+	if (
+		target.subscriptionKind === 'file.annotations' ||
+		target.subscriptionKind === 'review.annotations'
+	) {
+		if (current.subscriptionKind !== target.subscriptionKind) {
+			throw new Error('Bridge product interest update crossed subscription kinds.');
+		}
+		return { subscriptionKind: target.subscriptionKind };
+	}
 	if (target.subscriptionKind === 'review.metadata') {
 		if (current.subscriptionKind !== 'review.metadata') {
 			throw new Error('Bridge product interest update crossed subscription kinds.');
@@ -412,6 +452,12 @@ function fileInterestLanes(
 }
 
 function interestDeltaItemCount(delta: BridgeProductSubscriptionInterestDeltaWire): number {
+	if (
+		delta.subscriptionKind === 'file.annotations' ||
+		delta.subscriptionKind === 'review.annotations'
+	) {
+		return 0;
+	}
 	return delta.subscriptionKind === 'review.metadata'
 		? delta.add.length + delta.removeItemIds.length
 		: delta.add.length +

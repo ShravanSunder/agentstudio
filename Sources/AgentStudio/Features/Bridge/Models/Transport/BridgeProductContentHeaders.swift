@@ -183,6 +183,13 @@ struct BridgeProductContentAcceptedHeader: Codable, Equatable, Sendable {
             )
         }
         switch identity {
+        case .annotationOutput:
+            guard declaredByteLength == maximumBytes else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Bridge product accepted annotation output maximum must equal its declared length",
+                    codingPath: codingPath
+                )
+            }
         case .fileContent:
             guard declaredByteLength == maximumBytes else {
                 throw BridgeProductContractDecoding.invalidValue(

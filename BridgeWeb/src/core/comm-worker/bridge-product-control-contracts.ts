@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { bridgeProductReviewComparisonTargetSchema } from './bridge-product-call-contracts.js';
+import { bridgeProductWorktreeAnnotationOperationSchema } from './bridge-product-call-contracts.js';
 
 export const bridgeActiveViewerSourceSchema = z
 	.object({
@@ -36,6 +37,13 @@ const bridgeProductControlMarkFileViewedCommandSchema = z
 	})
 	.strict();
 
+const bridgeProductControlWorktreeAnnotationCommandSchema = z
+	.object({
+		method: z.enum(['file.annotations.command', 'review.annotations.command']),
+		params: z.object({ operation: bridgeProductWorktreeAnnotationOperationSchema }).strict(),
+	})
+	.strict();
+
 const bridgeProductControlActiveViewerModeUpdateCommandSchema = z
 	.object({
 		method: z.literal('bridge.activeViewerMode.update'),
@@ -65,6 +73,7 @@ const bridgeProductControlIntakeReadyCommandSchema = z
 	.strict();
 
 export const bridgeProductControlCommandSchema = z.discriminatedUnion('method', [
+	bridgeProductControlWorktreeAnnotationCommandSchema,
 	bridgeProductControlMarkFileViewedCommandSchema,
 	bridgeProductControlReviewComparisonUpdateCommandSchema,
 	bridgeProductControlReviewComparisonTargetsQueryCommandSchema,

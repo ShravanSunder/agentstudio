@@ -74,6 +74,11 @@ package enum WorkspaceLocalMigrations {
         migrator.registerMigration("004_remove_persisted_pull_request_counts") { database in
             try database.execute(sql: "DROP TABLE IF EXISTS cache_pull_request_count")
         }
+        migrator.registerMigration("005_create_worktree_annotation_schema") { database in
+            for statement in createWorktreeAnnotationSchemaStatements {
+                try database.execute(sql: statement)
+            }
+        }
         return migrator
     }
 
@@ -329,5 +334,130 @@ package enum WorkspaceLocalMigrations {
         )
         """,
         "CREATE INDEX idx_cache_pull_request_repo ON cache_pull_request_count(repo_id)",
+    ]
+
+    private static let createWorktreeAnnotationSchemaStatements = [
+        """
+        CREATE TABLE annotation_session (
+            id TEXT PRIMARY KEY,
+            repository_id TEXT NOT NULL,
+            worktree_id TEXT NOT NULL,
+            originating_workspace_id TEXT,
+            lifecycle TEXT NOT NULL,
+            source_relationship TEXT NOT NULL,
+            accepted_source_fingerprint_json TEXT NOT NULL,
+            semantic_revision INTEGER NOT NULL DEFAULT 0 CHECK (semantic_revision >= 0),
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            completed_at REAL
+        )
+        """,
+        """
+        CREATE INDEX idx_annotation_session_worktree
+        ON annotation_session(worktree_id, lifecycle, source_relationship)
+        """,
+        """
+        CREATE TABLE annotation_thread (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES annotation_session(id) ON DELETE CASCADE,
+            scope TEXT NOT NULL,
+            resolution TEXT NOT NULL,
+            origin_json TEXT NOT NULL,
+            created_ordinal INTEGER NOT NULL CHECK (created_ordinal >= 0),
+            semantic_revision INTEGER NOT NULL DEFAULT 0 CHECK (semantic_revision >= 0),
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            resolved_at REAL,
+            UNIQUE (session_id, created_ordinal)
+        )
+        """,
+        "CREATE INDEX idx_annotation_thread_session ON annotation_thread(session_id, created_ordinal)",
+        """
+        CREATE TABLE annotation_message (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES annotation_thread(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            author_kind TEXT NOT NULL,
+            saved_body TEXT,
+            saved_body_utf8_bytes INTEGER CHECK (saved_body_utf8_bytes BETWEEN 1 AND 16384),
+            saved_revision INTEGER CHECK (saved_revision >= 1),
+            status TEXT NOT NULL,
+            semantic_revision INTEGER NOT NULL DEFAULT 0 CHECK (semantic_revision >= 0),
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE (thread_id, ordinal)
+        )
+        """,
+        "CREATE INDEX idx_annotation_message_thread ON annotation_message(thread_id, ordinal)",
+        """
+        CREATE TABLE annotation_message_draft (
+            message_id TEXT PRIMARY KEY REFERENCES annotation_message(id) ON DELETE CASCADE,
+            active_edit_token TEXT,
+            body TEXT NOT NULL,
+            body_utf8_bytes INTEGER NOT NULL CHECK (body_utf8_bytes BETWEEN 0 AND 16384),
+            draft_revision INTEGER NOT NULL CHECK (draft_revision >= 0),
+            updated_at REAL NOT NULL
+        )
+        """,
+        """
+        CREATE TABLE annotation_output_attempt (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES annotation_session(id) ON DELETE RESTRICT,
+            output_kind TEXT NOT NULL,
+            state TEXT NOT NULL,
+            format_version INTEGER NOT NULL CHECK (format_version >= 1),
+            content_type TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            exact_bytes BLOB NOT NULL,
+            destination_path TEXT,
+            repeated_from_attempt_id TEXT REFERENCES annotation_output_attempt(id) ON DELETE RESTRICT,
+            effect_error TEXT,
+            cleanup_error TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+        """,
+        "CREATE INDEX idx_annotation_output_attempt_session ON annotation_output_attempt(session_id, created_at)",
+        """
+        CREATE TABLE annotation_output_attempt_message (
+            attempt_id TEXT NOT NULL REFERENCES annotation_output_attempt(id) ON DELETE CASCADE,
+            message_id TEXT NOT NULL REFERENCES annotation_message(id) ON DELETE RESTRICT,
+            expected_saved_revision INTEGER NOT NULL CHECK (expected_saved_revision >= 1),
+            batch_ordinal INTEGER NOT NULL CHECK (batch_ordinal >= 0),
+            PRIMARY KEY (attempt_id, message_id),
+            UNIQUE (attempt_id, batch_ordinal)
+        )
+        """,
+        """
+        CREATE INDEX idx_annotation_output_attempt_message_lock
+        ON annotation_output_attempt_message(message_id, attempt_id)
+        """,
+        """
+        CREATE TABLE annotation_output_event (
+            id TEXT PRIMARY KEY,
+            attempt_id TEXT NOT NULL UNIQUE
+                REFERENCES annotation_output_attempt(id) ON DELETE RESTRICT,
+            event_kind TEXT NOT NULL,
+            created_at REAL NOT NULL
+        )
+        """,
+        """
+        CREATE INDEX idx_annotation_output_event_created
+        ON annotation_output_event(created_at)
+        """,
+        """
+        CREATE TABLE local_recovery_provenance (
+            id TEXT PRIMARY KEY,
+            recovery_kind TEXT NOT NULL,
+            recovered_at REAL NOT NULL,
+            quarantined_filenames_json TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            acknowledged_at REAL
+        )
+        """,
+        """
+        CREATE INDEX idx_local_recovery_provenance_unacknowledged
+        ON local_recovery_provenance(acknowledged_at, recovered_at)
+        """,
     ]
 }

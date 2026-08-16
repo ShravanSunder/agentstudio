@@ -147,6 +147,58 @@ struct BridgeDevelopmentHTTPRoutingTests {
         }
     }
 
+    @MainActor
+    @Test("first Review bootstrap stores shared content under the isolated data root")
+    func firstReviewBootstrapUsesIsolatedSharedContentRoot() async throws {
+        // Arrange
+        let repositoryURL = try FilesystemTestGitRepo.create(
+            named: "bridge-development-http-review-bootstrap"
+        )
+        defer { FilesystemTestGitRepo.destroy(repositoryURL) }
+        try FilesystemTestGitRepo.seedTrackedAndUntrackedChanges(at: repositoryURL)
+        let dataRoot = FileManager.default.temporaryDirectory.appending(
+            path: "bridge-development-http-review-data-\(PaneId.generateUUIDv7().uuid.uuidString)",
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: dataRoot) }
+        let harness = try await makeHTTPDevelopmentServerHarness(
+            dataRoot: dataRoot,
+            worktreeRoot: repositoryURL
+        )
+
+        // Act / Assert
+        try await withDevelopmentServerHarness(harness) {
+            let application = BridgeDevelopmentHTTPApplication.make(host: harness.host)
+            try await application.test(.router) { client in
+                try await client.execute(
+                    uri: "/__bridge-product/bootstrap",
+                    method: .post,
+                    headers: [.contentType: "application/json"],
+                    body: ByteBuffer(
+                        string:
+                            #"{"navigationIntent":{"commandId":"dev:worktree:review","commandKind":"activateContext","surface":"review"},"reason":"initial"}"#
+                    )
+                ) { response in
+                    #expect(response.status == .ok)
+                    _ = try decodeHTTPBootstrapEnvelope(
+                        Data(response.body.readableBytesView)
+                    )
+                }
+            }
+
+            let sharedContentRoot = dataRoot.appending(
+                path: "bridge-review-content",
+                directoryHint: .isDirectory
+            )
+            let capturedArtifactURLs = try FileManager.default.contentsOfDirectory(
+                at: sharedContentRoot,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            #expect(!capturedArtifactURLs.isEmpty)
+        }
+    }
+
     @Test("command route forwards worker admission through the existing product adapter")
     func commandRouteForwardsWorkerAdmission() async throws {
         // Arrange
@@ -330,6 +382,57 @@ private func makeHTTPDevelopmentProductHost(
     )
 }
 
+@MainActor
+private struct HTTPDevelopmentServerHarness {
+    let composition: BridgeDevelopmentServerCoreComposition
+    let host: BridgeDevelopmentProductHost
+}
+
+@MainActor
+private func makeHTTPDevelopmentServerHarness(
+    dataRoot: URL,
+    worktreeRoot: URL
+) async throws -> HTTPDevelopmentServerHarness {
+    let configuration = try BridgeDevelopmentServerConfiguration(
+        dataRoot: dataRoot,
+        paneID: PaneId.generateUUIDv7().uuid,
+        port: 43_871,
+        seedContributionTarget: .ref(name: "HEAD"),
+        seedWorktreeRoot: worktreeRoot
+    )
+    let composition = try await BridgeDevelopmentServerCoreComposition.prepare(
+        configuration: configuration
+    )
+    let host = try await BridgeDevelopmentProductHost(
+        source: composition.productSource,
+        worktreeAnnotationStore: composition.worktreeAnnotationStore,
+        worktreeAnnotationOutputCoordinator: composition.worktreeAnnotationOutputCoordinator,
+        originatingWorkspaceID: composition.originatingWorkspaceID,
+        reviewSharedContentRootURL: configuration.reviewSharedContentRootURL,
+        contributionTargetCommit: { target in
+            composition.applyContributionTarget(target)
+        }
+    )
+    return HTTPDevelopmentServerHarness(composition: composition, host: host)
+}
+
+@MainActor
+private func withDevelopmentServerHarness<Result>(
+    _ harness: HTTPDevelopmentServerHarness,
+    operation: () async throws -> Result
+) async throws -> Result {
+    do {
+        let result = try await operation()
+        await harness.host.shutdown()
+        try await harness.composition.shutdown()
+        return result
+    } catch {
+        await harness.host.shutdown()
+        try await harness.composition.shutdown()
+        throw error
+    }
+}
+
 private func withDevelopmentHost<Result>(
     _ host: BridgeDevelopmentProductHost,
     operation: () async throws -> Result
@@ -357,12 +460,12 @@ private actor BridgeDevelopmentHTTPBodyRecorder: ResponseBodyWriter {
     }
 }
 
-private struct DecodedHTTPBootstrapEnvelope {
+struct DecodedHTTPBootstrapEnvelope {
     let bootstrap: BridgeProductSessionBootstrap
     let capabilityBytes: Data
 }
 
-private func decodeHTTPBootstrapEnvelope(
+func decodeHTTPBootstrapEnvelope(
     _ data: Data
 ) throws -> DecodedHTTPBootstrapEnvelope {
     let envelopeVersionByteCount = 1

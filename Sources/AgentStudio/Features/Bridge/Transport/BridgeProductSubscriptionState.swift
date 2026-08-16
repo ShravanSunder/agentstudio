@@ -521,8 +521,12 @@ struct BridgeProductSubscriptionState: Sendable {
         for subscriptionKind: BridgeProductSubscriptionKind
     ) -> BridgeProductSubscriptionInterestState {
         switch subscriptionKind {
+        case .fileAnnotations:
+            .fileAnnotations
         case .fileMetadata:
             .fileMetadata(interests: [], pathScope: [])
+        case .reviewAnnotations:
+            .reviewAnnotations
         case .reviewMetadata:
             .reviewMetadata(interests: [])
         }

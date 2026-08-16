@@ -54,6 +54,17 @@ package enum AppPolicies {
     }
 
     package enum Bridge {
+        /// Command outcomes are correlation aids for active annotation editors,
+        /// not durable history. Keep a bounded window in the projection Atom.
+        package static let worktreeAnnotationMaximumRetainedCommandOutcomes: Int = 128
+        package static let worktreeAnnotationMaximumOutputHistorySummaries: Int = 128
+        /// Inspection descriptors are short-lived content capabilities. Retain
+        /// only metadata for a bounded number of not-yet-opened outputs; exact
+        /// output bytes remain authoritative in local.sqlite.
+        package static let worktreeAnnotationMaximumIssuedOutputDescriptors: Int = 64
+        package static let worktreeAnnotationMaximumDiscoverySessions: Int = 128
+        package static let worktreeAnnotationMaximumSourceCandidateCount: Int = 256
+        package static let worktreeAnnotationMaximumSourceFileByteCount: Int = 1 * 1024 * 1024
         package static let reviewComparisonTargetRecencyWindow: Duration = .seconds(30 * 24 * 60 * 60)
         package static let reviewComparisonTargetMaximumRows: Int = 2000
         package static let reviewComparisonTargetMaximumEncodedBytes: Int = 1 * 1024 * 1024

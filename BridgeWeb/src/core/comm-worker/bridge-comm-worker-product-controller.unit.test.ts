@@ -23,6 +23,92 @@ const source = {
 } as const;
 
 describe('Bridge comm worker product controller', () => {
+	test('opens paired annotation projections once and returns native command correlation', async () => {
+		const fileEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'file.annotations'>
+		>(8);
+		const reviewEvents = new BridgeProductBoundedAsyncQueue<
+			BridgeProductSubscriptionEvent<'review.annotations'>
+		>(8);
+		const observedFileEvents: BridgeProductSubscriptionEvent<'file.annotations'>[] = [];
+		const observedReviewEvents: BridgeProductSubscriptionEvent<'review.annotations'>[] = [];
+		const subscribedKinds: string[] = [];
+		const calledMethods: string[] = [];
+		const fileSubscription: BridgeProductSubscription<'file.annotations'> = {
+			cancel: async (): Promise<void> => {},
+			events: fileEvents,
+			subscriptionId: 'file-annotations-1',
+			subscriptionKind: 'file.annotations',
+			update: async (): Promise<void> => {},
+		};
+		const reviewSubscription: BridgeProductSubscription<'review.annotations'> = {
+			cancel: async (): Promise<void> => {},
+			events: reviewEvents,
+			subscriptionId: 'review-annotations-1',
+			subscriptionKind: 'review.annotations',
+			update: async (): Promise<void> => {},
+		};
+		const productTransport = {
+			...unusedProductTransport(),
+			call: (async (method: string): Promise<unknown> => {
+				calledMethods.push(method);
+				return { kind: 'accepted', requestId: `${method}-request-1` };
+			}) as BridgeProductTransportSession['call'],
+			subscribe: ((subscriptionKind: string): unknown => {
+				subscribedKinds.push(subscriptionKind);
+				return subscriptionKind === 'file.annotations' ? fileSubscription : reviewSubscription;
+			}) as BridgeProductTransportSession['subscribe'],
+		} satisfies BridgeProductTransportSession;
+		const controller = new BridgeCommWorkerProductController({
+			onFileAnnotationEvent: (event): void => {
+				observedFileEvents.push(event);
+			},
+			onFileMetadataEvent: (): void => {},
+			onReviewAnnotationEvent: (event): void => {
+				observedReviewEvents.push(event);
+			},
+			productTransport,
+		});
+		const projectionEvent = {
+			eventKind: 'projection.state',
+			payload: {
+				commandOutcomes: [],
+				outputHistory: [],
+				recoveryStatus: 'available',
+				revision: 1,
+				sessions: [],
+				worktreeId: '00000000-0000-7000-8000-000000000001',
+			},
+		} as const;
+
+		controller.ensureAnnotationSubscriptions();
+		controller.ensureAnnotationSubscriptions();
+		fileEvents.push(projectionEvent);
+		reviewEvents.push(projectionEvent);
+		const fileResult = await controller.sendProductControl({
+			method: 'file.annotations.command',
+			params: { operation: { kind: 'session.discover' } },
+		});
+		const reviewResult = await controller.sendProductControl({
+			method: 'review.annotations.command',
+			params: { operation: { kind: 'session.discover' } },
+		});
+		await Promise.resolve();
+
+		expect(subscribedKinds).toEqual(['file.annotations', 'review.annotations']);
+		expect(calledMethods).toEqual(['file.annotations.command', 'review.annotations.command']);
+		expect(fileResult).toEqual({
+			kind: 'accepted',
+			requestId: 'file.annotations.command-request-1',
+		});
+		expect(reviewResult).toEqual({
+			kind: 'accepted',
+			requestId: 'review.annotations.command-request-1',
+		});
+		expect(observedFileEvents).toEqual([projectionEvent]);
+		expect(observedReviewEvents).toEqual([projectionEvent]);
+	});
+
 	test('opens one Review metadata subscription and reconciles lane interests in the comm worker', async () => {
 		// Arrange
 		const events = new BridgeProductBoundedAsyncQueue<

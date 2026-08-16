@@ -20,6 +20,12 @@ export type BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight =
 export function preflightBridgeProductSubscriptionInterestStateCanonicalEncoding(
 	state: BridgeProductSubscriptionInterestState,
 ): BridgeProductSubscriptionInterestStateCanonicalEncodingPreflight {
+	if (
+		state.subscriptionKind === 'file.annotations' ||
+		state.subscriptionKind === 'review.annotations'
+	) {
+		return { canonicalByteLength: 6, status: 'accepted', visitedTextValueCount: 0 };
+	}
 	let canonicalByteLength = state.subscriptionKind === 'file.metadata' ? 10 : 6;
 	let visitedTextValueCount = 0;
 	const addTextValue = (

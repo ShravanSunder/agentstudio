@@ -12,6 +12,7 @@ package struct PersistenceRecoveryEvent: Sendable, Equatable {
         case uiState
         case sidebarCache
         case notificationInbox
+        case worktreeAnnotations
     }
 
     package enum Recovery: String, Sendable, Codable, Equatable {

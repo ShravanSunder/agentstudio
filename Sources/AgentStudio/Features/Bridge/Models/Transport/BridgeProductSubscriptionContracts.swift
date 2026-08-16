@@ -10,13 +10,15 @@ enum BridgeProductDemandLane: String, Codable, Equatable, Sendable {
 }
 
 enum BridgeProductSubscriptionKind: String, Codable, Equatable, Sendable {
+    case fileAnnotations = "file.annotations"
     case fileMetadata = "file.metadata"
+    case reviewAnnotations = "review.annotations"
     case reviewMetadata = "review.metadata"
 
     var surface: BridgeProductSurface {
         switch self {
-        case .fileMetadata: .file
-        case .reviewMetadata: .review
+        case .fileAnnotations, .fileMetadata: .file
+        case .reviewAnnotations, .reviewMetadata: .review
         }
     }
 }
@@ -81,7 +83,9 @@ struct BridgeProductFileSourceSpec: Codable, Equatable, Sendable {
 }
 
 enum BridgeProductSubscriptionRequest: Codable, Equatable, Sendable {
+    case fileAnnotations
     case fileMetadata(BridgeProductFileSourceSpec)
+    case reviewAnnotations
     case reviewMetadata
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -91,7 +95,9 @@ enum BridgeProductSubscriptionRequest: Codable, Equatable, Sendable {
 
     var subscriptionKind: BridgeProductSubscriptionKind {
         switch self {
+        case .fileAnnotations: .fileAnnotations
         case .fileMetadata: .fileMetadata
+        case .reviewAnnotations: .reviewAnnotations
         case .reviewMetadata: .reviewMetadata
         }
     }
@@ -106,10 +112,26 @@ enum BridgeProductSubscriptionRequest: Codable, Equatable, Sendable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
+        case .fileAnnotations:
+            guard !container.contains(.source) else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "File annotation subscription cannot carry file source configuration",
+                    codingPath: decoder.codingPath
+                )
+            }
+            self = .fileAnnotations
         case .fileMetadata:
             self = .fileMetadata(
                 try container.decode(BridgeProductFileSourceSpec.self, forKey: .source)
             )
+        case .reviewAnnotations:
+            guard !container.contains(.source) else {
+                throw BridgeProductContractDecoding.invalidValue(
+                    "Review annotation subscription cannot carry file source configuration",
+                    codingPath: decoder.codingPath
+                )
+            }
+            self = .reviewAnnotations
         case .reviewMetadata:
             guard !container.contains(.source) else {
                 throw BridgeProductContractDecoding.invalidValue(
@@ -125,10 +147,10 @@ enum BridgeProductSubscriptionRequest: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(subscriptionKind, forKey: .subscriptionKind)
         switch self {
+        case .fileAnnotations, .reviewAnnotations, .reviewMetadata:
+            break
         case .fileMetadata(let source):
             try container.encode(source, forKey: .source)
-        case .reviewMetadata:
-            break
         }
     }
 }
@@ -202,7 +224,9 @@ struct BridgeProductFileSourceIdentity: Codable, Equatable, Sendable {
 }
 
 enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
+    case fileAnnotations(BridgeProductWorktreeAnnotationEvent)
     case fileMetadata(BridgeProductFileMetadataEvent)
+    case reviewAnnotations(BridgeProductWorktreeAnnotationEvent)
     case reviewMetadata(BridgeProductReviewMetadataEvent)
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -212,7 +236,9 @@ enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
 
     var subscriptionKind: BridgeProductSubscriptionKind {
         switch self {
+        case .fileAnnotations: .fileAnnotations
         case .fileMetadata: .fileMetadata
+        case .reviewAnnotations: .reviewAnnotations
         case .reviewMetadata: .reviewMetadata
         }
     }
@@ -221,6 +247,7 @@ enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
 
     var sourceGeneration: Int {
         switch self {
+        case .fileAnnotations(let event), .reviewAnnotations(let event): event.sourceGeneration
         case .fileMetadata(let event): event.sourceGeneration
         case .reviewMetadata(let event): event.generation
         }
@@ -234,9 +261,17 @@ enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
+        case .fileAnnotations:
+            self = .fileAnnotations(
+                try container.decode(BridgeProductWorktreeAnnotationEvent.self, forKey: .event)
+            )
         case .fileMetadata:
             self = .fileMetadata(
                 try container.decode(BridgeProductFileMetadataEvent.self, forKey: .event)
+            )
+        case .reviewAnnotations:
+            self = .reviewAnnotations(
+                try container.decode(BridgeProductWorktreeAnnotationEvent.self, forKey: .event)
             )
         case .reviewMetadata:
             self = .reviewMetadata(
@@ -249,7 +284,11 @@ enum BridgeProductSubscriptionData: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(subscriptionKind, forKey: .subscriptionKind)
         switch self {
+        case .fileAnnotations(let event):
+            try container.encode(event, forKey: .event)
         case .fileMetadata(let event):
+            try container.encode(event, forKey: .event)
+        case .reviewAnnotations(let event):
             try container.encode(event, forKey: .event)
         case .reviewMetadata(let event):
             try container.encode(event, forKey: .event)

@@ -239,6 +239,7 @@ extension AppDelegate {
             )
             preconditionFailure("Workspace startup invariant violated: \(diagnosticCode.rawValue)")
         }
+        await bootWorktreeAnnotations(sqliteDatastore: sqliteDatastore)
         configureInteractionPerformanceProbeOwners()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = atomStore.core.windowLifecycle
@@ -253,6 +254,23 @@ extension AppDelegate {
         )
     }
 
+    private func bootWorktreeAnnotations(sqliteDatastore: WorkspaceSQLiteDatastore) async {
+        worktreeAnnotationStore = WorktreeAnnotationStore(
+            projection: atomStore.worktreeAnnotationProjection,
+            sqliteAdapter: WorktreeAnnotationSQLiteDatastoreAdapter(
+                workspaceID: store.identityAtom.workspaceId,
+                datastore: sqliteDatastore
+            )
+        )
+        worktreeAnnotationOutputCoordinator = WorktreeAnnotationOutputCoordinator(
+            store: worktreeAnnotationStore,
+            effect: WorktreeAnnotationOutputEffects()
+        )
+        if let recoveryEvent = await worktreeAnnotationStore.restoreRecoveryState() {
+            recordPersistenceRecovery(recoveryEvent)
+        }
+    }
+
     private func configureInteractionPerformanceProbeOwners() {
         let interactionProbe = AgentStudioInteractionPerformanceProbe(recorder: performanceTraceRecorder)
         managementLayerMonitor = ManagementLayerMonitor(interactionProbe: interactionProbe)
@@ -263,7 +281,10 @@ extension AppDelegate {
     }
 
     private func makeWorkspaceSQLiteDatastore(traceRuntime: AgentStudioTraceRuntime?) -> WorkspaceSQLiteDatastore {
-        WorkspaceSQLiteDatastoreFactory(traceRuntime: traceRuntime).makeDatastore()
+        WorkspaceSQLiteDatastoreFactory(
+            traceRuntime: traceRuntime,
+            localDatabaseReplacementObserver: WorktreeAnnotationRecoveryWitnessWriter.write
+        ).makeDatastore()
     }
 
     func makeWorkspaceSettingsStore(
@@ -338,6 +359,8 @@ extension AppDelegate {
             windowLifecycleStore: windowLifecycleStore,
             appLifecycleStore: appLifecycleStore,
             bridgePaneAttendance: atomStore.bridgePaneAttendance,
+            worktreeAnnotationStore: worktreeAnnotationStore,
+            worktreeAnnotationOutputCoordinator: worktreeAnnotationOutputCoordinator,
             traceRuntime: traceRuntime,
             performanceTraceRecorder: performanceTraceRecorder,
             traceIdentityRefreshHandler: { [weak self] in

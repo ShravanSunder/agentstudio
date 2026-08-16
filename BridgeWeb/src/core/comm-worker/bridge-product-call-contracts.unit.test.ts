@@ -6,6 +6,7 @@ import {
 	bridgeProductCallResultSchema,
 	bridgeProductFileSourceCurrentRequestSchema,
 	bridgeProductFileSourceCurrentResultSchema,
+	bridgeProductWorktreeAnnotationOutputInspectResultSchema,
 	bridgeProductReviewComparisonUpdateRequestSchema,
 	bridgeProductReviewComparisonTargetsQueryResultSchema,
 	bridgeProductReviewIntakeReadyRequestSchema,
@@ -23,6 +24,205 @@ const currentFileSource = {
 } as const;
 
 describe('Bridge product call contracts', () => {
+	test('defines paired strict annotation commands with no delete operation', () => {
+		for (const method of ['file.annotations.command', 'review.annotations.command'] as const) {
+			const request = { method, request: { operation: { kind: 'session.discover' } } } as const;
+			const result = {
+				method,
+				result: { kind: 'accepted', requestId: 'annotation-product-call-1' },
+			} as const;
+
+			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+			expect(
+				bridgeProductCallResultSchema.safeParse({
+					method,
+					result: { kind: 'accepted' },
+				}).success,
+			).toBe(false);
+			expect(
+				bridgeProductCallRequestSchema.safeParse({
+					...request,
+					request: { ...request.request, unexpected: true },
+				}).success,
+			).toBe(false);
+			expect(
+				bridgeProductCallRequestSchema.safeParse({
+					...request,
+					request: { operation: { kind: 'thread.delete' } },
+				}).success,
+			).toBe(false);
+		}
+	});
+
+	test('covers the complete PR1 annotation operation vocabulary', () => {
+		const sessionId = '00000000-0000-7000-8000-000000000011';
+		const threadId = '00000000-0000-7000-8000-000000000012';
+		const messageId = '00000000-0000-7000-8000-000000000013';
+		const attemptId = '00000000-0000-7000-8000-000000000015';
+		const operations = [
+			{ kind: 'session.discover' },
+			{ kind: 'demand.acquire', sessionId },
+			{ kind: 'demand.release', sessionId },
+			{
+				admission: { kind: 'implicitOrSingle' },
+				body: 'Durable draft',
+				editToken: 'edit-token-1',
+				kind: 'root.create',
+				origin: {
+					diffSide: 'additions',
+					endLine: 14,
+					kind: 'located',
+					path: 'Sources/Feature.swift',
+					sourceIdentity: 'source-1',
+					sourceRole: 'reviewHead',
+					startLine: 12,
+				},
+			},
+			{
+				body: 'Reply draft',
+				editToken: 'edit-token-2',
+				expectedSessionRevision: 4,
+				kind: 'reply.create',
+				sessionId,
+				threadId,
+			},
+			{
+				body: 'Updated draft',
+				editToken: 'edit-token-1',
+				expectedDraftRevision: 2,
+				expectedSessionRevision: 4,
+				kind: 'draft.flush',
+				messageId,
+				sessionId,
+			},
+			{
+				editToken: 'edit-token-1',
+				expectedDraftRevision: 3,
+				expectedSessionRevision: 4,
+				kind: 'draft.save',
+				messageId,
+				sessionId,
+			},
+			{
+				editToken: 'edit-token-1',
+				expectedDraftRevision: 3,
+				expectedSessionRevision: 4,
+				kind: 'draft.revert',
+				messageId,
+				sessionId,
+			},
+			{
+				expectedSessionRevision: 4,
+				kind: 'thread.resolution.set',
+				resolution: 'resolved',
+				sessionId,
+				threadId,
+			},
+			{
+				decision: 'acceptCurrentSource',
+				expectedSessionRevision: 4,
+				kind: 'continuity.choose',
+				sessionId,
+			},
+			{ kind: 'source.refresh', sessionId, sourceEpoch: 5 },
+			{
+				kind: 'output.prepare',
+				outputKind: 'clipboardMarkdown',
+				selection: { kind: 'explicit', messageIds: [messageId] },
+				sessionId,
+			},
+			{
+				kind: 'output.prepare',
+				outputKind: 'jsonFile',
+				selection: { kind: 'allEligible', excludedMessageIds: [messageId] },
+				sessionId,
+			},
+			{ kind: 'output.history', sessionId },
+			{ attemptId, kind: 'output.repeat' },
+			{ kind: 'recovery.acknowledge' },
+		] as const;
+
+		for (const operation of operations) {
+			expect(
+				bridgeProductCallRequestSchema.safeParse({
+					method: 'review.annotations.command',
+					request: { operation },
+				}).success,
+			).toBe(true);
+		}
+
+		for (const operation of [
+			{ attemptId, kind: 'output.inspect' },
+			{
+				confirmsUnresolvedWork: true,
+				expectedOpenThreadCount: 2,
+				expectedSessionRevision: 4,
+				kind: 'session.lifecycle.set',
+				lifecycle: 'completed',
+				sessionId,
+			},
+			{
+				kind: 'output.prepare',
+				outputKind: 'clipboardMarkdown',
+				selectedVersions: [{ messageId, versionId: messageId }],
+				sessionId,
+			},
+			{ kind: 'source.refresh', sessionId, sourceEpoch: -1 },
+			{ kind: 'source.refresh', sessionId, sourceEpoch: 5, unexpected: true },
+		] as const) {
+			expect(
+				bridgeProductCallRequestSchema.safeParse({
+					method: 'review.annotations.command',
+					request: { operation },
+				}).success,
+			).toBe(false);
+		}
+	});
+
+	test('defines paired surface-bound annotation output inspection calls', () => {
+		const attemptId = '00000000-0000-7000-8000-000000000015';
+		const descriptor = {
+			attemptId,
+			contentKind: 'annotation.output',
+			contentType: 'text/markdown; charset=utf-8',
+			declaredByteLength: 5,
+			descriptorId: '00000000-0000-7000-8000-000000000016',
+			encoding: 'utf-8',
+			expectedSha256: 'a'.repeat(64),
+			formatVersion: 1,
+			maximumBytes: 5,
+			outputKind: 'clipboard_markdown',
+			surface: 'file',
+		} as const;
+
+		for (const [method, surface] of [
+			['file.annotations.output.inspect', 'file'],
+			['review.annotations.output.inspect', 'review'],
+		] as const) {
+			const surfaceDescriptor = { ...descriptor, surface } as const;
+			const request = { method, request: { attemptId } } as const;
+			const result = { method, result: { descriptor: surfaceDescriptor } } as const;
+
+			expect(bridgeProductCallRequestSchema.parse(request)).toEqual(request);
+			expect(bridgeProductCallResultSchema.parse(result)).toEqual(result);
+			expect(bridgeProductWorktreeAnnotationOutputInspectResultSchema.parse(result.result)).toEqual(
+				result.result,
+			);
+			expect(
+				bridgeProductCallResultSchema.safeParse({
+					...result,
+					result: {
+						descriptor: {
+							...surfaceDescriptor,
+							surface: surface === 'file' ? 'review' : 'file',
+						},
+					},
+				}).success,
+			).toBe(false);
+		}
+	});
+
 	test('defines a strict closed File source discovery call', () => {
 		const request = { method: 'file.source.current', request: {} } as const;
 		const availableResult = {

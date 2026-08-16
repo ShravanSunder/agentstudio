@@ -34,6 +34,8 @@ export type BridgeCommWorkerTelemetryAction =
 
 export type BridgeCommWorkerTelemetryCommand =
 	| 'activeViewerModeUpdate'
+	| 'annotationCommand'
+	| 'annotationOutputInspect'
 	| 'fileDisplayResync'
 	| 'fileQueryUpdate'
 	| 'hover'

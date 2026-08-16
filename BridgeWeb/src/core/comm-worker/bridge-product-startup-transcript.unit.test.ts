@@ -256,9 +256,9 @@ describe('Bridge product startup transcript', () => {
 			ensureMetadataStream: async (): Promise<void> => {},
 			initialOptions: { interests: [] },
 			onTerminal: (): void => {},
+			readWorkerDerivationEpochAtAdmission: (): number => openRequest.workerDerivationEpoch,
 			subscriptionId: openRequest.subscriptionId,
 			subscriptionKind: 'review.metadata',
-			workerDerivationEpoch: openRequest.workerDerivationEpoch,
 		});
 		subscriptionState.start();
 

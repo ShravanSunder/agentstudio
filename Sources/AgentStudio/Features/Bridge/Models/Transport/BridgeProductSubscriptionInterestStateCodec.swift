@@ -113,7 +113,9 @@ struct BridgeProductFileMetadataInterestStateGroup: Codable, Equatable, Sendable
 }
 
 enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
+    case fileAnnotations
     case fileMetadata(interests: [BridgeProductFileMetadataInterestStateGroup], pathScope: [String])
+    case reviewAnnotations
     case reviewMetadata(interests: [BridgeProductReviewMetadataInterestStateGroup])
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -126,6 +128,13 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let decodedState: Self
         switch try container.decode(BridgeProductSubscriptionKind.self, forKey: .subscriptionKind) {
+        case .fileAnnotations:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: Set([CodingKeys.subscriptionKind.rawValue]),
+                contract: "file annotation interest state"
+            )
+            decodedState = .fileAnnotations
         case .fileMetadata:
             try BridgeProductContractDecoding.rejectUnknownKeys(
                 from: decoder,
@@ -138,6 +147,13 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
             )
             let pathScope = try container.decode([String].self, forKey: .pathScope)
             decodedState = .fileMetadata(interests: interests, pathScope: pathScope)
+        case .reviewAnnotations:
+            try BridgeProductContractDecoding.rejectUnknownKeys(
+                from: decoder,
+                allowedKeys: Set([CodingKeys.subscriptionKind.rawValue]),
+                contract: "review annotation interest state"
+            )
+            decodedState = .reviewAnnotations
         case .reviewMetadata:
             try BridgeProductContractDecoding.rejectUnknownKeys(
                 from: decoder,
@@ -157,10 +173,14 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .fileAnnotations:
+            try container.encode(BridgeProductSubscriptionKind.fileAnnotations, forKey: .subscriptionKind)
         case .fileMetadata(let interests, let pathScope):
             try container.encode(interests, forKey: .interests)
             try container.encode(pathScope, forKey: .pathScope)
             try container.encode(BridgeProductSubscriptionKind.fileMetadata, forKey: .subscriptionKind)
+        case .reviewAnnotations:
+            try container.encode(BridgeProductSubscriptionKind.reviewAnnotations, forKey: .subscriptionKind)
         case .reviewMetadata(let interests):
             try container.encode(interests, forKey: .interests)
             try container.encode(BridgeProductSubscriptionKind.reviewMetadata, forKey: .subscriptionKind)
@@ -205,6 +225,8 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
     func canonicalEncodingPreflight() -> BridgeProductInterestStateEncodingPreflight {
         var canonicalByteCount: Int
         switch self {
+        case .fileAnnotations, .reviewAnnotations:
+            canonicalByteCount = 6
         case .fileMetadata:
             canonicalByteCount = 10
         case .reviewMetadata:
@@ -229,6 +251,8 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
         }
 
         switch self {
+        case .fileAnnotations, .reviewAnnotations:
+            break
         case .fileMetadata(let interests, let pathScope):
             for interest in interests {
                 for path in interest.paths {
@@ -261,6 +285,8 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
     @discardableResult
     func validateForCanonicalEncoding(codingPath: [any CodingKey] = []) throws -> Int {
         switch self {
+        case .fileAnnotations, .reviewAnnotations:
+            break
         case .fileMetadata(let interests, let pathScope):
             try Self.validateFileStateCounts(
                 interests: interests,
@@ -283,6 +309,8 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
         }
 
         switch self {
+        case .fileAnnotations, .reviewAnnotations:
+            break
         case .fileMetadata(let interests, let pathScope):
             try Self.validateFileStateMembers(
                 interests: interests,
@@ -297,6 +325,8 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
 
     private var flattenedInterests: [(keyBytes: Data, laneTag: UInt8)] {
         switch self {
+        case .fileAnnotations, .reviewAnnotations:
+            []
         case .fileMetadata(let interests, _):
             interests.flatMap { interest in
                 interest.paths.map { (Data($0.utf8), Self.laneTag(for: interest.lane)) }
@@ -310,7 +340,9 @@ enum BridgeProductSubscriptionInterestState: Codable, Equatable, Sendable {
 
     private var subscriptionKindTag: UInt8 {
         switch self {
+        case .fileAnnotations: 3
         case .fileMetadata: 2
+        case .reviewAnnotations: 4
         case .reviewMetadata: 1
         }
     }

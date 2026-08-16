@@ -1,3 +1,8 @@
+import { runBridgeCommWorkerAnnotationOutputInspection } from './bridge-comm-worker-annotation-output-inspection.js';
+import {
+	bridgeCommWorkerAnnotationCommandAcceptedEvent,
+	bridgeCommWorkerAnnotationProjectionEvent,
+} from './bridge-comm-worker-annotation-runtime-events.js';
 import {
 	createBridgeCommWorkerCommandHandler,
 	type BridgeCommWorkerFileMetadataDemand,
@@ -26,7 +31,6 @@ import {
 import { createBridgeCommWorkerReviewDemandScheduling } from './bridge-comm-worker-review-demand-scheduling.js';
 import {
 	admitBridgeCommWorkerReviewDisplayPatches,
-	bridgeCommWorkerReviewComparisonMatchesSource,
 	bridgeCommWorkerReviewDisplayPatchEvent,
 	type BridgeCommWorkerReviewSourceIdentity,
 } from './bridge-comm-worker-review-display-projection.js';
@@ -37,6 +41,13 @@ import {
 	bridgeWorkerRuntimeProductControlCommandForMessage,
 } from './bridge-comm-worker-runtime-command-routing.js';
 import {
+	bridgeCommWorkerProductControlFailureMessage,
+	rejectUninstalledBridgeFileContentOpen,
+	rejectUninstalledBridgeProductControl,
+	rejectUninstalledReviewMetadataInterestUpdate,
+	scheduleDefaultBridgeRenderFulfillmentWake,
+} from './bridge-comm-worker-runtime-defaults.js';
+import {
 	bridgeWorkerRuntimeMessagesContainReadyRequest,
 	bridgeWorkerRuntimeMessageIsReadyRequest,
 	buildBridgeWorkerFileMetadataFailureHealthEvent,
@@ -44,70 +55,36 @@ import {
 	buildBridgeWorkerRuntimeCommandFailedHealthEvent,
 	buildBridgeWorkerRuntimeDegradedHealthEvent,
 } from './bridge-comm-worker-runtime-health.js';
+import type {
+	BridgeCommWorkerPreparationDrain,
+	RegisterBridgeCommWorkerRuntimePortProtocolProps,
+} from './bridge-comm-worker-runtime-protocol-contracts.js';
 import {
 	bridgeProductMetadataStreamHealthDiagnostic,
 	createBridgeWorkerRuntimeSequenceCounter,
 	readBridgeCommWorkerRuntimeNowMilliseconds,
 	scheduleDefaultBridgeCommWorkerPreparationDrain,
+	sendBridgeCommWorkerActionWithTimeout,
 } from './bridge-comm-worker-runtime-support.js';
 import {
 	bridgeCommWorkerComparisonTelemetryFacts,
 	recordBridgeCommWorkerPanePresentationTelemetry,
 	recordBridgeCommWorkerTaskTelemetry,
-	type BridgeCommWorkerTelemetryRecorder,
 } from './bridge-comm-worker-telemetry.js';
-import type { BridgeProductControlCommand } from './bridge-product-control-contracts.js';
-import type { BridgeProductTransportSession } from './bridge-product-transport.js';
+import { publishBridgeCommWorkerUpdatingChrome } from './bridge-comm-worker-updating-chrome.js';
+import { createWorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
 import {
-	createWorkerContentPreparationPump,
-	type WorkerContentPreparationPump,
-	type WorkerContentPreparationPumpRunResult,
-} from './bridge-worker-content-preparation-pump.js';
-import {
-	BRIDGE_WORKER_WIRE_VERSION,
-	bridgeWorkerFileRenderPatchEventSchema,
 	bridgeWorkerMainToServerMessageSchema,
-	bridgeWorkerReviewRenderPatchEventSchema,
 	type BridgeWorkerReviewDisplayPatch,
 } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFileViewContentOpen } from './bridge-worker-file-view-content-fetch.js';
-import type {
-	BridgeWorkerDemandRank,
-	BridgeWorkerPierreRenderBudget,
-} from './bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerReviewContentOpen } from './bridge-worker-review-content-fetch.js';
 
-export type BridgeCommWorkerPreparationDrain = () => Promise<WorkerContentPreparationPumpRunResult>;
-
-export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
-	readonly bridgeDemandRank: BridgeWorkerDemandRank;
-	readonly budget: BridgeWorkerPierreRenderBudget;
-	readonly fileViewBridgeDemandRank?: BridgeWorkerDemandRank;
-	readonly fileViewBudget?: BridgeWorkerPierreRenderBudget;
-	readonly createSequence?: () => number;
-	readonly maxPreparationSliceMs?: number;
-	readonly now?: () => number;
-	readonly openFileViewContent?: BridgeWorkerFileViewContentOpen;
-	readonly openReviewContent?: BridgeWorkerReviewContentOpen;
-	readonly pump?: WorkerContentPreparationPump;
-	readonly productTransport?: BridgeProductTransportSession;
-	readonly renderFulfillmentContext?: {
-		readonly paneSessionId: string;
-		readonly workerInstanceId: string;
-	};
-	readonly scheduleRenderFulfillmentWake?: (
-		delayMilliseconds: number,
-		wake: () => void,
-	) => () => void;
-	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
-	readonly sendProductControl?: BridgeCommWorkerProductControlSender;
-	readonly productControlTimeoutMilliseconds?: number;
-	readonly telemetryClient?: BridgeCommWorkerTelemetryRecorder;
-}
-
-export type BridgeCommWorkerProductControlSender = (
-	command: BridgeProductControlCommand,
-) => Promise<unknown>;
+export type {
+	BridgeCommWorkerPreparationDrain,
+	BridgeCommWorkerProductControlSender,
+	RegisterBridgeCommWorkerRuntimePortProtocolProps,
+} from './bridge-comm-worker-runtime-protocol-contracts.js';
 
 export function registerBridgeCommWorkerRuntimePortProtocol(
 	port: BridgeCommWorkerPort,
@@ -205,84 +182,24 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		surface: 'file' | 'review',
 		presentation: BridgeCommWorkerPanePresentationSnapshot,
 	): void => {
-		const workerDerivationEpoch =
-			surface === 'file' ? activeFileWorkerDerivationEpoch : activeReviewWorkerDerivationEpoch;
-		if (workerDerivationEpoch === null) return;
-		const refreshingLane = surface === 'file' ? 'file' : 'review';
-		const isUpdating =
-			presentation.nativeActivity === 'foreground' &&
-			activeViewerMode === surface &&
-			presentation.refreshingLanes.includes(refreshingLane);
-		const shouldWithholdReviewComparison =
-			surface === 'review' &&
-			!bridgeCommWorkerReviewComparisonMatchesSource(
-				presentation.reviewComparison,
-				activeReviewSourceIdentity,
-			);
-		const projectedReviewComparison =
-			surface === 'review'
-				? shouldWithholdReviewComparison
-					? publishedReviewComparison
-					: presentation.reviewComparison
-				: null;
-		const publicationIdentity = JSON.stringify([
-			workerDerivationEpoch,
-			isUpdating ? 'updating' : 'idle',
-			projectedReviewComparison,
-		]);
-		if (publishedUpdatingChromeIdentityBySurface.get(surface) === publicationIdentity) return;
-		const patch =
-			isUpdating || projectedReviewComparison !== null
-				? {
-						operation: 'upsert' as const,
-						payload: {
-							...(isUpdating
-								? {
-										isLoading: true,
-										message: surface === 'file' ? 'Updating files…' : 'Updating review…',
-									}
-								: {}),
-							...(surface === 'review' ? { reviewComparison: projectedReviewComparison } : {}),
-						},
-						slice: 'panelChrome' as const,
-					}
-				: { operation: 'reset' as const, slice: 'panelChrome' as const };
-		const publicationSequence = createSequence();
-		const commonEvent = {
-			direction: 'serverWorkerToMain' as const,
-			patches: [patch],
-			publicationSequence,
-			transferDescriptors: [],
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-			workerDerivationEpoch,
-		};
-		port.postMessage(
-			surface === 'file'
-				? bridgeWorkerFileRenderPatchEventSchema.parse({
-						...commonEvent,
-						kind: 'fileRenderPatch',
-						surface: 'file',
-					})
-				: bridgeWorkerReviewRenderPatchEventSchema.parse({
-						...commonEvent,
-						kind: 'reviewRenderPatch',
-						surface: 'review',
-					}),
-		);
-		publishedUpdatingChromeIdentityBySurface.set(surface, publicationIdentity);
-		if (surface === 'review') publishedReviewComparison = projectedReviewComparison;
-		recordBridgeCommWorkerPanePresentationTelemetry({
-			...bridgeCommWorkerComparisonTelemetryFacts(presentation),
-			disposition: 'published',
-			panelOperation: patch.operation,
-			phase: 'panel_chrome_published',
-			presentationRevision: presentation.presentationRevision,
-			publicationSequence,
-			refreshingReview: presentation.refreshingLanes.includes('review'),
+		const publication = publishBridgeCommWorkerUpdatingChrome({
+			activeFileWorkerDerivationEpoch,
+			activeReviewSourceIdentity,
+			activeReviewWorkerDerivationEpoch,
+			activeViewerMode,
+			createSequence,
+			previousPublicationIdentity: publishedUpdatingChromeIdentityBySurface.get(surface),
+			previousReviewComparison: publishedReviewComparison,
+			presentation,
+			publish: (message): void => port.postMessage(message),
 			surface,
 			telemetryClient: props.telemetryClient,
-			workerDerivationEpoch,
 		});
+		if (publication === null) return;
+		publishedUpdatingChromeIdentityBySurface.set(surface, publication.publicationIdentity);
+		if (surface === 'review') {
+			publishedReviewComparison = publication.projectedReviewComparison;
+		}
 	};
 	const publishUpdatingChrome = (): void => {
 		const presentation = panePresentationAuthority.snapshot;
@@ -624,6 +541,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			publishDisplayPatches: publishReviewDisplayPatches,
 		});
 		const installedProductController = new BridgeCommWorkerProductController({
+			onFileAnnotationEvent: (event): void => {
+				port.postMessage(bridgeCommWorkerAnnotationProjectionEvent({ event, surface: 'fileView' }));
+			},
 			onFileMetadataDemandFailure: (): void => {
 				port.postMessage(buildBridgeWorkerFileMetadataInterestFailureHealthEvent());
 			},
@@ -702,6 +622,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				publishUpdatingChrome();
 				return receipt;
 			},
+			onReviewAnnotationEvent: (event): void => {
+				port.postMessage(bridgeCommWorkerAnnotationProjectionEvent({ event, surface: 'review' }));
+			},
 			onReviewMetadataFailure: (_error, workerDerivationEpoch): void => {
 				activeReviewWorkerDerivationEpoch = workerDerivationEpoch;
 				reviewDemandScheduling.updateWorkerDerivationEpoch(workerDerivationEpoch);
@@ -724,6 +647,11 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			productTransport,
 		});
 		productController = installedProductController;
+		try {
+			installedProductController.ensureAnnotationSubscriptions();
+		} catch {
+			port.postMessage(buildBridgeWorkerRuntimeDegradedHealthEvent());
+		}
 		try {
 			installedProductController.ensureReviewMetadata();
 		} catch {
@@ -846,6 +774,18 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		) {
 			comparisonTargetsQueryRunner.fail(productControlCommand.requestId);
 		}
+		if (parsedMessage.data.command === 'annotationOutputInspect' && messages.length === 0) {
+			runBridgeCommWorkerAnnotationOutputInspection({
+				command: parsedMessage.data,
+				publishFailure: (failure): void => port.postMessage(failure),
+				publishInspection: (inspection): void => {
+					port.postMessage(inspection.message, [...inspection.transferList]);
+				},
+				productTransport,
+				signal: panePresentationAuthority.workSignal,
+				timeoutMilliseconds: productControlTimeoutMilliseconds,
+			});
+		}
 		if (productControlCommand !== null && shouldSendProductControl) {
 			if (productControlCommand.command.method === 'review.comparisonTargets.query') {
 				comparisonTargetsQueryRunner.abort();
@@ -856,6 +796,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				timeoutMilliseconds: productControlTimeoutMilliseconds,
 			})
 				.then((actionResult: unknown): void => {
+					const annotationAcceptedEvent = bridgeCommWorkerAnnotationCommandAcceptedEvent({
+						actionResult,
+						command: productControlCommand.command,
+						requestId: productControlCommand.requestId,
+					});
+					if (annotationAcceptedEvent !== null) port.postMessage(annotationAcceptedEvent);
 					if (
 						productControlCommand.command.method === 'review.comparisonTargets.query' &&
 						activeComparisonTargetsProductControlRequestId === productControlCommand.requestId
@@ -933,66 +879,4 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		}
 	});
 	port.start?.();
-}
-
-function scheduleDefaultBridgeRenderFulfillmentWake(
-	delayMilliseconds: number,
-	wake: () => void,
-): () => void {
-	const timeoutId = globalThis.setTimeout(wake, delayMilliseconds);
-	return (): void => globalThis.clearTimeout(timeoutId);
-}
-
-async function rejectUninstalledBridgeProductControl(
-	command: BridgeProductControlCommand,
-): Promise<never> {
-	throw new Error(`Bridge product-control sender is not installed for ${command.method}.`);
-}
-
-async function rejectUninstalledReviewMetadataInterestUpdate(): Promise<never> {
-	throw new Error('Bridge Review metadata product subscription is not installed.');
-}
-
-function rejectUninstalledBridgeFileContentOpen(): never {
-	throw new Error('Bridge File content transport is not installed.');
-}
-
-function bridgeCommWorkerProductControlFailureMessage(props: {
-	readonly command: BridgeProductControlCommand;
-}): string {
-	return `Bridge comm worker failed to forward ${props.command.method}.`;
-}
-
-function sendBridgeCommWorkerActionWithTimeout(props: {
-	readonly send: () => Promise<unknown>;
-	readonly timeoutMilliseconds: number;
-}): Promise<unknown> {
-	return new Promise<unknown>((resolve, reject): void => {
-		let didSettle = false;
-		const timeoutId = globalThis.setTimeout((): void => {
-			if (didSettle) {
-				return;
-			}
-			didSettle = true;
-			reject(new Error('Bridge comm worker command action timed out.'));
-		}, props.timeoutMilliseconds);
-		void props.send().then(
-			(actionResult: unknown): void => {
-				if (didSettle) {
-					return;
-				}
-				didSettle = true;
-				globalThis.clearTimeout(timeoutId);
-				resolve(actionResult);
-			},
-			(error: unknown): void => {
-				if (didSettle) {
-					return;
-				}
-				didSettle = true;
-				globalThis.clearTimeout(timeoutId);
-				reject(error);
-			},
-		);
-	});
 }
