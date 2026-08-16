@@ -26,17 +26,19 @@ export function WorktreeAnnotationMessageBody(
 			abortKey,
 			contentCacheKey: `${props.messageId}:${props.messageRevision}`,
 			contentHash: `annotation-body:${props.messageRevision}:${new TextEncoder().encode(props.body).byteLength}`,
-			itemId: props.messageId,
-			itemVersion: props.messageRevision,
 			markdownText: props.body,
-			packageId: props.sessionId,
-			reviewGeneration: 0,
-			revision: props.sessionRevision,
+			sourceIdentity: {
+				fileId: props.messageId,
+				fileVersion: props.messageRevision,
+				sourceGeneration: props.sessionRevision,
+				sourceId: props.sessionId,
+				surface: 'file',
+			},
 			sourcePath: props.path ?? 'annotation.md',
 		});
 		void task.completed.then((completion): void => {
 			if (isCurrent && completion.status === 'success') {
-				setRenderedHtml(completion.response.html);
+				setRenderedHtml(completion.response.htmlCandidate);
 			}
 		});
 		return (): void => {

@@ -74,6 +74,7 @@ extension BridgePaneProductSchemeProvider {
         productAdmission: BridgeProductAdmissionContext,
         session: BridgeProductSession
     ) async {
+        let comparisonTargetReservation = claimComparisonTargetReservation(for: request)
         let contentWorkAdmission: BridgePaneRefreshWorkAdmission?
         switch request {
         case .annotationOutput:
@@ -90,7 +91,8 @@ extension BridgePaneProductSchemeProvider {
             lease: lease,
             productAdmission: productAdmission,
             session: session,
-            contentWorkAdmission: contentWorkAdmission
+            contentWorkAdmission: contentWorkAdmission,
+            comparisonTargetReservation: comparisonTargetReservation
         )
     }
 

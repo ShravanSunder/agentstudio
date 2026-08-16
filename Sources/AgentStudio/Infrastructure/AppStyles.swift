@@ -1,7 +1,21 @@
+// Native design-system source of truth. Keep its convention-based correlation with
+// BridgeWeb/src/app/bridge-app.css aligned through
+// docs/architecture/bridgeweb_design_token_architecture.md.
+
 import SwiftUI
 
 package enum AppStyles {
     package enum General {
+        package enum Accent {
+            // Exact-class token: must be sRGB and value-identical to BridgeWeb --primary.
+            // Owner-chosen product primary (2026-08-16): #409CFF.
+            // NSColor(hex:) constructs in Generic RGB and shifts the rendered color — do not use it here.
+            package static let primaryHex = "#409CFF"
+            package static let primaryNSColor = NSColor(
+                srgbRed: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0, alpha: 1.0)
+            package static let primaryColor = Color(.sRGB, red: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0)
+        }
+
         package enum Icon {
             package static let compact: CGFloat = 12
             package static let toolbar: CGFloat = 16
@@ -202,7 +216,7 @@ package enum AppStyles {
                     accentPaletteHexes.indices.contains(index)
                     ? accentPaletteHexes[index]
                     : accentPaletteHexes.first ?? ""
-                return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
+                return Color(nsColor: NSColor(hex: hex) ?? AppStyles.General.Accent.primaryNSColor)
             }
         }
 
@@ -451,8 +465,11 @@ package enum AppStyles {
         package static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
         package static let titleBodyGap: CGFloat = 8
 
-        package static let recentCardMinWidth: CGFloat = 260
-        package static let recentCardGap: CGFloat = 20
+        package static let recentListCornerRadius: CGFloat = 12
+        package static let recentRowMinHeight: CGFloat = 56
+        package static let recentRowSpacing: CGFloat = 0
+        package static let recentListSeparatorOpacity: CGFloat =
+            AppStyles.CommandBar.Panel.nestedDividerOpacity
 
         package static let previewWidth: CGFloat = 500
         package static let previewCornerRadius: CGFloat = 16
@@ -508,7 +525,7 @@ package enum AppStyles {
         package static let launcherContentMaxWidth: CGFloat = 900
         package static let launcherPageTopPadding: CGFloat = 72
         package static let launcherRowGap: CGFloat = 20
-        package static let launcherSectionGap: CGFloat = 28
+        package static let launcherSectionGap: CGFloat = 36
         package static let launcherShortcutsColumnsGap: CGFloat = 40
         package static let launcherDividerOpacity: CGFloat =
             AppStyles.CommandBar.Panel.nestedDividerOpacity

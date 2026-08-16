@@ -23,7 +23,6 @@ import type {
 	BridgeReviewSearchMode,
 } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewTreeSelectionRevealRequest } from '../review-viewer/trees/bridge-trees-panel.js';
-import type { BridgeMarkdownRenderWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import type { BridgeFileTreeFilterCandidate } from './bridge-app-control.js';
 import {
@@ -57,6 +56,7 @@ import {
 } from './bridge-viewer-search-state.js';
 import { BridgeViewerViewSettingsMenu } from './bridge-viewer-view-settings-menu.js';
 import type { BridgeReviewViewSettings } from './bridge-viewer-view-settings.js';
+import type { BridgeMarkdownRenderWorkerClient } from './markdown/worker/bridge-markdown-render-worker-client.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 import { useBridgeViewerToolbarShortcuts } from './use-bridge-viewer-toolbar-shortcuts.js';
 

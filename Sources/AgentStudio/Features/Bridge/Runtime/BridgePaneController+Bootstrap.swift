@@ -501,23 +501,8 @@ extension BridgePaneController {
     ) -> BridgePaneProductSessionDependencies {
         let productAdmissionGate = BridgeProductAdmissionGate()
         let committedCallTarget = makeCommittedCallTarget(productAdmissionGate)
-        let fileMetadataSource: any BridgePaneProductFileMetadataProducing =
-            if let authority = makeProductFileSourceAuthority(
-                paneId: UUID(uuidString: input.paneSessionId),
-                runtime: input.runtime,
-                state: input.state
-            ), let gitReadContext = input.gitReadContext,
-                let constructionCoordinator = input.worktreeProductConstructionCoordinator
-            {
-                BridgePaneProductFileMetadataSource(
-                    authority: authority,
-                    gitReadContext: gitReadContext,
-                    constructionCoordinator: constructionCoordinator
-                )
-            } else {
-                BridgeUnavailablePaneProductFileMetadataSource()
-            }
-        let reviewContentSource = makeProductReviewContentSource(input)
+        let fileMetadataSource = makeFileMetadataSource(input)
+        let reviewContentSource = makeReviewContentSource(input)
         let annotationSource = makeWorktreeAnnotationSource(input)
         let provider = BridgePaneProductSchemeProvider(
             annotationSource: annotationSource,
@@ -567,7 +552,16 @@ extension BridgePaneController {
                 input,
                 fileMetadataSource: fileMetadataSource
             ),
-            queryReviewComparisonTargets: makeReviewComparisonTargetsQuery(input),
+            authorizeReviewComparisonTargets: makeReviewComparisonTargetsAuthorization(input),
+            reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
+                reviewSourceProvider: input.reviewSourceProvider,
+                traceRecorder: input.telemetryRecorder.map { recorder in
+                    BridgeReviewComparisonTargetCatalogTraceRecorder(recorder: recorder)
+                }
+            ),
+            comparisonTargetCatalogTraceRecorder: input.telemetryRecorder.map { recorder in
+                BridgeReviewComparisonTargetCatalogTraceRecorder(recorder: recorder)
+            },
             initialPanePresentation: input.initialProductPresentation,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource,
             lifecycleTraceRecorder: input.telemetryRecorder.map(
@@ -594,7 +588,27 @@ extension BridgePaneController {
         )
     }
 
-    private static func makeProductReviewContentSource(
+    private static func makeFileMetadataSource(
+        _ input: BridgeProductSessionDependencyInput
+    ) -> any BridgePaneProductFileMetadataProducing {
+        guard
+            let authority = makeProductFileSourceAuthority(
+                paneId: UUID(uuidString: input.paneSessionId),
+                runtime: input.runtime,
+                state: input.state
+            ), let gitReadContext = input.gitReadContext,
+            let constructionCoordinator = input.worktreeProductConstructionCoordinator
+        else {
+            return BridgeUnavailablePaneProductFileMetadataSource()
+        }
+        return BridgePaneProductFileMetadataSource(
+            authority: authority,
+            gitReadContext: gitReadContext,
+            constructionCoordinator: constructionCoordinator
+        )
+    }
+
+    private static func makeReviewContentSource(
         _ input: BridgeProductSessionDependencyInput
     ) -> BridgePaneProductReviewContentSource {
         BridgePaneProductReviewContentSource(
@@ -685,11 +699,10 @@ extension BridgePaneController {
         }
     }
 
-    private static func makeReviewComparisonTargetsQuery(
+    private static func makeReviewComparisonTargetsAuthorization(
         _ input: BridgeProductSessionDependencyInput
-    ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsQueryCapture? {
-        BridgePaneProductComparisonTargetQuerySource.makeQuery(
-            reviewSourceProvider: input.reviewSourceProvider,
+    ) -> @Sendable () async -> BridgeProductReviewComparisonTargetsAuthorization? {
+        BridgePaneProductComparisonTargetQuerySource.makeAuthorization(
             targetProjection: input.reviewComparisonTargetProjection,
             refreshWorkAdmissionSource: input.refreshWorkAdmissionSource
         )

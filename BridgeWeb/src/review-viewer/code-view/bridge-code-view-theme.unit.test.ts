@@ -57,25 +57,19 @@ describe('Bridge CodeView theme', () => {
 		const css = await readFile(new URL('../../app/bridge-app.css', import.meta.url), 'utf8');
 		const lowerCaseCss = css.toLowerCase();
 
-		expect(lowerCaseCss).toContain('--background: #282c34;');
-		expect(lowerCaseCss).toContain('--foreground: #ffffff;');
-		expect(lowerCaseCss).toContain('--bridge-app-bg: #282c34;');
-		expect(lowerCaseCss).toContain('--bridge-canvas-bg: #282c34;');
-		expect(lowerCaseCss).toContain('--bridge-header-bg: #1d2026;');
-		expect(lowerCaseCss).toContain('--bridge-surface-bg: #1d2026;');
-		expect(lowerCaseCss).toContain('--border: rgb(255 255 255 / 0.1);');
-		expect(lowerCaseCss).toContain('--input: rgb(255 255 255 / 0.18);');
-		expect(lowerCaseCss).toContain('--ring: #b4befe;');
-		expect(lowerCaseCss).toContain('--bridge-border-subtle: var(--border);');
-		expect(lowerCaseCss).toContain('--bridge-border-opaque: var(--input);');
-		expect(lowerCaseCss).toContain('--bridge-focus-border: var(--ring);');
-		expect(lowerCaseCss).toContain('--diffs-ansi-red: #cc6666;');
-		expect(lowerCaseCss).toContain('--diffs-ansi-green: #b5bd68;');
-		expect(lowerCaseCss).toContain('--diffs-ansi-blue: #81a2be;');
-		expect(lowerCaseCss).toContain(
-			'--bridge-code-view-file-separator: var(--bridge-border-opaque);',
-		);
-		expect(lowerCaseCss).toContain('--diffs-focus-border: var(--bridge-focus-border);');
+		expect(lowerCaseCss).toContain('--palette-neutral-n1: #282c34;');
+		expect(lowerCaseCss).toContain('--palette-text-primary: #ffffff;');
+		expect(lowerCaseCss).toContain('--palette-neutral-n0: #1d2026;');
+		expect(lowerCaseCss).toContain('--palette-neutral-n3: #323641;');
+		expect(lowerCaseCss).toContain('--palette-stroke-subtle: rgb(255 255 255 / 0.1);');
+		expect(lowerCaseCss).toContain('--palette-stroke-hover: rgb(255 255 255 / 0.2);');
+		expect(lowerCaseCss).toContain('--palette-lavender: #b4befe;');
+		expect(lowerCaseCss).toContain('--background: var(--palette-neutral-n1);');
+		expect(lowerCaseCss).toContain('--input: var(--palette-stroke-hover);');
+		expect(lowerCaseCss).toContain('--diffs-ansi-red: var(--palette-ansi-red);');
+		expect(lowerCaseCss).toContain('--diffs-ansi-green: var(--palette-ansi-green);');
+		expect(lowerCaseCss).toContain('--diffs-ansi-blue: var(--palette-ansi-blue);');
+		expect(lowerCaseCss).toContain('--diffs-focus-border: var(--ring);');
 
 		for (const expectedHexValue of expectedGhosttyAdaptedChromeHexValues) {
 			expect(lowerCaseCss).toContain(expectedHexValue);
@@ -87,8 +81,8 @@ describe('Bridge CodeView theme', () => {
 
 	test('recedes the shared file-tree surface by approximately 1.16 contrast', async () => {
 		const css = await readFile(new URL('../../app/bridge-app.css', import.meta.url), 'utf8');
-		const canvasColor = readHexCustomProperty(css, '--bridge-canvas-bg');
-		const fileTreeColor = readHexCustomProperty(css, '--bridge-surface-bg');
+		const canvasColor = readHexCustomProperty(css, '--palette-neutral-n1');
+		const fileTreeColor = readHexCustomProperty(css, '--palette-neutral-n0');
 
 		expect(calculateContrastRatio(canvasColor, fileTreeColor)).toBeGreaterThanOrEqual(1.155);
 		expect(calculateContrastRatio(canvasColor, fileTreeColor)).toBeLessThanOrEqual(1.17);
@@ -96,8 +90,8 @@ describe('Bridge CodeView theme', () => {
 
 	test('raises shared cards and popovers by approximately 1.16 contrast', async () => {
 		const css = await readFile(new URL('../../app/bridge-app.css', import.meta.url), 'utf8');
-		const canvasColor = readHexCustomProperty(css, '--bridge-canvas-bg');
-		const raisedSurfaceColor = readHexCustomProperty(css, '--card');
+		const canvasColor = readHexCustomProperty(css, '--palette-neutral-n1');
+		const raisedSurfaceColor = readHexCustomProperty(css, '--palette-neutral-n3');
 
 		expect(calculateContrastRatio(canvasColor, raisedSurfaceColor)).toBeGreaterThanOrEqual(1.155);
 		expect(calculateContrastRatio(canvasColor, raisedSurfaceColor)).toBeLessThanOrEqual(1.17);

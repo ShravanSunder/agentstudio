@@ -439,6 +439,7 @@ function createDeferredContentOpen(text: string): DeferredContentOpen {
 		readonly descriptorId: string;
 		readonly endOfSource: boolean;
 		readonly kind: 'complete';
+		readonly observedByteLength: number;
 		readonly observedSha256: string;
 	}>((resolve) => {
 		resolveTerminal = (): void => {
@@ -448,6 +449,7 @@ function createDeferredContentOpen(text: string): DeferredContentOpen {
 				descriptorId,
 				endOfSource: true,
 				kind: 'complete',
+				observedByteLength: new TextEncoder().encode(text).byteLength,
 				observedSha256: 'a'.repeat(64),
 			});
 		};
@@ -569,6 +571,7 @@ function completedContentStream(
 			descriptorId: descriptor.descriptorId,
 			endOfSource: true,
 			kind: 'complete',
+			observedByteLength: new TextEncoder().encode(text).byteLength,
 			observedSha256: 'a'.repeat(64),
 		}),
 	};

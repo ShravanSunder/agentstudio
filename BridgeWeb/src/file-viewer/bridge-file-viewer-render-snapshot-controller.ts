@@ -27,6 +27,7 @@ import {
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerFileRenderPatch,
 	BridgeWorkerHealthEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -335,7 +336,13 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 			}
 			case 'fileRenderPatch':
 				if (bridgeFilePublicationMatchesDisplayEpoch(props.renderSnapshotStore, message)) {
-					props.renderSnapshotStore.applySnapshotUpdate({ workerPatches: message.patches });
+					props.renderSnapshotStore.applySnapshotUpdate({
+						workerPatches: normalizeSelectedFileSourceReconciliationRenderPatches({
+							patches: message.patches,
+							renderSnapshot: props.renderSnapshotStore.getSnapshot(),
+							selection: props.selection ?? null,
+						}),
+					});
 				}
 				break;
 			case 'filePierreRenderJob': {
@@ -383,6 +390,43 @@ export function applyBridgeWorkerMessagesToFileViewerRenderSnapshotStore(props: 
 				assertNeverBridgeFileViewerWorkerServerMessage(message);
 		}
 	}
+}
+
+function normalizeSelectedFileSourceReconciliationRenderPatches(props: {
+	readonly patches: readonly BridgeWorkerFileRenderPatch[];
+	readonly renderSnapshot: BridgeMainRenderSnapshot;
+	readonly selection: BridgeFileViewerSelection | null;
+}): readonly BridgeWorkerFileRenderPatch[] {
+	const retainedSelectedItem = selectedBridgeFileViewerCodeViewItemForSnapshot({
+		renderSnapshot: props.renderSnapshot,
+		selection: props.selection,
+	});
+	return props.patches.flatMap((patch): readonly BridgeWorkerFileRenderPatch[] => {
+		if (
+			retainedSelectedItem !== null &&
+			patch.slice === 'rowPaint' &&
+			patch.operation === 'delete' &&
+			patch.itemId === retainedSelectedItem.bridgeMetadata.itemId
+		) {
+			return [];
+		}
+		if (
+			props.selection !== null &&
+			patch.slice === 'contentAvailability' &&
+			patch.operation === 'upsert' &&
+			patch.itemId === props.selection.fileId &&
+			patch.payload.state === 'stale'
+		) {
+			return [
+				{
+					itemId: patch.itemId,
+					operation: 'delete',
+					slice: 'contentAvailability',
+				},
+			];
+		}
+		return [patch];
+	});
 }
 
 function fileDisplayPatchRetainsSelection(

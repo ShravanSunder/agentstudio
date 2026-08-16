@@ -33,6 +33,7 @@ enum DrawerEditorChooserFactory {
         commandPresentation: DrawerToolbarCommandPresentation,
         refreshInstalledTargets: @escaping @MainActor () -> [ExternalEditorTarget],
         onOpenEditor: @escaping (EditorTargetId) -> Void,
+        pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator? = nil,
         openPullRequestAction: PaneSurfaceToolbarAction? = nil
     ) -> DrawerOverlay.TrailingActions {
         let transientSurfaceKind = TransientKeyboardSurfaceKind.editorChooser(paneId: paneId)
@@ -50,6 +51,7 @@ enum DrawerEditorChooserFactory {
             openEditorMenuAction: commandPresentation.openEditorMenu,
             openFinderAction: commandPresentation.openFinder,
             copyPathAction: commandPresentation.copyPath,
+            pullRequestBlockerIndicator: pullRequestBlockerIndicator,
             openPullRequestAction: openPullRequestAction,
             editorMenuContent: AnyView(
                 DrawerEditorChooserPopoverHost(

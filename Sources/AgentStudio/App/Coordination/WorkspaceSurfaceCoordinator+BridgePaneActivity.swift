@@ -113,7 +113,10 @@ extension WorkspaceSurfaceCoordinator {
                 && bridgePaneRetirementTasksByPaneId[paneFacts.paneID] == nil
             return BridgePaneActivityInput(
                 paneId: paneFacts.paneID,
-                resolvedWorktree: store.repositoryTopologyAtom.repoAndWorktree(containing: paneFacts.cwd)?.worktree,
+                resolvedWorktree: store.repositoryTopologyAtom.validatedAssociation(
+                    repoId: paneFacts.repoID,
+                    worktreeId: paneFacts.worktreeID
+                )?.worktree,
                 facts: BridgePaneActivityFacts(
                     residency: paneFacts.residency,
                     isControllerInstalled: isControllerInstalled,

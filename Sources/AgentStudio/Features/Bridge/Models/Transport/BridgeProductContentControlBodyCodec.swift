@@ -152,9 +152,9 @@ struct BridgeProductContentAcceptedControlBody: Codable {
                 )
             }
         case .reviewComparisonTargets:
-            guard declaredByteLength == maximumBytes else {
+            guard declaredByteLength == nil, expectedSha256 == nil else {
                 throw BridgeProductContractDecoding.invalidValue(
-                    "Bridge product accepted comparison-target maximum must equal its declared length",
+                    "Bridge product accepted comparison-target exact facts must remain unknown",
                     codingPath: codingPath
                 )
             }

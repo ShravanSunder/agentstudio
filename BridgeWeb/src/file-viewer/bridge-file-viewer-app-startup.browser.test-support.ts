@@ -182,9 +182,9 @@ export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Pro
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
 		element.click();
+		await waitForFileViewerMenuStateInsideAct({ element, expectedExpandedState });
 		await settleBaseUiTransitionMachineInsideAct();
 	});
-	await waitForFileViewerMenuState({ element, expectedExpandedState });
 }
 
 async function settleBaseUiTransitionMachineInsideAct(): Promise<void> {
@@ -195,7 +195,7 @@ async function settleBaseUiTransitionMachineInsideAct(): Promise<void> {
 	await waitForBridgeViewerAnimationFrame();
 }
 
-async function waitForFileViewerMenuState(props: {
+async function waitForFileViewerMenuStateInsideAct(props: {
 	readonly element: HTMLElement;
 	readonly expectedExpandedState: 'false' | 'true';
 	readonly remainingAttempts?: number;
@@ -219,8 +219,8 @@ async function waitForFileViewerMenuState(props: {
 				`actual=${props.element.getAttribute('aria-expanded') ?? 'missing'}.`,
 		);
 	}
-	await actFrame();
-	await waitForFileViewerMenuState({
+	await waitForBridgeViewerAnimationFrame();
+	await waitForFileViewerMenuStateInsideAct({
 		...props,
 		remainingAttempts: remainingAttempts - 1,
 	});

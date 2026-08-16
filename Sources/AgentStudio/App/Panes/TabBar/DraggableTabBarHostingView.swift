@@ -16,7 +16,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     // MARK: - Properties
 
-    private var hostingView: NSHostingView<CustomTabBar>!
+    private var hostingView: NSHostingView<AnyView>!
     weak var tabBarAdapter: TabBarAdapter?
     var onReorder: ((_ fromId: UUID, _ toIndex: Int, _ correlationId: UUID) -> Void)?
     /// Injection seams for window-drag handling on clicks that land outside any
@@ -70,7 +70,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         self.performanceTraceRecorder = performanceTraceRecorder
         super.init(frame: .zero)
 
-        hostingView = NSHostingView(rootView: rootView)
+        hostingView = NSHostingView(
+            rootView: AnyView(rootView.tint(AppStyles.General.Accent.primaryColor)))
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.sizingOptions = []
         hostingView.safeAreaRegions = []
@@ -425,7 +426,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         path.fill()
 
         // Draw border
-        NSColor.controlAccentColor.withAlphaComponent(0.6).setStroke()
+        AppStyles.General.Accent.primaryNSColor.withAlphaComponent(0.6).setStroke()
         path.lineWidth = 1.5
         path.stroke()
 

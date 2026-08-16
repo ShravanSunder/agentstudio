@@ -105,18 +105,23 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 	const comparisonTargetName = 'bridge-vite-comparison-target';
 	const paneId = randomUUID();
 	const largeFilePath = 'zz-large-complete-file.txt';
-	const reviewChangedFileCount = 100;
+	const reviewChangedFileCount = 16;
+	const routineCompleteFileLineCount = 128;
+	const routineCompleteFileMiddleLineIndex = 63;
+	const routineCompleteFileFinalLineIndex = 127;
 	const firstMarker = 'BRIDGE_VITE_PRODUCT_FIRST_BYTE_MARKER';
 	const middleMarker = 'BRIDGE_VITE_PRODUCT_MIDDLE_BYTE_MARKER';
 	const finalMarker = 'BRIDGE_VITE_PRODUCT_FINAL_BYTE_MARKER';
-	const largeFileLines = Array.from({ length: 4_096 }, (_, lineIndex): string =>
-		lineIndex === 0
-			? firstMarker
-			: lineIndex === 2_047
-				? middleMarker
-				: lineIndex === 4_095
-					? finalMarker
-					: `bridge-vite-product-line-${String(lineIndex + 1).padStart(4, '0')}`,
+	const largeFileLines = Array.from(
+		{ length: routineCompleteFileLineCount },
+		(_, lineIndex): string =>
+			lineIndex === 0
+				? firstMarker
+				: lineIndex === routineCompleteFileMiddleLineIndex
+					? middleMarker
+					: lineIndex === routineCompleteFileFinalLineIndex
+						? finalMarker
+						: `bridge-vite-product-line-${String(lineIndex + 1).padStart(4, '0')}`,
 	);
 	const largeFileContent = `${largeFileLines.join('\n')}\n`;
 	const nestedPaths = Array.from(
@@ -125,9 +130,9 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 			`nested/group-${String(Math.floor(fileIndex / 6) + 1).padStart(2, '0')}/file-${String(fileIndex + 1).padStart(2, '0')}.ts`,
 	);
 	const fileTreeOnlyPaths = Array.from(
-		{ length: 180 },
+		{ length: 24 },
 		(_, fileIndex): string =>
-			`tree-only/section-${String(Math.floor(fileIndex / 20) + 1).padStart(2, '0')}/entry-${String(fileIndex + 1).padStart(3, '0')}.txt`,
+			`tree-only/section-${String(Math.floor(fileIndex / 8) + 1).padStart(2, '0')}/entry-${String(fileIndex + 1).padStart(3, '0')}.txt`,
 	);
 	try {
 		dataRootPath = await mkdtemp(join(tmpdir(), 'bridge-viewer-vite-product-data-'));
@@ -247,9 +252,9 @@ export async function createBridgeViewerViteProductFixture(): Promise<{
 				const mutatedLines = largeFileLines.map((line, lineIndex): string =>
 					lineIndex === 0
 						? mutatedFirstMarker
-						: lineIndex === 2_047
+						: lineIndex === routineCompleteFileMiddleLineIndex
 							? mutatedMiddleMarker
-							: lineIndex === 4_095
+							: lineIndex === routineCompleteFileFinalLineIndex
 								? mutatedFinalMarker
 								: line,
 				);

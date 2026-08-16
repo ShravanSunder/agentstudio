@@ -25,8 +25,8 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(recorder.recordedAttributes(for: .gitLogicalDebt).isEmpty)
     }
 
-    @Test("logical debt trace records retry insertion and pending dequeue transitions")
-    func logicalDebtTraceRecordsRetryAndPendingDequeueTransitions() async throws {
+    @Test("logical debt trace records failure backoff dequeue and re-admission transitions")
+    func logicalDebtTraceRecordsFailureBackoffTransitions() async throws {
         let traceRuntime = makeGitLogicalDebtTraceRuntime()
         let recorder = AgentStudioPerformanceTraceRecorder(
             traceRuntime: traceRuntime,
@@ -55,7 +55,8 @@ struct GitWorkingDirectoryProjectorTests {
                 backgroundStripeCount: 1,
                 maxConcurrentStatusComputes: 1,
                 maxNilStatusRetries: 1,
-                nilStatusRetryDelay: .milliseconds(50)
+                nilStatusRetryDelay: .milliseconds(50),
+                statusFailureBackoffBaseDelay: .milliseconds(50)
             ),
             performanceTraceRecorder: recorder
         )
@@ -83,7 +84,7 @@ struct GitWorkingDirectoryProjectorTests {
         await actor.shutdown()
         try await recorder.drain()
         let debtCounts = try gitLogicalDebtTraceCounts(from: traceRuntime)
-        #expect(debtCounts == [2, 1, 2, 1, 2, 1, 0])
+        #expect(debtCounts == [2, 1, 0, 2, 1, 0])
     }
 
     @Test("real SDK provider emits initial git snapshot")
@@ -290,7 +291,7 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("provider nil status retries once after bounded backoff")
+    @Test("provider nil status retries through the shared failure backoff")
     func providerNilStatusRetriesOnceAfterBoundedBackoff() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
@@ -298,7 +299,8 @@ struct GitWorkingDirectoryProjectorTests {
         let policy = AppPolicies.GitRefresh.Policy(
             backgroundStripeCount: 1,
             maxNilStatusRetries: 1,
-            nilStatusRetryDelay: .milliseconds(50)
+            nilStatusRetryDelay: .milliseconds(50),
+            statusFailureBackoffBaseDelay: .milliseconds(50)
         )
         let provider = StubGitWorkingTreeStatusProvider { _ in
             let callNumber = await calls.increment()
@@ -339,14 +341,14 @@ struct GitWorkingDirectoryProjectorTests {
             return
         }
         #expect(await observed.snapshotCount(for: worktreeId) == 0)
-        let retryOwnsLogicalPendingDebt = await waitUntil {
+        let breakerOwnsDeferredWorkOutsideLogicalDebt = await waitUntil {
             let snapshot = await actor.logicalDebtSnapshot()
-            return snapshot.retryPendingCount == 1
-                && snapshot.logicalPendingCount == 1
+            return snapshot.retryPendingCount == 0
+                && snapshot.logicalPendingCount == 0
                 && snapshot.logicalRunningCount == 0
-                && snapshot.logicalDebtCount == 1
+                && snapshot.logicalDebtCount == 0
         }
-        #expect(retryOwnsLogicalPendingDebt)
+        #expect(breakerOwnsDeferredWorkOutsideLogicalDebt)
 
         clock.advance(by: .milliseconds(50))
 
@@ -366,15 +368,16 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("nil status retry skips when worktree context changes before delay")
-    func nilStatusRetrySkipsWhenWorktreeContextChangesBeforeDelay() async throws {
+    @Test("failure backoff skips when worktree context changes before delay")
+    func failureBackoffSkipsWhenWorktreeContextChangesBeforeDelay() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let callOrder = CallOrderRecorder()
         let policy = AppPolicies.GitRefresh.Policy(
             backgroundStripeCount: 1,
             maxNilStatusRetries: 1,
-            nilStatusRetryDelay: .milliseconds(50)
+            nilStatusRetryDelay: .milliseconds(50),
+            statusFailureBackoffBaseDelay: .milliseconds(50)
         )
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
             let label = rootPath.lastPathComponent
@@ -910,8 +913,8 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("nil status retry releases admission slot during backoff")
-    func nilStatusRetryReleasesAdmissionSlotDuringBackoff() async throws {
+    @Test("failure backoff releases admission slot during delay")
+    func failureBackoffReleasesAdmissionSlotDuringDelay() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let callOrder = CallOrderRecorder()
@@ -919,7 +922,8 @@ struct GitWorkingDirectoryProjectorTests {
             backgroundStripeCount: 1,
             maxConcurrentStatusComputes: 1,
             maxNilStatusRetries: 1,
-            nilStatusRetryDelay: .milliseconds(50)
+            nilStatusRetryDelay: .milliseconds(50),
+            statusFailureBackoffBaseDelay: .milliseconds(50)
         )
         let provider = StubGitWorkingTreeStatusProvider { rootPath in
             let label = rootPath.lastPathComponent
@@ -2290,8 +2294,8 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("capacity exceeded retries after short delay without opening exponential backoff")
-    func capacityExceededRetriesAfterShortDelayWithoutOpeningBackoff() async throws {
+    @Test("capacity exceeded retries through shared exponential backoff")
+    func capacityExceededRetriesThroughSharedBackoff() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = CallCounter()
@@ -2338,28 +2342,28 @@ struct GitWorkingDirectoryProjectorTests {
             await Task.yield()
         }
         #expect(await calls.value() == 1)
-        #expect(recorder.backoffEvents(open: true).isEmpty)
+        #expect(recorder.backoffEvents(open: true).map(\.reason) == ["read_capacity_exceeded"])
 
-        clock.advance(by: .milliseconds(499))
+        clock.advance(by: .milliseconds(4999))
         for _ in 0..<300 {
             await Task.yield()
         }
         #expect(await calls.value() == 1)
 
-        clock.advance(by: .milliseconds(101))
+        clock.advance(by: .milliseconds(1))
         let retriedAfterCapacityDelay = await waitUntil {
             await observed.latestSnapshot(for: worktreeId)?.branch == "capacity-recovered"
         }
         #expect(retriedAfterCapacityDelay)
         #expect(await calls.value() == 2)
-        #expect(recorder.backoffEvents(open: true).isEmpty)
+        #expect(recorder.backoffEvents(open: false).count == 1)
 
         await actor.shutdown()
         collectionTask.cancel()
     }
 
-    @Test("repeated capacity exceeded stays on fixed retry delay while timeout still grows")
-    func repeatedCapacityExceededStaysFixedWhileTimeoutGrows() async throws {
+    @Test("repeated capacity exceeded grows on the same schedule as timeout")
+    func repeatedCapacityExceededGrowsLikeTimeout() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = CallCounter()
@@ -2402,19 +2406,19 @@ struct GitWorkingDirectoryProjectorTests {
         #expect(await waitUntil { await calls.value() == 1 })
         await clock.waitForPendingSleepCount(atLeast: 1)
 
-        for expectedCallCount in 2...3 {
-            clock.advance(by: .milliseconds(600))
+        for (expectedCallCount, delayMilliseconds) in [(2, 50), (3, 100)] {
+            clock.advance(by: .milliseconds(delayMilliseconds))
             #expect(await waitUntil { await calls.value() == expectedCallCount })
             await clock.waitForPendingSleepCount(atLeast: 1)
         }
 
-        clock.advance(by: .milliseconds(600))
+        clock.advance(by: .milliseconds(200))
         let recovered = await waitUntil {
             await observed.latestSnapshot(for: worktreeId)?.branch == "capacity-recovered"
         }
         #expect(recovered)
         #expect(await calls.value() == 4)
-        #expect(recorder.backoffEvents(open: true).isEmpty)
+        #expect(recorder.backoffEvents(open: true).compactMap(\.backoffMilliseconds) == [50, 100, 200])
 
         await actor.shutdown()
         collectionTask.cancel()
@@ -2528,6 +2532,45 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("sdk error opens per-worktree backoff and blocks filesystem re-admission")
+    func sdkErrorOpensBackoffAndBlocksFilesystemReadmission() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+                _ = await calls.increment()
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .sdkError))
+            }),
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: AppPolicies.GitRefresh.Policy(
+                backgroundStripeCount: 1,
+                statusFailureBackoffBaseDelay: .milliseconds(50)
+            ),
+            performanceTraceRecorder: recorder
+        )
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/sdk-error-backoff-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        #expect(await waitUntil { await calls.value() == 1 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+        await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+
+        #expect(await calls.value() == 1)
+        #expect(recorder.backoffEvents(open: true).map(\.reason) == ["sdk_error"])
+        await actor.shutdown()
+    }
+
     @Test("repeated status timeout grows per-worktree backoff on the doubling schedule")
     func repeatedStatusTimeoutGrowsBackoff() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -2590,13 +2633,13 @@ struct GitWorkingDirectoryProjectorTests {
                 .string("timeout"), .string("timeout"), .string("timeout"),
             ])
         #expect(
-            timeoutAttempts.map { $0["agentstudio.performance.git.status.consecutive_timeout.count"] } == [
+            timeoutAttempts.map { $0["agentstudio.performance.git.status.consecutive_failure.count"] } == [
                 .int(1), .int(2), .int(2),
             ])
         #expect(timeoutAttempts.allSatisfy { $0["agentstudio.performance.git.status.duration_ms"] != nil })
 
         await actor.shutdown()
-        #expect(await actor.consecutiveStatusTimeoutCountByWorktreeId.isEmpty)
+        #expect(await actor.consecutiveStatusFailureCountByWorktreeId.isEmpty)
         collectionTask.cancel()
     }
 
@@ -3664,9 +3707,9 @@ private actor ObservedGitEvents {
             originEventsByRepoId[repoId, default: []].append((from, to))
         case .originUnavailable(let repoId):
             originEventsByRepoId[repoId, default: []].append(("", ""))
-        case .statusOutcome(let eventWorktreeId, _, let outcome, _):
-            guard eventWorktreeId == worktreeId else { return }
-            statusOutcomesByWorktreeId[worktreeId, default: []].append(outcome)
+        case .statusOutcome(let statusOutcome):
+            guard statusOutcome.worktreeId == worktreeId else { return }
+            statusOutcomesByWorktreeId[worktreeId, default: []].append(statusOutcome.outcome)
         case .worktreeDiscovered, .worktreeRemoved, .diffAvailable:
             return
         }

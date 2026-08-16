@@ -40,7 +40,7 @@ package struct ChromeToolbarButtonLabel: View {
             return ChromeToolbarControlPalette.foregroundColor(isSelected: isSelected, isHovered: isHovered)
         }
         if isSelected {
-            return Color.accentColor
+            return AppStyles.General.Accent.primaryColor
         }
         return isHovered ? .primary : .secondary
     }
@@ -142,7 +142,7 @@ package struct ChromeToolbarCapsuleBackground: View {
 package enum ChromeToolbarControlPalette {
     package static func foregroundColor(isSelected: Bool, isHovered: Bool) -> Color {
         if isSelected {
-            return Color.accentColor
+            return AppStyles.General.Accent.primaryColor
         }
         if isHovered {
             return AppStyles.Shell.Chrome.ToolbarButton.hoverIconForegroundColor
@@ -152,7 +152,8 @@ package enum ChromeToolbarControlPalette {
 
     package static func fillColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
         if isSelected {
-            return Color.accentColor.opacity(AppStyles.Shell.Chrome.ToolbarButton.selectedFillOpacity)
+            return AppStyles.General.Accent.primaryColor.opacity(
+                AppStyles.Shell.Chrome.ToolbarButton.selectedFillOpacity)
         }
         if isPressed {
             return AppStyles.Shell.Chrome.ToolbarButton.pressedFillColor
@@ -165,7 +166,8 @@ package enum ChromeToolbarControlPalette {
 
     package static func strokeColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
         if isSelected {
-            return Color.accentColor.opacity(AppStyles.Shell.Chrome.ToolbarButton.selectedStrokeOpacity)
+            return AppStyles.General.Accent.primaryColor.opacity(
+                AppStyles.Shell.Chrome.ToolbarButton.selectedStrokeOpacity)
         }
         if isPressed {
             return AppStyles.Shell.Chrome.ToolbarButton.pressedStrokeColor

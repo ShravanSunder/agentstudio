@@ -142,6 +142,158 @@ struct WorkspaceSurfaceCoordinatorCWDIdentityTests {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    @Test("temporary repo unavailability retains association when worktrees are omitted and heals moved CWD")
+    func temporaryRepoUnavailabilityWithOmittedWorktreesRetainsAndHealsAssociation() async throws {
+        let bus = makeTestPaneRuntimeEventBus()
+        let store = WorkspaceStore()
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: CWDIdentitySurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: bus
+        )
+
+        let repository = store.addRepo(at: URL(filePath: "/tmp/runtime-cwd-unavailable-repo"))
+        let firstWorktree = try #require(repository.worktrees.first)
+        let secondWorktree = Worktree(
+            repoId: repository.id,
+            name: "feature",
+            path: URL(filePath: "/tmp/runtime-cwd-unavailable-feature")
+        )
+        store.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [firstWorktree, secondWorktree]
+        )
+        let pane = store.createPane(
+            launchDirectory: firstWorktree.path,
+            facets: PaneContextFacets(
+                repoId: repository.id,
+                worktreeId: firstWorktree.id,
+                cwd: firstWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        store.markRepoUnavailable(repository.id)
+        var unavailableRepository = try #require(store.repositoryTopologyAtom.repo(repository.id))
+        unavailableRepository.worktrees = []
+        let unavailableReplacementPreparation = RepositoryTopologyReplacement.prepare(
+            repositories: [unavailableRepository],
+            watchedPaths: store.repositoryTopologyAtom.watchedPaths,
+            unavailableRepositoryIDs: [repository.id]
+        )
+        guard case .prepared(let unavailableReplacement) = unavailableReplacementPreparation else {
+            Issue.record("unavailable topology without worktree rows should remain valid")
+            await coordinator.shutdown()
+            return
+        }
+        store.repositoryTopologyAtom.replaceTopology(unavailableReplacement)
+
+        _ = await bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .terminal(.cwdChanged(secondWorktree.path.path)),
+                paneId: PaneId(existingUUID: pane.id)
+            )
+        )
+        await eventually("uncertain CWD update should retain the known association") {
+            let facets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+            return facets?.cwd?.standardizedFileURL.path
+                == secondWorktree.path.standardizedFileURL.path
+                && facets?.repoId == repository.id
+                && facets?.worktreeId == firstWorktree.id
+        }
+        let unavailableFacets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+        #expect(
+            unavailableFacets?.cwd?.standardizedFileURL.path
+                == secondWorktree.path.standardizedFileURL.path
+        )
+        #expect(unavailableFacets?.repoId == repository.id)
+        #expect(unavailableFacets?.worktreeId == firstWorktree.id)
+
+        let reconciliation = store.mutationCoordinator.reconcileDiscoveredWorktrees(
+            repository.id,
+            worktrees: [firstWorktree, secondWorktree]
+        )
+        guard case .accepted(let acceptedReconciliation) = reconciliation else {
+            Issue.record("preserved topology should be accepted after temporary unavailability")
+            await coordinator.shutdown()
+            return
+        }
+        coordinator.topologyDidChange(acceptedReconciliation.delta)
+
+        let healedFacets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+        #expect(!store.isRepoUnavailable(repository.id))
+        #expect(healedFacets?.repoId == repository.id)
+        #expect(healedFacets?.worktreeId == secondWorktree.id)
+        #expect(store.pane(pane.id)?.residency == .active)
+        await coordinator.shutdown()
+    }
+
+    @Test("known foreign association clears even when cwd lies under an unavailable worktree")
+    func knownForeignAssociationClearsBeforePathUncertainty() async throws {
+        let bus = makeTestPaneRuntimeEventBus()
+        let store = WorkspaceStore()
+        let coordinator = makeTestWorkspaceSurfaceCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: CWDIdentitySurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: bus
+        )
+        let unavailableRepository = store.addRepo(at: URL(filePath: "/tmp/runtime-cwd-unavailable-owner"))
+        let unavailableWorktree = try #require(unavailableRepository.worktrees.first)
+        let foreignRepository = store.addRepo(at: URL(filePath: "/tmp/runtime-cwd-foreign-owner"))
+        let foreignWorktree = try #require(foreignRepository.worktrees.first)
+        let pane = store.createPane(
+            launchDirectory: foreignWorktree.path,
+            facets: PaneContextFacets(
+                repoId: foreignRepository.id,
+                worktreeId: foreignWorktree.id,
+                cwd: foreignWorktree.path
+            )
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        let invalidAssociationRevision = try #require(
+            store.paneAtom.graphAtom.reservePaneAssociationRevision(pane.id)
+        )
+        #expect(
+            store.paneAtom.graphAtom.applyPaneAssociationUpdate(
+                pane.id,
+                cwd: foreignWorktree.path,
+                resolution: .matched(
+                    repoId: unavailableRepository.id,
+                    worktreeId: foreignWorktree.id
+                ),
+                revision: invalidAssociationRevision
+            ) == .applied
+        )
+        store.markRepoUnavailable(unavailableRepository.id)
+        let changedCWD = unavailableWorktree.path.appending(path: "Sources")
+
+        _ = await bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .terminal(.cwdChanged(changedCWD.path)),
+                paneId: PaneId(existingUUID: pane.id)
+            )
+        )
+        await eventually("known foreign association should clear before path uncertainty") {
+            let facets = store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+            return facets?.cwd?.standardizedFileURL.path == changedCWD.standardizedFileURL.path
+                && facets?.repoId == nil
+                && facets?.worktreeId == nil
+        }
+
+        let updatedFacets = try #require(
+            store.paneAtom.graphAtom.paneState(pane.id)?.durableContextFacets
+        )
+        #expect(updatedFacets.cwd?.standardizedFileURL.path == changedCWD.standardizedFileURL.path)
+        #expect(updatedFacets.repoId == nil)
+        #expect(updatedFacets.worktreeId == nil)
+        await coordinator.shutdown()
+    }
+
 }
 
 @MainActor

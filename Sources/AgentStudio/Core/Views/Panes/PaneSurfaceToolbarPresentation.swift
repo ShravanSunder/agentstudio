@@ -1,8 +1,36 @@
 import AgentStudioInfrastructure
 import Foundation
 
+package struct PaneSurfaceToolbarStatusIndicator: Equatable, Sendable {
+    package let label: String
+    package let accessibilityIdentifier: String
+    package let icon: CommandIcon
+    package let tooltip: ControlTooltipRenderValue
+    package let iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone
+
+    package init(
+        label: String,
+        accessibilityIdentifier: String,
+        icon: CommandIcon,
+        tooltip: ControlTooltipRenderValue,
+        iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone
+    ) {
+        self.label = label
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.icon = icon
+        self.tooltip = tooltip
+        self.iconStatusTone = iconStatusTone
+    }
+}
+
 @MainActor
 package struct PaneSurfaceToolbarAction {
+    package enum IconStatusTone: Equatable, Sendable {
+        case success
+        case warning
+        case danger
+    }
+
     package enum SelectionEmphasis: Equatable, Sendable {
         case standard
         case accent
@@ -17,6 +45,7 @@ package struct PaneSurfaceToolbarAction {
         package let isSelected: Bool
         package let visibleLabel: String?
         package let selectionEmphasis: SelectionEmphasis
+        package let iconStatusTone: IconStatusTone?
         package let iconAccentColorHex: String?
 
         package init(
@@ -28,6 +57,7 @@ package struct PaneSurfaceToolbarAction {
             isSelected: Bool,
             visibleLabel: String? = nil,
             selectionEmphasis: SelectionEmphasis = .standard,
+            iconStatusTone: IconStatusTone? = nil,
             iconAccentColorHex: String? = nil
         ) {
             self.label = label
@@ -38,6 +68,7 @@ package struct PaneSurfaceToolbarAction {
             self.isSelected = isSelected
             self.visibleLabel = visibleLabel
             self.selectionEmphasis = selectionEmphasis
+            self.iconStatusTone = iconStatusTone
             self.iconAccentColorHex = iconAccentColorHex
         }
     }
@@ -64,6 +95,7 @@ package struct PaneSurfaceToolbarAction {
                 isSelected: isSelected,
                 visibleLabel: state.visibleLabel,
                 selectionEmphasis: state.selectionEmphasis,
+                iconStatusTone: state.iconStatusTone,
                 iconAccentColorHex: state.iconAccentColorHex
             ),
             perform: perform
@@ -89,6 +121,7 @@ package struct PaneSurfaceToolbarAction {
                 isSelected: isSelected,
                 visibleLabel: visibleLabel,
                 selectionEmphasis: selectionEmphasis ?? state.selectionEmphasis,
+                iconStatusTone: state.iconStatusTone,
                 iconAccentColorHex: state.iconAccentColorHex
             ),
             perform: perform
@@ -106,6 +139,7 @@ package struct PaneSurfaceToolbarAction {
                 isSelected: state.isSelected,
                 visibleLabel: visibleLabel,
                 selectionEmphasis: state.selectionEmphasis,
+                iconStatusTone: state.iconStatusTone,
                 iconAccentColorHex: state.iconAccentColorHex
             ),
             perform: perform

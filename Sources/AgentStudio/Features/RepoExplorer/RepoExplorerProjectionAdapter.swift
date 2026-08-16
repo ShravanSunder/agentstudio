@@ -64,7 +64,7 @@ private struct RepoExplorerRenderedPaneDestination: Equatable {
 private struct RepoExplorerRenderedPaneContent: Equatable {
     let groupId: String
     let rowId: String
-    let repoId: UUID
+    let repoId: UUID?
     let paneId: UUID
     let worktreeLabel: String
     let tabIndex: Int
@@ -258,10 +258,30 @@ final class RepoExplorerProjectionAdapter {
                         isActiveInTab: context.destination.isActiveInTab
                     )
                 )
+            case .unassociatedPaneRow(let destination):
+                return renderedUnassociatedPane(destination, rowId: entry.id)
             case .topologyFault(let fault):
                 return .topologyFault(duplicateIdentityCount: fault.duplicateIdentityCount)
             }
         }
+    }
+
+    private nonisolated static func renderedUnassociatedPane(
+        _ destination: RepoExplorerUnassociatedPaneDestination,
+        rowId: String
+    ) -> RepoExplorerRenderedRowContent {
+        .pane(
+            RepoExplorerRenderedPaneContent(
+                groupId: "ungrouped",
+                rowId: rowId,
+                repoId: nil,
+                paneId: destination.paneId,
+                worktreeLabel: "",
+                tabIndex: destination.tabIndex,
+                paneIndexInTab: destination.paneIndexInTab,
+                isActiveInTab: destination.isActiveInTab
+            )
+        )
     }
 
     private nonisolated static func renderedPaneDestination(

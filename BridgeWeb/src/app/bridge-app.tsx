@@ -41,7 +41,6 @@ import {
 	type BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
-import type { BridgeMarkdownRenderWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
 import {
@@ -55,6 +54,12 @@ import {
 	type BridgeAppNavigationTargetCommand,
 } from './bridge-app-navigation-admission.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
+import { type BridgeMarkdownRenderRuntime } from './markdown/bridge-markdown-render-runtime.js';
+import {
+	createBridgeMarkdownRuntimeHost,
+	disposeBridgeMarkdownRuntimeHost,
+	type BridgeMarkdownRuntimeHost,
+} from './markdown/bridge-markdown-runtime-host.js';
 export type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 import {
 	bridgeViewerActivationPrewarm,
@@ -66,7 +71,7 @@ import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
 	readonly fetchContent?: BridgeContentFetch;
-	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
+	readonly markdownRuntime?: BridgeMarkdownRenderRuntime | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly paneRuntime?: BridgePaneRuntime;
@@ -110,6 +115,11 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		runtimeFactory: props.paneRuntimeFactory ?? createDefaultBridgePaneRuntime,
 	});
 	const paneRuntimeHost = paneRuntimeHostRef.current;
+	const markdownRuntimeHostRef = useRef<BridgeMarkdownRuntimeHost | null>(null);
+	markdownRuntimeHostRef.current ??= createBridgeMarkdownRuntimeHost({
+		externallyOwnedRuntime: props.markdownRuntime ?? null,
+	});
+	const markdownRuntimeHost = markdownRuntimeHostRef.current;
 	const incomingViewerMode = props.viewerMode;
 	const [navigationAdmissionState, setNavigationAdmissionState] =
 		useState<BridgeAppNavigationAdmissionState>(() =>
@@ -438,8 +448,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			if (paneRuntimeHost.disposeWithComponent) {
 				paneRuntimeHost.runtime.dispose();
 			}
+			disposeBridgeMarkdownRuntimeHost(markdownRuntimeHost);
 		};
-	}, [paneRuntimeHost, publishActiveViewerModeWorkerMessages]);
+	}, [markdownRuntimeHost, paneRuntimeHost, publishActiveViewerModeWorkerMessages]);
 	const sendActiveViewerModeWorkerUpdate = useCallback(
 		(update: BridgeActiveViewerModeUpdate): Promise<boolean> => {
 			let requestId: string;
@@ -744,6 +755,8 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						fileViewClient={paneRuntimeHost.fileViewClient}
 						isNavigationCommandStillEligible={isNavigationCommandStillEligible}
 						isActive={activeViewerMode === 'file'}
+						markdownWorkerClient={markdownRuntimeHost.runtime.workerClient}
+						mermaidRenderer={markdownRuntimeHost.runtime.mermaidRenderer}
 						controlTarget={target}
 						onActiveSourceChange={reportFileActiveSource}
 						onNavigationSourceChange={reportFileNavigationSource}

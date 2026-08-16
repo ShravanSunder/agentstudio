@@ -141,6 +141,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Ghostty.ActionRouter.bindStartupTraceRecorder(startupTraceRecorder)
     }
 
+    func applicationWillFinishLaunching(_: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         RestoreTrace.log("appDidFinishLaunching: begin")
         performanceTraceRecorder.markStartupLaunchStarted()

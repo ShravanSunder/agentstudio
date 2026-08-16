@@ -4,13 +4,16 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import react from '@vitejs/plugin-react';
-import { defineConfig, type ProxyOptions } from 'vite';
+import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 
+import { bridgeViteOptimizedDependencies } from './bridge-vite-optimized-dependencies.js';
 import {
 	createBridgeDevTelemetrySink,
 	type BridgeDevTelemetrySink,
 	type BridgeDevTelemetrySnapshot,
 } from './scripts/dev-server/bridge-dev-telemetry.js';
+import { reserveBridgeDevelopmentServerPort } from './scripts/dev-server/bridge-development-server-process.js';
+import { createBridgeDevelopmentServerVitePlugin } from './scripts/dev-server/bridge-development-server-vite-plugin.js';
 import {
 	BRIDGE_PRODUCT_DEV_BOOTSTRAP_ROUTE,
 	BRIDGE_PRODUCT_DEV_HEALTH_ROUTE,
@@ -22,45 +25,67 @@ import {
 } from './src/core/comm-worker/bridge-product-http-request-executor.js';
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
-const bridgeProductDevBackendOrigin = resolveBridgeProductDevBackendOrigin(process.env);
-export default defineConfig({
-	base: './',
-	resolve: {
-		alias: [{ find: '@', replacement: `${bridgeWebPackageRoot}/src` }],
-	},
-	plugins: [
-		react(),
-		{
-			name: 'bridge-dev-telemetry',
-			configureServer(server) {
-				const telemetrySink = createBridgeDevTelemetrySink();
-				server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
-					void handleBridgeDevTelemetryBatchRequest({
-						request,
-						response,
-						telemetrySink,
-					});
-				});
-				server.middlewares.use('/__bridge-dev-telemetry/status', (request, response) => {
-					handleBridgeDevTelemetryStatusRequest({
-						request,
-						response,
-						telemetrySink,
-					});
-				});
-			},
+export default defineConfig(async () => {
+	const bridgeProductDevBackendOrigin = await resolveBridgeProductDevBackendOrigin(process.env);
+	const bridgeProductDevBackendIsSupervised = bridgeProductDevBackendShouldBeSupervised(
+		process.env,
+	);
+	return {
+		base: './',
+		resolve: {
+			alias: [{ find: '@', replacement: `${bridgeWebPackageRoot}/src` }],
 		},
-	],
-	server: {
-		host: '127.0.0.1',
-		proxy: bridgeProductDevProxyConfiguration(bridgeProductDevBackendOrigin),
-	},
-	build: {
-		outDir: '../Sources/AgentStudio/Resources/BridgeWeb/app',
-		emptyOutDir: true,
-		sourcemap: false,
-	},
+		optimizeDeps: {
+			include: [...bridgeViteOptimizedDependencies],
+		},
+		plugins: [
+			react(),
+			{
+				name: 'bridge-dev-telemetry',
+				configureServer(server) {
+					const telemetrySink = createBridgeDevTelemetrySink();
+					server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
+						void handleBridgeDevTelemetryBatchRequest({
+							request,
+							response,
+							telemetrySink,
+						});
+					});
+					server.middlewares.use('/__bridge-dev-telemetry/status', (request, response) => {
+						handleBridgeDevTelemetryStatusRequest({
+							request,
+							response,
+							telemetrySink,
+						});
+					});
+				},
+			} satisfies Plugin,
+			...(bridgeProductDevBackendIsSupervised
+				? [
+						createBridgeDevelopmentServerVitePlugin({
+							backendOrigin: bridgeProductDevBackendOrigin,
+							repoRootPath: dirname(bridgeWebPackageRoot),
+						}),
+					]
+				: []),
+		],
+		server: {
+			host: '127.0.0.1',
+			proxy: bridgeProductDevProxyConfiguration(bridgeProductDevBackendOrigin),
+		},
+		build: {
+			outDir: '../Sources/AgentStudio/Resources/BridgeWeb/app',
+			emptyOutDir: true,
+			sourcemap: false,
+		},
+	};
 });
+
+export function bridgeProductDevBackendShouldBeSupervised(
+	env: Readonly<Record<string, string | undefined>>,
+): boolean {
+	return env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] === undefined;
+}
 
 const bridgeDevTelemetryMaxBodyBytes = 256 * 1024;
 const bridgeDevTelemetryCapability = 'dev-telemetry-capability-0123456789abcdef';
@@ -122,10 +147,14 @@ function handleBridgeDevTelemetryStatusRequest(props: {
 	writeJsonResponse(props.response, 200, props.telemetrySink.snapshot());
 }
 
-export function resolveBridgeProductDevBackendOrigin(
+export async function resolveBridgeProductDevBackendOrigin(
 	env: Readonly<Record<string, string | undefined>>,
-): string {
-	const configuredOrigin = env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'] ?? 'http://127.0.0.1:43871';
+	reservePort: () => Promise<number> = reserveBridgeDevelopmentServerPort,
+): Promise<string> {
+	const configuredOrigin = env['BRIDGE_WEB_DEV_BACKEND_ORIGIN'];
+	if (configuredOrigin === undefined) {
+		return `http://127.0.0.1:${await reservePort()}`;
+	}
 	const origin = new URL(configuredOrigin);
 	if (
 		origin.protocol !== 'http:' ||

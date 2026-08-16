@@ -250,7 +250,8 @@ class MainSplitViewController: NSSplitViewController {
                 }
             )
         )
-        let sidebarHosting = NSHostingController(rootView: sidebarView)
+        let sidebarHosting = NSHostingController(
+            rootView: AnyView(sidebarView.tint(AppStyles.General.Accent.primaryColor)))
         sidebarHosting.sizingOptions = []
         self.sidebarHostingController = sidebarHosting
 

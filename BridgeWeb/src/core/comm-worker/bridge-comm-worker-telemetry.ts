@@ -10,6 +10,7 @@ export interface BridgeCommWorkerPerformanceClock {
 export type BridgeCommWorkerTelemetryTaskKind =
 	| 'content_preparation'
 	| 'message_handler'
+	| 'product_control'
 	| 'store_action';
 
 export type BridgeCommWorkerTelemetryLane =
@@ -38,6 +39,7 @@ export type BridgeCommWorkerTelemetryCommand =
 	| 'annotationOutputInspect'
 	| 'fileDisplayResync'
 	| 'fileQueryUpdate'
+	| 'fileSourceDiscovery'
 	| 'hover'
 	| 'markFileViewed'
 	| 'metadataInterestUpdate'
@@ -125,13 +127,17 @@ export function recordBridgeCommWorkerPanePresentationTelemetry(
 			'agentstudio.bridge.presentation.revision': props.presentationRevision,
 			...(props.publicationSequence === undefined
 				? {}
-				: { 'agentstudio.bridge.presentation.publication_sequence': props.publicationSequence }),
+				: {
+						'agentstudio.bridge.presentation.publication_sequence': props.publicationSequence,
+					}),
 			...(props.reviewGeneration === undefined
 				? {}
 				: { 'agentstudio.bridge.review.generation': props.reviewGeneration }),
 			...(props.workerDerivationEpoch === undefined
 				? {}
-				: { 'agentstudio.bridge.worker.derivation_epoch': props.workerDerivationEpoch }),
+				: {
+						'agentstudio.bridge.worker.derivation_epoch': props.workerDerivationEpoch,
+					}),
 		},
 		booleanAttributes: {
 			'agentstudio.bridge.refreshing.review': props.refreshingReview,
@@ -158,6 +164,7 @@ export interface RecordBridgeCommWorkerTaskTelemetryProps {
 	readonly lane: BridgeCommWorkerTelemetryLane;
 	readonly payloadClass?: string;
 	readonly queueWaitMilliseconds?: number;
+	readonly result?: 'failed' | 'success' | 'unavailable';
 	readonly resultReason?: BridgeCommWorkerTelemetryResultReason;
 	readonly sourceEpoch?: number;
 	readonly taskKind: BridgeCommWorkerTelemetryTaskKind;
@@ -179,7 +186,7 @@ export function recordBridgeCommWorkerTaskTelemetry(
 			'agentstudio.bridge.phase': 'worker_task',
 			'agentstudio.bridge.plane': 'data',
 			'agentstudio.bridge.priority': bridgeCommWorkerTaskPriority(props.lane),
-			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.result': props.result ?? 'success',
 			'agentstudio.bridge.slice': 'worker_task',
 			'agentstudio.bridge.transport': 'worker',
 			'agentstudio.bridge.worker.lane': props.lane,
@@ -210,7 +217,9 @@ export function recordBridgeCommWorkerTaskTelemetry(
 				: { 'agentstudio.bridge.worker.source_epoch': props.sourceEpoch }),
 			...(props.touchedKeyCount === undefined
 				? {}
-				: { 'agentstudio.bridge.worker.touched_key_count': props.touchedKeyCount }),
+				: {
+						'agentstudio.bridge.worker.touched_key_count': props.touchedKeyCount,
+					}),
 			...(props.patchCount === undefined
 				? {}
 				: { 'agentstudio.bridge.worker.patch_count': props.patchCount }),

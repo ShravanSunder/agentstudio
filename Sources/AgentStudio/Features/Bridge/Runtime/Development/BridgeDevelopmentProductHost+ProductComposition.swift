@@ -223,10 +223,13 @@ extension BridgeDevelopmentProductHost {
             markReviewItemViewed: { _, _ in },
             applyReviewComparisonUpdate: dependencies.applyReviewComparisonUpdate,
             applyWorktreeAnnotationCommand: dependencies.applyWorktreeAnnotationCommand,
-            queryReviewComparisonTargets: BridgePaneProductComparisonTargetQuerySource.makeQuery(
-                reviewSourceProvider: dependencies.reviewSourceProvider,
-                targetProjection: dependencies.reviewComparisonTargetProjection,
-                refreshWorkAdmissionSource: dependencies.refreshWorkAdmissionSource
+            authorizeReviewComparisonTargets:
+                BridgePaneProductComparisonTargetQuerySource.makeAuthorization(
+                    targetProjection: dependencies.reviewComparisonTargetProjection,
+                    refreshWorkAdmissionSource: dependencies.refreshWorkAdmissionSource
+                ),
+            reviewComparisonTargetCatalogProducer: BridgeReviewComparisonTargetCatalogProducer(
+                reviewSourceProvider: dependencies.reviewSourceProvider
             ),
             initialPanePresentation: dependencies.initialPresentation,
             refreshWorkAdmissionSource: dependencies.refreshWorkAdmissionSource

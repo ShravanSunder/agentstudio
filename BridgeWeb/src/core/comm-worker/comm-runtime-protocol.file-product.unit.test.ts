@@ -364,21 +364,20 @@ describe('Bridge comm worker File product runtime', () => {
 					(message.kind === 'fileRenderPatch' &&
 						message.patches.some((patch): boolean => patch.slice !== 'panelChrome')),
 			);
-		expect(fileRenderPublications).toHaveLength(2);
+		expect(fileRenderPublications).toHaveLength(3);
 		expect(
-			fileRenderPublications.map((publication) => ({
-				surface: publication.surface,
-				workerDerivationEpoch: publication.workerDerivationEpoch,
-			})),
-		).toEqual([
-			{ surface: 'file', workerDerivationEpoch: 1 },
-			{ surface: 'file', workerDerivationEpoch: 1 },
-		]);
+			fileRenderPublications.every(
+				(publication) => publication.surface === 'file' && publication.workerDerivationEpoch === 1,
+			),
+		).toBe(true);
 		const fileRenderPublicationSequences = fileRenderPublications.map(
 			(publication) => publication.publicationSequence,
 		);
-		expect(new Set(fileRenderPublicationSequences).size).toBe(1);
-		expect(createdSequences).toContain(fileRenderPublicationSequences[0]);
+		expect(new Set(fileRenderPublicationSequences).size).toBe(2);
+		expect(fileRenderPublicationSequences[1]).toBe(fileRenderPublicationSequences[2]);
+		expect(
+			fileRenderPublicationSequences.every((sequence) => createdSequences.includes(sequence)),
+		).toBe(true);
 		const fileDisplayPatchEvents = postedMessages
 			.filter(
 				(

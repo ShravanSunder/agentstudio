@@ -181,11 +181,17 @@ package final class WorkspaceMutationCoordinator {
     package func orphanPanesForRemovedWorktreeIfUnmatched(
         _ removedWorktree: RemovedWorktreeEntry
     ) -> [UUID] {
+        let currentWorktreeIDs = Set(repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
         let affectedPaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
             guard pane.residency == .active || pane.residency == .backgrounded else { return nil }
             guard let cwd = pane.metadata.cwd?.standardizedFileURL else { return nil }
             guard Self.path(removedWorktree.path, contains: cwd) else { return nil }
-            guard repositoryTopologyAtom.repoAndWorktree(containing: cwd) == nil else { return nil }
+            guard
+                repositoryTopologyAtom.repoAndWorktree(
+                    containing: cwd,
+                    among: currentWorktreeIDs
+                ) == nil
+            else { return nil }
             return pane.id
         }
         for paneID in affectedPaneIDs {
@@ -198,12 +204,84 @@ package final class WorkspaceMutationCoordinator {
     }
 
     @discardableResult
+    package func clearPaneAssociations(forRemovedWorktreeID removedWorktreeID: UUID) -> [UUID] {
+        let affectedPaneIDs = workspacePaneAtom.graphAtom.paneStateSnapshot().values.compactMap { state in
+            state.durableContextFacets.worktreeId == removedWorktreeID ? state.id : nil
+        }
+        for paneID in affectedPaneIDs {
+            guard
+                let state = workspacePaneAtom.graphAtom.paneState(paneID),
+                let revision = workspacePaneAtom.graphAtom.reservePaneAssociationRevision(paneID)
+            else { continue }
+            _ = workspacePaneAtom.graphAtom.applyPaneAssociationUpdate(
+                paneID,
+                cwd: state.durableContextFacets.cwd,
+                resolution: .confidentNoMatch,
+                revision: revision
+            )
+        }
+        return affectedPaneIDs
+    }
+
+    @discardableResult
+    package func reconcilePaneAssociationsForCurrentTopology(
+        affectedWorktreeIDs: Set<UUID>
+    ) -> [UUID] {
+        guard !affectedWorktreeIDs.isEmpty else { return [] }
+        let topologySnapshot = repositoryTopologyAtom.captureReadSnapshot()
+        let reconciliationCandidates: [(paneID: UUID, cwd: URL?, resolution: PaneAssociationResolution)] =
+            workspacePaneAtom.graphAtom.paneStateSnapshot().values.compactMap { state in
+                let facets = state.durableContextFacets
+                let resolvedContext = topologySnapshot.repoAndWorktree(containing: facets.cwd)
+                let currentAssociationIsAffected = facets.worktreeId.map(affectedWorktreeIDs.contains) ?? false
+                let resolvedAssociationIsAffected =
+                    resolvedContext.map { affectedWorktreeIDs.contains($0.worktree.id) } ?? false
+                guard currentAssociationIsAffected || resolvedAssociationIsAffected else { return nil }
+
+                let resolution: PaneAssociationResolution
+                if let resolvedContext {
+                    resolution = .matched(
+                        repoId: resolvedContext.repo.id,
+                        worktreeId: resolvedContext.worktree.id
+                    )
+                } else if topologySnapshot.hasUnavailableWorktree(containing: facets.cwd) {
+                    resolution = .uncertain
+                } else {
+                    resolution = .confidentNoMatch
+                }
+                return (state.id, facets.cwd, resolution)
+            }
+        var changedPaneIDs: [UUID] = []
+        for (paneID, cwd, resolution) in reconciliationCandidates {
+            guard let revision = workspacePaneAtom.graphAtom.reservePaneAssociationRevision(paneID) else {
+                continue
+            }
+            let updateResult = workspacePaneAtom.graphAtom.applyPaneAssociationUpdate(
+                paneID,
+                cwd: cwd,
+                resolution: resolution,
+                revision: revision
+            )
+            if updateResult == .applied {
+                changedPaneIDs.append(paneID)
+            }
+        }
+        return changedPaneIDs
+    }
+
+    @discardableResult
     package func restoreOrphanedPaneResidencyForCurrentTopology() -> Bool {
         let activeLayoutPaneIDs = workspaceTab.allPaneIds
+        let currentWorktreeIDs = Set(repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
         let restorablePaneIDs = workspacePaneAtom.paneSnapshot().values.compactMap { pane -> UUID? in
             guard pane.residency.isOrphaned else { return nil }
             guard let cwd = pane.metadata.cwd else { return nil }
-            guard repositoryTopologyAtom.repoAndWorktree(containing: cwd) != nil else { return nil }
+            guard
+                repositoryTopologyAtom.repoAndWorktree(
+                    containing: cwd,
+                    among: currentWorktreeIDs
+                ) != nil
+            else { return nil }
             return pane.id
         }
         for paneID in restorablePaneIDs {

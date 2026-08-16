@@ -223,8 +223,7 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 		expect(messages).toEqual([
 			{
 				direction: 'serverWorkerToMain',
-				epoch: 7,
-				kind: 'slicePatch',
+				kind: 'fileRenderPatch',
 				patches: [
 					{
 						itemId: 'file-1',
@@ -233,9 +232,11 @@ describe('Bridge comm worker command handler File View selected refresh', () => 
 						slice: 'contentAvailability',
 					},
 				],
-				sequence: 402,
+				publicationSequence: 402,
+				surface: 'file',
 				transferDescriptors: [],
 				wireVersion: 1,
+				workerDerivationEpoch: 7,
 			},
 		]);
 		expect(scheduledFileViewPreparations).toHaveLength(1);

@@ -650,6 +650,22 @@ package struct RepoExplorerView: View {
                             )
                         }
 
+                    case .unassociatedPaneRow(let destination):
+                        RepoExplorerPaneRow(
+                            label: destination.label(
+                                paneDisplayLabel: atom(\.paneDisplay).displayLabel(for: destination.paneId)
+                            ),
+                            onFocus: { focusPane(destination.paneId) }
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
+                                bottom: 0,
+                                trailing: 0
+                            )
+                        )
+
                     case .topologyFault(let fault):
                         RepoExplorerTopologyFaultRow(fault: fault)
                             .listRowInsets(
@@ -700,7 +716,7 @@ package struct RepoExplorerView: View {
     }
 
     private func colorForCheckout(hex colorHex: String) -> Color {
-        Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+        Color(nsColor: NSColor(hex: colorHex) ?? AppStyles.General.Accent.primaryNSColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {

@@ -150,9 +150,12 @@ struct TopologyEventPipelineIntegrationTests {
 
             await assertEventuallyMain("pane should become orphaned for removed worktree") {
                 guard let updatedPane = harness.workspaceStore.pane(pane.id) else { return false }
+                let durableFacets = harness.workspaceStore.paneAtom.graphAtom
+                    .paneState(pane.id)?.durableContextFacets
                 return updatedPane.residency == .orphaned(reason: .worktreeNotFound(path: removePath.path))
+                    && durableFacets?.repoId == nil
+                    && durableFacets?.worktreeId == nil
             }
-
             await harness.workspaceSurfaceCoordinator.waitForFilesystemRootsAndActivitySyncIdle()
             let syncedSnapshot = await harness.filesystemSnapshot()
             let syncedPaths = Set(syncedSnapshot.registeredRoots.values)
@@ -170,8 +173,17 @@ struct TopologyEventPipelineIntegrationTests {
             ])
             _ = await harness.refreshWatchedFolders([watchedPath])
 
-            await assertEventuallyMain("re-added path should restore pane residency through current containment") {
-                harness.workspaceStore.pane(pane.id)?.residency == .active
+            await assertEventuallyMain("re-added path should adopt the new association and restore pane residency") {
+                guard
+                    let readdedWorktree = harness.workspaceStore.repos.first?.worktrees.first(where: {
+                        $0.path == removePath
+                    }),
+                    let durableFacets = harness.workspaceStore.paneAtom.graphAtom
+                        .paneState(pane.id)?.durableContextFacets
+                else { return false }
+                return harness.workspaceStore.pane(pane.id)?.residency == .active
+                    && durableFacets.repoId == repo.id
+                    && durableFacets.worktreeId == readdedWorktree.id
             }
             let readdedWorktree = harness.workspaceStore.repos.first?.worktrees.first(where: { $0.path == removePath })
             #expect(readdedWorktree?.id != removedWorktree.id)

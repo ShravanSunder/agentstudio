@@ -652,12 +652,14 @@ function completedReviewContentTerminal(
 	descriptor: BridgeWorkerReviewContentRequestDescriptor,
 	text: string,
 ): Awaited<BridgeProductContentStream<'review.content'>['terminal']> {
+	const bytes = new TextEncoder().encode(text);
 	return {
-		bytes: new TextEncoder().encode(text).buffer,
+		bytes: bytes.buffer,
 		contentKind: 'review.content',
 		descriptorId: descriptor.descriptorId,
 		endOfSource: true,
 		kind: 'complete',
+		observedByteLength: bytes.byteLength,
 		observedSha256: 'a'.repeat(64),
 	};
 }

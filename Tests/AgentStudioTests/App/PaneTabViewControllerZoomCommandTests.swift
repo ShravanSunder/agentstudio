@@ -209,8 +209,8 @@ struct PaneTabViewControllerZoomCommandTests {
         )
     }
 
-    @Test("Zoom Viewer recovers a stale explicit worktree from the pane CWD")
-    func zoomViewerRecoversStaleWorktreeFromCWD() throws {
+    @Test("Zoom Viewer renders unavailable for a dangling association without CWD recovery")
+    func zoomViewerDoesNotRecoverDanglingAssociationFromCWD() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let (staleRepo, staleWorktree) = makeRepoAndWorktree(
@@ -221,14 +221,26 @@ struct PaneTabViewControllerZoomCommandTests {
             harness.store,
             root: harness.tempDir
         )
-        let sourcePane = harness.store.createPane(
-            launchDirectory: replacementWorktree.path,
-            facets: PaneContextFacets(
-                repoId: staleRepo.id,
-                worktreeId: staleWorktree.id,
-                cwd: replacementWorktree.path
+        let sourcePane = Pane(
+            id: PaneId.generateUUIDv7().uuid,
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: replacementWorktree.path,
+                title: "Dangling",
+                facets: PaneContextFacets(
+                    repoId: staleRepo.id,
+                    worktreeId: staleWorktree.id,
+                    cwd: replacementWorktree.path
+                )
             )
         )
+        #expect(harness.store.paneAtom.insertRestoredPane(sourcePane))
         let sourceTab = Tab(paneId: sourcePane.id)
         harness.store.appendTab(sourceTab)
         harness.store.setActiveTab(sourceTab.id)
@@ -236,8 +248,11 @@ struct PaneTabViewControllerZoomCommandTests {
         harness.store.reconcileDiscoveredWorktrees(staleRepo.id, worktrees: [])
 
         #expect(harness.store.repositoryTopologyAtom.worktree(staleWorktree.id) == nil)
+        harness.controller.execute(.zoomPane, target: sourcePane.id, targetType: .pane)
+
         #expect(
-            harness.controller.canExecutePaneSurfaceViewerCommand(sourcePaneId: sourcePane.id)
+            harness.store.panePresentationAtom.zoomPresentation(forTab: sourceTab.id)?
+                .viewerPresentation == .unavailable
         )
     }
 

@@ -622,16 +622,16 @@ describe('BridgeWeb architecture checker', () => {
 	test('reports markdown and Shiki rendering imports outside the markdown worker renderer', async () => {
 		await withFixtureTree(
 			{
-				'src/review-viewer/markdown/bridge-markdown-preview.tsx': `
+				'src/file-viewer/bridge-file-viewer-shell.tsx': `
 					import { createMarkdownExit } from 'markdown-exit';
 					import { codeToHtml } from 'shiki';
 					export const values = [createMarkdownExit, codeToHtml];
 				`,
-				'src/review-viewer/workers/markdown/bridge-markdown-render-worker-client.ts': `
+				'src/app/markdown/worker/bridge-markdown-render-worker-client.ts': `
 					import { createMarkdownExit } from 'markdown-exit';
 					export const value = createMarkdownExit;
 				`,
-				'src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.ts': `
+				'src/app/markdown/worker/bridge-markdown-render-worker-renderer.ts': `
 					import { fromAsyncCodeToHtml } from '@shikijs/markdown-exit/core';
 					export const value = fromAsyncCodeToHtml;
 				`,
@@ -643,16 +643,15 @@ describe('BridgeWeb architecture checker', () => {
 				expect(report.violations).toEqual([
 					expect.objectContaining({
 						ruleId: 'markdown-render-worker-boundary',
-						relativePath: 'src/review-viewer/markdown/bridge-markdown-preview.tsx',
+						relativePath: 'src/app/markdown/worker/bridge-markdown-render-worker-client.ts',
 					}),
 					expect.objectContaining({
 						ruleId: 'markdown-render-worker-boundary',
-						relativePath: 'src/review-viewer/markdown/bridge-markdown-preview.tsx',
+						relativePath: 'src/file-viewer/bridge-file-viewer-shell.tsx',
 					}),
 					expect.objectContaining({
 						ruleId: 'markdown-render-worker-boundary',
-						relativePath:
-							'src/review-viewer/workers/markdown/bridge-markdown-render-worker-client.ts',
+						relativePath: 'src/file-viewer/bridge-file-viewer-shell.tsx',
 					}),
 				]);
 			},

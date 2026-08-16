@@ -44,15 +44,19 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> URL? {
+        pullRequestFacts(for: paneId, store: store, repoCache: repoCache)?.exactOpenURL
+    }
+
+    static func pullRequestFacts(
+        for paneId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> PullRequestFacts? {
         guard
             let pane = store.paneAtom.pane(paneId),
-            let context = repoContext(for: pane, store: store),
-            let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL
-        else {
-            return nil
-        }
-
-        return exactOpenURL
+            let context = repoContext(for: pane, store: store)
+        else { return nil }
+        return pullRequestFacts(for: context, repoCache: repoCache)
     }
 
     static func hasResolvableWorktreeContext(
@@ -107,15 +111,12 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore
     ) -> (repo: Repo, worktreeId: UUID?)? {
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
-        if let repoId = pane.repoId,
-            let repo = workspaceRepositoryTopology.repo(repoId)
-        {
-            return (repo, pane.worktreeId)
-        }
-
-        guard let resolved = workspaceRepositoryTopology.repoAndWorktree(containing: pane.metadata.facets.cwd) else {
-            return nil
-        }
+        guard
+            let resolved = workspaceRepositoryTopology.validatedAssociation(
+                repoId: pane.repoId,
+                worktreeId: pane.worktreeId
+            )
+        else { return nil }
         return (resolved.repo, resolved.worktree.id)
     }
 

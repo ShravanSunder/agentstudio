@@ -145,22 +145,17 @@ export async function proveFreshReviewRoute(props: {
 		});
 		while (
 			pendingMilestones.length > 0 &&
-			observedHeaderItemIds.length >= (pendingMilestones[0]?.minimumObservedItemCount ?? Infinity)
+			isFreshReviewTraversalMilestoneReady({
+				milestone: pendingMilestones[0],
+				observedItemCount: observedHeaderItemIds.length,
+			})
 		) {
 			const milestone = pendingMilestones.shift();
 			if (milestone === undefined) break;
-			const milestoneWindow =
-				milestone.label === 'final'
-					? await captureFreshReviewHydrationWindow({
-							excludedItemIds: initialVisibleItemIds,
-							page: props.page,
-							selectedItemId: selectedItemIdAtStart,
-						})
-					: settledHydrationWindow;
 			hydrationMilestones.push({
-				hydratedNonSelectedItemIds: milestoneWindow.hydratedNonSelectedItemIds,
+				hydratedNonSelectedItemIds: settledHydrationWindow.hydratedNonSelectedItemIds,
 				label: milestone.label,
-				visibleNonSelectedItemIds: milestoneWindow.visibleNonSelectedItemIds,
+				visibleNonSelectedItemIds: settledHydrationWindow.visibleNonSelectedItemIds,
 			});
 		}
 		const maximumScrollTop = Math.max(
@@ -260,6 +255,22 @@ export async function proveFreshReviewRoute(props: {
 		selectedItemIdAtCompletion: viewportState.selectedItemId,
 		selectedItemIdAtStart,
 	};
+}
+
+export function isFreshReviewTraversalMilestoneReady(props: {
+	readonly milestone:
+		| {
+				readonly label: BridgeViewerReviewHydrationMilestone['label'];
+				readonly minimumObservedItemCount: number;
+		  }
+		| undefined;
+	readonly observedItemCount: number;
+}): boolean {
+	return (
+		props.milestone !== undefined &&
+		props.milestone.label !== 'final' &&
+		props.observedItemCount >= props.milestone.minimumObservedItemCount
+	);
 }
 
 export async function proveReviewTreeSelection(props: {

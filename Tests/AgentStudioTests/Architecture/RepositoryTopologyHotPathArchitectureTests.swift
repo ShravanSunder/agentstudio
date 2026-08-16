@@ -45,8 +45,8 @@ struct RepositoryTopologyHotPathArchitectureTests {
         #expect(body.components(separatedBy: ".standardizedFileURL").count - 1 == 1)
     }
 
-    @Test("pane management context reuses one repo/worktree resolution")
-    func paneManagementContextReusesOneRepoWorktreeResolution() throws {
+    @Test("pane management context validates stored identity without CWD resolution")
+    func paneManagementContextValidatesStoredIdentityWithoutCWDResolution() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(
@@ -59,7 +59,8 @@ struct RepositoryTopologyHotPathArchitectureTests {
             source.slice(from: "static func project(", to: "private static func projectIdentityRows")
         )
 
-        #expect(projectBody.components(separatedBy: "repoAndWorktree(containing:").count - 1 == 1)
+        #expect(projectBody.components(separatedBy: "validatedAssociation(").count - 1 == 1)
+        #expect(!projectBody.contains("repoAndWorktree(containing:"))
     }
 }
 

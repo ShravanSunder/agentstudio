@@ -76,9 +76,7 @@ describe('Bridge comm worker command handler File source reconciliation', () => 
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
 				transferDescriptors: [],
-				kind: 'slicePatch',
-				epoch: 8,
-				sequence: 73,
+				kind: 'fileRenderPatch',
 				patches: [
 					{ slice: 'rowPaint', operation: 'delete', itemId: 'file-1' },
 					{
@@ -88,6 +86,9 @@ describe('Bridge comm worker command handler File source reconciliation', () => 
 						payload: { reason: 'source_reset', state: 'unavailable' },
 					},
 				],
+				publicationSequence: 73,
+				surface: 'file',
+				workerDerivationEpoch: 8,
 			},
 		]);
 		expect(scheduledFileViewPreparations).toHaveLength(1);
@@ -149,6 +150,83 @@ describe('Bridge comm worker command handler File source reconciliation', () => 
 		expect(scheduledFileViewPreparations).toEqual([]);
 		expect(selectedStore.getState().availabilityByItemId.get('file-1')).toBe('ready');
 	});
+
+	test('file view source update publishes changed selected content as loading through File render authority', () => {
+		const scheduledFileViewPreparations: ScheduledSelectedFileViewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			createSequence: createSequenceFrom([91, 92, 93, 94]),
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			scheduleSelectedFileViewContentReadyPreparation: pushScheduledSelectedFileViewPreparation(
+				scheduledFileViewPreparations,
+			),
+		});
+		handler.applyFileViewRuntimeSource({
+			epoch: 6,
+			source: {
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequests: [],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			},
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-file-before-changed-source',
+				epoch: 7,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+				surface: 'fileView',
+			}),
+		);
+		const selectedStore = scheduledFileViewPreparations[0]?.store;
+		if (selectedStore === undefined) {
+			throw new Error('Expected selected File View preparation store.');
+		}
+		selectedStore.actions.applyContentReady({
+			itemId: 'file-1',
+			contentCacheKey: 'file-view:sha256:file-1',
+		});
+		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 95 });
+		scheduledFileViewPreparations.splice(0, scheduledFileViewPreparations.length);
+
+		const messages = handler.applyFileViewRuntimeSource({
+			epoch: 8,
+			source: {
+				contentItems: [
+					makeWorkerFileViewContentMetadata('file-1', {
+						cacheKey: 'file-view:sha256:file-1-v2',
+						contentHash: 'sha256:file-1-v2',
+						descriptorId: 'descriptor-file-1-v2',
+					}),
+				],
+				contentRequests: [],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			},
+		});
+
+		expect(messages).toEqual([
+			{
+				direction: 'serverWorkerToMain',
+				kind: 'fileRenderPatch',
+				patches: [
+					{ itemId: 'file-1', operation: 'delete', slice: 'rowPaint' },
+					{
+						itemId: 'file-1',
+						operation: 'upsert',
+						payload: { state: 'loading' },
+						slice: 'contentAvailability',
+					},
+				],
+				publicationSequence: 93,
+				surface: 'file',
+				transferDescriptors: [],
+				wireVersion: 1,
+				workerDerivationEpoch: 8,
+			},
+		]);
+		expect(scheduledFileViewPreparations).toHaveLength(1);
+	});
 });
 
 function pushScheduledSelectedReviewPreparation(
@@ -183,7 +261,10 @@ function createSequenceFrom(sequences: readonly number[]): () => number {
 	};
 }
 
-function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileViewContentMetadata {
+function makeWorkerFileViewContentMetadata(
+	itemId: string,
+	overrides: Partial<BridgeWorkerFileViewContentMetadata> = {},
+): BridgeWorkerFileViewContentMetadata {
 	return {
 		metadataKind: 'fileView',
 		itemId,
@@ -203,5 +284,6 @@ function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileView
 		truncationKind: 'none',
 		isBinary: false,
 		canFetchContent: true,
+		...overrides,
 	};
 }

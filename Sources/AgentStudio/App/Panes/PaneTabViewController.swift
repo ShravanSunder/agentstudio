@@ -127,6 +127,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
+    private let openExternalURLHandler: @MainActor (URL) -> Bool
     private let copyPathHandler: @MainActor (URL) -> Void
     private let paneNotePresentation: PaneNotePresentation?
     private let bridgeViewerSurfaceRequestHandler: BridgeViewerSurfaceRequestHandler
@@ -191,7 +192,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let octiconLoader: OcticonLoader
     private let appEventBus: EventBus<AppEvent>
     private var terminalContainer: RestoreAwareTerminalContainerView!
-    private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
+    private var emptyStateView: NSHostingView<AnyView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
     #if DEBUG
@@ -244,6 +245,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         openFinderHandler: @escaping @MainActor (URL) -> Bool = { path in
             ExternalWorkspaceOpener.openInFinder(path)
         },
+        openExternalURLHandler: @escaping @MainActor (URL) -> Bool = { url in
+            NSWorkspace.shared.open(url)
+        },
         copyPathHandler: @escaping @MainActor (URL) -> Void = { path in
             PathActions.copyPath(path)
         },
@@ -278,6 +282,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
         self.openFinderHandler = openFinderHandler
+        self.openExternalURLHandler = openExternalURLHandler
         self.copyPathHandler = copyPathHandler
         self.paneNotePresentation = paneNotePresentation
         self.bridgeViewerSurfaceRequestHandler =
@@ -510,7 +515,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 AnyView(NewTabButton())
             }
 
-        let hostingView = ToolbarControlHostingView(rootView: content)
+        let hostingView = ToolbarControlHostingView(
+            rootView: AnyView(content.tint(AppStyles.General.Accent.primaryColor)))
         hostingView.identifier = control.viewIdentifier
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.safeAreaRegions = []
@@ -1704,7 +1710,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
+    private func createEmptyStateView() -> NSHostingView<AnyView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
             octiconLoader: octiconLoader,
@@ -1729,14 +1735,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func rebuildEmptyStateView() {
         let currentModel = emptyStateModel
         guard currentModel != lastEmptyStateModel else { return }
-        emptyStateView?.rootView = WorkspaceEmptyStateView(
-            model: currentModel,
-            octiconLoader: octiconLoader,
+        emptyStateView?.rootView = AnyView(
+            WorkspaceEmptyStateView(
+                model: currentModel,
+                octiconLoader: octiconLoader,
 
-            onWatchFolder: { [weak self] in self?.watchFolderAction() },
-            onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
-            onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
-        )
+                onWatchFolder: { [weak self] in self?.watchFolderAction() },
+                onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
+                onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
+            )
+            .tint(AppStyles.General.Accent.primaryColor))
         lastEmptyStateModel = currentModel
     }
 
@@ -2583,6 +2591,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     self?.closeTabRenamePopover()
                 }
             )
+            .tint(AppStyles.General.Accent.primaryColor)
         )
         tabRenamePopover = popover
         if let workspaceWindowId = workspaceWindowId ?? windowLifecycleStore.focusedWindowId
@@ -3256,15 +3265,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
         let facets = paneState.durableContextFacets
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
-            return resolved.worktree.id
-        }
-        if let worktreeId = facets.worktreeId,
-            store.repositoryTopologyAtom.worktree(worktreeId) != nil
-        {
-            return worktreeId
-        }
-        return nil
+        return store.repositoryTopologyAtom.validatedAssociation(
+            repoId: facets.repoId,
+            worktreeId: facets.worktreeId
+        )?.worktree.id
     }
 
     private func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
@@ -3477,9 +3481,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
-        if isTargetedPaneLocationCommand(command) {
+        if isTargetedPaneExternalCommand(command) {
             guard targetType == .pane else { return }
-            _ = handleTargetedPaneLocationCommand(command, paneId: target)
+            _ = handleTargetedPaneExternalCommand(command, paneId: target)
             return
         }
 
@@ -4251,11 +4255,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 
-        if isTargetedPaneLocationCommand(command) {
+        if isTargetedPaneExternalCommand(command) {
             guard targetType == .pane else {
                 return false
             }
-            return targetedPaneLocationPath(paneId: target) != nil
+            return targetedPaneExternalCommandCapability(command, paneId: target)
         }
 
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
@@ -4481,6 +4485,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return zoomCommandCapability(explicitPaneId: nil) != nil
         case .reloadBridgeWebView:
             return resolvedBridgeCommandMountView() != nil
+        case .openPullRequest:
+            return false
         case .switchArrangement:
             return store.tabLayoutAtom.activeTabId != nil
         case .previousArrangement, .nextArrangement, .cycleArrangement:
@@ -4635,9 +4641,33 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func isTargetedPaneLocationCommand(_ command: AppCommand) -> Bool {
+    private func pullRequestURL(forPaneId paneId: UUID) -> URL? {
+        guard
+            targetedPaneCommandTarget(
+                paneId: paneId,
+                targetType: .pane
+            ) != nil
+        else {
+            return nil
+        }
+        return GitHubWebviewLaunchResolver.pullRequestFacts(
+            for: paneId,
+            store: store,
+            repoCache: repoCache
+        )?.exactOpenURL
+    }
+
+    private func openPullRequest(forPaneId paneId: UUID) -> Bool {
+        guard let pullRequestURL = pullRequestURL(forPaneId: paneId) else {
+            return false
+        }
+        return openExternalURLHandler(pullRequestURL)
+    }
+
+    private func isTargetedPaneExternalCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .openPaneLocationInFinder, .copyCurrentPanePath, .openPaneLocationInEditorMenu:
+        case .openPaneLocationInFinder, .copyCurrentPanePath, .openPaneLocationInEditorMenu,
+            .openPullRequest:
             return true
         default:
             return false
@@ -4659,10 +4689,27 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         ).targetPath
     }
 
-    private func handleTargetedPaneLocationCommand(
+    private func targetedPaneExternalCommandCapability(
         _ command: AppCommand,
         paneId: UUID
     ) -> Bool {
+        switch command {
+        case .openPullRequest:
+            return pullRequestURL(forPaneId: paneId) != nil
+        case .openPaneLocationInFinder, .copyCurrentPanePath, .openPaneLocationInEditorMenu:
+            return targetedPaneLocationPath(paneId: paneId) != nil
+        default:
+            return false
+        }
+    }
+
+    private func handleTargetedPaneExternalCommand(
+        _ command: AppCommand,
+        paneId: UUID
+    ) -> Bool {
+        if command == .openPullRequest {
+            return openPullRequest(forPaneId: paneId)
+        }
         guard let targetPath = targetedPaneLocationPath(paneId: paneId) else {
             return false
         }
@@ -4830,6 +4877,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     self?.closePaneNotePopover()
                 }
             )
+            .tint(AppStyles.General.Accent.primaryColor)
         )
         paneNotePopover = popover
 
