@@ -221,14 +221,26 @@ struct PaneTabViewControllerZoomCommandTests {
             harness.store,
             root: harness.tempDir
         )
-        let sourcePane = harness.store.createPane(
-            launchDirectory: replacementWorktree.path,
-            facets: PaneContextFacets(
-                repoId: staleRepo.id,
-                worktreeId: staleWorktree.id,
-                cwd: replacementWorktree.path
+        let sourcePane = Pane(
+            id: PaneId.generateUUIDv7().uuid,
+            content: .terminal(
+                TerminalState(
+                    provider: .zmx,
+                    lifetime: .persistent,
+                    zmxSessionID: .generateUUIDv7()
+                )
+            ),
+            metadata: PaneMetadata(
+                launchDirectory: replacementWorktree.path,
+                title: "Dangling",
+                facets: PaneContextFacets(
+                    repoId: staleRepo.id,
+                    worktreeId: staleWorktree.id,
+                    cwd: replacementWorktree.path
+                )
             )
         )
+        #expect(harness.store.paneAtom.insertRestoredPane(sourcePane))
         let sourceTab = Tab(paneId: sourcePane.id)
         harness.store.appendTab(sourceTab)
         harness.store.setActiveTab(sourceTab.id)
