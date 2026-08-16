@@ -17,7 +17,9 @@ enum RepoExplorerOutlineApplyOutcome: String, Equatable, Sendable {
 
 struct RepoExplorerOutlineApplyMeasurement: Equatable, Sendable {
     let duration: Duration
-    let rowCount: Int
+    let totalRowCount: Int
+    let changedRowCount: Int
+    let equalPublishCount: Int
     let outcome: RepoExplorerOutlineApplyOutcome
 }
 
@@ -1032,7 +1034,14 @@ package struct RepoExplorerView: View {
             attributes: [
                 "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome": .string(
                     measurement.outcome.rawValue),
-                "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count": .int(measurement.rowCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count": .int(
+                    measurement.totalRowCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_changed.count": .int(
+                    measurement.changedRowCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.equal_publish.count": .int(
+                    measurement.equalPublishCount),
+                "agentstudio.performance.repo_explorer.outline_apply_proxy.mainactor_held_ms": .double(
+                    AgentStudioPerformanceTraceRecorder.milliseconds(from: measurement.duration)),
             ]
         )
     }
