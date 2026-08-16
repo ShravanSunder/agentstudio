@@ -102,10 +102,10 @@ export class BridgeProductContentFrameEncoder {
 				throw new Error('Bridge product content encoder offset is not contiguous.');
 			}
 			const nextOffsetBytes = this.#nextOffsetBytes + payload.byteLength;
+			const declaredByteLength = bridgeProductDeclaredByteLengthForRequest(this.#expectedRequest);
 			if (
 				nextOffsetBytes > this.#expectedRequest.descriptor.maximumBytes ||
-				(this.#expectedRequest.descriptor.declaredByteLength !== null &&
-					nextOffsetBytes > this.#expectedRequest.descriptor.declaredByteLength)
+				(declaredByteLength !== null && nextOffsetBytes > declaredByteLength)
 			) {
 				throw new Error('Bridge product content encoder exceeded its admitted byte bounds.');
 			}
@@ -366,6 +366,7 @@ export class BridgeProductContentStreamValidator<
 			descriptorId: acceptedHeader.identity.descriptorId,
 			endOfSource: header.endOfSource,
 			kind: 'complete',
+			observedByteLength: header.observedByteLength,
 			observedSha256,
 		};
 	}
@@ -394,6 +395,7 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	expectedRequest: BridgeProductContentRequest,
 ): void {
 	const expectedIdentity = bridgeProductContentIdentityFromDescriptor(expectedRequest.descriptor);
+	const expectedExactFacts = bridgeProductDeclaredExactFactsForRequest(expectedRequest);
 	if (
 		header.contentRequestId !== expectedRequest.contentRequestId ||
 		header.leaseId !== expectedRequest.leaseId ||
@@ -401,8 +403,8 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 		header.workerDerivationEpoch !== expectedRequest.workerDerivationEpoch ||
 		header.workerInstanceId !== expectedRequest.workerInstanceId ||
 		header.maximumBytes !== expectedRequest.descriptor.maximumBytes ||
-		header.declaredByteLength !== expectedRequest.descriptor.declaredByteLength ||
-		header.expectedSha256 !== expectedRequest.descriptor.expectedSha256 ||
+		header.declaredByteLength !== expectedExactFacts.declaredByteLength ||
+		header.expectedSha256 !== expectedExactFacts.expectedSha256 ||
 		!bridgeProductContentIdentitiesEqual(header.identity, expectedIdentity)
 	) {
 		throw new Error('Bridge product content acceptance does not match its issued request.');
@@ -417,6 +419,29 @@ function validateBridgeProductAcceptedHeaderAgainstRequest(
 	if (header.declaredByteLength !== null && header.declaredByteLength > header.maximumBytes) {
 		throw new Error('Bridge product content declared length exceeds its maximum.');
 	}
+}
+
+function bridgeProductDeclaredExactFactsForRequest(expectedRequest: BridgeProductContentRequest): {
+	readonly declaredByteLength: number | null;
+	readonly expectedSha256: string | null;
+} {
+	switch (expectedRequest.contentKind) {
+		case 'file.content':
+		case 'review.content':
+			return {
+				declaredByteLength: expectedRequest.descriptor.declaredByteLength,
+				expectedSha256: expectedRequest.descriptor.expectedSha256,
+			};
+		case 'review.comparisonTargets':
+			return { declaredByteLength: null, expectedSha256: null };
+	}
+	return assertNeverBridgeProductContentRequest(expectedRequest);
+}
+
+function bridgeProductDeclaredByteLengthForRequest(
+	expectedRequest: BridgeProductContentRequest,
+): number | null {
+	return bridgeProductDeclaredExactFactsForRequest(expectedRequest).declaredByteLength;
 }
 
 function concatenateBridgeProductContentBytes(
@@ -481,14 +506,13 @@ function bridgeProductContentIdentitiesEqual(
 			);
 		case 'review.comparisonTargets':
 			if (right.contentKind !== 'review.comparisonTargets') return false;
-			return (
-				left.capturedAtUnixMilliseconds === right.capturedAtUnixMilliseconds &&
-				left.cutoffUnixMilliseconds === right.cutoffUnixMilliseconds &&
-				left.descriptorId === right.descriptorId &&
-				left.maximumBytes === right.maximumBytes
-			);
+			return left.descriptorId === right.descriptorId && left.maximumBytes === right.maximumBytes;
 	}
 	throw new Error('Unsupported Bridge product content identity.');
+}
+
+function assertNeverBridgeProductContentRequest(request: never): never {
+	throw new Error(`Unsupported Bridge product content request: ${String(request)}`);
 }
 
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {

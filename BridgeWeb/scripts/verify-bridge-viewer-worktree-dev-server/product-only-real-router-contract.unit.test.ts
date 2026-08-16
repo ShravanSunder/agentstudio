@@ -12,8 +12,28 @@ import {
 	bridgeViewerCleanupProofAfterOwnedStops,
 	bridgeViewerProductOnlyRegressionPhase,
 } from './product-only-real-router-regression.ts';
+import { isFreshReviewTraversalMilestoneReady } from './product-only-real-router-review-proof.ts';
 
 describe('Bridge Viewer product-only real-router regression contract', () => {
+	test('defers the final hydration milestone until traversal reaches its terminal window', () => {
+		// Arrange
+		const observedItemCount = 16;
+
+		// Act
+		const middleMilestoneReady = isFreshReviewTraversalMilestoneReady({
+			milestone: { label: 'middle', minimumObservedItemCount: 8 },
+			observedItemCount,
+		});
+		const finalMilestoneReady = isFreshReviewTraversalMilestoneReady({
+			milestone: { label: 'final', minimumObservedItemCount: 16 },
+			observedItemCount,
+		});
+
+		// Assert
+		expect(middleMilestoneReady).toBe(true);
+		expect(finalMilestoneReady).toBe(false);
+	});
+
 	test('reports backend cleanup facts when Vite never started', () => {
 		// Arrange
 		const cleanupBeforeStops = {

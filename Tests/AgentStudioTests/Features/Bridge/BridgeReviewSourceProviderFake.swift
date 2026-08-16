@@ -285,6 +285,10 @@ actor BridgeComparisonGate {
         }
     }
 
+    func startedComparisonCountSnapshot() -> Int {
+        startedComparisonCount
+    }
+
     func releaseAll() {
         isReleased = true
         let continuations = releaseContinuations

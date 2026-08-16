@@ -1,16 +1,5 @@
 import Foundation
 
-package struct AgentStudioOTLPProjectedLogRecord: Equatable, Sendable {
-    let timeUnixNano: UInt64
-    let severityText: AgentStudioTraceSeverity
-    let body: String
-    let traceID: String?
-    let spanID: String?
-    let parentSpanID: String?
-    let resource: [String: String]
-    let scope: AgentStudioTraceRecord.Scope
-    package let attributes: [String: AgentStudioTraceValue]
-}
 package enum AgentStudioOTLPTraceProjection {
     package static func project(_ record: AgentStudioTraceRecord) -> AgentStudioOTLPProjectedLogRecord {
         let safeResource = safeResource(record.resource)
@@ -675,6 +664,7 @@ package enum AgentStudioOTLPTraceProjection {
     ]).union(AgentStudioCoordinationProjectionKeys.numericKeys)
         .union(BridgeProductStreamProjectionKeys.numericKeys)
         .union(BridgeProductPaintProjectionKeys.numericKeys)
+        .union(BridgeComparisonTargetCatalogTelemetryKeys.numericAttributeKeys)
     private static let allowedBooleanAttributeKeys: Set<String> = Set([
         "agentstudio.app.is_active",
         "agentstudio.bridge.cache_hit",
@@ -785,6 +775,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.is_pinned_to_bottom",
     ]).union(BridgeProductStreamProjectionKeys.booleanKeys)
         .union(BridgeProductPaintProjectionKeys.booleanKeys)
+        .union(BridgeComparisonTargetCatalogTelemetryKeys.booleanAttributeKeys)
     private static func projectedResource(_ safeResource: [String: String]) -> [String: String] {
         safeResource.filter { key, _ in
             allowedResourceKeys.contains(key)

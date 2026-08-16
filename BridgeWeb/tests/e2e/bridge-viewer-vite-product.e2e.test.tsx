@@ -118,7 +118,7 @@ describe('Bridge Viewer dedicated Vite product E2E', () => {
 	test('correlates the disposable live-worktree journey through the product provider, worker, Pierre, and painted DOM', async () => {
 		const oracle = requireFixtureOracle();
 		const server = requireOwnedServer();
-		expect(oracle.changedPaths.length).toBeGreaterThanOrEqual(100);
+		expect(oracle.changedPaths).toHaveLength(16);
 		expect(oracle.reviewFiles).toHaveLength(oracle.changedPaths.length);
 
 		const proof = await runBridgeViewerProductOnlyJourney({

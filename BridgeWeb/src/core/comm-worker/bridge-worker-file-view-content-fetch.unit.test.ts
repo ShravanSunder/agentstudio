@@ -160,6 +160,7 @@ function completedByteContentOpen(
 				descriptorId: descriptor.descriptorId,
 				endOfSource: true,
 				kind: 'complete',
+				observedByteLength: ownedBytes.byteLength,
 				observedSha256: 'b'.repeat(64),
 			}),
 		};
