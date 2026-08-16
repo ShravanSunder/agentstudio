@@ -21,10 +21,9 @@ export const bridgeTokenAllowlist = {
 	'src/review-viewer/code-view/bridge-code-view-panel-frame.tsx': 3,
 	'src/review-viewer/code-view/bridge-code-view-panel-support.tsx': 9,
 	'src/review-viewer/code-view/bridge-code-view-theme.unit.test.ts': 2,
-	'src/review-viewer/markdown/bridge-markdown-preview.tsx': 1,
 	'src/review-viewer/shell/review-viewer-fallback-shells.tsx': 21,
 	'src/review-viewer/shell/review-viewer-shell.integration.test.tsx': 2,
-	'src/review-viewer/shell/review-viewer-shell.tsx': 15,
+	'src/review-viewer/shell/review-viewer-shell.tsx': 9,
 	'src/review-viewer/trees/bridge-trees-panel.tsx': 2,
 	'src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx': 8,
 } as const satisfies Readonly<Record<string, number>>;

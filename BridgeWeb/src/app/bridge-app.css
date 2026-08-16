@@ -451,7 +451,7 @@ button:disabled,
 	grid-template-columns: minmax(0, 1fr) auto;
 	gap: 8px;
 	padding: 8px;
-	border-bottom: 1px solid var(--bridge-border-subtle);
+	border-bottom: 1px solid var(--border);
 	background: var(--bridge-header-bg);
 }
 
@@ -598,9 +598,9 @@ button:disabled,
 }
 
 .bridge-markdown-document blockquote {
-	border-left: 3px solid var(--bridge-border-opaque);
+	border-left: 3px solid var(--input);
 	padding-left: 1em;
-	color: var(--bridge-text-secondary);
+	color: var(--muted-foreground);
 }
 
 .bridge-markdown-document table {
@@ -609,7 +609,7 @@ button:disabled,
 }
 
 .bridge-markdown-document :where(th, td) {
-	border: 1px solid var(--bridge-border-subtle);
+	border: 1px solid var(--border);
 	padding: 0.4em 0.65em;
 	text-align: left;
 }
@@ -621,27 +621,27 @@ button:disabled,
 .bridge-markdown-document :not(pre) > code {
 	border-radius: 4px;
 	padding: 0.12em 0.3em;
-	background: var(--bridge-header-control-bg);
+	background: var(--surface);
 }
 
 .bridge-markdown-document pre {
 	max-width: 100%;
 	overflow-x: auto;
-	border: 1px solid var(--bridge-border-subtle);
+	border: 1px solid var(--border);
 	border-radius: 6px;
 	padding: 0.85em 1em;
 }
 
 .bridge-markdown-document .bridge-markdown-inert-link {
-	color: var(--bridge-accent-fg);
+	color: var(--primary);
 	text-decoration: underline;
 	text-decoration-color: color-mix(in srgb, currentcolor 55%, transparent);
 	text-underline-offset: 2px;
 }
 
 .bridge-markdown-document .bridge-markdown-mermaid {
-	min-height: 96px;
-	border: 1px solid var(--bridge-border-subtle);
+	min-height: 6rem;
+	border: 1px solid var(--border);
 	border-radius: 6px;
 	padding: 1em;
 }

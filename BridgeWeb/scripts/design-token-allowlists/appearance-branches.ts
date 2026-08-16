@@ -9,6 +9,5 @@ export const appearanceBranchAllowlist = {
 	'src/components/ui/textarea.tsx': 3,
 	'src/components/ui/toggle.tsx': 1,
 	'src/review-viewer/code-view/bridge-code-view-options.ts': 1,
-	'src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.ts': 1,
 	'src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx': 1,
 } as const satisfies Readonly<Record<string, number>>;

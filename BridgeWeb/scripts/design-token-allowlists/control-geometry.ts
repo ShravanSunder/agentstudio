@@ -7,7 +7,6 @@ export const controlGeometryAllowlist = {
 	'src/file-viewer/bridge-file-viewer-app.browser.startup-suite.tsx': 1,
 	'src/review-viewer/chrome/bridge-review-facet-menu.tsx': 1,
 	'src/review-viewer/code-view/bridge-code-view-options.ts': 3,
-	'src/review-viewer/markdown/bridge-markdown-preview.tsx': 1,
 	'src/review-viewer/shell/review-viewer-fallback-shells.tsx': 6,
 	'src/review-viewer/shell/review-viewer-shell.tsx': 1,
 	'src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx': 4,
