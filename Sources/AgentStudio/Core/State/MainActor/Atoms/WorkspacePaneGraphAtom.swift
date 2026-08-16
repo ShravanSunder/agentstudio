@@ -495,7 +495,7 @@ package final class WorkspacePaneGraphAtom {
         }
         _ = applyPaneAssociationUpdate(
             paneId,
-            cwd: cwd,
+            cwdAdmission: .explicit(cwd),
             resolution: .uncertain,
             revision: revision
         )
@@ -524,6 +524,25 @@ package final class WorkspacePaneGraphAtom {
         resolution: PaneAssociationResolution,
         revision: PaneAssociationRevision
     ) -> PaneCWDContextUpdateResult {
+        applyPaneAssociationUpdate(
+            paneId,
+            cwdAdmission: .runtime(cwd),
+            resolution: resolution,
+            revision: revision
+        )
+    }
+
+    private enum PaneAssociationCWDAdmission {
+        case explicit(URL?)
+        case runtime(URL?)
+    }
+
+    private func applyPaneAssociationUpdate(
+        _ paneId: UUID,
+        cwdAdmission: PaneAssociationCWDAdmission,
+        resolution: PaneAssociationResolution,
+        revision: PaneAssociationRevision
+    ) -> PaneCWDContextUpdateResult {
         guard let currentState = paneStateMap.snapshotValue(for: paneId) else {
             workspacePaneLogger.warning("applyPaneAssociationUpdate: pane \(paneId) not found")
             return .paneMissing
@@ -532,8 +551,15 @@ package final class WorkspacePaneGraphAtom {
             latestIssuedAssociationRevisionByPaneID[paneId] == revision.rawValue,
             revision.rawValue > (lastAppliedAssociationRevisionByPaneID[paneId] ?? 0)
         else { return .staleRevision }
-        guard case .accepted(let acceptedCWD) = PaneFilesystemLocationPolicy.runtimeCWDUpdate(cwd) else {
-            return .unchanged
+
+        let acceptedCWD: URL?
+        switch cwdAdmission {
+        case .explicit(nil):
+            acceptedCWD = nil
+        case .explicit(let candidate), .runtime(let candidate):
+            guard case .accepted(let normalizedCWD) = PaneFilesystemLocationPolicy.runtimeCWDUpdate(candidate)
+            else { return .unchanged }
+            acceptedCWD = normalizedCWD
         }
 
         var facets = currentState.metadata.facets
