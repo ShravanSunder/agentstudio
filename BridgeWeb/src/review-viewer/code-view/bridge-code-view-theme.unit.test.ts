@@ -58,8 +58,8 @@ describe('Bridge CodeView theme', () => {
 		expect(lowerCaseCss).toContain('--foreground: #ffffff;');
 		expect(lowerCaseCss).toContain('--bridge-app-bg: #282c34;');
 		expect(lowerCaseCss).toContain('--bridge-canvas-bg: #282c34;');
-		expect(lowerCaseCss).toContain('--bridge-header-bg: #23262d;');
-		expect(lowerCaseCss).toContain('--bridge-surface-bg: #23262d;');
+		expect(lowerCaseCss).toContain('--bridge-header-bg: #1d2026;');
+		expect(lowerCaseCss).toContain('--bridge-surface-bg: #1d2026;');
 		expect(lowerCaseCss).toContain('--border: rgb(255 255 255 / 0.1);');
 		expect(lowerCaseCss).toContain('--input: rgb(255 255 255 / 0.18);');
 		expect(lowerCaseCss).toContain('--ring: #b4befe;');
@@ -82,6 +82,24 @@ describe('Bridge CodeView theme', () => {
 		}
 	});
 
+	test('recedes the shared file-tree surface by approximately 1.16 contrast', async () => {
+		const css = await readFile(new URL('../../app/bridge-app.css', import.meta.url), 'utf8');
+		const canvasColor = readHexCustomProperty(css, '--bridge-canvas-bg');
+		const fileTreeColor = readHexCustomProperty(css, '--bridge-surface-bg');
+
+		expect(calculateContrastRatio(canvasColor, fileTreeColor)).toBeGreaterThanOrEqual(1.155);
+		expect(calculateContrastRatio(canvasColor, fileTreeColor)).toBeLessThanOrEqual(1.17);
+	});
+
+	test('raises shared cards and popovers by approximately 1.16 contrast', async () => {
+		const css = await readFile(new URL('../../app/bridge-app.css', import.meta.url), 'utf8');
+		const canvasColor = readHexCustomProperty(css, '--bridge-canvas-bg');
+		const raisedSurfaceColor = readHexCustomProperty(css, '--card');
+
+		expect(calculateContrastRatio(canvasColor, raisedSurfaceColor)).toBeGreaterThanOrEqual(1.155);
+		expect(calculateContrastRatio(canvasColor, raisedSurfaceColor)).toBeLessThanOrEqual(1.17);
+	});
+
 	test('anchors the Pierre tree theme to the Ghostty canvas and foreground', () => {
 		expect(bridgeGhosttyCatppuccinTreeTheme.bg.toLowerCase()).toBe('#282c34');
 		expect(bridgeGhosttyCatppuccinTreeTheme.fg.toLowerCase()).toBe('#ffffff');
@@ -93,9 +111,10 @@ describe('Bridge CodeView theme', () => {
 
 const expectedGhosttyAdaptedChromeHexValues = [
 	'#1d1f21',
-	'#23262d',
+	'#1d2026',
 	'#282c34',
 	'#30343d',
+	'#323641',
 	'#343842',
 	'#9ba1ad',
 	'#c5c8c6',
@@ -137,4 +156,33 @@ function createThemeResolver(props: CreateThemeResolverProps): BridgeCodeViewThe
 			}));
 		}),
 	};
+}
+
+function readHexCustomProperty(css: string, propertyName: string): string {
+	const propertyMatch = css.match(new RegExp(`${propertyName}:\\s*(#[0-9a-f]{6});`, 'i'));
+	const hexColor = propertyMatch?.[1];
+	if (hexColor === undefined) {
+		throw new Error(`Missing hexadecimal custom property ${propertyName}`);
+	}
+	return hexColor;
+}
+
+function calculateContrastRatio(firstHexColor: string, secondHexColor: string): number {
+	const firstLuminance = calculateRelativeLuminance(firstHexColor);
+	const secondLuminance = calculateRelativeLuminance(secondHexColor);
+	const lighterLuminance = Math.max(firstLuminance, secondLuminance);
+	const darkerLuminance = Math.min(firstLuminance, secondLuminance);
+	return (lighterLuminance + 0.05) / (darkerLuminance + 0.05);
+}
+
+function calculateRelativeLuminance(hexColor: string): number {
+	const redChannel = calculateLinearColorChannel(hexColor, 1);
+	const greenChannel = calculateLinearColorChannel(hexColor, 3);
+	const blueChannel = calculateLinearColorChannel(hexColor, 5);
+	return 0.2126 * redChannel + 0.7152 * greenChannel + 0.0722 * blueChannel;
+}
+
+function calculateLinearColorChannel(hexColor: string, startIndex: number): number {
+	const channel = Number.parseInt(hexColor.slice(startIndex, startIndex + 2), 16) / 255;
+	return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 }

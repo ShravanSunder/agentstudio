@@ -56,7 +56,7 @@
 	--radius: 0.45rem;
 	--background: #282c34;
 	--foreground: #ffffff;
-	--card: #30343d;
+	--card: #323641;
 	--card-foreground: #ffffff;
 	--popover: var(--card);
 	--popover-foreground: #ffffff;
@@ -77,7 +77,7 @@
 	--chart-3: #f9e2af;
 	--chart-4: #cba6f7;
 	--chart-5: #f38ba8;
-	--sidebar: #23262d;
+	--sidebar: #1d2026;
 	--sidebar-foreground: #ffffff;
 	--sidebar-primary: #89b4fa;
 	--sidebar-primary-foreground: #1d1f21;
@@ -87,10 +87,10 @@
 	--sidebar-ring: #b4befe;
 	--bridge-app-bg: #282c34;
 	--bridge-canvas-bg: #282c34;
-	--bridge-header-bg: #23262d;
-	--bridge-header-control-bg: #23262d;
+	--bridge-header-bg: #1d2026;
+	--bridge-header-control-bg: #1d2026;
 	--bridge-header-control-active-bg: #343842;
-	--bridge-surface-bg: #23262d;
+	--bridge-surface-bg: #1d2026;
 	--bridge-surface-raised-bg: #343842;
 	--bridge-menu-bg: var(--popover);
 	--bridge-surface-muted-bg: #343842;
