@@ -7,6 +7,47 @@ import Testing
 @MainActor
 @Suite("RepoExplorerWorktreeRow")
 struct RepoExplorerWorktreeRowTests {
+    @Test("By Repo hides clean synced zero metadata while retaining unknown facts")
+    func byRepoMetadataUsesZeroSuppression() {
+        let cleanSynced = GitBranchStatus(
+            isDirty: false,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0
+        )
+        let noUpstream = GitBranchStatus(
+            isDirty: false,
+            syncState: .noUpstream,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0
+        )
+        let dirtyAheadWithPullRequests = GitBranchStatus(
+            isDirty: true,
+            syncState: .ahead(2),
+            prCount: 3,
+            linesAdded: 4,
+            linesDeleted: 1
+        )
+
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: cleanSynced))
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: cleanSynced))
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: cleanSynced))
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: noUpstream))
+        #expect(RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: .unknown))
+        #expect(RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: dirtyAheadWithPullRequests))
+        #expect(RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: dirtyAheadWithPullRequests))
+        #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: dirtyAheadWithPullRequests))
+    }
+
+    @Test("pane trailing metadata suppresses zero pull requests")
+    func paneTrailingMetadataSuppressesZeroPullRequests() {
+        #expect(RepoExplorerPaneRow.normalizedPullRequestCount(nil) == nil)
+        #expect(RepoExplorerPaneRow.normalizedPullRequestCount(0) == nil)
+        #expect(RepoExplorerPaneRow.normalizedPullRequestCount(2) == 2)
+    }
+
     @Test("row content accepts primitive unread count")
     func rowContentAcceptsUnreadCount() {
         let view = RepoExplorerWorktreeRowContent(
@@ -166,6 +207,11 @@ struct RepoExplorerWorktreeRowTests {
         #expect(paneNavigationSource.contains("SidebarMetadataLine("))
         #expect(paneNavigationSource.contains("iconSystemName: \"terminal\""))
         #expect(paneNavigationSource.contains("text: row.secondaryText"))
+        #expect(paneNavigationSource.contains("AppStyles.Shell.Sidebar.rowContentSpacing"))
+        #expect(!paneNavigationSource.contains("SidebarChip("))
+        #expect(!paneNavigationSource.contains("text: \"Active\""))
+        #expect(paneNavigationSource.contains("normalizedPullRequestCount(pullRequestCount)"))
+        #expect(paneNavigationSource.contains("Text(\"·\")"))
         #expect(
             worktreeRowSource.contains(
                 """
@@ -174,6 +220,23 @@ struct RepoExplorerWorktreeRowTests {
                 """
             )
         )
+    }
+
+    @Test("pane rows use By Repo rhythm, indent, and group-container color")
+    func paneRowsMatchByRepoChromeAndTabGroupColor() throws {
+        let explorerViewSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            encoding: .utf8
+        )
+        let appEntityIconSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/AppEntityIcon.swift",
+            encoding: .utf8
+        )
+
+        #expect(explorerViewSource.contains("leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset"))
+        #expect(explorerViewSource.contains("pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId"))
+        #expect(appEntityIconSource.contains("case .tabGroup:"))
+        #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.mutedPrimaryAccentColor"))
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

@@ -105,6 +105,36 @@ struct RepoExplorerWorktreeRowContent: View {
         )
     }
 
+    static func shouldShowDiffChip(branchStatus: GitBranchStatus) -> Bool {
+        branchStatus.isDirty || branchStatus.linesAdded > 0 || branchStatus.linesDeleted > 0
+    }
+
+    static func shouldShowSyncChip(branchStatus: GitBranchStatus) -> Bool {
+        switch branchStatus.syncState {
+        case .ahead(let count):
+            return count > 0
+        case .behind(let count):
+            return count > 0
+        case .diverged(let ahead, let behind):
+            return ahead > 0 || behind > 0
+        case .unknown:
+            return true
+        case .synced, .noUpstream:
+            return false
+        }
+    }
+
+    static func shouldShowPullRequestChip(branchStatus: GitBranchStatus) -> Bool {
+        branchStatus.prCount != 0
+    }
+
+    private var hasStatusMetadata: Bool {
+        Self.shouldShowDiffChip(branchStatus: branchStatus)
+            || Self.shouldShowSyncChip(branchStatus: branchStatus)
+            || Self.shouldShowPullRequestChip(branchStatus: branchStatus)
+            || Self.shouldShowUnreadPill(unreadCount: unreadCount)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -184,44 +214,52 @@ struct RepoExplorerWorktreeRowContent: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-                SidebarDiffChip(
-                    octiconLoader: octiconLoader,
-                    linesAdded: lineDiffCounts.added,
-                    linesDeleted: lineDiffCounts.deleted,
-                    showsDirtyIndicator: branchStatus.isDirty,
-                    isMuted: lineDiffCounts.added == 0 && lineDiffCounts.deleted == 0
-                )
-
-                SidebarStatusSyncChip(
-                    octiconLoader: octiconLoader,
-                    aheadText: syncCounts.ahead,
-                    behindText: syncCounts.behind,
-                    hasSyncSignal: hasSyncSignal
-                )
-
-                let pullRequestChip = Self.pullRequestChipPresentation(prCount: branchStatus.prCount)
-                SidebarChip(
-                    icon: pullRequestChip.icon,
-                    octiconLoader: octiconLoader,
-                    text: pullRequestChip.text,
-                    style: pullRequestChip.usesAccent ? .accent(iconColor) : .neutral
-                )
-
-                if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
-                    Button(action: onUnreadPillTap) {
-                        SidebarChip(
-                            icon: .octicon("octicon-bell"),
+            if hasStatusMetadata {
+                HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
+                    if Self.shouldShowDiffChip(branchStatus: branchStatus) {
+                        SidebarDiffChip(
                             octiconLoader: octiconLoader,
-                            text: "\(unreadCount)",
-                            style: .accent(iconColor)
+                            linesAdded: lineDiffCounts.added,
+                            linesDeleted: lineDiffCounts.deleted,
+                            showsDirtyIndicator: branchStatus.isDirty,
+                            isMuted: lineDiffCounts.added == 0 && lineDiffCounts.deleted == 0
                         )
                     }
-                    .buttonStyle(.plain)
+
+                    if Self.shouldShowSyncChip(branchStatus: branchStatus) {
+                        SidebarStatusSyncChip(
+                            octiconLoader: octiconLoader,
+                            aheadText: syncCounts.ahead,
+                            behindText: syncCounts.behind,
+                            hasSyncSignal: hasSyncSignal
+                        )
+                    }
+
+                    if Self.shouldShowPullRequestChip(branchStatus: branchStatus) {
+                        let pullRequestChip = Self.pullRequestChipPresentation(prCount: branchStatus.prCount)
+                        SidebarChip(
+                            icon: pullRequestChip.icon,
+                            octiconLoader: octiconLoader,
+                            text: pullRequestChip.text,
+                            style: pullRequestChip.usesAccent ? .accent(iconColor) : .neutral
+                        )
+                    }
+
+                    if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
+                        Button(action: onUnreadPillTap) {
+                            SidebarChip(
+                                icon: .octicon("octicon-bell"),
+                                octiconLoader: octiconLoader,
+                                text: "\(unreadCount)",
+                                style: .accent(iconColor)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

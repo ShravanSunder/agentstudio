@@ -50,7 +50,6 @@ package typealias BridgeAttendanceSnapshot =
 
 private enum RepoSidebarToolbarTooltipTarget: Hashable {
     case sort
-    case grouping
 }
 
 /// Sidebar content grouped by repository identity (worktree family / remote).
@@ -126,7 +125,6 @@ package struct RepoExplorerView: View {
 
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
-    @State private var groupingMenuOpen = false
     @State private var hasReportedInitialProjection = false
     @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
     @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
@@ -411,7 +409,7 @@ package struct RepoExplorerView: View {
     }
 
     private var activeTooltipTarget: RepoSidebarToolbarTooltipTarget? {
-        groupingMenuOpen ? nil : hoveredTooltipTarget
+        hoveredTooltipTarget
     }
 
     private func updateTooltipTarget(_ target: RepoSidebarToolbarTooltipTarget, isHovered: Bool) {
@@ -426,11 +424,6 @@ package struct RepoExplorerView: View {
             let sortAction = AppCommand.setRepoSidebarSortOrder.definition
             return sortAction.controlTooltipRenderValue(
                 textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
-            )
-        case .grouping:
-            return LocalActionSpec.groupRepoExplorerWorktrees.actionSpec.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
-                textOverride: "Group"
             )
         }
     }
@@ -646,6 +639,9 @@ package struct RepoExplorerView: View {
                         ) {
                             RepoExplorerPaneRow(
                                 row: resolvedPaneContext.row,
+                                pullRequestCount: cachedProjectionResult.branchStatusByWorktreeId[
+                                    resolvedPaneContext.destination.worktreeId
+                                ]?.prCount,
                                 octiconLoader: octiconLoader,
                                 onFocus: { focusPane(resolvedPaneContext.destination.paneId) }
                             )
@@ -1068,7 +1064,6 @@ extension RepoExplorerView {
             nextSortOrder: nextSortOrder,
             snapshot: commandPresentationSnapshot
         )
-        let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
         let presentedGroupingModes = RepoExplorerGroupingMode.allCases.filter { groupingMode in
             commandPresentation.command(groupingCommand(for: groupingMode)) != nil
         }
@@ -1105,55 +1100,36 @@ extension RepoExplorerView {
             if !presentedGroupingModes.isEmpty {
                 SidebarToolbarDivider()
 
-                SidebarToolbarGroupingButton(
-                    label: groupingAction.label,
-                    selectionLabel: repoExplorerPrefs.groupingMode.title,
-                    accessibilityIdentifier: "repoSidebarGroupingButton",
-                    tooltipValue: groupingAction.controlTooltipRenderValue(
-                        provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
-                        textOverride: "Group"
-                    ),
-                    isOpen: groupingMenuOpen,
-                    tooltipTarget: RepoSidebarToolbarTooltipTarget.grouping,
-                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
-                    frameAccessibilityIdentifier: "repoSidebarGroupingButtonFrame",
-                    onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
-                    action: {
-                        groupingMenuOpen.toggle()
+                SidebarToolbarSegmentedControl(
+                    segments: presentedGroupingModes.map { groupingMode in
+                        let command = presentedGroupingCommand(
+                            for: groupingMode,
+                            in: commandPresentation
+                        )
+                        return SidebarToolbarSegment(
+                            value: groupingMode,
+                            label: groupingMode.title,
+                            accessibilityIdentifier: "repoSidebarGroupingSegment.\(groupingMode.rawValue)",
+                            tooltipValue: command.commandSpec.controlTooltipRenderValue(
+                                textOverride: groupingMode.title
+                            ),
+                            isEnabled: command.isEnabled
+                        )
                     },
-                )
-                .disabled(
-                    !presentedGroupingModes.contains { groupingMode in
-                        commandPresentation.command(groupingCommand(for: groupingMode))?.isEnabled == true
+                    selection: repoExplorerPrefs.groupingMode,
+                    icon: { groupingMode in
+                        groupingModeIcon(for: groupingMode).swiftUIImage(
+                            loader: octiconLoader,
+                            size: AppStyles.General.Icon.compact
+                        )
+                    },
+                    onSelect: { groupingMode in
+                        let command = groupingCommand(for: groupingMode)
+                        guard commandPresentation.command(command)?.isEnabled == true else { return }
+                        commandDispatcher.dispatch(command)
                     }
                 )
-                .popover(isPresented: $groupingMenuOpen) {
-                    SidebarGroupingPopover(
-                        items: presentedGroupingModes,
-                        selectedItem: repoExplorerPrefs.groupingMode,
-                        icon: { groupingMode in
-                            presentedGroupingCommand(
-                                for: groupingMode,
-                                in: commandPresentation
-                            ).commandSpec.icon.swiftUIImage(
-                                loader: octiconLoader,
-                                size: AppStyles.General.Icon.compact
-                            )
-                        },
-                        label: { groupingMode in
-                            groupingMode.title
-                        },
-                        onSelect: { candidate in
-                            let command = groupingCommand(for: candidate)
-                            guard commandPresentation.command(command)?.isEnabled == true else {
-                                return
-                            }
-                            commandDispatcher.dispatch(command)
-                            groupingMenuOpen = false
-                        },
-                        onDismiss: { groupingMenuOpen = false }
-                    )
-                }
+                .accessibilityIdentifier("repoSidebarGroupingControl")
             }
         }
         .background(

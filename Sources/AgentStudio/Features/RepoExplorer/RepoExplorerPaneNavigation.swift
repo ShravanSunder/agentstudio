@@ -12,10 +12,16 @@ package struct RepoExplorerPanePresentation: Identifiable {
 
 struct RepoExplorerPaneRow: View {
     let row: RepoExplorerProjectedPaneRow
+    let pullRequestCount: Int?
     let octiconLoader: OcticonLoader
     let onFocus: () -> Void
 
     @State private var isHovering = false
+
+    static func normalizedPullRequestCount(_ pullRequestCount: Int?) -> Int? {
+        guard let pullRequestCount, pullRequestCount > 0 else { return nil }
+        return pullRequestCount
+    }
 
     var body: some View {
         Button(action: onFocus) {
@@ -35,50 +41,62 @@ struct RepoExplorerPaneRow: View {
                             .layoutPriority(1)
                             .foregroundStyle(.primary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        if row.isActive {
-                            Circle()
-                                .fill(Color.accentColor)
-                                .frame(
-                                    width: AppStyles.Shell.Sidebar.activePaneMarkerSize,
-                                    height: AppStyles.Shell.Sidebar.activePaneMarkerSize
-                                )
-                                .accessibilityHidden(true)
-                        }
+                        trailingMetadata
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     SidebarMetadataLine(iconSystemName: "terminal", text: row.secondaryText)
-                    if row.recencyText != nil || row.isActive {
-                        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
-                            if let recencyText = row.recencyText {
-                                SidebarChip(
-                                    icon: .system(.clock),
-                                    octiconLoader: octiconLoader,
-                                    text: recencyText,
-                                    style: .neutral
-                                )
-                            }
-                            if row.isActive {
-                                SidebarChip(
-                                    icon: .system(.circleFill),
-                                    octiconLoader: octiconLoader,
-                                    text: "Active",
-                                    style: .accent(.accentColor)
-                                )
-                            }
-                        }
-                        .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
                 }
             }
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .accessibilityLabel(
-            [row.primaryText, row.secondaryText, row.recencyText, row.isActive ? "Active" : nil]
-                .compactMap { $0 }
-                .joined(separator: ", ")
+            [
+                row.primaryText,
+                row.secondaryText,
+                Self.normalizedPullRequestCount(pullRequestCount).map { "\($0) pull requests" },
+                row.recencyText,
+                row.isActive ? "Active" : nil,
+            ]
+            .compactMap { $0 }
+            .joined(separator: ", ")
         )
+    }
+
+    @ViewBuilder
+    private var trailingMetadata: some View {
+        let normalizedPullRequestCount = Self.normalizedPullRequestCount(pullRequestCount)
+        HStack(spacing: AppStyles.General.Spacing.tight) {
+            if let normalizedPullRequestCount {
+                HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
+                    OcticonImage(
+                        name: "octicon-git-pull-request",
+                        size: AppStyles.Shell.Sidebar.chipIconSize,
+                        loader: octiconLoader
+                    )
+                    Text("\(normalizedPullRequestCount)")
+                }
+            }
+            if normalizedPullRequestCount != nil {
+                Text("·")
+            }
+            Text(row.recencyText)
+            if row.isActive {
+                Text("·")
+            }
+            if row.isActive {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(
+                        width: AppStyles.Shell.Sidebar.activePaneMarkerSize,
+                        height: AppStyles.Shell.Sidebar.activePaneMarkerSize
+                    )
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium).monospacedDigit())
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: true, vertical: true)
     }
 }
 

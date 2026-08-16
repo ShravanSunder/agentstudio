@@ -195,11 +195,13 @@ package struct SidebarDiffChip: View {
                     SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
             }
 
-            HStack(spacing: AppStyles.General.Spacing.tight) {
-                Text("+\(linesAdded)")
-                    .foregroundStyle(plusColor)
-                Text("-\(linesDeleted)")
-                    .foregroundStyle(minusColor)
+            if linesAdded > 0 || linesDeleted > 0 {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Text("+\(linesAdded)")
+                        .foregroundStyle(plusColor)
+                    Text("-\(linesDeleted)")
+                        .foregroundStyle(minusColor)
+                }
             }
         }
         .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())

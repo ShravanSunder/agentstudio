@@ -166,6 +166,9 @@ package enum AppStyles {
                 package static let hoverFillOpacity = AppStyles.General.Fill.hover
                 package static let pressedFillOpacity = AppStyles.General.Fill.pressed
                 package static let activeFillOpacity = AppStyles.General.Fill.active
+                package static let segmentedControlSpacing: CGFloat = 1
+                package static let segmentedControlPadding: CGFloat = 2
+                package static let segmentedControlSelectedFillOpacity: CGFloat = 0.68
                 package static let groupingContentSpacing = AppStyles.General.Spacing.tight
                 package static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
                 package static let groupingLabelMinimumWidth: CGFloat = 32
@@ -189,6 +192,7 @@ package enum AppStyles {
             package static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             package static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             package static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
+            package static let mutedPrimaryAccentColor = Color(red: 0.38, green: 0.57, blue: 0.78)
             package static let accentPaletteHexes: [String] = [
                 "#F5C451",
                 "#58C4FF",
@@ -197,7 +201,6 @@ package enum AppStyles {
                 "#FB923C",
                 "#F472B6",
             ]
-
             package static func paletteColor(at index: Int) -> Color {
                 let hex =
                     accentPaletteHexes.indices.contains(index)

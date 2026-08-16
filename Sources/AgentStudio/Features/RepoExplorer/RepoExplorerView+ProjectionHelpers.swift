@@ -14,6 +14,38 @@ struct RepoExplorerProjectionRequestKey: Equatable {
 }
 
 extension RepoExplorerView {
+    static func paneSecondaryText(
+        liveTitle: String,
+        cwd: URL?,
+        shellExecutablePath: String?
+    ) -> String {
+        let normalizedTitle = liveTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwdPath = cwd?.standardizedFileURL.path
+        let titleIsPathShaped =
+            normalizedTitle.hasPrefix("/")
+            || normalizedTitle.hasPrefix("~")
+            || normalizedTitle.hasPrefix("…/")
+            || normalizedTitle.hasPrefix(".../")
+        let titleMatchesCWD =
+            cwdPath.map { cwdPath in
+                normalizedTitle == cwdPath || normalizedTitle.hasPrefix("\(cwdPath)/")
+            } ?? false
+        guard normalizedTitle.isEmpty || titleIsPathShaped || titleMatchesCWD else {
+            return normalizedTitle
+        }
+
+        let shellName = shellExecutablePath.flatMap { shellExecutablePath -> String? in
+            let lastPathComponent = URL(fileURLWithPath: shellExecutablePath).lastPathComponent
+            return lastPathComponent.isEmpty ? nil : lastPathComponent
+        }
+        let cwdLeaf = cwd.flatMap { cwd -> String? in
+            let lastPathComponent = cwd.lastPathComponent
+            return lastPathComponent.isEmpty ? nil : lastPathComponent
+        }
+        let fallbackParts = [shellName, cwdLeaf].compactMap { $0 }
+        return fallbackParts.isEmpty ? "Terminal" : fallbackParts.joined(separator: " — ")
+    }
+
     static func measureRowBodyEvaluationProxy<Content>(
         rowKind: RepoExplorerRowKind,
         nowNanoseconds: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
@@ -200,21 +232,24 @@ extension RepoExplorerView {
         return Dictionary(
             uniqueKeysWithValues: workspaceTab.tabs.flatMap(\.allPaneIds).compactMap { paneId -> PaneRowFactsEntry? in
                 guard let pane = store.paneAtom.pane(paneId) else { return nil }
-                let title = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                let cwdLeaf = pane.metadata.facets.cwd?.lastPathComponent ?? ""
-                let terminalTitle =
-                    title.isEmpty
-                    ? (cwdLeaf.isEmpty ? "shell" : "shell — \(cwdLeaf)")
-                    : title
+                let terminalTitle = Self.paneSecondaryText(
+                    liveTitle: pane.title,
+                    cwd: pane.metadata.facets.cwd,
+                    shellExecutablePath: pane.metadata.contentType == .terminal
+                        ? SessionConfiguration.defaultShell()
+                        : nil
+                )
                 let lastInteractedAt = lastInteractionByPaneId[paneId]
+                let recencyReferenceDate = lastInteractedAt ?? pane.metadata.createdAt
                 return (
                     paneId,
                     RepoExplorerPaneRowFacts(
                         terminalTitle: terminalTitle,
                         lastInteractedAt: lastInteractedAt,
-                        recencyText: lastInteractedAt.map {
-                            RepoExplorerPaneRecencyText.display(lastInteractedAt: $0, now: now)
-                        },
+                        recencyText: RepoExplorerPaneRecencyText.display(
+                            lastInteractedAt: recencyReferenceDate,
+                            now: now
+                        ),
                         isActive: activePaneIds.contains(paneId)
                     )
                 )
@@ -385,7 +420,7 @@ extension RepoExplorerView {
 
         let projectedPaneRowsFingerprint = projection.paneRowsByGroupId.keys.sorted().map { groupId in
             let rows = projection.paneRowsByGroupId[groupId, default: []].map { row in
-                "\(row.groupId):\(row.rowId):\(row.primaryText):\(row.secondaryText):\(row.recencyText ?? ""):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
+                "\(row.groupId):\(row.rowId):\(row.primaryText):\(row.secondaryText):\(row.recencyText):\(row.isActive):\(paneDestinationFingerprint(row.destination))"
             }.joined(separator: ",")
             return "\(groupId):\(rows)"
         }.joined(separator: "|")

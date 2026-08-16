@@ -106,6 +106,73 @@ private func repoExplorerProjectionRequestKey(
 @MainActor
 @Suite("RepoExplorerViewProjectionHelperTests")
 struct RepoExplorerViewProjectionHelperTests {
+    @Test("pane secondary text keeps activity titles and rejects path-shaped titles")
+    func paneSecondaryTextUsesShortFallbackVocabulary() {
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "  tests running  ",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "tests running"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh — Sources"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: nil
+            ) == "Sources"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "",
+                cwd: nil,
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "/tmp/agent-studio/Sources",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh — Sources"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "~/Documents/dev/agent-studio",
+                cwd: URL(filePath: "/Users/test/Documents/dev/agent-studio"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh — agent-studio"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "…/dev/project-dev/agent-studio",
+                cwd: URL(filePath: "/Users/test/Documents/dev/project-dev/agent-studio"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh — agent-studio"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: ".../dev/project-dev/agent-studio",
+                cwd: URL(filePath: "/Users/test/Documents/dev/project-dev/agent-studio"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "zsh — agent-studio"
+        )
+        #expect(
+            RepoExplorerView.paneSecondaryText(
+                liveTitle: "tests running",
+                cwd: URL(filePath: "/tmp/agent-studio/Sources"),
+                shellExecutablePath: "/bin/zsh"
+            ) == "tests running"
+        )
+    }
+
     @Test("timeout-only repo enrichment wakes capture and changes scanning projection")
     func timeoutOnlyRepoEnrichmentWakesAndChangesProjection() {
         let repoCache = RepoCacheAtom()

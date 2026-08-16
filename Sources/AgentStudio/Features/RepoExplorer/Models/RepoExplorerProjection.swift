@@ -190,7 +190,7 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
     let rowId: String
     let primaryText: String
     let secondaryText: String
-    let recencyText: String?
+    let recencyText: String
     let isActive: Bool
 
     init(
@@ -200,7 +200,7 @@ struct RepoExplorerProjectedPaneRow: Equatable, Sendable {
         rowId: String,
         primaryText: String = "",
         secondaryText: String = "",
-        recencyText: String? = nil,
+        recencyText: String = "Now",
         isActive: Bool = false
     ) {
         self.groupId = groupId
@@ -663,7 +663,7 @@ enum RepoExplorerProjection {
                     primaryText: panePrimaryText(destination),
                     secondaryText: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
                         ?? destination.paneDisplayLabel,
-                    recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText,
+                    recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText ?? "Now",
                     isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false
                 )
             }
@@ -802,7 +802,7 @@ enum RepoExplorerProjection {
                     primaryText: "Pane \(destination.paneIndexInTab + 1)",
                     secondaryText: paneRowFactsByPaneId[destination.paneId]?.terminalTitle
                         ?? destination.paneDisplayLabel,
-                    recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText,
+                    recencyText: paneRowFactsByPaneId[destination.paneId]?.recencyText ?? "Now",
                     isActive: paneRowFactsByPaneId[destination.paneId]?.isActive ?? false
                 )
             }

@@ -103,13 +103,13 @@ struct RepoExplorerPaneProjectionTests {
                 firstPaneId: .init(
                     terminalTitle: "first terminal",
                     lastInteractedAt: nil,
-                    recencyText: nil,
+                    recencyText: "Now",
                     isActive: true
                 ),
                 secondPaneId: .init(
                     terminalTitle: "second terminal",
                     lastInteractedAt: nil,
-                    recencyText: nil,
+                    recencyText: "Now",
                     isActive: false
                 ),
             ],
