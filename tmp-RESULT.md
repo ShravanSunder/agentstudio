@@ -1,6 +1,40 @@
 # RESULT: Sidebar grouping polish and round 3
 
-Status: implementation, automated proof, native gallery, measured spacing comparison, persistence restart, and marker-scoped runtime verification are complete on the current source commit. The branch remains attached to draft PR #296 and must not be merged from this task.
+Status: the toggle-refinement implementation, automated proof, three selected-state captures, By Repo unknown-sync suppression capture, and marker-scoped runtime verification are complete on the current source. The requested visible native tooltip capture is blocked because Computer Use provides no pointer-hover action; the typed tooltip contract is verified in source and tests. The branch remains attached to draft PR #296 and must not be merged from this task.
+
+## 2026-08-16 toggle refinement round
+
+### Delivered behavior
+
+- Selected grouping segments now use the shared primary chrome-toolbar foreground, fill, and stroke palette. Unselected segments use the same palette's standard icon foreground. The muted-primary blue token remains confined to By Tab group-header icons.
+- The selected segment expands to its icon plus `By Repo`, `All Panes`, or `By Tab`; unselected segments remain icon-only. Selection changes use the app's standard ease-in-out duration.
+- Every mode continues through the typed `.controlHelp(segment.tooltipValue)` contract, with `textOverride: groupingMode.title`, so the tooltip names the exact mode.
+- By Repo now suppresses `.unknown` sync metadata instead of rendering `↑?·↓?` on every unknown row.
+
+### Red/green and quality proof
+
+- Red-first focused run: exit 1; the mounted controls had equal widths, the segmented control still used its private selected-fill token, and `.unknown` still returned `true` for sync-chip presentation.
+- Final focused command: `swift test --build-path .build-agent-1 --filter 'SidebarToolbarControlVisualStateTests|RepoExplorerWorktreeRowTests|SidebarSurfaceConvergenceTests|AppCommandSidebarCommandsTests' --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests`.
+- Final focused result: exit 0; 35 tests in 4 suites passed.
+- `mise run format`: exit 0.
+- `mise run lint`: exit 0; swift-format passed, SwiftLint reported 0 violations across 2,032 files, architecture lint passed, and release-script verification passed.
+- Current-source full gate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` exited 0 in 297.02 seconds. BridgeWeb unit, integration, browser, packaged E2E, Swift, serialized WebKit, and general E2E lanes passed.
+- Two unchanged full-gate attempts first exposed a Bridge development-server integration timeout. The exact isolated test reproduced once, then passed in 1.45 seconds; the next unchanged complete gate passed. No Bridge source or configuration was changed.
+- `git diff --check`: exit 0.
+
+### Current-source Computer Use proof
+
+- Exact app: `Agent Studio Debug jp6s` (`com.agentstudio.app.debug.djp6s`), PID `99956`, marker `debug-observability-jp6s-1786895858-97734`.
+- Accessibility inspection confirmed exactly one selected mode at a time and the selected labels `By Repo`, `All Panes`, and `By Tab`.
+- By Repo accessibility rows contained no `↑?·↓?` text, and the captured unknown-sync rows rendered no chip.
+- `mise run verify-debug-observability` exited 0 for the exact launch: LaunchServices, background activation, authenticated IPC, and `app.did_finish_launching.succeeded` from VictoriaLogs.
+- Exact PID `99956` was terminated after capture and confirmed absent. No other AgentStudio process was touched.
+- Fresh current-source captures under `tmp-screenshots/toggle/`:
+  - `01-by-repo-selected.png`
+  - `02-all-panes-selected.png`
+  - `03-by-tab-selected.png`
+  - `05-by-repo-no-unknown-sync-chips.png`
+- Tooltip visual-proof boundary: Computer Use exposes click and completed drag actions but no mouse-move or held-hover action. Those actions did not reveal the native macOS help tag, so no tooltip screenshot is claimed. Adding a product-specific tooltip overlay solely to work around the proof tool would violate the app's typed native tooltip ownership. The automated contract check proves that every segment remains wired through the typed source with its mode title.
 
 ## Delivered behavior
 

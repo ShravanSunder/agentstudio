@@ -7,7 +7,7 @@ import Testing
 @MainActor
 @Suite("RepoExplorerWorktreeRow")
 struct RepoExplorerWorktreeRowTests {
-    @Test("By Repo hides clean synced zero metadata while retaining unknown facts")
+    @Test("By Repo hides clean synced, no-upstream, and unknown sync metadata")
     func byRepoMetadataUsesZeroSuppression() {
         let cleanSynced = GitBranchStatus(
             isDirty: false,
@@ -35,7 +35,7 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: cleanSynced))
         #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: cleanSynced))
         #expect(!RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: noUpstream))
-        #expect(RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: .unknown))
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: .unknown))
         #expect(RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: dirtyAheadWithPullRequests))
         #expect(RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: dirtyAheadWithPullRequests))
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: dirtyAheadWithPullRequests))

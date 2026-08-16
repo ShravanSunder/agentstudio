@@ -51,9 +51,30 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
                 Button {
                     onSelect(segment.value)
                 } label: {
-                    SidebarToolbarIcon {
+                    HStack(spacing: AppStyles.Shell.Sidebar.ToolbarControl.groupingContentSpacing) {
                         icon(segment.value)
+                            .frame(
+                                width: AppStyles.General.Button.compact,
+                                height: AppStyles.General.Button.compact
+                            )
+
+                        if isSelected {
+                            Text(segment.label)
+                                .font(
+                                    .system(
+                                        size: AppStyles.General.Typography.textXs,
+                                        weight: .medium
+                                    )
+                                )
+                                .lineLimit(1)
+                                .padding(
+                                    .trailing,
+                                    AppStyles.Shell.Sidebar.ToolbarControl.groupingHorizontalPadding
+                                )
+                        }
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(SidebarToolbarSegmentButtonStyle(isSelected: isSelected))
                 .disabled(!segment.isEnabled)
@@ -68,6 +89,7 @@ package struct SidebarToolbarSegmentedControl<Value: Hashable, Icon: View>: View
             RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
                 .fill(Color.primary.opacity(AppStyles.Shell.Sidebar.ToolbarControl.hoverFillOpacity))
         )
+        .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: selection)
     }
 }
 
@@ -92,25 +114,34 @@ private struct SidebarToolbarSegmentButtonStyleBody: View {
 
     var body: some View {
         configuration.label
+            .foregroundStyle(
+                ChromeToolbarControlPalette.foregroundColor(
+                    isSelected: isSelected,
+                    isHovered: isHovered
+                )
+            )
             .background(
                 RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
-                    .fill(fillColor(isPressed: configuration.isPressed))
+                    .fill(
+                        ChromeToolbarControlPalette.fillColor(
+                            isSelected: isSelected,
+                            isHovered: isHovered,
+                            isPressed: configuration.isPressed
+                        )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
+                            .stroke(
+                                ChromeToolbarControlPalette.strokeColor(
+                                    isSelected: isSelected,
+                                    isHovered: isHovered,
+                                    isPressed: configuration.isPressed
+                                ),
+                                lineWidth: 1
+                            )
+                    )
             )
             .opacity(isEnabled ? 1 : AppStyles.Shell.Sidebar.ToolbarControl.disabledOpacity)
             .onHover { isHovered = $0 }
-    }
-
-    private func fillColor(isPressed: Bool) -> Color {
-        if isSelected {
-            return Color.accentColor.opacity(
-                AppStyles.Shell.Sidebar.ToolbarControl.segmentedControlSelectedFillOpacity
-            )
-        }
-        if isPressed {
-            return Color.primary.opacity(AppStyles.Shell.Sidebar.ToolbarControl.pressedFillOpacity)
-        }
-        return Color.primary.opacity(
-            isHovered ? AppStyles.Shell.Sidebar.ToolbarControl.hoverFillOpacity : 0
-        )
     }
 }

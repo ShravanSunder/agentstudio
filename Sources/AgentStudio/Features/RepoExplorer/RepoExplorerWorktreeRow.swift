@@ -117,9 +117,7 @@ struct RepoExplorerWorktreeRowContent: View {
             return count > 0
         case .diverged(let ahead, let behind):
             return ahead > 0 || behind > 0
-        case .unknown:
-            return true
-        case .synced, .noUpstream:
+        case .synced, .noUpstream, .unknown:
             return false
         }
     }

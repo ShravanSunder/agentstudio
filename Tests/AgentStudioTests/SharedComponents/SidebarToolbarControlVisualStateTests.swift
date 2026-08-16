@@ -1,9 +1,50 @@
+import AgentStudioInfrastructure
+import AppKit
+import SwiftUI
 import Testing
 
 @testable import AgentStudioSharedComponents
 
 @Suite("Sidebar toolbar control visual state")
 struct SidebarToolbarControlVisualStateTests {
+    @Test("selected segment expands to show its label")
+    @MainActor
+    func selectedSegmentExpandsToShowItsLabel() {
+        let repoWidth = mountedSegmentedControlWidth(selection: 0)
+        let allPanesWidth = mountedSegmentedControlWidth(selection: 1)
+
+        #expect(allPanesWidth > repoWidth)
+    }
+
+    @Test("segmented control uses the shared primary chrome palette")
+    func segmentedControlUsesSharedPrimaryChromePalette() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
+            encoding: .utf8
+        )
+
+        #expect(source.contains("ChromeToolbarControlPalette.foregroundColor"))
+        #expect(source.contains("ChromeToolbarControlPalette.fillColor"))
+        #expect(source.contains("ChromeToolbarControlPalette.strokeColor"))
+        #expect(!source.contains("segmentedControlSelectedFillOpacity"))
+        #expect(!source.contains("mutedPrimaryAccentColor"))
+    }
+
+    @Test("segmented control renders typed mode-name tooltips")
+    func segmentedControlRendersTypedModeNameTooltips() throws {
+        let controlSource = try String(
+            contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
+            encoding: .utf8
+        )
+        let repoExplorerSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            encoding: .utf8
+        )
+
+        #expect(controlSource.contains(".controlHelp(segment.tooltipValue)"))
+        #expect(repoExplorerSource.contains("textOverride: groupingMode.title"))
+    }
+
     @Test("interaction state precedence is disabled pressed open active hovered idle")
     func interactionStatePrecedence() {
         #expect(resolve(isEnabled: false, isHovered: true, isPressed: true, isActive: true, isOpen: true) == .disabled)
@@ -42,5 +83,43 @@ struct SidebarToolbarControlVisualStateTests {
             isActive: isActive,
             isOpen: isOpen
         )
+    }
+
+    @MainActor
+    private func mountedSegmentedControlWidth(selection: Int) -> CGFloat {
+        let segments = [
+            SidebarToolbarSegment(
+                value: 0,
+                label: "By Repo",
+                accessibilityIdentifier: "byRepo",
+                tooltipValue: ControlTooltipRenderValue(text: "By Repo", shortcutDisplayText: nil),
+                isEnabled: true
+            ),
+            SidebarToolbarSegment(
+                value: 1,
+                label: "All Panes",
+                accessibilityIdentifier: "allPanes",
+                tooltipValue: ControlTooltipRenderValue(text: "All Panes", shortcutDisplayText: nil),
+                isEnabled: true
+            ),
+            SidebarToolbarSegment(
+                value: 2,
+                label: "By Tab",
+                accessibilityIdentifier: "byTab",
+                tooltipValue: ControlTooltipRenderValue(text: "By Tab", shortcutDisplayText: nil),
+                isEnabled: true
+            ),
+        ]
+        let hostingView = NSHostingView(
+            rootView: SidebarToolbarSegmentedControl(
+                segments: segments,
+                selection: selection,
+                icon: { _ in Image(systemName: "folder") },
+                onSelect: { _ in }
+            )
+        )
+        hostingView.frame = CGRect(origin: .zero, size: hostingView.fittingSize)
+        hostingView.layoutSubtreeIfNeeded()
+        return hostingView.fittingSize.width
     }
 }

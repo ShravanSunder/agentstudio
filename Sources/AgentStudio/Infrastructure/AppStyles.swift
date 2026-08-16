@@ -168,7 +168,6 @@ package enum AppStyles {
                 package static let activeFillOpacity = AppStyles.General.Fill.active
                 package static let segmentedControlSpacing: CGFloat = 1
                 package static let segmentedControlPadding: CGFloat = 2
-                package static let segmentedControlSelectedFillOpacity: CGFloat = 0.68
                 package static let groupingContentSpacing = AppStyles.General.Spacing.tight
                 package static let groupingHorizontalPadding = AppStyles.General.Spacing.standard
                 package static let groupingLabelMinimumWidth: CGFloat = 32
