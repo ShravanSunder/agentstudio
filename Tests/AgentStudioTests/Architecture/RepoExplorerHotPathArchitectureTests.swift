@@ -35,7 +35,7 @@ struct RepoExplorerHotPathArchitectureTests {
         )
 
         #expect(source.contains("RepoExplorerRowIndex"))
-        #expect(source.contains("RepoExplorerProjectionAdapter()"))
+        #expect(source.contains("RepoExplorerProjectionAdapter("))
         #expect(!source.contains("private var sidebarProjection: SidebarProjection"))
         #expect(!source.contains("private var sidebarRowIndex: RepoExplorerRowIndex"))
         #expect(!source.contains("private func resolvedWorktreeContext("))
