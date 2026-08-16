@@ -42,6 +42,11 @@ package enum AppPolicies {
         /// derived/UI reads should never be able to saturate the exporter.
         package static let topologyLookupTraceAdmissionWindow: Duration = .seconds(1)
         package static let topologyLookupTraceAdmissionLimit: Int = 32
+        /// Pane association maintenance is an often lane because terminal CWD
+        /// facts can arrive repeatedly. Shed before the trace queue while
+        /// retaining enough outcome samples to diagnose association churn.
+        package static let paneAssociationTraceAdmissionWindow: Duration = .seconds(1)
+        package static let paneAssociationTraceAdmissionLimit: Int = 64
         /// Downstream swift-otel log batch queue. swift-otel drops newly
         /// emitted logs once this fills, so keep it above the app trace event
         /// queue and let the app-side queue remain the oldest-shedding layer.

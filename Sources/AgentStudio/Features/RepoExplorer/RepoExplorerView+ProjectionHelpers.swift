@@ -145,6 +145,13 @@ extension RepoExplorerView {
             workspaceTab: workspaceTab,
             declaredWorktreeIDs: Set(repos.flatMap(\.worktrees).map(\.id))
         )
+        let associatedPaneIds = Set(paneLocationsByWorktreeId.values.flatMap { $0 }.map(\.paneId))
+        let unassociatedPaneLocations = Self.unassociatedPaneLocations(
+            repositoryTopology: store.repositoryTopologyAtom,
+            workspacePane: store.paneAtom,
+            workspaceTab: workspaceTab,
+            associatedPaneIds: associatedPaneIds
+        )
         return RepoExplorerSnapshot(
             repos: repos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId,
@@ -152,10 +159,50 @@ extension RepoExplorerView {
             sortOrder: sortOrder,
             query: query,
             paneLocationsByWorktreeId: paneLocationsByWorktreeId,
+            unassociatedPaneLocations: unassociatedPaneLocations,
             bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId(
                 paneLocationsByWorktreeId: paneLocationsByWorktreeId
             )
         )
+    }
+
+    static func unassociatedPaneLocations(
+        repositoryTopology: RepositoryTopologyAtom,
+        workspacePane: WorkspacePaneAtom,
+        workspaceTab: WorkspaceTabLayoutDerived,
+        associatedPaneIds: Set<UUID>
+    ) -> [WorkspacePaneLocation] {
+        var locations: [WorkspacePaneLocation] = []
+        var seenPaneIds = Set<UUID>()
+
+        for (tabIndex, tab) in workspaceTab.tabs.enumerated() {
+            for paneId in tab.allPaneIds {
+                guard seenPaneIds.insert(paneId).inserted, !associatedPaneIds.contains(paneId),
+                    let paneFacts = workspacePane.graphAtom.paneStructuralFacts(paneId),
+                    paneFacts.residency == .active,
+                    repositoryTopology.validatedAssociation(
+                        repoId: paneFacts.repoID,
+                        worktreeId: paneFacts.worktreeID
+                    ) == nil
+                else { continue }
+
+                let paneIndexInTab =
+                    tab.activePaneIds.firstIndex(of: paneId)
+                    ?? tab.allPaneIds.firstIndex(of: paneId)
+                    ?? 0
+                locations.append(
+                    WorkspacePaneLocation(
+                        paneId: paneId,
+                        tabId: tab.id,
+                        tabIndex: tabIndex,
+                        paneIndexInTab: paneIndexInTab,
+                        isActiveInTab: tab.activePaneId == paneId
+                    )
+                )
+            }
+        }
+
+        return locations
     }
 
     func bridgePaneCommandCandidatesByWorktreeId(
@@ -289,7 +336,11 @@ extension RepoExplorerView {
             let loadingRepos = section.loadingRepos.map { repo in
                 "\(repo.id.uuidString):\(repo.isFavorite)"
             }.joined(separator: ",")
-            return "\(sectionIndex):\(section.kind.rawValue):\(resolvedGroups):\(loadingRepos)"
+            let unassociatedPanes = section.unassociatedPaneDestinations.map { destination in
+                "\(destination.paneId.uuidString):\(destination.tabId.uuidString):\(destination.tabIndex):\(destination.paneIndexInTab):\(destination.isActiveInTab)"
+            }.joined(separator: ",")
+            return
+                "\(sectionIndex):\(section.kind.rawValue):\(resolvedGroups):\(loadingRepos):\(unassociatedPanes)"
         }
         .joined(separator: "|")
 

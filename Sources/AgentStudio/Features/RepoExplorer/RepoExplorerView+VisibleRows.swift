@@ -350,6 +350,7 @@ extension RepoExplorerListEntry {
         case .resolvedGroupHeader: .resolvedGroupHeader
         case .resolvedWorktreeRow: .resolvedWorktree
         case .resolvedPaneRow: .resolvedPane
+        case .unassociatedPaneRow: .resolvedPane
         case .topologyFault: .topologyFault
         }
     }
@@ -371,6 +372,7 @@ enum RepoExplorerVisibleRows {
             case .resolvedWorktreeRow(_, _, let worktreeId, _):
                 result.insert(worktreeId)
             case .sectionHeader, .loadingSectionHeader, .loadingRepoRow, .resolvedPaneRow,
+                .unassociatedPaneRow,
                 .resolvedGroupHeader,
                 .topologyFault:
                 break
