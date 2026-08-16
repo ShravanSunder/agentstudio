@@ -510,7 +510,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 AnyView(NewTabButton())
             }
 
-        let hostingView = ToolbarControlHostingView(rootView: content)
+        let hostingView = ToolbarControlHostingView(
+            rootView: AnyView(content.tint(AppStyles.General.Accent.primaryColor)))
         hostingView.identifier = control.viewIdentifier
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.safeAreaRegions = []
