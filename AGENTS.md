@@ -424,6 +424,21 @@ shadcn primitives, but it must not replace them with one-off custom controls.
 For BridgeViewer specifically, FileViewer and ReviewViewer controls with the
 same interaction semantics must share the same primitive layer and visual scale.
 
+BridgeWeb design tokens flow primitives → semantic roles → product contexts.
+`BridgeWeb/src/app/bridge-app.css` is the web source of truth and is correlated
+by convention with native `AppStyles.swift`; read
+[BridgeWeb Design-Token Architecture](docs/architecture/bridgeweb_design_token_architecture.md)
+before changing either side. Feature code uses canonical roles or contexts: do
+not add raw color literals, new `--bridge-*` references, or `dark:` variants.
+Interactive-control geometry belongs in `BridgeWeb/src/components/ui/`, not in
+route-local CSS or utility strings. Before adding a control, reuse an owned
+primitive or add the missing shadcn source there, adapt it to the canonical
+roles and compact scale, and fold upstream appearance variants into the single
+dark branch. To add a token, define its primitive value in the marked CSS
+primitive block, derive a meaning-named role with its one-line comment, register
+that role in `@theme inline` when utilities consume it, and update the checked
+TypeScript palette mirror for every primitive.
+
 Bridge worktree and review git data prepared on the Swift/native side must use
 the repo's `agentstudio-git` library. TypeScript may shell out to `git` only in
 clearly scoped Vite dev-server utilities or test fixture utilities; do not use
