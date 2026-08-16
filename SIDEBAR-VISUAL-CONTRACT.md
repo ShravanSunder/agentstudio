@@ -1,38 +1,36 @@
-# SIDEBAR VISUAL CONTRACT — every round must satisfy ALL items (no exceptions)
+# SIDEBAR REQUIREMENTS — ALL 16 MANDATORY. Regression in any = round fails.
 
-Regression in ANY item fails the round, regardless of what the round added.
+MODES
+1 By Repo unchanged (name, branch line, chips row).
+2 "All Panes": every pane grouped by repo; recency sort in group.
+3 By Tab: panes by tab, tab order; header = tab displayTitle + pane count;
+  tab icon = muted-primary token (not yellow/gray).
 
-## By Repo (the reference mode — DO NOT REGRESS)
-- Worktree rows: star/worktree icon + name; branch line; CHIPS row.
-- Diff chip: dirty ⇒ "● +N -M" WITH counts (red dot + numbers). Clean ⇒ NO
-  diff chip. Never a dot-only pill, never "+0 -0".
-- Sync chip: "↑N ↓M" only when N>0 or M>0. No-upstream/unknown ⇒ NO chip
-  (never dashes or question marks).
-- PR chip: "⑂N" whenever N>0. MUST NOT DISAPPEAR when PRs exist.
-- Refresh indicator per existing behavior.
+PANE ROW — 3 LINES (both pane modes; By Repo text sizes/spacing)
+4 L1 bold: "Pane <n> · <terminal title>"; fallback "Pane <n> · zsh".
+5 L2 dimmed: most recent CONTENT-BEARING inbox notification body for the
+  pane. Never the literal "New terminal activity"; generic-only => dimmed
+  "output activity".
+6 L3 chips (By Repo pill style): [⑂N only if N>0] [time pill ALWAYS]
+  [● active only if focused].
 
-## All Panes / By Tab pane rows (3 lines, locked)
-- L1 bold: "Pane <n> · <title>"; fallback "Pane <n> · zsh".
-- L2 dimmed: last MEANINGFUL inbox message for the pane (content-bearing
-  preferred; generic-activity-only ⇒ dimmed placeholder, never the literal
-  "New terminal activity").
-- L3 chips, By Repo pill style: [⑂N when >0] [time pill] [● active when
-  focused].
-- Group headers: All Panes = repo header identical to By Repo's; By Tab =
-  muted-primary tab icon + tab displayTitle + pane count.
-- Sort: recency within repo groups; tab order for tabs.
+BY REPO CHIPS
+7 diff: dirty => "● +N -M" with counts; untracked-only => "● untracked";
+  clean => no chip. Never dot-alone, never "+0 -0".
+8 sync: "↑N ↓M" only when either >0; unknown/no-upstream => no chip.
+9 PR: "⑂N" whenever N>0. Must never disappear when PRs exist.
 
-## Toolbar
-- Grouping toggle: three icon-only buttons, NO borders/outlines/labels;
-  selected = ACCENT-COLORED icon + standard subtle fill; unselected =
-  secondary. Tooltips via typed contract.
-- Sort button: rotation animates on toggle; no flicker (stable identity).
+TOOLBAR
+10 toggle: 3 icon-only buttons; NO borders/labels; selected =
+   accentColor icon + subtle standard fill; unselected secondary;
+   tooltips all three.
+11 sort: rotation animates, no flicker (stable identity; inbox works).
 
-## Global
-- Mode persisted per window; restored on launch.
-- Empty state per mode when no content.
-- Spacing rhythm identical across all three modes.
-- Every rendered fact = cached read (C1 inventory); no per-row derivation.
+BEHAVIOR
+12 grouping mode persisted per window, restored on launch.
+13 empty state per mode.
+14 spacing rhythm identical across modes.
+15 context menus/commands unchanged.
+16 all row facts = cached reads; no per-row derivation; no path strings.
 
-## Round exit criteria
-Screenshot evidence for EVERY section above, not only the round's changes.
+EXIT: screenshot proof per item, all 16 in ONE build.
