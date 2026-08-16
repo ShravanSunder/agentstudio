@@ -370,7 +370,8 @@ struct CIFastLaneWorkflowTests {
         #expect(ciLargeLaneStep.contains("SWIFT_TEST_NUM_WORKERS: \"4\""))
         #expect(ciLargeLaneStep.contains("_XCB_BYPASS: \"1\""))
         #expect(ciLargeLaneStep.contains("run: mise run --skip-deps --raw test:swift:large"))
-        #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=\"${SWIFT_TEST_NUM_WORKERS:-4}\""))
+        #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=1 run_fast_non_webkit_swift_tests"))
+        #expect(aggregateLaneMode.contains("SWIFT_TEST_NUM_WORKERS=4 run_large_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(aggregateLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(!aggregateLaneMode.contains("run_non_serialized_swift_tests"))
@@ -380,19 +381,47 @@ struct CIFastLaneWorkflowTests {
     func swiftCommandWatchdogMeasuresOutputInactivity() throws {
         let helperScript = try String(contentsOfFile: "scripts/swift-test-helpers.sh", encoding: .utf8)
         let timeoutRunner = try shellFunction(named: "run_swift_with_timeout", in: helperScript)
+        let watchdogState = try shellFunction(named: "swift_test_watchdog_state", in: helperScript)
+        let watchdogTimeoutStatus = try shellFunction(
+            named: "swift_test_watchdog_timeout_status",
+            in: helperScript
+        )
 
         #expect(timeoutRunner.contains("output_size=$(wc -c <\"$output_file\" | tr -d '[:space:]')"))
-        #expect(
-            timeoutRunner.contains(
-                "    if [ \"$output_size\" -gt \"$last_output_size\" ]; then\n"
-                    + "      last_output_size=\"$output_size\"\n"
-                    + "      last_progress_epoch=\"$now_epoch\"\n"
-                    + "    fi"
-            )
-        )
+        #expect(timeoutRunner.contains("read -r last_output_size last_progress_epoch < <("))
+        #expect(timeoutRunner.contains("swift_test_watchdog_state"))
+        #expect(watchdogState.contains("if [ \"$current_output_size\" -gt \"$previous_output_size\" ]; then"))
+        #expect(watchdogState.contains("printf '%s %s\\n' \"$current_output_size\" \"$current_epoch\""))
+        #expect(watchdogState.contains("printf '%s %s\\n' \"$previous_output_size\" \"$previous_progress_epoch\""))
         #expect(timeoutRunner.contains("inactive_seconds=$((now_epoch - last_progress_epoch))"))
-        #expect(timeoutRunner.contains("if [ \"$inactive_seconds\" -ge \"$timeout_seconds\" ]; then"))
+        #expect(timeoutRunner.contains("if ! swift_test_watchdog_timeout_status"))
+        #expect(watchdogTimeoutStatus.contains("inactive_seconds=$((current_epoch - last_progress_epoch))"))
+        #expect(watchdogTimeoutStatus.contains("if [ \"$inactive_seconds\" -ge \"$timeout_seconds\" ]; then"))
+        #expect(watchdogTimeoutStatus.contains("return 124"))
         #expect(!timeoutRunner.contains("if [ \"$elapsed_seconds\" -ge \"$timeout_seconds\" ]; then"))
+    }
+
+    @Test("Swift command watchdog advances only when output grows")
+    func swiftCommandWatchdogAdvancesOnlyWhenOutputGrows() throws {
+        let growingOutput = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_watchdog_state 41 42 100 900"
+        )
+        let unchangedOutput = try runBash(
+            "source scripts/swift-test-helpers.sh; swift_test_watchdog_state 42 42 100 900"
+        )
+
+        #expect(growingOutput == "42 900\n")
+        #expect(unchangedOutput == "42 100\n")
+        #expect(
+            try runBashStatus(
+                "source scripts/swift-test-helpers.sh; swift_test_watchdog_timeout_status 100 399 300"
+            ) == 0
+        )
+        #expect(
+            try runBashStatus(
+                "source scripts/swift-test-helpers.sh; swift_test_watchdog_timeout_status 100 400 300"
+            ) == 124
+        )
     }
 
     @Test("aggregate lane isolates executor-sensitive and AppKit-global tests")
@@ -545,6 +574,34 @@ struct CIFastLaneWorkflowTests {
         }
         return String(tail[..<endRange.lowerBound])
     }
+}
+
+private func runBash(_ command: String) throws -> String {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = ["-c", command]
+    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    process.standardOutput = output
+    process.standardError = output
+
+    try process.run()
+    process.waitUntilExit()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    let renderedOutput = try #require(String(bytes: data, encoding: .utf8))
+    #expect(process.terminationStatus == 0, Comment(rawValue: renderedOutput))
+    return renderedOutput
+}
+
+private func runBashStatus(_ command: String) throws -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = ["-c", command]
+    process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationStatus
 }
 
 private enum CIFastLaneWorkflowError: Error {

@@ -5,6 +5,29 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 describe('Bridge file viewer source structure', () => {
+	test('keeps production lazy loading while the browser harness injects the eager shell', () => {
+		const appSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
+			'utf8',
+		);
+		const browserHarnessSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-browser-test-app.tsx', import.meta.url)),
+			'utf8',
+		);
+
+		expect(appSource).toContain('shellComponent={LazyBridgeFileViewerShell}');
+		expect(appSource).toContain('const LazyBridgeFileViewerShell = lazy(async () => {');
+		expect(appSource).toContain("await import('./bridge-file-viewer-shell.js')");
+		expect(appSource).toContain('<Suspense');
+		expect(appSource).toContain('fallback={');
+		expect(appSource).toContain('<BridgeFileViewerLazyLoadingFrame');
+		expect(browserHarnessSource).toContain(
+			"import { BridgeFileViewerShell } from './bridge-file-viewer-shell.js';",
+		);
+		expect(browserHarnessSource).toContain('shellComponent={BridgeFileViewerShell}');
+		expect(browserHarnessSource).not.toContain('LazyBridgeFileViewerShell');
+	});
+
 	test('compile-deletes the legacy File product carrier and React lifecycle owners', () => {
 		const appDirectory = fileURLToPath(new URL('../app/', import.meta.url));
 		const fileViewerDirectory = fileURLToPath(new URL('./', import.meta.url));

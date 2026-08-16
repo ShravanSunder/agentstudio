@@ -199,6 +199,31 @@ run_webkit_suites() {
   done < <(webkit_suite_filters)
 }
 
+swift_test_watchdog_state() {
+  local previous_output_size="$1"
+  local current_output_size="$2"
+  local previous_progress_epoch="$3"
+  local current_epoch="$4"
+
+  if [ "$current_output_size" -gt "$previous_output_size" ]; then
+    printf '%s %s\n' "$current_output_size" "$current_epoch"
+  else
+    printf '%s %s\n' "$previous_output_size" "$previous_progress_epoch"
+  fi
+}
+
+swift_test_watchdog_timeout_status() {
+  local last_progress_epoch="$1"
+  local current_epoch="$2"
+  local timeout_seconds="$3"
+  local inactive_seconds=$((current_epoch - last_progress_epoch))
+
+  if [ "$inactive_seconds" -ge "$timeout_seconds" ]; then
+    return 124
+  fi
+  return 0
+}
+
 run_swift_with_timeout() {
   local label="$1"
   shift
@@ -231,13 +256,20 @@ run_swift_with_timeout() {
     local elapsed_seconds=$((now_epoch - start_epoch))
     local output_size
     output_size=$(wc -c <"$output_file" | tr -d '[:space:]')
-    if [ "$output_size" -gt "$last_output_size" ]; then
-      last_output_size="$output_size"
-      last_progress_epoch="$now_epoch"
-    fi
+    read -r last_output_size last_progress_epoch < <(
+      swift_test_watchdog_state \
+        "$last_output_size" \
+        "$output_size" \
+        "$last_progress_epoch" \
+        "$now_epoch"
+    )
     local inactive_seconds=$((now_epoch - last_progress_epoch))
 
-    if [ "$inactive_seconds" -ge "$timeout_seconds" ]; then
+    if ! swift_test_watchdog_timeout_status \
+      "$last_progress_epoch" \
+      "$now_epoch" \
+      "$timeout_seconds"
+    then
       timed_out=1
       break
     fi
