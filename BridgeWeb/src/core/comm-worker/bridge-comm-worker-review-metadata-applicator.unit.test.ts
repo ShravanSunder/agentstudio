@@ -737,6 +737,8 @@ const reviewPayloadIdentity = {
 } as const;
 
 const reviewItemMetadata = {
+	additions: 1,
+	deletions: 1,
 	basePath: 'Sources/App.swift',
 	changeKind: 'modified',
 	contentDescriptorIdsByRole: {},

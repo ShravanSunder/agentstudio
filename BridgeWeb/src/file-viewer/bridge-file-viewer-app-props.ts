@@ -7,6 +7,11 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeFileViewerDisplaySource } from './bridge-file-viewer-display-model.js';
 
+export interface BridgeFileViewerOpenPathCommand {
+	readonly commandId: number;
+	readonly path: string;
+}
+
 export interface BridgeFileViewerAppProps {
 	readonly autoOpenInitialFile?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
@@ -25,6 +30,7 @@ export interface BridgeFileViewerAppProps {
 		BridgeProductNavigationCommand,
 		{ readonly commandKind: 'activateTarget'; readonly surface: 'file' }
 	>;
+	readonly openPathCommand?: BridgeFileViewerOpenPathCommand;
 	readonly onDisplaySourceChange?: (source: BridgeFileViewerDisplaySource | null) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
 	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;

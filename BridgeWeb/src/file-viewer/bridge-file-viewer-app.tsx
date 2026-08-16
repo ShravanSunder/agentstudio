@@ -37,7 +37,10 @@ import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store
 import { useBridgeFileViewerVisibleDemandController } from './use-bridge-file-viewer-visible-demand-controller.js';
 
 export type { BridgeFileViewerOpenState } from './bridge-file-viewer-display-model.js';
-export type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
+export type {
+	BridgeFileViewerAppProps,
+	BridgeFileViewerOpenPathCommand,
+} from './bridge-file-viewer-app-props.js';
 
 const LazyBridgeFileViewerShell = lazy(async () => {
 	const module = await import('./bridge-file-viewer-shell.js');
@@ -74,6 +77,7 @@ export function BridgeFileViewerAppImplementation(
 		mermaidRenderer,
 		isNavigationCommandStillEligible = bridgeFileViewerNavigationCommandIsAlwaysEligible,
 		navigationCommand,
+		openPathCommand,
 		onDisplaySourceChange,
 		telemetryRecorder,
 		telemetryTraceContext,
@@ -88,6 +92,7 @@ export function BridgeFileViewerAppImplementation(
 	);
 	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
 	const projectionExclusionClearedSelectionRef = useRef(false);
+	const appliedOpenPathCommandIdRef = useRef<number | null>(null);
 	const selectionQueryKeyRef = useRef('');
 	useEffect((): void => {
 		if (!isActive) {
@@ -265,6 +270,17 @@ export function BridgeFileViewerAppImplementation(
 		if (!isActive) {
 			return;
 		}
+		if (
+			openPathCommand !== undefined &&
+			appliedOpenPathCommandIdRef.current !== openPathCommand.commandId
+		) {
+			const row = displayModel.treeRowByPath.get(openPathCommand.path);
+			if (row?.fileId !== null && row?.fileId !== undefined && !row.isDirectory) {
+				appliedOpenPathCommandIdRef.current = openPathCommand.commandId;
+				selectFile({ fileId: row.fileId, path: row.path }, 'programmatic');
+			}
+			return;
+		}
 		const navigationPath = bridgeFileViewerNavigationPath(navigationCommand);
 		const navigationApplicationKey = bridgeFileViewerNavigationApplicationKey(navigationCommand);
 		if (
@@ -298,6 +314,7 @@ export function BridgeFileViewerAppImplementation(
 		isActive,
 		isNavigationCommandStillEligible,
 		navigationCommand,
+		openPathCommand,
 		selectFile,
 		selection,
 	]);

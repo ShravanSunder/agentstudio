@@ -177,11 +177,13 @@ struct BridgeProductReviewItemProvenanceValue: Codable, Equatable, Sendable {
 
 struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case additions
         case basePath
         case changeKind
         case contentDescriptorIdsByRole
         case contentHashesByRole
         case contentRoles
+        case deletions
         case `extension`
         case fileClass
         case headPath
@@ -196,11 +198,13 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
         case reviewState
     }
 
+    let additions: Int
     let basePath: String?
     let changeKind: BridgeFileChangeKind
     let contentDescriptorIdsByRole: BridgeProductReviewDescriptorIdsByRole
     let contentHashesByRole: BridgeProductReviewContentHashesByRole
     let contentRoles: [BridgeContentHandle.Role]
+    let deletions: Int
     let fileExtension: String?
     let fileClass: BridgeFileClass
     let headPath: String?
@@ -215,11 +219,13 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
     let reviewState: BridgeFileReviewState
 
     init(
+        additions: Int,
         basePath: String?,
         changeKind: BridgeFileChangeKind,
         contentDescriptorIdsByRole: BridgeProductReviewDescriptorIdsByRole,
         contentHashesByRole: BridgeProductReviewContentHashesByRole,
         contentRoles: [BridgeContentHandle.Role],
+        deletions: Int,
         fileExtension: String?,
         fileClass: BridgeFileClass,
         headPath: String?,
@@ -233,11 +239,13 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
         reviewPriority: BridgeReviewPriority,
         reviewState: BridgeFileReviewState
     ) throws {
+        self.additions = additions
         self.basePath = basePath
         self.changeKind = changeKind
         self.contentDescriptorIdsByRole = contentDescriptorIdsByRole
         self.contentHashesByRole = contentHashesByRole
         self.contentRoles = contentRoles
+        self.deletions = deletions
         self.fileExtension = fileExtension
         self.fileClass = fileClass
         self.headPath = headPath
@@ -260,6 +268,7 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
             contract: "Review item metadata"
         )
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.additions = try container.decode(Int.self, forKey: .additions)
         self.basePath = try BridgeProductContractDecoding.decodeRequiredNullable(
             String.self,
             forKey: .basePath,
@@ -276,6 +285,7 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
             forKey: .contentHashesByRole
         )
         self.contentRoles = try container.decode([BridgeContentHandle.Role].self, forKey: .contentRoles)
+        self.deletions = try container.decode(Int.self, forKey: .deletions)
         self.fileExtension = try BridgeProductContractDecoding.decodeRequiredNullable(
             String.self,
             forKey: .extension,
@@ -307,6 +317,16 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
     }
 
     private func validate(codingPath: [any CodingKey]) throws {
+        try BridgeProductContractDecoding.validateNonnegative(
+            additions,
+            name: "additions",
+            codingPath: codingPath
+        )
+        try BridgeProductContractDecoding.validateNonnegative(
+            deletions,
+            name: "deletions",
+            codingPath: codingPath
+        )
         for path in [basePath, headPath].compactMap({ $0 }) {
             try BridgeProductContractDecoding.validateDisplayPath(path, codingPath: codingPath)
         }
@@ -342,11 +362,13 @@ struct BridgeProductReviewItemMetadataValue: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(additions, forKey: .additions)
         try container.encode(basePath, forKey: .basePath)
         try container.encode(changeKind, forKey: .changeKind)
         try container.encode(contentDescriptorIdsByRole, forKey: .contentDescriptorIdsByRole)
         try container.encode(contentHashesByRole, forKey: .contentHashesByRole)
         try container.encode(contentRoles, forKey: .contentRoles)
+        try container.encode(deletions, forKey: .deletions)
         try container.encode(fileExtension, forKey: .extension)
         try container.encode(fileClass, forKey: .fileClass)
         try container.encode(headPath, forKey: .headPath)
