@@ -14,7 +14,7 @@ actor BridgePaneProductFileMetadataSource: BridgePaneProductFileMetadataProducin
         var subscription: BridgeProductSubscriptionSnapshot
     }
 
-    fileprivate struct DescriptorReconciliationRequest: Sendable {
+    struct DescriptorReconciliationRequest: Sendable {
         let emit: BridgePaneProductFileMetadataEventSink
         let foregroundWorkAdmission: BridgePaneRefreshWorkAdmission
         let productAdmission: BridgeProductAdmissionContext
@@ -866,24 +866,24 @@ extension BridgePaneProductFileMetadataSource {
             )
             return false
         }
+        guard let commit = commitDescriptorInterest(materialized, for: row, request: request)
+        else {
+            clearInFlightDescriptorInterest(
+                path: row.path,
+                revision: subscription.interestRevision,
+                subscriptionId: subscription.subscriptionId,
+                source: request.productSource
+            )
+            return false
+        }
         do {
             try await request.emit(.descriptorReady(.init(payload: materialized.payload)))
         } catch {
-            clearInFlightDescriptorInterest(
-                path: row.path,
-                revision: subscription.interestRevision,
-                subscriptionId: subscription.subscriptionId,
-                source: request.productSource
-            )
+            rollbackDescriptorInterest(commit, for: row, request: request)
             throw error
         }
-        guard commitDescriptorInterest(materialized, for: row, request: request) else {
-            clearInFlightDescriptorInterest(
-                path: row.path,
-                revision: subscription.interestRevision,
-                subscriptionId: subscription.subscriptionId,
-                source: request.productSource
-            )
+        guard descriptorInterestCommitIsCurrent(commit, for: row, request: request) else {
+            rollbackDescriptorInterest(commit, for: row, request: request)
             return false
         }
         return true
@@ -932,28 +932,4 @@ extension BridgePaneProductFileMetadataSource {
         }) == true
     }
 
-    fileprivate func commitDescriptorInterest(
-        _ materialized: BridgePaneProductFileDescriptorMaterialization,
-        for row: BridgeWorktreeTreeRowMetadata,
-        request: DescriptorReconciliationRequest
-    ) -> Bool {
-        let subscription = request.subscription
-        return request.foregroundWorkAdmission.withValidAdmission({
-            request.productAdmission.withValidAdmission {
-                guard var currentContext = contextBySubscriptionId[subscription.subscriptionId],
-                    currentContext.productSource == request.productSource,
-                    currentContext.productAdmission.matches(request.productAdmission),
-                    currentContext.subscription.interestRevision == subscription.interestRevision,
-                    currentContext.inFlightDescriptorInterestRevisionByPath[row.path]
-                        == subscription.interestRevision
-                else { return false }
-                currentContext.inFlightDescriptorInterestRevisionByPath.removeValue(forKey: row.path)
-                currentContext.descriptorInterestRevisionByPath[row.path] =
-                    subscription.interestRevision
-                currentContext.descriptorByPath[row.path] = materialized.payload
-                contextBySubscriptionId[subscription.subscriptionId] = currentContext
-                return true
-            } ?? false
-        }) == true
-    }
 }
