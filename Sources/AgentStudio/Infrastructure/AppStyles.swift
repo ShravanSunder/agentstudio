@@ -511,7 +511,7 @@ package enum AppStyles {
         package static let launcherContentMaxWidth: CGFloat = 900
         package static let launcherPageTopPadding: CGFloat = 72
         package static let launcherRowGap: CGFloat = 20
-        package static let launcherSectionGap: CGFloat = 28
+        package static let launcherSectionGap: CGFloat = 36
         package static let launcherShortcutsColumnsGap: CGFloat = 40
         package static let launcherDividerOpacity: CGFloat =
             AppStyles.CommandBar.Panel.nestedDividerOpacity

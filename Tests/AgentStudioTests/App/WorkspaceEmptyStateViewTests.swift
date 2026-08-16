@@ -61,6 +61,11 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.recentListCornerRadius == 12)
     }
 
+    @Test("recent projects and shortcuts have generous divider breathing room")
+    func recentProjectsAndShortcutsHaveGenerousDividerBreathingRoom() {
+        #expect(AppStyles.Welcome.launcherSectionGap >= 36)
+    }
+
     // MARK: - Typography scale (semantic hierarchy)
 
     @Test("typography scale symbols exist for every role")
