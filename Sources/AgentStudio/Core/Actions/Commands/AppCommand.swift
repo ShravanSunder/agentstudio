@@ -61,6 +61,7 @@ package enum AppCommand: String, CaseIterable {
     case openPaneLocationInEditorMenu
     case editPaneNote
     case copyCurrentPanePath
+    case openPullRequest
     // Repo commands
     case watchFolder, removeRepo
     case addRepoFavorite, removeRepoFavorite

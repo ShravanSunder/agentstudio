@@ -171,6 +171,7 @@ extension AppCommand {
                 .navigateDrawerPane, .closeDrawerPane,
                 .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
                 .openPaneLocationInEditorMenu, .editPaneNote, .copyCurrentPanePath,
+                .openPullRequest,
                 .watchFolder, .removeRepo, .addRepoFavorite, .removeRepoFavorite,
                 .openWorktree, .openWorktreeInPane,
                 .toggleManagementLayer, .managementLayerFocusLeft, .managementLayerFocusRight,
@@ -203,6 +204,8 @@ extension AppCommand {
                     requiredPrivilege: ipcRequiredPrivilege
                 )
             case .showViewer:
+                .notExposed
+            case .openPullRequest:
                 .notExposed
             case .reloadBridgeWebView:
                 .headless(
@@ -294,7 +297,7 @@ extension AppCommand {
             .focusDrawerPaneRight, .detachDrawerPane, .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .editPaneNote,
-            .copyCurrentPanePath, .reloadBridgeWebView,
+            .copyCurrentPanePath, .openPullRequest, .reloadBridgeWebView,
             .showPaneInboxNotifications, .clearPaneInboxNotifications:
             return .required(primary: .pane, additional: [])
         case .newTab, .undoCloseTab, .nextTab, .prevTab,
@@ -343,7 +346,8 @@ extension AppCommand {
             .setInboxContentMode, .addRepoFavorite, .removeRepoFavorite:
             return .sidebarStateMutate
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder,
-            .openPaneLocationInEditorMenu, .copyCurrentPanePath, .reloadBridgeWebView,
+            .openPaneLocationInEditorMenu, .copyCurrentPanePath, .openPullRequest,
+            .reloadBridgeWebView,
             .showCommandBarQuickOpen, .signInGitHub, .signInGoogle, .filterSidebar:
             return .workspaceRead
         case .closeTab, .breakUpTab, .renameTab, .newTerminalInTab, .newTab, .undoCloseTab,

@@ -1,6 +1,28 @@
 import AgentStudioInfrastructure
 import Foundation
 
+package struct PaneSurfaceToolbarStatusIndicator: Equatable, Sendable {
+    package let label: String
+    package let accessibilityIdentifier: String
+    package let icon: CommandIcon
+    package let tooltip: ControlTooltipRenderValue
+    package let iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone
+
+    package init(
+        label: String,
+        accessibilityIdentifier: String,
+        icon: CommandIcon,
+        tooltip: ControlTooltipRenderValue,
+        iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone
+    ) {
+        self.label = label
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.icon = icon
+        self.tooltip = tooltip
+        self.iconStatusTone = iconStatusTone
+    }
+}
+
 @MainActor
 package struct PaneSurfaceToolbarAction {
     package enum IconStatusTone: Equatable, Sendable {

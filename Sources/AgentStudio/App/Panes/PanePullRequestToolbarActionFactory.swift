@@ -3,8 +3,14 @@ import AgentStudioInfrastructure
 import Foundation
 
 @MainActor
+struct PanePullRequestToolbarPresentation {
+    let blockerIndicator: PaneSurfaceToolbarStatusIndicator?
+    let openAction: PaneSurfaceToolbarAction
+}
+
+@MainActor
 enum PanePullRequestToolbarActionFactory {
-    private struct Presentation {
+    private struct ActionPresentation {
         let accessibilityLabel: String
         let tooltip: ControlTooltipRenderValue
         let icon: CommandIcon
@@ -15,53 +21,55 @@ enum PanePullRequestToolbarActionFactory {
         paneId: UUID,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        openExternalURL: @escaping @MainActor @Sendable (URL) -> Bool
-    ) -> PaneSurfaceToolbarAction? {
+        commandAction: TargetedCommandControlAction?
+    ) -> PanePullRequestToolbarPresentation? {
         guard
+            let commandAction,
             GitHubWebviewLaunchResolver.hasResolvableWorktreeContext(
                 for: paneId,
                 store: store
             )
         else { return nil }
 
-        let actionSpec = LocalActionSpec.openPullRequest.actionSpec
+        let commandSpec = commandAction.commandSpec
         let pullRequestFacts = GitHubWebviewLaunchResolver.pullRequestFacts(
             for: paneId,
             store: store,
             repoCache: repoCache
         )
         let exactPullRequestURL = pullRequestFacts?.exactOpenURL
-        let presentation = presentation(for: pullRequestFacts, actionSpec: actionSpec)
-        let isEnabled = exactPullRequestURL != nil
-        return PaneSurfaceToolbarAction(
-            state: PaneSurfaceToolbarAction.State(
-                label: presentation.accessibilityLabel,
-                accessibilityIdentifier: "paneSurfaceToolbar.pullRequest",
-                icon: presentation.icon,
-                tooltip: presentation.tooltip,
-                isEnabled: isEnabled,
-                isSelected: false,
-                selectionEmphasis: .standard,
-                iconStatusTone: isEnabled ? presentation.iconStatusTone : nil
+        let presentation = presentation(for: pullRequestFacts, commandSpec: commandSpec)
+        let isEnabled = exactPullRequestURL != nil && commandAction.isEnabled
+        return PanePullRequestToolbarPresentation(
+            blockerIndicator: blockerIndicator(for: pullRequestFacts?.exactReadiness),
+            openAction: PaneSurfaceToolbarAction(
+                state: PaneSurfaceToolbarAction.State(
+                    label: presentation.accessibilityLabel,
+                    accessibilityIdentifier: "paneSurfaceToolbar.pullRequest",
+                    icon: presentation.icon,
+                    tooltip: presentation.tooltip,
+                    isEnabled: isEnabled,
+                    isSelected: false,
+                    selectionEmphasis: .standard,
+                    iconStatusTone: isEnabled ? presentation.iconStatusTone : nil
+                ),
+                perform: {
+                    guard isEnabled else { return }
+                    commandAction.perform()
+                }
             ),
-            perform: {
-                guard let exactPullRequestURL else { return }
-                _ = openExternalURL(exactPullRequestURL)
-            }
         )
     }
 
     private static func presentation(
         for pullRequestFacts: PullRequestFacts?,
-        actionSpec: ActionSpec
-    ) -> Presentation {
+        commandSpec: AppCommandSpec
+    ) -> ActionPresentation {
         guard pullRequestFacts?.exactOpenURL != nil else {
-            return Presentation(
-                accessibilityLabel: actionSpec.label,
-                tooltip: actionSpec.controlTooltipRenderValue(
-                    provenance: .localAction(rawValue: "openPullRequest")
-                ),
-                icon: actionSpec.icon,
+            return ActionPresentation(
+                accessibilityLabel: commandSpec.label,
+                tooltip: commandSpec.controlTooltipRenderValue(),
+                icon: commandSpec.icon,
                 iconStatusTone: nil
             )
         }
@@ -84,50 +92,62 @@ enum PanePullRequestToolbarActionFactory {
             iconStatusTone = nil
         }
 
-        var statusDescriptions = [checkDescription]
+        var accessibilityDescriptions: [String] = []
         if readiness?.isDraft == true {
-            statusDescriptions.append("Draft")
+            accessibilityDescriptions.append("draft")
         }
-        switch readiness?.reviewStatus {
-        case .changesRequested:
-            statusDescriptions.append("Changes requested")
-        case .reviewRequired:
-            statusDescriptions.append("Review required")
-        case .approved, .unknown, nil:
-            break
-        }
-        switch readiness?.mergeState {
-        case .blocked:
-            statusDescriptions.append("Merge blocked")
-        case .behind:
-            statusDescriptions.append("Branch behind")
-        case .dirty:
-            statusDescriptions.append("Conflicts")
-        case .hasHooks:
-            statusDescriptions.append("Merge hooks pending")
-        case .unstable:
-            statusDescriptions.append("Merge unstable")
-        case .clean, .draft, .unknown, nil:
-            if readiness?.mergeability == .conflicting {
-                statusDescriptions.append("Conflicts")
-            }
-        }
+        accessibilityDescriptions.append(checkDescription.lowercased())
 
-        let baseIcon = actionSpec.icon
         let icon: CommandIcon =
             readiness?.isDraft == true
             ? .octicon(.gitPullRequestDraft)
-            : baseIcon
-        let tooltipText = ([actionSpec.label] + statusDescriptions).joined(separator: " — ")
-        return Presentation(
-            accessibilityLabel: ([actionSpec.label] + statusDescriptions.map { $0.lowercased() })
+            : commandSpec.icon
+        return ActionPresentation(
+            accessibilityLabel: ([commandSpec.label] + accessibilityDescriptions)
                 .joined(separator: ", "),
-            tooltip: actionSpec.controlTooltipRenderValue(
-                provenance: .localAction(rawValue: "openPullRequest"),
-                textOverride: tooltipText
+            tooltip: commandSpec.controlTooltipRenderValue(
+                textOverride: checkDescription
             ),
             icon: icon,
             iconStatusTone: iconStatusTone
         )
+    }
+
+    private static func blockerIndicator(
+        for readiness: PullRequestReadiness?
+    ) -> PaneSurfaceToolbarStatusIndicator? {
+        guard let blockerDescription = blockerDescription(for: readiness) else {
+            return nil
+        }
+        return PaneSurfaceToolbarStatusIndicator(
+            label: blockerDescription,
+            accessibilityIdentifier: "paneSurfaceToolbar.pullRequestBlocker",
+            icon: .system(.xmarkCircleFill),
+            tooltip: ControlTooltipResolver.resolve(
+                .dynamicData(.stateReadout, text: blockerDescription)
+            ),
+            iconStatusTone: .danger
+        )
+    }
+
+    private static func blockerDescription(
+        for readiness: PullRequestReadiness?
+    ) -> String? {
+        guard let readiness else { return nil }
+        if readiness.mergeState == .dirty || readiness.mergeability == .conflicting {
+            return "Merge conflicts"
+        }
+        switch readiness.reviewStatus {
+        case .changesRequested:
+            return "Changes requested"
+        case .reviewRequired:
+            return "Review required"
+        case .approved, .unknown:
+            break
+        }
+        if readiness.mergeState == .blocked, readiness.checkStatus == .passed {
+            return "Merge blocked"
+        }
+        return nil
     }
 }

@@ -15,14 +15,14 @@ struct PaneSurfaceToolbarHostPullRequestTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("exact branch PR mounts Open PR and opens its exact URL")
-    func exactPullRequestMountsAndOpensExactURL() throws {
+    @Test("exact branch PR mounts Open PR and dispatches its pane-targeted command")
+    func exactPullRequestMountsAndDispatchesPaneTargetedCommand() throws {
         let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
         let fixture = try makeFixture(
             pullRequestFacts: PullRequestFacts(openCount: 1, exactOpenURL: exactURL)
         )
-        let opener = ExternalURLRecorder()
-        let mount = mountToolbar(fixture: fixture, opener: opener)
+        let dispatcher = PullRequestCommandDispatcher(enabledPaneIds: [fixture.paneId])
+        let mount = mountToolbar(fixture: fixture, dispatcher: dispatcher)
         defer {
             mount.window.orderOut(nil)
             mount.window.close()
@@ -38,15 +38,19 @@ struct PaneSurfaceToolbarHostPullRequestTests {
         #expect(button.accessibilityLabel() == "Open PR, checks unknown")
         #expect(button.isAccessibilityEnabled())
         #expect(button.accessibilityPerformPress())
-        #expect(opener.openedURLs == [exactURL])
+        #expect(
+            dispatcher.dispatchedCommands == [
+                .init(command: .openPullRequest, target: fixture.paneId, targetType: .pane)
+            ]
+        )
     }
 
     @Test("PR control remains visible and disabled without an exact URL")
     func pullRequestControlWithoutExactURLIsVisibleAndDisabled() throws {
         for pullRequestFacts in [nil, PullRequestFacts(openCount: 0, exactOpenURL: nil)] {
-            let opener = ExternalURLRecorder()
             let fixture = try makeFixture(pullRequestFacts: pullRequestFacts)
-            let mount = mountToolbar(fixture: fixture, opener: opener)
+            let dispatcher = PullRequestCommandDispatcher(enabledPaneIds: [])
+            let mount = mountToolbar(fixture: fixture, dispatcher: dispatcher)
             defer {
                 mount.window.orderOut(nil)
                 mount.window.close()
@@ -60,8 +64,54 @@ struct PaneSurfaceToolbarHostPullRequestTests {
             )
             #expect(!button.isAccessibilityEnabled())
             #expect(!button.accessibilityPerformPress())
-            #expect(opener.openedURLs.isEmpty)
+            #expect(dispatcher.dispatchedCommands.isEmpty)
         }
+    }
+
+    @Test("non-CI blocker mounts beside the independently clickable PR action")
+    func nonCIBlockerMountsBesideIndependentlyClickablePullRequestAction() throws {
+        let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
+        let fixture = try makeFixture(
+            pullRequestFacts: PullRequestFacts(
+                openCount: 1,
+                exactOpenURL: exactURL,
+                exactReadiness: PullRequestReadiness(
+                    isDraft: false,
+                    checkStatus: .passed,
+                    reviewStatus: .changesRequested,
+                    mergeability: .mergeable,
+                    mergeState: .blocked
+                )
+            )
+        )
+        let dispatcher = PullRequestCommandDispatcher(enabledPaneIds: [fixture.paneId])
+        let mount = mountToolbar(fixture: fixture, dispatcher: dispatcher)
+        defer {
+            mount.window.orderOut(nil)
+            mount.window.close()
+        }
+
+        let blockerIndicator = try #require(
+            findAccessibilityLabelBridge(
+                in: mount.hostingView,
+                identifier: "paneSurfaceToolbar.pullRequestBlocker"
+            )
+        )
+        let pullRequestButton = try #require(
+            findAccessibilityPressBridge(
+                in: mount.hostingView,
+                identifier: "paneSurfaceToolbar.pullRequest"
+            )
+        )
+
+        #expect(blockerIndicator.accessibilityLabel() == "Changes requested")
+        #expect(pullRequestButton.accessibilityLabel() == "Open PR, checks passed")
+        #expect(pullRequestButton.accessibilityPerformPress())
+        #expect(
+            dispatcher.dispatchedCommands == [
+                .init(command: .openPullRequest, target: fixture.paneId, targetType: .pane)
+            ]
+        )
     }
 
     private func makeFixture(pullRequestFacts: PullRequestFacts?) throws -> PullRequestToolbarFixture {
@@ -118,7 +168,7 @@ struct PaneSurfaceToolbarHostPullRequestTests {
 
     private func mountToolbar(
         fixture: PullRequestToolbarFixture,
-        opener: ExternalURLRecorder
+        dispatcher: PullRequestCommandDispatcher
     ) -> MountedToolbar {
         let hostingView = NSHostingView(
             rootView: AnyView(
@@ -142,8 +192,14 @@ struct PaneSurfaceToolbarHostPullRequestTests {
                         handleDrop: { _, _, _, _ in }
                     ),
                     onPaneFocusTrigger: { _ in },
-                    openExternalURL: { url in
-                        opener.record(url)
+                    targetedCommandActionResolver: { command, surface, target, targetType in
+                        TargetedCommandControlAction.resolve(
+                            command: command,
+                            surface: surface,
+                            target: target,
+                            targetType: targetType,
+                            dispatcher: dispatcher
+                        )
                     }
                 )
                 .frame(width: 640, height: 44)
@@ -181,6 +237,23 @@ struct PaneSurfaceToolbarHostPullRequestTests {
         }
         return nil
     }
+
+    private func findAccessibilityLabelBridge(
+        in root: NSView,
+        identifier: String
+    ) -> AccessibilityLabelBridgeView? {
+        if let bridge = root as? AccessibilityLabelBridgeView,
+            bridge.accessibilityIdentifier() == identifier
+        {
+            return bridge
+        }
+        for subview in root.subviews {
+            if let bridge = findAccessibilityLabelBridge(in: subview, identifier: identifier) {
+                return bridge
+            }
+        }
+        return nil
+    }
 }
 
 @MainActor
@@ -197,10 +270,42 @@ private struct MountedToolbar {
 }
 
 @MainActor
-private final class ExternalURLRecorder {
-    private(set) var openedURLs: [URL] = []
+private struct PullRequestDispatchedCommand: Equatable {
+    let command: AppCommand
+    let target: UUID
+    let targetType: SearchItemType
+}
 
-    func record(_ url: URL) {
-        openedURLs.append(url)
+@MainActor
+private final class PullRequestCommandDispatcher: AppCommandDispatching {
+    let enabledPaneIds: Set<UUID>
+    private(set) var dispatchedCommands: [PullRequestDispatchedCommand] = []
+
+    init(enabledPaneIds: Set<UUID>) {
+        self.enabledPaneIds = enabledPaneIds
     }
+
+    func dispatch(_: AppCommand) {}
+
+    func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
+        dispatchedCommands.append(
+            PullRequestDispatchedCommand(
+                command: command,
+                target: target,
+                targetType: targetType
+            )
+        )
+    }
+
+    func canDispatch(_: AppCommand) -> Bool {
+        false
+    }
+
+    func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        command == .openPullRequest && targetType == .pane && enabledPaneIds.contains(target)
+    }
+
+    func bridgePaneCommandTarget(worktreeId _: UUID) -> BridgePaneCommandTarget? { nil }
+
+    func dispatchMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 }

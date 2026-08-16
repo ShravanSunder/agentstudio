@@ -8,44 +8,33 @@ import Testing
 @MainActor
 @Suite("PanePullRequestToolbarActionFactory")
 struct PanePullRequestToolbarActionFactoryTests {
-    @Test("enabled and disabled states share the local action presentation authority")
-    func presentationDerivesFromLocalActionSpec() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let sourceURL = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Panes/PanePullRequestToolbarActionFactory.swift"
-        )
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        #expect(source.contains("let actionSpec = LocalActionSpec.openPullRequest.actionSpec"))
-        #expect(source.contains("tooltip: actionSpec.controlTooltipRenderValue("))
-        #expect(source.contains("let baseIcon = actionSpec.icon"))
-        #expect(!source.contains("[\"Open PR\"]"))
-    }
-
     @Test("resolvable worktree without an exact PR keeps a neutral disabled control")
     func noExactPullRequestIsVisibleAndDisabled() throws {
         let fixture = try makeFixture()
-        let recorder = OpenedURLRecorder()
+        let recorder = CommandActionRecorder()
 
-        let action = try #require(
+        let presentation = try #require(
             PanePullRequestToolbarActionFactory.make(
                 paneId: fixture.pane.id,
                 store: fixture.store,
                 repoCache: fixture.cache,
-                openExternalURL: recorder.open
+                commandAction: makeCommandAction(isEnabled: false, recorder: recorder)
             )
         )
+        let action = presentation.openAction
+        let commandSpec = AppCommand.openPullRequest.definition
 
-        #expect(action.state.icon == .octicon(.gitPullRequest))
+        #expect(action.state.icon == commandSpec.icon)
         #expect(action.state.isEnabled == false)
         #expect(action.state.isSelected == false)
         #expect(action.state.selectionEmphasis == .standard)
         #expect(action.state.iconStatusTone == nil)
         #expect(action.state.iconAccentColorHex == nil)
-        #expect(action.state.label == "Open PR")
-        #expect(action.state.tooltip.text == "Open PR")
+        #expect(action.state.label == commandSpec.label)
+        #expect(action.state.tooltip == commandSpec.controlTooltipRenderValue())
+        #expect(presentation.blockerIndicator == nil)
         action.perform()
-        #expect(recorder.openedURLs.isEmpty)
+        #expect(recorder.performCount == 0)
     }
 
     @Test(
@@ -84,16 +73,17 @@ struct PanePullRequestToolbarActionFactoryTests {
                 )
             )
         ])
-        let recorder = OpenedURLRecorder()
+        let recorder = CommandActionRecorder()
 
-        let action = try #require(
+        let presentation = try #require(
             PanePullRequestToolbarActionFactory.make(
                 paneId: fixture.pane.id,
                 store: fixture.store,
                 repoCache: fixture.cache,
-                openExternalURL: recorder.open
+                commandAction: makeCommandAction(isEnabled: true, recorder: recorder)
             )
         )
+        let action = presentation.openAction
 
         #expect(action.state.isEnabled)
         #expect(!action.state.isSelected)
@@ -101,11 +91,11 @@ struct PanePullRequestToolbarActionFactoryTests {
         #expect(action.state.iconStatusTone == expectedTone)
         #expect(action.state.iconAccentColorHex == nil)
         action.perform()
-        #expect(recorder.openedURLs == [exactURL])
+        #expect(recorder.performCount == 1)
     }
 
-    @Test("draft and merge blockers stay separate from the check color")
-    func draftAndMergeBlockersStaySeparateFromCheckColor() throws {
+    @Test("draft, checks, and merge blockers have separate presentations")
+    func draftChecksAndMergeBlockersHaveSeparatePresentations() throws {
         let fixture = try makeFixture()
         let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
         fixture.cache.setWorktreeEnrichment(
@@ -130,19 +120,111 @@ struct PanePullRequestToolbarActionFactoryTests {
             )
         ])
 
-        let optionalAction = PanePullRequestToolbarActionFactory.make(
+        let optionalPresentation = PanePullRequestToolbarActionFactory.make(
             paneId: fixture.pane.id,
             store: fixture.store,
             repoCache: fixture.cache,
-            openExternalURL: { _ in true }
+            commandAction: makeCommandAction(isEnabled: true)
         )
-        let action = try #require(optionalAction)
+        let presentation = try #require(optionalPresentation)
+        let action = presentation.openAction
+        let blockerIndicator = try #require(presentation.blockerIndicator)
 
         #expect(action.state.isEnabled)
         #expect(action.state.icon == .octicon(.gitPullRequestDraft))
         #expect(action.state.iconStatusTone == .success)
-        #expect(action.state.label == "Open PR, checks passed, draft, changes requested, conflicts")
-        #expect(action.state.tooltip.text == "Open PR — Checks passed — Draft — Changes requested — Conflicts")
+        #expect(action.state.label == "Open PR, draft, checks passed")
+        #expect(action.state.tooltip.text == "Checks passed")
+        #expect(blockerIndicator.icon == .system(.xmarkCircleFill))
+        #expect(blockerIndicator.iconStatusTone == .danger)
+        #expect(blockerIndicator.label == "Merge conflicts")
+        #expect(blockerIndicator.tooltip.text == "Merge conflicts")
+    }
+
+    @Test("behind does not create a merge blocker indicator")
+    func behindDoesNotCreateMergeBlockerIndicator() throws {
+        let presentation = try makeExactPullRequestPresentation(
+            readiness: PullRequestReadiness(
+                isDraft: false,
+                checkStatus: .passed,
+                reviewStatus: .approved,
+                mergeability: .mergeable,
+                mergeState: .behind
+            )
+        )
+
+        #expect(presentation.blockerIndicator == nil)
+        #expect(presentation.openAction.state.tooltip.text == "Checks passed")
+    }
+
+    @Test(
+        "distinct non-CI blockers get one concrete status indicator",
+        arguments: [
+            (
+                PullRequestReviewStatus.changesRequested,
+                PullRequestMergeability.mergeable,
+                PullRequestMergeState.clean,
+                "Changes requested"
+            ),
+            (
+                PullRequestReviewStatus.reviewRequired,
+                PullRequestMergeability.mergeable,
+                PullRequestMergeState.clean,
+                "Review required"
+            ),
+            (
+                PullRequestReviewStatus.approved,
+                PullRequestMergeability.conflicting,
+                PullRequestMergeState.clean,
+                "Merge conflicts"
+            ),
+            (
+                PullRequestReviewStatus.approved,
+                PullRequestMergeability.mergeable,
+                PullRequestMergeState.blocked,
+                "Merge blocked"
+            ),
+        ]
+    )
+    func distinctNonCICheckBlockersGetOneConcreteStatusIndicator(
+        reviewStatus: PullRequestReviewStatus,
+        mergeability: PullRequestMergeability,
+        mergeState: PullRequestMergeState,
+        expectedDescription: String
+    ) throws {
+        let presentation = try makeExactPullRequestPresentation(
+            readiness: PullRequestReadiness(
+                isDraft: false,
+                checkStatus: .passed,
+                reviewStatus: reviewStatus,
+                mergeability: mergeability,
+                mergeState: mergeState
+            )
+        )
+        let blockerIndicator = try #require(presentation.blockerIndicator)
+
+        #expect(blockerIndicator.label == expectedDescription)
+        #expect(blockerIndicator.tooltip.text == expectedDescription)
+    }
+
+    @Test(
+        "generic blocked state does not duplicate unfinished checks",
+        arguments: [PullRequestCheckStatus.running, .failed, .unknown]
+    )
+    func genericBlockedStateDoesNotDuplicateUnfinishedChecks(
+        checkStatus: PullRequestCheckStatus
+    ) throws {
+        let presentation = try makeExactPullRequestPresentation(
+            readiness: PullRequestReadiness(
+                isDraft: false,
+                checkStatus: checkStatus,
+                reviewStatus: .approved,
+                mergeability: .mergeable,
+                mergeState: .blocked
+            )
+        )
+
+        #expect(presentation.blockerIndicator == nil)
     }
 
     @Test("pane without a resolvable worktree has no PR control")
@@ -155,7 +237,7 @@ struct PanePullRequestToolbarActionFactoryTests {
                 paneId: pane.id,
                 store: store,
                 repoCache: RepoCacheAtom(),
-                openExternalURL: { _ in true }
+                commandAction: makeCommandAction(isEnabled: false)
             ) == nil
         )
     }
@@ -176,6 +258,49 @@ struct PanePullRequestToolbarActionFactoryTests {
         )
         return Fixture(store: store, cache: cache, repo: repo, worktree: worktree, pane: pane)
     }
+
+    private func makeExactPullRequestPresentation(
+        readiness: PullRequestReadiness
+    ) throws -> PanePullRequestToolbarPresentation {
+        let fixture = try makeFixture()
+        let exactURL = URL(string: "https://github.com/ShravanSunder/agentstudio/pull/264")!
+        fixture.cache.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: fixture.worktree.id,
+                repoId: fixture.repo.id,
+                branch: "feature/pr-toolbar"
+            )
+        )
+        let branchKey = RepoBranchKey(repoId: fixture.repo.id, branch: "feature/pr-toolbar")!
+        fixture.cache.applyPullRequestFacts([
+            branchKey: PullRequestFacts(
+                openCount: 1,
+                exactOpenURL: exactURL,
+                exactReadiness: readiness
+            )
+        ])
+
+        let optionalPresentation = PanePullRequestToolbarActionFactory.make(
+            paneId: fixture.pane.id,
+            store: fixture.store,
+            repoCache: fixture.cache,
+            commandAction: makeCommandAction(isEnabled: true)
+        )
+        return try #require(optionalPresentation)
+    }
+
+    private func makeCommandAction(
+        isEnabled: Bool,
+        recorder: CommandActionRecorder? = nil
+    ) -> TargetedCommandControlAction {
+        TargetedCommandControlAction(
+            commandSpec: AppCommand.openPullRequest.definition,
+            isEnabled: isEnabled,
+            perform: {
+                recorder?.record()
+            }
+        )
+    }
 }
 
 private struct Fixture {
@@ -187,11 +312,10 @@ private struct Fixture {
 }
 
 @MainActor
-private final class OpenedURLRecorder {
-    private(set) var openedURLs: [URL] = []
+private final class CommandActionRecorder {
+    private(set) var performCount = 0
 
-    func open(_ url: URL) -> Bool {
-        openedURLs.append(url)
-        return true
+    func record() {
+        performCount += 1
     }
 }
