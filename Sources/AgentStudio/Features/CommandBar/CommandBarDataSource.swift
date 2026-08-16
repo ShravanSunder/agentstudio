@@ -392,7 +392,8 @@ enum CommandBarDataSource {
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
-        let commandIconColor: Color? = def.command == .managementLayerExit ? .accentColor : nil
+        let commandIconColor: Color? =
+            def.command == .managementLayerExit ? AppStyles.General.Accent.primaryColor : nil
 
         if def.targeting.preferredInvocation == .targetSelection {
             let level = buildTargetLevel(

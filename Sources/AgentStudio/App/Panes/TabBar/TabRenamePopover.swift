@@ -46,7 +46,8 @@ struct TabRenamePopover: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(
-                            isRenameFieldFocused ? Color.accentColor : Color.white.opacity(0.12),
+                            isRenameFieldFocused
+                                ? AppStyles.General.Accent.primaryColor : Color.white.opacity(0.12),
                             lineWidth: isRenameFieldFocused ? 2 : 1
                         )
                 }

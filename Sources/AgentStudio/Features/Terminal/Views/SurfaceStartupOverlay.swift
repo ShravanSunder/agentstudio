@@ -48,7 +48,7 @@ private struct SurfaceStartupOverlay: View {
 }
 
 final class SurfaceStartupOverlayView: NSView {
-    private var hostingView: NSHostingView<SurfaceStartupOverlay>?
+    private var hostingView: NSHostingView<AnyView>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -80,7 +80,10 @@ final class SurfaceStartupOverlayView: NSView {
 
     private func show(state: SurfaceStartupOverlayState) {
         hostingView?.removeFromSuperview()
-        let hostingView = NSHostingView(rootView: SurfaceStartupOverlay(state: state))
+        let hostingView = NSHostingView(
+            rootView: AnyView(
+                SurfaceStartupOverlay(state: state)
+                    .tint(AppStyles.General.Accent.primaryColor)))
         hostingView.frame = bounds
         hostingView.autoresizingMask = [.width, .height]
         addSubview(hostingView)

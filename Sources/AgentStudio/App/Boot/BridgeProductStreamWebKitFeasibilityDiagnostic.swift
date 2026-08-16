@@ -111,7 +111,8 @@ enum BridgeProductStreamWebKitFeasibilityDiagnostic {
             backing: .buffered,
             defer: false
         )
-        let hostingView = NSHostingView(rootView: WebView(page))
+        let hostingView = NSHostingView(
+            rootView: WebView(page).tint(AppStyles.General.Accent.primaryColor))
         hostingView.frame = frame
         window.contentView = hostingView
         window.alphaValue = 0.01
