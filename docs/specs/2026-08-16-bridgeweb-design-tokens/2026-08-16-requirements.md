@@ -174,7 +174,7 @@ documentation. Priority: high, paired with U6 (assigner: owner).
 
 ## Unresolved
 
-- **D4 (open, non-blocking): palette-family coherence.** The current
+- **D4 (CLOSED — owner kept Catppuccin Mocha accents, 2026-08-16): palette-family coherence.** The current
   approved rendering mixes three palette families (One-Dark-family
   neutrals, Tomorrow-Night ANSI/text values, Catppuccin Mocha accents
   and syntax). This work formalizes the current values unchanged

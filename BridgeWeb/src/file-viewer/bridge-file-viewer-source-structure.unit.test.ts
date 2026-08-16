@@ -287,7 +287,7 @@ describe('Bridge file viewer source structure', () => {
 		expect(treePanelSource).toContain("'data-worktree-tree-total-size-source':");
 		expect(treePanelSource).toContain('toolbarBelow:');
 		expect(treePanelSource).not.toContain('<aside');
-		expect(treePanelSource).not.toContain('border-l border-border');
+		expect(treePanelSource).not.toContain('border-l border-[var(--bridge-border-subtle)]');
 	});
 
 	test('keeps Pierre visible-demand publishing on ref-backed worker display rows', () => {

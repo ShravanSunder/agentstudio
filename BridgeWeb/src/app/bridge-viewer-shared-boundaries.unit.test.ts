@@ -166,14 +166,14 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(appCss).not.toContain(
 			'.bridge-code-view-panel .bridge-code-view-scroll-owner::-webkit-scrollbar',
 		);
-		expect(treeTheme).toContain('scrollbar-color:');
-		expect(filterMenu).toContain("'z-[80] rounded-[10px] border");
-		expect(filterMenu).toContain("'shadow-[var(");
+		expect(treeTheme).toContain('scrollbar-color: var(--bridge-scrollbar-thumb)');
+		expect(filterMenu).toContain('border-[var(--bridge-menu-border)]');
+		expect(filterMenu).toContain('ring-[var(--bridge-menu-ring)]');
 		expect(filterMenu).not.toContain('rgb(137_180_250_/_0.28)');
 		expect(reviewFacetMenu).toContain('BridgeViewerFacetMenu');
 		expect(reviewFacetMenu).not.toContain('bridgeViewerFilterMenuSurfaceClassName');
-		expect(reviewFacetMenu).not.toContain('bridgeViewerFilterMenuSurfaceClassName');
-		expect(reviewFacetMenu).not.toContain("'shadow-[var(");
+		expect(reviewFacetMenu).not.toContain('border-[var(--bridge-menu-border)]');
+		expect(reviewFacetMenu).not.toContain('ring-[var(--bridge-menu-ring)]');
 		expect(reviewFacetMenu).not.toContain('rgb(137_180_250_/_0.28)');
 	});
 });

@@ -53,6 +53,44 @@ const nativeControlElementPattern = /<(?:button|input|textarea)\b[\s\S]*?>/giu;
 const bareControlUtilityPattern = /\b(?:h|text)-\d+(?:\.\d+)?\b/giu;
 const appearanceVariantPattern = /dark:/gu;
 const appearanceMediaPattern = /prefers-color-scheme/giu;
+const allowedBridgeAliasNames: ReadonlySet<string> = new Set([
+	'--bridge-app-bg',
+	'--bridge-canvas-bg',
+	'--bridge-header-bg',
+	'--bridge-header-control-bg',
+	'--bridge-header-control-active-bg',
+	'--bridge-surface-bg',
+	'--bridge-surface-raised-bg',
+	'--bridge-menu-bg',
+	'--bridge-surface-muted-bg',
+	'--bridge-border-subtle',
+	'--bridge-border-opaque',
+	'--bridge-text-primary',
+	'--bridge-text-secondary',
+	'--bridge-text-muted',
+	'--bridge-accent',
+	'--bridge-accent-soft',
+	'--bridge-focus-border',
+	'--bridge-focus-ring',
+	'--bridge-focus-dot-shadow',
+	'--bridge-menu-border',
+	'--bridge-menu-ring',
+	'--bridge-divider-shadow',
+	'--bridge-floating-panel-shadow',
+	'--bridge-menu-shadow',
+	'--bridge-tree-sticky-shadow',
+	'--bridge-scrollbar-size',
+	'--bridge-scrollbar-thumb',
+	'--bridge-scrollbar-thumb-hover',
+	'--bridge-scrollbar-track',
+	'--bridge-motion-fast',
+	'--bridge-list-hover-bg',
+	'--bridge-list-selected-bg',
+	'--bridge-added',
+	'--bridge-deleted',
+	'--bridge-warning',
+	'--bridge-code-view-file-separator',
+]);
 
 async function checkBridgeWebDesignTokens(): Promise<readonly DesignTokenFinding[]> {
 	const sourceFiles = await collectSourceFiles(sourceRootPath);
@@ -63,11 +101,15 @@ async function checkBridgeWebDesignTokens(): Promise<readonly DesignTokenFinding
 	const paletteFindings = await checkPaletteMirror(sourceFiles);
 
 	return [
-		...applyCountAllowlist(rawColorFindings, rawColorLiteralAllowlist),
-		...applyCountAllowlist(bridgeTokenFindings, bridgeTokenAllowlist),
-		...applyCountAllowlist(geometryFindings, controlGeometryAllowlist),
+		...applyCountAllowlist(rawColorFindings, rawColorLiteralAllowlist, 'no-raw-color-literal'),
+		...applyCountAllowlist(bridgeTokenFindings, bridgeTokenAllowlist, 'no-bridge-token'),
+		...applyCountAllowlist(
+			geometryFindings,
+			controlGeometryAllowlist,
+			'no-bespoke-control-geometry',
+		),
 		...paletteFindings,
-		...applyCountAllowlist(appearanceFindings, appearanceBranchAllowlist),
+		...applyCountAllowlist(appearanceFindings, appearanceBranchAllowlist, 'no-appearance-branch'),
 	].toSorted(compareFindings);
 }
 
@@ -110,10 +152,19 @@ function findRawColorLiterals(sourceFile: SourceFileRecord): readonly DesignToke
 			primitiveRange.end - primitiveRange.start,
 		)}${sourceText.slice(primitiveRange.end)}`;
 	}
+	if (sourceFile.relativePath.endsWith('.css')) {
+		sourceText = maskCssComments(sourceText);
+	}
 
 	return matchAll(sourceText, rawColorPattern).map(
 		(match: IndexedMatch): DesignTokenFinding =>
 			findingAt(sourceFile, sourceOffset + match.index, 'no-raw-color-literal', match.text),
+	);
+}
+
+function maskCssComments(sourceText: string): string {
+	return sourceText.replaceAll(/\/\*[\s\S]*?\*\//gu, (comment: string): string =>
+		comment.replaceAll(/[^\n]/gu, ' '),
 	);
 }
 
@@ -292,7 +343,8 @@ function isAllowedBridgeAliasDefinition(
 	const lineEndCandidate = sourceFile.sourceText.indexOf('\n', match.index);
 	const lineEnd = lineEndCandidate < 0 ? sourceFile.sourceText.length : lineEndCandidate;
 	const line = sourceFile.sourceText.slice(lineStart, lineEnd).trim();
-	return /^--bridge-[a-z0-9_-]+:\s*(?:var\(|color-mix\()/iu.test(line);
+	const aliasDefinitionMatch = /^(--bridge-[a-z0-9_-]+):\s*(?:var\(|color-mix\()/iu.exec(line);
+	return aliasDefinitionMatch?.[1] === match.text && allowedBridgeAliasNames.has(match.text);
 }
 
 function matchAll(sourceText: string, pattern: RegExp): readonly IndexedMatch[] {
@@ -332,6 +384,7 @@ function lineAndColumn(
 function applyCountAllowlist(
 	findings: readonly DesignTokenFinding[],
 	allowlist: CountAllowlist,
+	ruleId: DesignTokenRuleId,
 ): readonly DesignTokenFinding[] {
 	const findingsByPath = new Map<string, DesignTokenFinding[]>();
 	for (const finding of findings) {
@@ -340,10 +393,28 @@ function applyCountAllowlist(
 		findingsByPath.set(finding.relativePath, pathFindings);
 	}
 	const violations: DesignTokenFinding[] = [];
-	for (const [relativePath, pathFindings] of findingsByPath) {
+	const checkedPaths = new Set([...findingsByPath.keys(), ...Object.keys(allowlist)]);
+	for (const relativePath of checkedPaths) {
+		const pathFindings = findingsByPath.get(relativePath) ?? [];
 		const allowedCount = allowlist[relativePath] ?? 0;
 		if (pathFindings.length > allowedCount) {
 			violations.push(...pathFindings.slice(allowedCount));
+		} else if (pathFindings.length === 0 && Object.hasOwn(allowlist, relativePath)) {
+			violations.push({
+				relativePath,
+				line: 1,
+				column: 1,
+				ruleId,
+				message: 'stale allowlist entry — remove the entry',
+			});
+		} else if (pathFindings.length < allowedCount) {
+			violations.push({
+				relativePath,
+				line: 1,
+				column: 1,
+				ruleId,
+				message: `stale allowlist entry — tighten to ${pathFindings.length}`,
+			});
 		}
 	}
 	return violations;

@@ -221,6 +221,7 @@
 	--bridge-border-subtle: var(--border);
 	--bridge-border-opaque: var(--input);
 	--bridge-text-primary: var(--foreground);
+	/* Warning: this maps to muted-foreground (#c5c8c6), NOT --palette-text-secondary (#eaeaea). */
 	--bridge-text-secondary: var(--muted-foreground);
 	--bridge-text-muted: var(--faint-foreground);
 	--bridge-accent: var(--primary);

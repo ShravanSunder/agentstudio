@@ -370,13 +370,13 @@ describe('review viewer shell', () => {
 		);
 
 		expect(element.props['data-sidebar-position']).toBe('right');
-		expect(classNameForElement(element)).toContain('bg-[var(');
+		expect(classNameForElement(element)).toContain('bg-[var(--bridge-app-bg)]');
 
 		const canvas = findElementByTestId(element, 'bridge-review-canvas');
 		const sidebar = findElementByTestId(element, 'bridge-review-sidebar');
 
 		expect(canvas?.type).toBe('section');
-		expect(classNameForElement(canvas)).toContain('bg-[var(');
+		expect(classNameForElement(canvas)).toContain('bg-[var(--bridge-canvas-bg)]');
 		expect(classNameForElement(canvas)).toContain('h-full');
 		expect(classNameForElement(canvas)).toContain('min-h-0');
 		expect(sidebar?.type).toBe('aside');
