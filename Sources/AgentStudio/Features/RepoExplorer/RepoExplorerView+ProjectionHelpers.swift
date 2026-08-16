@@ -60,6 +60,16 @@ extension RepoExplorerView {
         )
     }
 
+    static func measureSuppressedOutlineApplyProxy(rowCount: Int) -> RepoExplorerOutlineApplyMeasurement {
+        RepoExplorerOutlineApplyMeasurement(
+            duration: .zero,
+            totalRowCount: rowCount,
+            changedRowCount: 0,
+            equalPublishCount: 1,
+            outcome: .suppressed
+        )
+    }
+
     static func worktreeEnrichmentSnapshot(
         for worktreeIds: [UUID],
         repoCache: RepoCacheAtom

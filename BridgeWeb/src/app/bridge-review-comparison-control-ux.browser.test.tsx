@@ -496,7 +496,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 		const trigger = rendered.getByTestId('bridge-review-comparison-trigger');
 		expect(getComputedStyle(trigger.element()).fontSize).toBe('11px');
 		expect(getComputedStyle(trigger.element()).lineHeight).toBe('11px');
-		expect(getComputedStyle(trigger.element()).color).toBe('rgb(186, 194, 222)');
+		expect(getComputedStyle(trigger.element()).color).toBe('rgb(197, 200, 198)');
 
 		// Act
 		await act(async (): Promise<void> => {
@@ -505,7 +505,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const content = rendered.getByTestId('bridge-review-comparison-content');
-		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(30, 30, 46)');
+		expect(getComputedStyle(content.element()).backgroundColor).toBe('rgb(50, 54, 65)');
 	});
 
 	test('keeps the complete selected target readable in the closed toolbar control', async () => {
@@ -588,7 +588,7 @@ describe('BridgeReviewComparisonControl UX Browser Mode', () => {
 
 		// Assert
 		const compareButton = rendered.getByRole('button', { name: 'Compare to this commit' });
-		expect(getComputedStyle(compareButton.element()).backgroundColor).toBe('rgb(49, 50, 68)');
+		expect(getComputedStyle(compareButton.element()).backgroundColor).toBe('rgb(52, 56, 66)');
 	});
 });
 

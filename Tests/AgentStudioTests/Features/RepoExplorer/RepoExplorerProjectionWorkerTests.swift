@@ -1,8 +1,18 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import Foundation
 import Testing
 
 @testable import AgentStudioRepoExplorer
+
+@MainActor
+private final class RepoExplorerProjectionSuppressionProbe {
+    private(set) var rowCounts: [Int] = []
+
+    func record(_ result: RepoExplorerProjectionResult) {
+        rowCounts.append(result.rowIndex.entries.count)
+    }
+}
 
 @Suite("RepoExplorerProjectionWorker")
 struct RepoExplorerProjectionWorkerTests {
@@ -393,18 +403,242 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(adapter.publishedResult == finalResult)
     }
 
-    private func repo(id: UUID, name: String, isFavorite: Bool = false) -> RepoPresentationItem {
+    @Test("content-identical reprojection does not publish to the view adapter")
+    @MainActor
+    func contentIdenticalReprojectionDoesNotPublishToViewAdapter() async throws {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let initialRequest = request(
+            repos: [repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")],
+            generation: 1,
+            enrichmentUpdatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let timestampOnlyRequest = request(
+            repos: [
+                repo(
+                    id: repoId,
+                    worktreeId: worktreeId,
+                    name: "agent-studio",
+                    note: "metadata-only change"
+                )
+            ],
+            generation: 2,
+            enrichmentUpdatedAt: Date(timeIntervalSince1970: 2)
+        )
+        let suppressionProbe = RepoExplorerProjectionSuppressionProbe()
+        let adapter = RepoExplorerProjectionAdapter(
+            onProjectionSuppressed: suppressionProbe.record
+        )
+        defer { adapter.stop() }
+
+        adapter.admit(initialRequest)
+        let initialResult = try await publishedResult(generation: 1, from: adapter)
+        let initialRevision = try #require(adapter.materializedProjection).revision
+
+        adapter.admit(timestampOnlyRequest)
+        for _ in 0..<10_000 where adapter.materializedProjection?.freshness != .current(2) {
+            await Task.yield()
+        }
+
+        #expect(adapter.materializedProjection?.freshness == .current(2))
+        #expect(adapter.publishedResult == initialResult)
+        #expect(adapter.materializedProjection?.revision == initialRevision)
+        #expect(suppressionProbe.rowCounts == [initialResult.rowIndex.entries.count])
+    }
+
+    @Test("changed Bridge command resolution republishes to the view adapter")
+    @MainActor
+    func changedBridgeCommandResolutionRepublishesToViewAdapter() async throws {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+
+        adapter.admit(request(repos: [repo], generation: 1))
+        _ = try await publishedResult(generation: 1, from: adapter)
+        let initialRevision = try #require(adapter.materializedProjection).revision
+
+        adapter.admit(
+            request(
+                repos: [repo],
+                generation: 2,
+                bridgePaneCommandCandidatesByWorktreeId: [
+                    worktreeId: [
+                        BridgePaneCommandCandidate(
+                            paneId: UUIDv7.generate(),
+                            worktreeId: worktreeId,
+                            isBridgePane: true,
+                            isPaneActive: true,
+                            isCurrentActivePane: true,
+                            attendanceOrdinal: 1,
+                            tabIndex: 0,
+                            paneIndexInTab: 0
+                        )
+                    ]
+                ]
+            )
+        )
+        let changedResult = try await publishedResult(generation: 2, from: adapter)
+
+        #expect(changedResult.bridgeCommandResolutionByWorktreeId[worktreeId] != .create)
+        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+    }
+
+    @Test("changed empty-state presentation republishes to the view adapter")
+    @MainActor
+    func changedEmptyStateRepublishesToViewAdapter() async throws {
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+
+        adapter.admit(request(repos: [], generation: 1))
+        let initialResult = try await publishedResult(generation: 1, from: adapter)
+        let initialRevision = try #require(adapter.materializedProjection).revision
+
+        adapter.admit(request(repos: [], generation: 2, query: "missing"))
+        let changedResult = try await publishedResult(generation: 2, from: adapter)
+
+        #expect(initialResult.projection.emptyState == .content)
+        #expect(changedResult.projection.emptyState == .searchNoResults)
+        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+    }
+
+    @Test("changed visible pane destinations republish to the view adapter")
+    @MainActor
+    func changedVisiblePaneDestinationsRepublishToViewAdapter() async throws {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let paneId = UUIDv7.generate()
+        let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+
+        adapter.admit(request(repos: [repo], generation: 1))
+        _ = try await publishedResult(generation: 1, from: adapter)
+        let initialRevision = try #require(adapter.materializedProjection).revision
+
+        adapter.admit(
+            request(
+                repos: [repo],
+                generation: 2,
+                paneLocationsByWorktreeId: [
+                    worktreeId: [
+                        WorkspacePaneLocation(
+                            paneId: paneId,
+                            tabId: UUIDv7.generate(),
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ]
+                ]
+            )
+        )
+        let changedResult = try await publishedResult(generation: 2, from: adapter)
+
+        #expect(changedResult.projection.paneDestinationsByWorktreeId[worktreeId]?.map(\.paneId) == [paneId])
+        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+    }
+
+    @Test("changed row content republishes to the view adapter")
+    @MainActor
+    func changedRowContentRepublishesToViewAdapter() async throws {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let repo = repo(id: repoId, worktreeId: worktreeId, name: "agent-studio")
+        let initialRequest = request(
+            repos: [repo],
+            generation: 1,
+            branchNameByWorktreeId: [worktreeId: "main"]
+        )
+        let changedRequest = request(
+            repos: [repo],
+            generation: 2,
+            branchNameByWorktreeId: [worktreeId: "feature/equality-gate"]
+        )
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+
+        adapter.admit(initialRequest)
+        let initialResult = try await publishedResult(generation: 1, from: adapter)
+        let initialRevision = try #require(adapter.materializedProjection).revision
+
+        adapter.admit(changedRequest)
+        let changedResult = try await publishedResult(generation: 2, from: adapter)
+
+        #expect(changedResult != initialResult)
+        #expect(changedResult.branchNameByWorktreeId[worktreeId] == "feature/equality-gate")
+        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+    }
+
+    @Test("changed worktree path republishes to the view adapter")
+    @MainActor
+    func changedWorktreePathRepublishesToViewAdapter() async throws {
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let initialRepo = repo(
+            id: repoId,
+            worktreeId: worktreeId,
+            name: "agent-studio",
+            worktreePath: "/tmp/first/agent-studio"
+        )
+        let movedRepo = repo(
+            id: repoId,
+            worktreeId: worktreeId,
+            name: "agent-studio",
+            worktreePath: "/tmp/second/agent-studio"
+        )
+        let adapter = RepoExplorerProjectionAdapter()
+        defer { adapter.stop() }
+
+        adapter.admit(request(repos: [initialRepo], generation: 1))
+        _ = try await publishedResult(generation: 1, from: adapter)
+        let initialRevision = try #require(adapter.materializedProjection).revision
+
+        adapter.admit(request(repos: [movedRepo], generation: 2))
+        let changedResult = try await publishedResult(generation: 2, from: adapter)
+        let changedWorktreeEntry = try #require(
+            changedResult.rowIndex.entries.first { entry in
+                if case .resolvedWorktreeRow = entry { return true }
+                return false
+            }
+        )
+        guard case .resolvedWorktreeRow(let groupId, _, _, let rowId) = changedWorktreeEntry else {
+            Issue.record("Expected a resolved worktree row")
+            return
+        }
+
+        #expect(
+            changedResult.rowIndex.resolve(
+                groupId: groupId,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                rowId: rowId
+            )?.worktree.path == URL(fileURLWithPath: "/tmp/second/agent-studio"))
+        #expect(adapter.materializedProjection?.revision == initialRevision + 1)
+    }
+
+    private func repo(
+        id: UUID,
+        worktreeId: UUID = UUIDv7.generate(),
+        name: String,
+        isFavorite: Bool = false,
+        note: String? = nil,
+        worktreePath: String? = nil
+    ) -> RepoPresentationItem {
         RepoPresentationItem(
             id: id,
             name: name,
             repoPath: URL(fileURLWithPath: "/tmp/\(name)"),
             stableKey: name,
             isFavorite: isFavorite,
+            note: note,
             worktrees: [
                 Worktree(
+                    id: worktreeId,
                     repoId: id,
                     name: "main",
-                    path: URL(fileURLWithPath: "/tmp/\(name)"),
+                    path: URL(fileURLWithPath: worktreePath ?? "/tmp/\(name)"),
                     isMainWorktree: true
                 )
             ]
@@ -412,21 +646,56 @@ struct RepoExplorerProjectionWorkerTests {
     }
 
     private func request(repos: [RepoPresentationItem]) -> RepoExplorerProjectionRequest {
+        request(repos: repos, generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) })
+    }
+
+    private func request(
+        repos: [RepoPresentationItem],
+        generation: Int,
+        enrichmentUpdatedAt: Date = Date(timeIntervalSince1970: 0),
+        branchNameByWorktreeId: [UUID: String] = [:],
+        query: String = "",
+        bridgePaneCommandCandidatesByWorktreeId: [UUID: [BridgePaneCommandCandidate]] = [:],
+        paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
+    ) -> RepoExplorerProjectionRequest {
         RepoExplorerProjectionRequest(
-            generation: repos.reduce(0) { $0 + ($1.isFavorite ? 1 : 0) },
+            generation: generation,
             snapshot: RepoExplorerSnapshot(
                 repos: repos,
                 repoEnrichmentByRepoId: Dictionary(
                     uniqueKeysWithValues: repos.map {
-                        ($0.id, resolvedRemote(repoId: $0.id, displayName: $0.name))
+                        (
+                            $0.id,
+                            resolvedRemote(
+                                repoId: $0.id,
+                                displayName: $0.name,
+                                updatedAt: enrichmentUpdatedAt
+                            )
+                        )
                     }
                 ),
                 groupingMode: .repo,
-                query: ""
+                query: query,
+                paneLocationsByWorktreeId: paneLocationsByWorktreeId,
+                bridgePaneCommandCandidatesByWorktreeId: bridgePaneCommandCandidatesByWorktreeId
             ),
             collapsedGroupIds: [],
             isFiltering: false,
-            trigger: .dataRefresh
+            trigger: .dataRefresh,
+            worktreeEnrichmentSnapshot: Dictionary(
+                uniqueKeysWithValues: repos.flatMap(\.worktrees).map { worktree in
+                    (
+                        worktree.id,
+                        WorktreeEnrichment(
+                            worktreeId: worktree.id,
+                            repoId: worktree.repoId,
+                            branch: branchNameByWorktreeId[worktree.id] ?? "Unknown branch",
+                            isMainWorktree: worktree.isMainWorktree,
+                            updatedAt: enrichmentUpdatedAt
+                        )
+                    )
+                }
+            )
         )
     }
 
@@ -443,7 +712,11 @@ struct RepoExplorerProjectionWorkerTests {
         )
     }
 
-    private func resolvedRemote(repoId: UUID, displayName: String) -> RepoEnrichment {
+    private func resolvedRemote(
+        repoId: UUID,
+        displayName: String,
+        updatedAt: Date = Date(timeIntervalSince1970: 0)
+    ) -> RepoEnrichment {
         .resolvedRemote(
             repoId: repoId,
             raw: RawRepoOrigin(origin: "git@github.com:askluna/\(displayName).git", upstream: nil),
@@ -453,7 +726,18 @@ struct RepoExplorerProjectionWorkerTests {
                 organizationName: "askluna",
                 displayName: displayName
             ),
-            updatedAt: Date(timeIntervalSince1970: 0)
+            updatedAt: updatedAt
         )
+    }
+
+    @MainActor
+    private func publishedResult(
+        generation: Int,
+        from adapter: RepoExplorerProjectionAdapter
+    ) async throws -> RepoExplorerProjectionResult {
+        for _ in 0..<10_000 where adapter.publishedResult?.generation != generation {
+            await Task.yield()
+        }
+        return try #require(adapter.publishedResult)
     }
 }
