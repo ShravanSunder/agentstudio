@@ -28,6 +28,26 @@ struct WorktreeAnnotationTypedHydrationTests {
         }
     }
 
+    @Test("repository rejects a stored thread scope that disagrees with its origin")
+    func repositoryRejectsStoredThreadScopeOriginMismatch() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+        try WorkspaceLocalMigrations.migrate(databaseQueue)
+        let repository = WorktreeAnnotationSQLiteRepository(databaseWriter: databaseQueue)
+        let detail = try repository.createRootDraft(makeLocatedRootDraftProps())
+        let threadID = try #require(detail.threads.first?.thread.id)
+
+        try databaseQueue.write { database in
+            try database.execute(
+                sql: "UPDATE annotation_thread SET scope = 'session' WHERE id = ?",
+                arguments: [threadID.databaseValue]
+            )
+        }
+
+        #expect(throws: WorktreeAnnotationRepositoryError.invalidState) {
+            try repository.fetchSessionDetail(sessionID: detail.session.id)
+        }
+    }
+
     @Test("repository rejects an unknown stored recovery kind")
     func repositoryRejectsUnknownStoredRecoveryKind() throws {
         let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()

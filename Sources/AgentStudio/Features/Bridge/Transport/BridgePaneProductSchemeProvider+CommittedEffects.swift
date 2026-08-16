@@ -138,8 +138,7 @@ extension BridgePaneProductSchemeProvider {
                     request: request,
                     lease: lease,
                     productAdmission: productAdmission,
-                    session: session,
-                    contentWorkAdmission: self.refreshWorkAdmissionSource.acquire()
+                    session: session
                 )
             }
         }

@@ -138,6 +138,23 @@ struct WorktreeAnnotationProjectionTransportTests {
         #expect(json.contains("current draft body"))
     }
 
+    @Test("projection events round-trip through the strict JSON member vocabulary")
+    func projectionEventsRoundTripThroughStrictJSONVocabulary() throws {
+        let events = try BridgeProductWorktreeAnnotationProjectionPacker.events(
+            snapshot: makeProjectionSnapshot(messageCount: 1),
+            surface: .file
+        )
+
+        for event in events {
+            let encodedEvent = try JSONEncoder().encode(event)
+            let decodedEvent = try BridgeProductStrictJSON.decode(
+                BridgeProductWorktreeAnnotationEvent.self,
+                from: encodedEvent
+            )
+            #expect(decodedEvent == event)
+        }
+    }
+
     @Test("projection emits annotation identities as lowercase UUIDv7 text")
     func projectionEmitsLowercaseUUIDv7Identities() throws {
         // Arrange

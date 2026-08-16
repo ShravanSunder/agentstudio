@@ -100,7 +100,7 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
                 ],
             ],
             requestID: "annotation-create-located-before-restart",
-            requestSequence: 6
+            requestSequence: 7
         )
         let createOutcome = try await waitForHTTPAnnotationCommandOutcome(
             client: client,
@@ -133,7 +133,7 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
                 "sessionId": sessionID.uuidString.lowercased(),
             ],
             requestID: "annotation-save-located-before-restart",
-            requestSequence: 7
+            requestSequence: 8
         )
         let savedBatch = try await waitForHTTPAnnotationMessageBatch(
             client: client,
@@ -149,8 +149,10 @@ private func createHTTPSavedLocatedAnnotationBeforeRestart(
             savedBatch.messages.first(where: {
                 $0.messageId == draft.messageId
             }))
-        await runtime.host.shutdown()
-        try await waitForHTTPMetadataStreamTermination(context.metadataStream.drain)
+        try await shutdownHTTPHostAndDrainMetadataStream(
+            host: runtime.host,
+            drain: context.metadataStream.drain
+        )
         return HTTPSavedLocatedAnnotationObservation(
             descriptorID: context.descriptor.descriptorId,
             messageID: savedMessage.messageId,
@@ -186,16 +188,28 @@ private func restoreHTTPLocatedAnnotationBeforeDescriptorMaterialization(
             requestID: "annotation-refresh-located-after-restart",
             requestSequence: 7
         )
+        let refreshOutcome = try await waitForHTTPAnnotationCommandOutcome(
+            client: client,
+            connection: context.connection,
+            recorder: context.metadataStream.recorder,
+            requestID: "annotation-refresh-located-after-restart"
+        )
+        guard case .committed = refreshOutcome.status else {
+            throw HTTPAnnotationIntegrationError.annotationCommandFailed
+        }
         let refreshedBatch = try await waitForHTTPAnnotationMessageBatch(
             client: client,
             connection: context.connection,
             recorder: context.metadataStream.recorder
         ) { batch in
             batch.context.threadId == savedAnnotation.threadID
+                && batch.context.placement == .exact
                 && batch.messages.contains(where: { $0.messageId == savedAnnotation.messageID })
         }
-        await runtime.host.shutdown()
-        try await waitForHTTPMetadataStreamTermination(context.metadataStream.drain)
+        try await shutdownHTTPHostAndDrainMetadataStream(
+            host: runtime.host,
+            drain: context.metadataStream.drain
+        )
         return refreshedBatch
     }
 }

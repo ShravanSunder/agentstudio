@@ -113,7 +113,7 @@ private func createHTTPAnnotationDraftBeforeRestart(
                 ],
             ],
             requestID: "annotation-create-before-restart",
-            requestSequence: 5
+            requestSequence: 7
         )
         let createOutcome: BridgeProductWorktreeAnnotationCommandOutcomeDTO =
             try await waitForHTTPAnnotationCommandOutcome(
@@ -132,8 +132,10 @@ private func createHTTPAnnotationDraftBeforeRestart(
             body: draftBody,
             sessionID: sessionID
         )
-        await runtime.host.shutdown()
-        try await waitForHTTPMetadataStreamTermination(preparation.metadataStream.drain)
+        try await shutdownHTTPHostAndDrainMetadataStream(
+            host: runtime.host,
+            drain: preparation.metadataStream.drain
+        )
         return HTTPAnnotationDraftObservation(connection: connection, sessionID: sessionID)
     }
 }
@@ -160,7 +162,7 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             guard case .metadataStreamAccepted(let accepted) = frame else { return nil }
             return accepted
         }
-        try await openHTTPSubscription(
+        _ = try await openHTTPSubscription(
             client: client,
             connection: connection,
             requestSequence: 2,
@@ -207,8 +209,10 @@ private func restoreHTTPAnnotationDraftAfterRestart(
             body: draftBody,
             sessionID: sessionID
         )
-        await runtime.host.shutdown()
-        try await waitForHTTPMetadataStreamTermination(metadataStream.drain)
+        try await shutdownHTTPHostAndDrainMetadataStream(
+            host: runtime.host,
+            drain: metadataStream.drain
+        )
         return restoredDraft
     }
 }

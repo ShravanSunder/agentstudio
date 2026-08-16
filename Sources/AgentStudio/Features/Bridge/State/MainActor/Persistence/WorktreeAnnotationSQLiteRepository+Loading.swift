@@ -346,10 +346,18 @@ extension WorktreeAnnotationSQLiteRepository {
 
     func decodeThread(_ row: Row) throws -> WorktreeAnnotationThread {
         let originJSON: String = row["origin_json"]
+        let origin = try Self.jsonDecoder.decode(
+            WorktreeAnnotationThreadOrigin.self,
+            from: Data(originJSON.utf8)
+        )
+        let storedScope: WorktreeAnnotationThreadScope = try decodeRawValue(row["scope"] as String)
+        guard storedScope == origin.scope else {
+            throw WorktreeAnnotationRepositoryError.invalidState
+        }
         return try WorktreeAnnotationThread(
             id: decodeIdentity(row["id"] as String),
             sessionID: decodeIdentity(row["session_id"] as String),
-            origin: Self.jsonDecoder.decode(WorktreeAnnotationThreadOrigin.self, from: Data(originJSON.utf8)),
+            origin: origin,
             resolution: decodeRawValue(row["resolution"] as String),
             createdOrdinal: row["created_ordinal"],
             semanticRevision: row["semantic_revision"],

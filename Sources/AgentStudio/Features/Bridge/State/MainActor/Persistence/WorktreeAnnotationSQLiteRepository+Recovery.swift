@@ -1,6 +1,10 @@
 import Foundation
 import GRDB
 
+private enum WorktreeAnnotationRecoveryProvenanceKind: String {
+    case localDatabaseQuarantine = "local_database_quarantine"
+}
+
 extension WorktreeAnnotationSQLiteRepository {
     func recordRecoveryProvenance(
         quarantinedFilenames: [String],
@@ -90,6 +94,7 @@ extension WorktreeAnnotationSQLiteRepository {
     }
 
     func decodeRecoveryProvenance(_ row: Row) throws -> WorktreeAnnotationRecoveryProvenance {
+        let _: WorktreeAnnotationRecoveryProvenanceKind = try decodeRawValue(row["recovery_kind"] as String)
         let filenamesJSON: String = row["quarantined_filenames_json"]
         return try WorktreeAnnotationRecoveryProvenance(
             id: decodeIdentity(row["id"] as String),

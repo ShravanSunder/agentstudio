@@ -18,7 +18,6 @@ struct HTTPDevelopmentProductRuntime {
 @MainActor
 struct HTTPAnnotationAuthoringContext {
     let descriptor: BridgeProductFileContentDescriptor
-    let fileSource: BridgeProductFileSourceSpec
     let metadataStream: HTTPMetadataStreamHandle
 }
 
@@ -83,7 +82,7 @@ func prepareHTTPAnnotationAuthoring(
         connection: connection,
         requestSequence: 2
     )
-    _ = try await openHTTPSubscription(
+    let fileMetadataSubscription = try await openHTTPSubscription(
         client: client,
         connection: connection,
         requestSequence: 3,
@@ -99,6 +98,24 @@ func prepareHTTPAnnotationAuthoring(
         recorder: metadataStream.recorder,
         subscriptionID: "file-metadata-annotation-authoring"
     )
+    let _: BridgeProductFileSourceIdentity = try await waitForAcknowledgedMetadataFrame(
+        client: client,
+        connection: connection,
+        recorder: metadataStream.recorder
+    ) { frame in
+        guard case .subscriptionData(let dataFrame) = frame,
+            case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
+        else { return nil }
+        return event.source
+    }
+    try await demandHTTPFileMetadataPath(
+        "tracked.txt",
+        client: client,
+        connection: connection,
+        openResponse: fileMetadataSubscription,
+        requestSequence: 4,
+        subscriptionID: "file-metadata-annotation-authoring"
+    )
     let descriptor: BridgeProductFileContentDescriptor =
         try await waitForAcknowledgedMetadataFrame(
             client: client,
@@ -111,20 +128,10 @@ func prepareHTTPAnnotationAuthoring(
             else { return nil }
             return descriptor
         }
-    let _: BridgeProductFileSourceIdentity = try await waitForAcknowledgedMetadataFrame(
-        client: client,
-        connection: connection,
-        recorder: metadataStream.recorder
-    ) { frame in
-        guard case .subscriptionData(let dataFrame) = frame,
-            case .fileMetadata(.sourceAccepted(let event)) = dataFrame.data
-        else { return nil }
-        return event.source
-    }
     _ = try await openHTTPSubscription(
         client: client,
         connection: connection,
-        requestSequence: 4,
+        requestSequence: 5,
         subscription: ["subscriptionKind": "file.annotations"],
         subscriptionID: "file-annotations-authoring"
     )
@@ -139,7 +146,7 @@ func prepareHTTPAnnotationAuthoring(
         connection: connection,
         operation: ["kind": "session.discover"],
         requestID: "annotation-discover-authoring",
-        requestSequence: 5
+        requestSequence: 6
     )
     _ = try await waitForAcknowledgedMetadataFrame(
         client: client,
@@ -153,9 +160,66 @@ func prepareHTTPAnnotationAuthoring(
     }
     return .init(
         descriptor: descriptor,
-        fileSource: fileSource,
         metadataStream: metadataStream
     )
+}
+
+private func demandHTTPFileMetadataPath(
+    _ path: String,
+    client: some TestClientProtocol,
+    connection: HTTPProductConnection,
+    openResponse: BridgeProductSubscriptionOpenAcceptedResponse,
+    requestSequence: Int,
+    subscriptionID: String
+) async throws {
+    let targetInterestState = BridgeProductSubscriptionInterestState.fileMetadata(
+        interests: [try .init(lane: .foreground, paths: [path])],
+        pathScope: []
+    )
+    let response = try await executeHTTPControl(
+        client: client,
+        connection: connection,
+        object: httpSurfaceControlIdentity(
+            connection: connection,
+            kind: "subscription.updateBatch",
+            requestID: "subscription-update-\(subscriptionID)",
+            requestSequence: requestSequence
+        ).merging([
+            "baseInterestRevision": openResponse.interestRevision,
+            "baseInterestSha256": openResponse.interestSha256,
+            "batchCount": 1,
+            "batchIndex": 0,
+            "delta": [
+                "add": [["lane": "foreground", "path": path]],
+                "addPathScope": [],
+                "removePathScope": [],
+                "removePaths": [],
+                "subscriptionKind": "file.metadata",
+            ],
+            "subscriptionId": subscriptionID,
+            "subscriptionKind": "file.metadata",
+            "targetInterestRevision": openResponse.interestRevision + 1,
+            "targetInterestSha256": try targetInterestState.sha256Hex(),
+            "totalDeltaItemCount": 1,
+            "updateId": "file-interest-\(subscriptionID)",
+        ]) { _, newValue in newValue }
+    )
+    guard case .subscriptionUpdateBatchAccepted(let accepted) = response,
+        accepted.disposition == .committed
+    else {
+        throw HTTPAnnotationIntegrationError.unexpectedControlResponse
+    }
+}
+
+func capturedErrorDescription(
+    operation: () async throws -> Void
+) async -> String? {
+    do {
+        try await operation()
+        return nil
+    } catch {
+        return String(reflecting: error)
+    }
 }
 
 @MainActor
@@ -338,10 +402,21 @@ func waitForHTTPAnnotationCommandOutcome(
     }
 }
 
-func waitForHTTPMetadataStreamTermination(
-    _ drain: Task<Void, any Error>
+@MainActor
+func shutdownHTTPHostAndDrainMetadataStream(
+    host: BridgeDevelopmentProductHost,
+    drain: Task<Void, any Error>
 ) async throws {
-    try await drain.value
+    async let shutdown: Void = host.shutdown()
+    do {
+        try await drain.value
+    } catch is CancellationError {
+        // Host shutdown cancels the active scheme response after closing its producer.
+    } catch {
+        await shutdown
+        throw error
+    }
+    await shutdown
 }
 
 func openHTTPProductConnection(
