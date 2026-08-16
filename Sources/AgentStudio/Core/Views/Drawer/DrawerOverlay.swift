@@ -9,6 +9,7 @@ package struct DrawerOverlay: View {
         let openEditorMenuAction: TargetedCommandControlAction?
         let openFinderAction: TargetedCommandControlAction?
         let copyPathAction: TargetedCommandControlAction?
+        let pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator?
         let openPullRequestAction: PaneSurfaceToolbarAction?
         let showPaneInboxAction: TargetedCommandControlAction?
         let editorMenuContent: AnyView
@@ -22,6 +23,7 @@ package struct DrawerOverlay: View {
             openEditorMenuAction: TargetedCommandControlAction?,
             openFinderAction: TargetedCommandControlAction?,
             copyPathAction: TargetedCommandControlAction?,
+            pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator? = nil,
             openPullRequestAction: PaneSurfaceToolbarAction? = nil,
             showPaneInboxAction: TargetedCommandControlAction? = nil,
             editorMenuContent: AnyView,
@@ -34,6 +36,7 @@ package struct DrawerOverlay: View {
             self.openEditorMenuAction = openEditorMenuAction
             self.openFinderAction = openFinderAction
             self.copyPathAction = copyPathAction
+            self.pullRequestBlockerIndicator = pullRequestBlockerIndicator
             self.openPullRequestAction = openPullRequestAction
             self.showPaneInboxAction = showPaneInboxAction
             self.editorMenuContent = editorMenuContent

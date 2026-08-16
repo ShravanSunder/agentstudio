@@ -18,12 +18,9 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import { materializeBridgeCodeViewLoadingItem } from '../code-view/bridge-code-view-materialization.js';
-import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
-import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import {
-	BridgeReviewCanvasLoadingState,
 	renderReviewViewerShellPresentation,
 	type ReviewViewerShellProps,
 } from './review-viewer-shell.js';
@@ -549,45 +546,6 @@ describe('review viewer shell', () => {
 		);
 	});
 
-	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const element = requireTestElement(
-			renderReviewViewerShellForTest({
-				reviewPackage,
-				projection: projectionForPackage(reviewPackage),
-				selectedItemId: 'item-source',
-				onSelectItem: () => undefined,
-				selectedContentText: null,
-				selectedMarkdownPreviewHtml: '<h1>Bridge plan</h1>',
-				selectedMarkdownPreviewSourcePath: 'docs/plans/bridge-plan.md',
-			}),
-		);
-
-		const markdownPreview = findElementByComponent(element, BridgeMarkdownPreview);
-		const codeViewPanel = findElementByComponent(element, BridgeCodeViewPanel);
-
-		expect(markdownPreview?.type).toBe(BridgeMarkdownPreview);
-		expect(codeViewPanel).toBeNull();
-	});
-
-	test('keeps CodeView while markdown worker output is not ready', () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const element = requireTestElement(
-			renderReviewViewerShellForTest({
-				reviewPackage,
-				projection: projectionForPackage(reviewPackage),
-				selectedItemId: 'item-source',
-				onSelectItem: () => undefined,
-				selectedContentText: null,
-				selectedMarkdownPreviewHtml: null,
-				selectedMarkdownPreviewSourcePath: null,
-			}),
-		);
-
-		expect(findElementByComponent(element, BridgeMarkdownPreview)).toBeNull();
-		expect(findElementByComponent(element, BridgeCodeViewPanel)).not.toBeNull();
-	});
-
 	test('publishes the active canvas branch for native startup diagnostics', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const codeElement = requireTestElement(
@@ -597,17 +555,6 @@ describe('review viewer shell', () => {
 				selectedItemId: 'item-source',
 				onSelectItem: () => undefined,
 				selectedContentText: null,
-			}),
-		);
-		const markdownElement = requireTestElement(
-			renderReviewViewerShellForTest({
-				reviewPackage,
-				projection: projectionForPackage(reviewPackage),
-				selectedItemId: 'item-source',
-				onSelectItem: () => undefined,
-				selectedContentText: null,
-				selectedMarkdownPreviewHtml: '<h1>Bridge plan</h1>',
-				selectedMarkdownPreviewSourcePath: 'docs/plans/bridge-plan.md',
 			}),
 		);
 		const unavailableElement = requireTestElement(
@@ -625,47 +572,10 @@ describe('review viewer shell', () => {
 			findElementByTestId(codeElement, 'review-viewer-shell')?.props['data-review-canvas-branch'],
 		).toBe('code');
 		expect(
-			findElementByTestId(markdownElement, 'review-viewer-shell')?.props[
-				'data-review-canvas-branch'
-			],
-		).toBe('markdown');
-		expect(
 			findElementByTestId(unavailableElement, 'review-viewer-shell')?.props[
 				'data-review-canvas-branch'
 			],
 		).toBe('unavailable');
-	});
-
-	test('shows a shadcn canvas skeleton while markdown output is rendering', () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const element = requireTestElement(
-			renderReviewViewerShellForTest({
-				reviewPackage,
-				projection: projectionForPackage(reviewPackage),
-				selectedItemId: 'item-source',
-				onSelectItem: () => undefined,
-				selectedContentText: null,
-				selectedCanvasLoadingReason: 'markdownPreview',
-				selectedMarkdownPreviewHtml: null,
-				selectedMarkdownPreviewSourcePath: null,
-			}),
-		);
-
-		const loadingState = findElementByComponent(element, BridgeReviewCanvasLoadingState);
-		const loadingStateBody = requireTestElement(
-			BridgeReviewCanvasLoadingState({ reason: 'markdownPreview' }),
-		);
-
-		expect(findElementByComponent(element, BridgeMarkdownPreview)).toBeNull();
-		expect(findElementByComponent(element, BridgeCodeViewPanel)).not.toBeNull();
-		expect(loadingState).not.toBeNull();
-		expect(loadingState?.props.reason).toBe('markdownPreview');
-		expect(
-			findElementByTestId(loadingStateBody, 'bridge-review-canvas-loading-state'),
-		).not.toBeNull();
-		expect(
-			findElementsByTestId(loadingStateBody, 'bridge-review-canvas-loading-line'),
-		).toHaveLength(3);
 	});
 
 	test('renders only items matching folder file-class and change-kind filter state', () => {

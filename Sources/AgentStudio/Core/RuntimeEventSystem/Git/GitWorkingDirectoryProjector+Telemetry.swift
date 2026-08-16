@@ -13,7 +13,7 @@ struct GitStatusCompletionTraceContext {
     let pathspecCount: Int
     let statusCompletion: ContinuousClock.Instant
     let outcome: GitStatusOutcome
-    let consecutiveTimeoutCount: Int
+    let consecutiveFailureCount: Int
     let statusDuration: Duration
 }
 
@@ -32,8 +32,8 @@ extension GitWorkingDirectoryProjector {
             pathspecCount: context.pathspecCount
         )
         attributes["agentstudio.performance.git.status.last_outcome"] = .string(context.outcome.rawValue)
-        attributes["agentstudio.performance.git.status.consecutive_timeout.count"] = .int(
-            context.consecutiveTimeoutCount
+        attributes["agentstudio.performance.git.status.consecutive_failure.count"] = .int(
+            context.consecutiveFailureCount
         )
         attributes["agentstudio.performance.git.status.duration_ms"] = .double(
             AgentStudioPerformanceTraceRecorder.milliseconds(from: context.statusDuration)

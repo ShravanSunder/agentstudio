@@ -11,6 +11,7 @@ struct DrawerToolbarCommandPresentation {
     let openEditorMenu: TargetedCommandControlAction?
     let openFinder: TargetedCommandControlAction?
     let copyPath: TargetedCommandControlAction?
+    let openPullRequest: TargetedCommandControlAction?
     let showPaneInbox: TargetedCommandControlAction?
 
     static func resolve(
@@ -51,6 +52,12 @@ struct DrawerToolbarCommandPresentation {
                 locationTargetPaneId,
                 .pane
             ),
+            openPullRequest: actionResolver(
+                .openPullRequest,
+                commandSurface,
+                locationTargetPaneId,
+                .pane
+            ),
             showPaneInbox: actionResolver(
                 .showPaneInboxNotifications,
                 commandSurface,
@@ -77,9 +84,25 @@ struct PaneSurfaceToolbarHost: View {
     let workspaceWindowId: UUID?
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
-    let openExternalURL: @MainActor @Sendable (URL) -> Void
+    let targetedCommandActionResolver: TargetedCommandControlActionResolver
 
     @State private var paneInboxPopoverOpen = false
+
+    @MainActor
+    static func resolveTargetedCommandAction(
+        command: AppCommand,
+        surface: AppCommandSurface,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> TargetedCommandControlAction? {
+        TargetedCommandControlAction.resolve(
+            command: command,
+            surface: surface,
+            target: target,
+            targetType: targetType,
+            dispatcher: AppCommandDispatcher.shared
+        )
+    }
 
     init(
         anchorPaneId: UUID,
@@ -96,9 +119,8 @@ struct PaneSurfaceToolbarHost: View {
         workspaceWindowId: UUID?,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
-        openExternalURL: @escaping @MainActor @Sendable (URL) -> Void = { url in
-            _ = NSWorkspace.shared.open(url)
-        }
+        targetedCommandActionResolver: @escaping TargetedCommandControlActionResolver =
+            Self.resolveTargetedCommandAction
     ) {
         self.anchorPaneId = anchorPaneId
         self.locationTargetPaneId = locationTargetPaneId
@@ -114,7 +136,7 @@ struct PaneSurfaceToolbarHost: View {
         self.workspaceWindowId = workspaceWindowId
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
-        self.openExternalURL = openExternalURL
+        self.targetedCommandActionResolver = targetedCommandActionResolver
     }
 
     var body: some View {
@@ -122,29 +144,17 @@ struct PaneSurfaceToolbarHost: View {
             anchorPaneId: anchorPaneId,
             locationTargetPaneId: locationTargetPaneId,
             toolbarSurface: toolbarSurface,
-            actionResolver: { command, surface, target, targetType in
-                TargetedCommandControlAction.resolve(
-                    command: command,
-                    surface: surface,
-                    target: target,
-                    targetType: targetType,
-                    dispatcher: AppCommandDispatcher.shared
-                )
-            }
+            actionResolver: targetedCommandActionResolver
         )
         let locationContext = PaneManagementContext.project(
             paneId: locationTargetPaneId,
             store: store
         )
-        let openPullRequestAction = PanePullRequestToolbarActionFactory.make(
+        let pullRequestPresentation = PanePullRequestToolbarActionFactory.make(
             paneId: locationTargetPaneId,
             store: store,
             repoCache: repoCache,
-            iconAccentColorHex: atom(\.paneDisplay).accentColorHex(for: locationTargetPaneId),
-            openExternalURL: {
-                openExternalURL($0)
-                return true
-            }
+            commandAction: commandPresentation.openPullRequest
         )
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: editorChooser,
@@ -158,7 +168,8 @@ struct PaneSurfaceToolbarHost: View {
                 guard let targetPath = locationContext.targetPath else { return }
                 _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
             },
-            openPullRequestAction: openPullRequestAction
+            pullRequestBlockerIndicator: pullRequestPresentation?.blockerIndicator,
+            openPullRequestAction: pullRequestPresentation?.openAction
         )
         let paneInboxScope = PaneInboxScopeResolver.resolve(
             anchorPaneId: anchorPaneId,

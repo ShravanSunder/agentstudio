@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
+import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../src/app/markdown/worker/bridge-markdown-render-worker-renderer.js';
+import type { BridgeMarkdownRenderWorkerRequest } from '../src/app/markdown/worker/bridge-markdown-render-worker-rpc.js';
 import {
 	bridgeCodeViewContentRoleFactsForHandle,
 	bridgeCodeViewMaterializationCacheKeysForItem,
@@ -23,8 +25,6 @@ import {
 	type BridgeViewerBenchmarkWorkload,
 } from '../src/review-viewer/test-support/bridge-viewer-benchmark-workloads.js';
 import { prepareBridgeTreeInput } from '../src/review-viewer/trees/bridge-trees-controller.js';
-import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.js';
-import type { BridgeMarkdownRenderWorkerRequest } from '../src/review-viewer/workers/markdown/bridge-markdown-render-worker-rpc.js';
 
 interface BridgeViewerBenchmarkArtifact {
 	readonly schemaVersion: 1;
@@ -303,11 +303,13 @@ function markdownBenchmarkRequest(props: {
 		schemaVersion: 1,
 		method: 'markdown.render',
 		requestId: `${props.workload.workloadId}-markdown-benchmark`,
-		packageId: props.workload.reviewPackage.packageId,
-		reviewGeneration: props.workload.reviewPackage.reviewGeneration,
-		revision: props.workload.reviewPackage.revision,
-		itemId: 'benchmark-markdown-plan',
-		itemVersion: 1,
+		sourceIdentity: {
+			surface: 'file',
+			sourceId: props.workload.reviewPackage.packageId,
+			sourceGeneration: props.workload.reviewPackage.reviewGeneration,
+			fileId: 'benchmark-markdown-plan',
+			fileVersion: 1,
+		},
 		contentCacheKey: `${props.workload.workloadId}:markdown`,
 		contentHash: checksumObject(props.markdownText),
 		markdownText: props.markdownText,

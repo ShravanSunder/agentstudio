@@ -34,14 +34,24 @@ export function createBridgeMarkdownRenderWebWorkerClient(
 		return null;
 	}
 
+	const defaultWorkerResource =
+		props.workerFactory === undefined
+			? createDefaultBridgeMarkdownWorkerResource({
+					workerScriptUrl: props.workerScriptUrl ?? bridgeMarkdownDefaultWorkerScriptUrl,
+					...(props.createObjectURL === undefined
+						? {}
+						: { createObjectURL: props.createObjectURL }),
+					...(props.revokeObjectURL === undefined
+						? {}
+						: { revokeObjectURL: props.revokeObjectURL }),
+				})
+			: null;
 	const transport = createBridgeMarkdownRenderWebWorkerTransport({
 		workerFactory:
-			props.workerFactory ??
-			createDefaultBridgeMarkdownWorkerFactory({
-				workerScriptUrl: props.workerScriptUrl ?? bridgeMarkdownDefaultWorkerScriptUrl,
-				...(props.createObjectURL === undefined ? {} : { createObjectURL: props.createObjectURL }),
-				...(props.revokeObjectURL === undefined ? {} : { revokeObjectURL: props.revokeObjectURL }),
-			}),
+			props.workerFactory ?? defaultWorkerResource?.workerFactory ?? unreachableFactory,
+		...(defaultWorkerResource === null
+			? {}
+			: { disposeWorkerResource: defaultWorkerResource.dispose }),
 	});
 	return createBridgeMarkdownRenderWorkerClient({
 		transport,
@@ -58,12 +68,17 @@ export function createBridgeMarkdownRenderModuleWorkerFactory(): () => Worker {
 
 function createBridgeMarkdownRenderWebWorkerTransport(props: {
 	readonly workerFactory: () => Worker | Promise<Worker>;
+	readonly disposeWorkerResource?: () => void;
 }): BridgeMarkdownRenderWorkerTransport {
 	const pendingByRequestId = new Map<string, PendingWorkerRequest>();
 	let worker: Worker | null = null;
 	let workerPromise: Promise<Worker> | null = null;
+	let isDisposed = false;
 
 	const getWorker = async (): Promise<Worker> => {
+		if (isDisposed) {
+			throw new Error('Markdown render worker transport was disposed');
+		}
 		if (worker !== null) {
 			return worker;
 		}
@@ -71,42 +86,72 @@ function createBridgeMarkdownRenderWebWorkerTransport(props: {
 			return await workerPromise;
 		}
 
-		workerPromise = Promise.resolve(props.workerFactory()).then((nextWorker: Worker): Worker => {
-			nextWorker.addEventListener('message', (event: MessageEvent<unknown>): void => {
-				const parsed = bridgeMarkdownRenderWorkerResponseSchema.safeParse(event.data);
-				if (!parsed.success) {
-					rejectPendingRequests(
-						pendingByRequestId,
-						new Error('Markdown render worker sent invalid response'),
-					);
+		workerPromise = Promise.resolve(props.workerFactory())
+			.catch((error: unknown): never => {
+				workerPromise = null;
+				throw error;
+			})
+			.then((nextWorker: Worker): Worker => {
+				if (isDisposed) {
+					nextWorker.terminate();
+					throw new Error('Markdown render worker transport was disposed');
+				}
+				nextWorker.addEventListener('message', (event: MessageEvent<unknown>): void => {
+					if (worker !== nextWorker) {
+						return;
+					}
+					const parsed = bridgeMarkdownRenderWorkerResponseSchema.safeParse(event.data);
+					if (!parsed.success) {
+						rejectPendingRequests(
+							pendingByRequestId,
+							new Error('Markdown render worker sent invalid response'),
+						);
+						nextWorker.terminate();
+						worker = null;
+						workerPromise = null;
+						return;
+					}
+					const pending = pendingByRequestId.get(parsed.data.requestId);
+					if (pending === undefined) {
+						return;
+					}
+					pendingByRequestId.delete(parsed.data.requestId);
+					pending.resolve(parsed.data);
+				});
+				nextWorker.addEventListener('error', (event: ErrorEvent): void => {
+					if (worker !== nextWorker) {
+						return;
+					}
+					const errorMessage =
+						typeof event.message === 'string' && event.message.length > 0
+							? event.message
+							: 'Markdown render worker failed';
+					rejectPendingRequests(pendingByRequestId, new Error(errorMessage));
 					nextWorker.terminate();
 					worker = null;
 					workerPromise = null;
-					return;
-				}
-				const pending = pendingByRequestId.get(parsed.data.requestId);
-				if (pending === undefined) {
-					return;
-				}
-				pendingByRequestId.delete(parsed.data.requestId);
-				pending.resolve(parsed.data);
+				});
+				worker = nextWorker;
+				return nextWorker;
 			});
-			nextWorker.addEventListener('error', (event: ErrorEvent): void => {
-				const errorMessage =
-					typeof event.message === 'string' && event.message.length > 0
-						? event.message
-						: 'Markdown render worker failed';
-				rejectPendingRequests(pendingByRequestId, new Error(errorMessage));
-				worker = null;
-				workerPromise = null;
-			});
-			worker = nextWorker;
-			return nextWorker;
-		});
 		return await workerPromise;
 	};
 
 	return {
+		dispose: (): void => {
+			if (isDisposed) {
+				return;
+			}
+			isDisposed = true;
+			rejectPendingRequests(
+				pendingByRequestId,
+				new Error('Markdown render worker transport was disposed'),
+			);
+			worker?.terminate();
+			worker = null;
+			workerPromise = null;
+			props.disposeWorkerResource?.();
+		},
 		abort: (abortRequest: BridgeMarkdownRenderWorkerAbortRequest): void => {
 			if (worker !== null) {
 				try {
@@ -133,6 +178,9 @@ function createBridgeMarkdownRenderWebWorkerTransport(props: {
 				pendingByRequestId.set(request.requestId, { resolve, reject });
 				void getWorker()
 					.then((activeWorker: Worker): void => {
+						if (isDisposed || !pendingByRequestId.has(request.requestId)) {
+							return;
+						}
 						try {
 							activeWorker.postMessage(request);
 						} catch (error: unknown) {
@@ -154,20 +202,25 @@ function createBridgeMarkdownRenderWebWorkerTransport(props: {
 	};
 }
 
-interface CreateDefaultBridgeMarkdownWorkerFactoryProps {
+interface CreateDefaultBridgeMarkdownWorkerResourceProps {
 	readonly workerScriptUrl: string;
 	readonly createObjectURL?: (blob: Blob) => string;
 	readonly revokeObjectURL?: (url: string) => void;
 }
 
-function createDefaultBridgeMarkdownWorkerFactory(
-	props: CreateDefaultBridgeMarkdownWorkerFactoryProps,
-): () => Promise<Worker> {
+interface BridgeMarkdownWorkerResource {
+	readonly workerFactory: () => Promise<Worker>;
+	readonly dispose: () => void;
+}
+
+function createDefaultBridgeMarkdownWorkerResource(
+	props: CreateDefaultBridgeMarkdownWorkerResourceProps,
+): BridgeMarkdownWorkerResource {
 	const createObjectURL = props.createObjectURL ?? URL.createObjectURL.bind(URL);
 	const revokeObjectURL = props.revokeObjectURL ?? URL.revokeObjectURL.bind(URL);
 	let workerScriptBlobUrl: string | null = null;
 
-	return async (): Promise<Worker> => {
+	const workerFactory = async (): Promise<Worker> => {
 		if (workerScriptBlobUrl === null) {
 			const response = await fetch(props.workerScriptUrl);
 			if (!response.ok) {
@@ -190,6 +243,17 @@ function createDefaultBridgeMarkdownWorkerFactory(
 		);
 		return worker;
 	};
+	const dispose = (): void => {
+		if (workerScriptBlobUrl !== null) {
+			revokeObjectURL(workerScriptBlobUrl);
+			workerScriptBlobUrl = null;
+		}
+	};
+	return { workerFactory, dispose };
+}
+
+function unreachableFactory(): Worker {
+	throw new Error('Markdown worker factory is unavailable');
 }
 
 function rejectPendingRequests(

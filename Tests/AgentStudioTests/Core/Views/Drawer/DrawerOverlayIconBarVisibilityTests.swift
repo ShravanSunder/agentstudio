@@ -146,11 +146,21 @@ struct DrawerOverlayIconBarVisibilityTests {
         }
     }
 
-    @Test("PR action precedes the separator before pane fullscreen controls")
-    func pullRequestActionPrecedesPaneContextActions() throws {
+    @Test("PR blocker precedes the PR action and pane fullscreen controls")
+    func pullRequestBlockerPrecedesPullRequestActionAndPaneContextActions() throws {
         let zoomAction = makePaneSurfaceAction(
             label: "Pane Zoom",
             identifier: "paneSurfaceToolbar.zoom"
+        )
+        let blockerIndicator = PaneSurfaceToolbarStatusIndicator(
+            label: "Merge conflicts",
+            accessibilityIdentifier: "paneSurfaceToolbar.pullRequestBlocker",
+            icon: .system(.xmarkCircleFill),
+            tooltip: ControlTooltipRenderValue(
+                text: "Merge conflicts",
+                shortcutDisplayText: nil
+            ),
+            iconStatusTone: .danger
         )
         let pullRequestAction = makePaneSurfaceAction(
             label: "Open PR",
@@ -158,7 +168,10 @@ struct DrawerOverlayIconBarVisibilityTests {
         )
         let mount = mountDrawerOverlay(
             isIconBarVisible: true,
-            trailingActions: makeTrailingActions(openPullRequestAction: pullRequestAction),
+            trailingActions: makeTrailingActions(
+                pullRequestBlockerIndicator: blockerIndicator,
+                openPullRequestAction: pullRequestAction
+            ),
             paneContextActions: [zoomAction],
             width: 640
         )
@@ -170,6 +183,7 @@ struct DrawerOverlayIconBarVisibilityTests {
         let orderedIdentifiers = [
             "paneSurfaceToolbar.drawerToggle",
             "paneSurfaceToolbar.drawerAdd",
+            "paneSurfaceToolbar.pullRequestBlocker",
             "paneSurfaceToolbar.pullRequest",
             "paneSurfaceToolbar.zoom",
             "paneSurfaceToolbar.editor",
@@ -183,8 +197,15 @@ struct DrawerOverlayIconBarVisibilityTests {
             #expect(leftFrame.maxX < rightFrame.minX)
         }
 
-        let pullRequestFrame = orderedFrames[2]
-        let paneContextFrame = orderedFrames[3]
+        let blockerFrame = orderedFrames[2]
+        let pullRequestFrame = orderedFrames[3]
+        let paneContextFrame = orderedFrames[4]
+        #expect(
+            abs(
+                pullRequestFrame.minX - blockerFrame.maxX
+                    - AppStyles.Shell.DrawerToolbar.trailingClusterSpacing
+            ) < 0.5
+        )
         #expect(
             abs(
                 paneContextFrame.minX - pullRequestFrame.maxX
@@ -303,12 +324,14 @@ struct DrawerOverlayIconBarVisibilityTests {
     }
 
     private func makeTrailingActions(
+        pullRequestBlockerIndicator: PaneSurfaceToolbarStatusIndicator? = nil,
         openPullRequestAction: PaneSurfaceToolbarAction? = nil
     ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
             openEditorMenuAction: makeTargetedAction(.openPaneLocationInEditorMenu),
             openFinderAction: makeTargetedAction(.openPaneLocationInFinder),
             copyPathAction: makeTargetedAction(.copyCurrentPanePath),
+            pullRequestBlockerIndicator: pullRequestBlockerIndicator,
             openPullRequestAction: openPullRequestAction,
             showPaneInboxAction: makeTargetedAction(.showPaneInboxNotifications),
             editorMenuContent: AnyView(EmptyView()),

@@ -557,6 +557,95 @@ button:disabled,
 	font-size: 12px;
 }
 
+.bridge-markdown-document :where(h1, h2, h3, h4, h5, h6) {
+	margin-block: 1.5em 0.55em;
+	font-weight: 650;
+	line-height: 1.25;
+}
+
+.bridge-markdown-document h1 {
+	padding-bottom: 0.35em;
+	border-bottom: 1px solid var(--bridge-border-subtle);
+	font-size: 2em;
+}
+
+.bridge-markdown-document h2 {
+	font-size: 1.55em;
+}
+
+.bridge-markdown-document h3 {
+	font-size: 1.25em;
+}
+
+.bridge-markdown-document :where(h4, h5, h6) {
+	font-size: 1em;
+}
+
+.bridge-markdown-document :where(p, ul, ol, blockquote, table, pre, hr) {
+	margin-block: 0.85em;
+}
+
+.bridge-markdown-document :where(ul, ol) {
+	padding-left: 1.75em;
+}
+
+.bridge-markdown-document ul {
+	list-style: disc;
+}
+
+.bridge-markdown-document ol {
+	list-style: decimal;
+}
+
+.bridge-markdown-document blockquote {
+	border-left: 3px solid var(--bridge-border-opaque);
+	padding-left: 1em;
+	color: var(--bridge-text-secondary);
+}
+
+.bridge-markdown-document table {
+	width: 100%;
+	border-collapse: collapse;
+}
+
+.bridge-markdown-document :where(th, td) {
+	border: 1px solid var(--bridge-border-subtle);
+	padding: 0.4em 0.65em;
+	text-align: left;
+}
+
+.bridge-markdown-document :where(code, pre) {
+	font-family: var(--font-mono);
+}
+
+.bridge-markdown-document :not(pre) > code {
+	border-radius: 4px;
+	padding: 0.12em 0.3em;
+	background: var(--bridge-header-control-bg);
+}
+
+.bridge-markdown-document pre {
+	max-width: 100%;
+	overflow-x: auto;
+	border: 1px solid var(--bridge-border-subtle);
+	border-radius: 6px;
+	padding: 0.85em 1em;
+}
+
+.bridge-markdown-document .bridge-markdown-inert-link {
+	color: var(--bridge-accent-fg);
+	text-decoration: underline;
+	text-decoration-color: color-mix(in srgb, currentcolor 55%, transparent);
+	text-underline-offset: 2px;
+}
+
+.bridge-markdown-document .bridge-markdown-mermaid {
+	min-height: 96px;
+	border: 1px solid var(--bridge-border-subtle);
+	border-radius: 6px;
+	padding: 1em;
+}
+
 @layer base {
 	* {
 		@apply border-border outline-ring/50;

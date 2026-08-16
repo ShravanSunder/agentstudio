@@ -9,6 +9,36 @@ import Testing
 @MainActor
 final class WorkspaceCacheCoordinatorIntegrationTests {
 
+    @Test("non-git CWD registration never admits status work")
+    func nonGitCWDRegistrationNeverAdmitsStatusWork() async throws {
+        let statusCalls = StatusCallCount()
+        let pipeline = FilesystemGitPipeline(
+            gitWorkingTreeProvider: .stub { _ in
+                await statusCalls.recordCall()
+                return GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "unexpected",
+                    origin: nil
+                )
+            },
+            forgeStatusProvider: .stub { _ in .complete([]) },
+            gitCoalescingWindow: .zero
+        )
+        let nonGitCWD = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-non-git-cwd-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: nonGitCWD, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: nonGitCWD) }
+
+        await pipeline.start()
+        await pipeline.register(worktreeId: UUID(), repoId: UUID(), rootPath: nonGitCWD)
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+
+        #expect(await statusCalls.value == 0)
+        await pipeline.shutdown()
+    }
+
     private func makeWorkspaceStore() -> WorkspaceStore {
         WorkspaceStore()
     }
@@ -795,6 +825,14 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
             await coordinator.shutdown()
             throw error
         }
+    }
+}
+
+private actor StatusCallCount {
+    private(set) var value = 0
+
+    func recordCall() {
+        value += 1
     }
 }
 

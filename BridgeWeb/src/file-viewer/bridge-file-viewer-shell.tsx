@@ -2,6 +2,9 @@ import { useRef, type ReactElement, type ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
+import { BridgeMarkdownCanvas } from '../app/markdown/bridge-markdown-canvas.js';
+import type { BridgeMermaidRenderer } from '../app/markdown/bridge-mermaid-renderer.js';
+import type { BridgeMarkdownPresentationState } from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeViewerSearchFocusRestoration } from '../app/use-bridge-viewer-search-focus-restoration.js';
 import type { BridgeMainFileTreePatchStream } from '../core/comm-worker/bridge-main-file-display-patch-applier.js';
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
@@ -46,6 +49,11 @@ export interface BridgeFileViewerShellProps {
 	readonly onSelectFile: (selection: BridgeFileViewerSelection) => void;
 	readonly onToggleSearch: () => void;
 	readonly openFileState: BridgeFileViewerOpenState;
+	readonly markdownPresentation?: {
+		readonly mermaidRenderer: BridgeMermaidRenderer | undefined;
+		readonly presentationState: BridgeMarkdownPresentationState;
+		readonly retry: () => void;
+	} | null;
 	readonly openFileTotalHeightPixels: number | null;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 	readonly renderFulfillmentCoordinator: Pick<
@@ -130,21 +138,32 @@ export function BridgeFileViewerShell(props: BridgeFileViewerShellProps): ReactE
 							statusText={statusText}
 							title={props.contentHeaderTitle}
 						/>
-						<BridgeFileViewerCodePanel
-							openFileState={props.openFileState}
-							renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
-							selectedCodeViewItem={props.selectedCodeViewItem}
-							totalHeightPixels={props.openFileTotalHeightPixels}
-							{...(props.codeViewOptions === undefined
-								? {}
-								: { codeViewOptions: props.codeViewOptions })}
-							{...(props.codeViewWorkerFactory === undefined
-								? {}
-								: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-							{...(props.codeViewWorkerPoolEnabled === undefined
-								? {}
-								: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-						/>
+						{props.markdownPresentation === null || props.markdownPresentation === undefined ? (
+							<BridgeFileViewerCodePanel
+								openFileState={props.openFileState}
+								renderFulfillmentCoordinator={props.renderFulfillmentCoordinator}
+								selectedCodeViewItem={props.selectedCodeViewItem}
+								totalHeightPixels={props.openFileTotalHeightPixels}
+								{...(props.codeViewOptions === undefined
+									? {}
+									: { codeViewOptions: props.codeViewOptions })}
+								{...(props.codeViewWorkerFactory === undefined
+									? {}
+									: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+								{...(props.codeViewWorkerPoolEnabled === undefined
+									? {}
+									: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+							/>
+						) : (
+							<BridgeMarkdownCanvas
+								isActive={props.isActive}
+								presentationState={props.markdownPresentation.presentationState}
+								retry={props.markdownPresentation.retry}
+								{...(props.markdownPresentation.mermaidRenderer === undefined
+									? {}
+									: { mermaidRenderer: props.markdownPresentation.mermaidRenderer })}
+							/>
+						)}
 					</section>
 				}
 				contentTestId="bridge-file-viewer-content-panel"

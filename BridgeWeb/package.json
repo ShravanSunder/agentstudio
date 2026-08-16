@@ -49,6 +49,7 @@
 		"dompurify": "^3.4.13",
 		"lucide-react": "^1.21.0",
 		"markdown-exit": "1.1.0-beta.2",
+		"mermaid": "11.16.1",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"react-resizable-panels": "^4.12.0",

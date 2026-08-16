@@ -145,6 +145,31 @@ struct CommandSpecContractTests {
         #expect(definition.controlToolTip(textOverride: "Open in Editor") == "Open in Editor (⌘⌥⌃O)")
     }
 
+    @Test("Open PR is a pane-targeted toolbar command")
+    func openPullRequestIsPaneTargetedToolbarCommand() {
+        let definition = AppCommand.openPullRequest.definition
+
+        #expect(definition.label == "Open PR")
+        #expect(definition.icon == .octicon(.gitPullRequest))
+        #expect(definition.helpText == "Open PR in Browser")
+        #expect(
+            definition.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .toolbar(.pane),
+                    subject: .targeted(.pane)
+                )
+            )
+        )
+        #expect(
+            !definition.shouldPresent(
+                AppCommandPresentationQuery(
+                    surface: .commandBar,
+                    subject: .targeted(.pane)
+                )
+            )
+        )
+    }
+
     @Test("Pane Zoom, Viewer, editor, chooser, and Copy Path expose the accepted O-family shortcuts")
     func paneZoomAndOFamilyCommandsExposeAcceptedShortcuts() {
         #expect(AppCommand.zoomPane.definition.shortcut?.trigger.displayString == "⌘⇧↵")
