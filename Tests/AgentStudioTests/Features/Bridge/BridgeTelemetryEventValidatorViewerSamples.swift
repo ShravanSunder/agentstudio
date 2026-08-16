@@ -235,6 +235,38 @@ var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
             slice: "worker_task",
             transport: "worker",
             extraStrings: [
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.worker.command": "fileSourceDiscovery",
+                "agentstudio.bridge.worker.lane": "background",
+                "agentstudio.bridge.worker.task_kind": "product_control",
+            ],
+            extraNumbers: [
+                "agentstudio.bridge.worker.handler_duration_ms": 1
+            ]
+        ),
+        viewerSample(
+            name: "performance.bridge.worker.task",
+            phase: "worker_task",
+            priority: "warm",
+            slice: "worker_task",
+            transport: "worker",
+            extraStrings: [
+                "agentstudio.bridge.result": "unavailable",
+                "agentstudio.bridge.worker.command": "fileSourceDiscovery",
+                "agentstudio.bridge.worker.lane": "background",
+                "agentstudio.bridge.worker.task_kind": "product_control",
+            ],
+            extraNumbers: [
+                "agentstudio.bridge.worker.handler_duration_ms": 1
+            ]
+        ),
+        viewerSample(
+            name: "performance.bridge.worker.task",
+            phase: "worker_task",
+            priority: "warm",
+            slice: "worker_task",
+            transport: "worker",
+            extraStrings: [
                 "agentstudio.bridge.item_count_bucket": "small",
                 "agentstudio.bridge.result": "success",
                 "agentstudio.bridge.worker.lane": "pierre",

@@ -134,6 +134,7 @@ extension BridgeTelemetryWireSchema {
     private static func workerTaskContractMatches(_ contract: EventContract) -> Bool {
         legacyWorkerTaskContractMatches(contract)
             || commWorkerMessageHandlerContractMatches(contract)
+            || commWorkerProductControlContractMatches(contract)
             || commWorkerContentPreparationContractMatches(contract)
             || commWorkerStoreActionContractMatches(contract)
     }
@@ -368,6 +369,23 @@ extension BridgeTelemetryWireSchema {
                     "agentstudio.bridge.worker.queue_wait_ms",
                     "agentstudio.bridge.worker.source_epoch",
                 ]
+            )
+        )
+    }
+
+    private static func commWorkerProductControlContractMatches(
+        _ contract: EventContract
+    ) -> Bool {
+        workerTaskContractMatches(
+            contract,
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.worker.command",
+                    "agentstudio.bridge.worker.lane",
+                    "agentstudio.bridge.worker.task_kind",
+                ],
+                numericKeys: ["agentstudio.bridge.worker.handler_duration_ms"]
             )
         )
     }
