@@ -44,7 +44,7 @@ export type BridgeMarkdownRenderWorkerClientCompletion =
 	  }
 	| {
 			readonly status: 'stale';
-			readonly reason: 'superseded' | 'identityMismatch' | 'invalidResponse' | 'disposed';
+			readonly reason: 'superseded' | 'disposed';
 			readonly identity: BridgeMarkdownRenderRequestIdentity;
 	  };
 
@@ -188,18 +188,24 @@ function completeMarkdownRenderRequest(
 	if (!parsedResponse.success) {
 		clearActiveIdentity(props.activeIdentityByAbortKey, props.identity);
 		return {
-			status: 'stale',
-			reason: 'invalidResponse',
+			status: 'failure',
 			identity: props.identity,
+			response: protocolFailureResponse(
+				props.identity,
+				'Markdown worker returned an invalid response',
+			),
 		};
 	}
 
 	if (!markdownRenderIdentitiesMatch(parsedResponse.data, props.identity)) {
 		clearActiveIdentity(props.activeIdentityByAbortKey, props.identity);
 		return {
-			status: 'stale',
-			reason: 'identityMismatch',
+			status: 'failure',
 			identity: props.identity,
+			response: protocolFailureResponse(
+				props.identity,
+				'Markdown worker response identity did not match its request',
+			),
 		};
 	}
 
@@ -217,6 +223,22 @@ function completeMarkdownRenderRequest(
 		status: 'success',
 		identity: props.identity,
 		response: parsedResponse.data,
+	};
+}
+
+function protocolFailureResponse(
+	identity: BridgeMarkdownRenderRequestIdentity,
+	message: string,
+): BridgeMarkdownRenderWorkerFailureResponse {
+	return {
+		schemaVersion: 1,
+		method: 'markdown.render',
+		ok: false,
+		...identity,
+		error: {
+			code: 'transportFailed',
+			message,
+		},
 	};
 }
 

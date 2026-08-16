@@ -28,7 +28,6 @@ import {
 	actClick,
 	actUpdate,
 	installBridgeFileViewerNoopResizeObserver,
-	waitForOpenFileState,
 } from './bridge-file-viewer-browser-test-harness.js';
 
 const originalResizeObserver = globalThis.ResizeObserver;
@@ -99,7 +98,7 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 				/>,
 			);
 
-			await waitForOpenFileState('ready');
+			await waitForMarkdownOpenFileState('ready');
 			await waitForMarkdownSelector('[data-testid="bridge-markdown-canvas"] h1');
 			await waitForMarkdownSelector('[data-bridge-mermaid-state="ready"] svg');
 
@@ -161,7 +160,7 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 					fileProductSession={{ readContent: async (): Promise<string> => markdownContent }}
 				/>,
 			);
-			await waitForOpenFileState('ready');
+			await waitForMarkdownOpenFileState('ready');
 			await waitForMarkdownSelector('[data-bridge-mermaid-state="ready"] svg');
 			const originalCanvas = requireHTMLElement(
 				document.querySelector('[data-testid="bridge-markdown-canvas"]'),
@@ -236,7 +235,7 @@ describe('BridgeFileViewerApp Markdown Browser Mode', () => {
 					fileProductSession={{ readContent: async (): Promise<string> => markdownContent }}
 				/>,
 			);
-			await waitForOpenFileState('ready');
+			await waitForMarkdownOpenFileState('ready');
 			await waitForMarkdownSelector('[role="alert"]');
 
 			// Act
@@ -263,16 +262,29 @@ function requireHTMLElement(element: Element | null): HTMLElement {
 	return element;
 }
 
-async function waitForMarkdownSelector(
-	selector: string,
-	deadline = performance.now() + 10_000,
-): Promise<void> {
+async function waitForMarkdownOpenFileState(expectedState: string): Promise<void> {
+	const currentState = document
+		.querySelector('[data-worktree-open-file-state]')
+		?.getAttribute('data-worktree-open-file-state');
+	if (currentState === expectedState) return;
+	await actFrame();
+	await waitForMarkdownOpenFileState(expectedState);
+}
+
+async function waitForMarkdownSelector(selector: string): Promise<void> {
 	if (document.querySelector(selector) !== null) {
 		return;
 	}
-	if (performance.now() >= deadline) {
-		throw new Error(`Expected Markdown selector to appear: ${selector}`);
+	const terminalFailure =
+		selector === '[role="alert"]'
+			? null
+			: (document.querySelector('[role="alert"]')?.textContent ??
+				document.querySelector('[data-bridge-mermaid-state="failed"]')?.textContent);
+	if (terminalFailure !== null && terminalFailure !== undefined) {
+		throw new Error(
+			`Expected Markdown selector to appear: ${selector}; terminal failure: ${terminalFailure}`,
+		);
 	}
 	await actFrame();
-	await waitForMarkdownSelector(selector, deadline);
+	await waitForMarkdownSelector(selector);
 }

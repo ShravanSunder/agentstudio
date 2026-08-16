@@ -1,5 +1,7 @@
 const defaultQuietWindowMilliseconds = 10_000;
 const defaultBuildTimeoutMilliseconds = 300_000;
+const launchRetryDelayMilliseconds = 1_000;
+const maximumLaunchAttempts = 3;
 
 export interface BridgeDevelopmentServerSupervisorClockOperation {
 	readonly cancel: () => void;
@@ -47,6 +49,8 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 	private changeGeneration = 0;
 	private pendingBuild = false;
 	private quietWindowOperation: BridgeDevelopmentServerSupervisorClockOperation | null = null;
+	private launchRetryOperation: BridgeDevelopmentServerSupervisorClockOperation | null = null;
+	private resolveLaunchRetryDelay: ((shouldRetry: boolean) => void) | null = null;
 	private started = false;
 	private stopped = false;
 	private stopPromise: Promise<void> | null = null;
@@ -72,6 +76,7 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 	recordRelevantChange(): void {
 		if (this.stopped) return;
 		this.changeGeneration += 1;
+		this.cancelLaunchRetryDelay();
 		this.quietWindowOperation?.cancel();
 		this.quietWindowOperation = this.props.clock.schedule(
 			this.props.quietWindowMilliseconds,
@@ -93,6 +98,7 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 		this.pendingBuild = false;
 		this.quietWindowOperation?.cancel();
 		this.quietWindowOperation = null;
+		this.cancelLaunchRetryDelay();
 		this.activeBuildController?.abort(new Error('Bridge development supervisor stopped.'));
 		await this.buildDrainPromise;
 		const server = this.activeServer;
@@ -153,12 +159,52 @@ class DefaultBridgeDevelopmentServerSupervisor implements BridgeDevelopmentServe
 		this.activeServer = null;
 		await previousServer?.stop();
 		if (this.stopped) return;
-		try {
-			this.activeServer = await this.props.launchServer();
-			this.props.report('Bridge development server is ready.');
-		} catch (error: unknown) {
-			this.props.report(`Bridge development server launch failed: ${errorMessage(error)}`);
+		// oxlint-disable no-await-in-loop -- Launch retries are bounded, delayed, and reuse one successful build.
+		for (let launchAttempt = 1; launchAttempt <= maximumLaunchAttempts; launchAttempt += 1) {
+			if (this.stopped) return;
+			if (candidateGeneration !== this.changeGeneration) {
+				this.props.report(
+					'Bridge development server launch candidate became stale; waiting for current source.',
+				);
+				return;
+			}
+			try {
+				this.activeServer = await this.props.launchServer();
+				this.props.report('Bridge development server is ready.');
+				return;
+			} catch (error: unknown) {
+				this.props.report(
+					`Bridge development server launch failed (${launchAttempt}/${maximumLaunchAttempts}): ${errorMessage(error)}`,
+				);
+			}
+			if (launchAttempt < maximumLaunchAttempts && !(await this.waitForLaunchRetryDelay())) {
+				return;
+			}
 		}
+		// oxlint-enable no-await-in-loop
+	}
+
+	private async waitForLaunchRetryDelay(): Promise<boolean> {
+		if (this.stopped) return false;
+		return await new Promise<boolean>((resolve): void => {
+			this.resolveLaunchRetryDelay = resolve;
+			this.launchRetryOperation = this.props.clock.schedule(
+				launchRetryDelayMilliseconds,
+				(): void => {
+					this.launchRetryOperation = null;
+					this.resolveLaunchRetryDelay = null;
+					resolve(!this.stopped);
+				},
+			);
+		});
+	}
+
+	private cancelLaunchRetryDelay(): void {
+		this.launchRetryOperation?.cancel();
+		this.launchRetryOperation = null;
+		const resolveRetryDelay = this.resolveLaunchRetryDelay;
+		this.resolveLaunchRetryDelay = null;
+		resolveRetryDelay?.(false);
 	}
 }
 

@@ -1,8 +1,11 @@
+import { createServer } from 'node:http';
+
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import {
 	bridgeDevelopmentServerArguments,
 	bridgeDevelopmentServerExecutablePath,
+	bridgeDevelopmentServerProcessOwnsListeningPort,
 	resolveBridgeDevelopmentServerPort,
 	runAllOwnedCleanupOperations,
 	startOwnedBridgeDevelopmentServer,
@@ -101,6 +104,54 @@ describe('owned Bridge development server executable', () => {
 });
 
 describe('owned Bridge development server lifecycle', () => {
+	test('rejects a healthy response served by a process other than the owned child', async () => {
+		// A process already listening on the selected origin must not satisfy owned-child readiness.
+		const collider = createServer((_request, response): void => {
+			response.writeHead(204).end();
+		});
+		await new Promise<void>((resolve, reject): void => {
+			collider.once('error', reject);
+			collider.listen(0, '127.0.0.1', (): void => resolve());
+		});
+		const address = collider.address();
+		if (address === null || typeof address === 'string') {
+			throw new Error('Collider did not bind a loopback TCP port.');
+		}
+		const observedTimes = [0, 0, 120_001];
+
+		try {
+			expect(
+				await bridgeDevelopmentServerProcessOwnsListeningPort({
+					pid: process.pid,
+					port: address.port,
+				}),
+			).toBe(true);
+
+			// Act
+			const readiness = waitForBridgeDevelopmentServerReadiness({
+				currentTimeMilliseconds: (): number => observedTimes.shift() ?? 120_001,
+				fetchHealth: async (healthUrl): Promise<Response> => await fetch(healthUrl),
+				lifecycleOutcome: new Promise((): void => {}),
+				origin: `http://127.0.0.1:${address.port}`,
+				readinessOwnershipProbe: async (): Promise<boolean> =>
+					await bridgeDevelopmentServerProcessOwnsListeningPort({
+						pid: process.pid + 1_000_000,
+						port: address.port,
+					}),
+				stderrTail: (): string => '',
+				stdoutTail: (): string => '',
+				waitForNextProbe: async (): Promise<void> => {},
+			});
+
+			// Assert
+			await expect(readiness).rejects.toThrow(/Timed out waiting/u);
+		} finally {
+			await new Promise<void>((resolve, reject): void => {
+				collider.close((error): void => (error === undefined ? resolve() : reject(error)));
+			});
+		}
+	});
+
 	test('treats a child spawn error as a terminal readiness outcome', async () => {
 		// Arrange
 		const spawnError = new Error('spawn ENOENT');
@@ -120,6 +171,7 @@ describe('owned Bridge development server lifecycle', () => {
 			},
 			lifecycleOutcome: lifecycleOutcome.promise,
 			origin: 'http://127.0.0.1:1',
+			readinessOwnershipProbe: async (): Promise<boolean> => true,
 			stderrTail: (): string => '',
 			stdoutTail: (): string => '',
 			waitForNextProbe: async (): Promise<void> => {},
@@ -182,6 +234,7 @@ describe('owned Bridge development server lifecycle', () => {
 			},
 			lifecycleOutcome: new Promise((): void => {}),
 			origin: 'http://127.0.0.1:1',
+			readinessOwnershipProbe: async (): Promise<boolean> => true,
 			stderrTail: (): string => '',
 			stdoutTail: (): string => '',
 			waitForNextProbe: async (): Promise<void> => {

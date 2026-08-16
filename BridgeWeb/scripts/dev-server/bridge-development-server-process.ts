@@ -62,7 +62,7 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 }): Promise<OwnedBridgeDevelopmentServer> {
 	const port = await resolveBridgeDevelopmentServerPort({
 		...(props.port === undefined ? {} : { configuredPort: props.port }),
-		reservePort: reserveLoopbackPort,
+		reservePort: reserveBridgeDevelopmentServerPort,
 	});
 	const origin = `http://127.0.0.1:${port}`;
 	const executablePath = bridgeDevelopmentServerExecutablePath(props.repoRootPath);
@@ -106,6 +106,11 @@ export async function startOwnedBridgeDevelopmentServer(props: {
 				}),
 			lifecycleOutcome,
 			origin,
+			readinessOwnershipProbe: async (): Promise<boolean> =>
+				await bridgeDevelopmentServerProcessOwnsListeningPort({
+					pid: child.pid ?? 0,
+					port,
+				}),
 			stderrTail: (): string => stderrTail,
 			stdoutTail: (): string => stdoutTail,
 			waitForNextProbe: async (): Promise<void> => {
@@ -165,6 +170,7 @@ export async function waitForBridgeDevelopmentServerReadiness(props: {
 	readonly fetchHealth: (healthUrl: string) => Promise<Response>;
 	readonly lifecycleOutcome: Promise<BridgeDevelopmentServerLifecycleOutcome>;
 	readonly origin: string;
+	readonly readinessOwnershipProbe: () => Promise<boolean>;
 	readonly stderrTail: () => string;
 	readonly stdoutTail: () => string;
 	readonly waitForNextProbe: () => Promise<void>;
@@ -202,7 +208,13 @@ export async function waitForBridgeDevelopmentServerReadiness(props: {
 			try {
 				await probeOutcome.response.body?.cancel();
 			} catch {}
-			if (bridgeDevelopmentServerHealthResponseIsReady(probeOutcome.response)) return;
+			if (
+				bridgeDevelopmentServerHealthResponseIsReady(probeOutcome.response) &&
+				// oxlint-disable-next-line no-await-in-loop -- Ownership is checked only after a ready response and before accepting it.
+				(await props.readinessOwnershipProbe())
+			) {
+				return;
+			}
 		}
 		await props.waitForNextProbe();
 	}
@@ -214,6 +226,63 @@ export async function waitForBridgeDevelopmentServerReadiness(props: {
 
 export function bridgeDevelopmentServerHealthResponseIsReady(response: Response): boolean {
 	return response.status === 204;
+}
+
+export async function bridgeDevelopmentServerProcessOwnsListeningPort(props: {
+	readonly pid: number;
+	readonly port: number;
+}): Promise<boolean> {
+	if (props.pid <= 0) return false;
+	return await new Promise<boolean>((resolve, reject): void => {
+		// Agent Studio's development loop is macOS-only; lsof binds readiness to the exact child PID.
+		const inspector = spawn(
+			'/usr/sbin/lsof',
+			['-nP', '-a', '-p', String(props.pid), `-iTCP:${props.port}`, '-sTCP:LISTEN', '-Fp'],
+			{ stdio: ['ignore', 'pipe', 'pipe'] },
+		);
+		let settled = false;
+		let stderr = '';
+		let stdout = '';
+		const finish = (result: {
+			readonly error?: Error;
+			readonly ownsListeningPort?: boolean;
+		}): void => {
+			if (settled) return;
+			settled = true;
+			if (result.error === undefined) resolve(result.ownsListeningPort ?? false);
+			else reject(result.error);
+		};
+		inspector.stdout.setEncoding('utf8');
+		inspector.stderr.setEncoding('utf8');
+		inspector.stdout.on('data', (chunk: string): void => {
+			stdout += chunk;
+		});
+		inspector.stderr.on('data', (chunk: string): void => {
+			stderr = appendBoundedTail(stderr, chunk);
+		});
+		inspector.once('error', (error): void => {
+			finish({
+				error: new Error(`Failed to inspect owned Bridge backend listener: ${error.message}`, {
+					cause: error,
+				}),
+			});
+		});
+		inspector.once('close', (code): void => {
+			if (code === 0) {
+				finish({ ownsListeningPort: stdout.split('\n').includes(`p${props.pid}`) });
+				return;
+			}
+			if (code === 1) {
+				finish({ ownsListeningPort: false });
+				return;
+			}
+			finish({
+				error: new Error(
+					`Failed to inspect owned Bridge backend listener: lsof exited with code ${code ?? 'unknown'}${stderr === '' ? '' : `: ${stderr}`}`,
+				),
+			});
+		});
+	});
 }
 
 export async function stopOwnedBridgeDevelopmentServerProcess(
@@ -271,7 +340,7 @@ export async function runAllOwnedCleanupOperations(props: {
 	if (props.primaryError !== undefined) throw props.primaryError;
 }
 
-async function reserveLoopbackPort(): Promise<number> {
+export async function reserveBridgeDevelopmentServerPort(): Promise<number> {
 	const server = createServer();
 	await new Promise<void>((resolve, reject): void => {
 		server.once('error', reject);

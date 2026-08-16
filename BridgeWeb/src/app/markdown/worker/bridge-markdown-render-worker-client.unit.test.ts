@@ -146,6 +146,69 @@ describe('Bridge markdown render worker client', () => {
 		});
 	});
 
+	test('resolves an invalid active response as a retryable failure', async () => {
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: async (): Promise<unknown> => ({ unexpected: 'response' }),
+		};
+		const client = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => 'markdown-request-1',
+		});
+
+		const task = client.startRender({
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 1, fileVersion: 1 }),
+			contentCacheKey: 'docs-plan:head:v1',
+			contentHash: 'sha256:v1',
+			markdownText: '# First',
+			sourcePath: 'docs/plan.md',
+			abortKey: 'markdown-preview',
+		});
+
+		await expect(task.completed).resolves.toMatchObject({
+			status: 'failure',
+			response: {
+				ok: false,
+				error: {
+					code: 'transportFailed',
+					message: 'Markdown worker returned an invalid response',
+				},
+			},
+		});
+	});
+
+	test('resolves an identity-mismatched active response as a retryable failure', async () => {
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: async (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => ({
+				...(await successResponseForRequest(request, '<h1>First</h1>')),
+				requestId: 'different-request',
+			}),
+		};
+		const client = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => 'markdown-request-1',
+		});
+
+		const task = client.startRender({
+			sourceIdentity: fileSourceIdentity({ sourceGeneration: 1, fileVersion: 1 }),
+			contentCacheKey: 'docs-plan:head:v1',
+			contentHash: 'sha256:v1',
+			markdownText: '# First',
+			sourcePath: 'docs/plan.md',
+			abortKey: 'markdown-preview',
+		});
+
+		await expect(task.completed).resolves.toMatchObject({
+			status: 'failure',
+			response: {
+				ok: false,
+				error: {
+					code: 'transportFailed',
+					message: 'Markdown worker response identity did not match its request',
+				},
+			},
+		});
+	});
+
 	test('treats aborted transport failures as stale after a newer render supersedes the lane', async () => {
 		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
 		const transport: BridgeMarkdownRenderWorkerTransport = {

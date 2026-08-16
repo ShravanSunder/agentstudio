@@ -202,6 +202,107 @@ describe('Bridge development server supervisor', () => {
 		expect(serverStopCount).toBe(0);
 		await supervisor.stop();
 	});
+
+	test('retries a failed replacement launch from the successful build after a bounded delay', async () => {
+		// Rebuilding or waiting for another edit would leave Vite without a backend after transient launch failure.
+		const clock = new ManualSupervisorClock();
+		let buildCount = 0;
+		let launchCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {
+				buildCount += 1;
+			},
+			clock,
+			launchServer: async () => {
+				launchCount += 1;
+				if (launchCount === 2) throw new Error('transient bind failure');
+				return ownedServer();
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+
+		// Act
+		supervisor.recordRelevantChange();
+		clock.advanceBy(10_000);
+		await flushMicrotasks();
+		const launchCountBeforeRetryDelay = launchCount;
+		clock.advanceBy(999);
+		await flushMicrotasks();
+		const launchCountBeforeCompleteRetryDelay = launchCount;
+		clock.advanceBy(1);
+		await flushMicrotasks();
+
+		// Assert
+		expect(launchCountBeforeRetryDelay).toBe(2);
+		expect(launchCountBeforeCompleteRetryDelay).toBe(2);
+		expect(launchCount).toBe(3);
+		expect(buildCount).toBe(2);
+		await supervisor.stop();
+	});
+
+	test('cancels a pending launch retry when the supervisor stops', async () => {
+		// A retry callback surviving stop would relaunch an owned backend during Vite shutdown.
+		const clock = new ManualSupervisorClock();
+		let launchCount = 0;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {},
+			clock,
+			launchServer: async () => {
+				launchCount += 1;
+				if (launchCount === 2) throw new Error('transient bind failure');
+				return ownedServer();
+			},
+			report: (): void => {},
+		});
+		await supervisor.start();
+		supervisor.recordRelevantChange();
+		clock.advanceBy(10_000);
+		await flushMicrotasks();
+
+		// Act
+		const stopPromise = supervisor.stop();
+		await stopPromise;
+		clock.advanceBy(1_000);
+		await flushMicrotasks();
+
+		// Assert
+		expect(launchCount).toBe(2);
+	});
+
+	test('stops retrying after three failed launches', async () => {
+		// An unbounded retry loop would keep Vite startup pending forever on a persistent launch error.
+		const clock = new ManualSupervisorClock();
+		let launchCount = 0;
+		let startSettled = false;
+		const supervisor = createBridgeDevelopmentServerSupervisor({
+			buildCandidate: async (): Promise<void> => {},
+			clock,
+			launchServer: async () => {
+				launchCount += 1;
+				throw new Error('persistent bind failure');
+			},
+			report: (): void => {},
+		});
+
+		// Act
+		const startPromise = supervisor.start();
+		void startPromise.then((): void => {
+			startSettled = true;
+		});
+		await flushMicrotasks();
+		clock.advanceBy(1_000);
+		await flushMicrotasks();
+		clock.advanceBy(1_000);
+		await flushMicrotasks();
+		await flushMicrotasks();
+
+		// Assert
+		expect(launchCount).toBe(3);
+		expect(startSettled).toBe(true);
+		await startPromise;
+		await supervisor.stop();
+	});
 });
 
 function ownedServer(onStop: () => void = (): void => {}): {

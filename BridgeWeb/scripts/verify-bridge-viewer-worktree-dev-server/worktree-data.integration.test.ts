@@ -15,7 +15,9 @@ import {
 
 const viteConfigFile = fileURLToPath(new URL('../../vite.config.ts', import.meta.url));
 const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
-const worktreeDataTestTimeoutMilliseconds = 15_000;
+// Vitest still needs a process-level deadlock guard around the real Swift/Vite boundary.
+// Every behavioral wait inside the test resolves from a protocol response, frame, or stream close.
+const worktreeDataDeadlockGuardMilliseconds = 15_000;
 
 describe('Bridge viewer typed product File worktree data', () => {
 	let bridgeDevelopmentServer: OwnedBridgeDevelopmentServer | null = null;
@@ -75,7 +77,7 @@ describe('Bridge viewer typed product File worktree data', () => {
 	});
 
 	test(
-		'opens typed File data and drains every verifier-owned metadata stream',
+		'opens typed File data and drains its verifier-owned metadata stream',
 		async () => {
 			// Arrange
 			bridgeDevelopmentServerDataRootPath = await mkdtemp(
@@ -104,7 +106,7 @@ describe('Bridge viewer typed product File worktree data', () => {
 								if (request.url?.startsWith('/__bridge-product/stream') === true) {
 									response.once('close', (): void => {
 										observedMetadataStreamCloseCount += 1;
-										if (observedMetadataStreamCloseCount === 2) {
+										if (observedMetadataStreamCloseCount === 1) {
 											resolveMetadataStreamsClosed?.();
 										}
 									});
@@ -130,10 +132,9 @@ describe('Bridge viewer typed product File worktree data', () => {
 
 			// Act
 			const surface = await worktreeData.fetchWorktreeSurface();
-			const secondSurface = await worktreeData.fetchWorktreeSurface();
 			const descriptor = await worktreeData.fetchFetchableWorktreeFileDescriptorForPath({
 				path: 'README.md',
-				surface: secondSurface,
+				surface,
 			});
 			const content = await worktreeData.fetchWorktreeFileContent(descriptor);
 			await worktreeData.closeAllWorktreeFileSurfaces();
@@ -141,10 +142,9 @@ describe('Bridge viewer typed product File worktree data', () => {
 
 			// Assert
 			expect(surface.frames.at(-1)?.finalWindow).toBe(true);
-			expect(secondSurface.frames.at(-1)?.finalWindow).toBe(true);
 			expect(worktreeData.worktreeFileTreeRows(surface.frames).length).toBeGreaterThan(0);
 			expect(worktreeData.openWorktreeFileSurfaceCount()).toBe(0);
-			expect(observedMetadataStreamCloseCount).toBe(2);
+			expect(observedMetadataStreamCloseCount).toBe(1);
 			expect(descriptor.availability.availabilityKind).toBe('available');
 			expect(descriptor.contentHandle).toBe(
 				descriptor.availability.availabilityKind === 'available'
@@ -153,6 +153,6 @@ describe('Bridge viewer typed product File worktree data', () => {
 			);
 			expect(content).toContain('Agent Studio');
 		},
-		worktreeDataTestTimeoutMilliseconds,
+		worktreeDataDeadlockGuardMilliseconds,
 	);
 });

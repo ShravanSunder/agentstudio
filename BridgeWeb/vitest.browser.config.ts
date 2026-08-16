@@ -8,6 +8,29 @@ import { defineConfig, type TestUserConfig } from 'vitest/config';
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 const repositoryTemporaryRoot = resolve(bridgeWebPackageRoot, '..', 'tmp');
 
+const browserOptimizedDependencies = [
+	'@base-ui/react/combobox',
+	'@pierre/diffs/worker',
+	'@shikijs/markdown-exit',
+	'markdown-exit',
+	'react-dom/client',
+	'shiki/core',
+	'shiki/engine/javascript',
+	'shiki/langs/css.mjs',
+	'shiki/langs/diff.mjs',
+	'shiki/langs/html.mjs',
+	'shiki/langs/javascript.mjs',
+	'shiki/langs/json.mjs',
+	'shiki/langs/jsonc.mjs',
+	'shiki/langs/md.mjs',
+	'shiki/langs/shellscript.mjs',
+	'shiki/langs/swift.mjs',
+	'shiki/langs/tsx.mjs',
+	'shiki/langs/typescript.mjs',
+	'shiki/langs/yaml.mjs',
+	'shiki/themes/github-dark.mjs',
+];
+
 const browserConfig = {
 	enabled: true,
 	provider: playwright({
@@ -34,9 +57,6 @@ export default defineConfig({
 			'@': `${bridgeWebPackageRoot}/src`,
 		},
 	},
-	optimizeDeps: {
-		include: ['@base-ui/react/combobox', '@pierre/diffs/worker', 'react-dom/client'],
-	},
 	test: {
 		globals: true,
 		tags: [
@@ -48,6 +68,9 @@ export default defineConfig({
 		projects: [
 			{
 				plugins: [react()],
+				optimizeDeps: {
+					include: [...browserOptimizedDependencies],
+				},
 				server: {
 					fs: {
 						allow: [bridgeWebPackageRoot, repositoryTemporaryRoot],
@@ -74,6 +97,9 @@ export default defineConfig({
 			},
 			{
 				plugins: [react()],
+				optimizeDeps: {
+					include: [...browserOptimizedDependencies],
+				},
 				server: {
 					fs: {
 						allow: [bridgeWebPackageRoot, repositoryTemporaryRoot],
