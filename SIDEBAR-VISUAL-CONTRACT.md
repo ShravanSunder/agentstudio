@@ -39,3 +39,8 @@ EXIT: screenshot proof per item, all 16 in ONE build.
    name) must use the SAME spacing token as row lines (star/branch icon
    to text). No larger gap on headers.
 18 chips row alignment: left, By Repo parity (user default 2026-08-16).
+19 reload chip replaced (By Repo chips row): stale/needs-refresh =
+   STATIC hollow-dot chip (no animation); actively refreshing = symbol
+   chip with .symbolEffect (.variableColor.iterative or .pulse) — render-
+   server animated. NO rotationEffect/repeatForever animations anywhere
+   in rows.
