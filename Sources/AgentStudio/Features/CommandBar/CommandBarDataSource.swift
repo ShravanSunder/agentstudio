@@ -392,7 +392,8 @@ enum CommandBarDataSource {
         repoCache: RepoCacheAtom,
         dispatcher: any AppCommandDispatching
     ) -> CommandBarItem {
-        let commandIconColor: Color? = def.command == .managementLayerExit ? .accentColor : nil
+        let commandIconColor: Color? =
+            def.command == .managementLayerExit ? AppStyles.General.Accent.primaryColor : nil
 
         if def.targeting.preferredInvocation == .targetSelection {
             let level = buildTargetLevel(
@@ -883,11 +884,12 @@ extension CommandBarDataSource {
             return cwdFolder.isEmpty ? nil : cwdFolder
         }()
 
-        if let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let repo = workspaceRepositoryTopology.repo(repoId),
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
-        {
+        if let resolvedContext = workspaceRepositoryTopology.validatedAssociation(
+            repoId: pane.repoId,
+            worktreeId: pane.worktreeId
+        ) {
+            let repo = resolvedContext.repo
+            let worktree = resolvedContext.worktree
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(
                 worktree: worktree,

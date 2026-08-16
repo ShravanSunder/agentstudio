@@ -147,7 +147,9 @@ struct EditorChooserMenuContent: View {
                 onToggleBookmark(item.id)
             } label: {
                 Image(systemName: item.isBookmarked ? "bookmark.fill" : "bookmark")
-                    .foregroundStyle(item.isBookmarked ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(
+                        item.isBookmarked ? AppStyles.General.Accent.primaryColor : Color.secondary
+                    )
                     .frame(width: style.bookmarkHitSize, height: style.bookmarkHitSize)
                     .contentShape(Rectangle())
             }
@@ -158,7 +160,8 @@ struct EditorChooserMenuContent: View {
             RoundedRectangle(cornerRadius: style.rowCornerRadius)
                 .fill(
                     selectedEditorId == item.id
-                        ? Color.accentColor.opacity(AppStyles.Components.EditorChooser.selectedRowFillOpacity)
+                        ? AppStyles.General.Accent.primaryColor.opacity(
+                            AppStyles.Components.EditorChooser.selectedRowFillOpacity)
                         : (hoveredRowId == item.id
                             ? Color.primary.opacity(AppStyles.General.Fill.hover)
                             : Color.clear)

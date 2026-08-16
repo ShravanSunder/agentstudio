@@ -35,7 +35,7 @@ struct PaneTabViewControllerPaneNoteTests {
 
         harness.controller.execute(.copyCurrentPanePath)
 
-        #expect(harness.launchRecorder.copiedPaths.map(\.standardizedFileURL) == [cwd.standardizedFileURL])
+        #expect(harness.launchRecorder.copiedPaths.map(\.standardizedFileURL.path) == [cwd.standardizedFileURL.path])
     }
 
     @Test("copyCurrentPanePath falls back to active main pane launch directory")

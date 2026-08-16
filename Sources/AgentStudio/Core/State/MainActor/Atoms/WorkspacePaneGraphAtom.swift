@@ -49,18 +49,31 @@ enum PaneGraphKind: Hashable, Sendable {
 }
 
 struct PaneGraphFacets: Hashable, Sendable {
+    var repoId: UUID?
+    var worktreeId: UUID?
     var cwd: URL?
 
-    init(cwd: URL? = nil) {
+    init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil) {
+        if repoId != nil, worktreeId != nil {
+            self.repoId = repoId
+            self.worktreeId = worktreeId
+        } else {
+            self.repoId = nil
+            self.worktreeId = nil
+        }
         self.cwd = cwd
     }
 
     init(contextFacets: PaneContextFacets) {
-        self.init(cwd: contextFacets.cwd)
+        self.init(
+            repoId: contextFacets.repoId,
+            worktreeId: contextFacets.worktreeId,
+            cwd: contextFacets.cwd
+        )
     }
 
     var paneContextFacets: PaneContextFacets {
-        PaneContextFacets(cwd: cwd)
+        PaneContextFacets(repoId: repoId, worktreeId: worktreeId, cwd: cwd)
     }
 }
 
@@ -305,6 +318,8 @@ package final class WorkspacePaneGraphAtom {
         isContentEqual: ==
     )
     @ObservationIgnored private let acceptedCommitRevision = AtomRevision()
+    @ObservationIgnored private var latestIssuedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
+    @ObservationIgnored private var lastAppliedAssociationRevisionByPaneID: [UUID: UInt64] = [:]
     private var parentPaneIDByDrawerID: [UUID: UUID] = [:]
 
     package init() {}
@@ -344,12 +359,19 @@ package final class WorkspacePaneGraphAtom {
             previousPaneStates: previousPaneStates,
             nextPaneStates: replacement.paneStates
         )
+        latestIssuedAssociationRevisionByPaneID = Dictionary(
+            uniqueKeysWithValues: replacement.paneStates.keys.map { ($0, 0) }
+        )
+        lastAppliedAssociationRevisionByPaneID = Dictionary(
+            uniqueKeysWithValues: replacement.paneStates.keys.map { ($0, 0) }
+        )
     }
 
     func addPane(_ pane: Pane) {
         mutatePaneStates { paneStates in
             paneStates[pane.id] = PaneGraphState(pane: pane)
         }
+        recordSynchronousAssociationWrite(for: pane.id)
     }
 
     @discardableResult
@@ -388,6 +410,7 @@ package final class WorkspacePaneGraphAtom {
         mutatePaneStates { paneStates in
             paneStates[state.id] = state
         }
+        recordSynchronousAssociationWrite(for: state.id)
         return state
     }
 
@@ -426,6 +449,7 @@ package final class WorkspacePaneGraphAtom {
         mutatePaneStates { paneStates in
             paneStates[state.id] = state
         }
+        recordSynchronousAssociationWrite(for: state.id)
         return state
     }
 
@@ -435,6 +459,7 @@ package final class WorkspacePaneGraphAtom {
         mutatePaneStates { paneStates in
             paneStates[pane.id] = PaneGraphState(pane: pane)
         }
+        recordSynchronousAssociationWrite(for: pane.id)
         return true
     }
 
@@ -464,14 +489,16 @@ package final class WorkspacePaneGraphAtom {
     }
 
     func updatePaneCWD(_ paneId: UUID, cwd: URL?) {
-        guard let currentState = paneStateMap.snapshotValue(for: paneId) else {
+        guard let revision = reservePaneAssociationRevision(paneId) else {
             workspacePaneLogger.warning("updatePaneCWD: pane \(paneId) not found")
             return
         }
-        guard currentState.metadata.facets.cwd != cwd else { return }
-        mutatePaneStates { paneStates in
-            paneStates[paneId]?.metadata.facets.cwd = cwd
-        }
+        _ = applyPaneAssociationUpdate(
+            paneId,
+            cwdAdmission: .explicit(cwd),
+            resolution: .uncertain,
+            revision: revision
+        )
     }
 
     func updatePaneNote(_ paneId: UUID, note: String?) {
@@ -484,30 +511,80 @@ package final class WorkspacePaneGraphAtom {
         }
     }
 
-    func updatePaneCWDAndResolvedContext(
+    package func reservePaneAssociationRevision(_ paneId: UUID) -> PaneAssociationRevision? {
+        guard paneStateMap.snapshotValue(for: paneId) != nil else { return nil }
+        let revision = (latestIssuedAssociationRevisionByPaneID[paneId] ?? 0) + 1
+        latestIssuedAssociationRevisionByPaneID[paneId] = revision
+        return PaneAssociationRevision(rawValue: revision)
+    }
+
+    package func applyPaneAssociationUpdate(
         _ paneId: UUID,
         cwd: URL?,
-        resolvedContext _: (repo: Repo, worktree: Worktree)?
+        resolution: PaneAssociationResolution,
+        revision: PaneAssociationRevision
+    ) -> PaneCWDContextUpdateResult {
+        applyPaneAssociationUpdate(
+            paneId,
+            cwdAdmission: .runtime(cwd),
+            resolution: resolution,
+            revision: revision
+        )
+    }
+
+    private enum PaneAssociationCWDAdmission {
+        case explicit(URL?)
+        case runtime(URL?)
+    }
+
+    private func applyPaneAssociationUpdate(
+        _ paneId: UUID,
+        cwdAdmission: PaneAssociationCWDAdmission,
+        resolution: PaneAssociationResolution,
+        revision: PaneAssociationRevision
     ) -> PaneCWDContextUpdateResult {
         guard let currentState = paneStateMap.snapshotValue(for: paneId) else {
-            workspacePaneLogger.warning("updatePaneCWDAndResolvedContext: pane \(paneId) not found")
+            workspacePaneLogger.warning("applyPaneAssociationUpdate: pane \(paneId) not found")
             return .paneMissing
         }
-        guard case .accepted(let acceptedCWD) = PaneFilesystemLocationPolicy.runtimeCWDUpdate(cwd) else {
-            return .unchanged
+        guard
+            latestIssuedAssociationRevisionByPaneID[paneId] == revision.rawValue,
+            revision.rawValue > (lastAppliedAssociationRevisionByPaneID[paneId] ?? 0)
+        else { return .staleRevision }
+
+        let acceptedCWD: URL?
+        switch cwdAdmission {
+        case .explicit(nil):
+            acceptedCWD = nil
+        case .explicit(let candidate), .runtime(let candidate):
+            guard case .accepted(let normalizedCWD) = PaneFilesystemLocationPolicy.runtimeCWDUpdate(candidate)
+            else { return .unchanged }
+            acceptedCWD = normalizedCWD
         }
 
         var facets = currentState.metadata.facets
         facets.cwd = acceptedCWD
+        switch resolution {
+        case .matched(let repoId, let worktreeId):
+            facets.repoId = repoId
+            facets.worktreeId = worktreeId
+        case .confidentNoMatch:
+            facets.repoId = nil
+            facets.worktreeId = nil
+        case .uncertain:
+            break
+        }
+
+        lastAppliedAssociationRevisionByPaneID[paneId] = revision.rawValue
 
         guard facets != currentState.metadata.facets else {
-            return .unchanged
+            return resolution == .uncertain ? .deferredUncertain : .unchanged
         }
 
         mutatePaneStates { paneStates in
             paneStates[paneId]?.metadata.facets = facets
         }
-        return .applied
+        return resolution == .uncertain ? .deferredUncertain : .applied
     }
 
     func updatePaneWebviewState(_ paneId: UUID, state: WebviewState) {
@@ -658,6 +735,7 @@ package final class WorkspacePaneGraphAtom {
                 drawer.paneIds.append(drawerState.id)
             }
         }
+        recordSynchronousAssociationWrite(for: drawerState.id)
         return drawerState
     }
 
@@ -807,7 +885,14 @@ package final class WorkspacePaneGraphAtom {
                 drawer.paneIds.append(restoredPane.id)
             }
         }
+        recordSynchronousAssociationWrite(for: restoredPane.id)
         return true
+    }
+
+    private func recordSynchronousAssociationWrite(for paneID: UUID) {
+        let revision = (latestIssuedAssociationRevisionByPaneID[paneID] ?? 0) + 1
+        latestIssuedAssociationRevisionByPaneID[paneID] = revision
+        lastAppliedAssociationRevisionByPaneID[paneID] = revision
     }
 
     private func mutatePaneStates<TMutationResult>(
@@ -835,6 +920,8 @@ package final class WorkspacePaneGraphAtom {
         for removedPaneID in removedPaneIDs {
             paneStateMap.removeValue(for: removedPaneID, mutation: mutation)
             paneStructuralFactsMap.removeValue(for: removedPaneID, mutation: mutation)
+            latestIssuedAssociationRevisionByPaneID.removeValue(forKey: removedPaneID)
+            lastAppliedAssociationRevisionByPaneID.removeValue(forKey: removedPaneID)
         }
         for (paneID, nextPaneState) in nextPaneStates where previousPaneStates[paneID] != nextPaneState {
             paneStateMap.setValue(nextPaneState, for: paneID, mutation: mutation)

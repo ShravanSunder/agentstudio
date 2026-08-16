@@ -192,7 +192,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let octiconLoader: OcticonLoader
     private let appEventBus: EventBus<AppEvent>
     private var terminalContainer: RestoreAwareTerminalContainerView!
-    private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
+    private var emptyStateView: NSHostingView<AnyView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
     #if DEBUG
@@ -515,7 +515,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 AnyView(NewTabButton())
             }
 
-        let hostingView = ToolbarControlHostingView(rootView: content)
+        let hostingView = ToolbarControlHostingView(
+            rootView: AnyView(content.tint(AppStyles.General.Accent.primaryColor)))
         hostingView.identifier = control.viewIdentifier
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.safeAreaRegions = []
@@ -1709,7 +1710,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         )
     }
 
-    private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
+    private func createEmptyStateView() -> NSHostingView<AnyView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
             octiconLoader: octiconLoader,
@@ -1734,14 +1735,16 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func rebuildEmptyStateView() {
         let currentModel = emptyStateModel
         guard currentModel != lastEmptyStateModel else { return }
-        emptyStateView?.rootView = WorkspaceEmptyStateView(
-            model: currentModel,
-            octiconLoader: octiconLoader,
+        emptyStateView?.rootView = AnyView(
+            WorkspaceEmptyStateView(
+                model: currentModel,
+                octiconLoader: octiconLoader,
 
-            onWatchFolder: { [weak self] in self?.watchFolderAction() },
-            onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
-            onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
-        )
+                onWatchFolder: { [weak self] in self?.watchFolderAction() },
+                onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
+                onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
+            )
+            .tint(AppStyles.General.Accent.primaryColor))
         lastEmptyStateModel = currentModel
     }
 
@@ -2588,6 +2591,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     self?.closeTabRenamePopover()
                 }
             )
+            .tint(AppStyles.General.Accent.primaryColor)
         )
         tabRenamePopover = popover
         if let workspaceWindowId = workspaceWindowId ?? windowLifecycleStore.focusedWindowId
@@ -3261,15 +3265,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return nil
         }
         let facets = paneState.durableContextFacets
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: facets.cwd) {
-            return resolved.worktree.id
-        }
-        if let worktreeId = facets.worktreeId,
-            store.repositoryTopologyAtom.worktree(worktreeId) != nil
-        {
-            return worktreeId
-        }
-        return nil
+        return store.repositoryTopologyAtom.validatedAssociation(
+            repoId: facets.repoId,
+            worktreeId: facets.worktreeId
+        )?.worktree.id
     }
 
     private func executeBridgeSurfaceCommand(_ command: AppCommand, worktreeId: UUID?) -> Bool {
@@ -4878,6 +4877,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     self?.closePaneNotePopover()
                 }
             )
+            .tint(AppStyles.General.Accent.primaryColor)
         )
         paneNotePopover = popover
 

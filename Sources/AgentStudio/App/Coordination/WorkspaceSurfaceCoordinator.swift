@@ -200,6 +200,9 @@ final class WorkspaceSurfaceCoordinator {
         self.traceRuntime = traceRuntime
         self.performanceTraceRecorder = performanceTraceRecorder
         self.traceIdentityRefreshHandler = traceIdentityRefreshHandler
+        store.paneAtom.setAssociationOutcomeRecorder { [weak performanceTraceRecorder] outcome in
+            performanceTraceRecorder?.recordPaneAssociationOutcome(outcome)
+        }
         Ghostty.App.setRuntimeRegistry(runtimeRegistry)
         setupPrePersistHook()
         setupFilesystemSourceSync()
@@ -313,9 +316,30 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
+        guard let associationRevision = store.paneAtom.graphAtom.reservePaneAssociationRevision(paneId) else {
+            Self.logger.warning("cwd update ignored for missing pane \(paneId.uuidString, privacy: .public)")
+            return
+        }
+        let currentFacets = store.paneAtom.graphAtom.paneState(paneId)?.durableContextFacets
         let lookupClock = ContinuousClock()
         let lookupStartedAt = lookupClock.now
-        let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+        let topologySnapshot = store.repositoryTopologyAtom.captureReadSnapshot()
+        let resolvedContext = topologySnapshot.repoAndWorktree(containing: cwd)
+        let currentAssociationIsValid =
+            topologySnapshot.validatedAssociation(
+                repoId: currentFacets?.repoId,
+                worktreeId: currentFacets?.worktreeId
+            ) != nil
+        let currentAssociationIsTemporarilyUnavailable =
+            topologySnapshot.isKnownAssociationTemporarilyUnavailable(
+                repoId: currentFacets?.repoId,
+                worktreeId: currentFacets?.worktreeId
+            )
+        let currentAssociationIsKnownInvalid =
+            currentFacets?.repoId != nil
+            && currentFacets?.worktreeId != nil
+            && !currentAssociationIsValid
+            && !currentAssociationIsTemporarilyUnavailable
         if let cwd {
             performanceTraceRecorder?.recordRepoAndWorktreeLookup(
                 duration: lookupStartedAt.duration(to: lookupClock.now),
@@ -329,11 +353,39 @@ final class WorkspaceSurfaceCoordinator {
                 )
             )
         }
-        let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
+        let associationResolution: PaneAssociationResolution
+        if let resolvedContext {
+            associationResolution = .matched(
+                repoId: resolvedContext.repo.id,
+                worktreeId: resolvedContext.worktree.id
+            )
+        } else if cwd != nil,
+            !currentAssociationIsKnownInvalid,
+            topologySnapshot.hasUnavailableWorktree(containing: cwd)
+                || currentAssociationIsTemporarilyUnavailable
+        {
+            associationResolution = .uncertain
+        } else {
+            associationResolution = .confidentNoMatch
+        }
+        let updateResult = store.paneAtom.graphAtom.applyPaneAssociationUpdate(
             paneId,
             cwd: cwd,
-            resolvedContext: resolvedContext
+            resolution: associationResolution,
+            revision: associationRevision
         )
+        switch (associationResolution, updateResult) {
+        case (.matched(_, _), .applied):
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.resolvedChanged)
+        case (.matched(_, _), .unchanged):
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.resolvedEqual)
+        case (.confidentNoMatch, .applied), (.confidentNoMatch, .unchanged):
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.clearedNoMatch)
+        case (.uncertain, .deferredUncertain):
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.deferredUncertain)
+        default:
+            break
+        }
         switch updateResult {
         case .applied:
             guard let pane = store.paneAtom.pane(paneId) else {
@@ -343,6 +395,12 @@ final class WorkspaceSurfaceCoordinator {
             upsertPaneFilesystemProjectionContext(for: pane)
             reconcileZoomCompanionAfterCWDChange(sourcePaneId: paneId)
         case .unchanged:
+            return
+        case .deferredUncertain:
+            guard let pane = store.paneAtom.pane(paneId) else { return }
+            upsertPaneFilesystemProjectionContext(for: pane)
+            reconcileZoomCompanionAfterCWDChange(sourcePaneId: paneId)
+        case .staleRevision:
             return
         case .paneMissing:
             Self.logger.warning("cwd update ignored for missing pane \(paneId.uuidString, privacy: .public)")
@@ -694,12 +752,14 @@ final class WorkspaceSurfaceCoordinator {
 extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         applyTopologyRemovals(from: [delta])
+        applyTopologyAdoptions(from: [delta])
         _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
 
     func topologyDidChange(_ deltas: [WorktreeTopologyDelta]) {
         applyTopologyRemovals(from: deltas)
+        applyTopologyAdoptions(from: deltas)
         _ = store.mutationCoordinator.restoreOrphanedPaneResidencyForCurrentTopology()
         syncFilesystemRootsAndActivity()
     }
@@ -712,6 +772,12 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
 
     private func applyTopologyRemovals(from delta: WorktreeTopologyDelta) {
         for entry in delta.removedWorktrees {
+            let clearedPaneIDs = store.mutationCoordinator.clearPaneAssociations(
+                forRemovedWorktreeID: entry.id
+            )
+            for _ in clearedPaneIDs {
+                performanceTraceRecorder?.recordPaneAssociationOutcome(.topologyRemoved)
+            }
             let orphanedPaneIds = store.mutationCoordinator.orphanPanesForRemovedWorktreeIfUnmatched(entry)
             for sourcePaneId in orphanedPaneIds {
                 guard
@@ -731,6 +797,18 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
                     "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
                 )
             }
+        }
+    }
+
+    private func applyTopologyAdoptions(from deltas: [WorktreeTopologyDelta]) {
+        let affectedWorktreeIDs = Set(
+            deltas.flatMap { $0.addedWorktreeIds + $0.preservedWorktreeIds }
+        )
+        let adoptedPaneIDs = store.mutationCoordinator.reconcilePaneAssociationsForCurrentTopology(
+            affectedWorktreeIDs: affectedWorktreeIDs
+        )
+        for _ in adoptedPaneIDs {
+            performanceTraceRecorder?.recordPaneAssociationOutcome(.resolvedChanged)
         }
     }
 

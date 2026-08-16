@@ -270,7 +270,8 @@ if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT:-0}" = "1" ] &&
       [ "$state_startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
       [ "$state_startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
       [ "$state_startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
-      [ "$state_startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]
+      [ "$state_startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ] ||
+      [ "$state_startup_diagnostic_action" = "pane-association-runtime-proof" ]
   }; then
   allow_completed_diagnostic_exit=true
 fi
@@ -570,6 +571,7 @@ if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
 fi
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] ||
+  [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ] ||
   [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
   [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
@@ -586,6 +588,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   fi
   if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ]; then
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+  fi
+  if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ]; then
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.created_pane.count,agentstudio.startup_diagnostic.association.initial_succeeded,agentstudio.startup_diagnostic.association.cwd_move_succeeded,agentstudio.startup_diagnostic.association.topology_clear_succeeded,agentstudio.startup_diagnostic.association.topology_orphan_succeeded,agentstudio.startup_diagnostic.association.topology_adopt_succeeded,agentstudio.startup_diagnostic.association.free_pane_remained_nil,agentstudio.startup_diagnostic.association_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
     review_diagnostic_fields="agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.review_metadata.converged"
@@ -658,6 +663,9 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   if [ "$startup_diagnostic_action" = "sidebar-performance-proof" ]; then
     diagnostic_proof_field="agentstudio.startup_diagnostic.projection_proof.succeeded"
   fi
+  if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ]; then
+    diagnostic_proof_field="agentstudio.startup_diagnostic.association_proof.succeeded"
+  fi
   if ! json_truthy_field "$diagnostic_proof_field" "$diagnostic_completed_response"; then
     if [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ]; then
       echo "startup diagnostic completed without successful IPC terminal render proof for action $startup_diagnostic_action" >&2
@@ -666,6 +674,32 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     fi
     echo "$diagnostic_completed_response" >&2
     exit 1
+  fi
+  if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ] &&
+    ! json_truthy_field "agentstudio.startup_diagnostic.association.topology_orphan_succeeded" "$diagnostic_completed_response"; then
+    echo "pane association runtime proof did not verify explicit orphan residency" >&2
+    echo "$diagnostic_completed_response" >&2
+    exit 1
+  fi
+  if [ "$startup_diagnostic_action" = "pane-association-runtime-proof" ]; then
+    association_outcome_response="$(
+      wait_for_log_query \
+        "pane association outcome telemetry missing" \
+        "$query _msg:performance.pane.association | fields _msg,agentstudio.performance.pane.association_outcome | limit 65"
+    )"
+    association_outcome_count="$(grep -c 'performance.pane.association' <<<"$association_outcome_response" || true)"
+    if [ "$association_outcome_count" -lt 3 ] || [ "$association_outcome_count" -gt 64 ]; then
+      echo "pane association outcome telemetry must contain 3...64 bounded records; got $association_outcome_count" >&2
+      echo "$association_outcome_response" >&2
+      exit 1
+    fi
+    for required_association_outcome in resolved_changed free_nil topology_removed; do
+      if ! grep -q "\"agentstudio.performance.pane.association_outcome\":\"$required_association_outcome\"" <<<"$association_outcome_response"; then
+        echo "pane association outcome telemetry missing $required_association_outcome" >&2
+        echo "$association_outcome_response" >&2
+        exit 1
+      fi
+    done
   fi
   if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
     require_json_fields \

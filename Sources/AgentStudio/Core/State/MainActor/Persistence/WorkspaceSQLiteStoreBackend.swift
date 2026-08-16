@@ -524,6 +524,8 @@ enum WorkspaceSQLiteStateBridge {
             note: metadata.note,
             checkoutRef: metadata.checkoutRef,
             durableFacets: .init(
+                repoId: metadata.facets.repoId,
+                worktreeId: metadata.facets.worktreeId,
                 cwd: metadata.facets.cwd
             )
         )
@@ -657,6 +659,8 @@ enum WorkspaceSQLiteStateBridge {
             createdAt: record.createdAt,
             title: record.title,
             facets: .init(
+                repoId: record.durableFacets.repoId,
+                worktreeId: record.durableFacets.worktreeId,
                 cwd: cwd
             ),
             checkoutRef: record.checkoutRef,

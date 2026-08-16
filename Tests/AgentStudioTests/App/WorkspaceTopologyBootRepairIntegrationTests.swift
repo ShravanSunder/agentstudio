@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 
 @testable import AgentStudio
@@ -9,6 +10,161 @@ import Testing
 @MainActor
 @Suite("Workspace topology boot repair integration", .serialized)
 struct WorkspaceTopologyBootRepairIntegrationTests {
+    init() {
+        installTestCoreAtomsIfNeeded()
+    }
+
+    @Test("boot association sweep repairs soft references, persists them, and reloads idempotently")
+    func bootAssociationSweepPersistsAndReloadsIdempotently() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make()
+        defer { fixture.removeTemporaryFiles() }
+        var firstBootSummaries: [PaneAssociationBootReconciliationSummary] = []
+
+        let firstStore = try await fixture.loadStore { summary in
+            firstBootSummaries.append(summary)
+        }
+        fixture.assertRepairedAssociations(in: firstStore)
+        #expect(
+            firstBootSummaries == [
+                PaneAssociationBootReconciliationSummary(
+                    paneCount: 2,
+                    retainedKnownCount: 0,
+                    backfilledCount: 1,
+                    danglingClearedCount: 1,
+                    freeNilCount: 0,
+                    changedCount: 2
+                )
+            ]
+        )
+
+        var secondBootSummaries: [PaneAssociationBootReconciliationSummary] = []
+
+        let reloadedStore = try await fixture.loadStore { summary in
+            secondBootSummaries.append(summary)
+        }
+        fixture.assertRepairedAssociations(in: reloadedStore)
+        #expect(
+            secondBootSummaries == [
+                PaneAssociationBootReconciliationSummary(
+                    paneCount: 2,
+                    retainedKnownCount: 1,
+                    backfilledCount: 0,
+                    danglingClearedCount: 0,
+                    freeNilCount: 1,
+                    changedCount: 0
+                )
+            ]
+        )
+    }
+
+    @Test("boot association sweep remains non-fatal when repaired soft references cannot persist")
+    func bootAssociationSweepPersistenceFailureIsNonFatal() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make()
+        defer { fixture.removeTemporaryFiles() }
+        try fixture.installAssociationPersistenceFailureTrigger()
+        var persistenceReasons: [PaneTopologyPersistenceReason] = []
+
+        let store = try await fixture.loadStore(persistenceReasonReporter: { reason in
+            persistenceReasons.append(reason)
+        })
+
+        fixture.assertRepairedAssociations(in: store)
+        #expect(persistenceReasons.contains(.workspaceSaveDatabaseFailed))
+        try fixture.assertPersistedRowsRemainUnrepaired()
+    }
+
+    @Test("boot association sweep retains a known pair while its repository is unavailable")
+    func bootAssociationSweepRetainsKnownPairDuringTemporaryUnavailability() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make(
+            unavailableKnownAssociation: true
+        )
+        defer { fixture.removeTemporaryFiles() }
+        var summaries: [PaneAssociationBootReconciliationSummary] = []
+
+        let store = try await fixture.loadStore { summary in
+            summaries.append(summary)
+        }
+
+        let retainedFacets = store.paneAtom.graphAtom
+            .paneState(fixture.legacyPaneID)?.durableContextFacets
+        #expect(retainedFacets?.repoId == fixture.repositoryID)
+        #expect(retainedFacets?.worktreeId == fixture.worktreeID)
+        #expect(
+            summaries == [
+                PaneAssociationBootReconciliationSummary(
+                    paneCount: 2,
+                    retainedKnownCount: 1,
+                    backfilledCount: 0,
+                    danglingClearedCount: 1,
+                    freeNilCount: 0,
+                    changedCount: 1
+                )
+            ]
+        )
+    }
+
+    @Test("boot association sweep retains a known pair when unavailable topology omits its worktree")
+    func bootAssociationSweepRetainsKnownPairWhenUnavailableWorktreeIsOmitted() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make(
+            unavailableKnownAssociation: true,
+            omitUnavailableWorktree: true
+        )
+        defer { fixture.removeTemporaryFiles() }
+        var summaries: [PaneAssociationBootReconciliationSummary] = []
+
+        let store = try await fixture.loadStore { summary in
+            summaries.append(summary)
+        }
+
+        let retainedFacets = store.paneAtom.graphAtom
+            .paneState(fixture.legacyPaneID)?.durableContextFacets
+        #expect(retainedFacets?.repoId == fixture.repositoryID)
+        #expect(retainedFacets?.worktreeId == fixture.worktreeID)
+        #expect(
+            summaries == [
+                PaneAssociationBootReconciliationSummary(
+                    paneCount: 2,
+                    retainedKnownCount: 1,
+                    backfilledCount: 0,
+                    danglingClearedCount: 1,
+                    freeNilCount: 0,
+                    changedCount: 1
+                )
+            ]
+        )
+    }
+
+    @Test("boot association sweep clears an unavailable repo paired with a known foreign worktree")
+    func bootAssociationSweepClearsKnownForeignWorktreeMismatch() async throws {
+        let fixture = try await WorkspacePaneAssociationBootFixture.make(
+            unavailableKnownAssociation: true,
+            knownWorktreeBelongsToForeignRepository: true
+        )
+        defer { fixture.removeTemporaryFiles() }
+        var summaries: [PaneAssociationBootReconciliationSummary] = []
+
+        let store = try await fixture.loadStore { summary in
+            summaries.append(summary)
+        }
+
+        let repairedFacets = store.paneAtom.graphAtom
+            .paneState(fixture.legacyPaneID)?.durableContextFacets
+        #expect(repairedFacets?.repoId == nil)
+        #expect(repairedFacets?.worktreeId == nil)
+        #expect(
+            summaries == [
+                PaneAssociationBootReconciliationSummary(
+                    paneCount: 2,
+                    retainedKnownCount: 0,
+                    backfilledCount: 0,
+                    danglingClearedCount: 2,
+                    freeNilCount: 0,
+                    changedCount: 2
+                )
+            ]
+        )
+    }
+
     @Test("exact-root repair persists and heals CWD-derived pane association after degraded boot")
     func exactRootRepairPersistsAndHealsDerivedAssociation() async throws {
         // Arrange: persist a production-shaped workspace whose repository has no root worktree.
@@ -58,10 +214,19 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         let repairedWorktrees = try #require(
             AppDelegate.repairedWorktrees(for: degradedRepository, from: scanResult)
         )
+        let surfaceCoordinator = makeTestWorkspaceSurfaceCoordinator(
+            store: workspaceStore,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: workspaceStore),
+            surfaceManager: MockFilesystemCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry()
+        )
+        defer { Task { await surfaceCoordinator.shutdown() } }
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: RepoCacheAtom(),
+            topologyEffectHandler: surfaceCoordinator,
             scopeSyncHandler: { _ in }
         )
         guard
@@ -88,6 +253,227 @@ struct WorkspaceTopologyBootRepairIntegrationTests {
         #expect(workspaceStore.pane(fixture.paneID)?.worktreeId == repairedMainWorktree.id)
         try await fixture.assertFreshReloadIsRepaired(expectedMainWorktreeID: repairedMainWorktree.id)
     }
+}
+
+@MainActor
+private struct WorkspacePaneAssociationBootFixture {
+    let rootDirectory: URL
+    let coreDatabaseURL: URL
+    let localDatabaseURL: URL
+    let datastore: WorkspaceSQLiteDatastore
+    let repositoryID: UUID
+    let foreignRepositoryID: UUID
+    let worktreeID: UUID
+    let legacyPaneID: UUID
+    let danglingPaneID: UUID
+    let worktreePath: URL
+
+    static func make(
+        unavailableKnownAssociation: Bool = false,
+        omitUnavailableWorktree: Bool = false,
+        knownWorktreeBelongsToForeignRepository: Bool = false
+    ) async throws -> Self {
+        let rootDirectory = FileManager.default.temporaryDirectory.appending(
+            path: "agentstudio-pane-association-boot-\(UUIDv7.generate().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+        let coreDatabaseURL = rootDirectory.appending(path: "core.sqlite")
+        let localDatabaseURL = rootDirectory.appending(path: "local.sqlite")
+        let datastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: localDatabaseURL
+        ).makeDatastore()
+        let fixture = Self(
+            rootDirectory: rootDirectory,
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: localDatabaseURL,
+            datastore: datastore,
+            repositoryID: UUIDv7.generate(),
+            foreignRepositoryID: UUIDv7.generate(),
+            worktreeID: UUIDv7.generate(),
+            legacyPaneID: UUIDv7.generate(),
+            danglingPaneID: UUIDv7.generate(),
+            worktreePath: rootDirectory.appending(path: "repository", directoryHint: .isDirectory)
+        )
+        try await fixture.seed(
+            unavailableKnownAssociation: unavailableKnownAssociation,
+            omitUnavailableWorktree: omitUnavailableWorktree,
+            knownWorktreeBelongsToForeignRepository: knownWorktreeBelongsToForeignRepository
+        )
+        return fixture
+    }
+
+    func loadStore(
+        associationSummaryReporter: (
+            @MainActor @Sendable (
+                PaneAssociationBootReconciliationSummary
+            ) -> Void
+        )? = nil,
+        persistenceReasonReporter: (@MainActor @Sendable (PaneTopologyPersistenceReason) -> Void)? = nil
+    ) async throws -> WorkspaceStore {
+        let freshDatastore = WorkspaceSQLiteDatastoreFactory(
+            coreDatabaseURL: coreDatabaseURL,
+            localDatabaseURL: localDatabaseURL
+        ).makeDatastore()
+        guard case .prepared = await freshDatastore.prepareDatabasesForBoot() else {
+            throw WorkspacePaneAssociationBootFixtureError.databasePreparationFailed
+        }
+        let store = WorkspaceStore(
+            sqliteDatastore: freshDatastore,
+            paneAssociationBootReconciliationReporter: associationSummaryReporter,
+            persistenceReasonReporter: persistenceReasonReporter,
+            startsObserving: false
+        )
+        guard case .loaded = await store.loadCanonicalComposition() else {
+            throw WorkspacePaneAssociationBootFixtureError.workspaceLoadFailed
+        }
+        return store
+    }
+
+    func assertRepairedAssociations(in store: WorkspaceStore) {
+        let legacyFacets = store.paneAtom.graphAtom
+            .paneState(legacyPaneID)?.durableContextFacets
+        #expect(legacyFacets?.repoId == repositoryID)
+        #expect(legacyFacets?.worktreeId == worktreeID)
+        let danglingFacets = store.paneAtom.graphAtom
+            .paneState(danglingPaneID)?.durableContextFacets
+        #expect(danglingFacets?.repoId == nil)
+        #expect(danglingFacets?.worktreeId == nil)
+    }
+
+    func installAssociationPersistenceFailureTrigger() throws {
+        let databasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.pane-association-boot-failure"
+        )
+        defer { try? databasePool.close() }
+        try databasePool.write { database in
+            try database.execute(
+                sql: """
+                    CREATE TRIGGER reject_boot_association_update
+                    BEFORE UPDATE OF facet_repo_id, facet_worktree_id ON pane
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected pane association persistence failure');
+                    END
+                    """
+            )
+        }
+    }
+
+    func assertPersistedRowsRemainUnrepaired() throws {
+        let databasePool = try SQLiteDatabaseFactory.makeFileBackedPool(
+            at: coreDatabaseURL,
+            label: "AgentStudio.sqlite.pane-association-boot-rollback"
+        )
+        defer { try? databasePool.close() }
+        try databasePool.read { database in
+            let legacyRow = try Row.fetchOne(
+                database,
+                sql: "SELECT facet_repo_id, facet_worktree_id FROM pane WHERE id = ?",
+                arguments: [legacyPaneID.uuidString]
+            )
+            #expect(legacyRow?["facet_repo_id"] as String? == nil)
+            #expect(legacyRow?["facet_worktree_id"] as String? == nil)
+            let danglingRow = try Row.fetchOne(
+                database,
+                sql: "SELECT facet_repo_id, facet_worktree_id FROM pane WHERE id = ?",
+                arguments: [danglingPaneID.uuidString]
+            )
+            #expect(danglingRow?["facet_repo_id"] as String? != nil)
+            #expect(danglingRow?["facet_worktree_id"] as String? != nil)
+        }
+    }
+
+    func removeTemporaryFiles() {
+        try? FileManager.default.removeItem(at: rootDirectory)
+    }
+
+    private func seed(
+        unavailableKnownAssociation: Bool,
+        omitUnavailableWorktree: Bool,
+        knownWorktreeBelongsToForeignRepository: Bool
+    ) async throws {
+        guard case .prepared = await datastore.prepareDatabasesForBoot() else {
+            throw WorkspacePaneAssociationBootFixtureError.databasePreparationFailed
+        }
+        let legacyCWD = worktreePath.appending(path: "Sources", directoryHint: .isDirectory)
+        let danglingCWD = rootDirectory.appending(path: "outside", directoryHint: .isDirectory)
+        let legacyPane = makePane(
+            id: legacyPaneID,
+            launchDirectory: legacyCWD,
+            facets: unavailableKnownAssociation
+                ? PaneContextFacets(
+                    repoId: repositoryID,
+                    worktreeId: worktreeID,
+                    cwd: legacyCWD
+                )
+                : PaneContextFacets(cwd: legacyCWD)
+        )
+        let danglingPane = makePane(
+            id: danglingPaneID,
+            launchDirectory: danglingCWD,
+            facets: PaneContextFacets(
+                repoId: UUIDv7.generate(),
+                worktreeId: UUIDv7.generate(),
+                cwd: danglingCWD
+            )
+        )
+        let tab = makeTab(paneIds: [legacyPaneID, danglingPaneID], activePaneId: legacyPaneID)
+        let workspace = WorkspaceSQLiteSnapshot(
+            id: UUIDv7.generate(),
+            name: "Pane association boot fixture",
+            panes: [legacyPane, danglingPane],
+            tabs: [tab],
+            activeTabId: tab.id,
+            createdAt: Date(timeIntervalSince1970: 1_700_400_000),
+            updatedAt: Date(timeIntervalSince1970: 1_700_400_001)
+        )
+        try await datastore.saveWorkspaceSnapshotBundle(.emptyTopologyFixture(workspace: workspace))
+        try await datastore.saveRepositoryTopologySnapshot(
+            RepositoryTopologySQLiteSnapshot(
+                repos: [
+                    CanonicalRepo(
+                        id: repositoryID,
+                        name: worktreePath.lastPathComponent,
+                        repoPath: worktreePath
+                    )
+                ]
+                    + (knownWorktreeBelongsToForeignRepository
+                        ? [
+                            CanonicalRepo(
+                                id: foreignRepositoryID,
+                                name: "foreign-repository",
+                                repoPath: rootDirectory.appending(
+                                    path: "foreign-repository",
+                                    directoryHint: .isDirectory
+                                )
+                            )
+                        ]
+                        : []),
+                worktrees: omitUnavailableWorktree
+                    ? []
+                    : [
+                        CanonicalWorktree(
+                            id: worktreeID,
+                            repoId: knownWorktreeBelongsToForeignRepository
+                                ? foreignRepositoryID
+                                : repositoryID,
+                            name: worktreePath.lastPathComponent,
+                            path: worktreePath,
+                            isMainWorktree: true
+                        )
+                    ],
+                unavailableRepoIds: unavailableKnownAssociation ? [repositoryID] : [],
+                updatedAt: Date(timeIntervalSince1970: 1_700_400_002)
+            )
+        )
+    }
+}
+
+private enum WorkspacePaneAssociationBootFixtureError: Error {
+    case databasePreparationFailed
+    case workspaceLoadFailed
 }
 
 @MainActor

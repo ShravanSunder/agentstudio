@@ -61,6 +61,18 @@ struct AgentStudioStartupDiagnosticActionParsingTests {
         #expect(action.commandName == "ipcTerminalSmoke")
     }
 
+    @Test("startup diagnostic action parses pane association runtime proof")
+    func parsesPaneAssociationRuntimeProof() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " pane-association-runtime-proof "
+            ]))
+
+        #expect(action.kind.rawValue == "pane-association-runtime-proof")
+        #expect(action.commandName == "paneAssociationRuntimeProof")
+        #expect(action.suppressesAutomaticLaunchPaneRestore)
+    }
+
     @Test("startup diagnostic action parses bridge review observability smoke command")
     func parsesBridgeReviewObservabilitySmokeCommand() throws {
         let action = try #require(

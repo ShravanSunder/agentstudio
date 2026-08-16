@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 
@@ -14,7 +15,7 @@ package final class BridgePaneMountView: NSView, PaneMountedContent {
     package let paneId: UUID
     package let controller: BridgePaneController
     package let runtime: BridgeRuntime
-    private var hostingView: NSHostingView<BridgePaneContentView>?
+    private var hostingView: NSHostingView<AnyView>?
 
     package init(paneId: UUID, controller: BridgePaneController) {
         self.paneId = paneId
@@ -42,7 +43,8 @@ package final class BridgePaneMountView: NSView, PaneMountedContent {
 
     private func setupHostingView() {
         let contentView = BridgePaneContentView(controller: controller)
-        let hosting = NSHostingView(rootView: contentView)
+        let hosting = NSHostingView(
+            rootView: AnyView(contentView.tint(AppStyles.General.Accent.primaryColor)))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
 

@@ -11,6 +11,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
         #if DEBUG
             case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
             case ipcTerminalSmoke = "ipc-terminal-smoke"
+            case paneAssociationRuntimeProof = "pane-association-runtime-proof"
             case bridgeReviewObservabilitySmoke = "bridge-review-observability-smoke"
             case bridgeFileViewObservabilitySmoke = "bridge-file-view-observability-smoke"
             case bridgeFileViewCommandRouteObservabilitySmoke =
@@ -31,7 +32,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
 
     var suppressesAutomaticLaunchPaneRestore: Bool {
         #if DEBUG
-            kind == .bridgeReviewObservabilitySmoke || kind == .bridgeFileViewObservabilitySmoke
+            kind == .paneAssociationRuntimeProof
+                || kind == .bridgeReviewObservabilitySmoke || kind == .bridgeFileViewObservabilitySmoke
                 || kind == .bridgeFileViewCommandRouteObservabilitySmoke
                 || kind == .bridgeFileViewTargetedRouteObservabilitySmoke
                 || kind == .bridgeReviewToFileViewObservabilitySmoke
@@ -55,6 +57,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "crossTabMoveGeometrySmoke"
             case .ipcTerminalSmoke:
                 "ipcTerminalSmoke"
+            case .paneAssociationRuntimeProof:
+                "paneAssociationRuntimeProof"
             case .bridgeReviewObservabilitySmoke:
                 "bridgeReviewObservabilitySmoke"
             case .bridgeFileViewObservabilitySmoke:

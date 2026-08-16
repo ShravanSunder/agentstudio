@@ -37,7 +37,11 @@ struct CommandBarResultRow: View {
             .frame(height: rowHeight)
             .background(
                 RoundedRectangle(cornerRadius: AppStyles.CommandBar.Rows.selectedRowCornerRadius)
-                    .fill(isSelected ? Color.accentColor.opacity(AppStyles.General.Fill.selected) : Color.clear)
+                    .fill(
+                        isSelected
+                            ? AppStyles.General.Accent.primaryColor.opacity(AppStyles.General.Fill.selected)
+                            : Color.clear
+                    )
                     .padding(.horizontal, AppStyles.CommandBar.Rows.selectedRowHorizontalInset)
             )
             .contentShape(Rectangle())
@@ -270,7 +274,7 @@ struct CommandBarResultRow: View {
 
     private var iconColor: Color {
         if isDimmed { return Color.primary.opacity(0.25) }
-        if isSelected { return Color.accentColor }
+        if isSelected { return AppStyles.General.Accent.primaryColor }
         return item.iconColor ?? Color.primary.opacity(0.50)
     }
 

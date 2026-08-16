@@ -176,6 +176,7 @@ struct TabSelectionToolbarMenu: View {
                     .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
+            .tint(AppStyles.Shell.Chrome.ToolbarButton.iconForegroundColor)
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)

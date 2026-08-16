@@ -589,7 +589,7 @@ struct TabPillView: View {
 
     private var insertionLine: some View {
         RoundedRectangle(cornerRadius: 1)
-            .fill(Color.accentColor)
+            .fill(AppStyles.General.Accent.primaryColor)
             .frame(width: 2, height: 24)
             .padding(.horizontal, 2)
     }
@@ -597,7 +597,7 @@ struct TabPillView: View {
     private var tabContent: some View {
         ZStack {
             RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill)
-                .fill(Color.accentColor.opacity(0.30 * dwellProgress))
+                .fill(AppStyles.General.Accent.primaryColor.opacity(0.30 * dwellProgress))
 
             // Centered title with fade-out mask.
             // Clear zones match the overlay positions so text is fully invisible

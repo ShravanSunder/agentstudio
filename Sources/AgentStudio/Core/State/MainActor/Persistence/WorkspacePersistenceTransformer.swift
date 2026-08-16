@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import Foundation
 import os.log
 
@@ -5,6 +6,11 @@ private let workspacePersistenceTransformerLogger = Logger(
     subsystem: "com.agentstudio",
     category: "WorkspacePersistenceTransformer"
 )
+
+struct WorkspaceBootPaneAssociationReconciliation: Sendable {
+    let workspace: WorkspaceSQLiteSnapshot
+    let summary: PaneAssociationBootReconciliationSummary
+}
 
 @MainActor
 enum WorkspacePersistenceTransformer {
@@ -32,6 +38,68 @@ enum WorkspacePersistenceTransformer {
         _ snapshot: RepositoryTopologySQLiteSnapshot
     ) async -> RepositoryTopologyReplacementPreparation {
         prepareRepositoryTopology(snapshot)
+    }
+
+    @concurrent nonisolated static func reconcilePaneAssociationsOffMain(
+        in workspace: WorkspaceSQLiteSnapshot,
+        topology: RepositoryTopologyReplacement
+    ) async -> WorkspaceBootPaneAssociationReconciliation {
+        let topologySnapshot = RepositoryTopologyReadSnapshot(replacement: topology)
+        var retainedKnownCount: UInt64 = 0
+        var backfilledCount: UInt64 = 0
+        var danglingClearedCount: UInt64 = 0
+        var freeNilCount: UInt64 = 0
+        var changedCount: UInt64 = 0
+        var reconciledWorkspace = workspace
+        reconciledWorkspace.panes = workspace.panes.map { pane in
+            var reconciledPane = pane
+            let durableFacets = pane.metadata.facets
+            if let repoID = durableFacets.repoId, let worktreeID = durableFacets.worktreeId {
+                if topologySnapshot.validatedAssociation(repoId: repoID, worktreeId: worktreeID) != nil {
+                    retainedKnownCount += 1
+                    return pane
+                }
+                if topologySnapshot.isKnownAssociationTemporarilyUnavailable(
+                    repoId: repoID,
+                    worktreeId: worktreeID
+                ) {
+                    retainedKnownCount += 1
+                    return pane
+                }
+                danglingClearedCount += 1
+                changedCount += 1
+                reconciledPane.metadata.updateFacets(PaneContextFacets(cwd: durableFacets.cwd))
+                return reconciledPane
+            }
+
+            guard
+                let resolvedContext = topologySnapshot.repoAndWorktree(containing: durableFacets.cwd)
+            else {
+                freeNilCount += 1
+                return pane
+            }
+            backfilledCount += 1
+            changedCount += 1
+            reconciledPane.metadata.updateFacets(
+                PaneContextFacets(
+                    repoId: resolvedContext.repo.id,
+                    worktreeId: resolvedContext.worktree.id,
+                    cwd: durableFacets.cwd
+                )
+            )
+            return reconciledPane
+        }
+        return WorkspaceBootPaneAssociationReconciliation(
+            workspace: reconciledWorkspace,
+            summary: PaneAssociationBootReconciliationSummary(
+                paneCount: UInt64(workspace.panes.count),
+                retainedKnownCount: retainedKnownCount,
+                backfilledCount: backfilledCount,
+                danglingClearedCount: danglingClearedCount,
+                freeNilCount: freeNilCount,
+                changedCount: changedCount
+            )
+        )
     }
 
     nonisolated static func prepareRepositoryTopology(

@@ -291,7 +291,7 @@ func makePaneTabViewControllerCommandRepoAndWorktree(
     let repo = store.addRepo(at: repoPath)
     let worktree = Worktree(repoId: repo.id, name: "wt-main", path: worktreePath)
     store.reconcileDiscoveredWorktrees(repo.id, worktrees: repo.worktrees + [worktree])
-    return (repo, worktree)
+    return store.repositoryTopologyAtom.repoAndWorktree(containing: worktreePath) ?? (repo, worktree)
 }
 
 @MainActor
