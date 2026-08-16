@@ -49,6 +49,7 @@ Status: the toggle-refinement implementation, automated proof, three selected-st
 ## Source delivery
 
 - Branch: `feat/sidebar-grouping-rows`
+- Toggle-refinement implementation commit: `1c35fed75` — `Refine sidebar grouping toggle states`
 - Current remediation commit: `4abb00448` — `Align pane sorting with displayed recency`
 - Main implementation commit: `2edc3c77d` — `Polish sidebar grouping controls and activity rows`
 - Final gallery commit: `8fa7a3641` — `Add final sidebar grouping proof gallery`
@@ -127,4 +128,8 @@ All files are under `tmp-screenshots/final/`. `tmp-screenshots/initial-capture/`
 
 ## PR handoff
 
-The final proof commit, branch push, draft PR gallery/body update, independent implementation review, and remote check/thread inspection are recorded in the final task handoff after they complete. PR #296 remains draft throughout and will not be merged.
+- Commit `1c35fed75` was pushed to `origin/feat/sidebar-grouping-rows`, updating draft PR #296.
+- Remote head matched `1c35fed75998856b0de1f8f1ebcdfe0ca542c61d`; the PR was `MERGEABLE` against `main` and remained draft.
+- CI run `31957373649` completed green: Code quality 3m50s, BridgeWeb validation 4m06s, BridgeWeb Swift backend 9m01s, and Swift test suite 23m06s.
+- The PR had no comments, reviews, or review threads requiring action at final inspection.
+- Merge was not requested and was not performed.
