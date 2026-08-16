@@ -20,6 +20,7 @@ private enum DrawerTooltipTarget: Hashable {
     case copyPath
     case chooser
     case inbox
+    case paneSurfaceStatusIndicator(String)
     case paneSurfaceAction(String)
 }
 
@@ -52,6 +53,7 @@ struct DrawerIconBar: View {
     @State private var isCopyPathHovered = false
     @State private var isChooserHovered = false
     @State private var isInboxHovered = false
+    @State private var hoveredPaneSurfaceStatusIndicatorId: String?
     @State private var hoveredPaneSurfaceActionId: String?
     @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
 
@@ -208,8 +210,20 @@ struct DrawerIconBar: View {
                         if let trailingActions {
                             HStack(spacing: 0) {
                                 HStack(spacing: 0) {
-                                    if let openPullRequestAction = trailingActions.openPullRequestAction {
-                                        paneSurfaceActionButton(openPullRequestAction)
+                                    if trailingActions.pullRequestBlockerIndicator != nil
+                                        || trailingActions.openPullRequestAction != nil
+                                    {
+                                        HStack(spacing: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing) {
+                                            if let blockerIndicator =
+                                                trailingActions.pullRequestBlockerIndicator
+                                            {
+                                                paneSurfaceStatusIndicator(blockerIndicator)
+                                            }
+
+                                            if let openPullRequestAction = trailingActions.openPullRequestAction {
+                                                paneSurfaceActionButton(openPullRequestAction)
+                                            }
+                                        }
 
                                         if !paneContextActions.isEmpty || hasPrimaryTrailingActions(trailingActions)
                                             || trailingActions.showPaneInboxAction != nil
@@ -485,6 +499,9 @@ struct DrawerIconBar: View {
         if isFinderHovered { return .finder }
         if isCopyPathHovered { return .copyPath }
         if isInboxHovered { return .inbox }
+        if let hoveredPaneSurfaceStatusIndicatorId {
+            return .paneSurfaceStatusIndicator(hoveredPaneSurfaceStatusIndicatorId)
+        }
         if let hoveredPaneSurfaceActionId {
             return .paneSurfaceAction(hoveredPaneSurfaceActionId)
         }
@@ -539,6 +556,14 @@ struct DrawerIconBar: View {
             return trailingActions?.showPaneInboxAction?.commandSpec.controlTooltipRenderValue(
                 textOverride: "Open pane inbox"
             )
+        case .paneSurfaceStatusIndicator(let accessibilityIdentifier):
+            guard
+                let blockerIndicator = trailingActions?.pullRequestBlockerIndicator,
+                blockerIndicator.accessibilityIdentifier == accessibilityIdentifier
+            else {
+                return nil
+            }
+            return blockerIndicator.tooltip
         case .paneSurfaceAction(let accessibilityIdentifier):
             var surfaceActions = paneSurfaceActions + paneContextActions
             if let openPullRequestAction = trailingActions?.openPullRequestAction {
@@ -644,6 +669,34 @@ struct DrawerIconBar: View {
         }
     }
 
+    private func paneSurfaceStatusIndicator(
+        _ indicator: PaneSurfaceToolbarStatusIndicator
+    ) -> some View {
+        paneSurfaceActionIcon(indicator.icon)
+            .foregroundStyle(paneSurfaceStatusToneForeground(indicator.iconStatusTone))
+            .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+            .contentShape(Rectangle())
+            .hoverTooltipAnchor(
+                DrawerTooltipTarget.paneSurfaceStatusIndicator(
+                    indicator.accessibilityIdentifier
+                ),
+                in: Self.tooltipCoordinateSpaceName
+            )
+            .controlHelp(indicator.tooltip)
+            .accessibilityHidden(true)
+            .background {
+                AccessibilityLabelBridge(
+                    identifier: indicator.accessibilityIdentifier,
+                    label: indicator.label,
+                    help: indicator.tooltip.text
+                )
+            }
+            .onHover { hovering in
+                hoveredPaneSurfaceStatusIndicatorId =
+                    hovering ? indicator.accessibilityIdentifier : nil
+            }
+    }
+
     private func paneSurfaceActionForeground(
         _ action: PaneSurfaceToolbarAction,
         isHovered: Bool
@@ -661,11 +714,26 @@ struct DrawerIconBar: View {
         _ action: PaneSurfaceToolbarAction,
         isHovered: Bool
     ) -> Color {
+        if let iconStatusTone = action.state.iconStatusTone {
+            return paneSurfaceStatusToneForeground(iconStatusTone)
+        }
         guard let iconAccentColorHex = action.state.iconAccentColorHex else {
             return paneSurfaceActionForeground(action, isHovered: isHovered)
         }
         return Color(nsColor: NSColor(hex: iconAccentColorHex) ?? .controlAccentColor)
             .opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
+    }
+
+    private func paneSurfaceStatusToneForeground(
+        _ iconStatusTone: PaneSurfaceToolbarAction.IconStatusTone
+    ) -> Color {
+        let color =
+            switch iconStatusTone {
+            case .success: AppStyles.Shell.Sidebar.chipSuccessColor
+            case .warning: AppStyles.Shell.Sidebar.chipWarningColor
+            case .danger: AppStyles.Shell.Sidebar.chipDangerColor
+            }
+        return color.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     private func paneSurfaceActionFill(

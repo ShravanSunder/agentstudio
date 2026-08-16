@@ -44,15 +44,19 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> URL? {
+        pullRequestFacts(for: paneId, store: store, repoCache: repoCache)?.exactOpenURL
+    }
+
+    static func pullRequestFacts(
+        for paneId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> PullRequestFacts? {
         guard
             let pane = store.paneAtom.pane(paneId),
-            let context = repoContext(for: pane, store: store),
-            let exactOpenURL = pullRequestFacts(for: context, repoCache: repoCache)?.exactOpenURL
-        else {
-            return nil
-        }
-
-        return exactOpenURL
+            let context = repoContext(for: pane, store: store)
+        else { return nil }
+        return pullRequestFacts(for: context, repoCache: repoCache)
     }
 
     static func hasResolvableWorktreeContext(

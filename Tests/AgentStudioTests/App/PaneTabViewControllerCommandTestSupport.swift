@@ -18,15 +18,27 @@ typealias Harness = PaneTabViewControllerCommandHarness
 final class PaneTabViewControllerCommandLaunchRecorder {
     var openedEditors: [(id: EditorTargetId, path: URL)] = []
     var revealedPaths: [URL] = []
+    var openedExternalURLs: [URL] = []
     var copiedPaths: [URL] = []
     var paneNoteRequests: [UUID] = []
     var clearedPaneInboxRequests: [(parentPaneId: UUID, paneIds: [UUID])] = []
+
+    func openFinder(_ path: URL) -> Bool {
+        revealedPaths.append(path)
+        return true
+    }
+
+    func openExternalURL(_ url: URL) -> Bool {
+        openedExternalURLs.append(url)
+        return true
+    }
 }
 
 @MainActor
 struct PaneTabViewControllerCommandHarness {
     let atomRegistry: AtomRegistry
     let store: WorkspaceStore
+    let repoCache: RepoCacheAtom
     let coordinator: WorkspaceSurfaceCoordinator
     let executor: WorkspaceActionExecutor
     let controller: PaneTabViewController
@@ -100,6 +112,7 @@ func makePaneTabViewControllerCommandHarness(
     let arrangementInlineRenameState = ArrangementInlineRenameState()
     let paneInboxPresenter = PaneInboxNotificationPresenter()
     let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
+    let repoCache = RepoCacheAtom()
     let paneInboxPresentation = makePaneTabViewControllerCommandPaneInboxPresentation(
         presenter: paneInboxPresenter,
         launchRecorder: launchRecorder
@@ -121,7 +134,7 @@ func makePaneTabViewControllerCommandHarness(
     let controller = PaneTabViewController(
         store: store,
         octiconLoader: makeTestOcticonLoader(),
-        repoCache: RepoCacheAtom(),
+        repoCache: repoCache,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -145,10 +158,8 @@ func makePaneTabViewControllerCommandHarness(
             launchRecorder.openedEditors.append((id: editorId, path: path))
             return true
         },
-        openFinderHandler: { path in
-            launchRecorder.revealedPaths.append(path)
-            return true
-        },
+        openFinderHandler: launchRecorder.openFinder,
+        openExternalURLHandler: launchRecorder.openExternalURL,
         copyPathHandler: { path in
             launchRecorder.copiedPaths.append(path)
         },
@@ -169,6 +180,7 @@ func makePaneTabViewControllerCommandHarness(
     return PaneTabViewControllerCommandHarness(
         atomRegistry: atomRegistry,
         store: store,
+        repoCache: repoCache,
         coordinator: coordinator,
         executor: executor,
         controller: controller,
