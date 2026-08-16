@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import GRDB
@@ -43,6 +44,22 @@ struct RepoCacheStoreTests {
         #expect(restoredCacheAtom.pullRequestFactsByBranch.isEmpty)
         #expect(restoredCacheAtom.sourceRevision == 42)
         #expect(restoredCacheAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
+    }
+
+    @Test
+    func flushNormalizesTransientStatusUnavailableEnrichment() async throws {
+        let workspaceId = UUIDv7.generate()
+        let fixture = try makeWorkspaceLocalSQLiteStoreFixture(workspaceId: workspaceId)
+        let datastore = try await preparedWorkspaceSQLiteDatastore(from: fixture.sqliteBackend)
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUIDv7.generate()
+        let store = RepoCacheStore(cacheAtom: cacheAtom, sqliteDatastore: datastore)
+
+        cacheAtom.setRepoEnrichment(.statusUnavailable(repoId: repoId, reason: "timeout"))
+        try await store.flushAsync(for: workspaceId)
+
+        let persistedState = try fixture.repository.fetchCacheState()
+        #expect(persistedState.repoEnrichmentByRepoId[repoId] == .awaitingOrigin(repoId: repoId))
     }
 
     @Test

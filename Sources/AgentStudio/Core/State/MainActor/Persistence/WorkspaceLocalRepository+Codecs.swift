@@ -272,7 +272,7 @@ enum WorkspaceLocalRepositoryCodecs {
 
     static func repoEnrichmentState(_ enrichment: RepoEnrichment) -> String {
         switch enrichment {
-        case .awaitingOrigin:
+        case .awaitingOrigin, .statusUnavailable:
             "awaitingOrigin"
         case .resolvedLocal:
             "resolvedLocal"
@@ -283,7 +283,7 @@ enum WorkspaceLocalRepositoryCodecs {
 
     static func repoEnrichmentUpdatedAt(_ enrichment: RepoEnrichment) -> Date? {
         switch enrichment {
-        case .awaitingOrigin:
+        case .awaitingOrigin, .statusUnavailable:
             nil
         case .resolvedLocal(_, _, let updatedAt):
             updatedAt

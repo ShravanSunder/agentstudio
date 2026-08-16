@@ -243,7 +243,7 @@ package enum RepoPresentationColoring {
                 groupKey = identity.groupKey
                 displayName = identity.displayName
                 organizationName = identity.organizationName
-            case .awaitingOrigin, nil:
+            case .awaitingOrigin, .statusUnavailable, nil:
                 groupKey = "path:\(normalizedRepoPath)"
                 displayName = repo.name
                 organizationName = nil

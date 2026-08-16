@@ -254,6 +254,8 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 AgentStudioOTLPPerformanceMetricDimension(name: "outcome", value: outcome)
             )
         }
+        appendRepoExplorerInstrumentDimensions(record: record, dimensions: &dimensions)
+        appendStageOutcomeDimensions(record: record, dimensions: &dimensions)
         if record.body == "performance.git.status_unavailable",
             case .string(let reason) = record.attributes["agentstudio.performance.git.status_unavailable.reason"],
             isSafeDimensionValue(reason)
@@ -266,6 +268,7 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "scope", value: scope))
         }
+        appendGitStatusOutcomeDimension(record: record, dimensions: &dimensions)
         if record.body == "performance.git.backoff",
             case .string(let reason) = record.attributes["agentstudio.performance.git.backoff.reason"],
             isSafeDimensionValue(reason)
@@ -324,6 +327,17 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         return dimensions
     }
 
+    private static func appendGitStatusOutcomeDimension(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard ["performance.git.status", "performance.git.status_unavailable"].contains(record.body),
+            case .string(let outcome) = record.attributes["agentstudio.performance.git.status.last_outcome"],
+            ["completed", "timeout", "unavailable"].contains(outcome)
+        else { return }
+        dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: outcome))
+    }
+
     private static func appendRepoExplorerKeyedWakeDimensions(
         record: AgentStudioOTLPProjectedLogRecord,
         dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
@@ -339,6 +353,52 @@ package struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             appendSafeStringDimension(
                 name: name,
                 attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+    }
+
+    private static func appendRepoExplorerInstrumentDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        guard
+            [
+                "performance.repo_explorer.row_body_evaluation",
+                "performance.repo_explorer.scroll_frame_gap",
+            ].contains(record.body)
+        else { return }
+        for (name, attributeKey) in [
+            ("outcome", "agentstudio.performance.repo_explorer.row_body_evaluation.outcome"),
+            ("outcome", "agentstudio.performance.repo_explorer.scroll_frame_gap.outcome"),
+            ("row_kind", "agentstudio.performance.repo_explorer.row_kind"),
+            ("surface", "agentstudio.performance.repo_explorer.surface"),
+            ("visible_row_count_bucket", "agentstudio.performance.repo_explorer.visible_row_count_bucket"),
+        ] {
+            appendSafeStringDimension(
+                name: name,
+                attributeKey: attributeKey,
+                record: record,
+                dimensions: &dimensions
+            )
+        }
+    }
+
+    private static func appendStageOutcomeDimensions(
+        record: AgentStudioOTLPProjectedLogRecord,
+        dimensions: inout [AgentStudioOTLPPerformanceMetricDimension]
+    ) {
+        let prefix: String
+        switch record.body {
+        case "performance.filesystem.stage_outcome": prefix = "filesystem"
+        case "performance.forge.refresh": prefix = "forge"
+        default: return
+        }
+        for name in ["stage", "outcome"] {
+            appendSafeStringDimension(
+                name: name,
+                attributeKey: "agentstudio.performance.\(prefix).\(name)",
                 record: record,
                 dimensions: &dimensions
             )

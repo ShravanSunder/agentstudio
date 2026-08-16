@@ -62,18 +62,19 @@ package actor GitWorkingDirectoryProjector {
     var repoIdByWorktreeId: [UUID: UUID] = [:]
     private var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
-    private var lastEmittedSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
+    var lastEmittedSnapshotByWorktreeId: [UUID: GitWorkingTreeSnapshot] = [:]
     /// Last successful full status entry set per worktree. Its presence marks a
     /// fold-capable cache: a scoped compute folds into it (see
     /// `GitWorkingDirectoryProjector+PathspecStatus`). Not `private` so that
     /// extension can read it.
     var lastStatusEntriesByWorktreeId: [UUID: [GitWorkingTreeStatusEntry]] = [:]
-    private var nilStatusRetryCountByWorktreeId: [UUID: Int] = [:]
+    var nilStatusRetryCountByWorktreeId: [UUID: Int] = [:]
     var nextPeriodicBatchSeqByWorktreeId: [UUID: UInt64] = [:]
     var statusBackoffFailureCountByWorktreeId: [UUID: Int] = [:]
     var openStatusBackoffWorktreeIds: Set<UUID> = []
     var deferredStatusBackoffChangesetByWorktreeId: [UUID: FileChangeset] = [:]
     var statusBackoffTasks: [UUID: Task<Void, Never>] = [:]
+    var consecutiveStatusTimeoutCountByWorktreeId: [UUID: Int] = [:]
     /// Registered worktrees whose root path has vanished from disk. They are
     /// skipped at admission and periodic re-enqueue without further stat calls
     /// until an event-driven re-arm clears the mark
@@ -143,6 +144,7 @@ package actor GitWorkingDirectoryProjector {
         nilStatusRetryTasks.removeAll(keepingCapacity: false)
         capacityRetryTasks.removeAll(keepingCapacity: false)
         statusBackoffTasks.removeAll(keepingCapacity: false)
+        consecutiveStatusTimeoutCountByWorktreeId.removeAll(keepingCapacity: false)
     }
 
     package func start() async {
@@ -238,6 +240,7 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeAll(keepingCapacity: false)
         lastStatusEntriesByWorktreeId.removeAll(keepingCapacity: false)
         nilStatusRetryCountByWorktreeId.removeAll(keepingCapacity: false)
+        consecutiveStatusTimeoutCountByWorktreeId.removeAll(keepingCapacity: false)
         nextPeriodicBatchSeqByWorktreeId.removeAll(keepingCapacity: false)
         nextWorktreeTaskGeneration = 0
         periodicRefreshTick = 1
@@ -436,15 +439,6 @@ package actor GitWorkingDirectoryProjector {
         return latestTopologyAssertion.contextsByWorktreeId[changeset.worktreeId] == context
     }
 
-    func registeredContext(for worktreeId: UUID) -> WorktreeFilesystemContext? {
-        guard let repoId = repoIdByWorktreeId[worktreeId],
-            let rootPath = rootPathByWorktreeId[worktreeId]
-        else {
-            return nil
-        }
-        return WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
-    }
-
     private func applyRegistration(
         worktreeId: UUID,
         context: WorktreeFilesystemContext,
@@ -459,6 +453,7 @@ package actor GitWorkingDirectoryProjector {
             lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
             lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
             nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
+            consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: worktreeId)
             cancelNilStatusRetry(worktreeId: worktreeId)
             clearCapacityRetryState(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
@@ -508,6 +503,7 @@ package actor GitWorkingDirectoryProjector {
         lastEmittedSnapshotByWorktreeId.removeValue(forKey: worktreeId)
         lastStatusEntriesByWorktreeId.removeValue(forKey: worktreeId)
         nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
+        consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: worktreeId)
         cancelNilStatusRetry(worktreeId: worktreeId)
         clearCapacityRetryState(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
@@ -602,9 +598,12 @@ package actor GitWorkingDirectoryProjector {
         // paths and folded into the cache; everything else is a full status.
         let computeStart = envelopeClock.now
         let resolved = await resolveStatusResult(for: changeset)
+        guard !Task.isCancelled else { return }
+        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
+        guard isCurrent(changeset) else { return }
         let statusResult = resolved.result
         guard case .available(let statusSnapshot) = statusResult else {
-            handleUnavailableStatusResult(
+            await handleUnavailableStatusResult(
                 statusResult,
                 changeset: changeset,
                 computeStart: computeStart,
@@ -613,82 +612,16 @@ package actor GitWorkingDirectoryProjector {
             )
             return
         }
-        let statusCompletion = envelopeClock.now
-        performanceTraceRecorder?.recordDuration(
-            .gitStatusComputed,
-            duration: computeStart.duration(to: envelopeClock.now),
-            attributes: gitStatusCompletionTraceAttributes(
-                for: changeset,
-                unavailable: nil,
-                scope: resolved.scope,
-                pathspecCount: resolved.pathspecCount,
-                statusCompletion: statusCompletion
-            )
+        await handleAvailableStatusResult(
+            statusSnapshot,
+            changeset: changeset,
+            computeStart: computeStart,
+            scope: resolved.scope,
+            pathspecCount: resolved.pathspecCount
         )
-        admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        nilStatusRetryCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
-        clearCapacityRetryState(worktreeId: changeset.worktreeId)
-        resetStatusBackoff(worktreeId: changeset.worktreeId)
-        guard !Task.isCancelled else { return }
-        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
-        guard isCurrent(changeset) else { return }
-
-        // Retain the freshest full entry set so the next scoped compute can fold.
-        lastStatusEntriesByWorktreeId[changeset.worktreeId] = statusSnapshot.entries
-
-        let nextSnapshot = GitWorkingTreeSnapshot(
-            worktreeId: changeset.worktreeId,
-            repoId: changeset.repoId,
-            rootPath: changeset.rootPath,
-            summary: statusSnapshot.summary,
-            branch: statusSnapshot.branch
-        )
-        let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
-        if previousSnapshot != nextSnapshot {
-            lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
-            resetAdaptiveCadence(worktreeId: changeset.worktreeId)
-            await emitGitWorkingDirectoryEvent(
-                worktreeId: changeset.worktreeId,
-                repoId: changeset.repoId,
-                event: .snapshotChanged(
-                    snapshot: nextSnapshot
-                )
-            )
-        } else {
-            performanceTraceRecorder?.record(
-                .gitSnapshotDedup,
-                attributes: [
-                    "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
-                    "agentstudio.performance.git.snapshot_dedup.count": .int(1),
-                ]
-            )
-            // Lengthen only when no newer refresh is already queued (i.e. no
-            // file-change arrived since this compute).
-            if pendingByWorktreeId[changeset.worktreeId] == nil {
-                unchangedStatusResultCountByWorktreeId[changeset.worktreeId, default: 0] += 1
-            }
-        }
-
-        if let previousSnapshot,
-            let nextBranch = statusSnapshot.branch,
-            previousSnapshot.branch != nextBranch
-        {
-            await emitGitWorkingDirectoryEvent(
-                worktreeId: changeset.worktreeId,
-                repoId: changeset.repoId,
-                event: .branchChanged(
-                    worktreeId: changeset.worktreeId,
-                    repoId: changeset.repoId,
-                    from: previousSnapshot.branch ?? "",
-                    to: nextBranch
-                )
-            )
-        }
-        guard shouldCheckOrigin(for: changeset) else { return }
-        await emitOriginResolutionIfChanged(changeset: changeset, statusSnapshot: statusSnapshot)
     }
 
-    private func emitOriginResolutionIfChanged(
+    func emitOriginResolutionIfChanged(
         changeset: FileChangeset,
         statusSnapshot: GitWorkingTreeStatus
     ) async {
@@ -735,22 +668,56 @@ package actor GitWorkingDirectoryProjector {
         computeStart: ContinuousClock.Instant,
         scope: GitStatusScope,
         pathspecCount: Int
-    ) {
+    ) async {
         guard isCurrent(changeset) else { return }
         guard case .unavailable(let unavailable) = statusResult else { return }
 
         let statusCompletion = envelopeClock.now
+        let statusDuration = computeStart.duration(to: statusCompletion)
+        let statusOutcome: GitStatusOutcome
+        let consecutiveTimeoutCount: Int
+        if unavailable.reason == .timeout {
+            let previousTimeoutCount = consecutiveStatusTimeoutCountByWorktreeId[changeset.worktreeId] ?? 0
+            consecutiveTimeoutCount = min(
+                previousTimeoutCount + 1,
+                AppPolicies.GitRefresh.statusUnavailableConsecutiveTimeoutThreshold
+            )
+            consecutiveStatusTimeoutCountByWorktreeId[changeset.worktreeId] = consecutiveTimeoutCount
+            statusOutcome = .timeout
+        } else {
+            consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
+            consecutiveTimeoutCount = 0
+            statusOutcome = .unavailable
+        }
         performanceTraceRecorder?.recordDuration(
             .gitStatusUnavailable,
-            duration: computeStart.duration(to: envelopeClock.now),
+            duration: statusDuration,
             attributes: gitStatusCompletionTraceAttributes(
                 for: changeset,
                 unavailable: unavailable,
-                scope: scope,
-                pathspecCount: pathspecCount,
-                statusCompletion: statusCompletion
+                context: GitStatusCompletionTraceContext(
+                    scope: scope,
+                    pathspecCount: pathspecCount,
+                    statusCompletion: statusCompletion,
+                    outcome: statusOutcome,
+                    consecutiveTimeoutCount: consecutiveTimeoutCount,
+                    statusDuration: statusDuration
+                )
             )
         )
+        await emitGitWorkingDirectoryEvent(
+            worktreeId: changeset.worktreeId,
+            repoId: changeset.repoId,
+            event: .statusOutcome(
+                worktreeId: changeset.worktreeId,
+                repoId: changeset.repoId,
+                outcome: statusOutcome,
+                consecutiveTimeoutCount: consecutiveTimeoutCount
+            )
+        )
+        guard !Task.isCancelled, !isShuttingDown else { return }
+        guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }
+        guard isCurrent(changeset) else { return }
         admissionStartedAtByWorktreeId.removeValue(forKey: changeset.worktreeId)
         switch unavailable.reason {
         case .timeout:
@@ -820,7 +787,7 @@ package actor GitWorkingDirectoryProjector {
         return registeredContext == changesetContext
     }
 
-    private func shouldCheckOrigin(for changeset: FileChangeset) -> Bool {
+    func shouldCheckOrigin(for changeset: FileChangeset) -> Bool {
         if changeset.paths.isEmpty {
             return true
         }

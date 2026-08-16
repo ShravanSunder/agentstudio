@@ -43,10 +43,10 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             resource: ["service.name": "AgentStudio"],
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
-                "agentstudio.performance.repo_explorer.stage": .string("affected_row"),
+                "agentstudio.performance.repo_explorer.stage": .string("mainactor_apply"),
                 "agentstudio.performance.repo_explorer.key_class": .string("relevant"),
-                "agentstudio.performance.repo_explorer.outcome": .string("changed"),
-                "agentstudio.performance.repo_explorer.facet": .string("zoom"),
+                "agentstudio.performance.repo_explorer.outcome": .string("published"),
+                "agentstudio.performance.repo_explorer.facet": .string("unread"),
                 "agentstudio.performance.repo_explorer.row_relation": .string("owning"),
             ]
         )
@@ -172,6 +172,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.apply_governor.carried_over.count": .int(1),
                 "agentstudio.performance.apply_governor.mainactor_held_ms": .double(2),
                 "agentstudio.performance.apply_governor.max_single_fact_ms": .double(6),
+                "agentstudio.performance.apply_governor.queue_wait_ms": .double(4),
                 "agentstudio.performance.apply_governor.superseded.count": .int(9),
                 "agentstudio.performance.repo_explorer.command_resolution.count": .int(12),
                 "agentstudio.performance.repo_explorer.command_reused.count": .int(18),
@@ -191,6 +192,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio_performance_apply_governor_carried_over_count",
                 "agentstudio_performance_apply_governor_mainactor_held_ms",
                 "agentstudio_performance_apply_governor_max_single_fact_ms",
+                "agentstudio_performance_apply_governor_queue_wait_ms",
                 "agentstudio_performance_apply_governor_superseded_count",
                 "agentstudio_performance_repo_explorer_command_resolution_count",
                 "agentstudio_performance_repo_explorer_command_reused_count",
@@ -216,6 +218,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.performance.elapsed_ms": .double(15.5),
                 "agentstudio.performance.git.pending.count": .int(64),
                 "agentstudio.performance.git.running.count": .int(4),
+                "agentstudio.performance.git.status.last_outcome": .string("completed"),
                 "agentstudio.performance.git.has_git_internal_changes": .bool(true),
                 "agentstudio.performance.git.root_path": .string("/Users/private/repo"),
                 "agentstudio.trace.tag": .string("performance"),
@@ -227,7 +230,8 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(metricEvent.eventName == "performance.git.status")
         #expect(metricEvent.elapsedMilliseconds == 15.5)
         let expectedDimensions = [
-            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status")
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: "completed"),
         ]
         #expect(
             metricEvent.samples == [
@@ -266,6 +270,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             attributes: [
                 "agentstudio.performance.elapsed_ms": .double(21.5),
                 "agentstudio.performance.git.status_unavailable.reason": .string("timeout"),
+                "agentstudio.performance.git.status.last_outcome": .string("timeout"),
                 "agentstudio.trace.tag": .string("performance"),
             ]
         )
@@ -280,6 +285,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                     value: "performance.git.status_unavailable"
                 ),
                 AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: "timeout"),
+                AgentStudioOTLPPerformanceMetricDimension(name: "last_outcome", value: "timeout"),
             ])
         #expect(metricEvent.elapsedMilliseconds == 21.5)
     }

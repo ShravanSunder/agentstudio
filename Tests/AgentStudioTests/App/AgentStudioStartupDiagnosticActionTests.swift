@@ -60,6 +60,33 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(source.components(separatedBy: "\"membership_path\"").count >= 5)
     }
 
+    @Test("repo explorer diagnostic settlement always restores ordinary keyed-wake context")
+    func repoExplorerDiagnosticSettlementAlwaysRestoresOrdinaryKeyedWakeContext() throws {
+        let source = try String(
+            contentsOfFile:
+                "Sources/AgentStudio/App/Boot/AppDelegate+RepoExplorerKeyMutationStartupDiagnostics.swift",
+            encoding: .utf8
+        )
+
+        let contextInstall = try #require(
+            source.range(of: "setRepoExplorerKeyedWakeContext(keyClass: \"diagnostic_settle\")")
+        )
+        let contextRestore = try #require(
+            source.range(
+                of: "defer { AtomPerformanceTelemetry.shared.setRepoExplorerKeyedWakeContext(keyClass: nil) }",
+                range: contextInstall.upperBound..<source.endIndex
+            )
+        )
+        let firstSettlementGuard = try #require(
+            source.range(
+                of: "guard await waitForRepoExplorerProjectionReadiness",
+                range: contextInstall.upperBound..<source.endIndex
+            )
+        )
+
+        #expect(contextRestore.lowerBound < firstSettlementGuard.lowerBound)
+    }
+
     @MainActor
     @Test("sidebar performance fixture installs canonical repository membership and resets its owning tab title")
     func sidebarPerformanceFixtureInstallsCanonicalRepositoryMembershipAndPlaceholderTabTitle() throws {

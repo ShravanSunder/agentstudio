@@ -349,6 +349,7 @@ private final class TabBarProjectionTelemetry: Sendable {
         var paneCount: Int?
         var activeTabPresent: Bool?
         var affectedItemCount: Int?
+        var terminalMainActorStartedAt: ContinuousClock.Instant?
     }
 
     private struct State: Sendable {
@@ -402,16 +403,25 @@ private final class TabBarProjectionTelemetry: Sendable {
                 sourceTabCount: nil,
                 paneCount: nil,
                 activeTabPresent: nil,
-                affectedItemCount: nil
+                affectedItemCount: nil,
+                terminalMainActorStartedAt: nil
             )
             state.pendingInteractionStartedAt = nil
             state.admissionsBySequence[admission.sequence] = admission
             return admission
         }
+        let completedAt = clock.now
         recorder.recordDuration(
             .tabBarCapture,
-            duration: admission.captureStartedAt.duration(to: clock.now),
-            attributes: Self.attributes(for: admission)
+            duration: admission.captureStartedAt.duration(to: completedAt),
+            attributes: Self.attributes(for: admission).merging(
+                Self.mainActorTimingAttributes(
+                    interactionStartedAt: admission.interactionStartedAt,
+                    mainActorStartedAt: admission.captureStartedAt,
+                    mainActorCompletedAt: completedAt
+                ),
+                uniquingKeysWith: { _, timingValue in timingValue }
+            )
         )
     }
 
@@ -448,6 +458,7 @@ private final class TabBarProjectionTelemetry: Sendable {
     @MainActor
     func recordCompletion(_ completion: TabBarMaterializedProjection.ProjectionCompletion) {
         guard let recorder, recorder.isEnabled else { return }
+        let mainActorStartedAt = clock.now
         let sequence: UInt64
         let outcome: String
         let didPublish: Bool
@@ -474,12 +485,22 @@ private final class TabBarProjectionTelemetry: Sendable {
                 return nil
             }
             if didPublish {
+                var admission = admission
+                admission.terminalMainActorStartedAt = mainActorStartedAt
                 state.pendingPublicationAdmission = admission
+                return admission
             }
             return admission
         }
         guard let admission else { return }
-        recordTerminal(admission, outcome: outcome, recorder: recorder)
+        if !didPublish {
+            recordTerminal(
+                admission,
+                outcome: outcome,
+                mainActorStartedAt: mainActorStartedAt,
+                recorder: recorder
+            )
+        }
     }
 
     @MainActor
@@ -502,7 +523,8 @@ private final class TabBarProjectionTelemetry: Sendable {
                     count += item.panes.count
                 },
                 activeTabPresent: current.activeTabID != nil,
-                affectedItemCount: nil
+                affectedItemCount: nil,
+                terminalMainActorStartedAt: startedAt
             )
             state.nextCollectionSequence &+= 1
             state.pendingInteractionStartedAt = nil
@@ -510,12 +532,19 @@ private final class TabBarProjectionTelemetry: Sendable {
             return admission
         }
         guard let admission else { return }
+        let completedAt = clock.now
         recorder.recordDuration(
             .tabBarCapture,
-            duration: admission.captureStartedAt.duration(to: clock.now),
-            attributes: Self.attributes(for: admission)
+            duration: admission.captureStartedAt.duration(to: completedAt),
+            attributes: Self.attributes(for: admission).merging(
+                Self.mainActorTimingAttributes(
+                    interactionStartedAt: admission.interactionStartedAt,
+                    mainActorStartedAt: admission.captureStartedAt,
+                    mainActorCompletedAt: completedAt
+                ),
+                uniquingKeysWith: { _, timingValue in timingValue }
+            )
         )
-        recordTerminal(admission, outcome: "published", recorder: recorder)
     }
 
     @MainActor
@@ -542,20 +571,37 @@ private final class TabBarProjectionTelemetry: Sendable {
             return admission
         }
         guard let admission else { return }
+        let completedAt = clock.now
+        let timingAttributes = Self.mainActorTimingAttributes(
+            interactionStartedAt: admission.interactionStartedAt,
+            mainActorStartedAt: refreshStartedAt,
+            mainActorCompletedAt: completedAt
+        )
+        let attributes = Self.attributes(for: admission).merging(
+            timingAttributes,
+            uniquingKeysWith: { _, timingValue in timingValue }
+        )
         recorder.recordDuration(
             .tabBarRefresh,
-            duration: refreshStartedAt.duration(to: clock.now),
-            attributes: Self.attributes(for: admission)
+            duration: refreshStartedAt.duration(to: completedAt),
+            attributes: attributes
         )
         recorder.recordDuration(
             .tabBarCurrent,
-            duration: admission.interactionStartedAt.duration(to: clock.now),
-            attributes: Self.attributes(for: admission)
+            duration: admission.interactionStartedAt.duration(to: completedAt),
+            attributes: attributes
         )
         recorder.recordDuration(
             .tabBarPublication,
-            duration: refreshStartedAt.duration(to: clock.now),
-            attributes: Self.attributes(for: admission)
+            duration: refreshStartedAt.duration(to: completedAt),
+            attributes: attributes
+        )
+        recordTerminal(
+            admission,
+            outcome: "published",
+            mainActorStartedAt: admission.terminalMainActorStartedAt ?? refreshStartedAt,
+            completedAt: completedAt,
+            recorder: recorder
         )
     }
 
@@ -594,22 +640,53 @@ private final class TabBarProjectionTelemetry: Sendable {
             return admissions
         }
         for admission in unsettledAdmissions {
-            recordTerminal(admission, outcome: "cancelled", recorder: recorder)
+            recordTerminal(
+                admission,
+                outcome: "cancelled",
+                mainActorStartedAt: clock.now,
+                recorder: recorder
+            )
         }
     }
 
     private func recordTerminal(
         _ admission: Admission,
         outcome: String,
+        mainActorStartedAt: ContinuousClock.Instant,
+        completedAt: ContinuousClock.Instant? = nil,
         recorder: AgentStudioPerformanceTraceRecorder
     ) {
+        let completedAt = completedAt ?? clock.now
         var attributes = Self.attributes(for: admission)
         attributes["agentstudio.performance.tabbar.terminal.outcome"] = .string(outcome)
+        attributes.merge(
+            Self.mainActorTimingAttributes(
+                interactionStartedAt: admission.interactionStartedAt,
+                mainActorStartedAt: mainActorStartedAt,
+                mainActorCompletedAt: completedAt
+            ),
+            uniquingKeysWith: { _, timingValue in timingValue }
+        )
         recorder.recordDuration(
             .tabBarTerminal,
-            duration: admission.interactionStartedAt.duration(to: clock.now),
+            duration: admission.interactionStartedAt.duration(to: completedAt),
             attributes: attributes
         )
+    }
+
+    private static func mainActorTimingAttributes(
+        interactionStartedAt: ContinuousClock.Instant,
+        mainActorStartedAt: ContinuousClock.Instant,
+        mainActorCompletedAt: ContinuousClock.Instant
+    ) -> [String: AgentStudioTraceValue] {
+        [
+            "agentstudio.performance.tabbar.queue_wait_ms": .double(
+                AgentStudioPerformanceTraceRecorder.milliseconds(
+                    from: interactionStartedAt.duration(to: mainActorStartedAt))),
+            "agentstudio.performance.tabbar.mainactor_held_ms": .double(
+                AgentStudioPerformanceTraceRecorder.milliseconds(
+                    from: mainActorStartedAt.duration(to: mainActorCompletedAt))),
+        ]
     }
 
     private func admission(for sequence: UInt64) -> Admission? {

@@ -128,6 +128,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
         #expect(projection.attributes["agent.proof.marker"] == .string("perf-proof"))
         #expect(projection.attributes["agentstudio.trace.tag"] == .string("performance"))
         #expect(projection.attributes["agentstudio.performance.git.running.count"] == .int(4))
+        #expect(projection.attributes["agentstudio.performance.git.status.last_outcome"] == .string("timeout"))
+        #expect(projection.attributes["agentstudio.performance.git.status.consecutive_timeout.count"] == .int(2))
         #expect(projection.attributes["agentstudio.performance.git.status.duration_ms"] == .double(2.5))
         #expect(projection.attributes["agentstudio.performance.git.status.elapsed_ms"] == .double(2.7))
         #expect(projection.attributes["agentstudio.performance.git.status_unavailable.reason"] == .string("timeout"))
@@ -240,6 +242,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 "agentstudio.performance.tabbar.pane.count": .int(8),
                 "agentstudio.performance.tabbar.terminal.outcome": .string("published"),
                 "agentstudio.performance.tabbar.active_tab.present": .bool(true),
+                "agentstudio.performance.tabbar.queue_wait_ms": .double(12.5),
+                "agentstudio.performance.tabbar.mainactor_held_ms": .double(0.75),
                 "agentstudio.performance.trace_queue.dropped_record.count": .int(0),
                 "agentstudio.performance.trace_queue.high_watermark": .int(7),
                 "agentstudio.performance.tabbar.tab.id": .string("01987654-3210-7abc-8def-0123456789ab"),
@@ -274,6 +278,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
                 == .string("published")
         )
         #expect(projection.attributes["agentstudio.performance.tabbar.active_tab.present"] == .bool(true))
+        #expect(projection.attributes["agentstudio.performance.tabbar.queue_wait_ms"] == .double(12.5))
+        #expect(projection.attributes["agentstudio.performance.tabbar.mainactor_held_ms"] == .double(0.75))
         #expect(
             projection.attributes["agentstudio.performance.trace_queue.dropped_record.count"] == .int(0)
         )
@@ -365,6 +371,8 @@ struct AgentStudioOTLPPerformanceTraceProjectionTests {
             scope: .init(name: "agentstudio.performance", version: "0.1.0"),
             attributes: [
                 "agentstudio.performance.git.running.count": .int(4),
+                "agentstudio.performance.git.status.last_outcome": .string("timeout"),
+                "agentstudio.performance.git.status.consecutive_timeout.count": .int(2),
                 "agentstudio.performance.git.status.duration_ms": .double(2.5),
                 "agentstudio.performance.git.status.elapsed_ms": .double(2.7),
                 "agentstudio.performance.git.status_unavailable.reason": .string("timeout"),

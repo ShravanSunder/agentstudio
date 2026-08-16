@@ -128,12 +128,6 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.startup.source",
         "agentstudio.performance.startup.deferral.gate",
         "agentstudio.performance.startup.deferral.outcome",
-        "agentstudio.performance.repo_explorer.facet",
-        "agentstudio.performance.repo_explorer.key_class",
-        "agentstudio.performance.repo_explorer.outcome",
-        "agentstudio.performance.repo_explorer.row_relation",
-        "agentstudio.performance.repo_explorer.stage",
-        "agentstudio.performance.repo_explorer.outline_apply_proxy.outcome",
         "agentstudio.inbox.claim.lane", "agentstudio.inbox.claim.semantic",
         "agentstudio.inbox.decision", "agentstudio.inbox.kind",
         "agentstudio.inbox.reason",
@@ -145,6 +139,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.atom.operation",
         "agentstudio.performance.atom.outcome",
         "agentstudio.performance.git.backoff.reason",
+        "agentstudio.performance.git.status.last_outcome",
         "agentstudio.performance.git.status_scope",
         "agentstudio.performance.git.status_unavailable.reason",
         "agentstudio.performance.management_layer.command",
@@ -251,6 +246,7 @@ package enum AgentStudioOTLPTraceProjection {
         "terminal.activity.close_reason",
         "terminal.activity.source",
     ]).union(AgentStudioOTLPAttributionProjectionKeys.stringAttributeKeys)
+        .union(AgentStudioOTLPRepoExplorerTaxonomy.stringAttributeKeys)
         .union(BridgeProductStreamProjectionKeys.stringKeys)
         .union(BridgeProductPaintProjectionKeys.stringKeys)
     private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
@@ -433,6 +429,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.git.retry_pending.count",
         "agentstudio.performance.git.running.count",
         "agentstudio.performance.git.snapshot_dedup.count",
+        "agentstudio.performance.git.status.consecutive_timeout.count",
         "agentstudio.performance.git.status.duration_ms",
         "agentstudio.performance.git.status.elapsed_ms",
         "agentstudio.performance.git.suppressed_git_internal_path.count",
@@ -466,7 +463,12 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.pane_view_restore.visible_pane.count",
         "agentstudio.performance.repo_explorer.command_resolution.count",
         "agentstudio.performance.repo_explorer.command_reused.count",
-        "agentstudio.performance.repo_explorer.outline_apply_proxy.row.count",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.equal_publish.count",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_changed.count",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.rows_total.count",
+        "agentstudio.performance.repo_explorer.outline_apply_proxy.mainactor_held_ms",
+        "agentstudio.performance.repo_explorer.frame_sample.sequence",
+        "agentstudio.performance.repo_explorer.scroll_burst.sequence",
         "agentstudio.performance.repo_explorer.visible_set.count",
         "agentstudio.performance.repo_explorer.visible_set_delta.count",
         "agentstudio.performance.sidebar.collapsed_group.count",
@@ -484,6 +486,8 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.performance.sidebar.width",
         "agentstudio.performance.tabbar.pane.count",
         "agentstudio.performance.tabbar.affected_item.count",
+        "agentstudio.performance.tabbar.mainactor_held_ms",
+        "agentstudio.performance.tabbar.queue_wait_ms",
         "agentstudio.performance.tabbar.sequence",
         "agentstudio.performance.tabbar.source_tab.count",
         "agentstudio.performance.tabbar.tab.count",
@@ -686,6 +690,7 @@ package enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.refreshing.review",
         "agentstudio.bridge.row_mounted",
         "agentstudio.bridge.scroll.active",
+        "agentstudio.performance.repo_explorer.scroll_active",
         "agentstudio.bridge.selected",
         "agentstudio.bridge.telemetry.lossy",
         "agentstudio.bridge.telemetry.proof_eligible",
@@ -896,6 +901,9 @@ extension AgentStudioOTLPTraceProjection {
             return allowedValues.contains(value)
         }
         if let isAllowed = AgentStudioOTLPAttributionProjectionKeys.isAllowedValue(key: key, value: value) {
+            return isAllowed
+        }
+        if let isAllowed = AgentStudioOTLPRepoExplorerTaxonomy.isAllowedValue(key: key, value: value) {
             return isAllowed
         }
         switch key {

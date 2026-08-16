@@ -26,7 +26,7 @@ enum RepoCacheRepoEnrichmentProjection: Equatable, Sendable {
 
     init(enrichment: RepoEnrichment) {
         switch enrichment {
-        case .awaitingOrigin(let repoID):
+        case .awaitingOrigin(let repoID), .statusUnavailable(let repoID, _):
             self = .awaitingOrigin(repoID: repoID)
         case .resolvedLocal(let repoID, let identity, _):
             self = .resolvedLocal(repoID: repoID, identity: identity)
@@ -62,14 +62,15 @@ enum RepoCacheSavePreparer {
         previousProjection: RepoCachePersistedProjection?,
         force: Bool
     ) async -> PreparedRepoCacheSave {
+        let persistedRepoEnrichmentByRepoID = capture.repoEnrichmentByRepoID.mapValues(persistedEnrichment)
         let cacheState = WorkspaceLocalRepository.CacheStateRecord(
-            repoEnrichmentByRepoId: capture.repoEnrichmentByRepoID,
+            repoEnrichmentByRepoId: persistedRepoEnrichmentByRepoID,
             worktreeEnrichmentByWorktreeId: capture.worktreeEnrichmentByWorktreeID,
             sourceRevision: capture.sourceRevision,
             lastRebuiltAt: capture.lastRebuiltAt
         )
         let projection = RepoCachePersistedProjection(
-            repoEnrichmentByRepoID: capture.repoEnrichmentByRepoID.mapValues {
+            repoEnrichmentByRepoID: persistedRepoEnrichmentByRepoID.mapValues {
                 RepoCacheRepoEnrichmentProjection(enrichment: $0)
             },
             worktreeEnrichmentByWorktreeID: capture.worktreeEnrichmentByWorktreeID.mapValues {
@@ -83,6 +84,15 @@ enum RepoCacheSavePreparer {
             projection: projection,
             shouldPersist: force || projection != previousProjection
         )
+    }
+
+    private static func persistedEnrichment(_ enrichment: RepoEnrichment) -> RepoEnrichment {
+        switch enrichment {
+        case .statusUnavailable(let repoID, _):
+            return .awaitingOrigin(repoId: repoID)
+        case .awaitingOrigin, .resolvedLocal, .resolvedRemote:
+            return enrichment
+        }
     }
 }
 
