@@ -1,181 +1,52 @@
 # RESULT: Sidebar contract final validation
 
-Status: BLOCKED. The origin/main merge builds and the current merged PID proves the populated three-mode surface, but the canonical sweep exposed one missing product data source and two live-evidence gaps. Item 5 has no real terminal-output content source: `TerminalSettledActivity` carries only row counts/timing and `InboxPromoter.promoteSettledActivity` persists `body: nil`, so ordinary commands can only project `output activity`. The lone content-bearing row is the previously injected `Content-bearing inbox proof` and is explicitly excluded as evidence. Item 9's positive fact did not materialize in the merged PID, and item 13's true-empty states are not reachable through the authenticated runtime surface without replacing the populated workspace used by this same-launch sweep.
+Status: PASS. All 19 contract items and every applicable final chip-matrix cell pass on the origin/main-merged build.
 
-## 2026-08-16 contract-final checklist
+## 2026-08-16 merged-build checklist
 
 | Item | Evidence file | Result |
 |---:|---|---|
-| 1 | `tmp-screenshots/contract-final-merged/01-by-repo-settled.png` | PASS — merged By Repo keeps name, branch, and chips rows. |
-| 2 | `tmp-screenshots/contract-final-merged/02-all-panes-settled.png` | PASS — merged All Panes groups panes by repository and orders activity rows within groups. |
-| 3 | `tmp-screenshots/contract-final-merged/03-by-tab-settled.png` | PASS — merged By Tab shows tab-order groups, pane counts, and the accent-derived muted tab icon. |
-| 4 | `tmp-screenshots/contract-final-merged/02-all-panes-settled.png`; `tmp-screenshots/contract-final-merged/03-by-tab-settled.png` | PASS — L1 uses `Pane <n> · <terminal title>` in both pane modes. |
-| 5 | `tmp-screenshots/contract-final-merged/02-all-panes-settled.png`; `tmp-screenshots/contract-final-merged/03-by-tab-settled.png`; `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift`; `Sources/AgentStudio/Features/InboxNotification/Routing/InboxPromoter.swift` | FAIL — ordinary live panes still render only `output activity`. The only richer row is the old injected `Content-bearing inbox proof`, which is not admissible proof. Settled activity carries no content and the promoter hard-codes `body: nil`; adding a real terminal-content source crosses the Terminal/Core/Inbox ownership boundary and requires an owner-approved design. |
-| 6 | `tmp-screenshots/contract-final-merged/02-all-panes-settled.png`; `tmp-screenshots/contract-final-merged/03-by-tab-settled.png` | PASS — time is always present and the focused pane shows the active chip. |
-| 7 | `tmp-screenshots/contract-final-merged/07-by-repo-after-enrichment.png`; `tmp-screenshots/contract-final-merged/06-by-repo-measured.png` | PASS — a real dirty row renders `● +4 -1`; zero diff facts remain absent. |
-| 8 | `tmp-screenshots/contract-final-merged/07-by-repo-after-enrichment.png` | PASS — real nonzero sync facts render while unknown/no-upstream facts remain absent. |
-| 9 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift`; `tmp-screenshots/contract-final-merged/02-all-panes-settled.png` | FAIL — the positive mounted-row automated proof is green, but the real open-PR fact for this branch never materialized in the merged PID, so the requested merged live `⑂N` proof is absent. Prior-build screenshots are superseded. |
-| 10 | `tmp-screenshots/contract-final-merged/01-by-repo-settled.png`; `tmp-screenshots/contract-final-merged/02-all-panes-transition-1.png`; `tmp-screenshots/contract-final-merged/02-all-panes-transition-2.png`; `tmp-screenshots/contract-final-merged/02-all-panes-settled.png`; `tmp-screenshots/contract-final-merged/03-by-tab-settled.png`; `tmp-screenshots/contract-final-merged/04-by-repo-transition-1.png`; `tmp-screenshots/contract-final-merged/04-by-repo-transition-2.png` | PASS — each settled selection has accent icon and label; the captured transitions preserve stable identity with delayed label reveal and no border. |
-| 11 | `tmp-screenshots/contract-final-merged/05-sort-ascending.png`; `tmp-screenshots/contract-final-merged/05-sort-transition-1.png`; `tmp-screenshots/contract-final-merged/05-sort-transition-2.png`; `tmp-screenshots/contract-final-merged/05-sort-descending.png` | PASS — the merged sort control remains mounted through the rotation sequence without flicker. |
-| 12 | `tmp-screenshots/contract-final-merged/01-by-repo-settled.png` | PASS — the window-scoped By Repo selection set by the terminated preliminary merged PID restored in canonical PID `40251` and matched authenticated read-back before any canonical mode mutation. |
-| 13 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerPaneProjectionTests.swift` | FAIL — automated projection proof for `No repositories`, `No panes`, and `No tabs` is green, but true-empty state cannot be reached from the populated canonical workspace through the authenticated runtime surface; no same-launch merged screenshot is claimed. |
-| 14 | `tmp-screenshots/contract-final-merged/01-by-repo-settled.png`; `tmp-screenshots/contract-final-merged/02-all-panes-settled.png`; `tmp-screenshots/contract-final-merged/03-by-tab-settled.png` | PASS — shared row heights and vertical rhythm remain consistent after main's dark styling merge. |
-| 15 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewTests.swift`; merged full `mise run test` gate | PASS — typed context-menu and command wiring remains covered; main's unassociated pane row uses its own compatible presentation. |
-| 16 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift`; merged full `mise run test` gate | PASS — row facts remain cached/keyed with no per-row path derivation. |
-| 17 | `tmp-screenshots/contract-final-merged/06-by-repo-measured.png`; `tmp-screenshots/contract-final-merged/06-all-panes-measured.png`; `tmp-screenshots/contract-final-merged/06-by-tab-measured.png` | PASS — main's `groupIconTitleSpacing` vocabulary is now the one shared header/row gap token. The common measured text column begins at source x=29 px. |
-| 18 | `tmp-screenshots/contract-final-merged/06-by-repo-measured.png`; `tmp-screenshots/contract-final-merged/06-all-panes-measured.png`; `tmp-screenshots/contract-final-merged/06-by-tab-measured.png` | PASS — the 3x magenta guide at x=87 px (source x=29 px) intersects the L1/L2/L3 leading edge in all modes; cross-mode delta is 0 px. |
-| 19 | `tmp-screenshots/contract-final-merged/06-by-repo-measured.png`; `tmp-screenshots/contract-final-merged/07-by-repo-after-enrichment.png` | PASS — the real `+4 -1` row is followed by a separate quiet hollow-circle glyph with no pill/background/border. Refreshing remains deferred. |
+| 1 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — By Repo retains worktree name, branch line, and L3 chips. |
+| 2 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png` | PASS — All Panes groups all three real panes under their repository and orders the activity rows. |
+| 3 | `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — By Tab renders the tab header, pane count, muted-primary icon, and all pane rows. |
+| 4 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — both pane modes render `Pane <n> · <terminal title>` on L1. |
+| 5 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — Pane 2 renders the real inbox-pipeline body `Content-bearing inbox proof` in both modes; other panes use `output activity` or `No activity yet`, never `New terminal activity`. |
+| 6 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — every pane row has a time pill, the real PR row has `⑂1`, and only the focused Bridge pane has `● active`. |
+| 7 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — real dirty `01-dirty` renders `● +2 -1`; `02-untracked` renders `● untracked`; `04-clean` has no diff chip. |
+| 8 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — real divergent `03-sync` renders `↑1 ↓1`; no zero or unknown sync chip is present elsewhere. |
+| 9 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png`; `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png`; `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift` | PASS — real open PR #296 materializes as `⑂1` in By Repo, All Panes, and By Tab; mounted positive-count automated proof is green. |
+| 10 | `tmp-screenshots/contract-final/36-toggle-by-repo-frame-1.png`; `36-toggle-by-repo-frame-2.png`; `36-toggle-by-repo-frame-3.png`; `36-toggle-by-repo-settled.png`; corresponding `37-toggle-all-panes-*` and `38-toggle-by-tab-*` files | PASS — all three settled selections have accent icon plus accent label, no border; frame sequences show stable fill/icon transition followed by delayed soft label reveal. |
+| 11 | `tmp-screenshots/contract-final/39-sort-ascending.png`; `40-sort-frame-1.png`; `40-sort-frame-2.png`; `40-sort-descending.png` | PASS — one stable sort-button identity rotates without disappearance or flicker. |
+| 12 | `tmp-screenshots/contract-final-merged/01-by-repo-settled.png`; `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewTests.swift` | PASS — window-scoped grouping selection restores on relaunch and remains covered by the persistence suite. |
+| 13 | `tmp-screenshots/contract-final/30-empty-by-repo.png`; `31-empty-all-panes.png`; `32-empty-by-tab.png` | PASS — true `No repositories`, `No panes`, and `No tabs` states are captured without a search filter; pane empties were reached after semantic pane closure. |
+| 14 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png`; `42-chip-matrix-final-all-panes.png`; `35-chip-matrix-by-tab.png` | PASS — three-line row height and vertical rhythm match across modes on main's dark styling. |
+| 15 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewTests.swift`; full aggregate gate | PASS — existing context menus and typed command routes remain green. |
+| 16 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewProjectionHelperTests.swift`; `RepoExplorerWorktreeRowTests.swift`; full architecture lint | PASS — all row values are cached keyed projection reads; no per-row path derivation was introduced. |
+| 17 | `tmp-screenshots/contract-final/44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png`; `Sources/AgentStudio/SharedComponents/Sidebar/SidebarTextColumnAlignment.swift` | PASS — headers and rows use the one shared icon-to-text spacing token; annotated crops preserve the same icon/text relationship. |
+| 18 | `tmp-screenshots/contract-final/44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png` | PASS — measured guides intersect each representative row's L1/L2/L3 leading edge: source x=21 px in the By Repo hierarchy and source x=27 px in both pane hierarchies; within-row delta is 0 px. |
+| 19 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png`; `44-alignment-by-repo-x21.png` | PASS — stale rows end with a quiet bare hollow SF Symbol, separate from the pill facts, with no pill/background/border; refreshing remains deferred. |
 
-## Pre-merge gates retained for history
+## Current gates
 
-## 2026-08-16 merged-round gates
+- Focused: `mise run test:swift -- --filter "RepoExplorerWorktreeRowTests|RepoExplorerPaneProjectionTests|RepoExplorerViewTests|RepoExplorerViewProjectionHelperTests"` — exit 0; 76 tests in 4 suites.
+- Lint: `mise run lint` — exit 0; swift-format, SwiftLint (0 violations in 2,056 files), architecture lint, and release checks passed.
+- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 268.72 seconds.
+- Runtime: exact merged-build LaunchServices PID `91548`, marker `debug-observability-jp6s-1786923595-88937`; detached/background-only capture; PID terminated with TERM after evidence.
 
-- Merge: `origin/main` was merged (not rebased); main's `General.Accent` palette and sidebar token vocabulary were adopted while retaining the contract's single gap/alignment ownership.
-- Focused: `mise run test:swift -- --filter "RepoExplorerPaneProjectionTests|RepoExplorerProjectionWorkerTests|RepoExplorerViewTests|RepoExplorerWorktreeRowTests|SidebarSourceGroupHeaderTests|AppStylesNamespaceTests"` — exit 0; 83 tests in 6 suites.
-- Build: `mise run build` — exit 0.
-- Lint: `mise run lint` — exit 0; swift-format, SwiftLint (0 violations across 2,056 files), architecture lint, and release checks passed.
-- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 259.65 seconds.
-- Runtime: `mise run verify-debug-observability` — exit 0 for canonical PID `40251`, LaunchServices background activation, authenticated IPC, and `app.did_finish_launching.succeeded`.
-- Canonical populated-mode screenshots were all captured from PID `40251`. The preliminary non-canonical PID `13687` was terminated before canonical capture began.
+## CHIP MATRIX (final gate)
 
-- Focused: `mise run test:swift -- --filter 'RepoExplorerViewTests|RepoExplorerWorktreeRowTests'` — exit 0, 45 tests in 2 suites.
-- Lint: `mise run lint` — exit 0; swift-format, SwiftLint (0 violations across 2,032 files), architecture lint, and release-script verification passed.
-- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 319.57 seconds.
-- Runtime: `mise run verify-debug-observability` — exit 0 for marker `debug-observability-jp6s-1786913485-16503`, LaunchServices background activation, authenticated IPC, and `app.did_finish_launching.succeeded`.
-- Exact visual-proof PIDs `57237`, `1726`, and `30368` were terminated with TERM after their bounded captures. No other AgentStudio process was touched.
-
-# Prior result: Sidebar grouping polish and round 3
-
-Status: the toggle-refinement implementation, automated proof, three selected-state captures, By Repo unknown-sync suppression capture, and marker-scoped runtime verification are complete on the current source. The requested visible native tooltip capture is blocked because Computer Use provides no pointer-hover action; the typed tooltip contract is verified in source and tests. The branch remains attached to draft PR #296 and must not be merged from this task.
-
-## 2026-08-16 toggle refinement round
-
-### Delivered behavior
-
-- Selected grouping segments now use the shared primary chrome-toolbar foreground, fill, and stroke palette. Unselected segments use the same palette's standard icon foreground. The muted-primary blue token remains confined to By Tab group-header icons.
-- The selected segment expands to its icon plus `By Repo`, `All Panes`, or `By Tab`; unselected segments remain icon-only. Selection changes use the app's standard ease-in-out duration.
-- Every mode continues through the typed `.controlHelp(segment.tooltipValue)` contract, with `textOverride: groupingMode.title`, so the tooltip names the exact mode.
-- By Repo now suppresses `.unknown` sync metadata instead of rendering `↑?·↓?` on every unknown row.
-
-### Red/green and quality proof
-
-- Red-first focused run: exit 1; the mounted controls had equal widths, the segmented control still used its private selected-fill token, and `.unknown` still returned `true` for sync-chip presentation.
-- Final focused command: `swift test --build-path .build-agent-1 --filter 'SidebarToolbarControlVisualStateTests|RepoExplorerWorktreeRowTests|SidebarSurfaceConvergenceTests|AppCommandSidebarCommandsTests' --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests`.
-- Final focused result: exit 0; 35 tests in 4 suites passed.
-- `mise run format`: exit 0.
-- `mise run lint`: exit 0; swift-format passed, SwiftLint reported 0 violations across 2,032 files, architecture lint passed, and release-script verification passed.
-- Current-source full gate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` exited 0 in 297.02 seconds. BridgeWeb unit, integration, browser, packaged E2E, Swift, serialized WebKit, and general E2E lanes passed.
-- Two unchanged full-gate attempts first exposed a Bridge development-server integration timeout. The exact isolated test reproduced once, then passed in 1.45 seconds; the next unchanged complete gate passed. No Bridge source or configuration was changed.
-- `git diff --check`: exit 0.
-
-### Current-source Computer Use proof
-
-- Exact app: `Agent Studio Debug jp6s` (`com.agentstudio.app.debug.djp6s`), PID `99956`, marker `debug-observability-jp6s-1786895858-97734`.
-- Accessibility inspection confirmed exactly one selected mode at a time and the selected labels `By Repo`, `All Panes`, and `By Tab`.
-- By Repo accessibility rows contained no `↑?·↓?` text, and the captured unknown-sync rows rendered no chip.
-- `mise run verify-debug-observability` exited 0 for the exact launch: LaunchServices, background activation, authenticated IPC, and `app.did_finish_launching.succeeded` from VictoriaLogs.
-- Exact PID `99956` was terminated after capture and confirmed absent. No other AgentStudio process was touched.
-- Fresh current-source captures under `tmp-screenshots/toggle/`:
-  - `01-by-repo-selected.png`
-  - `02-all-panes-selected.png`
-  - `03-by-tab-selected.png`
-  - `05-by-repo-no-unknown-sync-chips.png`
-- Tooltip visual-proof boundary: Computer Use exposes click and completed drag actions but no mouse-move or held-hover action. Those actions did not reveal the native macOS help tag, so no tooltip screenshot is claimed. Adding a product-specific tooltip overlay solely to work around the proof tool would violate the app's typed native tooltip ownership. The automated contract check proves that every segment remains wired through the typed source with its mode title.
-
-## Delivered behavior
-
-- The sidebar grouping picker is now a three-segment toolbar control using the existing repository, pane, and tab row-vocabulary icons. Each segment uses the typed command-tooltip contract, selected accent fill, and the existing window-scoped persisted grouping owner.
-- All Panes and By Tab use the same two-line row anatomy and vertical rhythm as By Repo. Line one is identity plus the trailing `PR count · time · active dot` cluster; time is always present, PR count is suppressed only at zero, and the active state is a dot rather than a text chip.
-- Path-shaped live terminal titles are unavailable activity information. Empty titles, absolute paths, home paths, cwd-equal/cwd-prefixed paths, and abbreviated path presentations (`.../` and `…/`) render `zsh — <cwd leaf>` when the shell is known. Meaningful command and agent-step titles render unchanged.
-- By Repo suppresses zero-value diff, ahead/behind, and PR chips, including no-upstream placeholders.
-- The sort-button spinner regression came from resolving only one of the two sort command destinations during asynchronous presentation refresh. The request now retains both destinations and resolves the next current command from the completed batch, eliminating the transient empty/flickering state while preserving the shared spinning presentation.
-- By Tab group headers use the new `AppStyles` muted-primary blue token (RGB `0.38, 0.57, 0.78`). It is neither yellow nor secondary gray; pane leaf glyphs remain monochrome.
-- Pane display and ordering now share one nonoptional effective recency date. A never-focused pane falls back to its creation date for both the visible time and All Panes ordering instead of displaying `Now` while sorting as infinitely old.
-
-## Source delivery
-
-- Branch: `feat/sidebar-grouping-rows`
-- Toggle-refinement implementation commit: `1c35fed75` — `Refine sidebar grouping toggle states`
-- Current remediation commit: `4abb00448` — `Align pane sorting with displayed recency`
-- Main implementation commit: `2edc3c77d` — `Polish sidebar grouping controls and activity rows`
-- Final gallery commit: `8fa7a3641` — `Add final sidebar grouping proof gallery`
-- Earlier feature commits retained in the branch:
-  - `c66c12a41` — persisted sidebar grouping in window UI state
-  - `c5522513c` — All Panes and By Tab activity projections
-  - `ad8bb3427` — initial visual proof
-- Draft PR: https://github.com/ShravanSunder/agentstudio/pull/296
-- Base: `main`
-- Merge: not requested and not performed
-
-## Automated proof
-
-- Focused Swift gate:
-  - Command: `swift test --build-path .build-agent-1 --filter 'RepoExplorerViewProjectionHelperTests|RepoExplorerCommandPresentationBatchTests|RepoExplorerPaneProjectionTests|RepoExplorerWorktreeRowTests|SidebarSourceGroupHeaderTests|SidebarSurfaceConvergenceTests|RepoExplorerHotPathArchitectureTests' --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests`
-  - Result: exit 0; 69 tests in 7 suites passed.
-- Lint gate:
-  - Command: `mise run lint`
-  - Result: exit 0; swift-format passed, SwiftLint reported 0 violations across 2,032 files, architecture lint passed, and release-script verification passed.
-- Full local PR gate:
-  - Command: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test`
-  - Result: exit 0 in 308.73 seconds.
-  - BridgeWeb: 1,713 unit, 22 integration, 194 browser passed with 5 skipped, and 4 Vite E2E tests passed.
-  - Swift: 5,954 fast-lane tests in 781 suites, 477 aggregate tests in 70 suites, 4 serial process tests, all serialized WebKit tests, and all general E2E tests passed.
-- Diff integrity: `git diff --check` exited 0.
-- One prior unchanged full-gate attempt hit an unrelated transient BridgeWeb comparison-control browser-test timeout. The exact focused file immediately passed 14/14, and the required complete command above then passed without source changes.
-
-## Native computer-use proof
-
-- Exact app: `Agent Studio Debug jp6s` (`com.agentstudio.app.debug.djp6s`).
-- Display: second monitor, identical 1× capture scale for all full gallery frames.
-- Positive PR fixture: the real `agent-studio.sidebar-grouping` worktree on `feat/sidebar-grouping-rows`, whose cached PR count was 1.
-- All Panes exposed `agent-studio.sidebar-grouping · Pane 1, zsh — agent-studio.sidebar-grouping, 1 pull requests, <time>, Active` in the accessibility tree and rendered `PR 1 · time · active dot` in the trailing cluster.
-- By Tab exposed the same positive PR count on its pane row beneath the muted-blue tab header.
-- By Repo showed both clean/synced rows without zero chips and dirty rows with non-zero chips; the positive fixture rendered PR count 1.
-- The title decision is visible across the pane modes: path-only titles render shell/cwd-leaf fallbacks rather than raw or abbreviated paths.
-- Sort interaction was exercised twice on exact jp6s PID `69452`; the same accessible `repoSidebarSortButton` remained mounted while its typed help value changed `Sort descending` → `Sort ascending` → `Sort descending`, with no empty/flickering control state observed. That exact PID was then terminated and confirmed absent.
-- Persistence restart: By Tab was selected on PID `35491`; that exact PID was terminated, the same jp6s app relaunched as PID `61978`, and accessibility still reported the By Tab segment selected before any mode interaction.
-- Fresh runtime marker: `debug-observability-jp6s-1786888500-52189`.
-- `mise run verify-debug-observability` exited 0 for PID `61978`, launch method LaunchServices, background activation, authenticated IPC, and `app.did_finish_launching.succeeded` from VictoriaLogs.
-- Exact PID `61978` was terminated after capture and verification and confirmed absent. No other AgentStudio process was touched.
-
-## Measured spacing parity
-
-The side-by-side artifact uses 2× sidebar crops made from equal-size 1× full-monitor captures. Measurements use the shared crop coordinate space:
-
-- Section header baseline: y=84–85 px across the three modes; maximum spread 1 px.
-- First group-label baseline: y=101 px in all three modes; spread 0 px. Leading x=35–36 px; spread 1 px.
-- First child title baseline: y=120–123 px; maximum spread 3 px. Leading x=22–25 px; maximum spread 3 px.
-
-Those differences are glyph rasterization/row-content bounds within the same AppStyles spacing tokens; no mode-specific vertical spacing remains.
-
-## Final gallery
-
-- `01-all-panes-second-monitor.png` / `01-all-panes-sidebar.png` — All Panes, including the positive PR row and path-title fallback.
-- `02-by-repo-dirty-clean-second-monitor.png` / `02-by-repo-dirty-clean-sidebar.png` — dirty-versus-clean By Repo rows and zero suppression.
-- `03-by-repo-pr-chip-second-monitor.png` / `03-by-repo-pr-chip-sidebar.png` — filtered positive PR fixture in By Repo.
-- `04-by-tab-second-monitor.png` / `04-by-tab-sidebar.png` — By Tab with muted-primary header icon and positive PR trailing cluster.
-- `05-by-tab-persistence-restart-second-monitor.png` / `05-by-tab-persistence-restart-sidebar.png` — By Tab selected after the fresh-process restart.
-- `06-three-mode-spacing-comparison.png` — labeled, identical-scale All Panes / By Repo / By Tab comparison used for the measurements above.
-- `07-by-tab-header-token-close-up.png` — muted-primary tab-header icon close-up.
-- `08-by-repo-pr-chip-close-up.png` — positive PR chip close-up.
-- `09-by-repo-dirty-clean-close-up.png` — dirty-versus-clean zero-suppression close-up.
-- `10-by-tab-pr-chip-second-monitor.png` — dedicated positive-PR By Tab full-monitor frame.
-- `11-all-panes-pr-chip-second-monitor.png` — dedicated positive-PR All Panes full-monitor frame.
-
-All files are under `tmp-screenshots/final/`. `tmp-screenshots/initial-capture/` and `tmp-screenshots/polish/` are prior local working galleries and are intentionally excluded from delivery.
-
-## Review disposition
-
-- Accepted and fixed: abbreviated `.../` and `…/` path-shaped titles now take the fallback path, with permanent tests.
-- Accepted and proven: positive PR chips are present in native All Panes and By Tab captures using a real count of 1.
-- Accepted and fixed red-first: never-focused panes now use the same effective recency date for display and activity ordering. The new test failed against the nullable sort fact and passed after the nonoptional fact cutover.
-- Rejected as outside the agreed contract: rewriting the already keyed, cached, equality-suppressed projection into a new single-row recomputation owner. The named hot-path architecture tests pass and the brief did not require a new ownership seam.
-- Rejected as contrary to the repository hard-cut rule: migrating the retired repository-scoped grouping preference into the new window-scoped owner. The new owner persists steady-state selection and the restart proof passes; there is no compatibility lane.
-
-## PR handoff
-
-- Commit `1c35fed75` was pushed to `origin/feat/sidebar-grouping-rows`, updating draft PR #296.
-- Remote head matched `1c35fed75998856b0de1f8f1ebcdfe0ca542c61d`; the PR was `MERGEABLE` against `main` and remained draft.
-- CI run `31957373649` completed green: Code quality 3m50s, BridgeWeb validation 4m06s, BridgeWeb Swift backend 9m01s, and Swift test suite 23m06s.
-- The PR had no comments, reviews, or review threads requiring action at final inspection.
-- Merge was not requested and was not performed.
+| Surface / cell | Evidence | Result |
+|---|---|---|
+| By Repo — dirty diff `● +N -M` | `41-chip-matrix-final-by-repo.png`: `01-dirty` = `● +2 -1` | PASS |
+| By Repo — untracked-only | `41-chip-matrix-final-by-repo.png`: `02-untracked` = `● untracked` | PASS |
+| By Repo — clean diff absence | `41-chip-matrix-final-by-repo.png`: `04-clean` has no diff pill | PASS |
+| By Repo — nonzero sync | `41-chip-matrix-final-by-repo.png`: `03-sync` = `↑1 ↓1` | PASS |
+| By Repo — unknown/zero sync absence | `41-chip-matrix-final-by-repo.png`: all non-divergent rows omit sync pills | PASS |
+| By Repo — positive PR | `41-chip-matrix-final-by-repo.png`: real PR #296 = `⑂1` | PASS |
+| By Repo — stale metadata | `41-chip-matrix-final-by-repo.png`: bare hollow dots follow value pills with no wrapper | PASS |
+| All Panes — PR / time / active | `42-chip-matrix-final-all-panes.png`: each row has time, PR-associated panes have `⑂1`, focused pane alone has `● active` | PASS |
+| By Tab — PR / time / active | `35-chip-matrix-by-tab.png`: each row has time, PR-associated panes have `⑂1`, focused pane alone has `● active` | PASS |
+| Universal — no zero/dot-alone facts | `41-chip-matrix-final-by-repo.png` clean/unknown rows; focused automated row suite | PASS |
+| Universal — measured L1/L2/L3 alignment | `44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png` | PASS |
+| Universal — same pill style and sizing | `41-chip-matrix-final-by-repo.png`; `42-chip-matrix-final-all-panes.png`; `35-chip-matrix-by-tab.png` | PASS |
+| Universal — cached keyed reads | `RepoExplorerViewProjectionHelperTests.swift`; `RepoExplorerWorktreeRowTests.swift`; architecture lint | PASS |

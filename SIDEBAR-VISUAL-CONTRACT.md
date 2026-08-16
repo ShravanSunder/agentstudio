@@ -50,3 +50,41 @@ EXIT: screenshot proof per item, all 16 in ONE build.
    symbolEffect; it must still have no chip, background, or border. Until
    then the glyph is static. Do not infer refresh state locally or add
    runtime plumbing under this contract.
+
+CHIP MATRIX (final gate)
+
+Rows are surfaces; columns are chips.
+
+By Repo worktree row chips line:
+- diff: dirty = `● +N -M` with real counts; untracked-only = `● untracked`;
+  clean = NONE.
+- sync: `↑N ↓M` only if either value is greater than zero; unknown = NONE.
+- PR: `⑂N` whenever N > 0; NEVER absent when PRs exist.
+- stale: bare hollow-dot glyph with NO pill, only when `prCount == nil`.
+
+All Panes pane row L3 chips line:
+- PR `⑂N` if the worktree has N > 0.
+- time pill ALWAYS.
+- `●` active only if focused.
+
+By Tab pane row L3 chips line:
+- PR `⑂N` if the worktree has N > 0.
+- time pill ALWAYS.
+- `●` active only if focused.
+
+Universal chip rules:
+- Never a zero-value chip (`+0 -0`, `↑0 ↓0`, `⑂0`) and never a dot-alone
+  diff chip.
+- Left-aligned; chips-line leading x equals L1/L2 text leading x (item 18,
+  measured).
+- Same pill style and sizing everywhere (By Repo parity).
+- All values come from cached keyed reads; no per-row derivation.
+
+Evidence requirement:
+- The final sweep includes at least one screenshot per surface where EACH
+  applicable chip type is visibly present with a real nonzero value, using
+  repos with real PRs, dirty trees, or unpushed commits to produce the facts.
+- The final sweep includes one clean row proving absence.
+- The validation table annotates which matrix cell each screenshot proves.
+- This matrix is the LAST gate checked before reporting. Any unevidenced cell
+  fails the round.
