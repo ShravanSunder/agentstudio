@@ -11,7 +11,7 @@ extension GitWorkingDirectoryProjector {
     ) async {
         let statusCompletion = envelopeClock.now
         let statusDuration = computeStart.duration(to: statusCompletion)
-        consecutiveStatusTimeoutCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
+        consecutiveStatusFailureCountByWorktreeId.removeValue(forKey: changeset.worktreeId)
         performanceTraceRecorder?.recordDuration(
             .gitStatusComputed,
             duration: statusDuration,
@@ -23,7 +23,7 @@ extension GitWorkingDirectoryProjector {
                     pathspecCount: pathspecCount,
                     statusCompletion: statusCompletion,
                     outcome: .completed,
-                    consecutiveTimeoutCount: 0,
+                    consecutiveFailureCount: 0,
                     statusDuration: statusDuration
                 )
             )
@@ -32,11 +32,13 @@ extension GitWorkingDirectoryProjector {
             worktreeId: changeset.worktreeId,
             repoId: changeset.repoId,
             event: .statusOutcome(
-                worktreeId: changeset.worktreeId,
-                repoId: changeset.repoId,
-                outcome: .completed,
-                consecutiveTimeoutCount: 0
-            )
+                GitStatusOutcomeFact(
+                    worktreeId: changeset.worktreeId,
+                    repoId: changeset.repoId,
+                    outcome: .completed,
+                    reason: nil,
+                    consecutiveFailureCount: 0
+                ))
         )
         guard !Task.isCancelled, !isShuttingDown else { return }
         guard !suppressedWorktreeIds.contains(changeset.worktreeId) else { return }

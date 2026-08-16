@@ -19,9 +19,13 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     private let filesystemActor: FilesystemActor
     private let gitWorkingDirectoryProjector: GitWorkingDirectoryProjector
     private let forgeActor: ForgeActor
+    private let registrationValidator: GitWorktreeRegistrationValidator
 
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
+        registrationDiscoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
+            RepoScannerGitDiscoveryClient(),
+        registrationValidationDelay: AsyncDelay = .taskSleep,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
@@ -49,6 +53,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             refreshPolicy: gitRefreshPolicy,
             performanceTraceRecorder: performanceTraceRecorder,
             pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
+        )
+        self.registrationValidator = GitWorktreeRegistrationValidator(
+            discoveryProvider: registrationDiscoveryProvider,
+            delay: registrationValidationDelay
         )
         self.forgeActor = ForgeActor(
             bus: bus,
@@ -87,19 +95,51 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         // Ensure projector subscription is active before lifecycle facts are posted.
         await startGitProjector()
         await startForgeActor()
+        let context = WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
+        switch await registrationValidator.registrationDecision(worktreeId: worktreeId, context: context) {
+        case .validated:
+            break
+        case .authoritativeNegative:
+            await forgeActor.unregister(worktreeId: worktreeId)
+            await filesystemActor.unregister(worktreeId: worktreeId)
+            return
+        case .uncertain:
+            return
+        }
         await forgeActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         await filesystemActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
     }
 
     func unregister(worktreeId: UUID) async {
+        await registrationValidator.removeAcceptedContext(worktreeId: worktreeId)
         await forgeActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
         await startGitProjector()
-        await filesystemActor.assertTopology(assertion)
-        await gitWorkingDirectoryProjector.assertTopology(assertion)
+        await registrationValidator.retainAcceptedContexts(
+            worktreeIds: Set(assertion.contextsByWorktreeId.keys)
+        )
+        var validatedContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
+        for (worktreeId, context) in assertion.contextsByWorktreeId {
+            switch await registrationValidator.registrationDecision(worktreeId: worktreeId, context: context) {
+            case .validated:
+                validatedContextsByWorktreeId[worktreeId] = context
+            case .authoritativeNegative:
+                continue
+            case .uncertain(let previouslyAcceptedContext):
+                if let previouslyAcceptedContext {
+                    validatedContextsByWorktreeId[worktreeId] = previouslyAcceptedContext
+                }
+            }
+        }
+        let validatedAssertion = FilesystemTopologyAssertion(
+            generation: assertion.generation,
+            contextsByWorktreeId: validatedContextsByWorktreeId
+        )
+        await filesystemActor.assertTopology(validatedAssertion)
+        await gitWorkingDirectoryProjector.assertTopology(validatedAssertion)
     }
 
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async {
@@ -153,5 +193,60 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         case .updateWatchedFolders(let watchedPaths):
             _ = await filesystemActor.refreshWatchedFolders(watchedPaths)
         }
+    }
+}
+
+enum GitWorktreeRegistrationDecision: Sendable, Equatable {
+    case validated
+    case authoritativeNegative
+    case uncertain(previouslyAcceptedContext: WorktreeFilesystemContext?)
+}
+
+actor GitWorktreeRegistrationValidator {
+    private let discoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider
+    private let delay: AsyncDelay
+    private var acceptedContextByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
+
+    init(
+        discoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
+            RepoScannerGitDiscoveryClient(),
+        delay: AsyncDelay = .taskSleep
+    ) {
+        self.discoveryProvider = discoveryProvider
+        self.delay = delay
+    }
+
+    func registrationDecision(
+        worktreeId: UUID,
+        context: WorktreeFilesystemContext
+    ) async -> GitWorktreeRegistrationDecision {
+        for attempt in 1...AppPolicies.GitRefresh.registrationValidationMaximumAttempts {
+            switch await discoveryProvider.discoveryOutcome(for: context.rootPath) {
+            case .validated:
+                acceptedContextByWorktreeId[worktreeId] = context
+                return .validated
+            case .authoritativeNegative:
+                acceptedContextByWorktreeId.removeValue(forKey: worktreeId)
+                return .authoritativeNegative
+            case .timeout, .cancelled, .failure:
+                guard attempt < AppPolicies.GitRefresh.registrationValidationMaximumAttempts else {
+                    return .uncertain(previouslyAcceptedContext: acceptedContextByWorktreeId[worktreeId])
+                }
+                do {
+                    try await delay.wait(AppPolicies.GitRefresh.registrationValidationRetryDelay)
+                } catch {
+                    return .uncertain(previouslyAcceptedContext: acceptedContextByWorktreeId[worktreeId])
+                }
+            }
+        }
+        return .uncertain(previouslyAcceptedContext: acceptedContextByWorktreeId[worktreeId])
+    }
+
+    func removeAcceptedContext(worktreeId: UUID) {
+        acceptedContextByWorktreeId.removeValue(forKey: worktreeId)
+    }
+
+    func retainAcceptedContexts(worktreeIds: Set<UUID>) {
+        acceptedContextByWorktreeId = acceptedContextByWorktreeId.filter { worktreeIds.contains($0.key) }
     }
 }

@@ -2,11 +2,10 @@ import AgentStudioInfrastructure
 import Foundation
 
 /// Status-compute backoff (circuit breaker): a worktree whose git status
-/// repeatedly times out is refreshed on an exponential schedule instead of
+/// fails is refreshed on an exponential schedule instead of
 /// per file-change event; change events arriving during backoff coalesce
 /// into one deferred refresh at expiry. Split from the projector actor body
-/// to keep it under the type/file length caps. Read-capacity contention uses
-/// the separate short retry path below; it is not a breaker input.
+/// to keep it under the type/file length caps.
 extension GitWorkingDirectoryProjector {
     func deferChangesetIfStatusBackoffOpen(_ changeset: FileChangeset) -> Bool {
         guard openStatusBackoffWorktreeIds.contains(changeset.worktreeId) else { return false }
@@ -24,7 +23,7 @@ extension GitWorkingDirectoryProjector {
     }
 
     /// Opens (or advances) the per-worktree circuit breaker after a status
-    /// compute times out. Quiesces the worktree by moving any in-flight/pending
+    /// compute fails. Quiesces the worktree by moving any in-flight/pending
     /// refresh into a single deferred changeset, then schedules an exponentially
     /// growing expiry.
     func openOrAdvanceStatusBackoff(
