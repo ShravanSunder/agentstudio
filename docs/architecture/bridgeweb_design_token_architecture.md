@@ -48,6 +48,15 @@ derive from canonical roles and primitives. Inline comments use the `--comment-*
 Translucent system and context colors use `color-mix(in srgb, ...)` over a named primitive or
 role at the exact designed alpha.
 
+### Primary tonal ladder
+
+The primary role has exactly three sanctioned rungs: solid (`bg-primary` with
+`text-primary-foreground`), tint (`bg-primary/15`), and text (`text-primary`). This maps
+Material 3's primary / container / on-container names approximately to solid / tint / text.
+React consumers use the opacity modifier, token CSS uses `color-mix` over the role, and Pierre
+contract blocks pre-compose the finished value. Do not add a `--primary-tint` token, use raw
+`rgba`, or invent another primary alpha.
+
 ## Cutover state
 
 S1 establishes the palette and roles while keeping every existing `--bridge-*` definition as

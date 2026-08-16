@@ -137,6 +137,7 @@
 	--popover: var(--card);
 	/* Primary text on popovers. */
 	--popover-foreground: var(--palette-text-primary);
+	/* Primary has exactly three tonal rungs: solid, 15% tint, and text. */
 	/* Brand accent for actions and active identity. */
 	--primary: var(--palette-blue);
 	/* Dark text on the brand accent. */
@@ -225,7 +226,7 @@
 	--bridge-text-secondary: var(--muted-foreground);
 	--bridge-text-muted: var(--faint-foreground);
 	--bridge-accent: var(--primary);
-	--bridge-accent-soft: color-mix(in srgb, var(--primary) 16%, transparent);
+	--bridge-accent-soft: color-mix(in srgb, var(--primary) 15%, transparent);
 	--bridge-focus-border: var(--ring);
 	--bridge-focus-ring: var(--focus-ring);
 	--bridge-focus-dot-shadow: var(--shadow-focus-dot);

@@ -24,7 +24,7 @@ the input stroke normalizes from white at 18% to `--palette-stroke-hover` at 20%
 | `--bridge-text-secondary` | `var(--muted-foreground)` | none |
 | `--bridge-text-muted` | `var(--faint-foreground)` | none |
 | `--bridge-accent` | `var(--primary)` | none |
-| `--bridge-accent-soft` | `color-mix(in srgb, var(--primary) 16%, transparent)` | none |
+| `--bridge-accent-soft` | `color-mix(in srgb, var(--primary) 15%, transparent)` | `enumerated: imperceptible primary tint alpha 0.16 to 0.15` |
 | `--bridge-focus-border` | `var(--ring)` | none |
 | `--bridge-focus-ring` | `var(--focus-ring)` | none |
 | `--bridge-focus-dot-shadow` | `var(--shadow-focus-dot)` | none |

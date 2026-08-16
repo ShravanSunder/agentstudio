@@ -430,6 +430,12 @@ by convention with native `AppStyles.swift`; read
 [BridgeWeb Design-Token Architecture](docs/architecture/bridgeweb_design_token_architecture.md)
 before changing either side. Feature code uses canonical roles or contexts: do
 not add raw color literals, new `--bridge-*` references, or `dark:` variants.
+The primary role has exactly three sanctioned tonal rungs: solid
+(`bg-primary` + `text-primary-foreground`), tint (`bg-primary/15`), and text
+(`text-primary`). In React, use the opacity modifier; in token CSS, use
+`color-mix` over the role; in Pierre contract blocks, pre-compose the finished
+value. Never use raw `rgba`, invent a `--primary-tint` token, or introduce other
+primary alphas.
 Interactive-control geometry belongs in `BridgeWeb/src/components/ui/`, not in
 route-local CSS or utility strings. Before adding a control, reuse an owned
 primitive or add the missing shadcn source there, adapt it to the canonical
