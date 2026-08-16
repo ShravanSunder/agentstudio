@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AppKit
 import SwiftUI
 import Testing
 
@@ -42,6 +43,36 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: dirtyAheadWithPullRequests))
         #expect(RepoExplorerWorktreeRowContent.shouldShowSyncChip(branchStatus: dirtyAheadWithPullRequests))
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: dirtyAheadWithPullRequests))
+    }
+
+    @Test("mounted By Repo row renders a positive pull request chip")
+    func mountedByRepoRowRendersPositivePullRequestChip() async {
+        let hostingView = NSHostingView(
+            rootView: RepoExplorerWorktreeRowContent(
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                checkoutTitle: "agent-studio",
+                branchName: "feat/sidebar-grouping-rows",
+                placementText: "",
+                checkoutIconKind: .gitWorktree,
+                iconColor: .accentColor,
+                branchStatus: GitBranchStatus(
+                    isDirty: false,
+                    syncState: .synced,
+                    prCount: 3,
+                    linesAdded: 0,
+                    linesDeleted: 0,
+                    untrackedFileCount: 0
+                ),
+                unreadCount: 0,
+                showsFavoriteControl: false
+            )
+            .frame(width: 320)
+        )
+        hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
+        hostingView.layoutSubtreeIfNeeded()
+        await Task.yield()
+
+        #expect(accessibilityLabels(in: hostingView).contains("3"))
     }
 
     @Test("diff chip always carries a label and never renders +0 -0")
@@ -105,6 +136,11 @@ struct RepoExplorerWorktreeRowTests {
             #expect(!source.contains("repeatForever"))
             #expect(!source.contains("symbolEffect"))
         }
+    }
+
+    private func accessibilityLabels(in view: NSView) -> [String] {
+        let ownLabel = view.accessibilityLabel().map { [$0] } ?? []
+        return ownLabel + view.subviews.flatMap(accessibilityLabels)
     }
 
     @Test("pane trailing metadata suppresses zero pull requests")

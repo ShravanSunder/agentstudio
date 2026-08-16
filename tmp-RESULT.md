@@ -1,6 +1,6 @@
 # RESULT: Sidebar contract final validation
 
-Status: BLOCKED on contract item 9. The current packaged debug build never received a keyed positive pull-request-count fact for any visible worktree. The real `agent-studio.sidebar-grouping` row remained at `prCount == nil`, correctly rendering the amended static hollow-dot state across fresh background launches. No local refresh state or positive count was inferred or injected. Items 1–8 and 10–19 pass in the same product build.
+Status: PASS. All 19 contract items pass in the current packaged debug build; item 9 is now proven with a real keyed positive pull-request-count fact from the established GitHub enrichment path.
 
 ## 2026-08-16 contract-final checklist
 
@@ -14,7 +14,7 @@ Status: BLOCKED on contract item 9. The current packaged debug build never recei
 | 6 | `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png` | PASS — pane chip rows show time and active state with By Repo pill styling. |
 | 7 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — untracked dirty row renders `● untracked` with nonzero counts and no zero-value diff chip. |
 | 8 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — unknown/no-upstream sync metadata is suppressed. |
-| 9 | `tmp-screenshots/contract-final/09-by-repo-dirty-pr-refreshed.png` | FAIL — no keyed positive PR-count fact was available; the row remained in the amended cached-unknown hollow-dot state. |
+| 9 | `tmp-screenshots/contract-final/16-pr-chip-live.png`; `tmp-screenshots/contract-final/16-pr-chip-by-repo.png`; `tmp-screenshots/contract-final/16-pr-chip-pane-row.png`; `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift` | PASS — the established GitHub enrichment path reports one open PR for `feat/sidebar-grouping-rows`; the By Repo row renders `⑂1`, the pane-row chip line renders `⑂1` (AX: `1 pull requests`), and the mounted-row test asserts a positive chip. |
 | 10 | `tmp-screenshots/contract-final/01-by-repo.png`, `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png` | PASS — exactly one icon-plus-accent-text segment is selected in every mode; unselected controls are icon-only and borderless. |
 | 11 | `tmp-screenshots/contract-final/13-empty-by-tab.png`, `tmp-screenshots/contract-final/14-sort-mid.png`, `tmp-screenshots/contract-final/15-sort-after.png` | PASS — the same `repoSidebarSortButton` remained mounted while help changed from ascending to descending; the concurrent frame sequence contains no flicker. |
 | 12 | `tmp-screenshots/contract-final/05-persistence-by-tab.png`, `tmp-screenshots/contract-final/11-persistence-all-panes.png` | PASS — both selected modes survived exact-PID termination and fresh background launch. |
