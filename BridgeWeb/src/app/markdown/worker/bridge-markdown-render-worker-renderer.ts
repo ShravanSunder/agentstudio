@@ -89,7 +89,7 @@ async function renderBridgeMarkdown(markdownText: string): Promise<BridgeMarkdow
 	markdownRenderer.use(
 		fromAsyncCodeToHtml(codeToHtmlWithStaticHighlighter, {
 			themes: {
-				dark: 'github-dark',
+				['dark']: 'github-dark',
 				light: 'github-dark',
 			},
 		}),
