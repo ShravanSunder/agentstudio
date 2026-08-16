@@ -46,7 +46,7 @@ struct RepoExplorerWorktreeRowTests {
     }
 
     @Test("mounted By Repo row renders a positive pull request chip")
-    func mountedByRepoRowRendersPositivePullRequestChip() async {
+    func mountedByRepoRowRendersPositivePullRequestChip() throws {
         let hostingView = NSHostingView(
             rootView: RepoExplorerWorktreeRowContent(
                 octiconLoader: makeRepoExplorerTestOcticonLoader(),
@@ -70,9 +70,13 @@ struct RepoExplorerWorktreeRowTests {
         )
         hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         hostingView.layoutSubtreeIfNeeded()
-        await Task.yield()
+        let renderedBitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
+        hostingView.cacheDisplay(in: hostingView.bounds, to: renderedBitmap)
+        let pullRequestChip = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 3)
 
-        #expect(accessibilityLabels(in: hostingView).contains("3"))
+        #expect(pullRequestChip.text == "3")
+        #expect(pullRequestChip.usesAccent)
+        #expect(renderedBitmap.pixelsWide > 0)
     }
 
     @Test("diff chip always carries a label and never renders +0 -0")
@@ -136,11 +140,6 @@ struct RepoExplorerWorktreeRowTests {
             #expect(!source.contains("repeatForever"))
             #expect(!source.contains("symbolEffect"))
         }
-    }
-
-    private func accessibilityLabels(in view: NSView) -> [String] {
-        let ownLabel = view.accessibilityLabel().map { [$0] } ?? []
-        return ownLabel + view.subviews.flatMap(accessibilityLabels)
     }
 
     @Test("pane trailing metadata suppresses zero pull requests")
@@ -340,8 +339,8 @@ struct RepoExplorerWorktreeRowTests {
         #expect(appEntityIconSource.contains("AppStyles.Shell.Sidebar.mutedPrimaryAccentColor"))
     }
 
-    @Test("pane and By Repo chip rows share the same left alignment")
-    func paneAndByRepoChipRowsShareLeftAlignment() throws {
+    @Test("pane and By Repo rows align all text and chips on one shared guide")
+    func paneAndByRepoRowsShareTextColumnAlignmentGuide() throws {
         let paneRowSource = try String(
             contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
             encoding: .utf8
@@ -352,7 +351,10 @@ struct RepoExplorerWorktreeRowTests {
         )
 
         for source in [paneRowSource, worktreeRowSource] {
-            #expect(source.contains(".padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)"))
+            #expect(source.contains("VStack(alignment: .sidebarTextColumn"))
+            #expect(source.contains(".sidebarIconLineTextColumnGuide()"))
+            #expect(source.contains(".sidebarTextColumnGuide()"))
+            #expect(!source.contains("statusRowLeadingIndent"))
             #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         }
     }

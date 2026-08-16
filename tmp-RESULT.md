@@ -22,8 +22,8 @@ Status: PASS. All 19 contract items pass in the current packaged debug build; it
 | 14 | `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png`, `tmp-screenshots/contract-final/06-by-repo.png` | PASS — shared row heights, baselines, and vertical rhythm hold across modes. |
 | 15 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewTests.swift`; full `mise run test` gate | PASS — existing typed row/menu/command wiring remains covered and unchanged. |
 | 16 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift`; full `mise run test` gate | PASS — row facts remain keyed cached projections with no per-row path derivation. |
-| 17 | `tmp-screenshots/contract-final/03-by-tab.png`, `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — header and row icon-to-text gaps use the same visual spacing. |
-| 18 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — status chips begin at the shared left-aligned By Repo indent. |
+| 17 | `tmp-screenshots/contract-final/19-item18-by-repo-current-measured.png`, `tmp-screenshots/contract-final/19-item18-all-panes-measured.png`, `tmp-screenshots/contract-final/19-item18-by-tab-measured.png` | PASS — the measured magenta guide is x=29 px in every capture; header and row icon-to-text placement derive from the shared `textColumnLeadingInset` token. |
+| 18 | `tmp-screenshots/contract-final/19-item18-by-repo-current-measured.png`, `tmp-screenshots/contract-final/19-item18-all-panes-measured.png`, `tmp-screenshots/contract-final/19-item18-by-tab-measured.png` | PASS — at 3x crop scale the x=87 px guide (source x=29 px) intersects the leading edge of L1, L2, and L3 in By Repo, All Panes, and By Tab; measured cross-mode delta is 0 px. |
 | 19 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png`, `tmp-screenshots/contract-final/09-by-repo-dirty-pr-refreshed.png` | PASS — stale/unknown is a static hollow dot with no row animation; active-refresh animation remains deferred. |
 
 ## Current-round gates

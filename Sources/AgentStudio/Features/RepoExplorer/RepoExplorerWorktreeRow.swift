@@ -141,7 +141,7 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+        VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                 checkoutTypeIcon
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
@@ -181,6 +181,7 @@ struct RepoExplorerWorktreeRowContent: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .sidebarIconLineTextColumnGuide()
 
             HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                 OcticonImage(
@@ -200,6 +201,7 @@ struct RepoExplorerWorktreeRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .sidebarIconLineTextColumnGuide()
 
             if !placementText.isEmpty {
                 HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
@@ -217,6 +219,7 @@ struct RepoExplorerWorktreeRowContent: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .sidebarIconLineTextColumnGuide()
             }
 
             if hasStatusMetadata {
@@ -256,8 +259,8 @@ struct RepoExplorerWorktreeRowContent: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .sidebarTextColumnGuide()
             }
         }
     }

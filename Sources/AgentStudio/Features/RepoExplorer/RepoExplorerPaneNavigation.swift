@@ -26,7 +26,7 @@ struct RepoExplorerPaneRow: View {
     var body: some View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
-                VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+                VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
                     HStack(spacing: AppStyles.Shell.Sidebar.iconTextSpacing) {
                         Image(systemName: "square.split.2x1")
                             .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
@@ -43,6 +43,7 @@ struct RepoExplorerPaneRow: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .sidebarIconLineTextColumnGuide()
                     SidebarMetadataLine(text: row.secondaryText)
                     chipRow
                 }
@@ -90,8 +91,8 @@ struct RepoExplorerPaneRow: View {
                 )
             }
         }
-        .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sidebarTextColumnGuide()
     }
 }
 

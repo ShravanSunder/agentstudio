@@ -183,7 +183,7 @@ package enum AppStyles {
                 + AppStyles.General.Typography.textBase
                 + AppStyles.General.Spacing.tight
 
-            package static let statusRowLeadingIndent: CGFloat =
+            package static let textColumnLeadingInset: CGFloat =
                 rowLeadingIconColumnWidth + AppStyles.General.Spacing.tight
 
             package static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
