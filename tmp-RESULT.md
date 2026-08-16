@@ -1,4 +1,40 @@
-# RESULT: Sidebar grouping polish and round 3
+# RESULT: Sidebar contract final validation
+
+Status: BLOCKED on contract item 9. The current packaged debug build never received a keyed positive pull-request-count fact for any visible worktree. The real `agent-studio.sidebar-grouping` row remained at `prCount == nil`, correctly rendering the amended static hollow-dot state across fresh background launches. No local refresh state or positive count was inferred or injected. Items 1–8 and 10–19 pass in the same product build.
+
+## 2026-08-16 contract-final checklist
+
+| Item | Evidence file | Result |
+|---:|---|---|
+| 1 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — By Repo keeps name, branch, and chip rows. |
+| 2 | `tmp-screenshots/contract-final/02-all-panes.png` | PASS — panes are grouped by repository and ordered by activity within groups. |
+| 3 | `tmp-screenshots/contract-final/03-by-tab.png` | PASS — tab-order groups show tab title, pane count, and muted-primary tab icons. |
+| 4 | `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png` | PASS — pane line one is `Pane <n> · <terminal title>` with fallback behavior visible. |
+| 5 | `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png` | PASS — line two renders real cached `output activity`; the forbidden literal is absent from the AX rows. |
+| 6 | `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png` | PASS — pane chip rows show time and active state with By Repo pill styling. |
+| 7 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — untracked dirty row renders `● untracked` with nonzero counts and no zero-value diff chip. |
+| 8 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — unknown/no-upstream sync metadata is suppressed. |
+| 9 | `tmp-screenshots/contract-final/09-by-repo-dirty-pr-refreshed.png` | FAIL — no keyed positive PR-count fact was available; the row remained in the amended cached-unknown hollow-dot state. |
+| 10 | `tmp-screenshots/contract-final/01-by-repo.png`, `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png` | PASS — exactly one icon-plus-accent-text segment is selected in every mode; unselected controls are icon-only and borderless. |
+| 11 | `tmp-screenshots/contract-final/13-empty-by-tab.png`, `tmp-screenshots/contract-final/14-sort-mid.png`, `tmp-screenshots/contract-final/15-sort-after.png` | PASS — the same `repoSidebarSortButton` remained mounted while help changed from ascending to descending; the concurrent frame sequence contains no flicker. |
+| 12 | `tmp-screenshots/contract-final/05-persistence-by-tab.png`, `tmp-screenshots/contract-final/11-persistence-all-panes.png` | PASS — both selected modes survived exact-PID termination and fresh background launch. |
+| 13 | `tmp-screenshots/contract-final/08-by-repo-pr-chip.png`, `tmp-screenshots/contract-final/10-empty-all-panes.png`, `tmp-screenshots/contract-final/13-empty-by-tab.png` | PASS — each mode renders `No results` for the same no-match filter. |
+| 14 | `tmp-screenshots/contract-final/02-all-panes.png`, `tmp-screenshots/contract-final/03-by-tab.png`, `tmp-screenshots/contract-final/06-by-repo.png` | PASS — shared row heights, baselines, and vertical rhythm hold across modes. |
+| 15 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewTests.swift`; full `mise run test` gate | PASS — existing typed row/menu/command wiring remains covered and unchanged. |
+| 16 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift`; full `mise run test` gate | PASS — row facts remain keyed cached projections with no per-row path derivation. |
+| 17 | `tmp-screenshots/contract-final/03-by-tab.png`, `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — header and row icon-to-text gaps use the same visual spacing. |
+| 18 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png` | PASS — status chips begin at the shared left-aligned By Repo indent. |
+| 19 | `tmp-screenshots/contract-final/07-by-repo-dirty-pr.png`, `tmp-screenshots/contract-final/09-by-repo-dirty-pr-refreshed.png` | PASS — stale/unknown is a static hollow dot with no row animation; active-refresh animation remains deferred. |
+
+## Current-round gates
+
+- Focused: `mise run test:swift -- --filter 'RepoExplorerViewTests|RepoExplorerWorktreeRowTests'` — exit 0, 45 tests in 2 suites.
+- Lint: `mise run lint` — exit 0; swift-format, SwiftLint (0 violations across 2,032 files), architecture lint, and release-script verification passed.
+- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 319.57 seconds.
+- Runtime: `mise run verify-debug-observability` — exit 0 for marker `debug-observability-jp6s-1786913485-16503`, LaunchServices background activation, authenticated IPC, and `app.did_finish_launching.succeeded`.
+- Exact visual-proof PIDs `57237`, `1726`, and `30368` were terminated with TERM after their bounded captures. No other AgentStudio process was touched.
+
+# Prior result: Sidebar grouping polish and round 3
 
 Status: the toggle-refinement implementation, automated proof, three selected-state captures, By Repo unknown-sync suppression capture, and marker-scoped runtime verification are complete on the current source. The requested visible native tooltip capture is blocked because Computer Use provides no pointer-hover action; the typed tooltip contract is verified in source and tests. The branch remains attached to draft PR #296 and must not be merged from this task.
 
