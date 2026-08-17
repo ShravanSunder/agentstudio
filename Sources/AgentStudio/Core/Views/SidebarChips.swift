@@ -170,7 +170,6 @@ package struct SidebarDiffChip: View {
     package enum WorkingTreeDetail: Equatable {
         case lineCounts(added: Int, deleted: Int)
         case untrackedOnly
-        case changesWithoutLineCounts
     }
 
     let octiconLoader: OcticonLoader
@@ -207,7 +206,11 @@ package struct SidebarDiffChip: View {
         if untrackedFileCount > 0 {
             return .untrackedOnly
         }
-        return isDirty ? .changesWithoutLineCounts : nil
+        // A dirty checkout with no real tracked or untracked counts yet means enrichment hasn't
+        // caught up, not a distinct presentable state (F7): the matrix authorizes only
+        // +N -M, "untracked", or no chip. Showing nothing here is correct; the counts arrive with
+        // the next enrichment pass.
+        return nil
     }
 
     package var body: some View {
@@ -230,9 +233,6 @@ package struct SidebarDiffChip: View {
                 }
             case .untrackedOnly:
                 Text("untracked")
-                    .foregroundStyle(neutralColor)
-            case .changesWithoutLineCounts:
-                Text("changes")
                     .foregroundStyle(neutralColor)
             }
         }

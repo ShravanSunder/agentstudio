@@ -124,14 +124,6 @@ struct RepoExplorerWorktreeRowTests {
             linesDeleted: 0,
             untrackedFileCount: 3
         )
-        let dirtyWithoutLineCounts = GitBranchStatus(
-            isDirty: true,
-            syncState: .synced,
-            prCount: 0,
-            linesAdded: 0,
-            linesDeleted: 0,
-            untrackedFileCount: 0
-        )
         let dirtyWithLineCounts = GitBranchStatus(
             isDirty: true,
             syncState: .synced,
@@ -144,13 +136,28 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: clean) == nil)
         #expect(RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: untrackedOnly) == .untrackedOnly)
         #expect(
-            RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: dirtyWithoutLineCounts)
-                == .changesWithoutLineCounts
-        )
-        #expect(
             RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: dirtyWithLineCounts)
                 == .lineCounts(added: 12, deleted: 4)
         )
+    }
+
+    @Test("F7: dirty with zero tracked counts and zero untracked renders no chip at all")
+    func dirtyWithZeroCountsAndZeroUntrackedRendersNoChip() {
+        // Contract matrix authorizes only +N -M, "untracked", or no chip -- never an unlabeled
+        // "changes" fallback. A dirty flag with no real counts yet means enrichment hasn't caught
+        // up; the counts arrive with the next enrichment pass rather than showing a state the
+        // matrix never authorized.
+        let dirtyWithoutAnyRealCounts = GitBranchStatus(
+            isDirty: true,
+            syncState: .synced,
+            prCount: 0,
+            linesAdded: 0,
+            linesDeleted: 0,
+            untrackedFileCount: 0
+        )
+
+        #expect(RepoExplorerWorktreeRowContent.diffChipDetail(branchStatus: dirtyWithoutAnyRealCounts) == nil)
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowDiffChip(branchStatus: dirtyWithoutAnyRealCounts))
     }
 
     @Test("chip rows carry no timeline-driven animation")
