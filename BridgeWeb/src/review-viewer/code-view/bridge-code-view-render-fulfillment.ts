@@ -35,6 +35,13 @@ export function bridgeCodeViewPresentationItemWithExactSource<
 	return props.presentationItem;
 }
 
+export function bridgeCodeViewReanchorBoundFinalItem<
+	TBridgeCodeViewItem extends BridgeMainCodeViewItem,
+>(item: TBridgeCodeViewItem): TBridgeCodeViewItem {
+	exactSourceItemByPresentationItem.delete(item);
+	return item;
+}
+
 export interface ObserveBridgeCodeViewRenderFulfillmentProps {
 	readonly contextItem: CodeViewItem;
 	readonly getCodeViewHandle: () => CodeViewHandle<undefined> | null;

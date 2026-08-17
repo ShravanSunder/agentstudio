@@ -4,6 +4,7 @@ import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-wo
 import { makeReviewPublication } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.test-support.js';
 import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRenderDispositionReceipt } from '../../core/comm-worker/bridge-worker-render-fulfillment.js';
+import { prepareBridgeCodeViewPublicationPresentationItem } from './bridge-code-view-publication-presentation.js';
 import {
 	bridgeCodeViewPresentationItemWithExactSource,
 	observeBridgeCodeViewRenderFulfillment,
@@ -99,6 +100,88 @@ describe('Bridge CodeView post-render readback', () => {
 			).not.toBeNull();
 			await Promise.resolve();
 			expect(dispositions).toHaveLength(3);
+		} finally {
+			renderedElement.remove();
+			renderFulfillmentCoordinator.dispose();
+		}
+	});
+
+	test('reanchors lineage when a new publication reuses a painted presentation item', () => {
+		// Arrange
+		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
+		const pendingAnimationFrames: FrameRequestCallback[] = [];
+		const renderFulfillmentCoordinator = createBridgeMainRenderFulfillmentCoordinator({
+			cancelAnimationFrame: (): void => {},
+			nowMilliseconds: (): number => 1_000,
+			requestAnimationFrame: (callback): number => {
+				pendingAnimationFrames.push(callback);
+				return 1;
+			},
+			sendDisposition: (receipt): void => {
+				dispositions.push(receipt);
+			},
+		});
+		const publicationSeed = makeReviewPublication({
+			itemId: 'reused-presentation-item',
+			publicationSequence: 2,
+		});
+		if (publicationSeed.job.payload.kind !== 'codeViewDiffItem') {
+			throw new Error('Expected a Review diff publication payload.');
+		}
+		const exactItem = bridgeCodeViewItemFromWorkerPreparedItem(publicationSeed.job.payload.item);
+		if (exactItem?.type !== 'diff') throw new Error('Expected a main-readable Review diff item.');
+		Object.assign(exactItem.bridgeMetadata, { lineCount: 0 });
+		Object.assign(exactItem.fileDiff, { additionLines: [], deletionLines: [] });
+		const reusedPresentationItem = bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: { ...exactItem, annotations: [] },
+			sourceItem: exactItem,
+		});
+		const publication = {
+			...publicationSeed,
+			job: {
+				...publicationSeed.job,
+				payload: { ...publicationSeed.job.payload, item: reusedPresentationItem },
+			},
+		};
+		renderFulfillmentCoordinator.acceptPublication(publication);
+		const reboundPresentationItem = prepareBridgeCodeViewPublicationPresentationItem({
+			currentItem: reusedPresentationItem,
+			getCodeViewHandle: (): null => null,
+			metadataItem: reusedPresentationItem,
+			renderFulfillmentCoordinator,
+		});
+		const annotationClone = bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: { ...reboundPresentationItem, annotations: [] },
+			sourceItem: reboundPresentationItem,
+		});
+		const renderedElement = document.createElement('div');
+		document.body.append(renderedElement);
+		expect(reboundPresentationItem).toBe(reusedPresentationItem);
+		expect(renderFulfillmentCoordinator.isBoundFinalItem(reboundPresentationItem)).toBe(true);
+		renderFulfillmentCoordinator.markPublicationQueued(publication);
+
+		try {
+			// Act
+			observeBridgeCodeViewRenderFulfillment({
+				contextItem: annotationClone,
+				getCodeViewHandle: (): null => null,
+				itemId: annotationClone.id,
+				phase: 'update',
+				renderedElement,
+				renderFulfillmentCoordinator,
+				selectedCodeViewItem: annotationClone,
+				visibleCodeViewItems: undefined,
+			});
+
+			// Assert
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual(['queued', 'applied']);
+			expect(pendingAnimationFrames).toHaveLength(1);
+			pendingAnimationFrames[0]?.(1_001);
+			expect(dispositions.map((receipt) => receipt.disposition)).toEqual([
+				'queued',
+				'applied',
+				'painted',
+			]);
 		} finally {
 			renderedElement.remove();
 			renderFulfillmentCoordinator.dispose();

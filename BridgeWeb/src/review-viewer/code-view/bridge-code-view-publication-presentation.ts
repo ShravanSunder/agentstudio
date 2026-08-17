@@ -3,6 +3,7 @@ import type { CodeViewHandle } from '@pierre/diffs/react';
 import { prepareBridgeMainPierreItemForPresentation } from '../../core/comm-worker/bridge-main-pierre-item-adapter.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
 import {
+	bridgeCodeViewReanchorBoundFinalItem,
 	reconcileBridgeCodeViewRenderFulfillment,
 	type BridgeCodeViewRenderFulfillmentCoordinator,
 } from './bridge-code-view-render-fulfillment.js';
@@ -14,7 +15,7 @@ export function prepareBridgeCodeViewPublicationPresentationItem(props: {
 	readonly renderFulfillmentCoordinator: BridgeCodeViewRenderFulfillmentCoordinator;
 }): BridgeCodeViewItem {
 	if (props.renderFulfillmentCoordinator.isBoundFinalItem(props.metadataItem)) {
-		return props.metadataItem;
+		return bridgeCodeViewReanchorBoundFinalItem(props.metadataItem);
 	}
 	const preparedItem = prepareBridgeMainPierreItemForPresentation({
 		currentItem: props.currentItem,
@@ -25,6 +26,7 @@ export function prepareBridgeCodeViewPublicationPresentationItem(props: {
 		publicationItem: props.metadataItem,
 		residency: preparedItem.residency,
 	});
+	bridgeCodeViewReanchorBoundFinalItem(preparedItem.item);
 	if (preparedItem.residency === 'reusedPainted') {
 		reconcileBridgeCodeViewRenderFulfillment({
 			exactPresentationItem: preparedItem.item,
