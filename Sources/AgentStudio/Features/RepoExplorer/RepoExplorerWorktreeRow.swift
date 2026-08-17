@@ -20,12 +20,6 @@ struct RepoExplorerFavoriteControlVisibility: Equatable {
 }
 
 struct RepoExplorerWorktreeRowContent: View {
-    struct PullRequestChipPresentation: Equatable {
-        let icon: SidebarChip.Icon
-        let text: String?
-        let usesAccent: Bool
-    }
-
     let octiconLoader: OcticonLoader
     let checkoutTitle: String
     let branchName: String
@@ -84,14 +78,6 @@ struct RepoExplorerWorktreeRowContent: View {
 
     static func favoriteActionSpec(isFavorite: Bool) -> AppCommandSpec {
         (isFavorite ? AppCommand.removeRepoFavorite : AppCommand.addRepoFavorite).definition
-    }
-
-    static func pullRequestChipPresentation(prCount: Int) -> PullRequestChipPresentation {
-        PullRequestChipPresentation(
-            icon: .octicon("octicon-git-pull-request"),
-            text: "\(prCount)",
-            usesAccent: prCount > 0
-        )
     }
 
     static func diffChipDetail(branchStatus: GitBranchStatus) -> SidebarDiffChip.WorkingTreeDetail? {
@@ -246,13 +232,7 @@ struct RepoExplorerWorktreeRowContent: View {
                                     ? AppStyles.Shell.Sidebar.chipHorizontalPadding : 0
                             )
                     } else if let prCount = branchStatus.prCount, prCount > 0 {
-                        let pullRequestChip = Self.pullRequestChipPresentation(prCount: prCount)
-                        SidebarChip(
-                            icon: pullRequestChip.icon,
-                            octiconLoader: octiconLoader,
-                            text: pullRequestChip.text,
-                            style: pullRequestChip.usesAccent ? .accent(iconColor) : .neutral
-                        )
+                        SidebarPullRequestChipSpec.chip(count: prCount, octiconLoader: octiconLoader)
                     }
 
                     if Self.shouldShowUnreadPill(unreadCount: unreadCount) {

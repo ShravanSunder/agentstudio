@@ -28,17 +28,27 @@ struct RepoExplorerViewTests {
         #expect(measurement.outcome == .success)
     }
 
-    @Test("pull request chip distinguishes confirmed zero and positive facts")
-    func pullRequestChipPresentationDistinguishesFactStates() {
-        let confirmedZero = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 0)
-        let positive = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 2)
+    @Test("By Repo and pane rows render the PR chip through the one shared spec")
+    func prChipRenderSitesUseTheSharedSpec() throws {
+        // Owner-reported defect: pane rows built their PR chip with `.accent(.accentColor)` (system
+        // accent) while By Repo used a different color/icon path, so the two surfaces could drift.
+        // Both render call sites must go through SidebarPullRequestChipSpec so the glyph and color
+        // can never diverge again.
+        let worktreeRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+        let paneRowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerPaneNavigation.swift",
+            encoding: .utf8
+        )
 
-        #expect(confirmedZero.icon == .octicon("octicon-git-pull-request"))
-        #expect(confirmedZero.text == "0")
-        #expect(confirmedZero.usesAccent == false)
-        #expect(positive.icon == .octicon("octicon-git-pull-request"))
-        #expect(positive.text == "2")
-        #expect(positive.usesAccent)
+        for source in [worktreeRowSource, paneRowSource] {
+            #expect(source.contains("SidebarPullRequestChipSpec.chip(count:"))
+            // Neither row constructs its own inline PR chip anymore; the octicon string only
+            // appears inside the shared spec itself (SidebarChips.swift), never at a row call site.
+            #expect(!source.contains("octicon-git-pull-request"))
+        }
     }
 
     @Test("selected grouping segment icon call site passes the accent foregroundOverride")

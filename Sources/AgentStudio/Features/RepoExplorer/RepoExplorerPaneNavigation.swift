@@ -69,12 +69,7 @@ struct RepoExplorerPaneRow: View {
         let normalizedPullRequestCount = Self.normalizedPullRequestCount(pullRequestCount)
         HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
             if let normalizedPullRequestCount {
-                SidebarChip(
-                    icon: .octicon("octicon-git-pull-request"),
-                    octiconLoader: octiconLoader,
-                    text: "\(normalizedPullRequestCount)",
-                    style: .accent(.accentColor)
-                )
+                SidebarPullRequestChipSpec.chip(count: normalizedPullRequestCount, octiconLoader: octiconLoader)
             }
             SidebarChip(
                 icon: .system(.clock),

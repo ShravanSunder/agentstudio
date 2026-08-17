@@ -1,6 +1,22 @@
 import AgentStudioInfrastructure
 import SwiftUI
 
+/// The single PR-count chip spec used everywhere a positive PR-count fact renders as a chip: same
+/// glyph, same product-accent color, same pill style. By Repo worktree rows and pane rows (All
+/// Panes/By Tab) both call this so the glyph and color can never diverge between surfaces.
+package enum SidebarPullRequestChipSpec {
+    package static let icon: SidebarChip.Icon = .octicon("octicon-git-pull-request")
+
+    package static func chip(count: Int, octiconLoader: OcticonLoader) -> SidebarChip {
+        SidebarChip(
+            icon: icon,
+            octiconLoader: octiconLoader,
+            text: "\(count)",
+            style: .accent(AppStyles.General.Accent.primaryColor)
+        )
+    }
+}
+
 package struct SidebarChip: View {
     package enum Icon: Equatable {
         case octicon(String)

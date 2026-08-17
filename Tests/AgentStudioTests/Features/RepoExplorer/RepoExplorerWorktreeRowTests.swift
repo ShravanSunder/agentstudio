@@ -45,7 +45,7 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: dirtyAheadWithPullRequests))
     }
 
-    @Test("mounted By Repo row renders a positive pull request chip")
+    @Test("mounted By Repo row renders a positive pull request chip in the product accent color")
     func mountedByRepoRowRendersPositivePullRequestChip() throws {
         let hostingView = NSHostingView(
             rootView: RepoExplorerWorktreeRowContent(
@@ -67,16 +67,42 @@ struct RepoExplorerWorktreeRowTests {
                 showsFavoriteControl: false
             )
             .frame(width: 320)
+            .background(Color.black)
         )
+        hostingView.appearance = NSAppearance(named: .darkAqua)
         hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         hostingView.layoutSubtreeIfNeeded()
         let renderedBitmap = try #require(hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds))
         hostingView.cacheDisplay(in: hostingView.bounds, to: renderedBitmap)
-        let pullRequestChip = RepoExplorerWorktreeRowContent.pullRequestChipPresentation(prCount: 3)
 
-        #expect(pullRequestChip.text == "3")
-        #expect(pullRequestChip.usesAccent)
         #expect(renderedBitmap.pixelsWide > 0)
+        // The only chip on this row is the positive PR chip (clean/synced branch, no diff or sync
+        // chip). Pixel-verifying the product accent color directly catches the exact regression the
+        // owner reported: pane rows rendering the same fact in system `.accentColor` instead of the
+        // shared `AppStyles.General.Accent.primaryColor` token.
+        #expect(containsAccentColoredPixel(in: renderedBitmap))
+    }
+
+    /// Scans for a pixel matching the product accent token's specific signature: #409CFF has a
+    /// clearly nonzero red channel (~0.25) alongside a saturated blue (~1.0). This is a real
+    /// distinguishing feature from macOS system blue (#007AFF, red ~0.0), which the fixture's
+    /// `iconColor: .accentColor` would have rendered before the fix — so this catches a regression
+    /// back to coloring the chip from the row's incidental `iconColor` instead of the shared token.
+    private func containsAccentColoredPixel(in bitmap: NSBitmapImageRep) -> Bool {
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                // Thresholds are loosened from the raw #409CFF values to tolerate the chip's own
+                // foreground opacity (0.82) blending over its translucent pill background.
+                let matchesRed = (0.10...0.45).contains(color.redComponent)
+                let matchesBlue = color.blueComponent > 0.65
+                let matchesGreen = (0.35...0.80).contains(color.greenComponent)
+                if matchesRed && matchesBlue && matchesGreen {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     @Test("diff chip always carries a label and never renders +0 -0")
