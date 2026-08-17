@@ -990,3 +990,44 @@ focused suites green — `RepoExplorerWorktreeRowTests` (30 tests incl. the
 updated yellow pixel test), `SidebarSourceGroupHeaderTests` (5 tests incl.
 the strengthened token assertion), full `RepoExplorer|SidebarChips|AppStyles`
 filter (211 tests / 24 suites).
+
+## F1 sweep rerun on final colors (2026-08-17, HEAD c009a3311)
+
+Fresh binary confirmed (mtime 13:54:16 vs HEAD commit 13:47:46). Screenshots
+under `tmp-screenshots/f1-final-sweep-v2/`.
+
+**Housekeeping note:** the watch-folder scan against the fixture parent
+picked up two much broader `watched_path` rows (`~/Documents/dev/open-source`,
+`~/Documents/dev/project-dev`) that were not requested this round —
+timestamps place their registration inside my own earlier session, so this
+was self-inflicted, not another agent's state. Removed those two rows and
+the ~120 unrelated repos they had registered from this debug identity's
+`core.sqlite` before capturing, keeping the 5 fixture repos untouched.
+
+- **Item 1 (tab group icon)**: `15-tabicon-final-zoom.png` — the tab-group
+  header icon (before "IPC Smoke Terminal") now renders in the same muted
+  white/gray as the header text and pane-count text next to it, matching
+  By Repo's second-line text color. No blue anywhere.
+- **Item 2 (PR chip yellow)**: `14-prchip-yellow-final.png` — the real live
+  PR chip (`⑂ 1`, PR #296) on `00-pr-agent-studio` now renders in the same
+  yellow/gold as the row's own favorite star, not the product blue. Patient
+  poll (`10-pr-patient-poll-*.png`, up to 60s) was needed this pass — likely
+  unauthenticated GitHub API rate-limiting from the repeated live queries
+  across this session's many relaunches, not a regression; it resolved
+  correctly once the call succeeded.
+- Diff/sync chips unaffected by this round's change, reconfirmed still
+  correct: `05-byrepo-final-zoom.png` (`01-dirty` → `+3 -2`, `02-untracked`
+  → `untracked`, `04-clean` → no chip; `03-sync` → `↑1 ↓1`, still blue as
+  before — only the PR chip's token changed).
+- All Panes / By Tab empty states reconfirmed: `03-allpanes-empty.png`,
+  `04-bytab-empty.png`.
+- Pane association + All Panes grouping reconfirmed working after the color
+  change: `12-allpanes-final.png` shows the `ipc-terminal-smoke` pane
+  correctly grouped under `01-dirty` after a live `cd` re-association.
+
+**Not re-captured this pass** (unaffected by the color-only change, and
+already have fresh live evidence from the v1 sweep minutes earlier on the
+same HEAD lineage): L2 real-terminal-content proof, grouping-mode
+persistence across restart, toggle button styling, icon-to-text spacing/
+alignment, chip matrix items unrelated to PR color. None of the source
+files behind those items changed in this round.
