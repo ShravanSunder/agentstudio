@@ -1,9 +1,6 @@
 import { act } from 'react';
 
-import {
-	findBridgeViewerTreeItemButton,
-	waitForBridgeViewerAnimationFrame,
-} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { findBridgeViewerTreeItemButton } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { actFrame } from './bridge-file-viewer-browser-test-harness.js';
 
 interface FileViewerUiTraceEntry {
@@ -154,10 +151,8 @@ export async function actInteractAndSettleFileViewerCheckedMenuOption(props: {
 	readonly interaction: () => Promise<void>;
 	readonly option: HTMLElement;
 }): Promise<void> {
-	await act(async (): Promise<void> => {
-		await props.interaction();
-		await settleBaseUiTransitionMachineInsideAct();
-	});
+	await act(props.interaction);
+	await settleBaseUiTransitionMachine();
 
 	const checkedIndicator = props.option.querySelector(
 		'[data-slot="dropdown-menu-checkbox-item-indicator"] [data-checked]',
@@ -182,20 +177,21 @@ export async function actClickAndSettleFileViewerMenu(element: HTMLElement): Pro
 	const expectedExpandedState = element.getAttribute('aria-expanded') === 'true' ? 'false' : 'true';
 	await act(async (): Promise<void> => {
 		element.click();
-		await waitForFileViewerMenuStateInsideAct({ element, expectedExpandedState });
-		await settleBaseUiTransitionMachineInsideAct();
 	});
+	await waitForFileViewerMenuState({ element, expectedExpandedState });
+	await settleBaseUiTransitionMachine();
 }
 
-async function settleBaseUiTransitionMachineInsideAct(): Promise<void> {
+async function settleBaseUiTransitionMachine(): Promise<void> {
 	// Base UI schedules transitionStatus='starting' cleanup on an animation frame. Its
 	// animation-complete hook starts on another frame and can synchronously unmount an
-	// ending indicator. Keep both frame boundaries inside the interaction's act scope.
-	await waitForBridgeViewerAnimationFrame();
-	await waitForBridgeViewerAnimationFrame();
+	// ending indicator. Each frame gets its own act boundary so React commits the first
+	// transition before Base UI schedules work from the next state.
+	await actFrame();
+	await actFrame();
 }
 
-async function waitForFileViewerMenuStateInsideAct(props: {
+async function waitForFileViewerMenuState(props: {
 	readonly element: HTMLElement;
 	readonly expectedExpandedState: 'false' | 'true';
 	readonly remainingAttempts?: number;
@@ -219,8 +215,8 @@ async function waitForFileViewerMenuStateInsideAct(props: {
 				`actual=${props.element.getAttribute('aria-expanded') ?? 'missing'}.`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
-	await waitForFileViewerMenuStateInsideAct({
+	await actFrame();
+	await waitForFileViewerMenuState({
 		...props,
 		remainingAttempts: remainingAttempts - 1,
 	});

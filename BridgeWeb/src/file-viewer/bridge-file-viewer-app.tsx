@@ -6,6 +6,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	type ComponentType,
 	type ReactElement,
 } from 'react';
 
@@ -29,6 +30,7 @@ import {
 } from './bridge-file-viewer-display-model.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
 import { useBridgeFileViewerRenderSnapshotController } from './bridge-file-viewer-render-snapshot-controller.js';
+import type { BridgeFileViewerShellProps } from './bridge-file-viewer-shell.js';
 import { useBridgeFileViewerControlEventListeners } from './use-bridge-file-viewer-control-event-listeners.js';
 import { useBridgeFileViewerDisplaySourceReporter } from './use-bridge-file-viewer-display-source-reporter.js';
 import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store-bindings.js';
@@ -50,14 +52,18 @@ const bridgeFilesDefaultViewSettings = createBridgeFilesViewSettingsDefaults(
 const bridgeFileViewerNavigationCommandIsAlwaysEligible = (): boolean => true;
 
 export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): ReactElement {
-	return <BridgeFileViewerAppImpl {...props} />;
+	return (
+		<BridgeFileViewerAppImplementation {...props} shellComponent={LazyBridgeFileViewerShell} />
+	);
 }
 
-export function BridgeFileViewerBrowserTestApp(props: BridgeFileViewerAppProps = {}): ReactElement {
-	return <BridgeFileViewerAppImpl {...props} />;
+export interface BridgeFileViewerAppImplementationProps extends BridgeFileViewerAppProps {
+	readonly shellComponent: ComponentType<BridgeFileViewerShellProps>;
 }
 
-function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement {
+export function BridgeFileViewerAppImplementation(
+	props: BridgeFileViewerAppImplementationProps,
+): ReactElement {
 	const {
 		autoOpenInitialFile = false,
 		codeViewWorkerFactory,
@@ -72,6 +78,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 		telemetryRecorder,
 		telemetryTraceContext,
 		viewerContextSwitcher,
+		shellComponent: FileViewerShell,
 	} = props;
 	const [selection, setSelection] = useState<BridgeFileViewerSelection | null>(null);
 	const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
@@ -324,7 +331,7 @@ function BridgeFileViewerAppImpl(props: BridgeFileViewerAppProps): ReactElement 
 				/>
 			}
 		>
-			<LazyBridgeFileViewerShell
+			<FileViewerShell
 				codeViewOptions={codeViewOptions}
 				completeFileQueryTransaction={renderSnapshotController.completeFileQueryTransaction}
 				contentHeaderTitle={contentHeaderTitle}
