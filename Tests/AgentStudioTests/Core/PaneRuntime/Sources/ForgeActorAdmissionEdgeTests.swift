@@ -521,6 +521,77 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.actor.shutdown()
         await fixture.stopObserving()
     }
+
+    @Test("recovery to the same facts after a terminal-unavailable crossing still republishes")
+    func equalFactsRecoveryAfterUnavailableStillRepublishesFacts() async {
+        // F2: success(N) -> three failures crossing the honesty threshold (which discards the
+        // cached facts on RepoCacheAtom's side) -> a retry that resolves to the SAME facts N must
+        // still emit .pullRequestsChanged. ForgeActor's own equal-facts suppression compares
+        // against its last internally *published* value, which is untouched by the unavailable
+        // transition; without resetting that internal baseline when unavailable is emitted, the
+        // repeated identical success is wrongly treated as a no-op and the positive PR chip never
+        // returns.
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let pullRequestURL = URL(string: "https://github.com/acme/studio/pull/9")!
+        let pullRequest = ForgePullRequest(headRefName: "feature/recover-equal", url: pullRequestURL)
+
+        await fixture.register(repoId: repoId, worktrees: [(worktreeId, "feature/recover-equal")])
+        await fixture.actor.setDemand(worktreeIds: [worktreeId])
+        #expect(await fixture.provider.waitForCallCount(1))
+        await fixture.provider.resolve(callAt: 0, with: .complete([pullRequest]))
+        #expect(
+            await fixture.events.waitForFacts(
+                repoId: repoId,
+                branch: "feature/recover-equal",
+                expected: PullRequestFacts(openCount: 1, exactOpenURL: pullRequestURL)
+            )
+        )
+        #expect(await fixture.events.pullRequestsChangedCount(for: repoId) == 1)
+
+        // From here every retry is driven by an explicit manual refresh() after advancing past its
+        // backoff deadline, rather than the clock-driven automatic follow-up: the automatic path
+        // additionally gates on AppPolicies.Forge.automaticRefreshMinimumInterval (180s) measured
+        // from the ORIGINAL success above, which would swallow these short failure-backoff
+        // advances. Manual refresh bypasses that freshness gate and only waits on backoffUntil.
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(2))
+        await fixture.provider.resolve(callAt: 1, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 1))
+
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffBaseDelay)
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(3))
+        await fixture.provider.resolve(callAt: 2, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 2))
+
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 2))
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(4))
+        await fixture.provider.resolve(callAt: 3, with: .failed(message: "offline"))
+        #expect(await fixture.events.waitForRefreshFailureCount(repoId: repoId, expectedCount: 3))
+        #expect(await fixture.events.waitForPullRequestsUnavailable(repoId: repoId))
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+
+        fixture.advance(by: AppPolicies.ForgeRefresh.failureBackoffDelay(forConsecutiveFailureCount: 3))
+        await fixture.actor.refresh(repo: repoId)
+        #expect(await fixture.provider.waitForCallCount(5))
+        // Same repository, same facts as the original success(N).
+        await fixture.provider.resolve(callAt: 4, with: .complete([pullRequest]))
+
+        #expect(
+            await fixture.events.waitForPullRequestsChangedCount(repoId: repoId, expectedCount: 2)
+        )
+        #expect(
+            await fixture.events.facts(for: repoId, branch: "feature/recover-equal")
+                == PullRequestFacts(openCount: 1, exactOpenURL: pullRequestURL)
+        )
+        #expect(await fixture.events.pullRequestsUnavailableCount(for: repoId) == 1)
+
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
 }
 
 extension ObservedForgeEvents {
@@ -537,6 +608,26 @@ extension ObservedForgeEvents {
             await Task.yield()
         }
         Issue.record("Expected Forge pull requests unavailable for repoId=\(repoId)")
+        return false
+    }
+
+    func pullRequestsChangedCount(for repoId: UUID) -> Int {
+        recordedEvents.count { event in
+            guard case .pullRequestsChanged(let eventRepoId, _) = event else { return false }
+            return eventRepoId == repoId
+        }
+    }
+
+    func waitForPullRequestsChangedCount(
+        repoId: UUID,
+        expectedCount: Int,
+        maxTurns: Int = 500
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if pullRequestsChangedCount(for: repoId) == expectedCount { return true }
+            await Task.yield()
+        }
+        Issue.record("Expected \(expectedCount) pullRequestsChanged events for repoId=\(repoId)")
         return false
     }
 }

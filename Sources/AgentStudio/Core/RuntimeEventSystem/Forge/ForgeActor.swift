@@ -577,6 +577,13 @@ package actor ForgeActor {
             && state.consecutiveUnsuccessfulAttempts >= AppPolicies.Forge.consecutiveFailureHonestyThreshold
         if shouldEmitUnavailable {
             state.hasEmittedUnavailable = true
+            // The unavailable transition discards the repository's cached facts on
+            // RepoCacheAtom's side (see markPullRequestsUnavailable). Forget this actor's own
+            // last-published baseline too, so a later success resolving to the exact same facts
+            // as before the outage is not equal-content-suppressed and still republishes — the
+            // same forced-recovery pattern clearOrigin/setOrigin already apply for origin
+            // transitions.
+            state.lastPublishedFactsByBranch = nil
         }
 
         refreshStateByRepoId[request.repoId] = state
