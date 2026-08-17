@@ -18,8 +18,8 @@ import type {
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
 import {
-	useWorktreeAnnotationActiveComposerEditTokens,
-	useWorktreeAnnotationComposerEditToken,
+	useWorktreeAnnotationActiveEditTokens,
+	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
@@ -563,7 +563,7 @@ function ComposerRegistrationFixture(props: {
 	readonly editToken: string;
 	readonly registrationCount: 1 | 2;
 }): ReactElement {
-	const activeEditTokens = useWorktreeAnnotationActiveComposerEditTokens();
+	const activeEditTokens = useWorktreeAnnotationActiveEditTokens();
 	return (
 		<>
 			<ComposerRegistration editToken={props.editToken} />
@@ -576,7 +576,7 @@ function ComposerRegistrationFixture(props: {
 }
 
 function ComposerRegistration(props: { readonly editToken: string }): null {
-	useWorktreeAnnotationComposerEditToken(props.editToken);
+	useWorktreeAnnotationEditSurfaceToken(props.editToken);
 	return null;
 }
 

@@ -254,6 +254,12 @@ describe('worktree annotation Pierre range selection', () => {
 				});
 				await nextAnimationFrame();
 			});
+			const composerBeforeDurableProjection = document.querySelector<HTMLTextAreaElement>(
+				'[aria-label="Write an annotation in Markdown"]',
+			);
+			if (composerBeforeDurableProjection === null) {
+				throw new Error('Expected the Review root composer before durable projection.');
+			}
 			await act(async (): Promise<void> => {
 				await rendered
 					.getByRole('textbox', { name: 'Write an annotation in Markdown' })
@@ -303,7 +309,13 @@ describe('worktree annotation Pierre range selection', () => {
 					},
 				});
 				await nextAnimationFrame();
+				await nextAnimationFrame();
 			});
+			const composerAfterDurableProjection = document.querySelector<HTMLTextAreaElement>(
+				'[aria-label="Write an annotation in Markdown"]',
+			);
+			expect(composerAfterDurableProjection).toBe(composerBeforeDurableProjection);
+			expect(document.activeElement).toBe(composerBeforeDurableProjection);
 			await settleBrowserCondition(
 				(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
 				'Expected the original split Review Save to survive projection replacement.',

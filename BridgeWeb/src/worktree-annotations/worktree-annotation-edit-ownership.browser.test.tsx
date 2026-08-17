@@ -19,6 +19,59 @@ import {
 import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
 
 describe('worktree annotation browser edit ownership', () => {
+	test('keeps one saved-message edit token across a Pierre portal replacement', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ProjectedThread portalGeneration={0} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await publishMessage(
+			surface,
+			draftMessage({ activeEditToken: 'persisted-token', revision: 1 }),
+		);
+
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Resume draft' }).click();
+			await settleInteraction();
+		});
+		await waitForOperationKind(surface, 'draft.edit.acquire');
+		const firstAcquire = surface.sentOperations.find(
+			(operation) => operation.kind === 'draft.edit.acquire',
+		);
+		if (firstAcquire?.kind !== 'draft.edit.acquire') {
+			throw new Error('Expected the initial saved-message edit-token acquire.');
+		}
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			surface.publishThread({
+				context: locatedContext,
+				message: draftMessage({ activeEditToken: firstAcquire.editToken, revision: 2 }),
+			});
+			await settleInteraction();
+		});
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Annotation Markdown' }))
+			.toBeEnabled();
+
+		await rendered.rerender(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ProjectedThread portalGeneration={1} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await act(async (): Promise<void> => settleInteraction());
+
+		expect(
+			surface.sentOperations.flatMap((operation): readonly string[] =>
+				operation.kind === 'draft.edit.acquire' ? [operation.editToken] : [],
+			),
+		).toEqual([firstAcquire.editToken]);
+		expect(
+			surface.sentOperations.filter((operation) => operation.kind === 'draft.edit.release'),
+		).toHaveLength(0);
+	});
+
 	test('acquires an existing draft with a new token, flushes, then releases', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await render(
@@ -85,10 +138,10 @@ describe('worktree annotation browser edit ownership', () => {
 	});
 });
 
-function ProjectedThread(): ReactElement | null {
+function ProjectedThread(props: { readonly portalGeneration?: number }): ReactElement | null {
 	const projection = useWorktreeAnnotationProjection();
 	return projection.threads[0] === undefined ? null : (
-		<WorktreeAnnotationThread thread={projection.threads[0]} />
+		<WorktreeAnnotationThread key={props.portalGeneration} thread={projection.threads[0]} />
 	);
 }
 

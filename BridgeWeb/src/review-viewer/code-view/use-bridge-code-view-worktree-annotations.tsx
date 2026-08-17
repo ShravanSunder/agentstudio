@@ -21,7 +21,9 @@ import { useWorktreeAnnotationSelectionDismissal } from '../../worktree-annotati
 import { createWorktreeAnnotationEditToken } from '../../worktree-annotations/worktree-annotation-edit-token.js';
 import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import {
-	useWorktreeAnnotationComposerEditToken,
+	useWorktreeAnnotationActiveEditTokens,
+	useWorktreeAnnotationActiveNewMessageEditTokens,
+	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
@@ -67,6 +69,8 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	const projection = useWorktreeAnnotationProjection();
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
 	const interaction = useWorktreeAnnotationInteraction();
+	const activeEditTokens = useWorktreeAnnotationActiveEditTokens();
+	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const activeSessionId = sessionSelection.activeSessionId;
 	useWorktreeAnnotationSessionDemand(activeSessionId);
 	const activeThreads = useMemo(
@@ -74,9 +78,15 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			projection.threads.filter(
 				(thread): boolean =>
 					activeSessionId !== null &&
-					thread.messages.some((message) => message.sessionId === activeSessionId),
+					thread.messages.some((message) => message.sessionId === activeSessionId) &&
+					!thread.messages.every(
+						(message): boolean =>
+							message.draft?.activeEditToken !== null &&
+							message.draft?.activeEditToken !== undefined &&
+							activeNewMessageEditTokens.has(message.draft.activeEditToken),
+					),
 			),
-		[activeSessionId, projection.threads],
+		[activeNewMessageEditTokens, activeSessionId, projection.threads],
 	);
 	const [pendingComposer, setPendingComposer] = useState<{
 		readonly editToken: string;
@@ -86,7 +96,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	} | null>(null);
 	const pendingComposerRef = useRef(pendingComposer);
 	pendingComposerRef.current = pendingComposer;
-	useWorktreeAnnotationComposerEditToken(pendingComposer?.editToken ?? null);
+	useWorktreeAnnotationEditSurfaceToken(pendingComposer?.editToken ?? null);
 	const [composerPresentationRevision, setComposerPresentationRevision] = useState(0);
 	const [selectedRange, setSelectedRange] = useState<SelectedLineRange | null>(null);
 	const selectedItemIdRef = useRef<string | null>(null);
@@ -339,7 +349,8 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 		projectionRevision:
 			projection.revision === null && composerPresentationRevision === 0
 				? null
-				: (projection.presentationRevision ?? 0) * 1_000_000 + composerPresentationRevision,
+				: (activeEditTokens.size === 0 ? projection.presentationRevision : 0) * 1_000_000 +
+					composerPresentationRevision,
 		renderAnnotation,
 		selectedItemIdRef,
 		selectedLines,

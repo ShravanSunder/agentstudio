@@ -35,9 +35,9 @@ import type {
 	WorktreeAnnotationThreadProjection,
 } from './worktree-annotation-surface-client.js';
 import {
-	useWorktreeAnnotationActiveComposerEditTokens,
-	useWorktreeAnnotationComposerEditToken,
-	useWorktreeAnnotationDeferredComposerRelease,
+	useWorktreeAnnotationActiveNewMessageEditTokens,
+	useWorktreeAnnotationDeferredEditRelease,
+	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
@@ -60,7 +60,7 @@ export function WorktreeAnnotationThread(
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const interaction = useWorktreeAnnotationInteraction();
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
-	const activeComposerEditTokens = useWorktreeAnnotationActiveComposerEditTokens();
+	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const disclosureButtonRef = useRef<HTMLButtonElement | null>(null);
 	const threadId = props.thread.context.threadId;
@@ -77,7 +77,7 @@ export function WorktreeAnnotationThread(
 		(message): boolean =>
 			message.draft?.activeEditToken === null ||
 			message.draft?.activeEditToken === undefined ||
-			!activeComposerEditTokens.has(message.draft.activeEditToken),
+			!activeNewMessageEditTokens.has(message.draft.activeEditToken),
 	);
 	const isExpanded =
 		visibleMessages.length <= 1 || interaction.isThreadExpanded(threadId) || editor !== null;
@@ -172,6 +172,11 @@ export function WorktreeAnnotationThread(
 									canEdit={canEditMessages}
 									commands={
 										isLatest ? threadCommands(visibleMessages.length > 1 ? 'collapse' : null) : null
+									}
+									editToken={
+										editor?.kind === 'message' && editor.messageId === message.messageId
+											? editor.editToken
+											: null
 									}
 									isEditing={editor?.kind === 'message' && editor.messageId === message.messageId}
 									key={message.messageId}
@@ -271,8 +276,8 @@ export function WorktreeAnnotationNewMessageComposer(
 	const admissionAnchorRef = useRef<HTMLDivElement | null>(null);
 	const hasLocalEditSinceMountRef = useRef(false);
 	const targetMessageIdRef = useRef<string | null>(initialDurableMessage?.messageId ?? null);
-	useWorktreeAnnotationComposerEditToken(editTokenRef.current);
-	const releaseWhenComposerInactive = useWorktreeAnnotationDeferredComposerRelease();
+	useWorktreeAnnotationEditSurfaceToken(editTokenRef.current);
+	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
 	const createOperationRef = useRef(props.createOperation);
 	createOperationRef.current = props.createOperation;
 	const scheduler = useMemo(
@@ -358,7 +363,7 @@ export function WorktreeAnnotationNewMessageComposer(
 		(): (() => void) => (): void => {
 			void scheduler
 				.teardown(async (): Promise<void> => {
-					await releaseWhenComposerInactive(editTokenRef.current, async (): Promise<void> => {
+					await releaseWhenEditInactive(editTokenRef.current, async (): Promise<void> => {
 						const messageId = targetMessageIdRef.current;
 						if (messageId === null) return;
 						const editOwnership = new WorktreeAnnotationEditOwnershipController({
@@ -371,7 +376,7 @@ export function WorktreeAnnotationNewMessageComposer(
 				})
 				.catch((): void => {});
 		},
-		[annotationClient, releaseWhenComposerInactive, scheduler],
+		[annotationClient, releaseWhenEditInactive, scheduler],
 	);
 	const projectedDurableMessage = messageByEditToken(projection, editTokenRef.current);
 	useEffect((): void => {

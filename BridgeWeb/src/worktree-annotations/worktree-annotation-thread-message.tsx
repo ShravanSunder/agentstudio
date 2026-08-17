@@ -20,6 +20,8 @@ import type {
 	WorktreeAnnotationProjectionSnapshot,
 } from './worktree-annotation-surface-client.js';
 import {
+	useWorktreeAnnotationDeferredEditRelease,
+	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-provider.js';
@@ -28,6 +30,7 @@ export interface WorktreeAnnotationMessageEditorProps {
 	readonly active: boolean;
 	readonly canEdit: boolean;
 	readonly commands: ReactNode;
+	readonly editToken: string | null;
 	readonly isEditing: boolean;
 	readonly message: WorktreeAnnotationMessageEntry;
 	readonly onBeginEdit: () => void;
@@ -103,16 +106,19 @@ export function WorktreeAnnotationMessageEditor(
 	};
 	const [body, setBody] = useState(initialBody);
 	const [operationError, setOperationError] = useState<string | null>(null);
-	const editTokenRef = useRef(createWorktreeAnnotationEditToken());
+	const inactiveEditTokenRef = useRef(createWorktreeAnnotationEditToken());
+	const editToken = props.editToken ?? inactiveEditTokenRef.current;
+	useWorktreeAnnotationEditSurfaceToken(props.isEditing ? editToken : null, 'message');
+	const releaseWhenEditInactive = useWorktreeAnnotationDeferredEditRelease();
 	const [editOwnershipReady, setEditOwnershipReady] = useState(props.message.draft === null);
 	const editOwnershipController = useMemo(
 		() =>
 			new WorktreeAnnotationEditOwnershipController({
 				annotationClient,
-				editToken: editTokenRef.current,
+				editToken,
 				messageId: props.message.messageId,
 			}),
-		[annotationClient, props.message.messageId],
+		[annotationClient, editToken, props.message.messageId],
 	);
 	const scheduler = useMemo(
 		() =>
@@ -126,7 +132,7 @@ export function WorktreeAnnotationMessageEditor(
 					if (currentMessage === null) throw new Error('Annotation message is unavailable.');
 					const outcome = await annotationClient.execute({
 						body: nextBody,
-						editToken: editTokenRef.current,
+						editToken,
 						expectedDraftRevision: currentMessage.draft?.revision ?? null,
 						expectedSessionRevision: currentMessage.sessionRevision,
 						kind: 'draft.flush',
@@ -143,7 +149,7 @@ export function WorktreeAnnotationMessageEditor(
 					});
 				},
 			}),
-		[annotationClient, props.message.messageId],
+		[annotationClient, editToken, props.message.messageId],
 	);
 	useEffect((): (() => void) | undefined => {
 		if (!props.isEditing) return undefined;
@@ -160,9 +166,11 @@ export function WorktreeAnnotationMessageEditor(
 			});
 		return (): void => {
 			effectIsActive = false;
-			void scheduler.teardown(() => editOwnershipController.release()).catch((): void => {});
+			void scheduler
+				.teardown(() => releaseWhenEditInactive(editToken, () => editOwnershipController.release()))
+				.catch((): void => {});
 		};
-	}, [editOwnershipController, props.isEditing, scheduler]);
+	}, [editOwnershipController, editToken, props.isEditing, releaseWhenEditInactive, scheduler]);
 	useEffect((): void => {
 		if (!props.isEditing) setBody(props.message.draft?.body ?? props.message.savedBody ?? '');
 	}, [props.isEditing, props.message.draft?.body, props.message.savedBody]);
@@ -184,7 +192,7 @@ export function WorktreeAnnotationMessageEditor(
 					throw new Error('No durable draft is available to save.');
 				}
 				const outcome = await annotationClient.execute({
-					editToken: editTokenRef.current,
+					editToken,
 					expectedDraftRevision: currentMessage.draft.revision,
 					expectedSessionRevision: currentMessage.sessionRevision,
 					kind: 'draft.save',
@@ -215,7 +223,7 @@ export function WorktreeAnnotationMessageEditor(
 		}
 		try {
 			const outcome = await annotationClient.execute({
-				editToken: editTokenRef.current,
+				editToken,
 				expectedDraftRevision: currentMessage.draft.revision,
 				expectedSessionRevision: currentMessage.sessionRevision,
 				kind: 'draft.revert',

@@ -21,8 +21,9 @@ import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/
 import { useWorktreeAnnotationSelectionDismissal } from '../worktree-annotations/use-worktree-annotation-selection-dismissal.js';
 import { createWorktreeAnnotationEditToken } from '../worktree-annotations/worktree-annotation-edit-token.js';
 import {
-	useWorktreeAnnotationActiveComposerEditTokens,
-	useWorktreeAnnotationComposerEditToken,
+	useWorktreeAnnotationActiveEditTokens,
+	useWorktreeAnnotationActiveNewMessageEditTokens,
+	useWorktreeAnnotationEditSurfaceToken,
 	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
@@ -73,7 +74,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	const annotationProjection = useWorktreeAnnotationProjection();
 	const annotationSessionSelection = useWorktreeAnnotationSessionSelection();
 	const annotationInteraction = useWorktreeAnnotationInteraction();
-	const activeComposerEditTokens = useWorktreeAnnotationActiveComposerEditTokens();
+	const activeEditTokens = useWorktreeAnnotationActiveEditTokens();
+	const activeNewMessageEditTokens = useWorktreeAnnotationActiveNewMessageEditTokens();
 	const activeAnnotationSessionId = annotationSessionSelection.activeSessionId;
 	useWorktreeAnnotationSessionDemand(activeAnnotationSessionId);
 	const activeAnnotationThreads = annotationProjection.threads.filter(
@@ -84,7 +86,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				(message): boolean =>
 					message.draft?.activeEditToken !== null &&
 					message.draft?.activeEditToken !== undefined &&
-					activeComposerEditTokens.has(message.draft.activeEditToken),
+					activeNewMessageEditTokens.has(message.draft.activeEditToken),
 			),
 	);
 	const [pendingAnnotationComposer, setPendingAnnotationComposer] =
@@ -98,7 +100,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		readonly fileId: string;
 		readonly path: string;
 	} | null>(null);
-	useWorktreeAnnotationComposerEditToken(pendingAnnotationComposer?.editToken ?? null);
+	useWorktreeAnnotationEditSurfaceToken(pendingAnnotationComposer?.editToken ?? null);
 	const scrollEffectVersionRef = useRef(0);
 	const codeViewItems = useMemo(() => {
 		const items = bridgeFileViewerCodeViewItemsForPanelState({
@@ -132,7 +134,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 							: [...annotations, pendingComposerAnnotation],
 					version: annotationPresentationVersion(
 						item.version,
-						annotationProjection.presentationRevision,
+						activeEditTokens.size === 0 ? annotationProjection.presentationRevision : null,
 						composerPresentationRevision,
 					),
 				}),
@@ -140,6 +142,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			});
 		});
 	}, [
+		activeEditTokens.size,
 		activeAnnotationThreads,
 		annotationProjection.presentationRevision,
 		annotationProjection.revision,
