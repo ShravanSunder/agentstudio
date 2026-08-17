@@ -131,6 +131,12 @@ struct RepoExplorerWorktreeRowContent: View {
             || Self.shouldShowUnreadPill(unreadCount: unreadCount)
     }
 
+    /// True when neither the diff nor sync chip renders, so the stale pull-request glyph (when present)
+    /// is the chips line's leading element rather than following an already-padded pill.
+    private var isFirstChipsLineItem: Bool {
+        !Self.shouldShowDiffChip(branchStatus: branchStatus) && !Self.shouldShowSyncChip(branchStatus: branchStatus)
+    }
+
     var body: some View {
         VStack(alignment: .sidebarTextColumn, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
@@ -230,6 +236,15 @@ struct RepoExplorerWorktreeRowContent: View {
 
                     if branchStatus.prCount == nil {
                         stalePullRequestGlyph
+                            // The bare glyph carries no pill padding of its own. When it renders as the
+                            // line's leading item (no diff/sync chip precedes it), it needs the same
+                            // compensating inset the row-level guide already assumes every leading chip
+                            // pill provides, so its glyph content still lands on the text column.
+                            .padding(
+                                .leading,
+                                isFirstChipsLineItem
+                                    ? AppStyles.Shell.Sidebar.chipHorizontalPadding : 0
+                            )
                     } else if let prCount = branchStatus.prCount, prCount > 0 {
                         let pullRequestChip = Self.pullRequestChipPresentation(prCount: prCount)
                         SidebarChip(

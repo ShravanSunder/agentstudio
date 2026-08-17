@@ -169,6 +169,28 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!glyphSource.contains("repeatForever"))
     }
 
+    @Test("stale glyph compensates its leading inset only when it is the chips line's first item")
+    func staleGlyphCompensatesLeadingInsetOnlyWhenFirst() throws {
+        let rowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        // The glyph carries no pill padding of its own, so when it renders as the chips line's leading
+        // item it must supply the same compensating inset the row-level guide assumes every leading
+        // chip pill provides; when a diff/sync chip already precedes it, no extra inset is added.
+        #expect(rowSource.contains("private var isFirstChipsLineItem: Bool"))
+        let glyphUsageStart = try #require(rowSource.range(of: "if branchStatus.prCount == nil {"))
+        let glyphUsageEnd = try #require(
+            rowSource.range(of: "} else if let prCount", range: glyphUsageStart.upperBound..<rowSource.endIndex)
+        )
+        let glyphUsageSource = String(rowSource[glyphUsageStart.lowerBound..<glyphUsageEnd.lowerBound])
+        #expect(glyphUsageSource.contains("stalePullRequestGlyph"))
+        #expect(glyphUsageSource.contains(".padding("))
+        #expect(glyphUsageSource.contains("isFirstChipsLineItem"))
+        #expect(glyphUsageSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+    }
+
     @Test("pane trailing metadata suppresses zero pull requests")
     func paneTrailingMetadataSuppressesZeroPullRequests() {
         #expect(RepoExplorerPaneRow.normalizedPullRequestCount(nil) == nil)
@@ -389,6 +411,16 @@ struct RepoExplorerWorktreeRowTests {
         }
         #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
         #expect(!alignmentSource.contains("textColumnLeadingInset"))
+
+        // The chips-line guide must outdent by the pill's own horizontal padding, sourced from the same
+        // constant the pill uses, so the first chip's CONTENT (not its pill background edge) lands on
+        // the shared text column.
+        let guideStart = try #require(
+            alignmentSource.range(of: "package func sidebarTextColumnGuide() -> some View {"))
+        let guideEnd = try #require(
+            alignmentSource.range(of: "}\n}", range: guideStart.upperBound..<alignmentSource.endIndex))
+        let guideSource = String(alignmentSource[guideStart.lowerBound..<guideEnd.lowerBound])
+        #expect(guideSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
     }
 
     @Test("repo explorer remains inbox-feature agnostic")
