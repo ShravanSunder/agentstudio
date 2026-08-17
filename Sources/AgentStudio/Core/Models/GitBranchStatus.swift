@@ -13,11 +13,13 @@ package struct GitBranchStatus: Equatable, Sendable {
     package let isDirty: Bool
     package let syncState: SyncState
     package let prCount: Int?
-    /// True when this branch's repository has a resolved, terminal absence
-    /// of pull request data (no GitHub remote, or provider queries have
-    /// failed past the forge honesty threshold). Distinguishes "we haven't
-    /// heard back yet" (`prCount == nil` alone) from "no data is coming",
-    /// so consumers stop rendering a pending indicator for the latter.
+    /// True when pull request data for this row has a resolved, terminal
+    /// absence: the repository has no GitHub remote, provider queries have
+    /// failed past the forge honesty threshold, or this specific worktree is
+    /// at detached HEAD (no branch to key a query on). Distinguishes "we
+    /// haven't heard back yet" (`prCount == nil` alone) from "no data is
+    /// coming", so consumers stop rendering a pending indicator for the
+    /// latter.
     package let pullRequestDataUnavailable: Bool
     package let linesAdded: Int
     package let linesDeleted: Int
@@ -89,6 +91,14 @@ package struct GitBranchStatus: Equatable, Sendable {
             )
         }
 
+        // A detached-HEAD worktree has no branch to key a forge query on
+        // (RepoBranchKey requires a non-empty branch), so it can never
+        // resolve pull request data on its own. This is a local, synchronous
+        // fact derived from the enrichment itself: it resolves immediately,
+        // requires no forge query or event, and only changes when the
+        // worktree's branch fact changes (a fresh `enrichment` reaching here).
+        let isDetachedHead = enrichment.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
         let summary = enrichment.snapshot?.summary
         let isDirty: Bool
         if let summary {
@@ -127,7 +137,7 @@ package struct GitBranchStatus: Equatable, Sendable {
             isDirty: isDirty,
             syncState: syncState,
             prCount: pullRequestFacts?.openCount,
-            pullRequestDataUnavailable: pullRequestDataUnavailable,
+            pullRequestDataUnavailable: pullRequestDataUnavailable || isDetachedHead,
             linesAdded: summary?.linesAdded ?? 0,
             linesDeleted: summary?.linesDeleted ?? 0,
             untrackedFileCount: summary?.untracked ?? 0

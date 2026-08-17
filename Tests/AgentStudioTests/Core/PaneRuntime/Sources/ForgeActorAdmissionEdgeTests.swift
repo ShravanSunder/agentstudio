@@ -81,6 +81,35 @@ struct ForgeActorAdmissionEdgeTests {
         await fixture.stopObserving()
     }
 
+    @Test("a detached-HEAD worktree never issues a forge query even with an origin and demand")
+    func detachedHeadWorktreeNeverIssuesForgeQuery() async {
+        let fixture = await ForgeActorFixture.make()
+        let repoId = UUIDv7.generate()
+        let detachedWorktreeId = UUIDv7.generate()
+
+        // Detached HEAD reaches ForgeActor as a nil branch (WorkspaceCacheCoordinator's
+        // `snapshot.branch ?? ""` coercion is a separate downstream consumer of the
+        // same bus event, not something ForgeActor itself performs).
+        await fixture.actor.register(
+            worktreeId: detachedWorktreeId,
+            repoId: repoId,
+            rootPath: URL(fileURLWithPath: "/tmp/acme-detached"),
+            branch: nil
+        )
+        await fixture.actor.setOrigin(repo: repoId, remote: "git@github.com:acme/studio.git")
+        await fixture.actor.setDemand(worktreeIds: [detachedWorktreeId])
+
+        // No branch means no demanded branch to query, regardless of origin
+        // or demand; advancing well past every backoff/freshness window must
+        // not eventually admit a query either.
+        fixture.advance(by: .seconds(600))
+        await Task.yield()
+        #expect(await fixture.provider.callCount == 0)
+
+        await fixture.actor.shutdown()
+        await fixture.stopObserving()
+    }
+
     @Test("registration schedules the freshness deadline when demand arrived before membership")
     func registrationSchedulesDeadlineForPreexistingDemand() async {
         let fixture = await ForgeActorFixture.make()

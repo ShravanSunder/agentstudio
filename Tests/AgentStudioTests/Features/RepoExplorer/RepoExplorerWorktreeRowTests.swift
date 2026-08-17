@@ -1,4 +1,5 @@
 import AgentStudioCore
+import AgentStudioInfrastructure
 import AppKit
 import SwiftUI
 import Testing
@@ -191,6 +192,36 @@ struct RepoExplorerWorktreeRowTests {
         #expect(glyphUsageSource.contains(".padding("))
         #expect(glyphUsageSource.contains("isFirstChipsLineItem"))
         #expect(glyphUsageSource.contains("AppStyles.Shell.Sidebar.chipHorizontalPadding"))
+    }
+
+    @Test("a detached-HEAD worktree resolves pull request data unavailable immediately")
+    func detachedHeadWorktreeResolvesPullRequestDataUnavailableImmediately() {
+        let detachedEnrichment = WorktreeEnrichment(
+            worktreeId: UUIDv7.generate(),
+            repoId: UUIDv7.generate(),
+            branch: "",
+            isMainWorktree: false
+        )
+        let branchedEnrichment = WorktreeEnrichment(
+            worktreeId: UUIDv7.generate(),
+            repoId: UUIDv7.generate(),
+            branch: "main",
+            isMainWorktree: false
+        )
+
+        let detachedStatus = GitBranchStatus.status(enrichment: detachedEnrichment, pullRequestFacts: nil)
+        let branchedPendingStatus = GitBranchStatus.status(enrichment: branchedEnrichment, pullRequestFacts: nil)
+
+        // Detached HEAD is a local, synchronous fact of the enrichment itself
+        // (no branch to key a forge query on) and must resolve to terminal
+        // no-data without ever waiting on a forge query, unlike an ordinary
+        // branched worktree that is still genuinely pending its first query.
+        #expect(detachedStatus.pullRequestDataUnavailable)
+        #expect(detachedStatus.prCount == nil)
+        #expect(!RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: detachedStatus))
+
+        #expect(!branchedPendingStatus.pullRequestDataUnavailable)
+        #expect(RepoExplorerWorktreeRowContent.shouldShowPullRequestChip(branchStatus: branchedPendingStatus))
     }
 
     @Test("resolved-unavailable pull request state renders neither the pending glyph nor a chip")
