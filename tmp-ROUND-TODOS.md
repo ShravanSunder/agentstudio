@@ -98,3 +98,38 @@ Tab, diff/sync chips, empty states, icon-to-text alignment, toggle
 border/fill geometry, sort-rotation motion). The two cells team-lead already
 claimed for their own foregrounded validation pass (positive active glyph,
 pending-glyph transition) remain deferred to that pass, same SHA/binary.
+
+## N5/F1 sweep completed (2026-08-17, HEAD 34e1815ad)
+
+Owner verified the session genuinely unlocked via the authoritative `ioreg
+-n Root -d1 -a | grep IOConsoleLocked` probe (`false` — this is the correct
+check going forward, not the frontmost-app heuristic that misled an earlier
+attempt where a real lock screen was captured). Ran the sweep under
+`caffeinate -d` holding the display awake. HEAD had advanced to
+`34e1815ad1f2b75efe9569c8daa5dad8868571a3` (a docs-only child of the
+0d5d413eb aggregate/binary commit — `git diff 0d5d413eb...34e1815ad --
+Sources Tests` confirmed empty, so that aggregate result still applies) by
+the time of this pass; rebuilt fresh (binary mtime 16:46:04), still newer
+than the commit.
+
+Full evidence table in tmp-RESULT.md under "N5/F1 final gate: complete
+one-build sweep". Headline: the previously-split "final-yellow pane-row PR
+chip" cell is now closed — proven live in both All Panes and By Tab on this
+one binary (`tmp-screenshots/n5-final-gate-sweep/17-allpanes-pr-chip-zoom.png`,
+`18-bytab-pr-chip-zoom.png`). Persistence-across-restart, L2 real content,
+By Repo chip matrix, toggle geometry, and icon-to-text alignment all
+recaptured fresh on the same binary.
+
+Two items not recaptured, both with a stated reason (not silently dropped):
+(13) empty state — `closePane` rejected via IPC with `-32007 parameters
+required` despite being in the durable-pane-target command group; did not
+debug the IPC contract further this round, relying on unchanged v1 evidence
+instead. (10b/11) toggle no-second-reflow and sort-rotation motion — static
+screenshots structurally cannot prove motion; relying on the existing
+source-string tests, unchanged this round.
+
+Deferred to the orchestrator's own foregrounded pass on this same binary
+(34e1815ad, mtime 16:46:04), per the owner's plan: item 6's positive "●"
+active glyph (needs real key-window focus) and item 19's pending-glyph
+transition (a live-network race no headless capture has caught in any
+sweep so far).

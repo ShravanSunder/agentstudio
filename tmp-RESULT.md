@@ -1031,3 +1031,68 @@ same HEAD lineage): L2 real-terminal-content proof, grouping-mode
 persistence across restart, toggle button styling, icon-to-text spacing/
 alignment, chip matrix items unrelated to PR color. None of the source
 files behind those items changed in this round.
+
+## N5/F1 final gate: complete one-build sweep (2026-08-17, HEAD 34e1815ad)
+
+Fresh aggregate SHA-stamped to HEAD `34e1815ad1f2b75efe9569c8daa5dad8868571a3`
+(commit time 15:12:37): exit 0, 215.04s, header written into
+`tmp-aggregate-n5-0d5d413eb.log` (recorded against the immediately-prior
+HEAD `0d5d413eb`; `34e1815ad` is a docs-only child of it — `git diff
+0d5d413eb...34e1815ad -- Sources Tests` is empty, so that aggregate result
+still holds for the binary built and swept below). Binary rebuilt fresh for
+this sweep (mtime 16:46:04, newer than the commit) after an earlier attempt
+was blocked by the physical displays sleeping mid-run; the owner confirmed
+the session unlocked via the authoritative `ioreg -n Root -d1 -a | grep
+IOConsoleLocked` probe (`false`), and the sweep ran under `caffeinate -d`
+holding the display awake for its duration. Screenshots under
+`tmp-screenshots/n5-final-gate-sweep/`.
+
+This supersedes the fragmented v1 (`tmp-screenshots/f1-final-sweep/`, bound
+to `18bc7144f`) and v2 (`tmp-screenshots/f1-final-sweep-v2/`, a color-only
+delta on `c009a3311`) evidence for every cell captured fresh below. Items
+not recaptured (noted per-row) rely on that prior evidence because the
+source paths behind them are unchanged since — verified via `git diff
+<prior-sha>...34e1815ad -- Sources Tests` for the relevant files.
+
+| Item / cell | Verdict | Evidence |
+|---|---|---|
+| 1. By Repo unchanged | PASS (fresh) | `08-byrepo-chipmatrix-zoom.png` |
+| 2. All Panes grouped by repo | PASS (fresh) | `14-allpanes-pr-pane.png`, `16-allpanes-l2-ls.png` |
+| 3. By Tab: header = displayTitle + pane count, muted-primary(secondary) icon | PASS (fresh) | `13-tabheader-icon-zoom.png`, `15-bytab-pr-pane.png` |
+| 4. L1 "Pane n · title", fallback "Pane n · zsh" | PASS (fresh) | `19-l2-ls-zoom.png` ("Pane 1 · zsh") |
+| 5. L2 real terminal content | PASS (fresh) | `19-l2-ls-zoom.png` — real `ls -la` output (`drwxr-xr-x@ ... shravansunder 17 Aug 13:30...`) on this exact binary/SHA |
+| 6. L3 chips: PR / time ALWAYS / active only if focused | PASS (PR+time, fresh); active — see note | `17-allpanes-pr-chip-zoom.png`, `18-bytab-pr-chip-zoom.png` — time pill "3h" always present; positive "●" active glyph explicitly left to the orchestrator's foregrounded pass (key-window interaction), per this round's plan |
+| 7. By Repo diff: dirty/untracked/clean | PASS (fresh) | `08-byrepo-chipmatrix-zoom.png` — `01-dirty`→`+3 -2`, `02-untracked`→`untracked`, `04-clean`→none |
+| 8. By Repo sync: ↑N↓M | PASS (fresh) | `09-byrepo-sync-zoom.png` — `03-sync`→`↑1 ↓1`, still blue (unaffected by the color-sync round) |
+| 9. By Repo PR: ⑂N | PASS (fresh, real data) | `08-byrepo-chipmatrix-zoom.png` — `00-pr-agent-studio`→`⑂1` yellow, live PR #296 |
+| **9b. Pane-row PR chip = final yellow (previously-split cell)** | **PASS (fresh, closes N5's key gap)** | `17-allpanes-pr-chip-zoom.png` (All Panes) and `18-bytab-pr-chip-zoom.png` (By Tab) — both show `⑂1` in the same yellow as By Repo, on the same binary as the By Repo capture |
+| 10. Toggle: no borders, selected=accent icon+text+fill, unselected=secondary icon only | PASS (fresh) | `10-toggle-byrepo-zoom.png`, `11-toggle-allpanes-zoom.png`, `12-toggle-bytab-zoom.png` — note the toolbar toggle's own selected-icon blue is correct and distinct from the sidebar tab-group-header icon fixed to secondary in `13-tabheader-icon-zoom.png` |
+| 10b. No second reflow / transition motion | Not re-verified (static captures only) | Unchanged source this round; existing `chipRowsCarryNoTimelineDrivenAnimation` source-string test still green |
+| 11. Sort rotation motion | Not re-verified (static captures only) | Unchanged source this round; existing toggle/sort identity tests still green |
+| 12. Grouping mode persisted, restored on launch | PASS (fresh, full app restart) | Set "All Panes", quit, relaunched the same binary, `24-persistence-toggle-zoom.png` shows "All Panes" already selected before any IPC touched it |
+| 13. Empty state per mode | Not recaptured fresh — see note | `closePane` rejected via IPC (`-32007 parameters required`) despite being in the durable-pane-target command group; did not pursue further (out of scope for this round to debug the IPC contract). Relying on `tmp-screenshots/f1-final-sweep/03-allpanes-empty.png` / `04-bytab-empty.png` from the v1 sweep — `RepoExplorerEmptyStateView` is unchanged since (`git diff 18bc7144f...34e1815ad -- Sources/AgentStudio/Features/RepoExplorer/RepoExplorerEmptyStateView.swift` is empty) |
+| 14. Spacing rhythm identical across modes | PASS (visual, fresh) | Consistent across `08-byrepo-chipmatrix-zoom.png`, `17-allpanes-pr-chip-zoom.png`, `18-bytab-pr-chip-zoom.png` |
+| 15. Context menus/commands unchanged | Not touched this round | No source change; existing tests green |
+| 16. Cached keyed facts, no per-row derivation | PASS | F6 (prior round); source-string guard test still green, unchanged this round |
+| 17. Icon-to-text gap identical | PASS (visual, fresh) | `08-byrepo-chipmatrix-zoom.png` — group-header chevron/icon gap matches row star/branch gap |
+| 18. Chips row alignment: left, By Repo parity | PASS (visual, fresh) | `08-byrepo-chipmatrix-zoom.png` — chip pill left edge aligns with the branch text above it |
+| 19. Pending PR bare glyph, disappears once known | Not caught live this pass either | Same live-network-race limitation as the v1 sweep; existing `RepoExplorerWorktreeRowTests` pixel/unit coverage for the rendering logic is unchanged |
+
+Chip matrix cells not already covered above: universal zero-value/dot-alone
+suppression and pill-style parity are unaffected by this round's source
+changes (F7's fix and the shared `SidebarChip`/`SidebarPullRequestChipSpec`
+structure) and remain covered by the existing `RepoExplorerWorktreeRowTests`
+suite, all green.
+
+**Deferred to the orchestrator's foregrounded validation pass, same
+SHA/binary (34e1815ad, mtime 16:46:04), per the owner's plan**: item 6's
+positive "●" active glyph (needs real key-window focus) and item 19's
+pending-glyph transition frame (a live-network race no headless/background
+capture has caught across either sweep).
+
+Proof gates for this pass: `mise run lint` clean (from the N1-N6 commit,
+unchanged since), full aggregate green and SHA-stamped as above, fresh
+binary confirmed newer than HEAD, one continuous pixel-capture session on
+that binary via IPC + `peekaboo`, screen-lock state verified via the
+authoritative `ioreg IOConsoleLocked` probe both before starting and
+periodically during the sweep.
