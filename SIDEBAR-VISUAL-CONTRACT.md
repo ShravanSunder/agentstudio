@@ -8,9 +8,13 @@ MODES
 
 PANE ROW — 3 LINES (both pane modes; By Repo text sizes/spacing)
 4 L1 bold: "Pane <n> · <terminal title>"; fallback "Pane <n> · zsh".
-5 L2 dimmed: most recent CONTENT-BEARING inbox notification body for the
-  pane. Never the literal "New terminal activity"; generic-only => dimmed
-  "output activity".
+5 L2 dimmed: REAL terminal content for the pane — the most recent meaningful
+  line of actual terminal output, or a real notification body derived from
+  that output. Ordinary shell activity such as builds, `ls`, and Git commands
+  must populate L2; a pane that only renders generic `output activity` fails
+  this item. Injected notifications and fixtures prove rendering only and are
+  never valid product-pipeline evidence. Never render the literal
+  `New terminal activity`.
 6 L3 chips (By Repo pill style): [⑂N only if N>0] [time pill ALWAYS]
   [● active only if focused].
 

@@ -1,6 +1,6 @@
 # RESULT: Sidebar contract final validation
 
-Status: PASS. All 19 contract items and every applicable final chip-matrix cell pass on the origin/main-merged build.
+Status: BLOCKED-ON-DESIGN. Item 5 fails on the origin/main-merged build because the existing terminal activity pipeline carries output geometry, not terminal content. The other recorded contract and chip-matrix results are unchanged.
 
 ## 2026-08-16 merged-build checklist
 
@@ -10,7 +10,7 @@ Status: PASS. All 19 contract items and every applicable final chip-matrix cell 
 | 2 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png` | PASS — All Panes groups all three real panes under their repository and orders the activity rows. |
 | 3 | `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — By Tab renders the tab header, pane count, muted-primary icon, and all pane rows. |
 | 4 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — both pane modes render `Pane <n> · <terminal title>` on L1. |
-| 5 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — Pane 2 renders the real inbox-pipeline body `Content-bearing inbox proof` in both modes; other panes use `output activity` or `No activity yet`, never `New terminal activity`. |
+| 5 | Source trace: `GhosttyActionRouter+ObservedActions.swift`, `TerminalActivityProjector.swift`, `TerminalActivityRouter.swift`, `InboxNotificationRouter.swift`, `InboxPromoter.swift`, `InboxNotificationAtom.swift` | BLOCKED-ON-DESIGN — real shell output never enters the inbox payload. The activity lane contracts scrollbar samples to row counts and timing; settled promotions write `body: nil`, so L2 correctly falls back to `output activity` for every ordinary command. The prior synthetic OSC desktop notification and screenshots are invalid and removed from item-5 evidence. A new admitted terminal-content seam is required before real output can populate L2. |
 | 6 | `tmp-screenshots/contract-final/42-chip-matrix-final-all-panes.png`; `tmp-screenshots/contract-final/35-chip-matrix-by-tab.png` | PASS — every pane row has a time pill, the real PR row has `⑂1`, and only the focused Bridge pane has `● active`. |
 | 7 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — real dirty `01-dirty` renders `● +2 -1`; `02-untracked` renders `● untracked`; `04-clean` has no diff chip. |
 | 8 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png` | PASS — real divergent `03-sync` renders `↑1 ↓1`; no zero or unknown sync chip is present elsewhere. |
@@ -45,6 +45,37 @@ Status: PASS. All 19 contract items and every applicable final chip-matrix cell 
 | 12 | Settled All Panes. | Settled By Tab. |
 | 13 | Settled All Panes. | Settled By Tab. |
 | 14 | Settled All Panes; no toolbar flicker. | Settled By Tab; no toolbar flicker. |
+
+### Item 5 real terminal-content pipeline diagnosis
+
+The owner-visible failure is deterministic: builds, `ls`, and Git commands update terminal scrollback, but their output text never reaches an inbox notification.
+
+Current path:
+
+1. Ghostty's observed action path carries text only for explicit `.desktopNotification(title:body:)` actions. Normal terminal rendering emits scrollbar state and command-finished metadata, not output bytes or rendered lines.
+2. `TerminalActivityProjector` contracts high-frequency scrollbar samples into `TerminalSettledActivity`. That value contains row counts, timestamps, thresholds, and pinned-to-bottom state; it has no text field.
+3. `TerminalActivityRouter` posts the same text-free settled activity through the runtime bus.
+4. `InboxNotificationRouter` admits the settled event, and `InboxPromoter.promoteSettledActivity` deliberately constructs the notification with `body: nil` and title `New terminal activity`.
+5. `InboxNotificationAtom.recalculateLatestPaneMessages` accepts only content-bearing notification bodies. With no body, it materializes the keyed row fallback `output activity`.
+
+What carries content today:
+
+- Explicit Ghostty desktop notifications (OSC notification payloads) carry caller-supplied title/body text.
+- Agent RPC notifications carry their supplied body.
+- Some semantic events synthesize metadata bodies, for example command exit code and duration. They do not contain terminal output.
+
+What drops content:
+
+- No existing event drops a meaningful output line, because no existing production seam captures one. The terminal activity ingress observes only scrollbar geometry; the settled activity contraction and inbox promotion therefore have no content to preserve.
+- The prior `Content-bearing inbox proof` evidence was an injected OSC desktop notification. It proved the existing body renderer, not the normal terminal-output pipeline, and is not product evidence.
+
+Design seams requiring owner ratification:
+
+- Settled-burst snapshot: at the existing quiet-boundary admission, ask the terminal owner for one bounded rendered-line snapshot, normalize ANSI/control content off MainActor, then attach the contracted result to `TerminalSettledActivity`. This minimizes sampling but requires a new Ghostty read API, thread-safety/currentness rules, content privacy limits, and typed failure behavior.
+- PTY/zmx output contraction: admit terminal bytes before rendering and maintain a per-pane bounded meaningful-line projector. This covers arbitrary output but creates a new high-volume lane with ANSI parsing, prompt/progress-line replacement semantics, backpressure, secret/privacy handling, lifecycle cleanup, and equality suppression.
+- Shell-integration semantic emission: have supported shells emit a bounded completed-command/output summary through an explicit control sequence. This is lower volume and typed, but incomplete for unsupported shells/programs and requires a trustworthy definition of which line represents the command result.
+
+No implementation was attempted because all three options create a new terminal-to-state content lane or extend terminal integration authority. The contract requires owner-approved source, admission, contraction, privacy, and publication semantics first.
 
 ## Current gates
 
