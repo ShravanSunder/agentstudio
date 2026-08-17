@@ -329,14 +329,6 @@ struct RepoExplorerCommandPresentationBatchTests {
                         replacementHandler.repoExplorerCapabilityRequestBatches.count
                             > capabilityBatchCountBeforeActiveTab
                     }
-                    // The active-tab mutation's onChange-triggered refresh cascade can still have
-                    // batches in flight the instant the count first exceeds the baseline above —
-                    // `eventually` only proves one batch arrived, not that the cascade finished.
-                    // Capturing the "before" baseline for the next assertion mid-cascade would let
-                    // that cascade's own tail batches land during the unrelated-repo window below
-                    // and be misattributed to the unrelated repo add. Wait for the count to stop
-                    // moving first.
-                    await waitForCapabilityBatchCountToSettle(replacementHandler)
                     #expect(batch.snapshot.generation == managementGeneration)
                     let activeTabGeneration = managementGeneration
                     let presentationBeforeUnrelatedRepo = batch.snapshot.results
@@ -454,34 +446,6 @@ struct RepoExplorerCommandPresentationBatchTests {
             for _ in 0..<20 { await Task.yield() }
             #expect(batch.snapshot.generation == collapsedGeneration)
             #expect(store.paneAtom.isDrawerExpanded(for: pane.id) == false)
-        }
-    }
-}
-
-/// Waits until `handler.repoExplorerCapabilityRequestBatches.count` stops changing for
-/// `stableTurns` consecutive scheduler turns, bounded by `maxTurns`. Unlike `eventually`, which
-/// returns as soon as a condition first becomes true, this proves the onChange-triggered refresh
-/// cascade has fully drained — needed before treating the current count as a stable "before"
-/// baseline for a subsequent assertion.
-@MainActor
-private func waitForCapabilityBatchCountToSettle(
-    _ handler: MockCommandHandler,
-    stableTurns: Int = 20,
-    maxTurns: Int = 2000
-) async {
-    var lastCount = handler.repoExplorerCapabilityRequestBatches.count
-    var stableStreak = 0
-    for _ in 0..<maxTurns {
-        await Task.yield()
-        let currentCount = handler.repoExplorerCapabilityRequestBatches.count
-        if currentCount == lastCount {
-            stableStreak += 1
-            if stableStreak >= stableTurns {
-                return
-            }
-        } else {
-            lastCount = currentCount
-            stableStreak = 0
         }
     }
 }
