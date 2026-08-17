@@ -671,3 +671,23 @@ being invoked from `TerminalActivityRouter.consumeProjectionOutcome`'s
 a way the three-line unit test still doesn't capture. Have not added a
 temporary diagnostic log line to pin this down further — that's a real (if
 temporary) code change and I want to confirm before making it.
+
+### Forge live acceptance — now fully proven (upgraded from strong-but-incomplete)
+
+Re-launched with `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=add-watch-folder` +
+`AGENTSTUDIO_STARTUP_WATCH_FOLDER` pointed at `tmp/forge-live-proof/`
+(`no-remote-repo`, `detached-repo` with a `detached-repo-worktree` linked
+worktree at `--detach`), switched to "By Repo" grouping via
+`command.execute {"commandId":"setRepoSidebarGroupingRepo"}`, then captured
+with `peekaboo see --no-elements` (screenshot-only, skips the AX read that
+was timing out — this is now the confirmed reliable pattern for pixel proof
+on this multi-instance desktop).
+
+Clean, decisive result: all four rows —
+`detached-repo/main`, `detached-repo-worktree/detached HEAD`,
+`no-remote-repo/main`, `single-repo/main` (my L2 fixture, also no-remote, so
+it doubles as a fifth confirming data point) — render a plain branch line
+with no PR chip and no pending glyph. Screenshots saved at
+`tmp-screenshots/forge-live-proof/no-remote-and-detached-head-no-glyph.png`
+and a cropped/zoomed version alongside it. This closes the forge live
+acceptance item.
