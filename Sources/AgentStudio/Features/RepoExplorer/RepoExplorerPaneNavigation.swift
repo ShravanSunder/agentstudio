@@ -101,7 +101,7 @@ struct RepoExplorerUnassociatedPaneRow: View {
         Button(action: onFocus) {
             SidebarRowShell(isHovering: isHovering) {
                 SidebarMetadataLine(
-                    iconSystemName: "square.split.2x1",
+                    icon: .systemName("square.split.2x1"),
                     text: label
                 )
             }

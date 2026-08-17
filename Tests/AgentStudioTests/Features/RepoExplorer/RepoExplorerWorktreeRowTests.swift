@@ -169,6 +169,22 @@ struct RepoExplorerWorktreeRowTests {
         #expect(!chipSource.contains("symbolEffect"))
     }
 
+    @Test("branch and placement second lines render through the shared SidebarMetadataLine component")
+    func branchAndPlacementLinesUseSharedMetadataLineComponent() throws {
+        let rowSource = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(rowSource.contains("SidebarMetadataLine("))
+        #expect(rowSource.contains(".octicon(name: \"octicon-git-branch\", loader: octiconLoader)"))
+        #expect(rowSource.contains("text: branchName"))
+        #expect(rowSource.contains(".systemName(\"square.split.2x1\")"))
+        #expect(rowSource.contains("text: placementText"))
+        // The branch and placement lines no longer hand-roll their own icon+text HStack.
+        #expect(!rowSource.contains("Image(systemName: \"square.split.2x1\")"))
+    }
+
     @Test("stale pull request metadata renders as a bare chip-height glyph")
     func stalePullRequestMetadataRendersAsBareGlyph() throws {
         let rowSource = try String(
@@ -482,14 +498,13 @@ struct RepoExplorerWorktreeRowTests {
         #expect(paneNavigationSource.contains("text: \"active\""))
         #expect(paneNavigationSource.contains("normalizedPullRequestCount(pullRequestCount)"))
         #expect(paneNavigationSource.contains("text: row.recencyText"))
-        #expect(
-            worktreeRowSource.contains(
-                """
-                Image(systemName: "square.split.2x1")
-                                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
-                """
-            )
-        )
+        // Both the pane row and the worktree row now render the "square.split.2x1" placement
+        // line through the same shared SidebarMetadataLine component rather than each hand-rolling
+        // their own icon+text HStack.
+        #expect(paneNavigationSource.contains(".systemName(\"square.split.2x1\")"))
+        #expect(worktreeRowSource.contains(".systemName(\"square.split.2x1\")"))
+        #expect(worktreeRowSource.contains("SidebarMetadataLine("))
+        #expect(!worktreeRowSource.contains("Image(systemName: \"square.split.2x1\")"))
     }
 
     @Test("pane rows use By Repo rhythm, indent, and group-container color")

@@ -166,43 +166,16 @@ struct RepoExplorerWorktreeRowContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .sidebarIconLineTextColumnGuide()
 
-            HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-                OcticonImage(
-                    name: "octicon-git-branch",
-                    size: AppStyles.Shell.Sidebar.branchIconSize,
-                    loader: octiconLoader
-                )
-                .foregroundStyle(.secondary)
-                .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-
-                Text(branchName)
-                    .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .sidebarIconLineTextColumnGuide()
+            SidebarMetadataLine(
+                icon: .octicon(name: "octicon-git-branch", loader: octiconLoader),
+                text: branchName
+            )
 
             if !placementText.isEmpty {
-                HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
-                    Image(systemName: "square.split.2x1")
-                        .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-
-                    Text(placementText)
-                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .layoutPriority(1)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .sidebarIconLineTextColumnGuide()
+                SidebarMetadataLine(
+                    icon: .systemName("square.split.2x1"),
+                    text: placementText
+                )
             }
 
             if hasStatusMetadata {
