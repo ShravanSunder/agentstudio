@@ -7,6 +7,7 @@ import {
 	isBridgeCodeViewItem,
 	type BridgeCodeViewControllerEntry,
 } from './bridge-code-view-panel-support.js';
+import { bridgeCodeViewPresentationItemWithExactSource } from './bridge-code-view-render-fulfillment.js';
 import type { BridgeCodeViewWorktreeAnnotations } from './use-bridge-code-view-worktree-annotations.js';
 
 export function useBridgeCodeViewWorktreeAnnotationEffects(props: {
@@ -28,10 +29,14 @@ export function useBridgeCodeViewWorktreeAnnotationEffects(props: {
 		const annotatedItems = props.currentCodeViewItemsRef.current.map((recordedItem) => {
 			const currentItem = codeViewHandle.getItem(recordedItem.id);
 			const presentationItem = isBridgeCodeViewItem(currentItem) ? currentItem : recordedItem;
-			return {
-				...annotateItem(presentationItem),
-				version: (presentationItem.version ?? 0) + 1,
-			};
+			const annotatedItem = annotateItem(presentationItem);
+			return bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: {
+					...annotatedItem,
+					version: (presentationItem.version ?? 0) + 1,
+				},
+				sourceItem: annotatedItem,
+			});
 		});
 		const controller = controllerForHandle({
 			controllerEntryRef: props.controllerEntryRef,

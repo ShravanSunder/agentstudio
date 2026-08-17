@@ -29,6 +29,7 @@ import {
 	WorktreeAnnotationThread,
 } from '../../worktree-annotations/worktree-annotation-thread.js';
 import type { BridgeCodeViewItem } from './bridge-code-view-materialization.js';
+import { bridgeCodeViewPresentationItemWithExactSource } from './bridge-code-view-render-fulfillment.js';
 import {
 	reviewAnnotationOriginForPierreSelection,
 	reviewPierreAnnotationForExistingCodeViewComposer,
@@ -104,11 +105,14 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 							})
 						: null;
 				if (projection.revision === null && composerAnnotation === null) return item;
-				return {
-					...item,
-					annotations:
-						composerAnnotation === null ? annotations : [...annotations, composerAnnotation],
-				};
+				return bridgeCodeViewPresentationItemWithExactSource({
+					presentationItem: {
+						...item,
+						annotations:
+							composerAnnotation === null ? annotations : [...annotations, composerAnnotation],
+					},
+					sourceItem: item,
+				});
 			}
 			const annotations =
 				projection.revision === null
@@ -127,11 +131,14 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 						})
 					: null;
 			if (projection.revision === null && composerAnnotation === null) return item;
-			return {
-				...item,
-				annotations:
-					composerAnnotation === null ? annotations : [...annotations, composerAnnotation],
-			};
+			return bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: {
+					...item,
+					annotations:
+						composerAnnotation === null ? annotations : [...annotations, composerAnnotation],
+				},
+				sourceItem: item,
+			});
 		},
 		[
 			activeThreads,

@@ -4,11 +4,14 @@ import { createBridgeMainRenderFulfillmentCoordinator } from '../../core/comm-wo
 import { makeReviewPublication } from '../../core/comm-worker/bridge-main-render-fulfillment-coordinator.test-support.js';
 import type { BridgeWorkerRenderSourceCorrelation } from '../../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerRenderDispositionReceipt } from '../../core/comm-worker/bridge-worker-render-fulfillment.js';
-import { observeBridgeCodeViewRenderFulfillment } from './bridge-code-view-render-fulfillment.js';
+import {
+	bridgeCodeViewPresentationItemWithExactSource,
+	observeBridgeCodeViewRenderFulfillment,
+} from './bridge-code-view-render-fulfillment.js';
 import { bridgeCodeViewItemFromWorkerPreparedItem } from './bridge-code-view-worker-prepared-items.js';
 
 describe('Bridge CodeView post-render readback', () => {
-	test('uses the authoritative post-render node when the CodeView handle is unavailable', async () => {
+	test('accepts a presentation-only annotation clone with the exact worker source payload', async () => {
 		// Arrange
 		const dispositions: BridgeWorkerRenderDispositionReceipt[] = [];
 		const pendingAnimationFrames: FrameRequestCallback[] = [];
@@ -45,6 +48,20 @@ describe('Bridge CodeView post-render readback', () => {
 		}
 		Object.assign(exactItem.bridgeMetadata, { lineCount: 0 });
 		Object.assign(exactItem.fileDiff, { additionLines: [], deletionLines: [] });
+		expect(() =>
+			bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: { ...exactItem, fileDiff: { ...exactItem.fileDiff } },
+				sourceItem: exactItem,
+			}),
+		).toThrowError('Bridge CodeView presentation item changed its exact worker source payload.');
+		const presentationItem = bridgeCodeViewPresentationItemWithExactSource({
+			presentationItem: {
+				...exactItem,
+				annotations: [],
+				version: (exactItem.version ?? 0) + 1,
+			},
+			sourceItem: exactItem,
+		});
 		const renderedElement = document.createElement('div');
 		document.body.append(renderedElement);
 		renderFulfillmentCoordinator.acceptPublication(publication);
@@ -58,7 +75,7 @@ describe('Bridge CodeView post-render readback', () => {
 		try {
 			// Act
 			observeBridgeCodeViewRenderFulfillment({
-				contextItem: exactItem,
+				contextItem: presentationItem,
 				getCodeViewHandle: (): null => null,
 				itemId: exactItem.id,
 				phase: 'update',

@@ -4,6 +4,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactElem
 
 import type { BridgeMainRenderFulfillmentCoordinator } from '../core/comm-worker/bridge-main-render-fulfillment-coordinator.js';
 import {
+	bridgeCodeViewPresentationItemWithExactSource,
 	observeBridgeCodeViewRenderFulfillment,
 	reconcileBridgeCodeViewRenderFulfillment,
 } from '../review-viewer/code-view/bridge-code-view-render-fulfillment.js';
@@ -118,16 +119,19 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			if (annotationProjection.revision === null && pendingComposerAnnotation === null) {
 				return item;
 			}
-			return Object.assign({}, item, {
-				annotations:
-					pendingComposerAnnotation === null
-						? annotations
-						: [...annotations, pendingComposerAnnotation],
-				version: annotationPresentationVersion(
-					item.version,
-					annotationProjection.presentationRevision,
-					composerPresentationRevision,
-				),
+			return bridgeCodeViewPresentationItemWithExactSource({
+				presentationItem: Object.assign({}, item, {
+					annotations:
+						pendingComposerAnnotation === null
+							? annotations
+							: [...annotations, pendingComposerAnnotation],
+					version: annotationPresentationVersion(
+						item.version,
+						annotationProjection.presentationRevision,
+						composerPresentationRevision,
+					),
+				}),
+				sourceItem: item,
 			});
 		});
 	}, [
