@@ -151,8 +151,6 @@ package enum AppPolicies {
         package static let filesystemMaxFlushLatency: Duration = .seconds(10)
         package static let filesystemDerivedCoalescingWindow: Duration = .milliseconds(500)
         package static let visibilityChangeCoalescingWindow: Duration = .milliseconds(200)
-        package static let registrationValidationMaximumAttempts: Int = 3
-        package static let registrationValidationRetryDelay: Duration = .milliseconds(250)
 
         package struct Policy: Equatable, Sendable {
             package let activePaneCadence: Duration
