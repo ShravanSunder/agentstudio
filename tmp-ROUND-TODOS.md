@@ -133,3 +133,27 @@ Deferred to the orchestrator's own foregrounded pass on this same binary
 active glyph (needs real key-window focus) and item 19's pending-glyph
 transition (a live-network race no headless capture has caught in any
 sweep so far).
+
+## Pass 3 residuals (2026-08-17)
+
+| Item | Owner | Status |
+|---|---|---|
+| N1 tie-breaker | sidebar-finisher | done. Migration 005's `ORDER BY updated_at DESC` alone left the winner unspecified when two legacy rows share an identical `updated_at` (same-batch/import write). Added `workspace_id DESC` as a deterministic secondary key; updated the migration comment. New test decouples insertion order from workspace_id ordering (inserts the lesser id last) so a naive/unfixed query — which in this SQLite build happened to favor the most-recently-inserted row on ties — cannot coincidentally pass; confirmed genuinely red against the unfixed query (`repoGroupingMode == "pane"` vs expected `"tab"`) before restoring the fix. Full `WorkspaceLocalMigrationTests` suite (13 tests) green, `mise run lint` exit 0 with zero findings in either changed file. Commit `525f7dafd` (unsigned — two 1Password sign attempts failed with "failed to fill whole buffer", falling back per house AFK policy), pushed to `feat/sidebar-grouping-rows`. |
+| F6 boundary | sidebar-finisher | RULING (no code change, pass-3 residual): the view-owned memoization stands for this round as an explicit re-spec. Tracked follow-up: **F6 boundary: move title/shell derivation into owning caches publishing keyed facts — perf-program follow-up, reviewer pass-3 residual.** |
+| Final binary | sidebar-finisher | done — see "Final binary (pass 3)" section below. |
+
+## Final binary (pass 3, 2026-08-17)
+
+HEAD: `525f7dafdc361ff9f0ef258cb2e836971e065c31` (commit time 2026-08-17
+17:51:24-0400, the N1 tie-breaker commit). Rebuilt via `mise run build` then
+relaunched via `mise run run-debug-observability -- --detach` (which rebuilds
+again as part of its own flow — same HEAD, no intervening commit). Binary
+mtime `Aug 17 17:52:53 2026` > HEAD commit time 17:51:24 — freshness
+confirmed. PID `43907`, launched background via LaunchServices (`open`-based,
+no foreground steal), debug code `jp6s`, marker
+`debug-observability-jp6s-1787003571-42930`. Launched and left running per
+instruction — no screenshots or IPC interaction taken after this launch. The
+remaining evidence cells (empty state via GUI pane-close, sort/toggle motion
+burst, positive active glyph, pending-glyph transition via fresh-repo
+registration) are reserved for the orchestrator's own foregrounded pass on
+this exact binary/PID.
