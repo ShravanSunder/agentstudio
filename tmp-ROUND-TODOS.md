@@ -79,3 +79,22 @@ binary's modification time is NEWER than the branch's last commit time
 (command stat on ~/.agentstudio-db/jp6s/apps/.../MacOS/AgentStudio vs git log -1
 --format=%ci). Stale → mise run build + relaunch FIRST. No screenshots from a
 binary older than the code it claims to demonstrate.
+
+## Re-audit round 2 (N1-N6, N5/F1 final gate) — 2026-08-17
+
+| Item | Owner | Status |
+|---|---|---|
+| N6 | sidebar-finisher | done. SIDEBAR-VISUAL-CONTRACT.md item 3 amended to match item 0's anchor rule (tab icon = By Repo second-line text shade), owner ruling noted inline. |
+| N1 | sidebar-finisher | done. Migration 005's grouping-mode copy now deterministic (`ORDER BY updated_at DESC LIMIT 1`, documented rationale: the active-workspace selection that would resolve this lives in a separate database — core.sqlite — this local migration cannot reach). Test seeds two legacy workspace rows with different modes, proves the newer one wins. |
+| N2 | sidebar-finisher | done. (a) `projectionInputRevision` now reads the same `KeyboardRoutingContext`/`attendedPane` facts `paneRowFactsByPaneId` depends on, so a focus-only transition admits a reprojection — proven via the exact `withObservationTracking` wiring production uses. (b) `paneRowFactsByPaneId` now uses `KeyboardRoutingContext.current(...)` (adds `isStableMainWindowChain`, a new accessor) instead of raw `KeyboardOwner.current(...)`, so an open command bar drops the active dot — proven live in a unit test. |
+| N3 | sidebar-finisher | done. `TerminalActivityRouterCloseTests` F9 regression test replaced with a real `PaneActivityStatusAtom` integration: seeds a fact, closes through the router, asserts keyed removal, and proves the rate-limit dictionary itself was reset by republishing a different line at the identical fixed timestamp. |
+| N4 | sidebar-finisher | done. All flagged bare `UUID()` sites replaced with `UUIDv7.generate()`. |
+| N5/F1 final gate | sidebar-finisher | PARTIAL — aggregate + binary done, pixel sweep BLOCKED. Fresh aggregate run SHA-stamped to HEAD `0d5d413eb84c8de38c48101b73702d758795a292` (commit time 2026-08-17 14:59:06-0400): exit 0, 215.04s, `tmp-aggregate-n5-0d5d413eb.log`. Fresh binary built and verified (mtime 2026-08-17 15:07:20 > commit time). Started the one-build sweep (auth'd, switched grouping modes, began the PR-chip patient poll) but the physical displays went to sleep mid-run ("Display Asleep: Yes" on both the external DELL and the built-in display, confirmed via `system_profiler SPDisplaysDataType`) — every `peekaboo see` call failed with "No displays available for window capture" and produced zero screenshot files. Quit the debug app cleanly rather than leave it running or attempt to wake the display. Per house rule (never bypass a locked/unavailable screen), stopped pixel work and reported the blocker rather than guessing. **The already-built binary (mtime 15:07:20, HEAD 0d5d413eb) remains valid for the sweep once a display is available — no rebuild needed, just relaunch.** All non-pixel work for this gate (source fixes N1-N6, aggregate, binary freshness) is complete. |
+
+Blocked deliverable when displays are available: ONE complete pixel sweep on
+the 0d5d413eb binary covering every contract item and matrix cell, including
+the previously-split cells (final-yellow pane-row PR chip in All Panes/By
+Tab, diff/sync chips, empty states, icon-to-text alignment, toggle
+border/fill geometry, sort-rotation motion). The two cells team-lead already
+claimed for their own foregrounded validation pass (positive active glyph,
+pending-glyph transition) remain deferred to that pass, same SHA/binary.
