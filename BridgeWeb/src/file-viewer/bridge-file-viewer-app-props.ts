@@ -8,11 +8,16 @@ import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-co
 import type { BridgeFileViewerDisplaySource } from './bridge-file-viewer-display-model.js';
 
 export interface BridgeFileViewerOpenPathCommand {
+	readonly activationStartedAtPerfNow: number;
 	readonly commandId: number;
 	readonly path: string;
+	readonly traceContext: BridgeTraceContext | null;
 }
 
 export interface BridgeFileViewerAppProps {
+	readonly activationCause?: 'context_switcher' | 'native_request' | 'review_file_corner' | null;
+	readonly activationSequence?: number | null;
+	readonly activationStartedAtPerfNow?: number | null;
 	readonly autoOpenInitialFile?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;

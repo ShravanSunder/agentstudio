@@ -16,6 +16,8 @@ import { resolveBridgeFileMarkdownIntent } from '../app/markdown/bridge-file-mar
 import { useBridgeMarkdownPresentation } from '../app/markdown/use-bridge-markdown-presentation.js';
 import { useBridgeViewerToolbarShortcuts } from '../app/use-bridge-viewer-toolbar-shortcuts.js';
 import { bridgeWorkerFileQueryKey } from '../core/comm-worker/bridge-worker-file-query-contracts.js';
+import { recordBridgeFileSelectionCommitTelemetrySample } from '../foundation/telemetry/bridge-viewer-activation-telemetry.js';
+import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import {
 	bridgeFileViewerCodeViewOptions,
@@ -68,6 +70,9 @@ export function BridgeFileViewerAppImplementation(
 	props: BridgeFileViewerAppImplementationProps,
 ): ReactElement {
 	const {
+		activationCause = null,
+		activationSequence = null,
+		activationStartedAtPerfNow = null,
 		autoOpenInitialFile = false,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
@@ -93,6 +98,8 @@ export function BridgeFileViewerAppImplementation(
 	const [viewSettingsMenuOpen, setViewSettingsMenuOpen] = useState(false);
 	const projectionExclusionClearedSelectionRef = useRef(false);
 	const appliedOpenPathCommandIdRef = useRef<number | null>(null);
+	const recordedFileOpenReadyActivationSequenceRef = useRef<number | null>(null);
+	const recordedSelectionCommitActivationSequenceRef = useRef<number | null>(null);
 	const selectionQueryKeyRef = useRef('');
 	useEffect((): void => {
 		if (!isActive) {
@@ -211,8 +218,31 @@ export function BridgeFileViewerAppImplementation(
 				fileId: nextSelection.fileId,
 				selectedSource: source,
 			});
+			if (
+				activationCause !== null &&
+				activationSequence !== null &&
+				displayModel.source !== null &&
+				recordedSelectionCommitActivationSequenceRef.current !== activationSequence
+			) {
+				recordedSelectionCommitActivationSequenceRef.current = activationSequence;
+				recordBridgeFileSelectionCommitTelemetrySample({
+					activationSequence,
+					selectionOrigin: activationCause,
+					sourceGeneration: displayModel.source.generation,
+					telemetryRecorder,
+					traceContext: openPathCommand?.traceContext ?? null,
+				});
+			}
 		},
-		[queryKey, renderSnapshotController],
+		[
+			activationCause,
+			activationSequence,
+			displayModel.source,
+			openPathCommand,
+			queryKey,
+			renderSnapshotController,
+			telemetryRecorder,
+		],
 	);
 	useEffect((): void => {
 		if (
@@ -318,6 +348,53 @@ export function BridgeFileViewerAppImplementation(
 		selectFile,
 		selection,
 	]);
+	useEffect((): (() => void) | void => {
+		if (
+			!isActive ||
+			activationSequence === null ||
+			activationStartedAtPerfNow === null ||
+			telemetryRecorder === undefined ||
+			recordedFileOpenReadyActivationSequenceRef.current === activationSequence ||
+			openFileState.status !== 'ready' ||
+			renderSnapshotController.selectedCodeViewItem === null
+		) {
+			return;
+		}
+		const frameId = requestAnimationFrame((): void => {
+			if (recordedFileOpenReadyActivationSequenceRef.current === activationSequence) return;
+			recordedFileOpenReadyActivationSequenceRef.current = activationSequence;
+			recordBridgeViewerFileOpenReadyTelemetrySample({
+				demandQueueWaitMilliseconds: null,
+				disposition: 'cold-loaded',
+				durationMilliseconds: performance.now() - activationStartedAtPerfNow,
+				estimatedBytes: selectedDisplayItem?.payloadByteCount ?? null,
+				executorInFlightMilliseconds: null,
+				executorPendingWaitMilliseconds: null,
+				lane: 'foreground',
+				requestId: activationSequence,
+				resourceBodyRegistryCommitMilliseconds: null,
+				resourceFetchResponseWaitMilliseconds: null,
+				resourceFirstChunkWaitMilliseconds: null,
+				resourceStreamReadMilliseconds: null,
+				result: 'success',
+				resultReason: null,
+				sourceGeneration: displayModel.source?.generation ?? null,
+				telemetryRecorder,
+				traceContext: openPathCommand?.traceContext ?? null,
+			});
+		});
+		return (): void => cancelAnimationFrame(frameId);
+	}, [
+		activationSequence,
+		activationStartedAtPerfNow,
+		displayModel.source,
+		isActive,
+		openFileState.status,
+		openPathCommand,
+		renderSnapshotController.selectedCodeViewItem,
+		selectedDisplayItem,
+		telemetryRecorder,
+	]);
 
 	const dispatchVisibleFileDemand = useBridgeFileViewerVisibleDemandController({
 		dispatchVisibleFileViewViewportFact:
@@ -357,6 +434,8 @@ export function BridgeFileViewerAppImplementation(
 				filterMode={filterMode}
 				isFilterMenuOpen={isFilterMenuOpen}
 				fileTreePatchStream={renderSnapshotController.fileTreePatchStream}
+				fileActivationSequence={activationSequence}
+				fileActivationStartedAtPerfNow={activationStartedAtPerfNow}
 				isActive={isActive}
 				isSearchOpen={search.isOpen}
 				onFilterMenuOpenChange={setIsFilterMenuOpen}
