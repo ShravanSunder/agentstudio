@@ -16,7 +16,7 @@ struct SidebarToolbarControlVisualStateTests {
         #expect(allPanesWidth > repoWidth)
     }
 
-    @Test("selected segment uses accent foreground and subtle fill without borders")
+    @Test("selected segment uses accent foreground and accent-tinted fill without borders")
     func selectedSegmentUsesBorderlessAccentPresentation() throws {
         let source = try String(
             contentsOfFile: "Sources/AgentStudio/SharedComponents/SidebarToolbarSegmentedControl.swift",
@@ -25,6 +25,10 @@ struct SidebarToolbarControlVisualStateTests {
 
         #expect(source.contains("Text(segment.label)"))
         #expect(source.contains("ChromeToolbarControlPalette.foregroundColor"))
+        // The selected fill must come from the same shared palette the Zoom pill family uses (an
+        // accent-tinted fill), not an ad-hoc Color.primary opacity — that generic grey fill remains
+        // only for the unselected/hover/pressed states.
+        #expect(source.contains("ChromeToolbarControlPalette.fillColor"))
         #expect(source.contains("visualState.fillOpacity"))
         #expect(!source.contains(".stroke("))
         #expect(!source.contains("ChromeToolbarControlPalette.strokeColor"))

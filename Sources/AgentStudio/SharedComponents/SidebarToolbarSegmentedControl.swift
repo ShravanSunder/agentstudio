@@ -155,7 +155,17 @@ private struct SidebarToolbarSegmentButtonStyleBody: View {
             )
             .background(
                 RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.ToolbarControl.cornerRadius)
-                    .fill(Color.primary.opacity(visualState.fillOpacity))
+                    .fill(
+                        isSelected
+                            // Selected fill comes from the same shared palette the Zoom pill family
+                            // uses, so the two selected-state treatments can never diverge in color.
+                            ? ChromeToolbarControlPalette.fillColor(
+                                isSelected: true,
+                                isHovered: isHovered,
+                                isPressed: configuration.isPressed
+                            )
+                            : Color.primary.opacity(visualState.fillOpacity)
+                    )
             )
             .opacity(isEnabled ? 1 : AppStyles.Shell.Sidebar.ToolbarControl.disabledOpacity)
             .onHover { isHovered = $0 }
