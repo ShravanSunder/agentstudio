@@ -691,3 +691,79 @@ with no PR chip and no pending glyph. Screenshots saved at
 `tmp-screenshots/forge-live-proof/no-remote-and-detached-head-no-glyph.png`
 and a cropped/zoomed version alongside it. This closes the forge live
 acceptance item.
+
+## 2026-08-17 (continued) — RC2 root cause found: Ghostty read returns zero-length text for this pane type
+
+Added the two owner-approved temporary diagnostic prints (using `os.log`
+`Logger`, not `print()` — `print()` from a LaunchServices-launched app isn't
+captured anywhere readable; `os_log` is, via `log show`), plus two more in
+the same spirit to bridge gaps the first two didn't cover, all stripped back
+out afterward (confirmed via `git checkout --` on all four touched files,
+rebuild clean, `mise run test:swift -- --filter Terminal` — 586 tests green).
+
+**5-minute source check first, per owner's request:** `commandFinished`
+DOES call the same `resolveLastOutputLine` reader as the scrollbar paths
+(confirmed by re-reading `TerminalActivityProjector.commandFinished`), and
+its emitted `.unseenActivitySettled` outcome is handled by the exact same
+`TerminalActivityRouter.consumeProjectionOutcome` switch case as scrollbar
+settles — `recordSettledActivityStatus` is not skipped or routed
+differently. So the "diverging code path" hypothesis was ruled out before
+adding any prints. Also found and fixed a real test gap the owner suspected:
+`TerminalActivityRouterTests.commandFinishedBusEventSettlesPaneWithZeroScrollbarEvents`
+posts a real bus envelope and asserts on the *derived* envelope reaching the
+bus, but never wires or asserts `recordSettledActivityStatus` at all (unlike
+the scrollbar-path test, which does) — so it could not have caught this.
+
+**Diagnostic trace, in order:**
+1. `PaneActivityStatusAtom.recordSettledActivity` — fired several times at
+   boot for various panes, always with `lastOutputLine=nil`, but *never* for
+   my target pane during my actual test window. These were unrelated
+   boot-time settles, not my commands.
+2. `TerminalActivityProjector.commandFinished`'s own emit line — never
+   fired at all, for any pane, during the entire session. This is the key
+   finding: `commandFinished` was being *called* (see next point) but never
+   reached its `emit(...)` call, meaning it hit its own early-return guard
+   (`guard closedWindow != nil || lastOutputLine != nil else { return }`)
+   every time — both were nil.
+3. Added a third print directly in `TerminalActivityRouter.consume(_:)`:
+   confirmed `commandFinished` genuinely was invoked 3 times for my exact
+   pane and exact commands (`cd`, then two `echo`s), with `isHighVolume=false`
+   and a *successfully resolved* `surfaceID` — ruling out the surface-ID-path
+   candidate definitively; the router-to-projector dispatch is correct.
+4. Added a fourth print directly in `SurfaceManager.readViewportTrailingText`,
+   disambiguating every nil-return branch. Result:
+   `rows=50 columns=130` (valid, real geometry) — `ghostty_surface_read_text`
+   returns `true` — `text.text == nil` is `false` (non-nil pointer) —
+   **but `text.text_len == 0`**. The Ghostty C API call succeeds structurally
+   and returns a real, non-null buffer, but with zero length, for the
+   requested viewport selection, on this specific pane, every single time
+   across three separate commands with genuinely different real output
+   (confirmed visually via screenshot earlier in this investigation — the
+   echoed text was on-screen in the pane).
+
+**This is the actual root cause, at the Ghostty C API boundary**, not
+anywhere in the Swift settle/atom/routing code I've been able to touch or
+test at the Swift level. Every layer above this — router dispatch, projector
+sequencing, atom write path, learned-prompt-signature contraction — is
+correct and already covered by tests. The unit tests all pass because they
+mock `lastOutputLineReader`/`SurfaceManager` at exactly this boundary and
+never exercise the real `ghostty_surface_read_text` call for this pane
+shape.
+
+**What's specific to the pane shape that might explain a zero-length read**
+(not verified further — this needs either Ghostty source access, which
+isn't hydrated in this worktree, or a different reproduction path):
+this is a pane created via the `ipc-terminal-smoke` startup diagnostic (a
+floating/unassociated pane at creation) that was then re-associated to a
+worktree via a `cd` command through the CWD-tracking mechanism, not created
+through the normal "open worktree in pane" flow. It's possible this
+specific creation path leaves the surface's Ghostty-side render/scrollback
+state in a condition where geometry queries succeed but text-selection reads
+against the viewport come back empty — e.g. a first-paint/composite that
+hasn't happened for this pane's specific surface, since it may never be the
+*visible* pane in its tab. I have not confirmed this against a pane created
+through the ordinary worktree-open flow (I could not reach that flow
+headlessly — see the recipe note above) — that's the natural next
+falsification test if this needs to go further: does a *normal*,
+GUI-created worktree pane hit the same zero-length read, or is this
+specific to the ipc-terminal-smoke + cd-reassociation recipe.
