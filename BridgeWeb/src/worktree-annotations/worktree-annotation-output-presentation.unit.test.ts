@@ -38,9 +38,9 @@ describe('worktree annotation output presentation', () => {
 			}),
 		).toEqual({
 			closeInteraction: false,
-			message: 'Exported 1 comment to review-comments.json.',
+			message: null,
 			severity: 'success',
-			toast: null,
+			toast: 'Exported 1 comment to review-comments.json.',
 		});
 		expect(annotationOutputFeedback({ kind: 'destination_cancelled' })).toEqual({
 			closeInteraction: false,

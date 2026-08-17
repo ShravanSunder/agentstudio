@@ -38,6 +38,7 @@ describe('worktree annotation inline thread', () => {
 		]);
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Review output' })).toBeVisible();
 		expect(document.querySelector('[aria-label^="Expand "]')).toBeNull();
 	});
 
@@ -59,6 +60,7 @@ describe('worktree annotation inline thread', () => {
 
 		await expect.element(rendered.getByText('Add coverage for the failure case.')).toBeVisible();
 		expect(document.body.textContent).not.toContain('Keep the refresh asynchronous.');
+		expect(document.querySelector('[aria-label="Review output"]')).toBeNull();
 		await expect.element(rendered.getByRole('button', { name: 'Expand 2 messages' })).toBeVisible();
 
 		await act(async (): Promise<void> => {
@@ -67,6 +69,7 @@ describe('worktree annotation inline thread', () => {
 
 		await expect.element(rendered.getByText('Keep the refresh asynchronous.')).toBeVisible();
 		await expect.element(rendered.getByText('Add coverage for the failure case.')).toBeVisible();
+		await expect.element(rendered.getByRole('button', { name: 'Review output' })).toBeVisible();
 		await expect
 			.element(rendered.getByRole('button', { name: 'Collapse 2 messages' }))
 			.toBeVisible();

@@ -20,7 +20,10 @@ import type {
 	WorktreeAnnotationOutputHistorySummary,
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
-import { WorktreeAnnotationSurfaceProvider } from './worktree-annotation-surface-provider.js';
+import {
+	useWorktreeAnnotationProjection,
+	WorktreeAnnotationSurfaceProvider,
+} from './worktree-annotation-surface-provider.js';
 
 type WorktreeAnnotationOutputResultSummary = Extract<
 	Extract<WorktreeAnnotationCommandOutcome['status'], { readonly kind: 'output' }>['outcome'],
@@ -320,7 +323,7 @@ describe('worktree annotation output controls', () => {
 			.toBeDisabled();
 	});
 
-	test('keeps export cancellation quiet and reports the selected success filename', async () => {
+	test('keeps export cancellation quiet', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
 		const rendered = await render(
 			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
@@ -338,6 +341,20 @@ describe('worktree annotation output controls', () => {
 		});
 		expect(outputPopoverElement()).not.toBeNull();
 		expect(document.body.textContent).not.toContain('Exported 1 comment');
+	});
+
+	test('reports the selected export filename after projection replacement', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await render(
+			<>
+				<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+					<ProjectionReplacingOutputComposition />
+				</WorktreeAnnotationSurfaceProvider>
+				<Toaster />
+			</>,
+		);
+		await publishOutputFixture(surface);
+		await openReviewOutput(rendered);
 
 		await performBrowserAction(() =>
 			rendered.getByRole('button', { name: 'Export 1 comment' }).click(),
@@ -352,6 +369,11 @@ describe('worktree annotation output controls', () => {
 				}),
 			});
 		});
+		await settleBrowserCondition(
+			(): boolean =>
+				document.body.textContent?.includes('Exported 1 comment to review-comments.json.') ?? false,
+			'Expected export success feedback to survive projection replacement.',
+		);
 		await expect
 			.element(rendered.getByText('Exported 1 comment to review-comments.json.'))
 			.toBeVisible();
@@ -362,6 +384,16 @@ type BrowserRenderResult = Awaited<ReturnType<typeof render>>;
 
 function TestOutputComposition(): ReactElement {
 	return <WorktreeAnnotationOutputControls activeSessionId={annotationSessionId} />;
+}
+
+function ProjectionReplacingOutputComposition(): ReactElement {
+	const projection = useWorktreeAnnotationProjection();
+	return (
+		<WorktreeAnnotationOutputControls
+			activeSessionId={annotationSessionId}
+			key={projection.revision}
+		/>
+	);
 }
 
 async function openReviewOutput(rendered: BrowserRenderResult): Promise<void> {

@@ -345,6 +345,7 @@ export function createWorktreeAnnotationSurfaceClient(
 			if (currentDemandCount === 0) {
 				void execute({ kind: 'demand.acquire', sessionId }).catch((): void => {});
 				refreshDemandedSession(sessionId);
+				void execute({ kind: 'output.history', sessionId }).catch((): void => {});
 			}
 			let isReleased = false;
 			return (): void => {

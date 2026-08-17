@@ -176,6 +176,7 @@ describe('WorktreeAnnotationSurfaceClient', () => {
 		expect(surface.sentCommands.map((command) => command.operation)).toEqual([
 			{ kind: 'demand.acquire', sessionId },
 			{ kind: 'source.refresh', sessionId, sourceEpoch: 1 },
+			{ kind: 'output.history', sessionId },
 			{ kind: 'demand.release', sessionId },
 		]);
 	});
@@ -193,6 +194,7 @@ describe('WorktreeAnnotationSurfaceClient', () => {
 		expect(surface.sentCommands.map((command) => command.operation)).toEqual([
 			{ kind: 'demand.acquire', sessionId },
 			{ kind: 'source.refresh', sessionId, sourceEpoch: 1 },
+			{ kind: 'output.history', sessionId },
 			{ kind: 'source.refresh', sessionId, sourceEpoch: 2 },
 			{ kind: 'demand.release', sessionId },
 		]);

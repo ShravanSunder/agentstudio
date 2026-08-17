@@ -1,5 +1,5 @@
 import { HistoryIcon } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button.js';
@@ -33,6 +33,7 @@ import {
 
 export interface WorktreeAnnotationOutputControlsProps {
 	readonly activeSessionId: string;
+	readonly compact?: boolean | undefined;
 	readonly disabled?: boolean | undefined;
 }
 
@@ -70,6 +71,7 @@ export function WorktreeAnnotationOutputControls(
 	const [feedback, setFeedback] = useState<WorktreeAnnotationOutputFeedback | null>(null);
 	const [inspection, setInspection] = useState<OutputInspectionState | null>(null);
 	const [isOutputPending, setIsOutputPending] = useState(false);
+	const compactTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const selectableMessages = useMemo(
 		() => selectableSavedMessages(projection.threads, props.activeSessionId),
 		[projection.threads, props.activeSessionId],
@@ -94,13 +96,12 @@ export function WorktreeAnnotationOutputControls(
 		if (!nextIsOpen) {
 			setInspection(null);
 			setFeedback(null);
-			return;
 		}
+	};
+	const refreshOutputHistory = (): void => {
 		void annotationClient
 			.execute({ kind: 'output.history', sessionId: props.activeSessionId })
-			.catch((error: unknown): void => {
-				setFeedback(outputInteractionFailure(error));
-			});
+			.catch((): void => {});
 	};
 	const prepareOutput = async (outputKind: 'clipboardMarkdown' | 'jsonFile'): Promise<void> => {
 		if (isInteractionDisabled || selectedMessages.length === 0 || isOutputPending) return;
@@ -117,6 +118,7 @@ export function WorktreeAnnotationOutputControls(
 				sessionId: props.activeSessionId,
 			});
 			handleCommandOutcome(commandOutcome);
+			refreshOutputHistory();
 		} catch (error: unknown) {
 			setFeedback(outputInteractionFailure(error));
 		} finally {
@@ -133,6 +135,7 @@ export function WorktreeAnnotationOutputControls(
 				kind: 'output.repeat',
 			});
 			handleCommandOutcome(commandOutcome);
+			refreshOutputHistory();
 		} catch (error: unknown) {
 			setFeedback(outputInteractionFailure(error));
 		} finally {
@@ -173,23 +176,41 @@ export function WorktreeAnnotationOutputControls(
 
 	return (
 		<Popover open={isOpen} onOpenChange={setOutputInteractionOpen}>
-			<PopoverTrigger
-				render={
-					<Button
-						disabled={
-							isInteractionDisabled ||
-							(selectableMessages.length === 0 && sessionHistory.length === 0)
-						}
-						size="xs"
-						variant="ghost"
-					/>
-				}
-			>
-				<HistoryIcon className="size-2.5" />
-				Review output
-			</PopoverTrigger>
+			{props.compact === true ? (
+				<Button
+					aria-label="Review output"
+					disabled={
+						isInteractionDisabled ||
+						(selectableMessages.length === 0 && sessionHistory.length === 0)
+					}
+					onClick={() => setOutputInteractionOpen(true)}
+					ref={compactTriggerRef}
+					size="icon-xs"
+					title="Review output"
+					variant="ghost"
+				>
+					<HistoryIcon />
+				</Button>
+			) : (
+				<PopoverTrigger
+					render={
+						<Button
+							disabled={
+								isInteractionDisabled ||
+								(selectableMessages.length === 0 && sessionHistory.length === 0)
+							}
+							size="xs"
+							variant="ghost"
+						/>
+					}
+				>
+					<HistoryIcon className="size-2.5" />
+					Review output
+				</PopoverTrigger>
+			)}
 			<PopoverContent
 				align="end"
+				anchor={props.compact === true ? compactTriggerRef : undefined}
 				className="max-h-[min(36rem,var(--available-height))] w-96 gap-2 overflow-y-auto"
 			>
 				<PopoverHeader>

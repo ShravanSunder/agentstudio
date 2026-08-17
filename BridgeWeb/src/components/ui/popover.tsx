@@ -14,6 +14,7 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props): ReactElem
 }
 
 function PopoverContent({
+	anchor,
 	className,
 	align = 'center',
 	alignOffset = 0,
@@ -23,13 +24,14 @@ function PopoverContent({
 }: PopoverPrimitive.Popup.Props &
 	Pick<
 		PopoverPrimitive.Positioner.Props,
-		'align' | 'alignOffset' | 'side' | 'sideOffset'
+		'align' | 'alignOffset' | 'anchor' | 'side' | 'sideOffset'
 	>): ReactElement {
 	return (
 		<PopoverPrimitive.Portal>
 			<PopoverPrimitive.Positioner
 				align={align}
 				alignOffset={alignOffset}
+				anchor={anchor}
 				side={side}
 				sideOffset={sideOffset}
 				className="isolate z-50"

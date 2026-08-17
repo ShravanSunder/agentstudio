@@ -35,7 +35,12 @@ export function annotationOutputFeedback(
 					toast: `Copied ${commentCountLabel(outcome.summary.messageCount)}`,
 				};
 			}
-			return visibleOutputFeedback(successfulExportMessage(outcome.summary), 'success');
+			return {
+				closeInteraction: false,
+				message: null,
+				severity: 'success',
+				toast: successfulExportMessage(outcome.summary),
+			};
 		case 'effect_failed':
 			return visibleOutputFeedback(
 				outcome.summary.outputKind === 'clipboard_markdown'

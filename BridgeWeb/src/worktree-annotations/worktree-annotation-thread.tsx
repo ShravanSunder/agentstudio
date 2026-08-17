@@ -18,6 +18,7 @@ import {
 	WorktreeAnnotationInlineSurface,
 } from './worktree-annotation-inline-surface.js';
 import { validateWorktreeAnnotationMarkdown } from './worktree-annotation-markdown-policy.js';
+import { WorktreeAnnotationOutputControls } from './worktree-annotation-output-controls.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
@@ -97,6 +98,13 @@ export function WorktreeAnnotationThread(
 				>
 					<MapPin />
 				</WorktreeAnnotationCommandButton>
+			)}
+			{disclosure === 'expand' || sessionId === null ? null : (
+				<WorktreeAnnotationOutputControls
+					activeSessionId={sessionId}
+					compact
+					disabled={!ownsActiveSession}
+				/>
 			)}
 			<WorktreeAnnotationCommandButton
 				disabled={!canReply}
