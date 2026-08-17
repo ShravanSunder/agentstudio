@@ -138,6 +138,14 @@ package enum AppPolicies {
         package static let titleMainActorAdmissionSlackNanoseconds: UInt64 = 100_000_000
     }
 
+    /// Bounds for the source-side "last output line" contraction (Contract 7):
+    /// how much of the Ghostty viewport is read at settle time, and how large
+    /// the resulting candidate line may be before it can reach the EventBus.
+    package enum TerminalOutputCapture {
+        package static let viewportRowWindow: Int = 5
+        package static let maxLastOutputLineUTF8Bytes: Int = 120
+    }
+
     package enum NonterminalContentMount {
         package static let maximumMountsPerMainActorTurn: Int = 4
     }

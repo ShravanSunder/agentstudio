@@ -24,6 +24,34 @@ struct InboxPromoterTests {
         #expect(fixture.atom.globalUnreadCount == 1)
     }
 
+    @Test("settled activity carrying a last output line populates the notification body")
+    func settledActivityWithLastOutputLinePopulatesBody() {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 40, lastOutputLine: "all tests passed"),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications[0].body == "all tests passed")
+    }
+
+    @Test("settled activity without a last output line leaves the notification body nil")
+    func settledActivityWithoutLastOutputLineLeavesBodyNil() {
+        let fixture = Fixture()
+        let paneId = UUID()
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 40, lastOutputLine: nil),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+
+        #expect(fixture.atom.notifications[0].body == nil)
+    }
+
     @Test("repeated unread settled activity refreshes timestamp and sidebar sort")
     func repeatedUnreadSettledActivityRefreshesTimestampAndSidebarSort() {
         var now = Date(timeIntervalSince1970: 1000)
@@ -580,7 +608,8 @@ struct InboxPromoterTests {
     private func makeSettledActivity(
         burstWindowId: UUID = UUID(),
         eventCount: Int = 1,
-        rowsAdded: Int = 40
+        rowsAdded: Int = 40,
+        lastOutputLine: String? = nil
     ) -> TerminalSettledActivity {
         TerminalSettledActivity(
             burstWindowId: burstWindowId,
@@ -592,7 +621,8 @@ struct InboxPromoterTests {
             rowsAdded: rowsAdded,
             baselineRows: 100,
             latestRows: 100 + rowsAdded,
-            isPinnedToBottom: false
+            isPinnedToBottom: false,
+            lastOutputLine: lastOutputLine
         )
     }
 }

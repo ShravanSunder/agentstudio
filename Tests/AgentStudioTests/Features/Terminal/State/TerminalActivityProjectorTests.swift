@@ -415,6 +415,67 @@ struct TerminalActivityProjectorTests {
         }
     }
 
+    @Test("unchanged last output line is suppressed on the following settle")
+    func unchangedLastOutputLineIsSuppressedOnFollowingSettle() async throws {
+        let clock = TestPushClock()
+        let projector = TerminalActivityProjector(
+            unseenQuietDuration: .milliseconds(750),
+            clock: clock
+        )
+        let recorder = OutcomeRecorder()
+        await projector.configure(
+            lastOutputLineReader: { _ in "same output line" },
+            outcomeSink: { outcomes in recorder.record(outcomes) }
+        )
+        let context = TerminalActivityProjectionContext(
+            isAttended: false,
+            isAgentClassified: false,
+            outputBurstThreshold: 30
+        )
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+
+        await projector.ingest(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(firstTotal: 100, latestTotal: 140),
+            latestState: ScrollbarState(top: 100, bottom: 140, total: 140),
+            context: context
+        )
+        await clock.waitForPendingSleepCount(exactly: 1)
+        clock.advance(by: .milliseconds(750))
+        _ = try await recorder.firstSnapshot { outcomes in
+            outcomes.contains { outcome in
+                guard case .unseenActivitySettled(_, let outcomePaneID, let activity) = outcome else { return false }
+                return outcomePaneID == paneID && activity.lastOutputLine == "same output line"
+            }
+        }
+
+        await projector.ingest(
+            surfaceID: surfaceID,
+            paneID: paneID,
+            aggregate: makeAggregate(firstTotal: 140, latestTotal: 180),
+            latestState: ScrollbarState(top: 140, bottom: 180, total: 180),
+            context: context
+        )
+        await clock.waitForPendingSleepCount(exactly: 1)
+        clock.advance(by: .milliseconds(750))
+        let secondSettledActivity = try await recorder.firstSnapshot { outcomes in
+            outcomes.contains { outcome in
+                guard case .unseenActivitySettled(_, let outcomePaneID, let activity) = outcome else { return false }
+                return outcomePaneID == paneID && activity.baselineRows == 140
+            }
+        }.compactMap { outcome -> TerminalSettledActivity? in
+            guard case .unseenActivitySettled(_, let outcomePaneID, let activity) = outcome,
+                outcomePaneID == paneID, activity.baselineRows == 140
+            else { return nil }
+            return activity
+        }.first
+
+        #expect(secondSettledActivity?.lastOutputLine == nil)
+        await projector.reset()
+    }
+
     @Test("separate single-sample drains preserve cross-drain activity growth")
     func separateSingleSampleDrainsPreserveActivityGrowth() async throws {
         let clock = TestPushClock()

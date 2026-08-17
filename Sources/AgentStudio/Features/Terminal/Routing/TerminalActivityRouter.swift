@@ -31,6 +31,7 @@ package final class TerminalActivityRouter {
     private let surfaceIDForPaneID: @MainActor (UUID) -> UUID?
     private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
+    private let lastOutputLineReader: @MainActor (UUID) -> String?
 
     private var busTask: Task<Void, Never>?
     private var derivedActivityPostTask: Task<Void, Never>?
@@ -49,6 +50,7 @@ package final class TerminalActivityRouter {
         surfaceIDForPaneID: (@MainActor (UUID) -> UUID?)? = nil,
         isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
+        lastOutputLineReader: (@MainActor (UUID) -> String?)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -75,6 +77,8 @@ package final class TerminalActivityRouter {
                 attendedPane?.attendedPaneId == paneID
             }
         self.isPaneAgentClassified = isPaneAgentClassified ?? { _, paneKind in paneKind == .agent }
+        self.lastOutputLineReader =
+            lastOutputLineReader ?? { SurfaceManager.shared.readLastOutputLine(forSurfaceID: $0) }
     }
 
     deinit {
@@ -86,9 +90,14 @@ package final class TerminalActivityRouter {
     package func start() async {
         guard busTask == nil else { return }
 
-        await projector.configure { [weak self] outcomes in
-            self?.consumeProjectionOutcomes(outcomes)
-        }
+        await projector.configure(
+            lastOutputLineReader: { [weak self] surfaceID in
+                self?.lastOutputLineReader(surfaceID)
+            },
+            outcomeSink: { [weak self] outcomes in
+                self?.consumeProjectionOutcomes(outcomes)
+            }
+        )
         Ghostty.ActionRouter.bindTerminalActivityInput(
             id: projectorBindingID,
             context: { [weak self] paneID in
