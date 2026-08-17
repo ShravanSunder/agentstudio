@@ -41,6 +41,25 @@ struct RepoExplorerViewTests {
         #expect(positive.usesAccent)
     }
 
+    @Test("selected grouping segment icon overrides AppEntityIcon's baked secondary style with accent")
+    func selectedGroupingSegmentIconUsesAccentOverride() throws {
+        // AppEntityIcon.swiftUIImage bakes its own `.foregroundStyle(.secondary)` directly onto the
+        // image; a foregroundStyle applied only by the enclosing button style does not reach it. The
+        // call site must chain an explicit override for the selected segment so the icon renders in the
+        // same accent color as its text label, not secondary.
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            encoding: .utf8
+        )
+        let iconClosureStart = try #require(source.range(of: "icon: { groupingMode in"))
+        let iconClosureEnd = try #require(
+            source.range(of: "},", range: iconClosureStart.upperBound..<source.endIndex))
+        let iconClosureSource = String(source[iconClosureStart.lowerBound..<iconClosureEnd.lowerBound])
+
+        #expect(iconClosureSource.contains("groupingMode == repoExplorerPrefs.groupingMode"))
+        #expect(iconClosureSource.contains(".foregroundStyle(AppStyles.General.Accent.primaryColor)"))
+    }
+
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {
         let repoId = UUID()
