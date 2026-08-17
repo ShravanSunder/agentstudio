@@ -156,7 +156,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 									? {}
 									: { triggerRef: props.searchTriggerRef })}
 							/>
-							<WorktreeAnnotationOutputHistoryControl />
+							<WorktreeAnnotationOutputHistoryControl data-testid="bridge-file-output-history-control" />
 						</>
 					),
 					trailingClassName: 'shrink-0',

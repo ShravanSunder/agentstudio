@@ -21,7 +21,9 @@ import {
 	useWorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-provider.js';
 
-export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
+export function WorktreeAnnotationOutputHistoryControl(props: {
+	readonly 'data-testid'?: string | undefined;
+}): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const projection = useWorktreeAnnotationProjection();
 	const [inspection, setInspection] = useState<WorktreeAnnotationOutputInspectionState | null>(
@@ -78,6 +80,7 @@ export function WorktreeAnnotationOutputHistoryControl(): ReactElement | null {
 		>
 			<Button
 				aria-label="Output history"
+				data-testid={props['data-testid']}
 				onClick={() => setIsOpen(true)}
 				ref={triggerRef}
 				size="icon-xs"

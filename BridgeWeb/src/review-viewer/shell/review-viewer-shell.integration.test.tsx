@@ -349,6 +349,7 @@ describe('review viewer shell', () => {
 		expect(trailingControlOrder).toEqual([
 			'bridge-review-facet-menu',
 			'bridge-review-search-control-slot',
+			'bridge-review-output-history-control',
 		]);
 		expect(fileTreeButton).toBeNull();
 		expect(commentsButton).toBeNull();

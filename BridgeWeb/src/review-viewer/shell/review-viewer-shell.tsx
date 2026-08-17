@@ -516,7 +516,10 @@ export function renderReviewViewerShellPresentation(presentation: {
 									triggerRef={searchTriggerRef}
 								/>
 							</div>,
-							<WorktreeAnnotationOutputHistoryControl key="annotation-output-history" />,
+							<WorktreeAnnotationOutputHistoryControl
+								data-testid="bridge-review-output-history-control"
+								key="annotation-output-history"
+							/>,
 						],
 						trailingTestId: 'bridge-review-rail-toolbar-trailing',
 					}),
