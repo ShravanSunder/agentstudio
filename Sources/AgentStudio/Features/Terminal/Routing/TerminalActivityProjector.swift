@@ -105,6 +105,7 @@ package actor TerminalActivityProjector {
     private let unseenQuietDuration: Duration
     private let agentSettledQuietDuration: Duration
     private let delay: AsyncDelay
+    private let nowMilliseconds: @Sendable () -> Int64
     private var outcomeSink: OutcomeSink?
     private var lastOutputLineReader: LastOutputLineReader?
     private var paneStates: [UUID: PaneState] = [:]
@@ -116,11 +117,15 @@ package actor TerminalActivityProjector {
     init(
         unseenQuietDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
-        clock: (any Clock<Duration> & Sendable)? = nil
+        clock: (any Clock<Duration> & Sendable)? = nil,
+        nowMilliseconds: @escaping @Sendable () -> Int64 = {
+            Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+        }
     ) {
         self.unseenQuietDuration = unseenQuietDuration
         self.agentSettledQuietDuration = agentSettledQuietDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
+        self.nowMilliseconds = nowMilliseconds
     }
 
     func configure(
@@ -146,6 +151,53 @@ package actor TerminalActivityProjector {
             context: context
         )
         await emit(outcomes)
+    }
+
+    /// A `terminal.commandFinished` shell-integration signal is a contracted semantic "this pane's
+    /// current command just completed" fact (Contract 7 exact-fact route) — independent of
+    /// scrollbar-derived activity evidence, and not gated by attention state. The scrollbar/unseen-
+    /// window path above deliberately excludes attended panes (see `consumeAggregateState`'s
+    /// `context.isAttended` branch), which is exactly the common case this signal exists to cover:
+    /// typing into the pane you're looking at. It settles the pane's current burst immediately — if
+    /// scrollbar evidence was already accumulating, close that window now instead of waiting out its
+    /// remaining debounce; otherwise synthesize a minimal settle carrying just the resolved
+    /// last-output-line, so a pane with zero scrollbar signal still reaches the existing settle path
+    /// (status-fact write, notification lane, and all of that lane's suppression rules) unchanged.
+    func commandFinished(surfaceID: UUID, paneID: UUID) async {
+        var closedWindow: ActivityWindow?
+        if var state = paneStates[paneID], state.surfaceID == surfaceID,
+            let window = state.unseenWindow, window.rowsAdded > 0
+        {
+            cancelUnseenWindow(for: paneID)
+            state.unseenWindow = nil
+            paneStates[paneID] = state
+            closedWindow = window
+        }
+
+        let lastOutputLine = await resolveLastOutputLine(surfaceID: surfaceID, paneID: paneID)
+        guard closedWindow != nil || lastOutputLine != nil else { return }
+
+        let activity: TerminalSettledActivity
+        if let closedWindow {
+            activity = settledActivity(closedWindow, quietDuration: unseenQuietDuration, lastOutputLine: lastOutputLine)
+        } else {
+            let now = nowMilliseconds()
+            let scrollbarState = paneStates[paneID]?.scrollbarState
+            activity = TerminalSettledActivity(
+                burstWindowId: UUIDv7.generate(),
+                thresholdRows: AppPolicies.InboxNotification.terminalActivityOutputBurstThresholdRows,
+                debounceMilliseconds: 0,
+                startedAtMilliseconds: now,
+                settledAtMilliseconds: now,
+                eventCount: 0,
+                rowsAdded: 0,
+                baselineRows: scrollbarState?.total ?? 0,
+                latestRows: scrollbarState?.total ?? 0,
+                isPinnedToBottom: paneStates[paneID]?.isPinnedToBottom ?? true,
+                lastOutputLine: lastOutputLine
+            )
+        }
+        await emit([.unseenActivitySettled(surfaceID: surfaceID, paneID: paneID, activity: activity)])
     }
 
     private func consumeAggregateState(

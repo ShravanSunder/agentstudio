@@ -453,6 +453,52 @@ struct TerminalActivityRouterTests {
         await subscriber.shutdown()
     }
 
+    @Test("commandFinished bus event settles the pane with zero scrollbar events, regardless of attention")
+    func commandFinishedBusEventSettlesPaneWithZeroScrollbarEvents() async {
+        // RC2 end-to-end: a real terminal.commandFinished envelope on the runtime bus — with no
+        // scrollbar aggregate ever ingested — must still reach the projector's settle path and post
+        // a derived unseenActivitySettled envelope, for an ATTENDED pane. Attention state is exactly
+        // what the scrollbar/unseen-window path structurally excludes (see
+        // TerminalActivityProjector.commandFinished's doc comment), so this is the scenario the fix
+        // exists for: typing into your own focused pane.
+        let bus = EventBus<RuntimeEnvelope>()
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            surfaceIDForPaneID: { $0 },
+            isPaneCurrentlyAttended: { _ in true },
+            lastOutputLineReader: { _ in "echo-command-output" }
+        )
+        let paneId = PaneId.generateUUIDv7()
+
+        await router.start()
+        await waitForBusSubscriberCount(bus, atLeast: 1)
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.commandFinished(exitCode: 0, duration: 50_000_000)),
+                    paneId: paneId,
+                    paneKind: .terminal
+                )
+            )
+        )
+
+        _ = await subscriber.firstEvent { envelope in
+            RuntimeEnvelopeHarness.paneEvents(from: [envelope]).contains {
+                if case .terminalActivity(.unseenActivitySettled(let activity)) = $0.event {
+                    return activity.lastOutputLine == "echo-command-output" && activity.rowsAdded == 0
+                }
+                return false
+            }
+        }
+
+        await router.stop()
+        await subscriber.shutdown()
+    }
+
     @Test("attended typed activity updates compact state without unseen settlement")
     func attendedTypedActivityUpdatesCompactStateWithoutUnseenSettlement() async {
         let bus = EventBus<RuntimeEnvelope>()

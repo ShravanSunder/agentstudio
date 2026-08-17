@@ -310,6 +310,13 @@ package final class TerminalActivityRouter {
                 paneID: paneEnvelope.paneId.uuid,
                 control: .semanticSignal
             )
+            if case .commandFinished = event {
+                // RC2: commandFinished is a contracted semantic settle boundary, admitted as a
+                // second settle-evidence source alongside scrollbar-derived activity (Contract 7).
+                // It fires regardless of attention state, covering the case scrollbar/unseen-window
+                // tracking structurally excludes: typing into your own focused pane.
+                await projector.commandFinished(surfaceID: surfaceID, paneID: paneEnvelope.paneId.uuid)
+            }
         }
         await traceTerminalActivity(paneEnvelope)
     }
