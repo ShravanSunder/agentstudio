@@ -75,6 +75,29 @@ struct TerminalLastOutputLineContractTests {
         #expect(excluded == "AGENTSTUDIO_L2_ACTIVE_PROOF_28b7ebd53")
     }
 
+    @Test("the real three-line viewport shape resolves to the echoed output, not the prompt or the echoed command")
+    func realThreeLineViewportShapeResolvesToEchoedOutput() {
+        // The real Ghostty viewport for a completed command has three lines, not two: the prompt
+        // with the typed command echoed onto it (terminal line-editing echo), the command's real
+        // output, then the fresh bare prompt printed after the command finishes. Both prompt
+        // occurrences share the same learned signature text; only the second one (the fresh,
+        // untyped-on prompt) matches it exactly, so contraction must skip past it and stop at the
+        // real output line without also being fooled by the first (command-bearing) prompt line.
+        let promptLine = "➜  chip-matrix-final-live (⑂ feat/sidebar-grouping-rows)"
+        let rawViewportText = """
+            \(promptLine) echo AGENTSTUDIO_RC2_ACCEPT_ECHO_7fed04fbd
+            AGENTSTUDIO_RC2_ACCEPT_ECHO_7fed04fbd
+            \(promptLine)
+            """
+
+        let line = TerminalLastOutputLineContract.contractedLastLine(
+            fromRawViewportText: rawViewportText,
+            excluding: promptLine
+        )
+
+        #expect(line == "AGENTSTUDIO_RC2_ACCEPT_ECHO_7fed04fbd")
+    }
+
     @Test("trailingNonEmptyLine returns the freshly-printed prompt with no bare-prompt or signature filtering")
     func trailingNonEmptyLineReturnsThePromptUnfiltered() {
         let rawViewportText = "real output\n➜  agent-studio (⑂ main) "
