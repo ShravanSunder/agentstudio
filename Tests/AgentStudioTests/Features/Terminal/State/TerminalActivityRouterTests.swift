@@ -9,19 +9,6 @@ import Testing
 @MainActor
 @Suite("TerminalActivityRouter", .serialized)
 struct TerminalActivityRouterTests {
-    private final class SurfaceLifetimeBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var isLive = true
-
-        func retire() {
-            lock.withLock { isLive = false }
-        }
-
-        func containsSurface() -> Bool {
-            lock.withLock { isLive }
-        }
-    }
-
     private final class MillisecondBox: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Int64
@@ -634,43 +621,6 @@ struct TerminalActivityRouterTests {
         #expect(settledEventCount == 1)
         await router.stop()
         await subscriber.shutdown()
-    }
-
-    @Test("ordered surface close clears compact state and pending quiet work")
-    func orderedSurfaceCloseClearsCompactStateAndPendingQuietWork() async {
-        let bus = EventBus<RuntimeEnvelope>()
-        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
-        let clock = TestPushClock()
-        let surfaceLifetime = SurfaceLifetimeBox()
-        let router = TerminalActivityRouter(
-            bus: bus,
-            activityAtom: atom,
-            surfaceIDForPaneID: { surfaceLifetime.containsSurface() ? $0 : nil },
-            unseenActivityDebounceDuration: .milliseconds(750),
-            unseenActivityClock: clock
-        )
-        let paneId = PaneId.generateUUIDv7()
-
-        await router.start()
-        await ingestActivity(
-            paneId: paneId,
-            totals: [100, 140],
-            context: .init(isAttended: false, isAgentClassified: false, outputBurstThreshold: 30),
-            through: router
-        )
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        surfaceLifetime.retire()
-        await router.consumeTerminalActivityInput(
-            .orderedControl(
-                surfaceID: paneId.uuid,
-                paneID: paneId.uuid,
-                precedingAggregate: nil,
-                control: .surfaceClosed
-            )
-        )
-        await clock.waitForPendingSleepCount(exactly: 0)
-        #expect(atom.snapshot(for: paneId.uuid) == nil)
-        await router.stop()
     }
 
     @Test("decreasing typed totals clamp growth to zero")

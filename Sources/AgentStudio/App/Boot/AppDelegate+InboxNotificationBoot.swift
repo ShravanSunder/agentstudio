@@ -82,6 +82,9 @@ extension AppDelegate {
                     paneId: paneId,
                     lastOutputLine: lastOutputLine
                 )
+            },
+            clearPaneActivityStatus: { [weak self] paneId in
+                self?.atomStore.core.paneActivityStatus.clear(paneId: paneId)
             }
         )
         Task { @MainActor [weak self] in

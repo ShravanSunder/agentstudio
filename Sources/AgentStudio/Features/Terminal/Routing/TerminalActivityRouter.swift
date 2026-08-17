@@ -33,6 +33,7 @@ package final class TerminalActivityRouter {
     private let isPaneAgentClassified: @MainActor (UUID, PaneContentType) -> Bool
     private let lastOutputLineReader: @MainActor (UUID) -> String?
     private let recordSettledActivityStatus: @MainActor (UUID, String?) -> Void
+    private let clearPaneActivityStatus: @MainActor (UUID) -> Void
 
     private var busTask: Task<Void, Never>?
     private var derivedActivityPostTask: Task<Void, Never>?
@@ -53,6 +54,7 @@ package final class TerminalActivityRouter {
         isPaneAgentClassified: (@MainActor (UUID, PaneContentType) -> Bool)? = nil,
         lastOutputLineReader: (@MainActor (UUID) -> String?)? = nil,
         recordSettledActivityStatus: (@MainActor (UUID, String?) -> Void)? = nil,
+        clearPaneActivityStatus: (@MainActor (UUID) -> Void)? = nil,
         unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         agentSettledQuietDuration: Duration = AppPolicies.InboxNotification.agentSettledQuietDuration,
         unseenActivityClock: (any Clock<Duration> & Sendable)? = nil,
@@ -82,6 +84,7 @@ package final class TerminalActivityRouter {
         self.lastOutputLineReader =
             lastOutputLineReader ?? { SurfaceManager.shared.readViewportTrailingText(forSurfaceID: $0) }
         self.recordSettledActivityStatus = recordSettledActivityStatus ?? { _, _ in }
+        self.clearPaneActivityStatus = clearPaneActivityStatus ?? { _ in }
     }
 
     deinit {
@@ -248,7 +251,10 @@ package final class TerminalActivityRouter {
             derivedEnvelopes.append(
                 derivedActivityEnvelope(.agentSettledActivityRevoked, paneID: paneID))
         case .surfaceClosed(_, let paneID):
-            if let paneID { activityAtom.clear(paneId: paneID) }
+            if let paneID {
+                activityAtom.clear(paneId: paneID)
+                clearPaneActivityStatus(paneID)
+            }
         }
     }
 

@@ -290,8 +290,11 @@ package final class RepoEnrichmentCacheAtom {
             if hadWorktreeEnrichment {
                 worktreeEnrichmentRevisionAtom.bump()
             }
-            if hadPullRequestFacts || hadUnavailablePullRequestRepoIds {
+            if hadPullRequestFacts {
                 pullRequestFactsRevisionAtom.bump()
+            }
+            if hadUnavailablePullRequestRepoIds {
+                pullRequestUnavailabilityRevisionAtom.bump()
             }
         }
     }

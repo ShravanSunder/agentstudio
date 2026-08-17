@@ -313,6 +313,27 @@ struct RepoCacheAtomFamilyTests {
         #expect(cacheAtom.lastRebuiltAt == timestamp)
     }
 
+    @Test
+    func clearWakesUnavailablePullRequestReadersAndEmptiesTheSet() {
+        let cacheAtom = RepoEnrichmentCacheAtom()
+        let repoId = UUIDv7.generate()
+        let invalidationCounter = RepoCacheAtomFamilyInvalidationCounter()
+
+        cacheAtom.markPullRequestsUnavailable(forRepository: repoId)
+        #expect(cacheAtom.unavailablePullRequestRepoIds == [repoId])
+
+        withObservationTracking {
+            _ = cacheAtom.unavailablePullRequestRepoIds
+        } onChange: {
+            invalidationCounter.record()
+        }
+
+        cacheAtom.clear()
+
+        #expect(invalidationCounter.didFire)
+        #expect(cacheAtom.unavailablePullRequestRepoIds.isEmpty)
+    }
+
     private static func localRepoEnrichment(
         repoId: UUID,
         displayName: String,
