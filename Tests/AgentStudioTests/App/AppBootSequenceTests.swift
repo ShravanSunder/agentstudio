@@ -120,6 +120,17 @@ struct AppBootSequenceTests {
             ),
             encoding: .utf8
         )
+        let normalizedDatastoreFactorySource =
+            datastoreFactorySource
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+        let expectedDatastoreConstruction = [
+            "WorkspaceSQLiteDatastore(",
+            "configuration: configuration,",
+            "traceRuntime: traceRuntime,",
+            "localDatabaseReplacementObserver: localDatabaseReplacementObserver",
+            ")",
+        ].joined(separator: " ")
 
         #expect(!appDelegateSource.contains("traceRuntime = .fromEnvironment()"))
         #expect(appDelegateSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
@@ -133,9 +144,7 @@ struct AppBootSequenceTests {
         #expect(!appDelegateSource.contains("workspaceLocalSQLiteStoreBackend"))
         #expect(datastoreFactorySource.contains("WorkspaceSQLiteDatastoreConfiguration("))
         #expect(
-            datastoreFactorySource.contains(
-                "WorkspaceSQLiteDatastore(configuration: configuration, traceRuntime: traceRuntime)"
-            )
+            normalizedDatastoreFactorySource.contains(expectedDatastoreConstruction)
         )
     }
 

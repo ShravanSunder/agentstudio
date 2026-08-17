@@ -82,7 +82,7 @@ enum WorktreeAnnotationMarkdownProjector {
         let fence = String(repeating: "`", count: max(3, longestBacktickRun(in: sourceText) + 1))
         let language = sourceLanguage(for: path)
         let lineNumberWidth = String(excerpt.map(\.lineNumber).max() ?? 1).count
-        let numberedSource = excerpt.map { excerptLine in
+        let numberedSource = excerpt.map { excerptLine -> String in
             let lineNumber = String(excerptLine.lineNumber)
             let padding = String(repeating: " ", count: max(0, lineNumberWidth - lineNumber.count))
             return "\(padding)\(lineNumber) │ \(excerptLine.text)"
