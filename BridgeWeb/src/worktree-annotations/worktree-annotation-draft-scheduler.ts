@@ -13,6 +13,7 @@ export interface WorktreeAnnotationDraftSchedulerProps {
 	readonly clock: WorktreeAnnotationDraftClock;
 	readonly persist: (body: string) => Promise<void>;
 	readonly debounceMilliseconds?: number;
+	readonly initialAcknowledgedBody?: string | null | undefined;
 	readonly maximumWaitMilliseconds?: number;
 }
 
@@ -22,6 +23,7 @@ const defaultDraftMaximumWaitMilliseconds = 5_000;
 export class WorktreeAnnotationDraftScheduler {
 	readonly #clock: WorktreeAnnotationDraftClock;
 	readonly #debounceMilliseconds: number;
+	readonly #emptyDraftPersistenceAllowed: boolean;
 	readonly #maximumWaitMilliseconds: number;
 	readonly #persist: (body: string) => Promise<void>;
 	#cancelScheduledFlush: (() => void) | null = null;
@@ -36,6 +38,14 @@ export class WorktreeAnnotationDraftScheduler {
 	constructor(props: WorktreeAnnotationDraftSchedulerProps) {
 		this.#clock = props.clock;
 		this.#persist = props.persist;
+		this.#emptyDraftPersistenceAllowed =
+			props.initialAcknowledgedBody !== null && props.initialAcknowledgedBody !== undefined;
+		if (props.initialAcknowledgedBody !== null && props.initialAcknowledgedBody !== undefined) {
+			this.#currentBody = props.initialAcknowledgedBody;
+			this.#hasAttemptedInitialPersist = true;
+			this.#lastAcknowledgedBody = props.initialAcknowledgedBody;
+			this.#status = 'acknowledged';
+		}
 		this.#debounceMilliseconds = props.debounceMilliseconds ?? defaultDraftDebounceMilliseconds;
 		this.#maximumWaitMilliseconds =
 			props.maximumWaitMilliseconds ?? defaultDraftMaximumWaitMilliseconds;
@@ -97,7 +107,7 @@ export class WorktreeAnnotationDraftScheduler {
 
 	async #flushUntilCurrentAcknowledged(): Promise<void> {
 		this.#cancelPendingFlush();
-		if (this.#currentBody.trim().length === 0) return;
+		if (!this.#currentBodyNeedsPersistence()) return;
 		while (this.#currentBody !== this.#lastAcknowledgedBody) {
 			await this.#flushCurrentBody();
 		}
@@ -114,7 +124,7 @@ export class WorktreeAnnotationDraftScheduler {
 			if (this.#currentBody === this.#lastAcknowledgedBody) return;
 		}
 		const body = this.#currentBody;
-		if (body.trim().length === 0 || body === this.#lastAcknowledgedBody) return;
+		if (!this.#currentBodyNeedsPersistence()) return;
 		this.#cancelPendingFlush();
 		this.#dirtySinceMilliseconds = null;
 		this.#status = 'persisting';
@@ -145,6 +155,13 @@ export class WorktreeAnnotationDraftScheduler {
 	#cancelPendingFlush(): void {
 		this.#cancelScheduledFlush?.();
 		this.#cancelScheduledFlush = null;
+	}
+
+	#currentBodyNeedsPersistence(): boolean {
+		return (
+			this.#currentBody !== this.#lastAcknowledgedBody &&
+			(this.#currentBody.trim().length > 0 || this.#emptyDraftPersistenceAllowed)
+		);
 	}
 }
 

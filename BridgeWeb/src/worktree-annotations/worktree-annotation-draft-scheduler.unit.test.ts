@@ -88,6 +88,28 @@ describe('WorktreeAnnotationDraftScheduler', () => {
 		});
 	});
 
+	test('persists an empty working draft when editing an existing saved body', async () => {
+		const clock = new ControlledDraftClock();
+		const persistedBodies: string[] = [];
+		const scheduler = new WorktreeAnnotationDraftScheduler({
+			clock,
+			initialAcknowledgedBody: 'Saved body',
+			persist: async (body): Promise<void> => {
+				persistedBodies.push(body);
+			},
+		});
+
+		scheduler.edit('');
+		await scheduler.focusLost();
+
+		expect(persistedBodies).toEqual(['']);
+		expect(scheduler.snapshot()).toMatchObject({
+			currentBody: '',
+			lastAcknowledgedBody: '',
+			status: 'acknowledged',
+		});
+	});
+
 	test('retains editor text and permits retry after a rejected flush', async () => {
 		const clock = new ControlledDraftClock();
 		let attemptCount = 0;

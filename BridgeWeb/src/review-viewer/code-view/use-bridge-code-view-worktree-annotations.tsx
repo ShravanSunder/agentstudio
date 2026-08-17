@@ -19,6 +19,7 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import { createWorktreeAnnotationEditToken } from '../../worktree-annotations/worktree-annotation-edit-token.js';
 import type { WorktreeAnnotationThreadProjection } from '../../worktree-annotations/worktree-annotation-surface-client.js';
 import {
+	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSessionDemand,
@@ -34,6 +35,7 @@ import {
 	reviewPierreAnnotationsForExistingCodeView,
 	threadForPierreAnnotation,
 	worktreeAnnotationMetadataForPierreAnnotation,
+	worktreeAnnotationPierreRangesMatch,
 	type WorktreeAnnotationLocatedOrigin,
 } from './worktree-annotation-pierre-adapter.js';
 
@@ -58,6 +60,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 }): BridgeCodeViewWorktreeAnnotations {
 	const projection = useWorktreeAnnotationProjection();
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
+	const interaction = useWorktreeAnnotationInteraction();
 	const activeSessionId = sessionSelection.activeSessionId;
 	useWorktreeAnnotationSessionDemand(activeSessionId);
 	const activeThreads = useMemo(
@@ -73,6 +76,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 		readonly editToken: string;
 		readonly itemId: string;
 		readonly origin: WorktreeAnnotationLocatedOrigin;
+		readonly range: SelectedLineRange;
 	} | null>(null);
 	const [composerPresentationRevision, setComposerPresentationRevision] = useState(0);
 	const [selectedRange, setSelectedRange] = useState<SelectedLineRange | null>(null);
@@ -139,24 +143,27 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 	);
 
 	const admitSelectedRange = useCallback(
-		(range: SelectedLineRange | null, itemId: string): void => {
-			const descriptor = props.reviewPackage.itemsById[itemId];
-			const currentItem = props.codeViewHandleRef.current?.getItem(itemId);
-			if (range === null || descriptor === undefined || !isAnnotationCodeViewItem(currentItem)) {
+		(range: SelectedLineRange | null, item: CodeViewItem | null): void => {
+			interaction.clearActiveThread();
+			const descriptor = item === null ? undefined : props.reviewPackage.itemsById[item.id];
+			if (range === null || descriptor === undefined || item === null) {
 				selectedItemIdRef.current = null;
 				setSelectedRange(null);
 				setPendingComposer(null);
 				setComposerPresentationRevision((revision): number => revision + 1);
 				return;
 			}
-			const fileSourceRole = currentItem.bridgeMetadata.contentRoles.includes('head')
-				? 'head'
-				: currentItem.bridgeMetadata.contentRoles.includes('base')
-					? 'base'
+			const fileSourceRole =
+				item.type === 'file' && isAnnotationCodeViewItem(item)
+					? item.bridgeMetadata.contentRoles.includes('head')
+						? 'head'
+						: item.bridgeMetadata.contentRoles.includes('base')
+							? 'base'
+							: undefined
 					: undefined;
 			const origin = reviewAnnotationOriginForPierreSelection({
 				item: descriptor,
-				itemType: currentItem.type,
+				itemType: item.type,
 				range,
 				...(fileSourceRole === undefined ? {} : { fileSourceRole }),
 			});
@@ -167,16 +174,40 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 				setComposerPresentationRevision((revision): number => revision + 1);
 				return;
 			}
-			selectedItemIdRef.current = itemId;
+			selectedItemIdRef.current = item.id;
 			setSelectedRange(range);
 			setPendingComposer({
 				editToken: createWorktreeAnnotationEditToken(),
-				itemId,
+				itemId: item.id,
 				origin,
+				range,
 			});
 			setComposerPresentationRevision((revision): number => revision + 1);
 		},
-		[props.codeViewHandleRef, props.reviewPackage.itemsById],
+		[interaction, props.reviewPackage.itemsById],
+	);
+	const retainSelectedRange = useCallback(
+		(range: SelectedLineRange | null, item: CodeViewItem | null): void => {
+			interaction.clearActiveThread();
+			const descriptor = item === null ? undefined : props.reviewPackage.itemsById[item.id];
+			if (range === null || descriptor === undefined || item === null) {
+				selectedItemIdRef.current = null;
+				setSelectedRange(null);
+				setPendingComposer(null);
+				setComposerPresentationRevision((revision): number => revision + 1);
+				return;
+			}
+			selectedItemIdRef.current = item.id;
+			setSelectedRange(range);
+			setPendingComposer((currentComposer) =>
+				currentComposer?.itemId === item.id &&
+				worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
+					? currentComposer
+					: null,
+			);
+			setComposerPresentationRevision((revision): number => revision + 1);
+		},
+		[interaction, props.reviewPackage.itemsById],
 	);
 	const activateSavedAnnotationRange = useCallback(
 		(range: SelectedLineRange, itemId: string): void => {
@@ -201,10 +232,10 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 				controlledSelection: true,
 				enableGutterUtility: true,
 				enableLineSelection: true,
-				onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item.id),
-				onLineSelectionEnd: (range, context): void => admitSelectedRange(range, context.item.id),
+				onGutterUtilityClick: (range, context): void => admitSelectedRange(range, context.item),
+				onLineSelectionEnd: (range, context): void => retainSelectedRange(range, context.item),
 			}) satisfies CodeViewOptions<undefined>,
-		[admitSelectedRange, props.codeViewOptions],
+		[admitSelectedRange, props.codeViewOptions, retainSelectedRange],
 	);
 	const renderAnnotation = useCallback(
 		(annotation: DiffLineAnnotation | LineAnnotation, item: CodeViewItem): ReactNode => {
@@ -226,8 +257,8 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 							origin: pendingComposer.origin,
 						})}
 						editToken={metadata.editToken}
-						onCancel={() => admitSelectedRange(null, '')}
-						onSaved={() => admitSelectedRange(null, '')}
+						onCancel={() => admitSelectedRange(null, null)}
+						onSaved={() => admitSelectedRange(null, null)}
 						placeholder="Write an annotation in Markdown"
 					/>
 				);
@@ -237,6 +268,11 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			return thread === null ? null : (
 				<WorktreeAnnotationThread
 					onActivateRange={() => activateSavedAnnotationRange(metadata.range, item.id)}
+					rangeActive={
+						selectedItemIdRef.current === item.id &&
+						selectedRange !== null &&
+						worktreeAnnotationPierreRangesMatch(selectedRange, metadata.range)
+					}
 					thread={thread}
 				/>
 			);
@@ -247,6 +283,7 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			admitSelectedRange,
 			pendingComposer,
 			props.reviewPackage.itemsById,
+			selectedRange,
 			sessionSelection.rootAdmission,
 		],
 	);

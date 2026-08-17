@@ -11,6 +11,7 @@ import {
 	reviewPierreAnnotationsForItem,
 	threadForPierreAnnotation,
 	worktreeAnnotationMetadataForPierreAnnotation,
+	worktreeAnnotationPierreRangesMatch,
 } from '../review-viewer/code-view/worktree-annotation-pierre-adapter.js';
 import type { WorktreeAnnotationThreadProjection } from './worktree-annotation-surface-client.js';
 
@@ -163,6 +164,30 @@ describe('worktree annotation Pierre adapter', () => {
 				range: { end: 9, endSide: 'deletions', side: 'additions', start: 7 },
 			}),
 		).toBeNull();
+	});
+
+	test('matches only the exact active Pierre range while normalizing an omitted end side', () => {
+		const selectedRange = {
+			end: 9,
+			side: 'additions',
+			start: 7,
+		} satisfies SelectedLineRange;
+
+		expect(
+			worktreeAnnotationPierreRangesMatch(selectedRange, {
+				...selectedRange,
+				endSide: 'additions',
+			}),
+		).toBe(true);
+		expect(worktreeAnnotationPierreRangesMatch(selectedRange, { ...selectedRange, start: 8 })).toBe(
+			false,
+		);
+		expect(
+			worktreeAnnotationPierreRangesMatch(selectedRange, {
+				...selectedRange,
+				endSide: 'deletions',
+			}),
+		).toBe(false);
 	});
 
 	test('validates erased Pierre metadata before resolving a thread or composer', () => {

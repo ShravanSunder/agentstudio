@@ -229,7 +229,7 @@ describe('worktree annotation Pierre integration', () => {
 			const latestOptions = requireCodeViewOptions(appliedOptions.at(-1));
 			const currentItem = requireCodeViewItem(codeView.getItem('item-source'));
 			await act(async (): Promise<void> => {
-				invokeLineSelection(latestOptions, { start: 2, end: 2, side: 'additions' }, currentItem);
+				invokeGutterAdmission(latestOptions, { start: 2, end: 2, side: 'additions' }, currentItem);
 				await Promise.resolve();
 			});
 			await settleBrowserCondition(
@@ -272,7 +272,7 @@ describe('worktree annotation Pierre integration', () => {
 				'Expected clearing Pierre selection to close the root composer.',
 			);
 			await act(async (): Promise<void> => {
-				invokeLineSelection(latestOptions, { start: 2, end: 2, side: 'deletions' }, currentItem);
+				invokeGutterAdmission(latestOptions, { start: 2, end: 2, side: 'deletions' }, currentItem);
 				await Promise.resolve();
 			});
 			const baseComposer = rendered.getByRole('textbox', {
@@ -338,7 +338,7 @@ describe('worktree annotation Pierre integration', () => {
 				'Expected File Pierre selection callback.',
 			);
 			await act(async (): Promise<void> => {
-				invokeLineSelection(
+				invokeGutterAdmission(
 					requireCodeViewOptions(appliedOptions.at(-1)),
 					{ start: 4, end: 7 },
 					selectedCodeViewItem,
@@ -482,7 +482,7 @@ describe('worktree annotation Pierre integration', () => {
 				'Expected File Pierre selection callback.',
 			);
 			await act(async (): Promise<void> => {
-				invokeLineSelection(
+				invokeGutterAdmission(
 					requireCodeViewOptions(appliedOptions.at(-1)),
 					{ start: 4, end: 4 },
 					fileA,
@@ -735,6 +735,25 @@ function invokeLineSelection(
 	const callback = options.onLineSelectionEnd;
 	if (callback === undefined) throw new Error('Expected a Pierre line-selection callback.');
 	Reflect.apply(callback, undefined, [range, { item }]);
+}
+
+function invokeGutterAdmission(
+	options: CodeViewOptions<undefined>,
+	range: {
+		readonly end: number;
+		readonly endSide?: 'additions' | 'deletions';
+		readonly side?: 'additions' | 'deletions';
+		readonly start: number;
+	},
+	item: Readonly<{ id: string }>,
+): void {
+	const gutterCallback = options.onGutterUtilityClick;
+	const selectionEndCallback = options.onLineSelectionEnd;
+	if (gutterCallback === undefined || selectionEndCallback === undefined) {
+		throw new Error('Expected Pierre gutter and line-selection callbacks.');
+	}
+	Reflect.apply(gutterCallback, undefined, [range, { item }]);
+	Reflect.apply(selectionEndCallback, undefined, [range, { item }]);
 }
 
 function requireCodeView(value: CodeView | undefined): CodeView {

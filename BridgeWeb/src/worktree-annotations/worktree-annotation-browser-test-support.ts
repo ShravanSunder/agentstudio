@@ -162,6 +162,35 @@ export class RecordingAnnotationBrowserSurface {
 		this.#publishThreadEvent(props);
 	}
 
+	settleMostRecentCommitted(sessionId: string = annotationSessionId): void {
+		if (this.#nextRequest === 0) throw new Error('No annotation command is pending.');
+		const workerRequestId = `worker-request-${this.#nextRequest}`;
+		const productRequestId = `product-${workerRequestId}`;
+		this.#publish({
+			direction: 'serverWorkerToMain',
+			kind: 'annotationCommandAccepted',
+			productRequestId,
+			requestId: workerRequestId,
+			surface: this.client.surface,
+			transferDescriptors: [],
+			wireVersion: 1,
+		});
+		this.#revision += 1;
+		this.publishProjectionState({
+			commandOutcomes: [
+				{
+					requestId: productRequestId,
+					sessionId,
+					status: { kind: 'committed' },
+					surface: this.client.surface === 'fileView' ? 'file' : 'review',
+				},
+			],
+			outputHistory: this.#outputHistory,
+			revision: this.#revision,
+			sessions: this.#sessions,
+		});
+	}
+
 	settleMostRecentOutput(outcome: AnnotationOutputCommandOutcome): void {
 		if (this.#nextRequest === 0) throw new Error('No annotation output command is pending.');
 		const workerRequestId = `worker-request-${this.#nextRequest}`;

@@ -3,19 +3,15 @@ import type { ComponentProps, ReactElement } from 'react';
 
 import { cn } from '@/lib/utils.js';
 
-const annotationConversationFrameVariants = cva(
-	'min-w-0 overflow-hidden font-sans text-[var(--bridge-annotation-foreground)]',
-	{
-		variants: {
-			placement: {
-				embedded: 'm-0 w-full max-w-none',
-				standalone:
-					'm-2 w-[min(600px,calc(100%-1rem))] max-w-[600px] rounded-xl border border-[var(--bridge-annotation-border)] bg-[var(--bridge-annotation-surface)] bg-clip-padding shadow-sm outline-none transition-[border-color,box-shadow] focus-within:border-[var(--bridge-focus-border)] focus-within:ring-2 focus-within:ring-[var(--bridge-focus-ring)]',
-			},
+const annotationConversationFrameVariants = cva('min-w-0 font-sans text-comment-foreground', {
+	variants: {
+		placement: {
+			embedded: 'm-0 w-full max-w-none',
+			standalone: 'm-2 w-[calc(100%-1rem)] max-w-xl',
 		},
-		defaultVariants: { placement: 'standalone' },
 	},
-);
+	defaultVariants: { placement: 'standalone' },
+});
 
 export interface WorktreeAnnotationConversationFrameProps
 	extends ComponentProps<'section'>, VariantProps<typeof annotationConversationFrameVariants> {}

@@ -311,6 +311,18 @@ export function worktreeAnnotationMetadataForPierreAnnotation(
 	return { editToken: metadata.editToken, kind: 'composer', range: selectedRange };
 }
 
+export function worktreeAnnotationPierreRangesMatch(
+	left: SelectedLineRange,
+	right: SelectedLineRange,
+): boolean {
+	return (
+		left.start === right.start &&
+		left.end === right.end &&
+		left.side === right.side &&
+		(left.endSide ?? left.side) === (right.endSide ?? right.side)
+	);
+}
+
 export function fileAnnotationOriginForPierreSelection(props: {
 	readonly path: string;
 	readonly range: SelectedLineRange;

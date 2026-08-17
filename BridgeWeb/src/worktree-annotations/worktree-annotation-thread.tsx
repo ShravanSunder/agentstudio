@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Check, ChevronDown, ChevronUp, MapPin, Reply, RotateCcw, Save } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
-import { Button } from '@/components/ui/button.js';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible.js';
 import { Textarea } from '@/components/ui/textarea.js';
 
 import type { BridgeProductWorktreeAnnotationOperation } from '../core/comm-worker/bridge-product-call-contracts.js';
@@ -11,8 +12,12 @@ import {
 	WorktreeAnnotationDraftScheduler,
 } from './worktree-annotation-draft-scheduler.js';
 import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
+import {
+	WorktreeAnnotationCommandButton,
+	WorktreeAnnotationDisclosureButton,
+	WorktreeAnnotationInlineSurface,
+} from './worktree-annotation-inline-surface.js';
 import { validateWorktreeAnnotationMarkdown } from './worktree-annotation-markdown-policy.js';
-import { WorktreeAnnotationMessageBody } from './worktree-annotation-message-body.js';
 import type {
 	WorktreeAnnotationMessageEntry,
 	WorktreeAnnotationProjectionSnapshot,
@@ -21,13 +26,18 @@ import type {
 import {
 	useWorktreeAnnotationActiveComposerEditTokens,
 	useWorktreeAnnotationComposerEditToken,
-	useWorktreeAnnotationProjection,
+	useWorktreeAnnotationInteraction,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-provider.js';
+import {
+	WorktreeAnnotationMessageEditor,
+	WorktreeAnnotationThreadSummary,
+} from './worktree-annotation-thread-message.js';
 
 export interface WorktreeAnnotationThreadProps {
 	readonly onActivateRange?: (() => void) | undefined;
+	readonly rangeActive?: boolean | undefined;
 	readonly thread: WorktreeAnnotationThreadProjection;
 }
 
@@ -35,10 +45,13 @@ export function WorktreeAnnotationThread(
 	props: WorktreeAnnotationThreadProps,
 ): ReactElement | null {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
+	const interaction = useWorktreeAnnotationInteraction();
 	const sessionSelection = useWorktreeAnnotationSessionSelection();
 	const activeComposerEditTokens = useWorktreeAnnotationActiveComposerEditTokens();
-	const [isReplying, setIsReplying] = useState(false);
 	const [operationError, setOperationError] = useState<string | null>(null);
+	const disclosureButtonRef = useRef<HTMLButtonElement | null>(null);
+	const threadId = props.thread.context.threadId;
+	const editor = interaction.editorForThread(threadId);
 	const firstMessage = props.thread.messages[0];
 	const sessionRevision = firstMessage?.sessionRevision ?? 0;
 	const sessionId = firstMessage?.sessionId ?? null;
@@ -53,6 +66,12 @@ export function WorktreeAnnotationThread(
 			message.draft?.activeEditToken === undefined ||
 			!activeComposerEditTokens.has(message.draft.activeEditToken),
 	);
+	const isExpanded =
+		visibleMessages.length <= 1 || interaction.isThreadExpanded(threadId) || editor !== null;
+	const activateRange = (): void => {
+		interaction.activateThread(threadId);
+		props.onActivateRange?.();
+	};
 	const setResolution = async (): Promise<void> => {
 		if (sessionId === null || !canSetThreadResolution) return;
 		setOperationError(null);
@@ -66,6 +85,43 @@ export function WorktreeAnnotationThread(
 		if (outcome.status.kind === 'failed') setOperationError(outcome.status.code);
 	};
 	if (visibleMessages.length === 0) return null;
+	const latestMessage = visibleMessages.at(-1);
+	if (latestMessage === undefined) return null;
+	const threadCommands = (disclosure: 'collapse' | 'expand' | null): ReactNode => (
+		<>
+			{props.onActivateRange === undefined ? null : (
+				<WorktreeAnnotationCommandButton
+					label={`Show source range ${annotationThreadLocationLabel(props.thread)}`}
+					onClick={activateRange}
+				>
+					<MapPin />
+				</WorktreeAnnotationCommandButton>
+			)}
+			<WorktreeAnnotationCommandButton
+				disabled={!canReply}
+				label="Reply to thread"
+				onClick={() => interaction.startReply(threadId)}
+			>
+				<Reply />
+			</WorktreeAnnotationCommandButton>
+			<WorktreeAnnotationCommandButton
+				disabled={!canSetThreadResolution}
+				label={props.thread.context.resolution === 'open' ? 'Resolve thread' : 'Reopen thread'}
+				onClick={() => void setResolution()}
+			>
+				{props.thread.context.resolution === 'open' ? <Check /> : <RotateCcw />}
+			</WorktreeAnnotationCommandButton>
+			{disclosure === null ? null : (
+				<WorktreeAnnotationDisclosureButton
+					buttonRef={disclosureButtonRef}
+					disabled={editor !== null}
+					label={`${disclosure === 'expand' ? 'Expand' : 'Collapse'} ${visibleMessages.length} messages`}
+				>
+					{disclosure === 'expand' ? <ChevronDown /> : <ChevronUp />}
+				</WorktreeAnnotationDisclosureButton>
+			)}
+		</>
+	);
 	return (
 		<WorktreeAnnotationConversationFrame
 			aria-label={annotationThreadAccessibleLabel(props.thread)}
@@ -73,53 +129,63 @@ export function WorktreeAnnotationThread(
 			data-annotation-resolution={props.thread.context.resolution}
 			data-testid="worktree-annotation-thread"
 		>
-			<header className="flex items-center justify-between gap-2 px-3 py-1.5 text-[10px] text-[var(--bridge-annotation-muted)]">
-				{props.onActivateRange === undefined ? (
-					<span className="truncate">{annotationThreadLocationLabel(props.thread)}</span>
+			<Collapsible
+				open={isExpanded}
+				onOpenChange={(open) => {
+					const disclosureHadFocus = document.activeElement === disclosureButtonRef.current;
+					interaction.setThreadExpanded(threadId, open);
+					if (disclosureHadFocus) {
+						requestAnimationFrame((): void => disclosureButtonRef.current?.focus());
+					}
+				}}
+			>
+				{isExpanded ? (
+					<CollapsibleContent className="space-y-2">
+						{visibleMessages.map((message, visibleIndex) => {
+							const messageOrdinal = props.thread.messages.findIndex(
+								(candidate): boolean => candidate.messageId === message.messageId,
+							);
+							const isLatest = visibleIndex === visibleMessages.length - 1;
+							return (
+								<WorktreeAnnotationMessageEditor
+									active={props.rangeActive === true && interaction.activeThreadId === threadId}
+									canEdit={canEditMessages}
+									commands={
+										isLatest ? threadCommands(visibleMessages.length > 1 ? 'collapse' : null) : null
+									}
+									isEditing={editor?.kind === 'message' && editor.messageId === message.messageId}
+									key={message.messageId}
+									message={message}
+									onBeginEdit={() => interaction.startMessageEdit(threadId, message.messageId)}
+									onFinishEdit={() => interaction.clearEditor(threadId)}
+									ordinal={messageOrdinal + 1}
+									path={props.thread.context.path}
+								/>
+							);
+						})}
+					</CollapsibleContent>
 				) : (
-					<Button
-						aria-label={`Show source range ${annotationThreadLocationLabel(props.thread)}`}
-						className="min-w-0 justify-start px-0 font-normal text-[var(--bridge-annotation-muted)]"
-						size="xs"
-						variant="ghost"
-						onClick={props.onActivateRange}
-					>
-						<span className="truncate">{annotationThreadLocationLabel(props.thread)}</span>
-					</Button>
+					<WorktreeAnnotationThreadSummary
+						active={props.rangeActive === true && interaction.activeThreadId === threadId}
+						commands={threadCommands('expand')}
+						hasDraft={visibleMessages.some((message) => message.draft !== null)}
+						hasLockedMessage={visibleMessages.some((message) => message.status === 'locked')}
+						message={latestMessage}
+						messageCount={visibleMessages.length}
+						placement={props.thread.context.placement}
+						resolution={props.thread.context.resolution}
+					/>
 				)}
-				<Button
-					disabled={!canSetThreadResolution}
-					size="xs"
-					variant="ghost"
-					onClick={() => void setResolution()}
-				>
-					{props.thread.context.resolution === 'open' ? 'Resolve' : 'Reopen'}
-				</Button>
-			</header>
-			<div className="divide-y divide-[var(--bridge-annotation-divider)]">
-				{visibleMessages.map((message) => {
-					const messageOrdinal = props.thread.messages.findIndex(
-						(candidate): boolean => candidate.messageId === message.messageId,
-					);
-					return (
-						<WorktreeAnnotationMessageEditor
-							canEdit={canEditMessages}
-							key={message.messageId}
-							message={message}
-							ordinal={messageOrdinal + 1}
-							path={props.thread.context.path}
-						/>
-					);
-				})}
-			</div>
+			</Collapsible>
 			{operationError === null ? null : (
-				<Alert variant="destructive" className="m-2 w-auto">
+				<Alert variant="destructive" className="mt-2 w-auto">
 					<AlertDescription>{operationError}</AlertDescription>
 				</Alert>
 			)}
-			{sessionId === null ? null : isReplying ? (
-				<div className="border-t border-[var(--bridge-annotation-divider)]">
+			{sessionId === null || editor?.kind !== 'reply' ? null : (
+				<div className="mt-2">
 					<WorktreeAnnotationNewMessageComposer
+						active
 						createOperation={(body, editToken) => ({
 							body,
 							editToken,
@@ -128,212 +194,19 @@ export function WorktreeAnnotationThread(
 							sessionId,
 							threadId: props.thread.context.threadId,
 						})}
-						onCancel={() => setIsReplying(false)}
-						onSaved={() => setIsReplying(false)}
+						onCancel={() => interaction.clearEditor(threadId)}
+						onSaved={() => interaction.clearEditor(threadId)}
 						placement="embedded"
 						placeholder="Reply with Markdown"
 					/>
-				</div>
-			) : (
-				<div className="flex justify-end border-t border-[var(--bridge-annotation-divider)] px-3 py-1">
-					<Button
-						disabled={!canReply}
-						size="xs"
-						variant="ghost"
-						onClick={() => setIsReplying(true)}
-					>
-						Reply
-					</Button>
 				</div>
 			)}
 		</WorktreeAnnotationConversationFrame>
 	);
 }
 
-interface WorktreeAnnotationMessageEditorProps {
-	readonly canEdit: boolean;
-	readonly message: WorktreeAnnotationMessageEntry;
-	readonly ordinal: number;
-	readonly path: string | null;
-}
-
-function WorktreeAnnotationMessageEditor(
-	props: WorktreeAnnotationMessageEditorProps,
-): ReactElement {
-	const annotationClient = useWorktreeAnnotationSurfaceClient();
-	const projection = useWorktreeAnnotationProjection();
-	const messageRef = useRef(props.message);
-	messageRef.current = props.message;
-	const initialBody = props.message.draft?.body ?? props.message.savedBody ?? '';
-	const [body, setBody] = useState(initialBody);
-	const [isEditing, setIsEditing] = useState(props.canEdit && props.message.savedBody === null);
-	const [operationError, setOperationError] = useState<string | null>(null);
-	const editTokenRef = useRef(
-		props.message.draft?.activeEditToken ?? createWorktreeAnnotationEditToken(),
-	);
-	const scheduler = useMemo(
-		() =>
-			new WorktreeAnnotationDraftScheduler({
-				clock: browserWorktreeAnnotationDraftClock,
-				persist: async (nextBody): Promise<void> => {
-					const currentMessage = currentMessageById(
-						annotationClient.getSnapshot(),
-						props.message.messageId,
-					);
-					if (currentMessage === null) throw new Error('Annotation message is unavailable.');
-					const outcome = await annotationClient.execute({
-						body: nextBody,
-						editToken: editTokenRef.current,
-						expectedDraftRevision: currentMessage.draft?.revision ?? null,
-						expectedSessionRevision: currentMessage.sessionRevision,
-						kind: 'draft.flush',
-						messageId: currentMessage.messageId,
-						sessionId: currentMessage.sessionId,
-					});
-					assertCommittedAnnotationOutcome(outcome);
-					await annotationClient.waitForSnapshot((snapshot) => {
-						const projectedMessage = currentMessageById(snapshot, currentMessage.messageId);
-						return projectedMessage?.draft?.body === nextBody ? projectedMessage : null;
-					});
-				},
-			}),
-		[annotationClient, props.message.messageId],
-	);
-	useEffect((): (() => void) => (): void => scheduler.dispose(), [scheduler]);
-	useEffect((): void => {
-		if (!isEditing) setBody(props.message.draft?.body ?? props.message.savedBody ?? '');
-	}, [isEditing, props.message.draft?.body, props.message.savedBody]);
-	useEffect((): void => {
-		if (!props.canEdit) setIsEditing(false);
-	}, [props.canEdit]);
-	const validation = validateWorktreeAnnotationMarkdown(body);
-	const save = async (): Promise<void> => {
-		if (!props.canEdit) return;
-		setOperationError(null);
-		try {
-			if (!validation.ok) throw new Error(annotationMarkdownValidationMessage(validation.code));
-			await scheduler.save(async (): Promise<void> => {
-				const currentMessage = currentMessageById(
-					annotationClient.getSnapshot(),
-					props.message.messageId,
-				);
-				if (currentMessage?.draft === null || currentMessage === null) {
-					throw new Error('No durable draft is available to save.');
-				}
-				const outcome = await annotationClient.execute({
-					editToken: editTokenRef.current,
-					expectedDraftRevision: currentMessage.draft.revision,
-					expectedSessionRevision: currentMessage.sessionRevision,
-					kind: 'draft.save',
-					messageId: currentMessage.messageId,
-					sessionId: currentMessage.sessionId,
-				});
-				assertCommittedAnnotationOutcome(outcome);
-				await annotationClient.waitForSnapshot((snapshot) => {
-					const savedMessage = currentMessageById(snapshot, currentMessage.messageId);
-					return savedMessage?.draft === null && savedMessage.savedBody === body
-						? savedMessage
-						: null;
-				});
-			});
-			setIsEditing(false);
-		} catch (error: unknown) {
-			setOperationError(annotationErrorMessage(error));
-		}
-	};
-	const revert = async (): Promise<void> => {
-		if (!props.canEdit) return;
-		setOperationError(null);
-		const currentMessage = currentMessageById(projection, props.message.messageId);
-		if (currentMessage?.draft === null || currentMessage === null) {
-			setBody(currentMessage?.savedBody ?? '');
-			setIsEditing(false);
-			return;
-		}
-		try {
-			const outcome = await annotationClient.execute({
-				editToken: editTokenRef.current,
-				expectedDraftRevision: currentMessage.draft.revision,
-				expectedSessionRevision: currentMessage.sessionRevision,
-				kind: 'draft.revert',
-				messageId: currentMessage.messageId,
-				sessionId: currentMessage.sessionId,
-			});
-			assertCommittedAnnotationOutcome(outcome);
-			setBody(currentMessage.savedBody ?? '');
-			setIsEditing(false);
-		} catch (error: unknown) {
-			setOperationError(annotationErrorMessage(error));
-		}
-	};
-	return (
-		<article
-			className="space-y-1.5 px-3 py-2"
-			data-annotation-draft={props.message.draft === null ? 'absent' : 'present'}
-		>
-			<div className="flex items-center justify-between gap-2 text-[10px] text-[var(--bridge-annotation-muted)]">
-				<span className="flex min-w-0 items-center gap-1.5">
-					<span className="font-medium text-[var(--bridge-annotation-foreground)]">You</span>
-					<span>{annotationMessageRoleLabel(props.ordinal)}</span>
-					<span aria-hidden="true">·</span>
-					<span>{annotationMessageStateLabel(props.message)}</span>
-				</span>
-				{!isEditing && props.message.status === 'editable' ? (
-					<Button
-						disabled={!props.canEdit}
-						size="xs"
-						variant="ghost"
-						onClick={() => setIsEditing(true)}
-					>
-						Edit
-					</Button>
-				) : null}
-			</div>
-			{isEditing && props.canEdit && props.message.status === 'editable' ? (
-				<>
-					<Textarea
-						aria-label="Annotation Markdown"
-						value={body}
-						onBlur={() =>
-							void scheduler.focusLost().catch((error: unknown) => {
-								setOperationError(annotationErrorMessage(error));
-							})
-						}
-						onChange={(event) => {
-							const nextBody = event.currentTarget.value;
-							setBody(nextBody);
-							scheduler.edit(nextBody);
-						}}
-					/>
-					<div className="flex justify-end gap-1">
-						<Button size="xs" variant="ghost" onClick={() => void revert()}>
-							Revert
-						</Button>
-						<Button size="xs" disabled={!validation.ok} onClick={() => void save()}>
-							Save
-						</Button>
-					</div>
-				</>
-			) : (
-				<WorktreeAnnotationMessageBody
-					body={props.message.savedBody ?? props.message.draft?.body ?? ''}
-					messageId={props.message.messageId}
-					messageRevision={props.message.messageRevision}
-					path={props.path}
-					sessionId={props.message.sessionId}
-					sessionRevision={props.message.sessionRevision}
-				/>
-			)}
-			{operationError === null ? null : (
-				<p className="text-[10px] text-destructive" role="alert">
-					{operationError}
-				</p>
-			)}
-		</article>
-	);
-}
-
 export interface WorktreeAnnotationNewMessageComposerProps {
+	readonly active?: boolean | undefined;
 	readonly createOperation: (
 		body: string,
 		editToken: string,
@@ -350,6 +223,7 @@ export function WorktreeAnnotationNewMessageComposer(
 ): ReactElement {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
 	const [body, setBody] = useState('');
+	const [isDurable, setIsDurable] = useState(false);
 	const [operationError, setOperationError] = useState<string | null>(null);
 	const targetMessageIdRef = useRef<string | null>(null);
 	const editTokenRef = useRef(props.editToken ?? createWorktreeAnnotationEditToken());
@@ -370,6 +244,7 @@ export function WorktreeAnnotationNewMessageComposer(
 							messageByEditToken(snapshot, editTokenRef.current),
 						);
 						targetMessageIdRef.current = createdMessage.messageId;
+						setIsDurable(true);
 						return;
 					}
 					const currentMessage = currentMessageById(
@@ -423,43 +298,128 @@ export function WorktreeAnnotationNewMessageComposer(
 			setOperationError(annotationErrorMessage(error));
 		}
 	};
+	const revert = async (): Promise<void> => {
+		setOperationError(null);
+		const messageId = targetMessageIdRef.current;
+		if (messageId === null) {
+			props.onCancel();
+			return;
+		}
+		const currentMessage = currentMessageById(annotationClient.getSnapshot(), messageId);
+		if (currentMessage?.draft === null || currentMessage === null) {
+			props.onCancel();
+			return;
+		}
+		try {
+			const outcome = await annotationClient.execute({
+				editToken: editTokenRef.current,
+				expectedDraftRevision: currentMessage.draft.revision,
+				expectedSessionRevision: currentMessage.sessionRevision,
+				kind: 'draft.revert',
+				messageId: currentMessage.messageId,
+				sessionId: currentMessage.sessionId,
+			});
+			assertCommittedAnnotationOutcome(outcome);
+			props.onCancel();
+		} catch (error: unknown) {
+			setOperationError(annotationErrorMessage(error));
+		}
+	};
 	return (
 		<WorktreeAnnotationConversationFrame
 			aria-label={`${props.placeholder} composer`}
 			placement={props.placement}
 		>
-			<div className="space-y-2 p-3" data-testid="worktree-annotation-new-message-composer">
-				<Textarea
-					autoFocus
-					aria-label={props.placeholder}
-					className="min-h-20"
-					placeholder={props.placeholder}
-					value={body}
-					onBlur={() =>
-						void scheduler.focusLost().catch((error: unknown) => {
-							setOperationError(annotationErrorMessage(error));
-						})
-					}
-					onChange={(event) => {
-						const nextBody = event.currentTarget.value;
-						setBody(nextBody);
-						scheduler.edit(nextBody);
-					}}
-				/>
-				{operationError === null ? null : (
-					<p className="text-[10px] text-destructive" role="alert">
-						{operationError}
-					</p>
-				)}
-				<div className="flex justify-end gap-1.5">
-					<Button size="xs" variant="ghost" onClick={props.onCancel}>
-						Cancel
-					</Button>
-					<Button size="xs" disabled={!validation.ok} onClick={() => void save()}>
-						Save
-					</Button>
+			<WorktreeAnnotationInlineSurface
+				active={props.active}
+				commands={
+					<>
+						<WorktreeAnnotationCommandButton label="Revert draft" onClick={() => void revert()}>
+							<RotateCcw />
+						</WorktreeAnnotationCommandButton>
+						<WorktreeAnnotationCommandButton
+							disabled={!validation.ok}
+							label="Save annotation"
+							onClick={() => void save()}
+							primary
+						>
+							<Save />
+						</WorktreeAnnotationCommandButton>
+					</>
+				}
+				draft={isDurable}
+				metadata={
+					<>
+						<span className="font-medium text-comment-foreground">You</span>
+						<span aria-hidden="true">·</span>
+						{isDurable ? (
+							<>
+								<span className="inline-flex items-center gap-1 font-medium text-warning">
+									<span aria-hidden="true" className="size-1.5 rounded-full bg-warning" />
+									Draft
+								</span>
+								<span aria-hidden="true">·</span>
+								<span>saved locally</span>
+							</>
+						) : (
+							<span>New comment</span>
+						)}
+					</>
+				}
+			>
+				<div data-testid="worktree-annotation-new-message-composer">
+					<Textarea
+						autoFocus
+						aria-label={props.placeholder}
+						className="min-h-16 rounded-none border-0 bg-comment-composer-bg p-0 shadow-none focus-visible:border-transparent focus-visible:ring-2 focus-visible:ring-ring/30"
+						placeholder={props.placeholder}
+						value={body}
+						onBlur={(event) => {
+							const surface = event.currentTarget.closest(
+								'[data-testid="worktree-annotation-message"]',
+							);
+							if (
+								event.relatedTarget instanceof Node &&
+								surface?.contains(event.relatedTarget) === true
+							) {
+								return;
+							}
+							if (body.trim().length === 0) {
+								props.onCancel();
+								return;
+							}
+							void scheduler
+								.focusLost()
+								.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+						}}
+						onChange={(event) => {
+							const nextBody = event.currentTarget.value;
+							setBody(nextBody);
+							scheduler.edit(nextBody);
+						}}
+						onKeyDown={(event) => {
+							if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+								event.preventDefault();
+								void save();
+							} else if (event.key === 'Escape') {
+								event.preventDefault();
+								if (body.trim().length === 0) props.onCancel();
+								else {
+									void scheduler
+										.focusLost()
+										.then(props.onCancel)
+										.catch((error: unknown) => setOperationError(annotationErrorMessage(error)));
+								}
+							}
+						}}
+					/>
+					{operationError === null ? null : (
+						<p className="text-xs text-destructive" role="alert">
+							{operationError}
+						</p>
+					)}
 				</div>
-			</div>
+			</WorktreeAnnotationInlineSurface>
 		</WorktreeAnnotationConversationFrame>
 	);
 }
@@ -494,13 +454,6 @@ function assertCommittedAnnotationOutcome(
 	if (outcome.status.kind === 'failed') throw new Error(outcome.status.code);
 }
 
-function annotationMessageStateLabel(message: WorktreeAnnotationMessageEntry): string {
-	if (message.status === 'locked') return 'Output locked';
-	if (message.savedBody === null) return 'Draft';
-	if (message.draft !== null) return 'Saved · draft changes';
-	return 'Saved';
-}
-
 function annotationThreadLocationLabel(thread: WorktreeAnnotationThreadProjection): string {
 	const location =
 		thread.context.startLine === null
@@ -511,10 +464,6 @@ function annotationThreadLocationLabel(thread: WorktreeAnnotationThreadProjectio
 
 function annotationThreadAccessibleLabel(thread: WorktreeAnnotationThreadProjection): string {
 	return `${annotationThreadLocationLabel(thread)} annotation thread`;
-}
-
-function annotationMessageRoleLabel(ordinal: number): string {
-	return ordinal === 1 ? 'Root comment' : `Reply ${ordinal - 1}`;
 }
 
 function annotationErrorMessage(error: unknown): string {
