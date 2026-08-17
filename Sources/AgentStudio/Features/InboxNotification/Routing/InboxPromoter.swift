@@ -190,12 +190,13 @@ final class InboxPromoter {
             semantic: promotion.semantic,
             sessionId: sessionId
         )
+        let boundedText = InboxNotificationTextPolicy.bounded(title: promotion.title, body: activity.lastOutputLine)
         let notification = InboxNotification(
             id: UUID(),
             timestamp: now(),
             kind: promotion.kind,
-            title: promotion.title,
-            body: nil,
+            title: boundedText.title,
+            body: boundedText.body,
             source: .pane(context),
             activityContext: .init(
                 burstWindowId: activity.burstWindowId,

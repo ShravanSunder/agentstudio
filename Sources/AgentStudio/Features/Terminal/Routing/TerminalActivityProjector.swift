@@ -58,6 +58,12 @@ enum TerminalActivitySourceInput: Sendable, Equatable {
 /// coalesced follow-up batch.
 package actor TerminalActivityProjector {
     typealias OutcomeSink = @MainActor @Sendable ([TerminalActivityProjectionOutcome]) -> Void
+    /// Reads a settle-time last-output-line candidate for a surface. Contract 7
+    /// bounded contraction (trim, strip control residue, ≤120 UTF-8 bytes,
+    /// drop bare prompts) has already happened by the time this returns; the
+    /// projector only owns unchanged-line suppression, since that requires
+    /// the pane's prior settle state.
+    typealias LastOutputLineReader = @MainActor @Sendable (_ surfaceID: UUID) -> String?
 
     private struct ActivityWindow: Sendable {
         let id: UUID
@@ -91,12 +97,16 @@ package actor TerminalActivityProjector {
         var agentCandidate: ActivityWindow?
         var agentSettledLatestRows: Int?
         var isAgentSettledSuppressed = false
+        /// The last contracted output-line candidate published at this
+        /// pane's previous settle, used to suppress an unchanged repeat.
+        var previousLastOutputLine: String?
     }
 
     private let unseenQuietDuration: Duration
     private let agentSettledQuietDuration: Duration
     private let delay: AsyncDelay
     private var outcomeSink: OutcomeSink?
+    private var lastOutputLineReader: LastOutputLineReader?
     private var paneStates: [UUID: PaneState] = [:]
     private var unseenCloseTasks: [UUID: Task<Void, Never>] = [:]
     private var agentCloseTasks: [UUID: Task<Void, Never>] = [:]
@@ -113,7 +123,11 @@ package actor TerminalActivityProjector {
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
     }
 
-    func configure(outcomeSink: @escaping OutcomeSink) {
+    func configure(
+        lastOutputLineReader: LastOutputLineReader? = nil,
+        outcomeSink: @escaping OutcomeSink
+    ) {
+        self.lastOutputLineReader = lastOutputLineReader
         self.outcomeSink = outcomeSink
     }
 
@@ -361,6 +375,7 @@ package actor TerminalActivityProjector {
         agentRetirementTasks.removeAll()
         paneStates.removeAll()
         outcomeSink = nil
+        lastOutputLineReader = nil
         for task in closeTasks { await task.value }
         for task in retirementTasks { await task.value }
     }
@@ -499,11 +514,12 @@ package actor TerminalActivityProjector {
         state.unseenWindow = nil
         paneStates[target.paneID] = state
         guard window.rowsAdded > 0 else { return }
+        let lastOutputLine = await resolveLastOutputLine(surfaceID: window.surfaceID, paneID: target.paneID)
         await emit([
             .unseenActivitySettled(
                 surfaceID: window.surfaceID,
                 paneID: target.paneID,
-                activity: settledActivity(window, quietDuration: unseenQuietDuration)
+                activity: settledActivity(window, quietDuration: unseenQuietDuration, lastOutputLine: lastOutputLine)
             )
         ])
     }
@@ -525,13 +541,33 @@ package actor TerminalActivityProjector {
         }
         state.agentSettledLatestRows = candidate.latestRows
         paneStates[target.paneID] = state
+        let lastOutputLine = await resolveLastOutputLine(surfaceID: candidate.surfaceID, paneID: target.paneID)
         await emit([
             .agentSettledActivityPromoted(
                 surfaceID: candidate.surfaceID,
                 paneID: target.paneID,
-                activity: settledActivity(candidate, quietDuration: agentSettledQuietDuration)
+                activity: settledActivity(
+                    candidate,
+                    quietDuration: agentSettledQuietDuration,
+                    lastOutputLine: lastOutputLine
+                )
             )
         ])
+    }
+
+    /// Reads the settle-time candidate line for `surfaceID` and applies
+    /// unchanged-line suppression against the pane's previous settle. Always
+    /// re-fetches `paneStates` after the reader's MainActor hop rather than
+    /// reusing a pre-await snapshot, since the actor is reentrant across that
+    /// suspension point.
+    private func resolveLastOutputLine(surfaceID: UUID, paneID: UUID) async -> String? {
+        guard let lastOutputLineReader else { return nil }
+        let candidate = await lastOutputLineReader(surfaceID)
+        guard var state = paneStates[paneID], state.surfaceID == surfaceID else { return candidate }
+        let isUnchanged = candidate == state.previousLastOutputLine
+        state.previousLastOutputLine = candidate
+        paneStates[paneID] = state
+        return isUnchanged ? nil : candidate
     }
 
     private func isAgentSettledCandidate(_ candidate: ActivityWindow) -> Bool {
@@ -546,7 +582,11 @@ package actor TerminalActivityProjector {
             || activeDuration >= Int64(minimumActive)
     }
 
-    private func settledActivity(_ window: ActivityWindow, quietDuration: Duration) -> TerminalSettledActivity {
+    private func settledActivity(
+        _ window: ActivityWindow,
+        quietDuration: Duration,
+        lastOutputLine: String?
+    ) -> TerminalSettledActivity {
         let debounceMilliseconds = Self.milliseconds(quietDuration)
         return TerminalSettledActivity(
             burstWindowId: window.id,
@@ -558,7 +598,8 @@ package actor TerminalActivityProjector {
             rowsAdded: window.rowsAdded,
             baselineRows: window.baselineRows,
             latestRows: window.latestRows,
-            isPinnedToBottom: window.latestIsPinnedToBottom
+            isPinnedToBottom: window.latestIsPinnedToBottom,
+            lastOutputLine: lastOutputLine
         )
     }
 
