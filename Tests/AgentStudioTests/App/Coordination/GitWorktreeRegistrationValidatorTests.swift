@@ -7,42 +7,91 @@ import Testing
 
 @Suite
 struct GitWorktreeRegistrationValidatorTests {
-    @Test("uncertain discovery retries are bounded without wall-clock waits")
-    func uncertainDiscoveryRetriesAreBoundedWithoutWallClockWaits() async {
+    @Test(
+        "a probe that cannot confirm the repository registers provisionally instead of stalling",
+        arguments: [
+            GitRepositoryDiscoveryOutcome.timeout,
+            .cancelled,
+            .failure(.serviceFailed(detail: "boom")),
+        ]
+    )
+    func nonCertainProbeOutcomesRegisterProvisionally(outcome: GitRepositoryDiscoveryOutcome) async {
+        await assertDecision(outcome, is: .validated)
+    }
+
+    @Test(
+        "worktree metadata drift reasons register provisionally rather than reject",
+        arguments: [
+            GitRepositoryAuthoritativeNegativeReason.canonicalPathMismatch,
+            .mainWorktreeMismatch,
+            .submoduleWorktree,
+        ]
+    )
+    func metadataDriftReasonsRegisterProvisionally(
+        reason: GitRepositoryAuthoritativeNegativeReason
+    ) async {
+        await assertDecision(.authoritativeNegative(reason), is: .validated)
+    }
+
+    @Test(
+        "certain non-repository evidence still rejects registration",
+        arguments: [
+            GitRepositoryAuthoritativeNegativeReason.exactCandidateIsNotRepository,
+            .invalidRepository,
+            .invalidWorktreeRegistration,
+            .bareRepository,
+        ]
+    )
+    func certainNonRepositoryReasonsReject(
+        reason: GitRepositoryAuthoritativeNegativeReason
+    ) async {
+        await assertDecision(.authoritativeNegative(reason), is: .authoritativeNegative)
+    }
+
+    @Test("validated discovery evidence registers")
+    func validatedOutcomeRegisters() async {
+        let entry = RepoScanner.ResolvedGitEntry(
+            path: URL(fileURLWithPath: "/tmp/registration-validator-validated"),
+            kind: .cloneRoot,
+            repositoryKey: "test:validated"
+        )
+        await assertDecision(.validated(entry), is: .validated)
+    }
+
+    @Test("registration performs a single probe with no retry")
+    func registrationPerformsSingleProbeWithoutRetry() async {
         // Arrange
         let discoveryProvider = RecordingRegistrationDiscoveryProvider(outcome: .timeout)
-        let delayRecorder = RegistrationValidationDelayRecorder()
-        let validator = GitWorktreeRegistrationValidator(
-            discoveryProvider: discoveryProvider,
-            delay: AsyncDelay { duration in
-                await delayRecorder.record(duration)
-            }
-        )
-        let worktreeId = UUIDv7.generate()
+        let validator = GitWorktreeRegistrationValidator(discoveryProvider: discoveryProvider)
         let context = WorktreeFilesystemContext(
             repoId: UUIDv7.generate(),
-            rootPath: URL(fileURLWithPath: "/tmp/registration-validator-uncertain")
+            rootPath: URL(fileURLWithPath: "/tmp/registration-validator-single-probe")
         )
 
         // Act
-        let decision = await validator.registrationDecision(
-            worktreeId: worktreeId,
-            context: context
-        )
+        _ = await validator.registrationDecision(context: context)
 
         // Assert
-        #expect(decision == .uncertain(previouslyAcceptedContext: nil))
-        #expect(
-            await discoveryProvider.callCount
-                == AppPolicies.GitRefresh.registrationValidationMaximumAttempts
+        #expect(await discoveryProvider.callCount == 1)
+    }
+
+    private func assertDecision(
+        _ outcome: GitRepositoryDiscoveryOutcome,
+        is expectedDecision: GitWorktreeRegistrationDecision
+    ) async {
+        // Arrange
+        let discoveryProvider = RecordingRegistrationDiscoveryProvider(outcome: outcome)
+        let validator = GitWorktreeRegistrationValidator(discoveryProvider: discoveryProvider)
+        let context = WorktreeFilesystemContext(
+            repoId: UUIDv7.generate(),
+            rootPath: URL(fileURLWithPath: "/tmp/registration-validator-\(UUID().uuidString)")
         )
-        #expect(
-            await delayRecorder.recordedDurations
-                == Array(
-                    repeating: AppPolicies.GitRefresh.registrationValidationRetryDelay,
-                    count: AppPolicies.GitRefresh.registrationValidationMaximumAttempts - 1
-                )
-        )
+
+        // Act
+        let decision = await validator.registrationDecision(context: context)
+
+        // Assert
+        #expect(decision == expectedDecision)
     }
 }
 
@@ -57,13 +106,5 @@ private actor RecordingRegistrationDiscoveryProvider: RepoScanner.GitRepositoryD
     func discoveryOutcome(for _: URL) async -> GitRepositoryDiscoveryOutcome {
         callCount += 1
         return outcome
-    }
-}
-
-private actor RegistrationValidationDelayRecorder {
-    private(set) var recordedDurations: [Duration] = []
-
-    func record(_ duration: Duration) {
-        recordedDurations.append(duration)
     }
 }

@@ -77,13 +77,15 @@ package struct WorkspaceLookupDerived {
                     continue
                 }
                 guard
-                    let worktreeId = repositoryTopology.repoAndWorktree(
-                        containing: paneFacts.cwd,
-                        declaredWorktreeIDs: declaredWorktreeIDs
-                    )?.worktree.id
+                    let resolvedContext = repositoryTopology.validatedAssociation(
+                        repoId: paneFacts.repoID,
+                        worktreeId: paneFacts.worktreeID
+                    ),
+                    declaredWorktreeIDs?.contains(resolvedContext.worktree.id) != false
                 else {
                     continue
                 }
+                let worktreeId = resolvedContext.worktree.id
 
                 let paneIndexInTab =
                     tab.activePaneIds.firstIndex(of: paneFacts.paneID)
@@ -107,13 +109,15 @@ package struct WorkspaceLookupDerived {
                 continue
             }
             guard !seenPaneIds.contains(paneID),
-                let worktreeId = repositoryTopology.repoAndWorktree(
-                    containing: paneFacts.cwd,
-                    declaredWorktreeIDs: declaredWorktreeIDs
-                )?.worktree.id
+                let resolvedContext = repositoryTopology.validatedAssociation(
+                    repoId: paneFacts.repoID,
+                    worktreeId: paneFacts.worktreeID
+                ),
+                declaredWorktreeIDs?.contains(resolvedContext.worktree.id) != false
             else {
                 continue
             }
+            let worktreeId = resolvedContext.worktree.id
             workspaceLookupLogger.warning(
                 "paneLocationsByWorktreeId: active pane \(paneID.uuidString, privacy: .public) for worktree \(worktreeId.uuidString, privacy: .public) has no owning tab"
             )
@@ -130,17 +134,5 @@ package struct WorkspaceLookupDerived {
                 return lhs.paneId.uuidString < rhs.paneId.uuidString
             }
         }
-    }
-}
-
-extension RepositoryTopologyAtom {
-    fileprivate func repoAndWorktree(
-        containing cwd: URL?,
-        declaredWorktreeIDs: Set<UUID>?
-    ) -> (repo: Repo, worktree: Worktree)? {
-        guard let declaredWorktreeIDs else {
-            return repoAndWorktree(containing: cwd)
-        }
-        return repoAndWorktree(containing: cwd, among: declaredWorktreeIDs)
     }
 }

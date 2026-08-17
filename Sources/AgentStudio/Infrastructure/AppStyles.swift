@@ -8,12 +8,12 @@ package enum AppStyles {
     package enum General {
         package enum Accent {
             // Exact-class token: must be sRGB and value-identical to BridgeWeb --primary.
-            // Owner-chosen product primary (2026-08-16): #007BFE.
+            // Owner-chosen product primary (2026-08-16): #409CFF.
             // NSColor(hex:) constructs in Generic RGB and shifts the rendered color — do not use it here.
-            package static let primaryHex = "#007BFE"
+            package static let primaryHex = "#409CFF"
             package static let primaryNSColor = NSColor(
-                srgbRed: 0x00 / 255.0, green: 0x7B / 255.0, blue: 0xFE / 255.0, alpha: 1.0)
-            package static let primaryColor = Color(.sRGB, red: 0x00 / 255.0, green: 0x7B / 255.0, blue: 0xFE / 255.0)
+                srgbRed: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0, alpha: 1.0)
+            package static let primaryColor = Color(.sRGB, red: 0x40 / 255.0, green: 0x9C / 255.0, blue: 0xFF / 255.0)
         }
 
         package enum Icon {

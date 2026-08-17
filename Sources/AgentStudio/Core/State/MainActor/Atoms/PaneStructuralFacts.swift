@@ -10,6 +10,8 @@ package struct PaneStructuralFacts: Equatable, Sendable {
     package let residency: SessionResidency
     package let contentType: PaneContentType
     package let isBridgeEligible: Bool
+    package let repoID: UUID?
+    package let worktreeID: UUID?
     package let cwd: URL?
     package let placement: Placement
     package let ownedDrawerID: UUID?
@@ -29,6 +31,8 @@ package struct PaneStructuralFacts: Equatable, Sendable {
         self.residency = state.residency
         self.contentType = state.metadata.contentType
         self.isBridgeEligible = if case .bridgePanel = state.content { true } else { false }
+        self.repoID = state.metadata.facets.repoId
+        self.worktreeID = state.metadata.facets.worktreeId
         self.cwd = state.metadata.facets.cwd
         self.placement = state.parentPaneId.map(Placement.drawerChild(parentPaneID:)) ?? .layout
         self.ownedDrawerID = state.drawer?.drawerId

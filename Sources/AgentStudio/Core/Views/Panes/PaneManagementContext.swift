@@ -36,25 +36,16 @@ package struct PaneManagementContext: Equatable {
     ) -> Self {
         let workspacePane = store.paneAtom
         let workspaceRepositoryTopology = store.repositoryTopologyAtom
-        let workspaceLookup = atom(\.workspaceLookup)
         let parts = atom(\.paneDisplay).displayParts(for: paneId)
         let repoCache = atom(\.repoCache)
         let pane = workspacePane.pane(paneId)
-        let resolvedContext =
-            pane?.worktreeId.flatMap { worktreeId in
-                pane?.repoId.flatMap { repoId in
-                    workspaceRepositoryTopology.repo(repoId).flatMap { repo in
-                        workspaceRepositoryTopology.worktree(worktreeId).map { (repo: repo, worktree: $0) }
-                    }
-                }
-            }
-            ?? workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd).map {
-                (repo: $0.repo, worktree: $0.worktree)
-            }
+        let resolvedContext = workspaceRepositoryTopology.validatedAssociation(
+            repoId: pane?.repoId,
+            worktreeId: pane?.worktreeId
+        )
         let resolvedTargetPath = pane?.metadata.cwd
         let hasWorkspaceAssociation =
-            pane?.repoId != nil
-            || pane?.worktreeId != nil
+            resolvedContext != nil
             || parts.repoName != nil
             || parts.worktreeFolderName != nil
         let showsIdentityBlock: Bool = {
@@ -69,21 +60,7 @@ package struct PaneManagementContext: Equatable {
         }()
 
         let statusChips: WorkspaceStatusChipsModel?
-        if let worktreeId = pane?.worktreeId {
-            let worktreeEnrichment = repoCache.worktreeEnrichment(for: worktreeId)
-            let pullRequestFacts = pullRequestFacts(
-                for: worktreeEnrichment,
-                repoCache: repoCache
-            )
-            let branchStatus = GitBranchStatus.status(
-                enrichment: worktreeEnrichment,
-                pullRequestFacts: pullRequestFacts
-            )
-            statusChips = WorkspaceStatusChipsModel(
-                branchStatus: branchStatus,
-                notificationCount: notificationCountForWorktree(worktreeId)
-            )
-        } else if let resolvedWorktreeId = resolvedContext?.worktree.id {
+        if let resolvedWorktreeId = resolvedContext?.worktree.id {
             let worktreeEnrichment = repoCache.worktreeEnrichment(for: resolvedWorktreeId)
             let pullRequestFacts = pullRequestFacts(
                 for: worktreeEnrichment,

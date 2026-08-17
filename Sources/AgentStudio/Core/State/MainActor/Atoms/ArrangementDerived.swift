@@ -183,15 +183,10 @@ package struct ArrangementDerived {
         guard let sourcePane = workspacePane.pane(sourcePaneId) else {
             return nil
         }
-        let resolvedContext =
-            sourcePane.worktreeId.flatMap { worktreeId in
-                sourcePane.repoId.flatMap { repoId in
-                    repositoryTopology.repo(repoId).flatMap { repo in
-                        repositoryTopology.worktree(worktreeId).map { (repo, $0) }
-                    }
-                }
-            }
-            ?? repositoryTopology.repoAndWorktree(containing: sourcePane.metadata.cwd)
+        let resolvedContext = repositoryTopology.validatedAssociation(
+            repoId: sourcePane.repoId,
+            worktreeId: sourcePane.worktreeId
+        )
         let workspaceContext = Self.zoomSourceWorkspaceContext(
             resolvedContext: resolvedContext,
             worktreeEnrichment: resolvedContext.flatMap {

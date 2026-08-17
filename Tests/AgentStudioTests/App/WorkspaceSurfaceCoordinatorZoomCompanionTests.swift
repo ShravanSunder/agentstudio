@@ -522,8 +522,8 @@ extension WebKitSerializedTests {
             await harness.coordinator.shutdown()
         }
 
-        @Test("live CWD wins over a stale explicit worktree facet")
-        func liveCWDWinsOverStaleExplicitWorktreeFacet() async throws {
+        @Test("Zoom uses the stored association instead of re-resolving a contradictory CWD")
+        func zoomUsesStoredAssociationInsteadOfContradictoryCWD() async throws {
             let harness = makeHarness()
             defer { try? FileManager.default.removeItem(at: harness.tempDir) }
             let (sourceRepo, sourceWorktree) = makeRepoAndWorktree(
@@ -551,7 +551,7 @@ extension WebKitSerializedTests {
 
             #expect(
                 harness.store.panePresentationAtom.zoomCompanion(forSourcePane: sourcePane.id)?
-                    .resolvedWorktreeId == destinationWorktree.id
+                    .resolvedWorktreeId == sourceWorktree.id
             )
 
             await harness.coordinator.shutdown()

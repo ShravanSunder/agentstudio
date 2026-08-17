@@ -113,8 +113,9 @@ package struct CoreTabBarProjectionRequest: Sendable {
 
         for paneState in paneStates.values {
             guard
-                let resolvedContext = topologySnapshot.repoAndWorktree(
-                    containing: paneState.metadata.facets.cwd
+                let resolvedContext = topologySnapshot.validatedAssociation(
+                    repoId: paneState.metadata.facets.repoId,
+                    worktreeId: paneState.metadata.facets.worktreeId
                 )
             else { continue }
             repoIds.insert(resolvedContext.repo.id)
@@ -235,9 +236,9 @@ package enum CoreTabBarProjector {
             var pane = paneState.pane(
                 isDrawerExpanded: paneState.drawer?.drawerId == request.expandedDrawerId
             )
-            let resolvedContext = try request.topologySnapshot.repoAndWorktree(
-                containing: pane.metadata.facets.cwd,
-                cancellationCheck: cancellationCheck
+            let resolvedContext = request.topologySnapshot.validatedAssociation(
+                repoId: pane.metadata.facets.repoId,
+                worktreeId: pane.metadata.facets.worktreeId
             )
             pane.metadata.updateFacets(
                 WorkspacePaneDerived.displayFacets(
@@ -454,17 +455,11 @@ package enum CoreTabBarProjector {
     ) {
         let explicitRepoId = pane.repoId ?? pane.metadata.repoId
         let explicitWorktreeId = pane.worktreeId ?? pane.metadata.worktreeId
-        if let explicitRepoId,
-            let explicitWorktreeId,
-            let repository = topologySnapshot.repo(explicitRepoId),
-            let worktree = topologySnapshot.worktree(explicitWorktreeId)
-        {
-            return ((repository, worktree), true)
-        }
-        let pathContext = try topologySnapshot.repoAndWorktree(
-            containing: pane.metadata.cwd,
-            cancellationCheck: cancellationCheck
+        try cancellationCheck()
+        let context = topologySnapshot.validatedAssociation(
+            repoId: explicitRepoId,
+            worktreeId: explicitWorktreeId
         )
-        return (pathContext, false)
+        return (context, context != nil)
     }
 }

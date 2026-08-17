@@ -1,3 +1,4 @@
+import AgentStudioInfrastructure
 import AgentStudioTestSupport
 import Foundation
 import Testing
@@ -200,6 +201,46 @@ struct PaneManagementContextTests {
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
 
             #expect(context.showsIdentityBlock == true)
+        }
+    }
+
+    @Test
+    func danglingAssociationDoesNotRecoverWorkspaceIdentityFromCwd() {
+        withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout)
+            let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            guard let worktree = repo.worktrees.first else {
+                Issue.record("Expected main worktree")
+                return
+            }
+            let pane = Pane(
+                content: .terminal(
+                    TerminalState(
+                        provider: .zmx,
+                        lifetime: .persistent,
+                        zmxSessionID: .generateUUIDv7()
+                    )
+                ),
+                metadata: PaneMetadata(
+                    launchDirectory: worktree.path,
+                    title: "Dangling",
+                    facets: PaneContextFacets(
+                        repoId: UUIDv7.generate(),
+                        worktreeId: worktree.id,
+                        cwd: worktree.path
+                    )
+                )
+            )
+            #expect(store.paneAtom.insertRestoredPane(pane))
+
+            let context = PaneManagementContext.project(paneId: pane.id, store: store)
+
+            #expect(context.identityRows.contains { $0.id == "repo" } == false)
+            #expect(context.identityRows.contains { $0.id == "worktree" } == false)
+            #expect(context.statusChips == nil)
         }
     }
 }

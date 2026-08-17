@@ -25,7 +25,6 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         registrationDiscoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
             RepoScannerGitDiscoveryClient(),
-        registrationValidationDelay: AsyncDelay = .taskSleep,
         gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = AgentStudioGitWorkingTreeStatusProvider(),
         forgeStatusProvider: any ForgeStatusProvider = GitHubCLIForgeStatusProvider(),
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
@@ -55,8 +54,7 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
         self.registrationValidator = GitWorktreeRegistrationValidator(
-            discoveryProvider: registrationDiscoveryProvider,
-            delay: registrationValidationDelay
+            discoveryProvider: registrationDiscoveryProvider
         )
         self.forgeActor = ForgeActor(
             bus: bus,
@@ -96,14 +94,12 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await startGitProjector()
         await startForgeActor()
         let context = WorktreeFilesystemContext(repoId: repoId, rootPath: rootPath)
-        switch await registrationValidator.registrationDecision(worktreeId: worktreeId, context: context) {
+        switch await registrationValidator.registrationDecision(context: context) {
         case .validated:
             break
         case .authoritativeNegative:
             await forgeActor.unregister(worktreeId: worktreeId)
             await filesystemActor.unregister(worktreeId: worktreeId)
-            return
-        case .uncertain:
             return
         }
         await forgeActor.register(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
@@ -111,28 +107,35 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
     }
 
     func unregister(worktreeId: UUID) async {
-        await registrationValidator.removeAcceptedContext(worktreeId: worktreeId)
         await forgeActor.unregister(worktreeId: worktreeId)
         await filesystemActor.unregister(worktreeId: worktreeId)
     }
 
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async {
         await startGitProjector()
-        await registrationValidator.retainAcceptedContexts(
-            worktreeIds: Set(assertion.contextsByWorktreeId.keys)
-        )
-        var validatedContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
-        for (worktreeId, context) in assertion.contextsByWorktreeId {
-            switch await registrationValidator.registrationDecision(worktreeId: worktreeId, context: context) {
-            case .validated:
-                validatedContextsByWorktreeId[worktreeId] = context
-            case .authoritativeNegative:
-                continue
-            case .uncertain(let previouslyAcceptedContext):
-                if let previouslyAcceptedContext {
-                    validatedContextsByWorktreeId[worktreeId] = previouslyAcceptedContext
+        // Probes are independent libgit2 discovery reads; run them concurrently so one slow or
+        // stalled worktree cannot serialize the whole fleet behind it.
+        let validatedContextsByWorktreeId = await withTaskGroup(
+            of: (UUID, WorktreeFilesystemContext?).self,
+            returning: [UUID: WorktreeFilesystemContext].self
+        ) { group in
+            for (worktreeId, context) in assertion.contextsByWorktreeId {
+                group.addTask { [registrationValidator] in
+                    switch await registrationValidator.registrationDecision(context: context) {
+                    case .validated:
+                        return (worktreeId, context)
+                    case .authoritativeNegative:
+                        return (worktreeId, nil)
+                    }
                 }
             }
+            var validatedContexts: [UUID: WorktreeFilesystemContext] = [:]
+            for await (worktreeId, context) in group {
+                if let context {
+                    validatedContexts[worktreeId] = context
+                }
+            }
+            return validatedContexts
         }
         let validatedAssertion = FilesystemTopologyAssertion(
             generation: assertion.generation,
@@ -199,54 +202,49 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
 enum GitWorktreeRegistrationDecision: Sendable, Equatable {
     case validated
     case authoritativeNegative
-    case uncertain(previouslyAcceptedContext: WorktreeFilesystemContext?)
 }
 
 actor GitWorktreeRegistrationValidator {
     private let discoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider
-    private let delay: AsyncDelay
-    private var acceptedContextByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
 
     init(
         discoveryProvider: any RepoScanner.GitRepositoryDiscoveryProvider =
-            RepoScannerGitDiscoveryClient(),
-        delay: AsyncDelay = .taskSleep
+            RepoScannerGitDiscoveryClient()
     ) {
         self.discoveryProvider = discoveryProvider
-        self.delay = delay
     }
 
+    /// A single discovery probe per worktree. Only evidence that the exact candidate path is
+    /// certainly not a git repository rejects registration. Every other outcome — a probe
+    /// timeout, cancellation, or service failure, and worktree-metadata drift such as a
+    /// symlinked path variant or a stale main-worktree pointer — registers the worktree
+    /// provisionally so the row starts scanning instead of stalling forever. The existing
+    /// status backoff and honesty threshold in `GitWorkingDirectoryProjector` surface any real,
+    /// persistent failure once the worktree is registered.
     func registrationDecision(
-        worktreeId: UUID,
         context: WorktreeFilesystemContext
     ) async -> GitWorktreeRegistrationDecision {
-        for attempt in 1...AppPolicies.GitRefresh.registrationValidationMaximumAttempts {
-            switch await discoveryProvider.discoveryOutcome(for: context.rootPath) {
-            case .validated:
-                acceptedContextByWorktreeId[worktreeId] = context
-                return .validated
-            case .authoritativeNegative:
-                acceptedContextByWorktreeId.removeValue(forKey: worktreeId)
-                return .authoritativeNegative
-            case .timeout, .cancelled, .failure:
-                guard attempt < AppPolicies.GitRefresh.registrationValidationMaximumAttempts else {
-                    return .uncertain(previouslyAcceptedContext: acceptedContextByWorktreeId[worktreeId])
-                }
-                do {
-                    try await delay.wait(AppPolicies.GitRefresh.registrationValidationRetryDelay)
-                } catch {
-                    return .uncertain(previouslyAcceptedContext: acceptedContextByWorktreeId[worktreeId])
-                }
-            }
+        switch await discoveryProvider.discoveryOutcome(for: context.rootPath) {
+        case .validated, .timeout, .cancelled, .failure:
+            return .validated
+        case .authoritativeNegative(let reason):
+            return Self.isCertainNonRepository(reason) ? .authoritativeNegative : .validated
         }
-        return .uncertain(previouslyAcceptedContext: acceptedContextByWorktreeId[worktreeId])
     }
 
-    func removeAcceptedContext(worktreeId: UUID) {
-        acceptedContextByWorktreeId.removeValue(forKey: worktreeId)
-    }
-
-    func retainAcceptedContexts(worktreeIds: Set<UUID>) {
-        acceptedContextByWorktreeId = acceptedContextByWorktreeId.filter { worktreeIds.contains($0.key) }
+    /// Reasons that are true "this path is not a git repository" evidence from libgit2. All
+    /// other authoritative-negative reasons describe worktree metadata drift (canonicalized path
+    /// variants, a stale main-worktree pointer, a submodule worktree) rather than repository
+    /// absence, and must not reject registration.
+    private static func isCertainNonRepository(
+        _ reason: GitRepositoryAuthoritativeNegativeReason
+    ) -> Bool {
+        switch reason {
+        case .exactCandidateIsNotRepository, .invalidRepository, .invalidWorktreeRegistration,
+            .bareRepository, .notAValidWorktree:
+            return true
+        case .canonicalPathMismatch, .submoduleWorktree, .mainWorktreeMismatch:
+            return false
+        }
     }
 }

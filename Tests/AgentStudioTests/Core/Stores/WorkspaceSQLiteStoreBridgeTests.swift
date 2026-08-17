@@ -508,6 +508,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(restoredStore.tabLayoutAtom.tabs.single?.colorHex == "#33AA99")
         #expect(restoredStore.windowMemoryAtom.windowFrame == CGRect(x: 1, y: 2, width: 800, height: 600))
         #expect(restoredStore.paneAtom.pane(paneId)?.title == "Restored SQLite Pane")
+        expectStoredPaneAssociation(restoredStore, paneId: paneId, repoId: repoId, worktreeId: worktreeId)
         #expect(
             restoredStore.paneAtom.pane(paneId)?.terminalState?.zmxSessionID.rawValue
                 == storedZmxSessionText
@@ -865,6 +866,16 @@ struct WorkspaceSQLiteBridgeFixture {
     let coreRepository: WorkspaceCoreRepository
     let localRepository: WorkspaceLocalRepository
     let backend: WorkspaceSQLiteStoreBackend
+}
+
+@MainActor
+private func expectStoredPaneAssociation(
+    _ store: WorkspaceStore,
+    paneId: UUID,
+    repoId: UUID,
+    worktreeId: UUID
+) {
+    #expect((store.paneAtom.pane(paneId)?.repoId, store.paneAtom.pane(paneId)?.worktreeId) == (repoId, worktreeId))
 }
 
 @MainActor
