@@ -406,17 +406,17 @@ struct RepoExplorerWorktreeRowTests {
         for source in [paneRowSource, worktreeRowSource] {
             #expect(source.contains("VStack(alignment: .sidebarTextColumn"))
             #expect(source.contains(".sidebarIconLineTextColumnGuide()"))
-            #expect(source.contains(".sidebarTextColumnGuide()"))
+            #expect(source.contains(".sidebarChipRowTextColumnGuide()"))
             #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         }
         #expect(alignmentSource.contains("AppStyles.Shell.Sidebar.statusRowLeadingIndent"))
         #expect(!alignmentSource.contains("textColumnLeadingInset"))
 
-        // The chips-line guide must outdent by the pill's own horizontal padding, sourced from the same
-        // constant the pill uses, so the first chip's CONTENT (not its pill background edge) lands on
-        // the shared text column.
+        // The dedicated chips-line guide must outdent by the pill's own horizontal padding, sourced from
+        // the same constant the pill uses, so the first chip's CONTENT (not its pill background edge)
+        // lands on the shared text column. The plain sidebarTextColumnGuide() stays leading-only.
         let guideStart = try #require(
-            alignmentSource.range(of: "package func sidebarTextColumnGuide() -> some View {"))
+            alignmentSource.range(of: "package func sidebarChipRowTextColumnGuide() -> some View {"))
         let guideEnd = try #require(
             alignmentSource.range(of: "}\n}", range: guideStart.upperBound..<alignmentSource.endIndex))
         let guideSource = String(alignmentSource[guideStart.lowerBound..<guideEnd.lowerBound])

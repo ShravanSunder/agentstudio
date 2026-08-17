@@ -18,12 +18,18 @@ extension View {
         }
     }
 
+    package func sidebarTextColumnGuide() -> some View {
+        alignmentGuide(.sidebarTextColumn) { dimensions in
+            dimensions[.leading]
+        }
+    }
+
     /// Aligns a chips line so the FIRST chip's rendered content (its leading glyph/text, inside the
     /// pill's own horizontal padding) lands on the shared text column, not the pill's background edge.
     /// The chips-line leading edge is pulled left by the pill's own horizontal padding so the two
     /// constants can never drift apart; a bare, unpadded leading element (the pending-facts glyph) must
     /// compensate with matching leading padding of its own when it renders first.
-    package func sidebarTextColumnGuide() -> some View {
+    package func sidebarChipRowTextColumnGuide() -> some View {
         alignmentGuide(.sidebarTextColumn) { dimensions in
             dimensions[.leading] + AppStyles.Shell.Sidebar.chipHorizontalPadding
         }

@@ -268,7 +268,7 @@ struct RepoExplorerWorktreeRowContent: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .sidebarTextColumnGuide()
+                .sidebarChipRowTextColumnGuide()
             }
         }
     }
