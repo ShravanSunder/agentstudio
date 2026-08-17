@@ -115,3 +115,150 @@ No implementation was attempted because all three options create a new terminal-
 | Universal — measured L1/L2/L3 alignment | `44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png` | PASS |
 | Universal — same pill style and sizing | `41-chip-matrix-final-by-repo.png`; `42-chip-matrix-final-all-panes.png`; `35-chip-matrix-by-tab.png` | PASS |
 | Universal — cached keyed reads | `RepoExplorerViewProjectionHelperTests.swift`; `RepoExplorerWorktreeRowTests.swift`; architecture lint | PASS |
+
+## 2026-08-17 second round: Item A ownership + Todos 1/3/4
+
+Status: CODE-COMPLETE AND LIVE-VERIFIED for items A, 3, 4. Todo 1's architecture is
+code-complete, unit-tested, and live-verified for the READ side (fallback chain
+compiles and composes correctly), but its LIVE ACCEPTANCE PROOF (typing in an
+observed pane updates L2 within the settle window) is BLOCKED by a confirmed,
+deeper upstream defect: the scrollbar-derived activity-evidence pipeline that
+feeds `TerminalActivityProjector` produces ZERO settled outcomes in this debug
+session, for any burst size, so neither the old nor the new code path is ever
+invoked. Full detail below.
+
+### Item A — took ownership of the orchestrator's staged fix (commit `1c6a45e7e`)
+
+Root cause (owner pixel-measured): `AppEntityIcon.swiftUIImage` bakes its own
+`.foregroundStyle(...)` at the leaf; SwiftUI resolves that innermost style, so
+the earlier fix's outer `.foregroundStyle(accent)` wrap (`dde534bde`) never won
+— the selected icon rendered grey (164,164,164) in the live app despite the
+source-string test passing. Fixed by adding a `foregroundOverride: Color?`
+parameter to `swiftUIImage` (`foregroundOverride ?? foregroundStyle`) and
+passing the accent color from `RepoExplorerView`'s selected-segment check.
+
+Proof: `Tests/AgentStudioTests/SharedComponents/AppEntityIconTests.swift` — a
+real `NSHostingView` pixel-rendered test that samples the actual glyph color:
+default renders near-neutral gray (`|red-blue| < 0.08`), override renders
+blue-dominant (`blue-red > 0.15`, `blue > default`). This is a genuine gap-closer:
+the pixel test would have caught the exact failure mode `dde534bde`'s
+source-string test missed. `mise run test:swift -- --filter
+"RepoExplorerViewTests|SidebarToolbarControlVisualStateTests|AppEntityIconTests"`
+— 36 tests, exit 0.
+
+### Todo 1 — L2 status-fact split (commit `7e17fe875`), architecture done, live-blocked
+
+New `PaneActivityStatusAtom` (`Core/State/MainActor/Atoms/PaneActivityStatusAtom.swift`)
+records each pane's last settled output line unconditionally, independent of
+InboxPromoter's notification suppression. `TerminalActivityRouter` writes to it
+directly from the projector's `.unseenActivitySettled`/`.agentSettledActivityPromoted`
+outcomes, ahead of posting the derived envelope InboxNotificationRouter consumes.
+`SidebarSurfaceHost`'s row-text closure reads this fact first, falling back to
+the existing `inboxAtom.latestMessageText` (content-bearing body, then
+"output activity"/"No activity yet") unchanged.
+
+Performance constraints (owner-mandated), all implemented:
+- Keyed storage: `AtomFamily<UUID, PaneActivityStatusFact>` (telemetry kind
+  `entity_map`), not a dictionary-shaped snapshot — a write wakes only that
+  pane's row. Proven by `PaneActivityStatusAtomTests.keyedReadersWakeOnlyForTouchedPane`
+  (mirrors `AtomFamilyObservationTests.keyedReadersWakeOnlyForTouchedKey`).
+- Equal-write suppression, two layers: an explicit same-line guard before the
+  rate-limit check (so a repeated line never consumes the rate-limit window),
+  plus `AtomFamily`'s own `isContentEqual` comparing only `lastOutputLine` (not
+  `observedAt`) as a backstop.
+- Write cadence: exactly once per settle call from the router; no new timers.
+- 10s-per-pane timerless leading-edge rate limit against an injected `now: () ->
+  Date` closure (`AppPolicies.InboxNotification.paneActivityStatusMinimumPublishInterval`),
+  scoped per pane, not global. Settle inside the window is dropped, not deferred.
+
+Proof: `Tests/AgentStudioTests/Core/State/PaneActivityStatusAtomTests.swift` (7
+tests: publish, nil/empty guard, within-window drop, post-window publish,
+per-pane cadence scoping, equal-write suppression, keyed-wake isolation) and a
+new `TerminalActivityRouterTests` test
+(`unseenSettlementRecordsPaneActivityStatus`) proving the router calls the
+recording closure with the pane ID and settled line regardless of what
+InboxNotificationRouter/InboxPromoter later decide. `mise run test:swift --
+filter "PaneActivityStatusAtomTests|TerminalActivityRouterTests|
+InboxPromoterTests|TerminalActivityProjectorTests|AtomFamilyObservationTests"`
+— 75 tests, exit 0.
+
+**Live acceptance proof — BLOCKED, root cause identified precisely.** Rebuilt
+HEAD, launched debug visibly (binary freshness verified: `07:12:47` binary vs
+`06:56:45` last commit), typed a real command into the observed/active pane in
+By Tab mode, waited well past the 10s/750ms settle windows, and L2 stayed on
+"output activity". Escalated to a definitively-overflowing burst (`seq 1 300`,
+guaranteed to scroll any terminal viewport) — same result. Queried VictoriaLogs
+scoped exactly to this build (`service.version:"0.0.1-debug+jp6s"`) across the
+whole 10-minute session: **zero** `pane_activity_status` atom mutations, **zero**
+`terminal.activity` trace records for `.unseenActivitySettled` (only 2
+`terminal.commandFinished` shell-integration events, an unrelated lane), and
+**zero** `performance.terminal.accumulator_drain`/`compact_apply` events for
+this specific process — meaning the scrollbar-derived
+`TerminalLocalActivityEvidence` never reaches the accumulator at all for this
+session, for any burst size. This rules out my earlier "empty-viewport headroom"
+hypothesis (the 300-line burst also produced nothing) and confirms the break is
+upstream of all Swift-side plumbing already fixed this round (InboxPromoter
+suppression fix, and now this atom split) — most likely in Ghostty's own
+scrollbar-changed callback delivery for this specific debug session's terminal
+surfaces. Notably, the concurrently-running **stable** app instance emitted
+these same performance/terminal trace kinds normally in the identical time
+window (from an earlier broad trace survey this round), which narrows the next
+investigation to what's different about this debug session's pane/surface
+wiring, not a universal regression. This needs Ghostty-level source
+instrumentation and rebuild-iterate cycles beyond this round's scope; flagged
+to the owner/team-lead as an open, precisely-evidenced finding rather than
+claimed fixed.
+
+### Todo 3 — PR chip glyph and color parity (commit `c7295bb13`)
+
+`SidebarPullRequestChipSpec` (`Core/Views/SidebarChips.swift`) is now the one
+shared factory (glyph + `AppStyles.General.Accent.primaryColor`-based color +
+pill style) used by both `RepoExplorerWorktreeRow.swift` (By Repo) and
+`RepoExplorerPaneNavigation.swift` (All Panes/By Tab), replacing pane rows'
+`.accent(.accentColor)` (system accent) and By Repo's `iconColor`-derived color.
+Removed the now-dead `pullRequestChipPresentation` helper.
+
+Proof: a real pixel-rendered test
+(`RepoExplorerWorktreeRowTests.mountedByRepoRowRendersPositivePullRequestChip`)
+samples the rendered By Repo row for the product token's specific RGB signature
+(red ≈0.10-0.45, distinguishing it from system blue's near-zero red channel) —
+the pre-fix code would have failed this given the fixture's
+`iconColor: .accentColor`. A source-string test
+(`RepoExplorerViewTests.prChipRenderSitesUseTheSharedSpec`) pins both row files
+to the shared spec and confirms neither constructs an inline PR chip anymore.
+`mise run test:swift -- --filter "RepoExplorerWorktreeRowTests|
+RepoExplorerViewTests"` — 49 tests, exit 0.
+
+### Todo 4 — toggle selected fill from the shared accent palette (commit `d6ce6fdcd`)
+
+`SidebarToolbarSegmentButtonStyleBody` (`SharedComponents/
+SidebarToolbarSegmentedControl.swift`) now fills the selected segment via
+`ChromeToolbarControlPalette.fillColor(isSelected:isHovered:isPressed:)` — the
+same shared palette function the bottom-bar Zoom pill family uses — instead of
+an ad-hoc `Color.primary.opacity(visualState.fillOpacity)`. Unselected/hover/
+pressed states keep the unchanged grey fill from the visual-state resolver.
+
+Proof: updated the existing visual-state source-string test to assert
+`ChromeToolbarControlPalette.fillColor` appears (`SidebarToolbarControlVisualStateTests`,
+6 tests, exit 0), plus **live screenshot evidence**:
+`tmp-screenshots/item-proofs/round2-05-todo4-evidence.png` shows the "By Tab"
+segment selected with an accent-tinted blue fill, accent icon, and accent text
+— all three treatments consistent, matching the Zoom pill family.
+
+### Full aggregate
+
+`SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise
+run test` — exit 0, 236.84s, zero failures, run after all four items (A, 1, 3,
+4) were committed. `mise run lint` — exit 0 after every commit this round
+(clean; only pre-existing, unrelated report-level architecture-lint findings in
+CommandBar/ProcessExecutor test files, unchanged from prior rounds).
+
+### Evidence paths
+
+- Item A pixel test: `Tests/AgentStudioTests/SharedComponents/AppEntityIconTests.swift`
+- Todo 1 tests: `Tests/AgentStudioTests/Core/State/PaneActivityStatusAtomTests.swift`,
+  `Tests/AgentStudioTests/Features/Terminal/State/TerminalActivityRouterTests.swift`
+- Todo 1 live-blocker screenshots: `tmp-screenshots/item-proofs/round2-01-bytab/`,
+  `round2-02-settled/`, `round2-03-bytab-check/`, `round2-04-bytab-retry/`
+- Todo 3 pixel test: `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerWorktreeRowTests.swift`
+- Todo 4 live evidence: `tmp-screenshots/item-proofs/round2-05-todo4-evidence.png`
