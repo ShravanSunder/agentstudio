@@ -784,3 +784,79 @@ Captured both variants of the By Tab tab-group header icon
 Token reverted to variant A afterward (`git checkout --` confirmed clean,
 rebuilt). Owner picks from the pixels; whichever they choose is a one-line
 token change.
+
+## Review remediation (2026-08-17)
+
+Independent review (`tmp-REVIEW-REPORT.md`) returned NOT-READY with 9
+findings (F1-F9). F1 (fresh aggregate + binary-fresh sweep) is the
+owner/orchestrator's after all others land. Landed F8, F9, F4, F2, F7, F5,
+and the F3 test in that order, each red-first where a real bug existed,
+focused suite + lint green, separate commits, pushed:
+
+- **F8** (`db6eff828`): `RepoEnrichmentCacheAtom.clear()` bumped
+  `pullRequestFactsRevisionAtom` for the unavailable-set change instead of
+  `pullRequestUnavailabilityRevisionAtom`, so a whole-cache clear could leave
+  the sidebar showing a stale terminal-unavailable state. Fixed; test
+  observes mark-unavailable → observe → clear.
+- **F9** (`db6eff828`): `PaneActivityStatusAtom.clear(paneId:)` existed but
+  no owner called it. Wired into `TerminalActivityRouter`'s `.surfaceClosed`
+  path via a new `clearPaneActivityStatus` closure, composed in
+  `AppDelegate+InboxNotificationBoot`. Split the two ordered-surface-close
+  tests into `TerminalActivityRouterCloseTests.swift` to stay under
+  SwiftLint's `type_body_length` cap.
+- **F4** (`f3aae7b2c`): migration 005 added `local_window_state.repo_grouping_mode`
+  and dropped the legacy `local_repo_explorer_preferences.grouping_mode`
+  column without copying its value — every existing All Panes/By Tab user
+  would reset to By Repo on upgrade. Fixed by copying the legacy value into
+  the main window row before the drop, guarded by the existing storage-token
+  vocabulary. Test simulates the real pre-005 on-disk shape (migrate through
+  004, manually reproduce the legacy column) and proves a seeded `'tab'`
+  value survives the full migration.
+- **F2** (`085fc9cd4`): `ForgeActor.applyOutcome(.complete)` compared new
+  facts against `state.lastPublishedFactsByBranch`, a baseline never cleared
+  when the honesty-threshold path emitted `.pullRequestsUnavailable` (which
+  does clear the repo's cached facts on `RepoCacheAtom`'s side). A retry
+  resolving to the exact same facts as before the outage was silently
+  suppressed, permanently stranding the unavailable marker. Fixed by
+  resetting `lastPublishedFactsByBranch = nil` at the same point
+  `hasEmittedUnavailable` flips true, mirroring the existing
+  `clearOrigin`/`setOrigin` reset pattern. Test drives the exact
+  success(N) → 3 failures → unavailable → success(N) sequence and asserts a
+  second `.pullRequestsChanged` event actually fires.
+- **F7** (`a46a41edf`): owner ruling — dirty-with-zero-counts-and-zero-untracked
+  renders no chip at all; dropped `.changesWithoutLineCounts` and its render
+  branch entirely (hard cutover) rather than keeping the unauthorized bare
+  "changes" state. Updated the test that previously blessed it.
+- **F5** (`99cdf4740`): `paneRowFactsByPaneId`'s `isActive` was computed from
+  the active tab's selected pane alone, so `● active` kept rendering while
+  the sidebar had keyboard focus, another window was key, or the app was
+  inactive. Fixed by composing `AttendedPaneDerived.attendedPaneId` (window
+  key + management layer) with `KeyboardOwner.current(...)` (adds the
+  missing sidebar-focus gate) — the same composition `CommandBarState` and
+  `AppDelegate+CommandBar` already use for keyboard routing. Test drives all
+  three required scenarios (window key + sidebar unfocused → active; sidebar
+  focused → not active; window not key, which
+  `WindowLifecycleAtom.isWorkspaceWindowKey` deliberately conflates
+  "other window focused" and "app inactive" into one fact → not active)
+  against one real pane via `withTestCoreAtoms`.
+- **F3 test** (this commit): owner ruling — keep the learned-prompt-signature
+  design, accept the one-settle degradation as self-correcting, no
+  semantic-boundary fix this round. Added a doc comment on
+  `TerminalActivityProjector.resolveLastOutputLine` explaining the
+  D-before-prompt-paint race and the accepted degradation, plus a test
+  (`wronglyLearnedSignatureSelfCorrectsOnNextSettle`) that drives settle 1
+  with a trailing row that is real output (so it gets wrongly learned as the
+  signature — the accepted degradation, confirmed: settle 1 surfaces the
+  line beneath it instead) then settle 2 with the prompt now properly
+  trailing, asserting settle 2 correctly publishes the real output beneath
+  the now-correct prompt. The differentiator: if the signature had *not*
+  re-learned, settle 2 would incorrectly surface the decorated prompt text
+  itself, since it has letters and so is never caught by the bare-prompt
+  fallback heuristic on its own — the test would fail on that regression.
+
+Remaining after this pass: F1 (fresh full aggregate + fresh binary-fresh
+one-build pixel sweep across items 1-19) is explicitly the
+owner/orchestrator's next step per the done-gate ordering, not
+sidebar-finisher's. RC2/Todo 1's live acceptance is still blocked on the
+Ghostty C-API boundary documented above (`text_len == 0`); F3's ruling above
+does not change that separate live-acceptance blocker.

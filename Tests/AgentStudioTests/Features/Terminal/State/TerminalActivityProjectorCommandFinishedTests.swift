@@ -127,6 +127,65 @@ struct TerminalActivityProjectorCommandFinishedTests {
         await projector.reset()
     }
 
+    @Test("a wrongly-learned signature self-corrects on the pane's next commandFinished settle")
+    func wronglyLearnedSignatureSelfCorrectsOnNextSettle() async {
+        // F3, owner-ratified: Ghostty's shell integration can emit the command-end boundary before
+        // the prompt actually paints. If a commandFinished settle races that ordering, the trailing
+        // viewport row is still the just-completed command's real output, not the new prompt, so
+        // learn-then-contract wrongly records that output text as promptSignature for one settle.
+        // The design is accepted as self-correcting: the pane's NEXT commandFinished settle
+        // re-learns from whatever is then the trailing row, and once the prompt has actually
+        // painted the signature corrects and the previously misclassified line's class recovers.
+        let projector = TerminalActivityProjector(nowMilliseconds: { 5000 })
+        let recorder = OutcomeRecorder()
+        let promptText = "➜  agent-studio (⑂ main) "
+        // Settle 1: the race -- the trailing row is real output ("build-succeeded-042"), not the
+        // prompt. This gets wrongly learned as promptSignature.
+        let rawText = MutableRawViewportTextBox("old context\nbuild-succeeded-042")
+        await projector.configure(
+            lastOutputLineReader: { _ in rawText.read() },
+            outcomeSink: { outcomes in recorder.record(outcomes) }
+        )
+        let paneID = UUIDv7.generate()
+        let surfaceID = UUIDv7.generate()
+
+        await projector.commandFinished(surfaceID: surfaceID, paneID: paneID)
+        let firstSettled = try? await recorder.firstSnapshot { outcomes in
+            outcomes.contains {
+                if case .unseenActivitySettled(_, let outcomePaneID, let activity) = $0,
+                    outcomePaneID == paneID
+                {
+                    return activity.lastOutputLine == "old context"
+                }
+                return false
+            }
+        }
+        // Documents the accepted one-settle degradation: "build-succeeded-042" is wrongly excluded
+        // as the (mis-learned) signature, so this settle surfaces the line beneath it instead.
+        #expect(firstSettled != nil)
+
+        // Settle 2: the prompt has now actually painted as the trailing row, with a new real
+        // output line above it. If the signature correctly re-learned to the prompt, this settle
+        // must publish "build-succeeded-042" -- NOT the prompt text, which is what a stale
+        // signature (still "build-succeeded-042" from settle 1) would incorrectly surface instead,
+        // since the decorated prompt has letters and so is never caught by the bare-prompt
+        // fallback heuristic on its own.
+        rawText.set("build-succeeded-042\n\(promptText)")
+        await projector.commandFinished(surfaceID: surfaceID, paneID: paneID)
+        let secondSettled = try? await recorder.firstSnapshot { outcomes in
+            outcomes.contains {
+                if case .unseenActivitySettled(_, let outcomePaneID, let activity) = $0,
+                    outcomePaneID == paneID
+                {
+                    return activity.lastOutputLine == "build-succeeded-042"
+                }
+                return false
+            }
+        }
+        #expect(secondSettled != nil)
+        await projector.reset()
+    }
+
     @Test("unchanged-line suppression still holds for genuinely repeated real output")
     func unchangedLineSuppressionStillHoldsForRepeatedRealOutput() async {
         // The signature exclusion must not interfere with the existing unchanged-line suppression:

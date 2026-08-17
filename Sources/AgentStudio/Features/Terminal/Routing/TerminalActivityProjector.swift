@@ -646,6 +646,20 @@ package actor TerminalActivityProjector {
     /// `paneStates` after the reader's MainActor hop rather than reusing a
     /// pre-await snapshot, since the actor is reentrant across that
     /// suspension point.
+    ///
+    /// Known one-settle degradation (F3, owner-ratified, no fix this round):
+    /// Ghostty's shell integration emits the command-end OSC sequence before
+    /// the prompt-start sequence, and before PS1 is actually painted. If a
+    /// commandFinished settle races that ordering, the trailing viewport row
+    /// can still be the just-completed command's real output rather than the
+    /// new prompt, so that output is wrongly learned as `promptSignature` and
+    /// suppressed for this one settle. This is self-correcting: the pane's
+    /// *next* commandFinished-driven settle re-learns from whatever is then
+    /// the trailing row. Once the prompt has actually painted by that point,
+    /// the signature corrects to the real prompt and the previously
+    /// misclassified output line's class recovers on the following settle.
+    /// A fix would require reading a real prompt semantic boundary (e.g. OSC
+    /// 133) instead of "the trailing row," which is out of scope here.
     private func resolveLastOutputLine(
         surfaceID: UUID,
         paneID: UUID,
