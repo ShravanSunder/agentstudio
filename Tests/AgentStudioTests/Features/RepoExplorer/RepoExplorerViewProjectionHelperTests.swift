@@ -554,6 +554,56 @@ struct RepoExplorerViewProjectionHelperTests {
         }
     }
 
+    @Test("F5: the active pane chip requires real attention, not merely tab selection")
+    func activePaneRowFactRequiresRealAttentionNotJustTabSelection() throws {
+        try withTestCoreAtoms { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/repo-explorer-active-attention"))
+            let worktree = try #require(repo.worktrees.first)
+            let pane = store.createPane(
+                launchDirectory: worktree.path,
+                facets: PaneContextFacets(cwd: worktree.path)
+            )
+            store.appendTab(Tab(paneId: pane.id))
+            let view = RepoExplorerView(
+                store: store,
+                octiconLoader: makeRepoExplorerTestOcticonLoader(),
+                repoExplorerPrefs: RepoExplorerSidebarPrefsAtom(),
+                bridgeAttendanceSnapshot: { _ in nil },
+                commandDispatcher: FakeRepoExplorerAppCommandDispatcher(),
+                onSetSortOrder: { _ in },
+                onRefocusActivePane: {},
+                onSidebarVisibleWorktreesChanged: {},
+                onShowNotificationsForWorktree: { _ in },
+                unreadCount: { _ in 0 }
+            )
+            let windowId = UUID()
+            atoms.windowLifecycle.recordWindowRegistered(windowId)
+            atoms.windowLifecycle.recordWindowBecameKey(windowId)
+
+            // Baseline: workspace window key, management layer inactive, sidebar unfocused -- this
+            // pane genuinely holds attention.
+            #expect(view.paneRowFactsByPaneId()[pane.id]?.isActive == true)
+
+            // Sidebar keyboard focus must suppress the chip even though this pane is still the
+            // tab's selected pane -- the old implementation only consulted tab selection and never
+            // consulted keyboard ownership at all.
+            atoms.workspaceSidebarState.setSidebarHasFocus(true)
+            #expect(view.paneRowFactsByPaneId()[pane.id]?.isActive == false)
+            atoms.workspaceSidebarState.setSidebarHasFocus(false)
+
+            // Losing key window status covers both "another window is focused" and "the app itself
+            // is inactive": WindowLifecycleAtom.isWorkspaceWindowKey intentionally conflates those
+            // two cases into one fact, and AttendedPaneDerived already keys off it.
+            atoms.windowLifecycle.recordWindowResignedKey(windowId)
+            #expect(view.paneRowFactsByPaneId()[pane.id]?.isActive == false)
+        }
+    }
+
     @Test("sidebar projection capture ignores unrelated topology metadata and observes rendered metadata")
     func sidebarProjectionCaptureIgnoresUnrelatedTopologyMetadataMutation() throws {
         try withTestCoreAtoms { atoms in

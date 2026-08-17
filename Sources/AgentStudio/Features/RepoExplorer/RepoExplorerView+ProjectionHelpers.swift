@@ -281,11 +281,23 @@ extension RepoExplorerView {
                 return (paneId, recency.lastInteractedAt)
             }
         )
-        let activePaneIds = Set(
-            store.tabLayoutAtom.activeTab.flatMap { tab in
-                store.tabLayoutAtom.activePaneID(forTab: tab.id).map { [$0] }
-            } ?? []
-        )
+        // F5: "active" means this pane currently holds real user attention, not merely that it is
+        // the selected pane within its tab's arrangement. A pane stays selected while the sidebar
+        // has keyboard focus, another window is key, or the app itself is inactive, none of which
+        // should keep rendering the '● active' chip. attendedPane already gates on the workspace
+        // window being key and the management layer being inactive; the keyboard-owner check adds
+        // the missing sidebar-focus gate, matching the same canonical fact CommandBarState and
+        // AppDelegate+CommandBar use to resolve keyboard routing.
+        let focusedPaneId: UUID? = {
+            guard
+                case .mainWindowChain = KeyboardOwner.current(
+                    windowLifecycle: atom(\.windowLifecycle),
+                    managementLayer: atom(\.managementLayer),
+                    uiState: atom(\.workspaceSidebarState)
+                )
+            else { return nil }
+            return atom(\.attendedPane).attendedPaneId
+        }()
         return Dictionary(
             uniqueKeysWithValues: workspaceTab.tabs.flatMap(\.allPaneIds).compactMap { paneId -> PaneRowFactsEntry? in
                 guard let pane = store.paneAtom.pane(paneId) else { return nil }
@@ -308,7 +320,7 @@ extension RepoExplorerView {
                             lastInteractedAt: recencyReferenceDate,
                             now: now
                         ),
-                        isActive: activePaneIds.contains(paneId)
+                        isActive: paneId == focusedPaneId
                     )
                 )
             }
