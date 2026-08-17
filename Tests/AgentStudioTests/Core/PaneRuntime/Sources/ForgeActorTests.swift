@@ -691,7 +691,9 @@ actor GatedForgeStatusProvider: ForgeStatusProvider {
 }
 
 actor ObservedForgeEvents {
-    private var recordedEvents: [ForgeEvent] = []
+    // Internal (not private) so other Forge test files in this target can
+    // add scoped read helpers via extension without growing this file.
+    var recordedEvents: [ForgeEvent] = []
 
     func record(_ envelope: RuntimeEnvelope) {
         guard case .worktree(let worktreeEnvelope) = envelope,

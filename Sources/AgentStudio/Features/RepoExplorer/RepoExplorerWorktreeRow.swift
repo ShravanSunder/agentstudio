@@ -107,7 +107,7 @@ struct RepoExplorerWorktreeRowContent: View {
     }
 
     static func shouldShowPullRequestChip(branchStatus: GitBranchStatus) -> Bool {
-        branchStatus.prCount != 0
+        branchStatus.prCount != 0 && !branchStatus.pullRequestDataUnavailable
     }
 
     private var hasStatusMetadata: Bool {
@@ -220,7 +220,7 @@ struct RepoExplorerWorktreeRowContent: View {
                         )
                     }
 
-                    if branchStatus.prCount == nil {
+                    if branchStatus.prCount == nil && !branchStatus.pullRequestDataUnavailable {
                         stalePullRequestGlyph
                             // The bare glyph carries no pill padding of its own. When it renders as the
                             // line's leading item (no diff/sync chip precedes it), it needs the same

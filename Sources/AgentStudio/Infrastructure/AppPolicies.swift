@@ -417,6 +417,12 @@ package enum AppPolicies {
         /// Shared floor for automatic-refresh freshness and retries after a
         /// failed, truncated, or rate-limited pull request query.
         package static let automaticRefreshMinimumInterval: Duration = .seconds(180)
+        /// Number of consecutive unsuccessful provider attempts (truncated,
+        /// rate-limited, or failed) after which a repository's pull request
+        /// state resolves to terminal-unavailable instead of staying pending
+        /// forever. Bounded retries continue in the background at the normal
+        /// backoff cadence; only the row's honesty signal changes.
+        package static let consecutiveFailureHonestyThreshold: Int = 3
     }
 
     package enum WatchedFolderScanning {
