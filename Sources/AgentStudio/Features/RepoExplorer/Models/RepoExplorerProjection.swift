@@ -505,23 +505,27 @@ enum RepoExplorerProjection {
         loadingRepos: [RepoPresentationItem],
         unassociatedPaneDestinations: [RepoExplorerUnassociatedPaneDestination]
     ) -> [RepoExplorerSidebarSection] {
+        // Loading-repo placeholders are a By-Repo concept; pane/tab groupings render panes, not repos,
+        // so an unresolved repo must never surface as a row (or drive the scanning banner) there.
+        let loadingReposForSection = groupingMode == .repo ? loadingRepos : []
+
         if groupingMode == .tab {
             return [
                 RepoExplorerSidebarSection(
                     kind: .tabs,
                     resolvedGroups: resolvedGroups,
-                    loadingRepos: loadingRepos
+                    loadingRepos: loadingReposForSection
                 )
             ]
         }
         let favoriteGroups = resolvedGroups.filter { group in
             !group.repos.isEmpty && group.repos.allSatisfy(\.isFavorite)
         }
-        let favoriteLoadingRepos = loadingRepos.filter(\.isFavorite)
+        let favoriteLoadingRepos = loadingReposForSection.filter(\.isFavorite)
         let regularGroups = resolvedGroups.filter { group in
             group.repos.contains { !$0.isFavorite }
         }
-        let regularLoadingRepos = loadingRepos.filter { !$0.isFavorite }
+        let regularLoadingRepos = loadingReposForSection.filter { !$0.isFavorite }
         let normalSectionKind: RepoExplorerSidebarSectionKind =
             switch groupingMode {
             case .repo: .repositories
