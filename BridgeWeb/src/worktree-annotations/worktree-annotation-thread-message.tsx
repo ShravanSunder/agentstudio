@@ -195,13 +195,18 @@ export function WorktreeAnnotationMessageEditor(
 	};
 	const messageCommands = props.isEditing ? (
 		<>
-			<WorktreeAnnotationCommandButton label="Revert draft" onClick={() => void revert()}>
+			<WorktreeAnnotationCommandButton
+				label="Revert draft"
+				onClick={() => void revert()}
+				preserveEditorFocus
+			>
 				<RotateCcw />
 			</WorktreeAnnotationCommandButton>
 			<WorktreeAnnotationCommandButton
 				disabled={!validation.ok}
 				label="Save annotation"
 				onClick={() => void save()}
+				preserveEditorFocus
 				primary
 			>
 				<Save />

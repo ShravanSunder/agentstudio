@@ -18,10 +18,15 @@ import type {
 	WorktreeAnnotationThreadContext,
 } from './worktree-annotation-surface-client.js';
 import {
+	useWorktreeAnnotationActiveComposerEditTokens,
+	useWorktreeAnnotationComposerEditToken,
 	useWorktreeAnnotationProjection,
 	WorktreeAnnotationSurfaceProvider,
 } from './worktree-annotation-surface-provider.js';
-import { WorktreeAnnotationThread } from './worktree-annotation-thread.js';
+import {
+	WorktreeAnnotationNewMessageComposer,
+	WorktreeAnnotationThread,
+} from './worktree-annotation-thread.js';
 
 describe('worktree annotation inline thread', () => {
 	test('renders one message directly without a disclosure control', async () => {
@@ -150,7 +155,7 @@ describe('worktree annotation inline thread', () => {
 
 	test('reverts a durable reply draft instead of only hiding its composer', async () => {
 		const surface = new RecordingAnnotationBrowserSurface('fileView');
-		const rendered = await renderAnnotationProjection(surface);
+		const rendered = await renderRemountingAnnotationProjection(surface);
 		const root = makeSavedMessage({ body: 'Root body.', messageId: rootMessageId });
 
 		await publishThreadMessages(surface, [root]);
@@ -169,6 +174,9 @@ describe('worktree annotation inline thread', () => {
 
 		await act(async (): Promise<void> => {
 			surface.settleMostRecentCommitted();
+			await Promise.resolve();
+		});
+		await act(async (): Promise<void> => {
 			surface.publishThread({ context: locatedContext, message: root });
 			surface.publishThread({
 				context: locatedContext,
@@ -190,6 +198,10 @@ describe('worktree annotation inline thread', () => {
 			});
 			await Promise.resolve();
 		});
+		await settleBrowserCondition(
+			(): boolean => document.body.textContent?.includes('saved locally') ?? false,
+			'Expected the remounted composer to adopt its durable reply draft.',
+		);
 		await expect.element(rendered.getByText('saved locally')).toBeVisible();
 
 		await act(async (): Promise<void> => {
@@ -203,6 +215,131 @@ describe('worktree annotation inline thread', () => {
 			kind: 'draft.revert',
 			messageId: secondRootMessageId,
 		});
+	});
+
+	test('adopts durable detail that arrives after the composer remounts', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const editToken = 'annotation-edit-remounted-reply';
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ProjectionRemountingReplyComposer editToken={editToken} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await act(async (): Promise<void> => {
+			surface.publishProjectionState({
+				revision: 3,
+				sessions: [annotationSessionSummary({ revision: 3, sessionId: annotationSessionId })],
+			});
+			await rendered.getByRole('textbox', { name: 'Reply with Markdown' }).fill('Durable reply');
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'reply.create'),
+			'Expected the first reply edit to create a durable draft.',
+		);
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			await Promise.resolve();
+		});
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+			.toHaveValue('');
+
+		await act(async (): Promise<void> => {
+			surface.publishThread({
+				context: locatedContext,
+				message: {
+					...annotationMessage({
+						messageId: secondRootMessageId,
+						ordinal: 1,
+						sessionRevision: 4,
+						threadId: annotationHeadThreadId,
+					}),
+					draft: { activeEditToken: editToken, body: 'Durable reply', revision: 1 },
+					savedBody: null,
+					savedRevision: null,
+				},
+			});
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => document.body.textContent?.includes('saved locally') ?? false,
+			'Expected the surviving composer to adopt delayed durable detail.',
+		);
+		await expect
+			.element(rendered.getByRole('textbox', { name: 'Reply with Markdown' }))
+			.toHaveValue('Durable reply');
+		expect(document.querySelectorAll('[aria-label="Reply with Markdown"]')).toHaveLength(1);
+	});
+
+	test('keeps an edit token active until every overlapping composer unregisters', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const editToken = 'annotation-edit-overlapping-portals';
+		const rendered = await render(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ComposerRegistrationFixture editToken={editToken} registrationCount={2} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await expect
+			.element(rendered.getByTestId('active-composer-edit-token'))
+			.toHaveTextContent(editToken);
+
+		await rendered.rerender(
+			<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+				<ComposerRegistrationFixture editToken={editToken} registrationCount={1} />
+			</WorktreeAnnotationSurfaceProvider>,
+		);
+		await expect
+			.element(rendered.getByTestId('active-composer-edit-token'))
+			.toHaveTextContent(editToken);
+	});
+
+	test('saves a resumed durable draft from the primary pointer action', async () => {
+		const surface = new RecordingAnnotationBrowserSurface('fileView');
+		const rendered = await renderAnnotationProjection(surface);
+		const draftMessage = {
+			...makeSavedMessage({ body: 'Saved body.', messageId: rootMessageId }),
+			draft: {
+				activeEditToken: 'annotation-edit-existing-draft',
+				body: 'Reviewed body.',
+				revision: 1,
+			},
+			savedRevision: 1,
+		} satisfies WorktreeAnnotationMessageEntry;
+
+		await publishThreadMessages(surface, [draftMessage]);
+		await act(async (): Promise<void> => {
+			await rendered.getByRole('button', { name: 'Resume draft' }).click();
+			await rendered.getByRole('button', { name: 'Save annotation' }).click();
+		});
+		await settleBrowserCondition(
+			(): boolean => surface.sentOperations.some((operation) => operation.kind === 'draft.save'),
+			'Expected the primary Save action to issue draft.save.',
+		);
+		expect(surface.sentOperations.at(-1)).toMatchObject({
+			kind: 'draft.save',
+			messageId: rootMessageId,
+		});
+
+		await act(async (): Promise<void> => {
+			surface.settleMostRecentCommitted();
+			surface.publishThread({
+				context: locatedContext,
+				message: {
+					...draftMessage,
+					draft: null,
+					savedBody: 'Reviewed body.',
+					savedRevision: 2,
+					sessionRevision: 4,
+				},
+			});
+			await Promise.resolve();
+		});
+		await settleBrowserCondition(
+			(): boolean => document.querySelector('[aria-label="Annotation Markdown"]') === null,
+			'Expected the committed Save to close the editor.',
+		);
+		await expect.element(rendered.getByText('Reviewed body.')).toBeVisible();
 	});
 
 	test('persists an empty draft while editing an already saved message', async () => {
@@ -294,12 +431,79 @@ function AnnotationProjection(): ReactElement | null {
 	);
 }
 
+function RemountingAnnotationProjection(): ReactElement | null {
+	const projection = useWorktreeAnnotationProjection();
+	return projection.threads.length === 0 ? null : (
+		<>
+			{projection.threads.map((thread) => (
+				<WorktreeAnnotationThread
+					key={`${thread.context.threadId}:${projection.revision}`}
+					thread={thread}
+				/>
+			))}
+		</>
+	);
+}
+
+function ProjectionRemountingReplyComposer(props: { readonly editToken: string }): ReactElement {
+	const projection = useWorktreeAnnotationProjection();
+	return (
+		<WorktreeAnnotationNewMessageComposer
+			createOperation={(body, editToken) => ({
+				body,
+				editToken,
+				expectedSessionRevision: 3,
+				kind: 'reply.create',
+				sessionId: annotationSessionId,
+				threadId: annotationHeadThreadId,
+			})}
+			editToken={props.editToken}
+			key={projection.revision}
+			onCancel={() => {}}
+			onSaved={() => {}}
+			placement="embedded"
+			placeholder="Reply with Markdown"
+		/>
+	);
+}
+
+function ComposerRegistrationFixture(props: {
+	readonly editToken: string;
+	readonly registrationCount: 1 | 2;
+}): ReactElement {
+	const activeEditTokens = useWorktreeAnnotationActiveComposerEditTokens();
+	return (
+		<>
+			<ComposerRegistration editToken={props.editToken} />
+			{props.registrationCount === 2 ? <ComposerRegistration editToken={props.editToken} /> : null}
+			<span data-testid="active-composer-edit-token">
+				{activeEditTokens.has(props.editToken) ? props.editToken : 'inactive'}
+			</span>
+		</>
+	);
+}
+
+function ComposerRegistration(props: { readonly editToken: string }): null {
+	useWorktreeAnnotationComposerEditToken(props.editToken);
+	return null;
+}
+
 async function renderAnnotationProjection(
 	surface: RecordingAnnotationBrowserSurface,
 ): Promise<Awaited<ReturnType<typeof render>>> {
 	return await render(
 		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
 			<AnnotationProjection />
+		</WorktreeAnnotationSurfaceProvider>,
+	);
+}
+
+async function renderRemountingAnnotationProjection(
+	surface: RecordingAnnotationBrowserSurface,
+): Promise<Awaited<ReturnType<typeof render>>> {
+	return await render(
+		<WorktreeAnnotationSurfaceProvider surfaceClient={surface.client}>
+			<RemountingAnnotationProjection />
 		</WorktreeAnnotationSurfaceProvider>,
 	);
 }

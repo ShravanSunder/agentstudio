@@ -58,6 +58,7 @@ export interface WorktreeAnnotationCommandButtonProps {
 	readonly disabled?: boolean | undefined;
 	readonly label: string;
 	readonly onClick: () => void;
+	readonly preserveEditorFocus?: boolean | undefined;
 	readonly primary?: boolean | undefined;
 }
 
@@ -74,6 +75,9 @@ export function WorktreeAnnotationCommandButton(
 						size="icon-xs"
 						variant={props.primary === true ? 'default' : 'ghost'}
 						onClick={props.onClick}
+						onPointerDown={(event) => {
+							if (props.preserveEditorFocus === true) event.preventDefault();
+						}}
 					/>
 				}
 			>

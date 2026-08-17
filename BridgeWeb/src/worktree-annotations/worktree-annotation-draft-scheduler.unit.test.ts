@@ -110,6 +110,27 @@ describe('WorktreeAnnotationDraftScheduler', () => {
 		});
 	});
 
+	test('adopts a late durable acknowledgement without overwriting newer local input', () => {
+		const clock = new ControlledDraftClock();
+		const persist = vi.fn<(body: string) => Promise<void>>(async (): Promise<void> => {});
+		const scheduler = new WorktreeAnnotationDraftScheduler({ clock, persist });
+
+		scheduler.adoptAcknowledgedBody({ body: 'Durable body', preserveCurrentBody: false });
+		expect(scheduler.snapshot()).toMatchObject({
+			currentBody: 'Durable body',
+			lastAcknowledgedBody: 'Durable body',
+			status: 'acknowledged',
+		});
+
+		scheduler.edit('Newer local body');
+		scheduler.adoptAcknowledgedBody({ body: 'Durable body', preserveCurrentBody: true });
+		expect(scheduler.snapshot()).toMatchObject({
+			currentBody: 'Newer local body',
+			lastAcknowledgedBody: 'Durable body',
+			status: 'scheduled',
+		});
+	});
+
 	test('retains editor text and permits retry after a rejected flush', async () => {
 		const clock = new ControlledDraftClock();
 		let attemptCount = 0;

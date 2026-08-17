@@ -23,7 +23,7 @@ const defaultDraftMaximumWaitMilliseconds = 5_000;
 export class WorktreeAnnotationDraftScheduler {
 	readonly #clock: WorktreeAnnotationDraftClock;
 	readonly #debounceMilliseconds: number;
-	readonly #emptyDraftPersistenceAllowed: boolean;
+	#emptyDraftPersistenceAllowed: boolean;
 	readonly #maximumWaitMilliseconds: number;
 	readonly #persist: (body: string) => Promise<void>;
 	#cancelScheduledFlush: (() => void) | null = null;
@@ -63,6 +63,24 @@ export class WorktreeAnnotationDraftScheduler {
 			if (body.trim().length === 0) return;
 			this.#hasAttemptedInitialPersist = true;
 			void this.#flushCurrentBody().catch((): void => {});
+			return;
+		}
+		this.#dirtySinceMilliseconds ??= this.#clock.now();
+		this.#scheduleFlush();
+	}
+
+	adoptAcknowledgedBody(props: {
+		readonly body: string;
+		readonly preserveCurrentBody: boolean;
+	}): void {
+		this.#emptyDraftPersistenceAllowed = true;
+		this.#hasAttemptedInitialPersist = true;
+		this.#lastAcknowledgedBody = props.body;
+		if (!props.preserveCurrentBody) this.#currentBody = props.body;
+		if (this.#currentBody === this.#lastAcknowledgedBody) {
+			this.#cancelPendingFlush();
+			this.#dirtySinceMilliseconds = null;
+			this.#status = 'acknowledged';
 			return;
 		}
 		this.#dirtySinceMilliseconds ??= this.#clock.now();

@@ -27,6 +27,7 @@ import {
 	useWorktreeAnnotationActiveComposerEditTokens,
 	useWorktreeAnnotationComposerEditToken,
 	useWorktreeAnnotationInteraction,
+	useWorktreeAnnotationProjection,
 	useWorktreeAnnotationSessionSelection,
 	useWorktreeAnnotationSurfaceClient,
 } from './worktree-annotation-surface-provider.js';
@@ -194,6 +195,7 @@ export function WorktreeAnnotationThread(
 							sessionId,
 							threadId: props.thread.context.threadId,
 						})}
+						editToken={editor.editToken}
 						onCancel={() => interaction.clearEditor(threadId)}
 						onSaved={() => interaction.clearEditor(threadId)}
 						placement="embedded"
@@ -222,11 +224,18 @@ export function WorktreeAnnotationNewMessageComposer(
 	props: WorktreeAnnotationNewMessageComposerProps,
 ): ReactElement {
 	const annotationClient = useWorktreeAnnotationSurfaceClient();
-	const [body, setBody] = useState('');
-	const [isDurable, setIsDurable] = useState(false);
-	const [operationError, setOperationError] = useState<string | null>(null);
-	const targetMessageIdRef = useRef<string | null>(null);
+	const projection = useWorktreeAnnotationProjection();
 	const editTokenRef = useRef(props.editToken ?? createWorktreeAnnotationEditToken());
+	const initialDurableMessageRef = useRef(
+		messageByEditToken(annotationClient.getSnapshot(), editTokenRef.current),
+	);
+	const initialDurableMessage = initialDurableMessageRef.current;
+	const initialDurableBody = initialDurableMessage?.draft?.body ?? null;
+	const [body, setBody] = useState(initialDurableBody ?? '');
+	const [isDurable, setIsDurable] = useState(initialDurableMessage !== null);
+	const [operationError, setOperationError] = useState<string | null>(null);
+	const hasLocalEditSinceMountRef = useRef(false);
+	const targetMessageIdRef = useRef<string | null>(initialDurableMessage?.messageId ?? null);
 	useWorktreeAnnotationComposerEditToken(editTokenRef.current);
 	const createOperationRef = useRef(props.createOperation);
 	createOperationRef.current = props.createOperation;
@@ -234,6 +243,7 @@ export function WorktreeAnnotationNewMessageComposer(
 		() =>
 			new WorktreeAnnotationDraftScheduler({
 				clock: browserWorktreeAnnotationDraftClock,
+				initialAcknowledgedBody: initialDurableBody,
 				persist: async (nextBody): Promise<void> => {
 					if (targetMessageIdRef.current === null) {
 						const outcome = await annotationClient.execute(
@@ -268,9 +278,22 @@ export function WorktreeAnnotationNewMessageComposer(
 					});
 				},
 			}),
-		[annotationClient],
+		[annotationClient, initialDurableBody],
 	);
 	useEffect((): (() => void) => (): void => scheduler.dispose(), [scheduler]);
+	const projectedDurableMessage = messageByEditToken(projection, editTokenRef.current);
+	useEffect((): void => {
+		const projectedDraft = projectedDurableMessage?.draft ?? null;
+		if (projectedDurableMessage === null || projectedDraft === null) return;
+		if (targetMessageIdRef.current === projectedDurableMessage.messageId && isDurable) return;
+		targetMessageIdRef.current = projectedDurableMessage.messageId;
+		scheduler.adoptAcknowledgedBody({
+			body: projectedDraft.body,
+			preserveCurrentBody: hasLocalEditSinceMountRef.current,
+		});
+		if (!hasLocalEditSinceMountRef.current) setBody(projectedDraft.body);
+		setIsDurable(true);
+	}, [isDurable, projectedDurableMessage, scheduler]);
 	const validation = validateWorktreeAnnotationMarkdown(body);
 	const save = async (): Promise<void> => {
 		setOperationError(null);
@@ -334,13 +357,18 @@ export function WorktreeAnnotationNewMessageComposer(
 				active={props.active}
 				commands={
 					<>
-						<WorktreeAnnotationCommandButton label="Revert draft" onClick={() => void revert()}>
+						<WorktreeAnnotationCommandButton
+							label="Revert draft"
+							onClick={() => void revert()}
+							preserveEditorFocus
+						>
 							<RotateCcw />
 						</WorktreeAnnotationCommandButton>
 						<WorktreeAnnotationCommandButton
 							disabled={!validation.ok}
 							label="Save annotation"
 							onClick={() => void save()}
+							preserveEditorFocus
 							primary
 						>
 							<Save />
@@ -394,6 +422,7 @@ export function WorktreeAnnotationNewMessageComposer(
 						}}
 						onChange={(event) => {
 							const nextBody = event.currentTarget.value;
+							hasLocalEditSinceMountRef.current = true;
 							setBody(nextBody);
 							scheduler.edit(nextBody);
 						}}

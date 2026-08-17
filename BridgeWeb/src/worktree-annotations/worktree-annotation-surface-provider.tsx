@@ -13,6 +13,7 @@ import {
 
 import type { BridgeMarkdownRenderWorkerClient } from '../app/markdown/worker/bridge-markdown-render-worker-client.js';
 import type { BridgePaneSurfaceClient } from '../core/comm-worker/bridge-pane-runtime.js';
+import { createWorktreeAnnotationEditToken } from './worktree-annotation-edit-token.js';
 import {
 	createWorktreeAnnotationSurfaceClient,
 	emptyWorktreeAnnotationProjectionSnapshot,
@@ -48,7 +49,7 @@ interface WorktreeAnnotationComposerRegistry {
 
 export type WorktreeAnnotationEditorState =
 	| { readonly kind: 'message'; readonly messageId: string }
-	| { readonly kind: 'reply' };
+	| { readonly editToken: string; readonly kind: 'reply' };
 
 export interface WorktreeAnnotationInteractionController {
 	readonly activeThreadId: string | null;
@@ -102,9 +103,9 @@ export function WorktreeAnnotationSurfaceProvider(
 		[projection.sessions],
 	);
 	const [explicitSessionId, setExplicitSessionId] = useState<string | null>(null);
-	const [activeComposerEditTokens, setActiveComposerEditTokens] = useState<ReadonlySet<string>>(
-		() => new Set<string>(),
-	);
+	const [composerCountByEditToken, setComposerCountByEditToken] = useState<
+		ReadonlyMap<string, number>
+	>(() => new Map<string, number>());
 	const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 	const [expandedThreadIds, setExpandedThreadIds] = useState<ReadonlySet<string>>(
 		() => new Set<string>(),
@@ -173,19 +174,26 @@ export function WorktreeAnnotationSurfaceProvider(
 		[activeSessionId, capabilities, projection.sessions, requiresExplicitSelection, selectSession],
 	);
 	const registerComposerEditToken = useCallback((editToken: string): (() => void) => {
-		setActiveComposerEditTokens((currentTokens) => {
-			if (currentTokens.has(editToken)) return currentTokens;
-			return new Set([...currentTokens, editToken]);
+		setComposerCountByEditToken((currentCounts) => {
+			const nextCounts = new Map(currentCounts);
+			nextCounts.set(editToken, (nextCounts.get(editToken) ?? 0) + 1);
+			return nextCounts;
 		});
 		return (): void => {
-			setActiveComposerEditTokens((currentTokens) => {
-				if (!currentTokens.has(editToken)) return currentTokens;
-				const nextTokens = new Set(currentTokens);
-				nextTokens.delete(editToken);
-				return nextTokens;
+			setComposerCountByEditToken((currentCounts) => {
+				const currentCount = currentCounts.get(editToken) ?? 0;
+				if (currentCount === 0) return currentCounts;
+				const nextCounts = new Map(currentCounts);
+				if (currentCount === 1) nextCounts.delete(editToken);
+				else nextCounts.set(editToken, currentCount - 1);
+				return nextCounts;
 			});
 		};
 	}, []);
+	const activeComposerEditTokens = useMemo<ReadonlySet<string>>(
+		() => new Set(composerCountByEditToken.keys()),
+		[composerCountByEditToken],
+	);
 	const composerRegistry = useMemo<WorktreeAnnotationComposerRegistry>(
 		() => ({
 			activeEditTokens: activeComposerEditTokens,
@@ -235,7 +243,11 @@ export function WorktreeAnnotationSurfaceProvider(
 			setThreadExpanded,
 			startMessageEdit: (threadId, messageId): void =>
 				setThreadEditor(threadId, { kind: 'message', messageId }),
-			startReply: (threadId): void => setThreadEditor(threadId, { kind: 'reply' }),
+			startReply: (threadId): void =>
+				setThreadEditor(threadId, {
+					editToken: createWorktreeAnnotationEditToken(),
+					kind: 'reply',
+				}),
 		}),
 		[
 			activeThreadId,
