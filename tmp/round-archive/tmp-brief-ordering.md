@@ -1,0 +1,1 @@
+ORDERING NOTE: the MASTER GATE final sweep + A-G report is the VERY LAST thing you do — after the item-5 lastOutputLine seam is implemented and green. If you already ran the sweep before finishing item 5, re-run the sweep on the final build. One canonical sweep, one report, everything checked off.

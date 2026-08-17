@@ -1,0 +1,7 @@
+CHIP ALIGNMENT — FINAL PRECISE SPEC (owner re-verified live; prior fix aligned the wrong edge). The defect: the first chip PILL's left EDGE sits at the text column x, so the pill's internal horizontal padding pushes its CONTENT ~a pill-padding right of the L1/L2 text glyphs. The owner judges alignment by CONTENT, and they are right — that is the standard optical treatment.
+
+THE RULE: in every row (all three modes, By Repo included), the FIRST chip's CONTENT (its leading glyph/text) starts at exactly the text column x used by L1/L2. The pill BACKGROUND extends to the LEFT of that by its own horizontal padding (negative leading inset equal to the pill's horizontal content padding — a layout constant, not a magic number). Subsequent chips keep their normal spacing. Header chips rows in By Repo get the same treatment.
+
+Implement via the existing SidebarTextColumnAlignment guide: add the pill-padding outdent at the chips-line level, sourced from the same AppStyles constant the pill padding uses, so they can never drift apart.
+
+Proof: zoomed screenshot with a vertical guide overlay showing L1 text glyph, L2 text glyph, and first-chip CONTENT glyph on one x line, in All Panes, By Tab, and a By Repo worktree row. Update the validation table (items 17/18). This is the alignment interpretation of record — amend the contract item 18 text with the content-alignment rule so no future round re-litigates it.
