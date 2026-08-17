@@ -13,7 +13,7 @@ import type {
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import { WorktreeAnnotationSurfaceProvider } from '../worktree-annotations/worktree-annotation-surface-provider.js';
 import {
-	BridgeFileViewerBrowserTestApp as BridgeFileViewerAppBase,
+	BridgeFileViewerAppImplementation,
 	type BridgeFileViewerAppProps,
 } from './bridge-file-viewer-app.js';
 import type {
@@ -25,6 +25,7 @@ import {
 	type BridgeFileViewerBrowserTestPaneSessionFactory,
 } from './bridge-file-viewer-browser-test-harness.js';
 import { BridgeFileViewerSurfaceClientProvider } from './bridge-file-viewer-render-snapshot-controller.js';
+import { BridgeFileViewerShell } from './bridge-file-viewer-shell.js';
 
 export interface BridgeFileViewerBrowserHarnessAppProps extends BridgeFileViewerAppProps {
 	readonly fileProductSession?: BridgeFileViewerBrowserTestProductSession;
@@ -93,10 +94,14 @@ export function BridgeFileViewerBrowserHarnessApp(
 	const fileViewClient = paneRuntime.surfaceClient('fileView');
 	return (
 		<BridgeFileViewerSurfaceClientProvider surfaceClient={fileViewClient}>
-			<WorktreeAnnotationSurfaceProvider surfaceClient={fileViewClient}>
-				<BridgeFileViewerAppBase
+			<WorktreeAnnotationSurfaceProvider
+				markdownWorkerClient={productionProps.markdownWorkerClient}
+				surfaceClient={fileViewClient}
+			>
+				<BridgeFileViewerAppImplementation
 					{...productionProps}
 					codeViewWorkerPoolEnabled={productionProps.codeViewWorkerPoolEnabled ?? false}
+					shellComponent={BridgeFileViewerShell}
 				/>
 			</WorktreeAnnotationSurfaceProvider>
 		</BridgeFileViewerSurfaceClientProvider>
