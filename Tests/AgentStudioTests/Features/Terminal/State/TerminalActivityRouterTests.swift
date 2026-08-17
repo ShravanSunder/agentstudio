@@ -465,6 +465,17 @@ struct TerminalActivityRouterTests {
         let subscriber = RecordingSubscriber(
             subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        final class RecordedCallBox: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var calls: [(paneId: UUID, lastOutputLine: String?)] = []
+
+            func record(paneId: UUID, lastOutputLine: String?) {
+                lock.lock()
+                calls.append((paneId, lastOutputLine))
+                lock.unlock()
+            }
+        }
+        let recordedCalls = RecordedCallBox()
         let router = TerminalActivityRouter(
             bus: bus,
             activityAtom: atom,
@@ -472,7 +483,10 @@ struct TerminalActivityRouterTests {
             isPaneCurrentlyAttended: { _ in true },
             // Realistic raw viewport text: the real output line followed by the
             // shell's freshly-printed (bare) prompt as the trailing line.
-            lastOutputLineReader: { _ in "echo-command-output\n$ " }
+            lastOutputLineReader: { _ in "echo-command-output\n$ " },
+            recordSettledActivityStatus: { paneId, lastOutputLine in
+                recordedCalls.record(paneId: paneId, lastOutputLine: lastOutputLine)
+            }
         )
         let paneId = PaneId.generateUUIDv7()
 
@@ -496,6 +510,10 @@ struct TerminalActivityRouterTests {
                 return false
             }
         }
+
+        #expect(recordedCalls.calls.count == 1)
+        #expect(recordedCalls.calls.first?.paneId == paneId.uuid)
+        #expect(recordedCalls.calls.first?.lastOutputLine == "echo-command-output")
 
         await router.stop()
         await subscriber.shutdown()

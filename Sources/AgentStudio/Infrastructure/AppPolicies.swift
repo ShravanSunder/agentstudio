@@ -139,10 +139,11 @@ package enum AppPolicies {
     }
 
     /// Bounds for the source-side "last output line" contraction (Contract 7):
-    /// how much of the Ghostty viewport is read at settle time, and how large
-    /// the resulting candidate line may be before it can reach the EventBus.
+    /// how large the resulting candidate line may be before it can reach the
+    /// EventBus. The Ghostty viewport read itself is unbounded (full
+    /// viewport, one call per settle) — see
+    /// `SurfaceManager.readViewportTrailingText`.
     package enum TerminalOutputCapture {
-        package static let viewportRowWindow: Int = 5
         package static let maxLastOutputLineUTF8Bytes: Int = 120
     }
 
