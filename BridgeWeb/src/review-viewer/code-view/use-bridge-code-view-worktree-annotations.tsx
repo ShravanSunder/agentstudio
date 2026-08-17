@@ -164,13 +164,16 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 							? 'base'
 							: undefined
 					: undefined;
-			const origin = sourceDescriptorIdsByRole === undefined ? null : reviewAnnotationOriginForPierreSelection({
-				item: descriptor,
-				itemType: item.type,
-				range,
-				sourceDescriptorIdsByRole,
-				...(fileSourceRole === undefined ? {} : { fileSourceRole }),
-			});
+			const origin =
+				sourceDescriptorIdsByRole === undefined
+					? null
+					: reviewAnnotationOriginForPierreSelection({
+							item: descriptor,
+							itemType: item.type,
+							range,
+							sourceDescriptorIdsByRole,
+							...(fileSourceRole === undefined ? {} : { fileSourceRole }),
+						});
 			if (origin === null) {
 				selectedItemIdRef.current = null;
 				setSelectedRange(null);
@@ -204,10 +207,10 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			selectedItemIdRef.current = item.id;
 			setSelectedRange(range);
 			setPendingComposer((currentComposer) =>
-					currentComposer?.itemId === item.id &&
-					worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
-						? currentComposer
-						: null,
+				currentComposer?.itemId === item.id &&
+				worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
+					? currentComposer
+					: null,
 			);
 			setComposerPresentationRevision((revision): number => revision + 1);
 		},
