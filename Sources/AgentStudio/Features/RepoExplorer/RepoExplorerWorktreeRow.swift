@@ -258,12 +258,17 @@ struct RepoExplorerWorktreeRowContent: View {
         }
     }
 
-    /// A `nil` PR count means facts have not been fetched for this branch. Freshness is metadata, so it
-    /// uses a bare static glyph rather than the value-bearing chip treatment.
+    /// A `nil` PR count means facts have not been fetched for this branch. The render-server symbol
+    /// effect communicates pending metadata without turning it into a value-bearing chip or scheduling
+    /// per-frame application work.
     private var stalePullRequestGlyph: some View {
-        Image(systemName: SystemSymbol.circle.rawValue)
+        Image(systemName: SystemSymbol.circleDotted.rawValue)
             .font(.system(size: AppStyles.Shell.Sidebar.chipIconSize, weight: .medium))
             .foregroundStyle(.secondary)
+            .symbolEffect(
+                .variableColor.iterative,
+                options: .repeating.speed(AppStyles.Shell.Sidebar.pendingFactsSymbolEffectSpeed)
+            )
             .frame(height: AppStyles.Shell.Sidebar.chipLineHeight)
             .fixedSize(horizontal: true, vertical: true)
             .accessibilityLabel("Pull request facts not fetched")

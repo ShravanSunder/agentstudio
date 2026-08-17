@@ -48,17 +48,17 @@ EXIT: screenshot proof per item, all 16 in ONE build.
    name) must use the SAME spacing token as row lines (star/branch icon
    to text). No larger gap on headers.
 18 chips row alignment: left, By Repo parity (user default 2026-08-16).
-19 stale/needs-refresh (prCount == nil) = a BARE small hollow-dot SF
-   Symbol glyph at the end of the By Repo chips line. It uses the chip-line
-   height and quiet secondary color, with NO pill, background, or border.
-   Chips carry facts with values; freshness is metadata and must not wear
-   a chip. The stale fact remains a cached keyed read: "pull-request facts
-   not yet fetched for this branch."
-   DEFERRED: the actively-refreshing state. Once the app owns a real keyed
-   refresh-lifecycle fact, animate this same bare glyph in place via
-   symbolEffect; it must still have no chip, background, or border. Until
-   then the glyph is static. Do not infer refresh state locally or add
-   runtime plumbing under this contract.
+19 pending PR facts (`prCount == nil`) = a BARE small dotted-circle-style SF
+   Symbol glyph at the end of the By Repo chips line, animated subtly with a
+   render-server `symbolEffect`. It uses the chip-line height, slow cadence,
+   and quiet secondary color, with NO pill, background, or border. The effect
+   performs zero per-frame MainActor work; `rotationEffect` plus
+   `repeatForever` remains banned. Chips carry facts with values; pending
+   metadata must not wear a chip. The glyph disappears entirely once the
+   cached keyed `prCount` becomes known: render `⑂N` for N > 0 and nothing for
+   zero. `nil` itself is the honest pending fact; do not infer a separate
+   actively-refreshing state or add refresh-lifecycle plumbing. That distinct
+   refreshing state remains deferred until the cache owns a real keyed fact.
 
 CHIP MATRIX (final gate)
 

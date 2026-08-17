@@ -24,6 +24,7 @@ package enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case bookmarkFill = "bookmark.fill"
     case checkmarkCircle = "checkmark.circle"
     case circle = "circle"
+    case circleDotted = "circle.dotted"
     case circleFill = "circle.fill"
     case clock = "clock"
     case chevronDown = "chevron.down"

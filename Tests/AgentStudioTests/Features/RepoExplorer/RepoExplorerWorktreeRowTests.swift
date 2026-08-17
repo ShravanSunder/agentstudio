@@ -126,8 +126,8 @@ struct RepoExplorerWorktreeRowTests {
         )
     }
 
-    @Test("chip rows carry no animation")
-    func chipRowsCarryNoAnimation() throws {
+    @Test("chip rows carry no timeline-driven animation")
+    func chipRowsCarryNoTimelineDrivenAnimation() throws {
         let chipSource = try String(
             contentsOfFile: "Sources/AgentStudio/Core/Views/SidebarChips.swift",
             encoding: .utf8
@@ -138,8 +138,8 @@ struct RepoExplorerWorktreeRowTests {
         )
         for source in [chipSource, rowSource] {
             #expect(!source.contains("repeatForever"))
-            #expect(!source.contains("symbolEffect"))
         }
+        #expect(!chipSource.contains("symbolEffect"))
     }
 
     @Test("stale pull request metadata renders as a bare chip-height glyph")
@@ -156,13 +156,17 @@ struct RepoExplorerWorktreeRowTests {
         )
         let glyphSource = String(rowSource[glyphStart.lowerBound..<glyphEnd.lowerBound])
 
-        #expect(glyphSource.contains("Image(systemName: SystemSymbol.circle.rawValue)"))
+        #expect(glyphSource.contains("Image(systemName: SystemSymbol.circleDotted.rawValue)"))
         #expect(glyphSource.contains(".frame(height: AppStyles.Shell.Sidebar.chipLineHeight)"))
         #expect(glyphSource.contains(".foregroundStyle(.secondary)"))
+        #expect(glyphSource.contains(".symbolEffect("))
+        #expect(glyphSource.contains(".variableColor.iterative"))
+        #expect(glyphSource.contains("options: .repeating.speed("))
         #expect(!glyphSource.contains("SidebarChip("))
         #expect(!glyphSource.contains(".background("))
         #expect(!glyphSource.contains(".overlay("))
-        #expect(!glyphSource.contains(".symbolEffect("))
+        #expect(!glyphSource.contains("rotationEffect"))
+        #expect(!glyphSource.contains("repeatForever"))
     }
 
     @Test("pane trailing metadata suppresses zero pull requests")

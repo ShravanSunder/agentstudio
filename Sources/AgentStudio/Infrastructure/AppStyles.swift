@@ -97,6 +97,7 @@ package enum AppStyles {
 
     package enum Shell {
         package enum Sidebar {
+            package static let pendingFactsSymbolEffectSpeed = 0.35
             package static let statusUnavailableForegroundOpacity: CGFloat = 0.7
             package static let minimumWidth: CGFloat = 200
             package static let shadowOpacity: CGFloat = 0

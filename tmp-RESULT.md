@@ -24,7 +24,7 @@ Status: BLOCKED-ON-DESIGN. Item 5 fails on the origin/main-merged build because 
 | 16 | `Tests/AgentStudioTests/Features/RepoExplorer/RepoExplorerViewProjectionHelperTests.swift`; `RepoExplorerWorktreeRowTests.swift`; full architecture lint | PASS — all row values are cached keyed projection reads; no per-row path derivation was introduced. |
 | 17 | `tmp-screenshots/contract-final/44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png`; `Sources/AgentStudio/SharedComponents/Sidebar/SidebarTextColumnAlignment.swift` | PASS — headers and rows use the one shared icon-to-text spacing token; annotated crops preserve the same icon/text relationship. |
 | 18 | `tmp-screenshots/contract-final/44-alignment-by-repo-x21.png`; `45-alignment-all-panes-x27.png`; `46-alignment-by-tab-x27.png` | PASS — measured guides intersect each representative row's L1/L2/L3 leading edge: source x=21 px in the By Repo hierarchy and source x=27 px in both pane hierarchies; within-row delta is 0 px. |
-| 19 | `tmp-screenshots/contract-final/41-chip-matrix-final-by-repo.png`; `44-alignment-by-repo-x21.png` | PASS — stale rows end with a quiet bare hollow SF Symbol, separate from the pill facts, with no pill/background/border; refreshing remains deferred. |
+| 19 | `tmp-screenshots/contract-final/item19-pending-animation/pending-phase-0.png` through `pending-phase-3.png`; corresponding `*-detail.png` and `*-glyph-10x.png`; `RepoExplorerWorktreeRowTests.swift` | FAIL — implementation and pending-animation proof pass: the bare `circle.dotted` uses `.symbolEffect(.variableColor.iterative, options: .repeating.speed(0.35))`, stays secondary/chip-height with no wrapper, and the 0.5-second burst alternates visibly different render phases (frames 0/2 brighter, 1/3 dimmer) without `rotationEffect`, `repeatForever`, or per-frame MainActor work. Known-value branching remains automated: nil renders the glyph, positive renders `⑂N`, zero renders nothing. The required live post-fetch disappearance shot is not yet proven: the real visible `agent-studio/main` row remained pending through the bounded Forge observation, so those attempted samples were removed rather than mislabeled. |
 
 ### Item 10 burst frame inspection
 
@@ -79,10 +79,11 @@ No implementation was attempted because all three options create a new terminal-
 
 ## Current gates
 
+- Focused item 19: `mise run test:swift -- --filter "RepoExplorerWorktreeRowTests"` — exit 0; 19 tests in 1 suite after a red run failed on the missing dotted symbol/effect.
 - Focused item 10: `mise run test:swift -- --filter "SidebarToolbarControlVisualStateTests"` — exit 0; 6 tests in 1 suite, including the red/green delayed-label transition contract.
 - Prior focused sidebar projection gate: `mise run test:swift -- --filter "RepoExplorerWorktreeRowTests|RepoExplorerPaneProjectionTests|RepoExplorerViewTests|RepoExplorerViewProjectionHelperTests"` — exit 0; 76 tests in 4 suites.
 - Lint: `mise run lint` — exit 0; swift-format, SwiftLint (0 violations in 2,056 files), architecture lint, and release checks passed.
-- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 215.12 seconds on the item-10 fix.
+- Full aggregate: `SWIFT_TEST_TIMEOUT_SECONDS=2700 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=1800 mise run test` — exit 0 in 224.03 seconds on the item-19 implementation.
 - Runtime: exact merged-build LaunchServices PID `63971`, marker `debug-observability-jp6s-1786925576-63062`; Peekaboo mapped the PID to on-screen window `106078`; grouping changes used authenticated read-back; capture remained detached/background-only; PID terminated with TERM after evidence.
 
 ## CHIP MATRIX (final gate)
