@@ -586,3 +586,88 @@ socket instead of synthetic input:
 This is unambiguous regardless of window z-order or which process currently
 has OS focus, and should be the standard procedure for future live proofs on
 a shared, multi-instance desktop.
+
+## 2026-08-17 (continued) — candidates 1/1/3 ruled out; decisive root-cause evidence for candidate 2
+
+### Candidate rule-outs (source-level, no live app needed)
+
+**Instance identity (owner's top bet) — ruled out.** Exactly one construction
+site for `PaneActivityStatusAtom` (`CoreAtoms.swift:67`, a default parameter
+constructed once with `CoreAtoms()`). Exactly one `AtomRegistry()`
+construction (`AppDelegate+WorkspaceBoot.swift:157`), assigned to
+`AppDelegate`'s single `atomStore` property. `CoreAtomScope.setUp(atomStore.core)`
+runs exactly once right after (line 159), and `CoreAtomScope` itself enforces
+single-installation with a runtime precondition. The read side
+(`atom(\.paneActivityStatus)`, used by `MainSplitViewController`/
+`SidebarSurfaceHost`) resolves through `CoreAtomScope.store` → the same
+`atomStore.core`. Write and read side are provably the same object.
+
+**Pane-ID path — no bug found via source trace.** `PaneId.swift`'s own doc:
+"the primary identity for a pane across state, views, and runtime routing...
+Surface IDs remain runtime associations" — one canonical identity type.
+`TerminalActivityRouter.consume(_:)` correctly separates
+`surfaceID = surfaceIDForPaneID(paneEnvelope.paneId.uuid)` (derived) from
+`paneEnvelope.paneId.uuid` (used directly for `commandFinished`/emit/
+`recordSettledActivityStatus`) — no accidental surface-for-pane substitution.
+
+**Three-line real viewport shape — ruled out via permanent unit test.** Added
+`realThreeLineViewportShapeResolvesToEchoedOutput` to
+`TerminalLastOutputLineContractTests.swift`: prompt-with-echoed-command line,
+real output line, fresh bare prompt line — `contractedLastLine` correctly
+resolves to the output line, excluding both prompt occurrences.
+
+### Minimal-workspace live reproduction (owner-approved atoms trace)
+
+Reset jp6s's persisted `core.sqlite`/`local.sqlite` (disposable debug data,
+isolated identity — deleted the 6 db/wal/shm files) and rebuilt a genuinely
+minimal workspace: one fresh throwaway repo
+(`tmp/l2-minimal-proof/single-repo`), one worktree, one pane. Getting to "one
+pane" needed an extra step: `openWorktreeInPane`/`newTab`/`openNewTerminalInTab`
+are all IPC `.targetless` + `.noArguments` (confirmed in
+`AppCommand+IPCProjection.swift`) — they resolve their target from ambient UI
+selection state, not something a headless IPC client can parameterize, and
+they reject with `-32007 parameters required` regardless of `targetHandle`.
+Worked around it: launched with the `ipc-terminal-smoke` startup diagnostic
+(creates a floating, unassociated terminal pane for exactly this kind of
+headless proof), then `terminal.send`'d a `cd` into the fixture repo path —
+the app's own CWD-tracking correctly re-associated the pane with the
+worktree (`pane.snapshot` showed `worktreeId`/`repoId` populated after the
+`cd` completed). This is now a clean, reusable recipe for a from-scratch
+minimal live fixture and is worth keeping for future rounds.
+
+On this properly minimal, properly worktree-associated single pane: sent two
+distinct `echo` commands via `terminal.send` + `terminal.wait(commandFinished)`,
+both accepted and settled (`exitCode: 0`). The sidebar still showed the
+stale generic `output activity` fallback, not either echoed marker —
+reproduced cleanly with zero other confounds (no bloated workspace, no
+multi-instance contention, confirmed correct pane/worktree identity).
+
+Re-launched the same minimal workspace with
+`AGENTSTUDIO_TRACE_TAGS=app.startup,performance,terminal.activity,terminal.signal,inbox,eventbus,atoms`
+(scoped, not `*`) — boot was fast and clean this time (confirms the owner's
+diagnosis: the earlier hang was atom-hydration volume against the
+25-repo-accumulated workspace, not atoms tracing itself). Repeated the same
+two-command test and queried `agentstudio.performance.atom.label:"pane_activity_status"`
+directly: **51 telemetry records for this session, all `operation: "value"`
+(reads). Zero writes.** `agentstudio.performance.atom.slot.count` did grow
+1→2→3 across the session, but that tracks all three panes each being *read*
+for the first time (`AtomFamily` observation-slot allocation on first read),
+not a mutation — there is no `operation: "set"` (or equivalent) record for
+this label anywhere in the session, despite two fully-settled commandFinished
+events on the exact pane being read.
+
+**This is the decisive finding for candidate 2 (loop coverage) and beyond:**
+the settle pipeline runs to completion (confirmed twice now via the
+`inbox.decision` signal), but `PaneActivityStatusAtom.recordSettledActivity`
+never reaches its `statusFamily.setValue(...)` call — or reaches it and every
+guard rejects, though the rate-limit/unchanged-line guards don't explain a
+zero-write outcome for a *first* settle with genuinely new text. The gap is
+narrower than "loop coverage" (candidate 2 as originally framed assumed the
+write succeeds and the *read side* misses it) — the evidence now points
+upstream of the atom write itself: either `recordSettledActivityStatus` isn't
+being invoked from `TerminalActivityRouter.consumeProjectionOutcome`'s
+`.unseenActivitySettled` case in this exact runtime path, or
+`resolveLastOutputLine` is returning `nil` for the *real* Ghostty content in
+a way the three-line unit test still doesn't capture. Have not added a
+temporary diagnostic log line to pin this down further — that's a real (if
+temporary) code change and I want to confirm before making it.
