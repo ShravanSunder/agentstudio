@@ -344,18 +344,22 @@ export function reviewAnnotationOriginForPierreSelection(props: {
 	readonly itemType: 'diff' | 'file';
 	readonly range: SelectedLineRange;
 	readonly fileSourceRole?: 'base' | 'head';
+	readonly sourceDescriptorIdsByRole: Readonly<{
+		readonly base: string | null;
+		readonly head: string | null;
+	}>;
 }): WorktreeAnnotationLocatedOrigin | null {
 	const role = reviewSelectionRole(props);
 	if (role === null) return null;
-	const handle = props.item.contentRoles[role];
+	const sourceDescriptorId = props.sourceDescriptorIdsByRole[role];
 	const path = role === 'base' ? props.item.basePath : props.item.headPath;
-	if (handle === null || handle === undefined || path === null || path === undefined) return null;
+	if (sourceDescriptorId === null || path === null || path === undefined) return null;
 	return {
 		diffSide: props.itemType === 'diff' ? (role === 'base' ? 'deletions' : 'additions') : null,
 		endLine: Math.max(props.range.start, props.range.end),
 		kind: 'located',
 		path,
-		sourceIdentity: handle.handleId,
+		sourceIdentity: sourceDescriptorId,
 		sourceRole: role === 'base' ? 'reviewBase' : 'reviewHead',
 		startLine: Math.min(props.range.start, props.range.end),
 	};

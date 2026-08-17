@@ -49,6 +49,12 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentState: 'hydrated',
 					contentRoles: ['base', 'head'],
 					displayPath: 'Sources/App/View.swift',
+					sourceDescriptorIdsByRole: {
+						base: 'descriptor-item-1-base',
+						diff: null,
+						file: null,
+						head: 'descriptor-item-1-head',
+					},
 				},
 			});
 			expect(job.payload.item.fileDiff.additionLines).toContain('export const after = 2;\n');

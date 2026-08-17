@@ -34,13 +34,21 @@ describe('worktree annotation Pierre adapter', () => {
 		const additionsRange = { start: 4, end: 7, side: 'additions' } satisfies SelectedLineRange;
 
 		expect(
-			reviewAnnotationOriginForPierreSelection({ item, itemType: 'diff', range: additionsRange }),
+			reviewAnnotationOriginForPierreSelection({
+				item,
+				itemType: 'diff',
+				range: additionsRange,
+				sourceDescriptorIdsByRole: {
+					base: 'descriptor-item-1-base',
+					head: 'descriptor-item-1-head',
+				},
+			}),
 		).toEqual({
 			diffSide: 'additions',
 			endLine: 7,
 			kind: 'located',
 			path: 'Sources/App.swift',
-			sourceIdentity: 'handle-item-1-head',
+			sourceIdentity: 'descriptor-item-1-head',
 			sourceRole: 'reviewHead',
 			startLine: 4,
 		});
@@ -49,6 +57,10 @@ describe('worktree annotation Pierre adapter', () => {
 				item,
 				itemType: 'diff',
 				range: { start: 4, end: 7, side: 'deletions', endSide: 'additions' },
+				sourceDescriptorIdsByRole: {
+					base: 'descriptor-item-1-base',
+					head: 'descriptor-item-1-head',
+				},
 			}),
 		).toBeNull();
 	});

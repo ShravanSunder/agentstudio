@@ -668,6 +668,12 @@ function makeReviewCodeViewItem(): BridgeMainCodeViewItem {
 			displayPath: 'Sources/App/View.swift',
 			itemId: 'item-source',
 			lineCount: 3,
+			sourceDescriptorIdsByRole: {
+				base: 'handle-item-source-base',
+				diff: null,
+				file: null,
+				head: 'handle-item-source-head',
+			},
 		},
 		fileDiff: parseDiffFromFile(
 			{

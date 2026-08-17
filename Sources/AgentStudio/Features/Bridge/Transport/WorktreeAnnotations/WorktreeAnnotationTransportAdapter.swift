@@ -42,6 +42,11 @@ struct WorktreeAnnotationSourceResolver: Sendable {
     )
 }
 
+private struct WorktreeAnnotationTransportDemandKey: Hashable {
+    let sessionID: WorktreeAnnotationSessionID
+    let surface: BridgeProductSurface
+}
+
 /// Maps committed File/Review product calls into the application-scoped Store.
 ///
 /// Transport acceptance and durable mutation completion are deliberately
@@ -59,6 +64,7 @@ final class WorktreeAnnotationTransportAdapter {
     private let sourceResolver: WorktreeAnnotationSourceResolver
     private let store: WorktreeAnnotationStore
     private let worktreeID: String
+    private var demandGenerationByKey: [WorktreeAnnotationTransportDemandKey: WorktreeAnnotationDemandGeneration] = [:]
 
     init(
         store: WorktreeAnnotationStore,
@@ -142,11 +148,29 @@ final class WorktreeAnnotationTransportAdapter {
             return nil
         case .acquireDemand(let sessionID):
             let typedSessionID = WorktreeAnnotationSessionID(rawValue: sessionID)
-            try await store.acquireDemand(worktreeID: worktreeID, sessionID: typedSessionID)
+            let demandGeneration = try await store.acquireDemand(
+                worktreeID: worktreeID,
+                contextID: contextID,
+                surface: surface,
+                sessionID: typedSessionID
+            )
+            demandGenerationByKey[
+                WorktreeAnnotationTransportDemandKey(sessionID: typedSessionID, surface: surface)
+            ] = demandGeneration
             return typedSessionID
         case .releaseDemand(let sessionID):
             let typedSessionID = WorktreeAnnotationSessionID(rawValue: sessionID)
-            store.releaseDemand(worktreeID: worktreeID, sessionID: typedSessionID)
+            let demandKey = WorktreeAnnotationTransportDemandKey(
+                sessionID: typedSessionID,
+                surface: surface
+            )
+            store.releaseDemand(
+                worktreeID: worktreeID,
+                contextID: contextID,
+                surface: surface,
+                sessionID: typedSessionID
+            )
+            demandGenerationByKey.removeValue(forKey: demandKey)
             return typedSessionID
         case .createRoot(let admission, let body, let editToken, let origin):
             return try await createRoot(
@@ -342,16 +366,27 @@ final class WorktreeAnnotationTransportAdapter {
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSessionID {
         let sessionID = WorktreeAnnotationSessionID(rawValue: body.sessionId)
+        let demandKey = WorktreeAnnotationTransportDemandKey(sessionID: sessionID, surface: surface)
+        guard let demandGeneration = demandGenerationByKey[demandKey] else {
+            throw WorktreeAnnotationStoreError.staleSourceEpoch
+        }
         let refreshSnapshot = try await store.sourceRefreshSnapshot(sessionID: sessionID)
+        guard demandGenerationByKey[demandKey] == demandGeneration else {
+            throw WorktreeAnnotationStoreError.staleSourceEpoch
+        }
         let capture = try await sourceResolver.refresh(
             surface,
             productAdmission,
             refreshSnapshot.requirements
         )
+        guard demandGenerationByKey[demandKey] == demandGeneration else {
+            throw WorktreeAnnotationStoreError.staleSourceEpoch
+        }
         try validateFingerprint(capture.fingerprint)
         _ = try await store.refreshSource(
             .init(
                 contextID: contextID,
+                demandGeneration: demandGeneration,
                 sessionID: sessionID,
                 surface: surface,
                 sourceEpoch: body.sourceEpoch,

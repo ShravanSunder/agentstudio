@@ -471,6 +471,12 @@ function createBridgeWorkerCodeViewDiffItem(props: {
 			contentRoles: loadedDiffContentRoles({ base: props.base, head: props.head }),
 			observedLineCount: lineCountForFetchedReviewResources([props.base, props.head]),
 			semantics: props.semantics,
+			sourceDescriptorIdsByRole: {
+				base: props.base?.descriptorId ?? null,
+				diff: null,
+				file: null,
+				head: props.head?.descriptorId ?? null,
+			},
 			window: props.window,
 		}),
 	};
@@ -493,6 +499,7 @@ function createBridgeWorkerCodeViewFileItem(props: {
 			contentRoles: [props.resource.role],
 			observedLineCount: lineCountForFetchedReviewResources([props.resource]),
 			semantics: props.semantics,
+			sourceDescriptorIdsByRole: sourceDescriptorIdsForReviewFileResource(props.resource),
 			window: props.window,
 		}),
 	};
@@ -526,6 +533,9 @@ function bridgeWorkerCodeViewItemMetadata(props: {
 	readonly contentRoles: readonly BridgeWorkerReviewContentRole[];
 	readonly observedLineCount: number;
 	readonly semantics: BridgeWorkerReviewRenderSemantics;
+	readonly sourceDescriptorIdsByRole: NonNullable<
+		BridgeWorkerCodeViewFileItem['bridgeMetadata']['sourceDescriptorIdsByRole']
+	>;
 	readonly window: BridgeWorkerPierreRenderWindow;
 }): BridgeWorkerCodeViewFileItem['bridgeMetadata'] {
 	return {
@@ -535,6 +545,19 @@ function bridgeWorkerCodeViewItemMetadata(props: {
 		contentRoles: props.contentRoles,
 		cacheKey: props.cacheKey,
 		lineCount: props.observedLineCount,
+		sourceDescriptorIdsByRole: props.sourceDescriptorIdsByRole,
+	};
+}
+
+function sourceDescriptorIdsForReviewFileResource(
+	resource: BridgeWorkerFetchedReviewContentResource,
+): NonNullable<BridgeWorkerCodeViewFileItem['bridgeMetadata']['sourceDescriptorIdsByRole']> {
+	const isBasePresentation = resource.role === 'base' || resource.role === 'diff';
+	return {
+		base: isBasePresentation ? resource.descriptorId : null,
+		diff: null,
+		file: null,
+		head: isBasePresentation ? null : resource.descriptorId,
 	};
 }
 

@@ -153,18 +153,22 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 				setComposerPresentationRevision((revision): number => revision + 1);
 				return;
 			}
+			const sourceDescriptorIdsByRole = isAnnotationCodeViewItem(item)
+				? item.bridgeMetadata.sourceDescriptorIdsByRole
+				: undefined;
 			const fileSourceRole =
-				item.type === 'file' && isAnnotationCodeViewItem(item)
-					? item.bridgeMetadata.contentRoles.includes('head')
+				item.type === 'file' && sourceDescriptorIdsByRole !== undefined
+					? sourceDescriptorIdsByRole.head !== null
 						? 'head'
-						: item.bridgeMetadata.contentRoles.includes('base')
+						: sourceDescriptorIdsByRole.base !== null
 							? 'base'
 							: undefined
 					: undefined;
-			const origin = reviewAnnotationOriginForPierreSelection({
+			const origin = sourceDescriptorIdsByRole === undefined ? null : reviewAnnotationOriginForPierreSelection({
 				item: descriptor,
 				itemType: item.type,
 				range,
+				sourceDescriptorIdsByRole,
 				...(fileSourceRole === undefined ? {} : { fileSourceRole }),
 			});
 			if (origin === null) {
@@ -200,10 +204,10 @@ export function useBridgeCodeViewWorktreeAnnotations(props: {
 			selectedItemIdRef.current = item.id;
 			setSelectedRange(range);
 			setPendingComposer((currentComposer) =>
-				currentComposer?.itemId === item.id &&
-				worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
-					? currentComposer
-					: null,
+					currentComposer?.itemId === item.id &&
+					worktreeAnnotationPierreRangesMatch(currentComposer.range, range)
+						? currentComposer
+						: null,
 			);
 			setComposerPresentationRevision((revision): number => revision + 1);
 		},

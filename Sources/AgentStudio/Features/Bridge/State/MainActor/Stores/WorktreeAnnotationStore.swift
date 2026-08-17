@@ -13,8 +13,18 @@ private struct WorktreeAnnotationDemandKey: Hashable {
     let sessionID: WorktreeAnnotationSessionID
 }
 
+struct WorktreeAnnotationDemandGeneration: Equatable, Sendable {
+    let id: UUID
+}
+
+private struct WorktreeAnnotationSourceRefreshFence: Equatable {
+    let demandGeneration: WorktreeAnnotationDemandGeneration
+    let sourceEpoch: Int
+}
+
 struct WorktreeAnnotationSourceRefreshProps: Sendable {
     let contextID: String
+    let demandGeneration: WorktreeAnnotationDemandGeneration
     let sessionID: WorktreeAnnotationSessionID
     let surface: BridgeProductSurface
     let sourceEpoch: Int
@@ -49,7 +59,10 @@ package final class WorktreeAnnotationStore {
     package let projection: WorktreeAnnotationProjectionAtom
     private let repositoryAccess: any WorktreeAnnotationRepositoryAccess
     private var demandCountByKey: [WorktreeAnnotationDemandKey: Int] = [:]
-    private var latestSourceEpochByContextKey: [WorktreeAnnotationPlacementContextKey: Int] = [:]
+    private var activeDemandGenerationByContextKey:
+        [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationDemandGeneration] = [:]
+    private var latestSourceRefreshFenceByContextKey:
+        [WorktreeAnnotationPlacementContextKey: WorktreeAnnotationSourceRefreshFence] = [:]
     private var unacknowledgedRecoveryWitness: WorktreeAnnotationRecoveryProvenance?
 
     init(
@@ -102,29 +115,80 @@ package final class WorktreeAnnotationStore {
 
     func acquireDemand(
         worktreeID: String,
+        contextID: String,
+        surface: BridgeProductSurface,
         sessionID: WorktreeAnnotationSessionID
-    ) async throws {
+    ) async throws -> WorktreeAnnotationDemandGeneration {
         try requireAvailableForReads()
+        guard !contextID.isEmpty else { throw WorktreeAnnotationStoreError.staleSourceEpoch }
+
+        let contextKey = WorktreeAnnotationPlacementContextKey(
+            contextID: contextID,
+            surface: surface,
+            sessionID: sessionID
+        )
+        let demandGeneration = WorktreeAnnotationDemandGeneration(id: UUIDv7.generate())
+        let replacedDemandGeneration = activeDemandGenerationByContextKey.updateValue(
+            demandGeneration,
+            forKey: contextKey
+        )
         let key = WorktreeAnnotationDemandKey(worktreeID: worktreeID, sessionID: sessionID)
-        let currentCount = demandCountByKey[key] ?? 0
-        demandCountByKey[key] = currentCount + 1
-        guard currentCount == 0 else { return }
+        if replacedDemandGeneration == nil {
+            demandCountByKey[key] = (demandCountByKey[key] ?? 0) + 1
+        }
+        if let publishedDetail = projection.detail(sessionID: sessionID) {
+            guard publishedDetail.session.worktreeID == worktreeID else {
+                rollbackDemandRegistration(
+                    key: key,
+                    contextKey: contextKey,
+                    demandGeneration: demandGeneration
+                )
+                throw WorktreeAnnotationRepositoryError.notFound
+            }
+            return demandGeneration
+        }
         let detail: WorktreeAnnotationSessionDetail
         do {
             detail = try await repositoryAccess.fetchSessionDetail(sessionID: sessionID)
         } catch {
-            demandCountByKey.removeValue(forKey: key)
+            rollbackDemandRegistration(
+                key: key,
+                contextKey: contextKey,
+                demandGeneration: demandGeneration
+            )
             projection.publishRecoveryState(.unavailable)
             throw error
         }
+        guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else {
+            throw WorktreeAnnotationStoreError.staleSourceEpoch
+        }
         guard detail.session.worktreeID == worktreeID else {
-            demandCountByKey.removeValue(forKey: key)
+            rollbackDemandRegistration(
+                key: key,
+                contextKey: contextKey,
+                demandGeneration: demandGeneration
+            )
             throw WorktreeAnnotationRepositoryError.notFound
         }
         projection.publish(detail: detail)
+        return demandGeneration
     }
 
-    func releaseDemand(worktreeID: String, sessionID: WorktreeAnnotationSessionID) {
+    func releaseDemand(
+        worktreeID: String,
+        contextID: String,
+        surface: BridgeProductSurface,
+        sessionID: WorktreeAnnotationSessionID
+    ) {
+        let contextKey = WorktreeAnnotationPlacementContextKey(
+            contextID: contextID,
+            surface: surface,
+            sessionID: sessionID
+        )
+        guard activeDemandGenerationByContextKey.removeValue(forKey: contextKey) != nil else {
+            return
+        }
+
         let key = WorktreeAnnotationDemandKey(worktreeID: worktreeID, sessionID: sessionID)
         guard let currentCount = demandCountByKey[key] else { return }
         if currentCount > 1 {
@@ -215,12 +279,29 @@ package final class WorktreeAnnotationStore {
             surface: props.surface,
             sessionID: props.sessionID
         )
-        guard props.sourceEpoch > (latestSourceEpochByContextKey[contextKey] ?? -1) else {
+        guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration else {
             throw WorktreeAnnotationStoreError.staleSourceEpoch
         }
-        latestSourceEpochByContextKey[contextKey] = props.sourceEpoch
+        let refreshFence = WorktreeAnnotationSourceRefreshFence(
+            demandGeneration: props.demandGeneration,
+            sourceEpoch: props.sourceEpoch
+        )
+        if let latestFence = latestSourceRefreshFenceByContextKey[contextKey] {
+            guard
+                refreshFence.demandGeneration != latestFence.demandGeneration
+                    || refreshFence.sourceEpoch > latestFence.sourceEpoch
+            else {
+                throw WorktreeAnnotationStoreError.staleSourceEpoch
+            }
+        }
+        latestSourceRefreshFenceByContextKey[contextKey] = refreshFence
 
         let loadedDetail = try await repositoryAccess.fetchSessionDetail(sessionID: props.sessionID)
+        guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration,
+            latestSourceRefreshFenceByContextKey[contextKey] == refreshFence
+        else {
+            throw WorktreeAnnotationStoreError.staleSourceEpoch
+        }
         guard Self.sourceRefreshSnapshot(from: loadedDetail) == props.expectedSnapshot else {
             throw WorktreeAnnotationStoreError.staleSourceEpoch
         }
@@ -252,7 +333,9 @@ package final class WorktreeAnnotationStore {
         } else {
             committedDetail = loadedDetail
         }
-        guard latestSourceEpochByContextKey[contextKey] == props.sourceEpoch else {
+        guard activeDemandGenerationByContextKey[contextKey] == props.demandGeneration,
+            latestSourceRefreshFenceByContextKey[contextKey] == refreshFence
+        else {
             throw WorktreeAnnotationStoreError.staleSourceEpoch
         }
         projection.publish(
@@ -399,6 +482,7 @@ package final class WorktreeAnnotationStore {
         if changedCount > 0 {
             projection.evictAllDetails()
             demandCountByKey.removeAll()
+            activeDemandGenerationByContextKey.removeAll()
         }
         return changedCount
     }
@@ -438,6 +522,22 @@ package final class WorktreeAnnotationStore {
         let committedDetail = try await mutation()
         projection.publish(detail: committedDetail)
         return committedDetail
+    }
+
+    private func rollbackDemandRegistration(
+        key: WorktreeAnnotationDemandKey,
+        contextKey: WorktreeAnnotationPlacementContextKey,
+        demandGeneration: WorktreeAnnotationDemandGeneration
+    ) {
+        guard activeDemandGenerationByContextKey[contextKey] == demandGeneration else { return }
+        activeDemandGenerationByContextKey.removeValue(forKey: contextKey)
+        if let currentCount = demandCountByKey[key] {
+            if currentCount > 1 {
+                demandCountByKey[key] = currentCount - 1
+            } else {
+                demandCountByKey.removeValue(forKey: key)
+            }
+        }
     }
 
     private static func sourceRefreshSnapshot(

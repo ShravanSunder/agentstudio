@@ -139,6 +139,95 @@ struct WorktreeAnnotationTransportAdapterTests {
         #expect(harness.projection.detail(sessionID: sessionID) == initialDetail)
     }
 
+    @Test("replacement demand admits a restarted source epoch without leaking detail demand")
+    func replacementDemandAdmitsRestartedSourceEpoch() async throws {
+        let harness = try await makeTransportAdapterHarness()
+        defer { try? FileManager.default.removeItem(at: harness.root) }
+        let createCorrelation = try makeAnnotationCorrelation(requestID: "annotation-generation-create")
+        await harness.adapter.apply(
+            try decodeAnnotationCommand(
+                """
+                {
+                  "operation": {
+                    "admission": { "kind": "implicitOrSingle" },
+                    "body": "Durable draft",
+                    "editToken": "editor-generation",
+                    "kind": "root.create",
+                    "origin": {
+                      "diffSide": null,
+                      "endLine": 3,
+                      "kind": "located",
+                      "path": "Sources/Example.swift",
+                      "sourceIdentity": "file-source-1",
+                      "sourceRole": "file",
+                      "startLine": 2
+                    }
+                  }
+                }
+                """
+            ),
+            surface: .file,
+            correlation: createCorrelation,
+            productAdmission: harness.productAdmission
+        )
+        let sessionID = try #require(
+            harness.projection.commandOutcome(requestID: createCorrelation.requestId)?.sessionID
+        )
+
+        for (requestID, sourceEpoch) in [
+            ("annotation-generation-acquire-1", nil),
+            ("annotation-generation-refresh-2", 2),
+            ("annotation-generation-acquire-2", nil),
+            ("annotation-generation-refresh-1", 1),
+        ] as [(String, Int?)] {
+            let operationJSON =
+                if let sourceEpoch {
+                    """
+                    {
+                      "kind": "source.refresh",
+                      "sessionId": "\(sessionID.rawValue.uuidString.lowercased())",
+                      "sourceEpoch": \(sourceEpoch)
+                    }
+                    """
+                } else {
+                    """
+                    {
+                      "kind": "demand.acquire",
+                      "sessionId": "\(sessionID.rawValue.uuidString.lowercased())"
+                    }
+                    """
+                }
+            let correlation = try makeAnnotationCorrelation(requestID: requestID)
+            await harness.adapter.apply(
+                try decodeAnnotationCommand("{ \"operation\": \(operationJSON) }"),
+                surface: .file,
+                correlation: correlation,
+                productAdmission: harness.productAdmission
+            )
+            #expect(harness.projection.commandOutcome(requestID: requestID)?.status == .committed)
+        }
+
+        let releaseCorrelation = try makeAnnotationCorrelation(requestID: "annotation-generation-release")
+        await harness.adapter.apply(
+            try decodeAnnotationCommand(
+                """
+                {
+                  "operation": {
+                    "kind": "demand.release",
+                    "sessionId": "\(sessionID.rawValue.uuidString.lowercased())"
+                  }
+                }
+                """
+            ),
+            surface: .file,
+            correlation: releaseCorrelation,
+            productAdmission: harness.productAdmission
+        )
+
+        #expect(harness.projection.commandOutcome(requestID: releaseCorrelation.requestId)?.status == .committed)
+        #expect(harness.projection.detail(sessionID: sessionID) == nil)
+    }
+
     @Test("output history command publishes bounded durable summaries")
     func outputHistoryCommandPublishesBoundedSummaries() async throws {
         // Arrange

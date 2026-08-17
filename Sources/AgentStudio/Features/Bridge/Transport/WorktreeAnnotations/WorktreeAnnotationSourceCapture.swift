@@ -1,4 +1,5 @@
 import AgentStudioGit
+import AgentStudioInfrastructure
 import CryptoKit
 import Foundation
 
@@ -84,8 +85,8 @@ enum WorktreeAnnotationSourceCapture {
                     )
                 case .review:
                     try await reviewRefresh(
-                        repositoryPath: try await fileMetadataSource.worktreeAnnotationRepositoryPath(),
                         publicationCoordinator: reviewPublicationCoordinator,
+                        contentLoaderCache: reviewContentLoaderCache,
                         requirements: requirements,
                         productAdmission: productAdmission
                     )
@@ -94,10 +95,10 @@ enum WorktreeAnnotationSourceCapture {
         )
     }
 
-    private static func reviewRefresh(
-        repositoryPath: URL,
+    static func reviewRefresh(
         publicationCoordinator: BridgeReviewPublicationCoordinator,
-        requirements _: [WorktreeAnnotationSourceRefreshRequirement],
+        contentLoaderCache: BridgeReviewContentLoaderCache,
+        requirements: [WorktreeAnnotationSourceRefreshRequirement],
         productAdmission: BridgeProductAdmissionContext
     ) async throws -> WorktreeAnnotationSourceRefreshCapture {
         guard
@@ -108,44 +109,199 @@ enum WorktreeAnnotationSourceCapture {
             throw WorktreeAnnotationSourceResolutionError.unavailable
         }
         let fingerprint = try reviewFingerprint(for: publication.package)
-        guard let comparisonOrigin = fingerprint.reviewComparisonOrigin else {
-            throw WorktreeAnnotationSourceResolutionError.unavailable
-        }
-        let candidates: [WorktreeAnnotationSourceMaterialCandidate] =
-            publication.package.orderedItemIds.flatMap { itemID -> [WorktreeAnnotationSourceMaterialCandidate] in
-                guard let item = publication.package.itemsById[itemID] else { return [] }
-                var itemCandidates: [WorktreeAnnotationSourceMaterialCandidate] = []
-                if let path = item.basePath, let handle = item.contentRoles.base {
-                    itemCandidates.append(
-                        .init(
-                            path: path,
-                            sourceRole: .reviewBase,
-                            sourceIdentity: .provided(handle.handleId),
-                            target: .commit(comparisonOrigin.baseOID)
-                        )
-                    )
-                }
-                if let path = item.headPath, let handle = item.contentRoles.head {
-                    itemCandidates.append(
-                        .init(
-                            path: path,
-                            sourceRole: .reviewHead,
-                            sourceIdentity: .provided(handle.handleId),
-                            target: .commit(comparisonOrigin.reviewedHeadOID)
-                        )
-                    )
-                }
-                return itemCandidates
-            }
-        let provider = GitWorktreeAnnotationSourceMaterialProvider(
-            client: LibGit2AgentStudioGitLocalClient()
+        let candidates = try reviewRefreshCandidates(
+            requirements: requirements,
+            package: publication.package
         )
         return WorktreeAnnotationSourceRefreshCapture(
             fingerprint: fingerprint,
-            material: await provider.material(
-                .init(repositoryPath: repositoryPath, candidates: candidates)
+            material: await reviewMaterial(
+                candidates: candidates,
+                contentLoaderCache: contentLoaderCache,
+                productAdmission: productAdmission
             )
         )
+    }
+
+    private struct ReviewRefreshCandidate {
+        let path: String
+        let sourceRole: WorktreeAnnotationSourceRole
+        let handle: BridgeContentHandle
+    }
+
+    private struct ReviewRefreshRequirement {
+        let sourceRole: WorktreeAnnotationSourceRole
+        let sourceIdentity: String?
+        let exactHandleID: String?
+    }
+
+    private struct ReviewRefreshHandleKey: Hashable {
+        let sourceRole: String
+        let handleID: String
+    }
+
+    private static func reviewRefreshCandidates(
+        requirements: [WorktreeAnnotationSourceRefreshRequirement],
+        package: BridgeReviewPackage
+    ) throws -> [ReviewRefreshCandidate] {
+        let orderedItems = try package.orderedItemIds.map { itemID in
+            guard let item = package.itemsById[itemID] else {
+                throw WorktreeAnnotationSourceResolutionError.invalidSource
+            }
+            return item
+        }
+        let availableHandleKeys = Set(
+            orderedItems.flatMap { item in
+                [
+                    item.contentRoles.base.map {
+                        ReviewRefreshHandleKey(
+                            sourceRole: WorktreeAnnotationSourceRole.reviewBase.rawValue,
+                            handleID: $0.handleId
+                        )
+                    },
+                    item.contentRoles.head.map {
+                        ReviewRefreshHandleKey(
+                            sourceRole: WorktreeAnnotationSourceRole.reviewHead.rawValue,
+                            handleID: $0.handleId
+                        )
+                    },
+                ].compactMap { $0 }
+            }
+        )
+        let normalizedRequirements = try requirements.compactMap { requirement in
+            try reviewRefreshRequirement(for: requirement.origin)
+        }.map { requirement in
+            let exactHandleID = requirement.sourceIdentity.flatMap { sourceIdentity in
+                availableHandleKeys.contains(
+                    ReviewRefreshHandleKey(
+                        sourceRole: requirement.sourceRole.rawValue,
+                        handleID: sourceIdentity
+                    )
+                ) ? sourceIdentity : nil
+            }
+            return ReviewRefreshRequirement(
+                sourceRole: requirement.sourceRole,
+                sourceIdentity: requirement.sourceIdentity,
+                exactHandleID: exactHandleID
+            )
+        }
+        var admittedHandleIDs = Set<String>()
+        var candidates: [ReviewRefreshCandidate] = []
+        for item in orderedItems {
+            for requirement in normalizedRequirements {
+                guard
+                    let candidate = reviewRefreshCandidate(
+                        for: requirement,
+                        item: item
+                    ),
+                    admittedHandleIDs.insert(candidate.handle.handleId).inserted
+                else { continue }
+                candidates.append(candidate)
+            }
+        }
+        return candidates
+    }
+
+    private static func reviewRefreshRequirement(
+        for origin: WorktreeAnnotationThreadOrigin
+    ) throws -> ReviewRefreshRequirement? {
+        switch origin {
+        case .session:
+            return nil
+        case .wholeFile(_, let sourceRole):
+            guard sourceRole == .reviewBase || sourceRole == .reviewHead else {
+                throw WorktreeAnnotationSourceResolutionError.invalidSource
+            }
+            return ReviewRefreshRequirement(
+                sourceRole: sourceRole,
+                sourceIdentity: nil,
+                exactHandleID: nil
+            )
+        case .located(let origin):
+            guard origin.sourceRole == .reviewBase || origin.sourceRole == .reviewHead else {
+                throw WorktreeAnnotationSourceResolutionError.invalidSource
+            }
+            return ReviewRefreshRequirement(
+                sourceRole: origin.sourceRole,
+                sourceIdentity: origin.sourceIdentity,
+                exactHandleID: nil
+            )
+        }
+    }
+
+    private static func reviewRefreshCandidate(
+        for requirement: ReviewRefreshRequirement,
+        item: BridgeReviewItemDescriptor
+    ) -> ReviewRefreshCandidate? {
+        let currentPath: String?
+        let handle: BridgeContentHandle?
+        switch requirement.sourceRole {
+        case .reviewBase:
+            currentPath = item.basePath
+            handle = item.contentRoles.base
+        case .reviewHead:
+            currentPath = item.headPath
+            handle = item.contentRoles.head
+        case .file:
+            return nil
+        }
+        guard let currentPath, let handle else { return nil }
+        if let exactHandleID = requirement.exactHandleID {
+            guard handle.handleId == exactHandleID else { return nil }
+        }
+        return ReviewRefreshCandidate(
+            path: currentPath,
+            sourceRole: requirement.sourceRole,
+            handle: handle
+        )
+    }
+
+    private static func reviewMaterial(
+        candidates: [ReviewRefreshCandidate],
+        contentLoaderCache: BridgeReviewContentLoaderCache,
+        productAdmission: BridgeProductAdmissionContext
+    ) async -> WorktreeAnnotationSourceMaterial {
+        guard !candidates.isEmpty,
+            candidates.count <= AppPolicies.Bridge.worktreeAnnotationMaximumSourceCandidateCount
+        else {
+            return .unavailable
+        }
+        var files: [WorktreeAnnotationCurrentSourceFile] = []
+        files.reserveCapacity(candidates.count)
+        for candidate in candidates {
+            guard !candidate.path.isEmpty,
+                !candidate.handle.isBinary,
+                candidate.handle.sizeBytes
+                    <= AppPolicies.Bridge.worktreeAnnotationMaximumSourceFileByteCount
+            else {
+                return .unavailable
+            }
+            let result: BridgeContentLoadResult
+            do {
+                result = try await contentLoaderCache.load(
+                    handle: candidate.handle,
+                    productAdmission: productAdmission
+                )
+            } catch {
+                return .unavailable
+            }
+            guard
+                result.data.count
+                    <= AppPolicies.Bridge.worktreeAnnotationMaximumSourceFileByteCount,
+                let body = String(data: result.data, encoding: .utf8)
+            else {
+                return .unavailable
+            }
+            files.append(
+                WorktreeAnnotationCurrentSourceFile(
+                    path: candidate.path,
+                    sourceRole: candidate.sourceRole,
+                    sourceIdentity: candidate.handle.handleId,
+                    body: body
+                )
+            )
+        }
+        return .available(files)
     }
 
     private static func captureReviewSource(

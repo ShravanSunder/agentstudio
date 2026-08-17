@@ -40,6 +40,15 @@ const bridgeWorkerCodeViewContentStateSchema = z.enum([
 
 const bridgeWorkerCodeViewContentRoleSchema = z.enum(['base', 'head', 'diff', 'file']);
 
+const bridgeWorkerSourceDescriptorIdsByRoleSchema = z
+	.object({
+		base: bridgeProductIdentifierSchema.nullable(),
+		head: bridgeProductIdentifierSchema.nullable(),
+		diff: bridgeProductIdentifierSchema.nullable(),
+		file: bridgeProductIdentifierSchema.nullable(),
+	})
+	.strict();
+
 export const bridgeWorkerRenderSourceCorrelationSchema = z
 	.object({
 		descriptorId: bridgeProductIdentifierSchema,
@@ -143,6 +152,7 @@ const bridgeWorkerCodeViewItemMetadataSchema = z
 		cacheKey: z.string().min(1),
 		lineCount: z.number().int().nonnegative().nullable(),
 		sourceDescriptorId: bridgeProductIdentifierSchema.optional(),
+		sourceDescriptorIdsByRole: bridgeWorkerSourceDescriptorIdsByRoleSchema.optional(),
 	})
 	.strict();
 

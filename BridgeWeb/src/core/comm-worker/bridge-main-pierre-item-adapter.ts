@@ -64,6 +64,11 @@ function bridgeMainPierreItemFingerprint(item: BridgeMainRenderPublicationItem):
 		item.bridgeMetadata.contentState,
 		item.bridgeMetadata.cacheKey,
 		item.bridgeMetadata.lineCount === null ? 'unknown-lines' : `${item.bridgeMetadata.lineCount}`,
+		item.bridgeMetadata.sourceDescriptorId ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.base ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.head ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.diff ?? '',
+		item.bridgeMetadata.sourceDescriptorIdsByRole?.file ?? '',
 		...item.bridgeMetadata.contentRoles,
 	];
 	if (item.type === 'file') {
