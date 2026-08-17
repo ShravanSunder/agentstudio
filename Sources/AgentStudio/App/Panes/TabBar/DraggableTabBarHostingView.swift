@@ -198,6 +198,9 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     func updateTabFrames(_ frames: [UUID: CGRect]) {
         tabFrames.merge(frames) { _, new in new }
+        guard let currentTabIds = tabBarAdapter?.tabs.map(\.id), !currentTabIds.isEmpty else { return }
+        let currentTabIdSet = Set(currentTabIds)
+        tabFrames = tabFrames.filter { currentTabIdSet.contains($0.key) }
     }
 
     func tabFrameInView(for tabId: UUID) -> NSRect? {
@@ -210,11 +213,12 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     /// Get current tab frames, preferring local cache but falling back to TabBarAdapter
     private var currentTabFrames: [UUID: CGRect] {
-        if !tabFrames.isEmpty {
-            return tabFrames
+        let availableFrames = tabFrames.isEmpty ? tabBarAdapter?.tabFrames ?? [:] : tabFrames
+        guard let currentTabIds = tabBarAdapter?.tabs.map(\.id), !currentTabIds.isEmpty else {
+            return availableFrames
         }
-        // Fall back to TabBarAdapter frames (set directly by SwiftUI)
-        return tabBarAdapter?.tabFrames ?? [:]
+        let currentTabIdSet = Set(currentTabIds)
+        return availableFrames.filter { currentTabIdSet.contains($0.key) }
     }
 
     // MARK: - Hit Testing
@@ -248,6 +252,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         orderedTabIds: [UUID]
     ) -> Int? {
         guard !orderedTabIds.isEmpty else { return nil }
+        guard orderedTabIds.allSatisfy({ tabFrames[$0] != nil }) else { return nil }
 
         let swiftUIPoint = CGPoint(x: dropPoint.x, y: boundsHeight - dropPoint.y)
         let sortedTabs = orderedTabIds.enumerated().compactMap { index, tabId -> (index: Int, frame: CGRect)? in
@@ -598,7 +603,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         }
 
         let dropPoint = convert(sender.draggingLocation, from: nil)
-        guard let targetTabIndex = dropIndexAtPoint(dropPoint) else {
+        guard let targetTabInsertionIndex = dropIndexAtPoint(dropPoint) else {
             recordPaneDropTrace(
                 phase: "commit", outcome: "rejected", reason: "target_unresolved")
             return false
@@ -607,7 +612,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         AppCommandDispatcher.shared.dispatchExtractPaneToTab(
             tabId: payload.tabId,
             paneId: payload.paneId,
-            targetTabIndex: targetTabIndex
+            targetTabInsertionIndex: targetTabInsertionIndex
         )
         recordPaneDropTrace(
             phase: "commit", outcome: "requested", reason: "none", targetResolved: true)

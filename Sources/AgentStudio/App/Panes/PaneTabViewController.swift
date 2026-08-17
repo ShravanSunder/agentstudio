@@ -2720,14 +2720,14 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         return false
     }
 
-    private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+    private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
         // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
         // so "single pane move ability" still works.
         if let sourceTab = store.tabLayoutAtom.tab(tabId),
             sourceTab.activePaneIds.count == 1
         {
-            if let targetTabIndex {
-                dispatchAction(.reorderTab(tabId: tabId, insertionIndex: targetTabIndex))
+            if let targetTabInsertionIndex {
+                dispatchAction(.reorderTab(tabId: tabId, insertionIndex: targetTabInsertionIndex))
             }
             return
         }
@@ -2736,7 +2736,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
 
         // For tab-bar drops, place the newly extracted tab at the drop insertion index.
-        guard let targetTabIndex,
+        guard let targetTabInsertionIndex,
             store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
             let extractedTabId = store.tabLayoutAtom.activeTabId,
             let insertedTabIndexAfterExtraction = store.tabShellAtom.orderedTabIds.firstIndex(
@@ -2747,7 +2747,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         let postExtractionInsertionIndex = Self.postExtractionInsertionIndex(
-            preExtractionInsertionIndex: targetTabIndex,
+            preExtractionInsertionIndex: targetTabInsertionIndex,
             insertedTabIndexAfterExtraction: insertedTabIndexAfterExtraction
         )
         dispatchAction(
@@ -4200,8 +4200,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
-        handleExtractPaneRequested(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+    func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
+        handleExtractPaneRequested(
+            tabId: tabId,
+            paneId: paneId,
+            targetTabInsertionIndex: targetTabInsertionIndex
+        )
     }
 
     func executeMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {

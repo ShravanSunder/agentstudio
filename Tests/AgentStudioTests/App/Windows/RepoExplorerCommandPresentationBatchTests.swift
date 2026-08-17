@@ -463,7 +463,7 @@ private final class RepoExplorerCommandPresentationRecordingHandler: WorkspaceCo
         true
     }
 
-    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabInsertionIndex _: Int?) {}
 
     func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
 

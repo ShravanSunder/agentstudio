@@ -611,7 +611,7 @@ final class WorkspaceStoreTests {
         store.appendTab(tab3)
 
         // Act — move tab3 to position 0
-        store.moveTab(fromId: tab3.id, toIndex: 0)
+        store.moveTab(fromId: tab3.id, insertionIndex: 0)
 
         // Assert
         #expect(store.tabs[0].id == tab3.id)

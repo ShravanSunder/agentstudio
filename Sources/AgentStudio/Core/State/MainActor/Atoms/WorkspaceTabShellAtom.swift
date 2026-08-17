@@ -97,13 +97,13 @@ package final class WorkspaceTabShellAtom {
         mutation.commit()
     }
 
-    func moveTab(fromId: UUID, toIndex: Int) {
+    func moveTab(fromId: UUID, insertionIndex: Int) {
         guard let fromIndex = tabIndexByID[fromId] else {
             workspaceTabShellLogger.warning("moveTab: tab \(fromId) not found")
             return
         }
         let tabId = tabOrder.remove(at: fromIndex)
-        let adjustedIndex = toIndex > fromIndex ? toIndex - 1 : toIndex
+        let adjustedIndex = insertionIndex > fromIndex ? insertionIndex - 1 : insertionIndex
         let clampedIndex = max(0, min(adjustedIndex, tabOrder.count))
         tabOrder.insert(tabId, at: clampedIndex)
         reindexTabs(in: min(fromIndex, clampedIndex)..<tabOrder.count)

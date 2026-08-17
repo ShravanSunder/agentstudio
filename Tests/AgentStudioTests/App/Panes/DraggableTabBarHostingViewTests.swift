@@ -113,6 +113,27 @@ struct DraggableTabBarHostingViewTests {
         #expect(insertionIndex == 2)
     }
 
+    @Test("pane drops reject stale frame caches missing a current tab")
+    func paneDropsRejectIncompleteCurrentTabFrames() {
+        let removedTabId = UUIDv7.generate()
+        let firstCurrentTabId = UUIDv7.generate()
+        let missingCurrentTabId = UUIDv7.generate()
+        let boundsHeight = AppStyles.Shell.TabBar.height
+        let staleTabFrames = [
+            removedTabId: CGRect(x: 0, y: 4, width: 100, height: 32),
+            firstCurrentTabId: CGRect(x: 100, y: 4, width: 100, height: 32),
+        ]
+
+        let insertionIndex = DraggableTabBarHostingView.paneDropInsertionIndex(
+            dropPoint: NSPoint(x: 250, y: boundsHeight - 20),
+            boundsHeight: boundsHeight,
+            tabFrames: staleTabFrames,
+            orderedTabIds: [firstCurrentTabId, missingCurrentTabId]
+        )
+
+        #expect(insertionIndex == nil)
+    }
+
     @Test("pane extraction before a rightward target preserves the insertion slot")
     func paneExtractionBeforeRightwardTargetReordersFinalTabOrder() throws {
         let harness = makeHarness()
@@ -129,7 +150,7 @@ struct DraggableTabBarHostingViewTests {
         harness.controller.executeExtractPaneToTab(
             tabId: source.tab.id,
             paneId: source.extractedPane.id,
-            targetTabIndex: 2
+            targetTabInsertionIndex: 2
         )
 
         let extractedTab = try #require(harness.store.tabContaining(paneId: source.extractedPane.id))
@@ -155,7 +176,7 @@ struct DraggableTabBarHostingViewTests {
         harness.controller.executeExtractPaneToTab(
             tabId: source.tab.id,
             paneId: source.extractedPane.id,
-            targetTabIndex: 3
+            targetTabInsertionIndex: 3
         )
 
         let extractedTab = try #require(harness.store.tabContaining(paneId: source.extractedPane.id))

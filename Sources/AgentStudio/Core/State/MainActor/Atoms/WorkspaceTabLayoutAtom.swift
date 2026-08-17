@@ -184,14 +184,14 @@ package final class WorkspaceTabLayoutAtom {
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
 
-    package func moveTab(fromId: UUID, toIndex: Int) {
-        shellAtom.moveTab(fromId: fromId, toIndex: toIndex)
+    package func moveTab(fromId: UUID, insertionIndex: Int) {
+        shellAtom.moveTab(fromId: fromId, insertionIndex: insertionIndex)
     }
 
     package func reorderTab(_ tabId: UUID, insertionIndex: Int) {
         guard shellAtom.tabShell(tabId) != nil else { return }
         guard insertionIndex >= 0 && insertionIndex <= shellAtom.tabShells.count else { return }
-        shellAtom.moveTab(fromId: tabId, toIndex: insertionIndex)
+        shellAtom.moveTab(fromId: tabId, insertionIndex: insertionIndex)
     }
 
     package func moveTabByDelta(tabId: UUID, delta: Int) {

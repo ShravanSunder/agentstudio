@@ -123,9 +123,13 @@ final class AppCommandDispatcher: AppCommandDispatching {
         return true
     }
 
-    func dispatchExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
+    func dispatchExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabInsertionIndex: Int?) {
         guard canDispatch(.extractPaneToTab) else { return }
-        handler?.executeExtractPaneToTab(tabId: tabId, paneId: paneId, targetTabIndex: targetTabIndex)
+        handler?.executeExtractPaneToTab(
+            tabId: tabId,
+            paneId: paneId,
+            targetTabInsertionIndex: targetTabInsertionIndex
+        )
     }
 
     func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {

@@ -18,8 +18,8 @@ package enum PaneDropIneligibilityReason: Equatable {
 }
 
 package enum DropCommitPlan: Equatable {
-    case moveTab(tabId: UUID, toIndex: Int)
-    case extractPaneToTabThenMove(paneId: UUID, sourceTabId: UUID, toIndex: Int)
+    case moveTab(tabId: UUID, insertionIndex: Int)
+    case extractPaneToTabThenMove(paneId: UUID, sourceTabId: UUID, insertionIndex: Int)
     case paneAction(WorkspaceActionCommand)
 }
 
@@ -33,7 +33,7 @@ package struct PaneSplitDropDestination: Equatable {
 
 package enum PaneDropDestination: Equatable {
     case splitTarget(PaneSplitDropDestination)
-    case tabBarInsertion(targetTabIndex: Int)
+    case tabBarInsertion(insertionIndex: Int)
 }
 
 extension PaneDropDestination {
@@ -67,10 +67,10 @@ package enum PaneDropPlanner {
         }
 
         switch destination {
-        case .tabBarInsertion(let targetTabIndex):
+        case .tabBarInsertion(let insertionIndex):
             return tabBarDecision(
                 payload: payload,
-                targetTabIndex: targetTabIndex,
+                insertionIndex: insertionIndex,
                 state: state
             )
         case .splitTarget(let splitDestination):
@@ -84,7 +84,7 @@ package enum PaneDropPlanner {
 
     private static func tabBarDecision(
         payload: SplitDropPayload,
-        targetTabIndex: Int,
+        insertionIndex: Int,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
         guard case .existingPane(let paneId, let sourceTabId) = payload.kind else {
@@ -102,7 +102,7 @@ package enum PaneDropPlanner {
             if let failure = actionValidationFailure(action, state: state) {
                 return .ineligible(.validationFailed(failure))
             }
-            return .eligible(.moveTab(tabId: sourceTabId, toIndex: targetTabIndex))
+            return .eligible(.moveTab(tabId: sourceTabId, insertionIndex: insertionIndex))
         }
 
         let extractAction = WorkspaceActionCommand.extractPaneToTab(tabId: sourceTabId, paneId: paneId)
@@ -114,7 +114,7 @@ package enum PaneDropPlanner {
             .extractPaneToTabThenMove(
                 paneId: paneId,
                 sourceTabId: sourceTabId,
-                toIndex: targetTabIndex
+                insertionIndex: insertionIndex
             )
         )
     }
